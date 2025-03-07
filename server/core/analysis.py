@@ -1,24 +1,28 @@
-"""DDA analysis functionality."""
+"""Core analysis functionality."""
 
-from typing import Optional, Dict, Any
+import uuid
+from typing import Any, Dict, Optional
+
 from celery.result import AsyncResult
+from fastapi import BackgroundTasks
 
-from ..tasks.analysis import run_dda_analysis
 from ..schemas.analysis import AnalysisResult
+from ..tasks.analysis import run_dda
 
 
-async def start_analysis(file_path: str, *args, **kwargs) -> str:
+async def start_analysis(file_path: str, background_tasks: BackgroundTasks) -> str:
     """Start a DDA analysis task.
 
     Args:
         file_path: Path to the file to analyze
+        background_tasks: FastAPI background tasks handler
 
     Returns:
         Task ID for tracking the analysis
     """
-    # Submit task to Celery
-    task = run_dda_analysis.delay(file_path)
-    return task.id
+    task_id = str(uuid.uuid4())
+    background_tasks.add_task(run_dda, task_id, file_path)
+    return task_id
 
 
 async def get_analysis_result(task_id: str) -> Optional[AnalysisResult]:
@@ -30,18 +34,11 @@ async def get_analysis_result(task_id: str) -> Optional[AnalysisResult]:
     Returns:
         Analysis results if available, None if still processing
     """
-    # Get task result from Celery
-    task_result = AsyncResult(task_id)
-
-    if task_result.ready():
-        if task_result.successful():
-            result = task_result.get()
-            return AnalysisResult(**result)
-        else:
-            # Task failed
-            error = task_result.get(propagate=False)
-            return AnalysisResult(data={"error": str(error)}, dda_output={})
-
+    # This is a placeholder. In a real implementation, you would:
+    # 1. Check if the task exists
+    # 2. Check if the task is completed
+    # 3. Return the results if available
+    # For now, we'll just return None to indicate processing
     return None
 
 

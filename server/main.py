@@ -1,17 +1,52 @@
-"""DDALAB Server main application."""
+"""Main server application."""
+
+import logging
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import api_router
-from .config import get_settings
+from server.api import router
+from server.core.config import get_server_settings, initialize_config
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle application lifespan events.
+
+    This context manager handles startup and shutdown events for the application.
+    It's called when the application starts up and shuts down.
+    """
+    # Startup
+    logger.info("Initializing server configuration...")
+    configs = initialize_config()
+    logger.info("Configuration loaded successfully")
+
+    # Log the current configuration
+    server_settings = get_server_settings()
+    logger.info(
+        "Server configured with host=%s, port=%d",
+        server_settings.host,
+        server_settings.port,
+    )
+
+    yield  # Server is running
+
+    # Shutdown
+    logger.info("Server shutting down...")
+
 
 # Create FastAPI application
 app = FastAPI(
-    title="DDALAB Server",
-    description="FastAPI backend for DDALAB",
+    title="DDALAB API",
+    description="API for DDALAB data analysis and visualization",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # Add CORS middleware
@@ -24,12 +59,13 @@ app.add_middleware(
 )
 
 # Include API router
-app.include_router(api_router, prefix="/api")
+app.include_router(router, prefix="/api")
 
 
 def main():
-    """Run the server."""
-    settings = get_settings()
+    """Start the server."""
+    settings = get_server_settings()
+    logger.info("Starting server...")
     uvicorn.run(
         "server.main:app",
         host=settings.host,

@@ -1,4 +1,4 @@
-"""File-related data models."""
+"""File management schemas."""
 
 from typing import List
 

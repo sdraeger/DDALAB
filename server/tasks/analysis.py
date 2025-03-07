@@ -1,51 +1,27 @@
-"""Celery tasks for DDA analysis."""
+"""Analysis task definitions."""
 
-from pathlib import Path
-from typing import Dict, Any
-
-from celery import states
-from celery.exceptions import Ignore
+from typing import Dict, List
 
 from ..celery_app import celery_app
-from ..config import get_settings
 
 
-@celery_app.task(name="server.tasks.analysis.run_dda_analysis", bind=True)
-def run_dda_analysis(self, file_path: str) -> Dict[str, Any]:
-    """Run DDA analysis on the given file.
+@celery_app.task(name="server.tasks.analysis.run_dda")
+def run_dda(task_id: str, file_path: str) -> Dict[str, List[float]]:
+    """Run DDA analysis on a file.
 
     Args:
+        task_id: Task ID for tracking
         file_path: Path to the file to analyze
 
     Returns:
-        Analysis results
+        Dictionary containing analysis results
     """
-    try:
-        settings = get_settings()
-        full_path = Path(settings.data_dir) / file_path
-
-        # Update task state to STARTED
-        self.update_state(state=states.STARTED)
-
-        # TODO: Implement actual DDA analysis
-        # For now, just return dummy data
-        result = {
-            "data": {"message": "Analysis completed"},
-            "dda_output": {"peaks": [1, 2, 3, 4, 5]},
-        }
-
-        return result
-
-    except Exception as e:
-        # Update task state to FAILURE
-        self.update_state(
-            state=states.FAILURE,
-            meta={
-                "exc_type": type(e).__name__,
-                "exc_message": str(e),
-            },
-        )
-        raise Ignore()
+    # TODO: Implement the actual DDA analysis
+    # This is a placeholder. In a real implementation, you would:
+    # 1. Load the file
+    # 2. Run the analysis
+    # 3. Return the results
+    return {"results": [0.0, 1.0, 2.0]}
 
 
 @celery_app.task(name="server.tasks.analysis.cleanup_task")

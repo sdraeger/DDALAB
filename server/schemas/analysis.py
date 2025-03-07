@@ -1,30 +1,32 @@
-"""Analysis-related data models."""
+"""Analysis schemas."""
 
-from typing import Any, Dict, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
 
 class AnalysisRequest(BaseModel):
-    """Request to perform DDA analysis."""
+    """Analysis request schema."""
 
     file_path: str
 
 
 class AnalysisResponse(BaseModel):
-    """Response containing task ID."""
+    """Analysis response schema."""
 
     task_id: str
 
 
 class AnalysisResult(BaseModel):
-    """DDA analysis results."""
+    """Analysis result schema."""
 
-    data: Dict[str, Any]
-    dda_output: Dict[str, Any]
+    file_path: str
+    results: Dict[str, List[float]]
+    metadata: Optional[Dict[str, str]] = None
 
 
 class TaskStatus(BaseModel):
-    """Status of an analysis task."""
+    """Task status schema."""
 
-    status: str  # "processing" or "completed"
+    status: str  # "pending", "processing", "completed", "failed"
+    error: Optional[str] = None

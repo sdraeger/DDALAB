@@ -1,15 +1,16 @@
 """Celery application configuration."""
 
 from celery import Celery
-from .config import get_settings
 
-settings = get_settings()
+from server.core.config import get_celery_settings
+
+settings = get_celery_settings()
 
 # Create Celery app
 celery_app = Celery(
     "ddalab",
-    broker=settings.celery_broker_url,
-    backend=settings.celery_result_backend,
+    broker=settings.broker_url,
+    backend=settings.result_backend,
 )
 
 # Configure Celery
@@ -21,8 +22,11 @@ celery_app.conf.update(
     enable_utc=True,
     task_track_started=True,
     task_time_limit=settings.task_timeout,
-    worker_max_tasks_per_child=100,
+    worker_max_tasks_per_child=settings.max_concurrent_tasks,
 )
+
+# Auto-discover tasks in the tasks directory
+celery_app.autodiscover_tasks(["server.tasks"], force=True)
 
 # Optional: Configure task routes for different queues
 celery_app.conf.task_routes = {
