@@ -7,8 +7,9 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from server.api import router
+from server.api import router as api_router
 from server.core.config import get_server_settings, initialize_config
+from server.schemas.graphql import graphql_app
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -43,8 +44,8 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI application
 app = FastAPI(
-    title="DDALAB API",
-    description="API for DDALAB data analysis and visualization",
+    title="DDALAB GraphQL API",
+    description="GraphQL API for DDALAB data analysis and visualization",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -58,8 +59,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include GraphQL router
+app.include_router(graphql_app, prefix="/graphql")
+
 # Include API router
-app.include_router(router, prefix="/api")
+app.include_router(api_router, prefix="/api")
 
 
 def main():
