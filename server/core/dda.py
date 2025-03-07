@@ -7,21 +7,40 @@ from celery.result import AsyncResult
 from fastapi import BackgroundTasks
 
 from ..schemas.dda import DDAResult
+from ..schemas.preprocessing import PreprocessingOptionsInput
 from ..tasks.dda import run_dda
 
 
-async def start_dda(file_path: str, background_tasks: BackgroundTasks) -> str:
+async def start_dda(
+    file_path: str,
+    preprocessing_options: Optional[PreprocessingOptionsInput] = None,
+    background_tasks: BackgroundTasks = None,
+) -> str:
     """Start a DDA task.
 
     Args:
         file_path: Path to the file to analyze
+        preprocessing_options: Options for preprocessing the data
         background_tasks: FastAPI background tasks handler
 
     Returns:
         Task ID for tracking the DDA
     """
     task_id = str(uuid.uuid4())
-    background_tasks.add_task(run_dda, task_id, file_path)
+
+    # Convert preprocessing options to dictionary if present
+    preprocessing_dict = None
+    if preprocessing_options:
+        preprocessing_dict = {
+            "resample1000hz": preprocessing_options.resample1000hz,
+            "resample500hz": preprocessing_options.resample500hz,
+            "lowpassFilter": preprocessing_options.lowpassFilter,
+            "highpassFilter": preprocessing_options.highpassFilter,
+            "notchFilter": preprocessing_options.notchFilter,
+            "detrend": preprocessing_options.detrend,
+        }
+
+    background_tasks.add_task(run_dda, task_id, file_path, preprocessing_dict)
     return task_id
 
 

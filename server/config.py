@@ -32,9 +32,17 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     redis_db: int = 0
 
+    # Email settings
+    admin_email: str = "admin@example.com"
+    smtp_server: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+
     class Config:
         env_prefix = "DDALAB_"
         env_file = ".env"
+        env_file_encoding = "utf-8"
 
 
 @lru_cache

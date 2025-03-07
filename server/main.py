@@ -1,19 +1,17 @@
 """Main server application."""
 
-import logging
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
 
 from server.api import router as api_router
+from server.api.auth import router as auth_router
+from server.core.auth import get_current_user
 from server.core.config import get_server_settings, initialize_config
 from server.schemas.graphql import graphql_app
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -31,9 +29,10 @@ async def lifespan(app: FastAPI):
     # Log the current configuration
     server_settings = get_server_settings()
     logger.info(
-        "Server configured with host=%s, port=%d",
+        "Server configured with host={}, port={}, auth_enabled={}",
         server_settings.host,
         server_settings.port,
+        server_settings.auth_enabled,
     )
 
     yield  # Server is running
@@ -59,11 +58,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# Authentication middleware
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Authentication middleware to check if auth is enabled."""
+    settings = get_server_settings()
+
+    # Skip auth for login and OPTIONS requests
+    if (
+        not settings.auth_enabled
+        or request.url.path == "/api/auth/token"
+        or request.method == "OPTIONS"
+    ):
+        return await call_next(request)
+
+    # Verify token for all other requests
+    try:
+        await get_current_user(request)
+    except Exception as e:
+        # Let the endpoint handle auth errors
+        pass
+
+    return await call_next(request)
+
+
 # Include GraphQL router
 app.include_router(graphql_app, prefix="/graphql")
 
-# Include API router
+# Include API routers
 app.include_router(api_router, prefix="/api")
+app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 
 
 def main():

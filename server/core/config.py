@@ -16,6 +16,15 @@ class ServerSettings(BaseSettings):
     host: str = "localhost"
     port: int = 8001
 
+    # Authentication settings
+    auth_enabled: bool = True  # Killswitch for authentication
+    jwt_secret_key: str = "your-secret-key-here"  # Change in production!
+    jwt_algorithm: str = "HS256"
+    jwt_token_expire_minutes: int = 30
+
+    # Database settings
+    database_url: str = "sqlite:///./users.db"
+
     class Config:
         env_prefix = "DDALAB_"
         env_file = ".env"

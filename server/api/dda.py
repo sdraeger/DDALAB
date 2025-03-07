@@ -5,29 +5,31 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks
 
 from ..core.dda import get_dda_result, start_dda
-from ..schemas.dda import (
-    DDARequest,
-    DDAResponse,
-    DDAResult,
-)
+from ..schemas.dda import DDARequest, DDAResponse, DDAResult
+from ..schemas.preprocessing import PreprocessingOptionsInput
 
 router = APIRouter()
 
 
 @router.post("/", response_model=DDAResponse)
 async def submit_dda(
-    request: DDARequest, background_tasks: BackgroundTasks
+    request: DDARequest,
+    preprocessing_options: Optional[PreprocessingOptionsInput] = None,
+    background_tasks: BackgroundTasks = None,
 ) -> DDAResponse:
     """Submit a DDA task.
 
     Args:
         request: DDA request containing file path
+        preprocessing_options: Options for preprocessing the data
         background_tasks: FastAPI background tasks handler
 
     Returns:
         Task ID for tracking the DDA
     """
-    task_id = await start_dda(request.file_path, background_tasks)
+    task_id = await start_dda(
+        request.file_path, preprocessing_options, background_tasks
+    )
     return DDAResponse(task_id=task_id)
 
 

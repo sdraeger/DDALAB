@@ -7,6 +7,7 @@ from strawberry.fastapi import GraphQLRouter
 
 from ..core.dda import get_dda_result, get_task_status, start_dda
 from ..core.files import get_available_files, list_directory, validate_file_path
+from .preprocessing import PreprocessingOptionsInput
 
 
 @strawberry.type
@@ -98,11 +99,13 @@ class Mutation:
     """Root mutation type."""
 
     @strawberry.mutation
-    async def submit_dda(self, file_path: str) -> DDAResult:
+    async def submit_dda(
+        self,
+        file_path: str,
+        preprocessing_options: Optional[PreprocessingOptionsInput] = None,
+    ) -> DDAResult:
         """Submit a DDA analysis task."""
-        task_id = await start_dda(
-            file_path, None
-        )  # We'll handle background tasks differently
+        task_id = await start_dda(file_path, preprocessing_options)
         return DDAResult(taskId=task_id, filePath=file_path, status="processing")
 
 

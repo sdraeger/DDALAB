@@ -4,16 +4,24 @@ numpy>=1.26.0
 requests
 edfio
 mne>=1.6.0
-fastapi>=0.109.0
-pydantic>=2.6.0
-pydantic-settings>=2.1.0
+fastapi>=0.68.0
+pydantic>=1.8.0
+pydantic-settings>=2.0.0
 celery>=5.3.6
 redis>=5.0.1
 aiofiles>=23.2.1
-uvicorn
+uvicorn>=0.15.0
+loguru>=0.5.3
+gunicorn
+cryptography>=41.0.0
 
 # GraphQL dependencies
-strawberry-graphql>=0.217.0
+strawberry-graphql>=0.96.0
 gql>=3.4.1
 requests>=2.31.0
 requests-toolbelt>=1.0.0
+
+sqlalchemy>=1.4.0
+passlib[bcrypt]>=1.7.4
+python-jose[cryptography]>=3.3.0
+python-multipart>=0.0.5
