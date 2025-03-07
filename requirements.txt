@@ -1,0 +1,12 @@
+PyQt6>=6.6.1
+pyqtgraph>=0.13.3
+numpy>=1.26.0
+requests
+edfio
+mne>=1.6.0
+fastapi>=0.109.0
+pydantic>=2.6.0
+pydantic-settings>=2.1.0
+celery>=5.3.6
+redis>=5.0.1
+aiofiles>=23.2.1
