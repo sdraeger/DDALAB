@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+node_modules/
+.env
+.DS_Store
+*.rdb
+*.db
+*.edf
+*.npy
