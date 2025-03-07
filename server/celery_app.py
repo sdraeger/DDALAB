@@ -2,15 +2,14 @@
 
 from celery import Celery
 
-from server.core.config import get_celery_settings
+from .config import get_settings
 
-settings = get_celery_settings()
+settings = get_settings()
 
-# Create Celery app
 celery_app = Celery(
-    "ddalab",
-    broker=settings.broker_url,
-    backend=settings.result_backend,
+    "server",
+    broker=settings.celery_broker_url,
+    backend=settings.celery_result_backend,
 )
 
 # Configure Celery
@@ -28,7 +27,7 @@ celery_app.conf.update(
 # Auto-discover tasks in the tasks directory
 celery_app.autodiscover_tasks(["server.tasks"], force=True)
 
-# Optional: Configure task routes for different queues
+# Configure task routing
 celery_app.conf.task_routes = {
-    "server.tasks.analysis.*": {"queue": "analysis"},
+    "server.tasks.dda.*": {"queue": "dda"},
 }

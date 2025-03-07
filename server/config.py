@@ -11,10 +11,13 @@ class Settings(BaseSettings):
 
     # API settings
     host: str = "localhost"
-    port: int = 8000
+    port: int = 8001
 
     # Data directory settings
     data_dir: str = str(Path("data").absolute())
+
+    # DDA binary settings
+    dda_binary_path: str = "/usr/local/bin/dda"  # Default path to DDA binary
 
     # Analysis settings
     max_concurrent_tasks: int = 5

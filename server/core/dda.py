@@ -1,4 +1,4 @@
-"""Core analysis functionality."""
+"""Core DDA functionality."""
 
 import uuid
 from typing import Any, Dict, Optional
@@ -6,34 +6,35 @@ from typing import Any, Dict, Optional
 from celery.result import AsyncResult
 from fastapi import BackgroundTasks
 
-from ..schemas.analysis import AnalysisResult
-from ..tasks.analysis import run_dda
+from ..schemas.dda import DDAResult
+from ..tasks.dda import run_dda
 
 
-async def start_analysis(file_path: str, background_tasks: BackgroundTasks) -> str:
-    """Start a DDA analysis task.
+async def start_dda(file_path: str, background_tasks: BackgroundTasks) -> str:
+    """Start a DDA task.
 
     Args:
         file_path: Path to the file to analyze
         background_tasks: FastAPI background tasks handler
 
     Returns:
-        Task ID for tracking the analysis
+        Task ID for tracking the DDA
     """
     task_id = str(uuid.uuid4())
     background_tasks.add_task(run_dda, task_id, file_path)
     return task_id
 
 
-async def get_analysis_result(task_id: str) -> Optional[AnalysisResult]:
-    """Get the result of a DDA analysis task.
+async def get_dda_result(task_id: str) -> Optional[DDAResult]:
+    """Get the result of a DDA task.
 
     Args:
-        task_id: Task ID returned by start_analysis
+        task_id: Task ID returned by start_dda
 
     Returns:
-        Analysis results if available, None if still processing
+        DDA results if available, None if still processing
     """
+    # TODO: Implement this
     # This is a placeholder. In a real implementation, you would:
     # 1. Check if the task exists
     # 2. Check if the task is completed

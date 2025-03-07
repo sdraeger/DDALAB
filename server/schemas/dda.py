@@ -1,24 +1,24 @@
-"""Analysis schemas."""
+"""DDA schemas."""
 
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
 
-class AnalysisRequest(BaseModel):
-    """Analysis request schema."""
+class DDARequest(BaseModel):
+    """DDA request schema."""
 
     file_path: str
 
 
-class AnalysisResponse(BaseModel):
-    """Analysis response schema."""
+class DDAResponse(BaseModel):
+    """DDA response schema."""
 
     task_id: str
 
 
-class AnalysisResult(BaseModel):
-    """Analysis result schema."""
+class DDAResult(BaseModel):
+    """DDA result schema."""
 
     file_path: str
     results: Dict[str, List[float]]

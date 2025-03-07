@@ -1,13 +1,12 @@
-"""API endpoints for the DDALAB server."""
+"""API router initialization."""
 
 from fastapi import APIRouter
 
-from .analysis import router as analysis_router
+from .dda import router as dda_router
 from .files import router as files_router
 
-# Create main API router
 router = APIRouter()
 
-# Include sub-routers
+# Include all sub-routers
+router.include_router(dda_router, prefix="/dda", tags=["dda"])
 router.include_router(files_router, prefix="/files", tags=["files"])
-router.include_router(analysis_router, prefix="/analysis", tags=["analysis"])
