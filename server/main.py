@@ -52,10 +52,21 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=[
+        "http://localhost:3000",
+        "https://localhost:3000",
+        "http://localhost:8001",
+        "https://localhost:8001",
+    ],  # Restrict to specific origins in production
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["POST", "OPTIONS"],  # GraphQL only needs POST
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+    ],
+    expose_headers=["Content-Type"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
 
@@ -95,11 +106,27 @@ def main():
     """Start the server."""
     settings = get_server_settings()
     logger.info("Starting server...")
+
+    ssl_config = None
+    if settings.ssl_enabled:
+        if not settings.ssl_cert_path or not settings.ssl_key_path:
+            logger.error("SSL is enabled but certificate or key path is not set")
+            raise ValueError(
+                "SSL certificate and key paths must be set when SSL is enabled"
+            )
+        ssl_config = {
+            "ssl_keyfile": settings.ssl_key_path,
+            "ssl_certfile": settings.ssl_cert_path,
+        }
+        logger.info("SSL encryption enabled")
+
     uvicorn.run(
         "server.main:app",
         host=settings.host,
         port=settings.port,
         reload=True,  # Enable auto-reload during development
+        ssl_keyfile=ssl_config["ssl_keyfile"] if ssl_config else None,
+        ssl_certfile=ssl_config["ssl_certfile"] if ssl_config else None,
     )
 
 

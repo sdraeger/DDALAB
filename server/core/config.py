@@ -16,6 +16,11 @@ class ServerSettings(BaseSettings):
     host: str = "localhost"
     port: int = 8001
 
+    # SSL settings
+    ssl_enabled: bool = False
+    ssl_cert_path: str = ""
+    ssl_key_path: str = ""
+
     # Authentication settings
     auth_enabled: bool = True  # Killswitch for authentication
     jwt_secret_key: str = "your-secret-key-here"  # Change in production!
