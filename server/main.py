@@ -76,7 +76,7 @@ async def auth_middleware(request: Request, call_next):
     # Verify token for all other requests
     try:
         await get_current_user(request)
-    except Exception as e:
+    except Exception:
         # Let the endpoint handle auth errors
         pass
 

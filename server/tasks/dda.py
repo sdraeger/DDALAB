@@ -7,6 +7,8 @@ from scipy import signal
 
 from ..celery_app import celery_app
 
+__all__ = ["run_dda", "cleanup_task"]  # Export task names
+
 
 def preprocess_data(
     data: np.ndarray, sampling_rate: float, options: Optional[Dict[str, bool]] = None
@@ -55,41 +57,69 @@ def preprocess_data(
     return processed_data
 
 
-@celery_app.task(name="server.tasks.dda.run_dda")
+@celery_app.task(
+    name="server.tasks.dda.run_dda", bind=True, ignore_result=False, track_started=True
+)
 def run_dda(
-    task_id: str,
+    self,  # Celery task instance
     file_path: str,
     preprocessing_options: Optional[Dict[str, bool]] = None,
 ) -> Dict:
     """Run DDA on a file.
 
     Args:
-        task_id: Unique task ID
+        self: Celery task instance
         file_path: Path to the file to analyze
         preprocessing_options: Dictionary of preprocessing options
 
     Returns:
         Dictionary containing DDA results
     """
-    # TODO: Implement the actual DDA
-    # 1. Load the file
-    # 2. Apply preprocessing if options are provided
-    # 3. Run the DDA
-    # 4. Return results
+    self.update_state(state="STARTED", meta={"file_path": file_path})
+    print(f"[Task {self.request.id}] Starting DDA analysis for file: {file_path}")
+    print(f"[Task {self.request.id}] Preprocessing options: {preprocessing_options}")
 
-    # This is a placeholder implementation
-    data = np.random.randn(1000)  # Replace with actual file loading
-    sampling_rate = 1000.0  # Replace with actual sampling rate from file
+    try:
+        # Generate sample multi-channel data for now (replace with actual DDA implementation)
+        n_channels = 256
+        n_samples = 10000
+        data = np.random.randn(n_channels, n_samples)  # Multi-channel data
+        sampling_rate = 1000.0  # Replace with actual sampling rate from file
+        print(f"[Task {self.request.id}] Generated sample data with shape {data.shape}")
 
-    if preprocessing_options:
-        data = preprocess_data(data, sampling_rate, preprocessing_options)
+        if preprocessing_options:
+            print(f"[Task {self.request.id}] Applying preprocessing...")
+            # Preprocess each channel
+            for i in range(n_channels):
+                data[i] = preprocess_data(data[i], sampling_rate, preprocessing_options)
+            print(f"[Task {self.request.id}] Preprocessing complete")
 
-    return {
-        "task_id": task_id,
-        "file_path": file_path,
-        "data": data.tolist(),
-        "preprocessing": preprocessing_options,
-    }
+        # Compute mean across channels for DDA analysis
+        mean_data = data.mean(axis=0)
+        print(f"[Task {self.request.id}] Computed mean across channels")
+
+        # Simulate DDA peaks on the mean signal (replace with actual DDA algorithm)
+        peaks = np.zeros_like(mean_data)
+        for i in range(
+            50, len(mean_data), 100
+        ):  # Add synthetic peaks every 100 samples
+            peaks[i] = 1.0
+        print(f"[Task {self.request.id}] Generated peaks array with {sum(peaks)} peaks")
+
+        result = {
+            "file_path": file_path,
+            "results": {
+                "data": mean_data.tolist(),  # Return mean signal for visualization
+                "peaks": peaks.tolist(),  # Return peaks for visualization
+            },
+            "preprocessing": preprocessing_options,
+        }
+        print(f"[Task {self.request.id}] Task completed successfully")
+        return result
+    except Exception as e:
+        print(f"[Task {self.request.id}] Error during task execution: {e}")
+        self.update_state(state="FAILURE", meta={"error": str(e)})
+        raise
 
 
 @celery_app.task(name="server.tasks.dda.cleanup_task")

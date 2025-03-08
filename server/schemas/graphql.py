@@ -3,6 +3,7 @@
 from typing import List, Optional
 
 import strawberry
+from fastapi import BackgroundTasks, Request
 from strawberry.fastapi import GraphQLRouter
 
 from ..core.dda import get_dda_result, get_task_status, start_dda
@@ -33,9 +34,11 @@ class DDAResult:
 class DDAStatus:
     """DDA task status type."""
 
-    taskId: str
-    status: str
-    info: Optional[str] = None
+    taskId: str = strawberry.field(description="Task ID")
+    status: str = strawberry.field(description="Task status")
+    info: Optional[str] = strawberry.field(
+        default=None, description="Additional status information"
+    )
 
 
 @strawberry.type
@@ -102,15 +105,29 @@ class Mutation:
     async def submit_dda(
         self,
         file_path: str,
+        info: strawberry.Info,
         preprocessing_options: Optional[PreprocessingOptionsInput] = None,
     ) -> DDAResult:
         """Submit a DDA analysis task."""
-        task_id = await start_dda(file_path, preprocessing_options)
+        # Get background_tasks from the request
+        background_tasks = info.context["background_tasks"]
+        task_id = await start_dda(file_path, preprocessing_options, background_tasks)
         return DDAResult(taskId=task_id, filePath=file_path, status="processing")
+
+
+async def get_context(request: Request, background_tasks: BackgroundTasks):
+    """Get GraphQL context with background tasks."""
+    return {
+        "request": request,
+        "background_tasks": background_tasks,
+    }
 
 
 # Create GraphQL schema
 schema = strawberry.Schema(query=Query, mutation=Mutation)
 
-# Create FastAPI router
-graphql_app = GraphQLRouter(schema)
+# Create GraphQL router with context
+graphql_app = GraphQLRouter(
+    schema,
+    context_getter=get_context,
+)
