@@ -1,6 +1,5 @@
 """Core DDA functionality."""
 
-import uuid
 from typing import Any, Dict, Optional
 
 from celery.result import AsyncResult
