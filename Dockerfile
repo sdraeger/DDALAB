@@ -30,6 +30,14 @@ RUN mkdir -p /app/ssl && \
 	-days 365 \
 	-subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
 
+# Generate a secure JWT secret key
+RUN openssl rand -hex 32 > /app/jwt_secret.key && \
+	chmod 600 /app/jwt_secret.key
+
+# Set the JWT secret key environment variable in the startup script
+RUN echo 'export DDALAB_JWT_SECRET_KEY=$(cat /app/jwt_secret.key)' >> /app/env.sh && \
+	chmod +x /app/env.sh
+
 # Copy requirements file
 COPY requirements.txt .
 
@@ -46,6 +54,7 @@ EXPOSE 8001 6379
 
 # Create startup script
 RUN echo '#!/bin/bash\n\
+	source /app/env.sh\n\
 	redis-server --daemonize yes\n\
 	celery -A server.celery_app worker --loglevel=info &\n\
 	uvicorn server.main:app --host 0.0.0.0 --port 8001\n\
