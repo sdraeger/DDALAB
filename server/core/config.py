@@ -18,8 +18,8 @@ class ServerSettings(BaseSettings):
 
     # SSL settings
     ssl_enabled: bool = False
-    ssl_cert_path: str = ""
-    ssl_key_path: str = ""
+    ssl_cert_path: str = "ssl/cert.pem"
+    ssl_key_path: str = "ssl/key.pem"
 
     # Authentication settings
     auth_enabled: bool = True  # Killswitch for authentication

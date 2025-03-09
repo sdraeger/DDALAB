@@ -22,13 +22,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	openssl \
 	&& rm -rf /var/lib/apt/lists/*
 
-# Create SSL directory and generate self-signed certificates
+# Create SSL directory and configuration
 RUN mkdir -p /app/ssl && \
-	openssl req -x509 -newkey rsa:4096 -nodes \
+	echo "[ req ]\n\
+	default_bits = 4096\n\
+	prompt = no\n\
+	default_md = sha256\n\
+	req_extensions = req_ext\n\
+	distinguished_name = dn\n\
+	[ dn ]\n\
+	C = US\n\
+	ST = State\n\
+	L = City\n\
+	O = Organization\n\
+	CN = localhost\n\
+	[ req_ext ]\n\
+	subjectAltName = @alt_names\n\
+	[ alt_names ]\n\
+	DNS.1 = localhost\n\
+	IP.1 = 127.0.0.1\n\
+	IP.2 = ::1" > /app/ssl/openssl.conf
+
+# Generate self-signed certificate with proper SAN
+RUN openssl req -x509 -nodes \
 	-keyout /app/ssl/key.pem \
 	-out /app/ssl/cert.pem \
 	-days 365 \
-	-subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
+	-config /app/ssl/openssl.conf
 
 # Generate a secure JWT secret key
 RUN openssl rand -hex 32 > /app/jwt_secret.key && \

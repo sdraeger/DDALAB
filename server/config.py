@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     redis_db: int = 0
 
+    # SSL settings
+    ssl_enabled: bool = False
+    ssl_cert_path: str = "ssl/cert.pem"
+    ssl_key_path: str = "ssl/key.pem"
+
     # Email settings
     admin_email: str = "admin@example.com"
     smtp_server: str = "smtp.gmail.com"

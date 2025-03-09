@@ -49,6 +49,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+# Add health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "ok", "ssl": get_server_settings().ssl_enabled}
+
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
