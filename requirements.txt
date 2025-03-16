@@ -14,6 +14,7 @@ uvicorn>=0.15.0
 loguru>=0.5.3
 gunicorn
 cryptography>=41.0.0
+email-validator>=2.0.0
 
 # GraphQL dependencies
 strawberry-graphql>=0.96.0
@@ -26,3 +27,11 @@ passlib[bcrypt]>=1.7.4
 python-jose[cryptography]>=3.3.0
 python-multipart>=0.0.5
 aiohttp>=3.9.3
+
+# Testing dependencies
+tox>=4.0.0
+pre-commit>=3.5.0
+ruff>=0.1.6
+pytest>=7.0.0
+httpx>=0.24.0
+requests_mock>=1.11.0

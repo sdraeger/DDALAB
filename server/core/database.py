@@ -1,8 +1,7 @@
 """Database configuration and models."""
 
 from sqlalchemy import Boolean, Column, Integer, String, create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 from server.core.config import get_server_settings
 

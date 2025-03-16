@@ -205,13 +205,15 @@ def initialize_config() -> Dict[str, BaseModel]:
 @lru_cache
 def get_server_settings() -> ServerSettings:
     """Get cached server settings instance."""
-    # Try to load from disk first
-    settings = config_manager.load_config(ServerSettings, "server")
-    if settings is None:
-        # Fall back to environment variables
-        settings = ServerSettings()
-        # Save for future use
+    # Always create new settings instance from environment variables first
+    settings = ServerSettings()
+
+    # Then try to load from disk and merge only if needed
+    disk_settings = config_manager.load_config(ServerSettings, "server")
+    if disk_settings is None:
+        # Save the environment-based settings for future use
         config_manager.save_config(settings, "server")
+
     return settings
 
 

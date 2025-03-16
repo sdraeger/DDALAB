@@ -133,9 +133,23 @@ python/
 
 ### Running Tests
 
+Tests can be run using the provided scripts:
+
 ```bash
-pytest
+# Run all tests
+./run_tests.sh
+
+# Run tests using tox directly
+tox
+
+# Run specific tests
+tox -- tests/unit/test_simple.py
+
+# Run with specific Python version
+tox -e py311
 ```
+
+For more detailed information about testing, see [README_TESTS.md](README_TESTS.md).
 
 ## Troubleshooting
 
