@@ -1,0 +1,18 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.6
+    hooks:
+      - id: ruff
+        name: ruff (import sorting)
+        args: [--select, I, --fix]
+        types_or: [python, pyi, jupyter]
+
+  - repo: local
+    hooks:
+      - id: tests
+        name: run tests
+        entry: pytest tests/unit
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit]
