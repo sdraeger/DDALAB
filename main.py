@@ -1,4 +1,4 @@
-"""DDA Lab application entry point."""
+"""DDALAB application entry point."""
 
 import sys
 
