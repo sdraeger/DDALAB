@@ -1,6 +1,7 @@
 """Main server application."""
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -65,15 +66,23 @@ app.add_middleware(
         "https://localhost:3000",
         "http://localhost:8001",
         "https://localhost:8001",
-    ],  # Restrict to specific origins in production
-    allow_credentials=True,
-    allow_methods=["POST", "OPTIONS"],  # GraphQL only needs POST
+        "file://",  # Allow Electron app
+        "*",  # Allow all origins during development
+    ],
+    allow_credentials=False,  # Set to False for wildcard origins
+    allow_methods=["GET", "POST", "OPTIONS"],  # Allow GET for file downloads
     allow_headers=[
         "Content-Type",
         "Authorization",
         "X-Requested-With",
+        "Accept",
+        "Origin",
     ],
-    expose_headers=["Content-Type"],
+    expose_headers=[
+        "Content-Type",
+        "Content-Disposition",
+        "Content-Length",
+    ],  # Expose headers for downloads
     max_age=3600,  # Cache preflight requests for 1 hour
 )
 
@@ -122,11 +131,14 @@ def main():
             raise ValueError(
                 "SSL certificate and key paths must be set when SSL is enabled"
             )
+        # Convert relative paths to absolute paths
+        base_dir = Path(__file__).parent.parent
         ssl_config = {
-            "ssl_keyfile": settings.ssl_key_path,
-            "ssl_certfile": settings.ssl_cert_path,
+            "ssl_keyfile": str(base_dir / settings.ssl_key_path),
+            "ssl_certfile": str(base_dir / settings.ssl_cert_path),
+            "ssl_version": 2,  # Use TLS 1.2
         }
-        logger.info("SSL encryption enabled")
+        logger.info(f"SSL encryption enabled with certificates: {ssl_config}")
 
     uvicorn.run(
         "server.main:app",
@@ -135,6 +147,7 @@ def main():
         reload=True,  # Enable auto-reload during development
         ssl_keyfile=ssl_config["ssl_keyfile"] if ssl_config else None,
         ssl_certfile=ssl_config["ssl_certfile"] if ssl_config else None,
+        ssl_version=ssl_config["ssl_version"] if ssl_config else None,
     )
 
 

@@ -17,7 +17,7 @@ class ServerSettings(BaseSettings):
     port: int = 8001
 
     # SSL settings
-    ssl_enabled: bool = False
+    ssl_enabled: bool = True
     ssl_cert_path: str = "ssl/cert.pem"
     ssl_key_path: str = "ssl/key.pem"
 

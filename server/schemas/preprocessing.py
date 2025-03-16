@@ -13,3 +13,13 @@ class PreprocessingOptionsInput:
     highpassFilter: bool = False
     notchFilter: bool = False
     detrend: bool = False
+
+
+@strawberry.input
+class VisualizationPreprocessingOptionsInput:
+    """Preprocessing options for visualization."""
+
+    removeOutliers: bool = False
+    smoothing: bool = False
+    smoothingWindow: int = 5
+    normalization: str = "none"
