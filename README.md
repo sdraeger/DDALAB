@@ -35,13 +35,17 @@ pip install -r requirements.txt
 4. Install Redis:
 
 - **macOS** (using Homebrew):
+
   ```bash
   brew install redis
   ```
+
 - **Linux**:
+
   ```bash
   sudo apt-get install redis-server
   ```
+
 - **Windows**: Download from [Redis Windows Downloads](https://github.com/microsoftarchive/redis/releases)
 
 ## Configuration
@@ -108,8 +112,8 @@ python main.py
 
 Once the server is running, you can access the API documentation at:
 
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+- Swagger UI: <http://localhost:8000/docs>
+- ReDoc: <http://localhost:8000/redoc>
 
 ## Development
 
@@ -170,6 +174,82 @@ For more detailed information about testing, see [README_TESTS.md](README_TESTS.
    - Verify server is running and accessible
    - Check for firewall restrictions
 
-## License
+## SSL Configuration
 
-[Add your license information here]
+### Using Let's Encrypt for Free SSL Certificates
+
+To secure your server with HTTPS using free Let's Encrypt certificates, follow these steps:
+
+1. **Install Certbot**:
+
+   - **macOS** (using Homebrew):
+
+     ```bash
+     brew install certbot
+     ```
+
+   - **Ubuntu/Debian**:
+
+     ```bash
+     sudo apt update
+     sudo apt install certbot
+     ```
+
+   - **CentOS/RHEL**:
+
+     ```bash
+     sudo dnf install certbot
+     ```
+
+2. **Obtain the certificate**:
+
+   For a standalone Python server (like the DDALAB FastAPI server):
+
+   ```bash
+   sudo certbot certonly --standalone -d yourdomain.com
+   ```
+
+   If your server is already running, temporarily stop it and use:
+
+   ```bash
+   sudo certbot certonly --standalone --preferred-challenges http -d yourdomain.com
+   ```
+
+3. **Update your server configuration**:
+
+   After obtaining the certificate, edit your `.env` file or update the server configuration:
+
+   ```env
+   DDALAB_SSL_ENABLED=True
+   DDALAB_SSL_CERT_PATH=/etc/letsencrypt/live/yourdomain.com/fullchain.pem
+   DDALAB_SSL_KEY_PATH=/etc/letsencrypt/live/yourdomain.com/privkey.pem
+   ```
+
+4. **Set up auto-renewal**:
+
+   Let's Encrypt certificates expire after 90 days, so set up automatic renewal:
+
+   ```bash
+   sudo crontab -e
+   ```
+
+   Add this line to run renewal check twice daily:
+
+   ```
+   0 0,12 * * * certbot renew --quiet
+   ```
+
+**Important notes**:
+
+- You need a public domain pointing to your server's IP address
+- Port 80 must be accessible for verification during certificate issuance
+- The certificates will be saved in `/etc/letsencrypt/live/yourdomain.com/`
+- If running on localhost/development, use mkcert instead as Let's Encrypt won't issue certificates for localhost
+
+For a quick test without a domain, you can use:
+
+```bash
+sudo certbot certonly --standalone --test-cert -d example.com
+```
+
+This gets a test certificate that browsers won't trust, but it lets you test the process.
