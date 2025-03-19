@@ -33,7 +33,7 @@ class UserCreate(BaseModel):
 
     username: str
     password: str
-    is_superuser: bool = False
+    is_admin: bool = False
 
 
 @router.post("/token", response_model=Token)
@@ -69,7 +69,7 @@ async def create_new_user(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user),
 ):
-    """Create a new user (requires superuser privileges, except for first superuser)."""
+    """Create a new user (requires admin privileges, except for first admin)."""
     if not settings.auth_enabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -81,16 +81,16 @@ async def create_new_user(
     is_first_user = existing_users == 0
     print(f"Existing users: {existing_users}, Is first user: {is_first_user}")
 
-    # Only allow creating the first user if they will be a superuser
+    # Only allow creating the first user if they will be an admin
     if is_first_user:
-        if not user_data.is_superuser:
+        if not user_data.is_admin:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="First user must be a superuser",
+                detail="First user must be an admin",
             )
     else:
-        # For subsequent users, require superuser privileges
-        if not current_user or not current_user.is_superuser:
+        # For subsequent users, require admin privileges
+        if not current_user or not current_user.is_admin:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to create users",
@@ -102,7 +102,7 @@ async def create_new_user(
             db,
             username=user_data.username,
             password=user_data.password,
-            is_superuser=user_data.is_superuser,
+            is_admin=user_data.is_admin,
         )
     except Exception as e:
         raise HTTPException(

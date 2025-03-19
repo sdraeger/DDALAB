@@ -9,7 +9,6 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
-from server.core.config import get_server_settings
 from server.core.database import User, get_db
 
 # Password hashing configuration
@@ -21,7 +20,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 # JWT configuration
 SECRET_KEY = "your-secret-key-here"  # Change this in production!
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# The expiration time is now defined in the Settings class
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -39,7 +38,7 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[Use
     user = db.query(User).filter(User.username == username).first()
     if not user:
         return None
-    if not verify_password(password, user.hashed_password):
+    if not verify_password(password, user.password_hash):
         return None
     return user
 
@@ -80,14 +79,14 @@ async def get_current_user(
 
 
 def create_user(
-    db: Session, username: str, password: str, is_superuser: bool = False
+    db: Session, username: str, password: str, is_admin: bool = False
 ) -> User:
     """Create a new user."""
     hashed_password = get_password_hash(password)
     user = User(
         username=username,
-        hashed_password=hashed_password,
-        is_superuser=is_superuser,
+        password_hash=hashed_password,
+        is_admin=is_admin,
     )
     db.add(user)
     db.commit()
