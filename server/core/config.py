@@ -8,73 +8,63 @@ from typing import Any, Dict, Optional, Type, TypeVar
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
+T = TypeVar("T", bound=BaseModel)
 
-class ServerSettings(BaseSettings):
+
+class Settings(BaseSettings):
     """Server settings loaded from environment variables."""
 
     # API settings
     host: str = "localhost"
     port: int = 8001
 
+    # Data directory settings
+    data_dir: str = str(Path("data").absolute())
+
+    # DDA binary settings
+    dda_binary_path: str = "/usr/local/bin/dda"  # Default path to DDA binary
+
+    # Analysis settings
+    max_concurrent_tasks: int = 5
+    task_timeout: int = 300  # seconds
+
+    # Celery settings
+    celery_broker_url: str = "redis://localhost:6379/0"
+    celery_result_backend: str = "redis://localhost:6379/0"
+
+    # Redis settings (for task result storage)
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_db: int = 0
+
+    # PostgreSQL Database settings
+    db_host: str = "localhost"
+    db_port: int = 5432
+    db_name: str = "ddalab"
+    db_user: str = "postgres"
+    db_password: str = ""
+
     # SSL settings
-    ssl_enabled: bool = True
+    ssl_enabled: bool = False
     ssl_cert_path: str = "ssl/cert.pem"
     ssl_key_path: str = "ssl/key.pem"
 
     # Authentication settings
-    auth_enabled: bool = True  # Killswitch for authentication
-    jwt_secret_key: str = "your-secret-key-here"  # Change in production!
-    jwt_algorithm: str = "HS256"
+    auth_enabled: bool = True
     jwt_token_expire_minutes: int = 30
 
-    # Database settings
-    database_url: str = "sqlite:///./users.db"
+    # Email settings
+    admin_email: str = "admin@example.com"
+    smtp_server: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
 
     class Config:
         env_prefix = "DDALAB_"
         env_file = ".env"
+        env_file_encoding = "utf-8"
         extra = "allow"
-
-
-class DataSettings(BaseSettings):
-    """Data directory settings."""
-
-    data_dir: str = str(Path("data").absolute())
-
-    class Config:
-        env_prefix = "DDALAB_"
-        env_file = ".env"
-        extra = "allow"
-
-
-class CelerySettings(BaseSettings):
-    """Celery worker settings."""
-
-    broker_url: str = "redis://localhost:6379/0"
-    result_backend: str = "redis://localhost:6379/0"
-    max_concurrent_tasks: int = 5
-    task_timeout: int = 300  # seconds
-
-    class Config:
-        env_prefix = "DDALAB_CELERY_"
-        env_file = ".env"
-        extra = "allow"
-
-
-class RedisSettings(BaseSettings):
-    """Redis settings for task storage."""
-
-    host: str = "localhost"
-    port: int = 6379
-    db: int = 0
-
-    class Config:
-        env_prefix = "DDALAB_REDIS_"
-        env_file = ".env"
-        extra = "allow"
-
-
-T = TypeVar("T", bound=BaseModel)
 
 
 class ConfigManager:
@@ -127,6 +117,21 @@ class ConfigManager:
 
         with open(config_path) as f:
             data = json.load(f)
+
+            # Handle case where keys may have env prefix
+            if config_class == Settings:
+                prefix = "ddalab_"
+                # Create a new dict with prefixes removed
+                processed_data = {}
+                for key, value in data.items():
+                    if key.lower().startswith(prefix):
+                        # Strip the prefix
+                        clean_key = key[len(prefix) :]
+                        processed_data[clean_key] = value
+                    else:
+                        processed_data[key] = value
+                return config_class(**processed_data)
+
             return config_class(**data)
 
     def update_config(
@@ -159,30 +164,30 @@ class ConfigManager:
         configs = {}
 
         # Initialize server settings
-        server_settings = self.load_config(ServerSettings, "server")
+        server_settings = self.load_config(Settings, "server")
         if server_settings is None:
-            server_settings = ServerSettings()
+            server_settings = Settings()
             self.save_config(server_settings, "server")
         configs["server"] = server_settings
 
         # Initialize data settings
-        data_settings = self.load_config(DataSettings, "data")
+        data_settings = self.load_config(Settings, "data")
         if data_settings is None:
-            data_settings = DataSettings()
+            data_settings = Settings()
             self.save_config(data_settings, "data")
         configs["data"] = data_settings
 
         # Initialize celery settings
-        celery_settings = self.load_config(CelerySettings, "celery")
+        celery_settings = self.load_config(Settings, "celery")
         if celery_settings is None:
-            celery_settings = CelerySettings()
+            celery_settings = Settings()
             self.save_config(celery_settings, "celery")
         configs["celery"] = celery_settings
 
         # Initialize redis settings
-        redis_settings = self.load_config(RedisSettings, "redis")
+        redis_settings = self.load_config(Settings, "redis")
         if redis_settings is None:
-            redis_settings = RedisSettings()
+            redis_settings = Settings()
             self.save_config(redis_settings, "redis")
         configs["redis"] = redis_settings
 
@@ -203,48 +208,33 @@ def initialize_config() -> Dict[str, BaseModel]:
 
 
 @lru_cache
-def get_server_settings() -> ServerSettings:
-    """Get cached server settings instance."""
-    # Always create new settings instance from environment variables first
-    settings = ServerSettings()
+def get_settings() -> Settings:
+    """Get cached settings instance.
 
-    # Then try to load from disk and merge only if needed
-    disk_settings = config_manager.load_config(ServerSettings, "server")
-    if disk_settings is None:
-        # Save the environment-based settings for future use
-        config_manager.save_config(settings, "server")
-
-    return settings
+    Returns:
+        Settings instance
+    """
+    return Settings()
 
 
 @lru_cache
-def get_data_settings() -> DataSettings:
-    """Get cached data settings instance."""
-    settings = config_manager.load_config(DataSettings, "data")
-    if settings is None:
-        settings = DataSettings()
-        config_manager.save_config(settings, "data")
-    return settings
+def get_server_settings() -> Settings:
+    """Get cached server settings instance.
+
+    Returns:
+        Settings instance configured for server operations
+    """
+    return config_manager.load_config(Settings, "server") or Settings()
 
 
 @lru_cache
-def get_celery_settings() -> CelerySettings:
-    """Get cached celery settings instance."""
-    settings = config_manager.load_config(CelerySettings, "celery")
-    if settings is None:
-        settings = CelerySettings()
-        config_manager.save_config(settings, "celery")
-    return settings
+def get_data_settings() -> Settings:
+    """Get cached data settings instance.
 
-
-@lru_cache
-def get_redis_settings() -> RedisSettings:
-    """Get cached redis settings instance."""
-    settings = config_manager.load_config(RedisSettings, "redis")
-    if settings is None:
-        settings = RedisSettings()
-        config_manager.save_config(settings, "redis")
-    return settings
+    Returns:
+        Settings instance configured for data operations
+    """
+    return config_manager.load_config(Settings, "data") or Settings()
 
 
 def update_settings(setting_type: str, updates: Dict[str, Any]) -> BaseModel:
@@ -262,17 +252,17 @@ def update_settings(setting_type: str, updates: Dict[str, Any]) -> BaseModel:
     """
     # Clear the cache for the updated settings
     if setting_type == "server":
-        get_server_settings.cache_clear()
-        current = get_server_settings()
+        get_settings.cache_clear()
+        current = get_settings()
     elif setting_type == "data":
-        get_data_settings.cache_clear()
-        current = get_data_settings()
+        get_settings.cache_clear()
+        current = get_settings()
     elif setting_type == "celery":
-        get_celery_settings.cache_clear()
-        current = get_celery_settings()
+        get_settings.cache_clear()
+        current = get_settings()
     elif setting_type == "redis":
-        get_redis_settings.cache_clear()
-        current = get_redis_settings()
+        get_settings.cache_clear()
+        current = get_settings()
     else:
         raise ValueError(f"Invalid setting type: {setting_type}")
 

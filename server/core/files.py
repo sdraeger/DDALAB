@@ -1,5 +1,6 @@
 """Core file management functionality."""
 
+import datetime
 import os
 from pathlib import Path
 from typing import Dict, List
@@ -73,11 +74,35 @@ async def list_directory(path: str = "") -> List[Dict[str, str]]:
             if item.is_file() and item.suffix == ".edf":
                 # Get relative path from data directory
                 rel_path = str(item.relative_to(data_dir))
-                items.append({"name": item.name, "path": rel_path, "type": "file"})
+                file_stat = item.stat()
+                last_modified = datetime.datetime.fromtimestamp(
+                    file_stat.st_mtime
+                ).isoformat()
+                items.append(
+                    {
+                        "name": item.name,
+                        "path": rel_path,
+                        "type": "file",
+                        "size": file_stat.st_size,
+                        "last_modified": last_modified,
+                    }
+                )
             elif item.is_dir():
                 # Get relative path from data directory
                 rel_path = str(item.relative_to(data_dir))
-                items.append({"name": item.name, "path": rel_path, "type": "directory"})
+                dir_stat = item.stat()
+                last_modified = datetime.datetime.fromtimestamp(
+                    dir_stat.st_mtime
+                ).isoformat()
+                items.append(
+                    {
+                        "name": item.name,
+                        "path": rel_path,
+                        "type": "directory",
+                        "size": 0,
+                        "last_modified": last_modified,
+                    }
+                )
 
         return sorted(items, key=lambda x: (x["type"] == "file", x["name"]))
     except Exception:

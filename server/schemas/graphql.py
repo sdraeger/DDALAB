@@ -28,6 +28,8 @@ class FileInfo:
     name: str
     path: str
     isDirectory: bool
+    size: Optional[int] = None
+    lastModified: Optional[str] = None
 
 
 @strawberry.type
@@ -90,6 +92,8 @@ class Query:
                 name=item["name"],
                 path=item["path"],
                 isDirectory=item["type"] == "directory",
+                size=item.get("size"),
+                lastModified=item.get("last_modified"),
             )
             for item in items
         ]
