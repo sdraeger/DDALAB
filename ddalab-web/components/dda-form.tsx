@@ -522,7 +522,7 @@ export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
                       Submitting...
                     </>
                   ) : (
-                    "Run DDA Analysis"
+                    "Run DDA"
                   )}
                 </Button>
               </div>

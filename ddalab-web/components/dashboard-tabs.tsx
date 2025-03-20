@@ -134,8 +134,7 @@ export function DashboardTabs() {
             <Card>
               <CardContent className="pt-6">
                 <p className="text-center text-muted-foreground">
-                  No active tasks. Submit a DDA analysis to see task status
-                  here.
+                  No active tasks. Submit a DDA task to see task status here.
                 </p>
               </CardContent>
             </Card>
