@@ -17,6 +17,18 @@ export const LIST_FILES_IN_PATH = gql`
       isDirectory
       size
       lastModified
+      isFavorite
+    }
+  }
+`;
+
+export const GET_FAVORITE_FILES = gql`
+  query GetFavoriteFiles {
+    getFavoriteFiles {
+      id
+      userId
+      filePath
+      createdAt
     }
   }
 `;
@@ -38,18 +50,21 @@ export const GET_FILE_HASH = gql`
 // DDA queries
 export const GET_DDA_TASK_STATUS = gql`
   query GetDDATaskStatus($taskId: String!) {
-    ddaTaskStatus(taskId: $taskId) {
+    getTaskStatus(taskId: $taskId) {
+      taskId
       status
+      info
     }
   }
 `;
 
 export const GET_DDA_TASK_RESULT = gql`
   query GetDDATaskResult($taskId: String!) {
-    ddaTaskResult(taskId: $taskId) {
+    getDdaResult(taskId: $taskId) {
       filePath
-      results
-      metadata
+      taskId
+      peaks
+      status
     }
   }
 `;
@@ -75,5 +90,56 @@ export const GET_EDF_DATA = gql`
       chunkSize
       hasMore
     }
+  }
+`;
+
+export const GET_ANNOTATIONS = gql`
+  query GetAnnotations($filePath: String!) {
+    getAnnotations(filePath: $filePath) {
+      id
+      userId
+      filePath
+      startTime
+      endTime
+      text
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const CREATE_ANNOTATION = gql`
+  mutation CreateAnnotation($annotationInput: AnnotationInput!) {
+    createAnnotation(annotationInput: $annotationInput) {
+      id
+      userId
+      filePath
+      startTime
+      endTime
+      text
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const UPDATE_ANNOTATION = gql`
+  mutation UpdateAnnotation($id: Int!, $annotationInput: AnnotationInput!) {
+    updateAnnotation(id: $id, annotationInput: $annotationInput) {
+      id
+      userId
+      filePath
+      startTime
+      endTime
+      text
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const DELETE_ANNOTATION = gql`
+  mutation DeleteAnnotation($id: Int!) {
+    deleteAnnotation(id: $id)
   }
 `;

@@ -1,4 +1,4 @@
-import { gql } from "@apollo/client"
+import { gql } from "@apollo/client";
 
 // Auth mutations
 export const LOGIN_USER = gql`
@@ -8,31 +8,44 @@ export const LOGIN_USER = gql`
       tokenType
     }
   }
-`
+`;
 
 export const CREATE_USER = gql`
-  mutation CreateUser($username: String!, $password: String!, $isSuperuser: Boolean) {
-    createUser(username: $username, password: $password, isSuperuser: $isSuperuser) {
+  mutation CreateUser(
+    $username: String!
+    $password: String!
+    $isSuperuser: Boolean
+  ) {
+    createUser(
+      username: $username
+      password: $password
+      isSuperuser: $isSuperuser
+    ) {
       accessToken
       tokenType
     }
   }
-`
+`;
 
 // DDA mutations
 export const SUBMIT_DDA_TASK = gql`
-  mutation SubmitDDATask(
+  mutation StartDDA(
     $filePath: String!
     $preprocessingOptions: PreprocessingOptionsInput
   ) {
-    submitDDATask(
-      filePath: $filePath
-      preprocessingOptions: $preprocessingOptions
-    ) {
+    startDda(filePath: $filePath, preprocessingOptions: $preprocessingOptions) {
       taskId
+      filePath
+      status
     }
   }
-`
+`;
+
+export const TOGGLE_FAVORITE_FILE = gql`
+  mutation ToggleFavoriteFile($filePath: String!) {
+    toggleFavoriteFile(filePath: $filePath)
+  }
+`;
 
 // Define the input type for preprocessing options
 export const PREPROCESSING_OPTIONS_INPUT = gql`
@@ -44,5 +57,4 @@ export const PREPROCESSING_OPTIONS_INPUT = gql`
     notchFilter: Boolean
     detrend: Boolean
   }
-`
-
+`;
