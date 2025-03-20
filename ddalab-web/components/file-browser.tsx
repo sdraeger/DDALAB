@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useQuery } from "@apollo/client";
+import { useQuery, useMutation } from "@apollo/client";
 import { LIST_FILES_IN_PATH } from "@/lib/graphql/queries";
-import { Folder, File, ChevronRight, ArrowLeft, BarChart2 } from "lucide-react";
+import { TOGGLE_FAVORITE_FILE } from "@/lib/graphql/mutations";
+import { Folder, File, ChevronRight, ArrowLeft, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,6 +17,7 @@ interface FileItem {
   isDirectory: boolean;
   size?: number;
   lastModified?: string;
+  isFavorite?: boolean;
 }
 
 interface FileBrowserProps {
@@ -43,6 +45,12 @@ export function FileBrowser({
     fetchPolicy: "network-only",
   });
 
+  const [toggleFavorite] = useMutation(TOGGLE_FAVORITE_FILE, {
+    onCompleted: () => {
+      refetch({ path: currentPath });
+    },
+  });
+
   // Navigate to a directory
   const navigateToDirectory = (dirPath: string) => {
     setPathHistory([...pathHistory, currentPath]);
@@ -67,16 +75,12 @@ export function FileBrowser({
     }
   };
 
-  // Handle plot button click
-  const handlePlotClick = (e: React.MouseEvent, file: FileItem) => {
+  // Handle star/favorite button click
+  const handleStarClick = (e: React.MouseEvent, file: FileItem) => {
     e.stopPropagation(); // Prevent triggering row click
-    setSelectedFilePath(file.path);
-    setPlotDialogOpen(true);
-  };
-
-  // Check if a file is an EDF file
-  const isEdfFile = (filename: string) => {
-    return filename.toLowerCase().endsWith(".edf");
+    toggleFavorite({
+      variables: { filePath: file.path },
+    });
   };
 
   // Format file size
@@ -153,7 +157,7 @@ export function FileBrowser({
                   <th className="text-left p-2 hidden md:table-cell">
                     Last Modified
                   </th>
-                  <th className="text-right p-2 w-12">Actions</th>
+                  <th className="text-right p-2 w-12">Favorite</th>
                 </tr>
               </thead>
               <tbody>
@@ -194,14 +198,22 @@ export function FileBrowser({
                         {formatDate(file.lastModified)}
                       </td>
                       <td className="p-2 text-right">
-                        {!file.isDirectory && isEdfFile(file.name) && (
+                        {!file.isDirectory && (
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={(e) => handlePlotClick(e, file)}
-                            title="Plot EDF data"
+                            onClick={(e) => handleStarClick(e, file)}
+                            title={
+                              file.isFavorite ? "Unstar file" : "Star file"
+                            }
                           >
-                            <BarChart2 className="h-4 w-4" />
+                            <Star
+                              className={`h-4 w-4 ${
+                                file.isFavorite
+                                  ? "fill-yellow-400 text-yellow-400"
+                                  : ""
+                              }`}
+                            />
                           </Button>
                         )}
                       </td>
