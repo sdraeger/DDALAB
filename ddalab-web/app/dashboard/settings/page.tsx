@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@/contexts/auth-context";
+import { getInitials } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -10,29 +11,30 @@ import {
 } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Label } from "@/components/ui/label";
+import { SessionExpirationSettings } from "@/components/session-expiration-settings";
+import { EEGZoomSettings } from "@/components/eeg-zoom-settings";
+import { ThemeSettings } from "@/components/theme-settings";
+import { SaveSettingsButton } from "@/components/save-settings-button";
+import { useSettings } from "@/contexts/settings-context";
 
 export default function SettingsPage() {
   const { user } = useAuth();
+  const { hasUnsavedChanges } = useSettings();
 
   if (!user) {
-    return <div>Loading user information...</div>;
+    return (
+      <div className="container mx-auto py-6">
+        <h1 className="text-3xl font-bold mb-6">User Settings</h1>
+        <p>Please log in to view your settings.</p>
+      </div>
+    );
   }
-
-  // Get initials for avatar fallback
-  const getInitials = () => {
-    if (user.name) {
-      return user.name
-        .split(" ")
-        .map((n) => n[0])
-        .join("")
-        .toUpperCase();
-    }
-    return user.username.substring(0, 2).toUpperCase();
-  };
 
   return (
     <div className="container mx-auto py-6">
-      <h1 className="text-3xl font-bold mb-6">User Settings</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold">User Settings</h1>
+      </div>
 
       <div className="grid gap-6">
         <Card>
@@ -42,7 +44,9 @@ export default function SettingsPage() {
                 src={`https://avatar.vercel.sh/${user.username}`}
                 alt={user.name || user.username}
               />
-              <AvatarFallback>{getInitials()}</AvatarFallback>
+              <AvatarFallback>
+                {getInitials(user.name, user.username)}
+              </AvatarFallback>
             </Avatar>
             <div>
               <CardTitle>{user.name || user.username}</CardTitle>
@@ -70,6 +74,17 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        <ThemeSettings />
+
+        <SessionExpirationSettings />
+
+        <EEGZoomSettings />
+      </div>
+
+      {/* Always show floating button at the bottom */}
+      <div className="fixed bottom-6 right-6 z-50">
+        <SaveSettingsButton floating />
       </div>
     </div>
   );
