@@ -75,12 +75,14 @@ export const GET_EDF_DATA = gql`
     $chunkStart: Int
     $chunkSize: Int
     $preprocessingOptions: VisualizationPreprocessingOptionsInput
+    $includeNavigationInfo: Boolean!
   ) {
     getEdfData(
       filename: $filename
       chunkStart: $chunkStart
       chunkSize: $chunkSize
       preprocessingOptions: $preprocessingOptions
+      includeNavigationInfo: $includeNavigationInfo
     ) {
       data
       samplingFrequency
@@ -89,6 +91,46 @@ export const GET_EDF_DATA = gql`
       chunkStart
       chunkSize
       hasMore
+      navigationInfo @include(if: $includeNavigationInfo) {
+        totalSamples
+        fileDurationSeconds
+        numSignals
+        signalLabels
+        samplingFrequencies
+        chunks {
+          start
+          end
+          size
+          timeSeconds
+          positionSeconds
+        }
+      }
+      chunkInfo {
+        start
+        end
+        size
+        timeSeconds
+        positionSeconds
+      }
+    }
+  }
+`;
+
+export const GET_EDF_NAVIGATION = gql`
+  query GetEDFNavigation($filename: String!, $chunkSize: Int) {
+    getEdfNavigation(filename: $filename, chunkSize: $chunkSize) {
+      totalSamples
+      fileDurationSeconds
+      numSignals
+      signalLabels
+      samplingFrequencies
+      chunks {
+        start
+        end
+        size
+        timeSeconds
+        positionSeconds
+      }
     }
   }
 `;
