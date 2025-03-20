@@ -303,12 +303,10 @@ export function AnnotationEditor({
           {annotations.map((annotation: Annotation) => (
             <div
               key={annotation.id}
-              className="flex items-start justify-between bg-card p-3 rounded-md border"
+              className="flex items-start justify-between bg-card p-3 rounded-md border cursor-pointer"
+              onClick={() => handleSelectAnnotation(annotation)}
             >
-              <div
-                className="flex-1 cursor-pointer"
-                onClick={() => handleSelectAnnotation(annotation)}
-              >
+              <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
                     {formatTime(annotation.startTime)}
@@ -323,7 +321,10 @@ export function AnnotationEditor({
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8"
-                  onClick={() => handleEditAnnotation(annotation)}
+                  onClick={(e) => {
+                    e.stopPropagation(); // Prevent triggering parent onClick
+                    handleEditAnnotation(annotation);
+                  }}
                 >
                   <Edit className="h-4 w-4" />
                 </Button>
@@ -331,7 +332,10 @@ export function AnnotationEditor({
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 text-destructive"
-                  onClick={() => handleDeleteAnnotation(annotation.id)}
+                  onClick={(e) => {
+                    e.stopPropagation(); // Prevent triggering parent onClick
+                    handleDeleteAnnotation(annotation.id);
+                  }}
                 >
                   <Trash className="h-4 w-4" />
                 </Button>

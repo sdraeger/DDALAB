@@ -114,6 +114,10 @@ export function DDAPlot({
   // Add state to track annotation edit mode
   const [editMode, setEditMode] = useState(false);
 
+  // Add state to track the annotation to focus on after loading a chunk
+  const [targetAnnotationAfterLoad, setTargetAnnotationAfterLoad] =
+    useState<Annotation | null>(null);
+
   // Initialize the plot state if needed
   useEffect(() => {
     if (filePath) {
@@ -215,6 +219,7 @@ export function DDAPlot({
       filename: filePath,
       chunkStart,
       chunkSize,
+      includeNavigationInfo: true,
       // Only send preprocessing options if any non-default options are active
       ...(hasActivePreprocessing(preprocessingOptions)
         ? { preprocessingOptions }
@@ -709,28 +714,40 @@ export function DDAPlot({
 
   // Handle annotation selection
   const handleAnnotationSelect = (annotation: Annotation) => {
+    const annotationSample = annotation.startTime;
     const chunkStartSample = chunkStart;
     const chunkEndSample = chunkStart + chunkSize;
 
+    console.log(
+      `Selecting annotation at sample ${annotationSample}, current chunk: ${chunkStartSample}-${chunkEndSample}`
+    );
+
     // Check if the annotation is within the current chunk
     if (
-      annotation.startTime >= chunkStartSample &&
-      annotation.startTime <= chunkEndSample
+      annotationSample >= chunkStartSample &&
+      annotationSample <= chunkEndSample
     ) {
-      // Update the time window to center on the annotation
-      const annotationTime = (annotation.startTime - chunkStart) / sampleRate;
+      console.log("Annotation is in current chunk, panning to it");
+      // Annotation is in the current chunk, just pan to it
+      // Calculate annotation position within the chunk in seconds
+      const annotationTimeInChunk =
+        (annotationSample - chunkStartSample) / sampleRate;
       const halfWindowSize = (timeWindow[1] - timeWindow[0]) / 2;
 
+      // Center the view on the annotation
       const newLocalWindow = [
-        Math.max(0, annotationTime - halfWindowSize),
-        Math.min(eegData?.duration || 10, annotationTime + halfWindowSize),
+        Math.max(0, annotationTimeInChunk - halfWindowSize),
+        Math.min(
+          chunkSize / sampleRate,
+          annotationTimeInChunk + halfWindowSize
+        ),
       ] as [number, number];
 
       setTimeWindow(newLocalWindow);
-      setCurrentSample(annotation.startTime);
+      setCurrentSample(annotationSample);
 
       // Update absolute time window
-      const absoluteChunkStart = chunkStart / sampleRate;
+      const absoluteChunkStart = chunkStartSample / sampleRate;
       setAbsoluteTimeWindow([
         absoluteChunkStart + newLocalWindow[0],
         absoluteChunkStart + newLocalWindow[1],
@@ -745,23 +762,37 @@ export function DDAPlot({
         setShouldUpdateViewContext(true);
       }, 300);
     } else {
-      // If annotation is outside current chunk, navigate to the correct chunk
+      // Annotation is in a different chunk, need to load that chunk
+      console.log("Annotation is in a different chunk, loading it");
+
+      // Calculate the new chunk start to center the annotation in the chunk if possible
+      // Ensure the annotation will be roughly in the middle of the new chunk
       const newChunkStart = Math.max(
         0,
-        annotation.startTime - Math.floor(chunkSize / 2)
+        annotationSample - Math.floor(chunkSize / 2)
       );
-      setChunkStart(newChunkStart);
-      setCurrentSample(annotation.startTime);
 
-      // Reset time window
-      setTimeWindow([0, 10]);
+      // Update chunk start position
+      setChunkStart(newChunkStart);
+      setCurrentSample(annotationSample);
+
+      // Reset time window to default size
+      // After the chunk loads, we'll pan to the annotation
+      const chunkDurationSec = chunkSize / sampleRate;
+      setTimeWindow([0, Math.min(10, chunkDurationSec)]);
 
       // Update absolute time window
       const absoluteStartSec = newChunkStart / sampleRate;
-      setAbsoluteTimeWindow([absoluteStartSec, absoluteStartSec + 10]);
+      setAbsoluteTimeWindow([
+        absoluteStartSec,
+        absoluteStartSec + Math.min(10, chunkDurationSec),
+      ]);
 
       // Set flag to load the chunk
       setShouldLoadChunk(true);
+
+      // Store the target annotation to pan to after loading
+      setTargetAnnotationAfterLoad(annotation);
     }
   };
 
@@ -820,7 +851,7 @@ export function DDAPlot({
 
       return () => clearTimeout(timeout);
     }
-  }, [loading]);
+  }, [loading, downloadProgress]);
 
   // Add mutation hooks for annotation management
   const [createAnnotation] = useMutation(CREATE_ANNOTATION, {
@@ -938,6 +969,88 @@ export function DDAPlot({
     });
   };
 
+  // Effect to load the first chunk when filePath changes
+  useEffect(() => {
+    if (filePath) {
+      // Use the refetch function from the useQuery hook for GET_EDF_DATA
+      refetch({
+        filename: filePath,
+        chunkStart,
+        chunkSize,
+        ...(hasActivePreprocessing(preprocessingOptions)
+          ? { preprocessingOptions }
+          : {}),
+      });
+      setShouldLoadChunk(true);
+    }
+  }, [filePath, refetch, chunkStart, chunkSize, preprocessingOptions]);
+
+  // Effect to focus on target annotation after a chunk is loaded
+  useEffect(() => {
+    // Check if we have loaded data and have a target annotation to focus on
+    if (eegData && targetAnnotationAfterLoad && !loading) {
+      console.log(
+        "Chunk loaded, focusing on annotation:",
+        targetAnnotationAfterLoad
+      );
+
+      // Calculate annotation position within the chunk in seconds
+      const annotationSample = targetAnnotationAfterLoad.startTime;
+      const annotationTimeInChunk =
+        (annotationSample - chunkStart) / sampleRate;
+      const halfWindowSize = (timeWindow[1] - timeWindow[0]) / 2;
+
+      // Verify the annotation is in the current chunk
+      if (
+        annotationSample >= chunkStart &&
+        annotationSample <= chunkStart + chunkSize
+      ) {
+        // Center the view on the annotation
+        const newLocalWindow = [
+          Math.max(0, annotationTimeInChunk - halfWindowSize),
+          Math.min(
+            chunkSize / sampleRate,
+            annotationTimeInChunk + halfWindowSize
+          ),
+        ] as [number, number];
+
+        setTimeWindow(newLocalWindow);
+        setCurrentSample(annotationSample);
+
+        // Update absolute time window
+        const absoluteChunkStart = chunkStart / sampleRate;
+        setAbsoluteTimeWindow([
+          absoluteChunkStart + newLocalWindow[0],
+          absoluteChunkStart + newLocalWindow[1],
+        ]);
+
+        // Update context
+        if (timeWindowUpdateTimeoutRef.current) {
+          clearTimeout(timeWindowUpdateTimeoutRef.current);
+        }
+
+        timeWindowUpdateTimeoutRef.current = setTimeout(() => {
+          setShouldUpdateViewContext(true);
+        }, 300);
+      }
+
+      // Clear the target annotation
+      setTargetAnnotationAfterLoad(null);
+    }
+  }, [
+    eegData,
+    loading,
+    targetAnnotationAfterLoad,
+    chunkStart,
+    chunkSize,
+    sampleRate,
+    timeWindow,
+    setTimeWindow,
+    setCurrentSample,
+    setAbsoluteTimeWindow,
+    setShouldUpdateViewContext,
+  ]);
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
       {/* Main EEG chart area - takes 4/6 of the space */}
@@ -1031,9 +1144,12 @@ export function DDAPlot({
               <div className="mb-4">
                 <div className="flex justify-between text-xs text-muted-foreground mb-1">
                   <span>Downloading data</span>
-                  <span>{downloadProgress}%</span>
+                  <span>{Math.min(downloadProgress, 100).toFixed(0)}%</span>
                 </div>
-                <Progress value={downloadProgress} className="h-1" />
+                <Progress
+                  value={Math.min(downloadProgress, 100)}
+                  className="h-1"
+                />
               </div>
             )}
 
@@ -1220,7 +1336,11 @@ export function DDAPlot({
             <div className="space-y-2">
               <h3 className="text-sm font-medium mb-2">Channel Selection</h3>
               <div className="space-y-1 max-h-[250px] overflow-y-auto border rounded-md p-2">
-                {availableChannels.length > 0 ? (
+                {error ? (
+                  <p className="text-center text-red-500 py-2">
+                    Error loading channels: {error.message}
+                  </p>
+                ) : availableChannels.length > 0 ? (
                   <div className="grid grid-cols-2 gap-1">
                     {availableChannels.map((channel) => (
                       <div key={channel} className="flex items-center">
@@ -1240,6 +1360,10 @@ export function DDAPlot({
                       </div>
                     ))}
                   </div>
+                ) : loading ? (
+                  <p className="text-center text-muted-foreground py-2">
+                    Loading channels...
+                  </p>
                 ) : (
                   <p className="text-center text-muted-foreground py-2">
                     No channels available
@@ -1326,6 +1450,7 @@ export function DDAPlot({
                 initialAnnotations={annotations}
                 onAnnotationsChange={handleAnnotationsChange}
                 onAnnotationUpdate={handleAnnotationUpdate}
+                onAnnotationSelect={handleAnnotationSelect}
               />
             </div>
 
