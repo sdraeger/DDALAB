@@ -28,6 +28,7 @@ interface AuthContextType {
   logout: () => void;
   isLoggedIn: boolean;
   register: (credentials: RegisterCredentials) => Promise<void>;
+  refreshUserData: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -44,11 +45,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (isAuthenticated()) {
         const currentUser = getCurrentUser();
         setUser(currentUser);
+      } else {
+        setUser(null);
       }
       setLoading(false);
     };
 
     checkAuth();
+
+    // Also check every minute to refresh token if needed
+    const interval = setInterval(checkAuth, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   // Login function
@@ -126,6 +133,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Method to refresh user data from localStorage
+  const refreshUserData = () => {
+    if (isAuthenticated()) {
+      const currentUser = getCurrentUser();
+      setUser(currentUser);
+    } else {
+      setUser(null);
+    }
+  };
+
   const value = {
     user,
     loading,
@@ -133,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     logout,
     isLoggedIn: !!user,
     register,
+    refreshUserData,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

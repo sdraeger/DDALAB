@@ -7,6 +7,13 @@ export interface User {
   name: string;
   email?: string;
   role?: string;
+  preferences?: UserPreferences;
+}
+
+export interface UserPreferences {
+  sessionExpiration?: number; // in seconds
+  eegZoomFactor?: number; // Zoom factor for EEG chart (between 0.01 and 0.2)
+  theme?: "light" | "dark" | "system"; // Theme preference
 }
 
 export interface LoginCredentials {
@@ -73,7 +80,8 @@ export async function loginUser(
 
     // Calculate and store token expiration time
     // Default to 30 minutes if expiresIn not specified from server
-    const expiresInSeconds = data.expires_in || 30 * 60;
+    const expiresInSeconds =
+      data.expires_in || user.preferences?.sessionExpiration || 30 * 60;
     const expirationTime = Date.now() + expiresInSeconds * 1000;
 
     // Store token, expiration time and user in localStorage
@@ -103,7 +111,15 @@ export function logoutUser(): void {
   localStorage.removeItem(config.auth.userKey);
 
   // Reset Apollo Client store to clear cached data
-  apolloClient.resetStore();
+  try {
+    apolloClient.resetStore().catch((error) => {
+      console.error("Error resetting Apollo store during logout:", error);
+      // Continue with logout even if Apollo reset fails
+    });
+  } catch (error) {
+    console.error("Error during Apollo store reset:", error);
+    // Continue with logout process even if Apollo reset throws
+  }
 }
 
 // Function to check if token is expired
@@ -157,11 +173,14 @@ export function getAuthToken(): string | null {
 
   // Return null if token is expired
   if (isTokenExpired()) {
+    console.debug("Auth token expired, logging out");
     logoutUser(); // Clean up storage if token expired
     return null;
   }
 
-  return localStorage.getItem(config.auth.tokenKey);
+  const token = localStorage.getItem(config.auth.tokenKey);
+  console.debug("Auth token status:", token ? "Present" : "Missing");
+  return token;
 }
 
 // Function to get token expiration time in milliseconds
@@ -212,7 +231,8 @@ export async function registerUser(
 
     // Calculate and store token expiration time
     // Default to 30 minutes if expiresIn not specified from server
-    const expiresInSeconds = data.expires_in || 30 * 60;
+    const expiresInSeconds =
+      data.expires_in || user.preferences?.sessionExpiration || 30 * 60;
     const expirationTime = Date.now() + expiresInSeconds * 1000;
 
     // Store token, expiration time and user in localStorage
@@ -317,4 +337,108 @@ export async function secureFetch(
 
   // For non-authenticated requests, just pass through
   return fetch(url, options);
+}
+
+// Function to update user preferences
+export async function updateUserPreferences(
+  preferences: UserPreferences
+): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+
+  try {
+    console.log("Starting user preferences update:", preferences);
+
+    // Get current user
+    const user = getCurrentUser();
+    if (!user) {
+      console.error("No current user found");
+      return false;
+    }
+
+    // Update user preferences
+    const updatedUser: User = {
+      ...user,
+      preferences: {
+        ...user.preferences,
+        ...preferences,
+      },
+    };
+
+    // Store updated user in localStorage
+    localStorage.setItem(config.auth.userKey, JSON.stringify(updatedUser));
+
+    console.log(
+      "User preferences updated successfully:",
+      updatedUser.preferences
+    );
+
+    // If session expiration was updated, also update the current token expiration
+    if (preferences.sessionExpiration) {
+      const tokenExpiresAt = getTokenExpirationTime();
+
+      if (tokenExpiresAt) {
+        // Calculate new expiration time based on current time plus the new timeout
+        const newExpirationTime =
+          Date.now() + preferences.sessionExpiration * 1000;
+        localStorage.setItem(
+          config.auth.tokenExpirationKey,
+          newExpirationTime.toString()
+        );
+        console.log(
+          "Token expiration updated to:",
+          new Date(newExpirationTime).toISOString()
+        );
+      }
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Error updating user preferences:", error);
+    return false;
+  }
+}
+
+// Function to refresh auth token
+export async function refreshToken(): Promise<AuthResponse | null> {
+  try {
+    // Use our local API route
+    const response = await fetch("/api/auth/refresh", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to refresh token");
+    }
+
+    const data = await response.json();
+
+    // Get the current user to access their preferences
+    const currentUser = getCurrentUser();
+
+    // Calculate and store token expiration time
+    // Use user's preferred expiration time if available
+    const expiresInSeconds =
+      data.expires_in || currentUser?.preferences?.sessionExpiration || 30 * 60; // Default 30 minutes
+
+    const expirationTime = Date.now() + expiresInSeconds * 1000;
+
+    // Store new token and expiration time
+    localStorage.setItem(config.auth.tokenKey, data.access_token);
+    localStorage.setItem(
+      config.auth.tokenExpirationKey,
+      expirationTime.toString()
+    );
+
+    return {
+      accessToken: data.access_token,
+      tokenType: data.token_type || "bearer",
+      expiresIn: expiresInSeconds,
+    };
+  } catch (error) {
+    console.error("Token refresh error:", error);
+    return null;
+  }
 }
