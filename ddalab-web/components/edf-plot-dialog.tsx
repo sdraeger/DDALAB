@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useQuery } from "@apollo/client";
-import { GET_EDF_DATA } from "@/lib/graphql/queries";
+import { useState, useEffect, useRef } from "react";
+import { useQuery, useMutation, useLazyQuery } from "@apollo/client";
+import { GET_EDF_DATA, GET_ANNOTATIONS } from "@/lib/graphql/queries";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +18,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { EEGChart } from "@/components/eeg-chart";
+import { AnnotationEditor, Annotation } from "@/components/annotation-editor";
 import {
   ZoomIn,
   ZoomOut,
@@ -28,6 +29,17 @@ import {
 import type { EEGData } from "@/components/eeg-dashboard";
 import { cn } from "@/lib/utils";
 import { useEDFPlot } from "@/contexts/edf-plot-context";
+import { toast } from "@/components/ui/use-toast";
+import { Slider } from "@/components/ui/slider";
+import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
+import {
+  CREATE_ANNOTATION,
+  DELETE_ANNOTATION,
+  UPDATE_ANNOTATION,
+} from "@/lib/graphql/queries";
+import { useTheme } from "next-themes";
+import { isAuthenticated } from "@/lib/auth";
 
 interface EDFPlotDialogProps {
   open: boolean;
@@ -48,23 +60,25 @@ export function EDFPlotDialog({
 
   // Local state for error handling and loading which doesn't need to be preserved
   const [loadingNewChunk, setLoadingNewChunk] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
   const [retryCount, setRetryCount] = useState(0);
   const [manualErrorMessage, setManualErrorMessage] = useState<string | null>(
     null
   );
   const [nearEdge, setNearEdge] = useState<"start" | "end" | null>(null);
+  const [currentSample, setCurrentSample] = useState(0);
+  const chartAreaRef = useRef<HTMLDivElement>(null);
+
+  // Add edit mode state
+  const [editMode, setEditMode] = useState(false);
 
   // Initialize state for new files
   useEffect(() => {
     if (open && filePath) {
-      const existingState = getPlotState(filePath);
-      if (!existingState) {
-        // Only initialize if state doesn't exist for this file
-        console.log(`Initializing plot state for file: ${filePath}`);
-        initPlotState(filePath);
-      }
+      // Initialize plot state
+      initPlotState(filePath);
     }
-  }, [open, filePath, initPlotState, getPlotState]);
+  }, [open, filePath, initPlotState]);
 
   // Get state from context
   const plotState = getPlotState(filePath) || {
@@ -79,12 +93,17 @@ export function EDFPlotDialog({
     totalDuration: 0,
     currentChunkNumber: 1,
     totalChunks: 1,
+    edfData: null,
+    annotations: null,
+    lastFetchTime: null,
+    preprocessingOptions: null,
+    sampleRate: DEFAULT_SAMPLE_RATE,
   };
 
   // Destructure the state for easier use
   const {
     chunkSizeSeconds,
-    selectedChannels,
+    selectedChannels: contextSelectedChannels,
     showPlot,
     timeWindow,
     absoluteTimeWindow,
@@ -94,13 +113,66 @@ export function EDFPlotDialog({
     totalDuration,
     currentChunkNumber,
     totalChunks,
+    preprocessingOptions: contextPreprocessingOptions,
+    sampleRate = DEFAULT_SAMPLE_RATE,
   } = plotState;
+
+  // State for preprocessing options
+  const [preprocessingOptions, setPreprocessingOptions] = useState<any>(
+    contextPreprocessingOptions || {
+      removeOutliers: false,
+      smoothing: false,
+      smoothingWindow: 3,
+      normalization: "none",
+    }
+  );
+
+  // Local state for selected channels
+  const [selectedChannels, setSelectedChannelsLocal] = useState<string[]>([]);
+  const [availableChannels, setAvailableChannels] = useState<string[]>([]);
+
+  // Keep local state in sync with context
+  useEffect(() => {
+    if (contextSelectedChannels.length > 0) {
+      setSelectedChannelsLocal(contextSelectedChannels);
+    }
+  }, [contextSelectedChannels]);
+
+  // Update preprocessing options in context
+  const setPreprocessingOptionsWithUpdate = (newOptions: any) => {
+    setPreprocessingOptions(newOptions);
+    updatePlotState(filePath, {
+      preprocessingOptions: newOptions,
+      // Clear cached data when preprocessing options change
+      edfData: null,
+    });
+  };
+
+  // Handle preprocessing form submission
+  const handlePreprocessingSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // Force refetch with new preprocessing options
+    refetch({
+      filename: filePath,
+      chunkStart: chunkStart,
+      chunkSize: Math.round(chunkSizeSeconds * sampleRate),
+      preprocessingOptions: preprocessingOptions,
+    });
+
+    toast({
+      title: "Preprocessing applied",
+      description:
+        "The data has been updated with your preprocessing settings.",
+    });
+  };
 
   // Helper functions to update specific parts of state
   const setChunkSizeSeconds = (value: number) =>
     updatePlotState(filePath, { chunkSizeSeconds: value });
-  const setSelectedChannels = (value: string[]) =>
+  const setSelectedChannels = (value: string[]) => {
+    setSelectedChannelsLocal(value);
     updatePlotState(filePath, { selectedChannels: value });
+  };
   const setShowPlot = (value: boolean) =>
     updatePlotState(filePath, { showPlot: value });
   const setTimeWindow = (value: [number, number]) =>
@@ -120,18 +192,24 @@ export function EDFPlotDialog({
   const setTotalChunks = (value: number) =>
     updatePlotState(filePath, { totalChunks: value });
 
-  // Query for EDF data (use fixed chunk size in samples)
+  // Calculate derived values
+  const chunkSizeSamples = chunkSizeSeconds * sampleRate;
+
+  // Query for EDF data
   const { loading, error, data, refetch } = useQuery(GET_EDF_DATA, {
     variables: {
       filename: filePath,
       chunkStart: chunkStart,
-      chunkSize:
-        chunkStart === 0
-          ? chunkSizeSeconds * DEFAULT_SAMPLE_RATE * 2
-          : chunkSizeSeconds * DEFAULT_SAMPLE_RATE,
-      preprocessingOptions: null,
+      chunkSize: Math.round(chunkSizeSeconds * sampleRate), // Calculate based on actual sample rate
+      preprocessingOptions: preprocessingOptions,
     },
-    skip: !open || !filePath,
+    skip:
+      !open ||
+      !filePath ||
+      (plotState.edfData !== null &&
+        chunkStart === plotState.chunkStart &&
+        JSON.stringify(preprocessingOptions) ===
+          JSON.stringify(plotState.preprocessingOptions)),
     fetchPolicy: "network-only",
     errorPolicy: "all", // Handle errors in the component
     onError: (err) => {
@@ -158,232 +236,290 @@ export function EDFPlotDialog({
         );
       }
     },
+    context: {
+      fetchOptions: {
+        onDownloadProgress: (progressEvent: {
+          loaded: number;
+          total: number;
+          lengthComputable: boolean;
+        }) => {
+          if (progressEvent.lengthComputable) {
+            const percentComplete = Math.round(
+              (progressEvent.loaded / progressEvent.total) * 100
+            );
+            setDownloadProgress(percentComplete);
+          } else {
+            // If length isn't computable, use a simulated progress
+            const simulatedProgress = Math.min(downloadProgress + 5, 95);
+            setDownloadProgress(simulatedProgress);
+          }
+        },
+      },
+    },
   });
 
-  // Calculate derived values from data
-  const sampleRate = data?.getEdfData?.samplingFrequency || DEFAULT_SAMPLE_RATE;
-  const chunkSizeSamples = chunkSizeSeconds * sampleRate;
+  // Store data in cache when it's loaded
+  useEffect(() => {
+    if (data?.getEdfData && filePath) {
+      updatePlotState(filePath, {
+        edfData: data.getEdfData,
+        lastFetchTime: Date.now(),
+      });
+    }
+  }, [data, filePath, updatePlotState]);
 
-  // Update total duration and chunks when data is loaded
+  // Update total samples, sample rate, and available channels when data is loaded
   useEffect(() => {
     if (data?.getEdfData) {
-      // Only update if the values have actually changed to prevent infinite loops
-      if (data.getEdfData.totalSamples !== totalSamples) {
-        updatePlotState(filePath, {
-          totalSamples: data.getEdfData.totalSamples,
-          totalDuration:
-            data.getEdfData.totalSamples / data.getEdfData.samplingFrequency,
-        });
+      setTotalSamples(data.getEdfData.totalSamples);
 
-        const calculatedTotalDuration =
-          data.getEdfData.totalSamples / data.getEdfData.samplingFrequency;
+      if (data.getEdfData.channelLabels.length > 0) {
+        setAvailableChannels(data.getEdfData.channelLabels);
 
-        // Calculate total chunks
-        const calculatedTotalChunks = Math.ceil(
-          calculatedTotalDuration / chunkSizeSeconds
-        );
-        if (calculatedTotalChunks !== totalChunks) {
-          updatePlotState(filePath, { totalChunks: calculatedTotalChunks });
-        }
-
-        // Calculate current chunk number
-        const currentPos = chunkStart / data.getEdfData.samplingFrequency;
-        const newChunkNumber = Math.floor(currentPos / chunkSizeSeconds) + 1;
-        if (newChunkNumber !== currentChunkNumber) {
-          updatePlotState(filePath, { currentChunkNumber: newChunkNumber });
+        // Select first few channels by default (or all if fewer)
+        if (selectedChannels.length === 0) {
+          const defaultChannelCount = Math.min(
+            5,
+            data.getEdfData.channelLabels.length
+          );
+          setSelectedChannels(
+            data.getEdfData.channelLabels.slice(0, defaultChannelCount)
+          );
         }
       }
 
-      // Check if the received chunk size matches what we expected
-      const actualChunkDuration =
-        data.getEdfData.chunkSize / data.getEdfData.samplingFrequency;
-      const expectedChunkDuration = chunkSizeSeconds;
-
-      // Log specific details about the first chunk vs subsequent chunks
-      if (chunkStart === 0) {
-        console.log(
-          `FIRST CHUNK: Requested: ${expectedChunkDuration}s (doubled in request to ${
-            expectedChunkDuration * 2
-          }s), Received: ${actualChunkDuration.toFixed(1)}s`
-        );
-      } else {
-        console.log(
-          `SUBSEQUENT CHUNK: Requested: ${expectedChunkDuration}s, Received: ${actualChunkDuration.toFixed(
-            1
-          )}s`
-        );
+      // Only reset the time window if it's the first load
+      if (timeWindow[0] === 0 && timeWindow[1] === 10) {
+        resetTimeWindow(chunkStart);
       }
 
-      // Calculate absolute time position in the file
-      const absoluteStartSec = chunkStart / data.getEdfData.samplingFrequency;
-
-      // Update the absolute time window to reflect the actual position in the file
-      const absoluteStartTime = absoluteStartSec;
-      const absoluteEndTime = absoluteStartTime + actualChunkDuration;
-
-      // Only update time window if it has changed
-      const newAbsoluteTimeWindow = [absoluteStartTime, absoluteEndTime] as [
-        number,
-        number
-      ];
-      if (
-        newAbsoluteTimeWindow[0] !== absoluteTimeWindow[0] ||
-        newAbsoluteTimeWindow[1] !== absoluteTimeWindow[1]
-      ) {
-        // Set the absolute time window (file-based coordinates)
-        updatePlotState(filePath, {
-          absoluteTimeWindow: newAbsoluteTimeWindow,
-        });
-      }
-
-      console.log(
-        `Absolute time window: ${absoluteStartTime.toFixed(
-          1
-        )}s - ${absoluteEndTime.toFixed(1)}s`
-      );
-
-      // If the received chunk is significantly smaller than expected, we may need to adjust
-      if (actualChunkDuration < expectedChunkDuration * 0.8) {
-        console.warn(
-          `Server returned smaller chunk than requested: ${actualChunkDuration.toFixed(
-            1
-          )}s vs ${expectedChunkDuration}s`
-        );
-      } else if (actualChunkDuration > expectedChunkDuration * 1.2) {
-        console.warn(
-          `Server returned larger chunk than requested: ${actualChunkDuration.toFixed(
-            1
-          )}s vs ${expectedChunkDuration}s`
-        );
-      }
+      // Update plot state in context
+      updatePlotState(filePath, {});
     }
-  }, [
-    data,
-    chunkSizeSeconds,
-    chunkStart,
-    filePath,
-    updatePlotState,
-    totalSamples,
-    totalDuration,
-    totalChunks,
-    currentChunkNumber,
-    absoluteTimeWindow,
-  ]);
+  }, [data]);
 
+  // Reset time window based on chunk start
+  const resetTimeWindow = (newChunkStart: number) => {
+    const startSec = 0;
+    const endSec = Math.min(
+      chunkSizeSeconds,
+      totalSamples / sampleRate - newChunkStart / sampleRate
+    );
+    setTimeWindow([startSec, endSec]);
+
+    // Calculate absolute time window
+    const absoluteStartSec = newChunkStart / sampleRate;
+    setAbsoluteTimeWindow([
+      absoluteStartSec + startSec,
+      absoluteStartSec + endSec,
+    ]);
+  };
+
+  // Reset progress when starting a new fetch
+  useEffect(() => {
+    if (loading) {
+      // Start with a small value to show that loading has begun
+      setDownloadProgress(5);
+
+      // Simulate progress if length isn't computable
+      const interval = setInterval(() => {
+        setDownloadProgress((prev) => {
+          // Don't go beyond 95% with simulation (actual completion will set to 100%)
+          return Math.min(prev + 2, 95);
+        });
+      }, 200);
+
+      return () => clearInterval(interval);
+    } else if (!loading && downloadProgress > 0) {
+      // Set to 100% when loading completes
+      setDownloadProgress(100);
+
+      // Reset after a short delay
+      const timeout = setTimeout(() => {
+        setDownloadProgress(0);
+      }, 500);
+
+      return () => clearTimeout(timeout);
+    }
+  }, [loading]);
+
+  // Navigate to previous chunk
+  const handlePrevChunk = () => {
+    const newStart = Math.max(0, chunkStart - chunkSizeSamples);
+    setChunkStart(newStart);
+    setLoadingNewChunk(true);
+    setDownloadProgress(0);
+    resetTimeWindow(newStart);
+    updatePlotState(filePath, {});
+  };
+
+  // Navigate to next chunk
+  const handleNextChunk = () => {
+    if (chunkStart + chunkSizeSamples < totalSamples) {
+      const newStart = chunkStart + chunkSizeSamples;
+      setChunkStart(newStart);
+      setLoadingNewChunk(true);
+      setDownloadProgress(0);
+      resetTimeWindow(newStart);
+      updatePlotState(filePath, {});
+    }
+  };
+
+  // Check for loading completion
+  useEffect(() => {
+    if (loadingNewChunk && !loading) {
+      setLoadingNewChunk(false);
+    }
+  }, [loading, loadingNewChunk]);
+
+  // Monitor time window position relative to chunk edges
+  useEffect(() => {
+    if (!data?.getEdfData || !timeWindow) return;
+
+    const chunkDuration =
+      data.getEdfData.chunkSize / data.getEdfData.samplingFrequency;
+
+    // Check if we're near the start or end of the chunk
+    if (timeWindow[0] < 1) {
+      setNearEdge("start");
+    } else if (timeWindow[1] > chunkDuration - 1) {
+      setNearEdge("end");
+    } else {
+      setNearEdge(null);
+    }
+  }, [timeWindow, data]);
+
+  // Handle time window changes from the chart
+  const handleTimeWindowChange = (newWindow: [number, number]) => {
+    setTimeWindow(newWindow);
+
+    // Update absolute time window
+    if (data?.getEdfData) {
+      const absoluteStartSec = chunkStart / sampleRate;
+      setAbsoluteTimeWindow([
+        absoluteStartSec + newWindow[0],
+        absoluteStartSec + newWindow[1],
+      ]);
+    }
+
+    updatePlotState(filePath, {});
+  };
+
+  // Handle zoom in button
+  const handleZoomIn = () => {
+    if (zoomLevel < 10 && data?.getEdfData) {
+      const newZoom = zoomLevel * 1.5;
+      setZoomLevel(newZoom);
+
+      // Adjust time window to maintain center point
+      const center = (timeWindow[0] + timeWindow[1]) / 2;
+      const newDuration = (timeWindow[1] - timeWindow[0]) / 1.5;
+      const newWindow = [
+        Math.max(0, center - newDuration / 2),
+        Math.min(
+          data.getEdfData.chunkSize / data.getEdfData.samplingFrequency,
+          center + newDuration / 2
+        ),
+      ] as [number, number];
+
+      setTimeWindow(newWindow);
+
+      // Update absolute time window
+      const absoluteStartSec = chunkStart / sampleRate;
+      setAbsoluteTimeWindow([
+        absoluteStartSec + newWindow[0],
+        absoluteStartSec + newWindow[1],
+      ]);
+
+      updatePlotState(filePath, {});
+    }
+  };
+
+  // Handle zoom out button
+  const handleZoomOut = () => {
+    if (zoomLevel > 0.2 && data?.getEdfData) {
+      const newZoom = zoomLevel / 1.5;
+      setZoomLevel(newZoom);
+
+      // Adjust time window to maintain center point
+      const center = (timeWindow[0] + timeWindow[1]) / 2;
+      const newDuration = (timeWindow[1] - timeWindow[0]) * 1.5;
+      const newWindow = [
+        Math.max(0, center - newDuration / 2),
+        Math.min(
+          data.getEdfData.chunkSize / data.getEdfData.samplingFrequency,
+          center + newDuration / 2
+        ),
+      ] as [number, number];
+
+      setTimeWindow(newWindow);
+
+      // Update absolute time window
+      const absoluteStartSec = chunkStart / sampleRate;
+      setAbsoluteTimeWindow([
+        absoluteStartSec + newWindow[0],
+        absoluteStartSec + newWindow[1],
+      ]);
+
+      updatePlotState(filePath, {});
+    }
+  };
+
+  // Reset zoom
+  const handleResetZoom = () => {
+    setZoomLevel(1);
+    resetTimeWindow(chunkStart);
+    updatePlotState(filePath, {});
+  };
+
+  // Select or deselect a single channel
   const toggleChannel = (channel: string) => {
     if (selectedChannels.includes(channel)) {
-      setSelectedChannels(selectedChannels.filter((ch) => ch !== channel));
+      setSelectedChannels(selectedChannels.filter((c) => c !== channel));
     } else {
       setSelectedChannels([...selectedChannels, channel]);
     }
+    updatePlotState(filePath, {});
   };
 
+  // Select all channels
   const selectAllChannels = () => {
-    if (data?.getEdfData?.channelLabels) {
-      setSelectedChannels([...data.getEdfData.channelLabels]);
-    }
+    setSelectedChannels([...availableChannels]);
+    updatePlotState(filePath, {});
   };
 
+  // Deselect all channels
   const deselectAllChannels = () => {
     setSelectedChannels([]);
+    updatePlotState(filePath, {});
   };
 
-  const handlePlot = () => {
-    setShowPlot(true);
-
-    // If we have data, use the actual duration rather than assuming the requested chunk size
-    if (data?.getEdfData) {
-      const actualChunkDuration =
-        data.getEdfData.chunkSize / data.getEdfData.samplingFrequency;
-
-      // Set the local time window (relative to chunk)
-      setTimeWindow([0, actualChunkDuration]);
-
-      // Also set the absolute time window (relative to file)
-      setAbsoluteTimeWindow([0, actualChunkDuration]);
-
-      console.log(
-        `Initial plot using actual chunk duration: ${actualChunkDuration.toFixed(
-          1
-        )}s (this is the first chunk which may be limited by the server)`
-      );
-    } else {
-      // Fall back to requested size if we don't have data yet
-      setTimeWindow([0, chunkSizeSeconds]);
-      setAbsoluteTimeWindow([0, chunkSizeSeconds]);
-    }
-
-    setChunkStart(0); // Reset to first chunk
-    setCurrentChunkNumber(1);
-  };
-
-  const handleTimeWindowChange = (window: [number, number]) => {
-    // Constrain the time window to the actual available data
-    if (eegData) {
-      const constrainedWindow: [number, number] = [
-        Math.max(0, window[0]), // Don't go below 0
-        Math.min(eegData.duration, window[1]), // Don't go beyond actual data duration
-      ];
-
-      // Check if we're near an edge and set the indicator
-      const edgeThreshold = eegData.duration * 0.1; // Within 10% of the edge
-      if (constrainedWindow[0] < edgeThreshold) {
-        setNearEdge("start");
-      } else if (constrainedWindow[1] > eegData.duration - edgeThreshold) {
-        setNearEdge("end");
-      } else {
-        setNearEdge(null);
-      }
-
-      // Update the local time window (relative to the current chunk)
-      setTimeWindow(constrainedWindow);
-
-      // Calculate and update the absolute time window (relative to file start)
-      const absoluteChunkStart = chunkStart / sampleRate;
-      const absoluteStart = absoluteChunkStart + constrainedWindow[0];
-      const absoluteEnd = absoluteChunkStart + constrainedWindow[1];
-      setAbsoluteTimeWindow([absoluteStart, absoluteEnd]);
-    } else {
-      setTimeWindow(window);
-      setNearEdge(null);
-    }
-
-    // Disable automatic chunk loading on scroll
-    // Previously, this would load next/previous chunks when scrolling to the edge
-    // But now we want user to explicitly click the navigation buttons
-
-    // Comment out the auto-loading behavior
-    /*
-    if (window[0] < 0) {
-      loadPreviousChunk();
-    } else if (
-      window[1] > chunkSizeSeconds &&
-      currentChunkNumber < totalChunks
-    ) {
-      loadNextChunk();
-    }
-    */
-  };
-
-  // Convert GraphQL data to EEGData format
+  // Convert to EEGData format (use cached data if available)
   const convertToEEGData = (): EEGData | null => {
-    if (!data?.getEdfData) return null;
+    // Use cached data if available for the current chunk
+    const edfDataToUse =
+      plotState.edfData && chunkStart === plotState.chunkStart
+        ? plotState.edfData
+        : data?.getEdfData;
+
+    if (!edfDataToUse) return null;
 
     try {
       const actualChunkDuration =
-        data.getEdfData.chunkSize / data.getEdfData.samplingFrequency;
+        edfDataToUse.chunkSize / edfDataToUse.samplingFrequency;
 
       // Calculate absolute time position in the file
-      const absoluteStartSec = chunkStart / data.getEdfData.samplingFrequency;
+      const absoluteStartSec = chunkStart / edfDataToUse.samplingFrequency;
 
       return {
-        channels: data.getEdfData.channelLabels,
-        samplesPerChannel: data.getEdfData.chunkSize,
-        sampleRate: data.getEdfData.samplingFrequency,
-        data: data.getEdfData.data,
-        startTime: new Date(),
+        channels: edfDataToUse.channelLabels,
+        samplesPerChannel: edfDataToUse.chunkSize,
+        sampleRate: edfDataToUse.samplingFrequency,
+        data: edfDataToUse.data,
+        startTime: new Date(edfDataToUse.startTime || Date.now()),
         duration: actualChunkDuration, // Use actual duration from the data
         absoluteStartTime: absoluteStartSec, // Add absolute start time for x-axis positioning
+        annotations: plotState.annotations || [],
       };
     } catch (err) {
       console.error("Error converting EDF data:", err);
@@ -398,566 +534,611 @@ export function EDFPlotDialog({
 
   const eegData = convertToEEGData();
 
-  const handleZoomIn = () => {
-    if (zoomLevel < 10 && eegData) {
-      const newZoom = zoomLevel * 1.5;
-      setZoomLevel(newZoom);
+  // Add state for annotations
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
 
-      // Adjust time window to maintain center point
-      const center = (timeWindow[0] + timeWindow[1]) / 2;
-      const newDuration = (timeWindow[1] - timeWindow[0]) / 1.5;
+  // Load cached annotations when the component mounts
+  useEffect(() => {
+    if (plotState.annotations) {
+      setAnnotations(plotState.annotations);
+    }
+  }, [plotState.annotations]);
+
+  // Handle annotation change
+  const handleAnnotationChange = (updatedAnnotations: Annotation[]) => {
+    setAnnotations(updatedAnnotations);
+    updatePlotState(filePath, { annotations: updatedAnnotations });
+  };
+
+  // Handle annotation update from the AnnotationEditor
+  const handleAnnotationUpdate = (
+    id: number,
+    annotationData: Partial<Annotation>
+  ) => {
+    updateAnnotation({
+      variables: {
+        id,
+        annotationInput: {
+          filePath: annotationData.filePath || filePath,
+          startTime: annotationData.startTime || 0,
+          endTime: annotationData.endTime,
+          text: annotationData.text || "",
+        },
+      },
+    });
+  };
+
+  // Handle annotation selection
+  const handleAnnotationSelect = (annotation: Annotation) => {
+    const chunkStartSample = chunkStart;
+    const chunkEndSample = chunkStart + chunkSizeSamples;
+
+    // Check if the annotation is within the current chunk
+    if (
+      annotation.startTime >= chunkStartSample &&
+      annotation.startTime <= chunkEndSample
+    ) {
+      // Update the time window to center on the annotation
+      const annotationTime = (annotation.startTime - chunkStart) / sampleRate;
+      const halfWindowSize = (timeWindow[1] - timeWindow[0]) / 2;
+
       const newLocalWindow = [
-        Math.max(0, center - newDuration / 2),
-        Math.min(eegData.duration, center + newDuration / 2),
+        Math.max(0, annotationTime - halfWindowSize),
+        Math.min(eegData?.duration || 10, annotationTime + halfWindowSize),
       ] as [number, number];
 
       setTimeWindow(newLocalWindow);
+      setCurrentSample(annotation.startTime);
 
-      // Update absolute window
+      // Update absolute time window
       const absoluteChunkStart = chunkStart / sampleRate;
       setAbsoluteTimeWindow([
         absoluteChunkStart + newLocalWindow[0],
         absoluteChunkStart + newLocalWindow[1],
       ]);
-    }
-  };
 
-  const handleZoomOut = () => {
-    if (zoomLevel > 0.1 && eegData) {
-      const newZoom = zoomLevel / 1.5;
-      setZoomLevel(newZoom);
-
-      // Adjust time window to maintain center point
-      const center = (timeWindow[0] + timeWindow[1]) / 2;
-      const newDuration = (timeWindow[1] - timeWindow[0]) * 1.5;
-      const newLocalWindow = [
-        Math.max(0, center - newDuration / 2),
-        Math.min(eegData.duration, center + newDuration / 2),
-      ] as [number, number];
-
-      setTimeWindow(newLocalWindow);
-
-      // Update absolute window
-      const absoluteChunkStart = chunkStart / sampleRate;
-      setAbsoluteTimeWindow([
-        absoluteChunkStart + newLocalWindow[0],
-        absoluteChunkStart + newLocalWindow[1],
-      ]);
-    }
-  };
-
-  const handleResetZoom = () => {
-    setZoomLevel(1);
-    // Use the actual data duration if available
-    if (eegData) {
-      setTimeWindow([0, eegData.duration]);
-
-      // Reset absolute window to match current chunk position
-      const absoluteChunkStart = chunkStart / sampleRate;
-      setAbsoluteTimeWindow([
-        absoluteChunkStart,
-        absoluteChunkStart + eegData.duration,
-      ]);
+      updatePlotState(filePath, {});
     } else {
-      setTimeWindow([0, chunkSizeSeconds]);
-      setAbsoluteTimeWindow([0, chunkSizeSeconds]);
+      // If annotation is outside current chunk, navigate to the correct chunk
+      const newChunkStart = Math.max(
+        0,
+        annotation.startTime - Math.floor(chunkSizeSamples / 2)
+      );
+      setChunkStart(newChunkStart);
+      setCurrentSample(annotation.startTime);
+
+      // Reset time window - will be updated when data loads
+      resetTimeWindow(newChunkStart);
+      updatePlotState(filePath, {});
+
+      toast({
+        title: "Loading new chunk",
+        description:
+          "Navigating to the chunk containing the selected annotation.",
+      });
     }
   };
 
-  const loadPreviousChunk = () => {
-    if (currentChunkNumber > 1 && !loadingNewChunk) {
-      setLoadingNewChunk(true);
-      setManualErrorMessage(null);
-      setRetryCount(0);
-      const newChunkStart = Math.max(0, chunkStart - chunkSizeSamples);
-      setChunkStart(newChunkStart);
+  // Handle chart click to update current sample
+  const handleChartClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!chartAreaRef.current || !eegData) return;
 
-      // Set local time window for the new chunk
-      setTimeWindow([0, chunkSizeSeconds]);
+    const rect = chartAreaRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const relativeX = x / rect.width;
+    const timeOffset =
+      timeWindow[0] + relativeX * (timeWindow[1] - timeWindow[0]);
 
-      // Calculate and set the absolute time window
-      const absoluteStartTime = newChunkStart / sampleRate;
-      setAbsoluteTimeWindow([
-        absoluteStartTime,
-        absoluteStartTime + chunkSizeSeconds,
-      ]);
-
-      // Brief delay before making the request to allow server to clean up resources
-      setTimeout(() => {
-        console.log(
-          `Requesting previous chunk at ${newChunkStart} samples, size: ${chunkSizeSamples} samples (${chunkSizeSeconds}s)`
-        );
-        refetch({
-          filename: filePath,
-          chunkStart: newChunkStart,
-          chunkSize: chunkSizeSamples,
-          preprocessingOptions: null,
-        })
-          .then((result) => {
-            // Check if we received valid data
-            if (!result.data?.getEdfData) {
-              setManualErrorMessage(
-                "No data returned from server. Try again or check the file."
-              );
-            } else {
-              // Check if we received the expected amount of data
-              const actualDuration =
-                result.data.getEdfData.chunkSize /
-                result.data.getEdfData.samplingFrequency;
-              console.log(
-                `Received chunk with duration: ${actualDuration.toFixed(1)}s`
-              );
-
-              // Set the local time window to the actual duration we received, not the requested duration
-              setTimeWindow([0, actualDuration]);
-
-              // Update the absolute time window with the actual duration
-              const absoluteStartTime = newChunkStart / sampleRate;
-              setAbsoluteTimeWindow([
-                absoluteStartTime,
-                absoluteStartTime + actualDuration,
-              ]);
-            }
-          })
-          .catch((err) => {
-            console.error("Error loading previous chunk:", err);
-            setManualErrorMessage(
-              `Error loading chunk: ${err.message || "Unknown error"}`
-            );
-          })
-          .finally(() => {
-            setLoadingNewChunk(false);
-          });
-      }, 300); // Short delay to allow file handles to be closed
-    }
+    // Convert time to sample position
+    const samplePosition = chunkStart + Math.floor(timeOffset * sampleRate);
+    setCurrentSample(samplePosition);
   };
 
-  const loadNextChunk = () => {
-    if (currentChunkNumber < totalChunks && !loadingNewChunk) {
-      setLoadingNewChunk(true);
-      setManualErrorMessage(null);
-      setRetryCount(0);
-      const newChunkStart = chunkStart + chunkSizeSamples;
-      setChunkStart(newChunkStart);
+  // Mutations for handling annotations
+  const [createAnnotation] = useMutation(CREATE_ANNOTATION, {
+    onCompleted: (data) => {
+      const newAnnotation = data.createAnnotation;
+      // Update annotations list with the newly created one
+      const updatedAnnotations = [...(annotations || []), newAnnotation];
+      setAnnotations(updatedAnnotations);
+      updatePlotState(filePath, { annotations: updatedAnnotations });
 
-      // Set local time window for the new chunk
-      setTimeWindow([0, chunkSizeSeconds]);
+      toast({
+        title: "Annotation added",
+        description: "Your annotation has been saved.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error creating annotation",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
-      // Calculate and set the absolute time window
-      const absoluteStartTime = newChunkStart / sampleRate;
-      setAbsoluteTimeWindow([
-        absoluteStartTime,
-        absoluteStartTime + chunkSizeSeconds,
-      ]);
+  const [updateAnnotation] = useMutation(UPDATE_ANNOTATION, {
+    onCompleted: (data) => {
+      const updatedAnnotation = data.updateAnnotation;
+      // Update annotations list with the updated one
+      const updatedAnnotations =
+        annotations?.map((annotation) =>
+          annotation.id === updatedAnnotation.id
+            ? updatedAnnotation
+            : annotation
+        ) || [];
+      setAnnotations(updatedAnnotations);
+      updatePlotState(filePath, { annotations: updatedAnnotations });
 
-      // Brief delay before making the request to allow server to clean up resources
-      setTimeout(() => {
-        console.log(
-          `Requesting next chunk at ${newChunkStart} samples, size: ${chunkSizeSamples} samples (${chunkSizeSeconds}s)`
-        );
-        refetch({
-          filename: filePath,
-          chunkStart: newChunkStart,
-          chunkSize: chunkSizeSamples,
-          preprocessingOptions: null,
-        })
-          .then((result) => {
-            // Check if we received valid data
-            if (!result.data?.getEdfData) {
-              setManualErrorMessage(
-                "No data returned from server. Try again or check the file."
-              );
-            } else {
-              // Check if we received the expected amount of data
-              const actualDuration =
-                result.data.getEdfData.chunkSize /
-                result.data.getEdfData.samplingFrequency;
-              console.log(
-                `Received chunk with duration: ${actualDuration.toFixed(1)}s`
-              );
+      toast({
+        title: "Annotation updated",
+        description: "Your annotation has been updated.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error updating annotation",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
-              // Set the local time window to the actual duration we received, not the requested duration
-              setTimeWindow([0, actualDuration]);
+  const [deleteAnnotation] = useMutation(DELETE_ANNOTATION, {
+    onCompleted: () => {
+      toast({
+        title: "Annotation deleted",
+        description: "Your annotation has been removed.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error deleting annotation",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
-              // Update the absolute time window with the actual duration
-              const absoluteStartTime = newChunkStart / sampleRate;
-              setAbsoluteTimeWindow([
-                absoluteStartTime,
-                absoluteStartTime + actualDuration,
-              ]);
-            }
-          })
-          .catch((err) => {
-            console.error("Error loading next chunk:", err);
-            setManualErrorMessage(
-              `Error loading chunk: ${err.message || "Unknown error"}`
-            );
-          })
-          .finally(() => {
-            setLoadingNewChunk(false);
-          });
-      }, 300); // Short delay to allow file handles to be closed
-    }
+  // Handle annotation creation
+  const handleAddAnnotation = (annotationData: Partial<Annotation>) => {
+    createAnnotation({
+      variables: {
+        annotationInput: {
+          filePath: annotationData.filePath,
+          startTime: annotationData.startTime,
+          endTime: null,
+          text: annotationData.text,
+        },
+      },
+    });
+  };
+
+  // Handle annotation deletion
+  const handleDeleteAnnotation = (id: number) => {
+    deleteAnnotation({
+      variables: { id },
+      update: (cache) => {
+        // Update local state after deletion
+        const updatedAnnotations =
+          annotations?.filter((annotation) => annotation.id !== id) || [];
+        setAnnotations(updatedAnnotations);
+        updatePlotState(filePath, { annotations: updatedAnnotations });
+      },
+      context: {
+        fetchOptions: {
+          credentials: "include", // Ensure cookies are sent
+        },
+      },
+    });
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(newOpen) => {
-        // We don't reset the state anymore, just close the dialog
-        onOpenChange(newOpen);
-
-        // Reset only error-related state which doesn't need to be preserved
-        if (!newOpen) {
-          setManualErrorMessage(null);
-          setRetryCount(0);
-        }
-      }}
-    >
-      <DialogContent
-        className={`sm:max-w-[800px] ${showPlot ? "min-h-[600px]" : ""}`}
-      >
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[95vw] max-h-[95vh] w-full flex flex-col overflow-hidden">
         <DialogHeader>
-          <DialogTitle>EDF Data Visualization</DialogTitle>
+          <DialogTitle>EDF Plot: {filePath}</DialogTitle>
+
+          {/* Chunk and navigation info */}
+          {eegData && (
+            <div className="flex items-center gap-4 text-sm">
+              <div>
+                <span className="font-medium">Channels:</span>{" "}
+                {eegData.channels.length}
+              </div>
+              <div>
+                <span className="font-medium">Sample Rate:</span>{" "}
+                {eegData.sampleRate} Hz
+              </div>
+              <div>
+                <span className="font-medium">Position:</span>{" "}
+                {(chunkStart / sampleRate).toFixed(1)}s -{" "}
+                {(
+                  (chunkStart + data?.getEdfData?.chunkSize || 0) / sampleRate
+                ).toFixed(1)}
+                s / {(totalSamples / sampleRate).toFixed(1)}s
+              </div>
+            </div>
+          )}
+
+          {/* Download progress indicator */}
+          {downloadProgress > 0 && (
+            <div className="mt-2">
+              <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                <span>Downloading data</span>
+                <span>{downloadProgress}%</span>
+              </div>
+              <Progress value={downloadProgress} className="h-1" />
+            </div>
+          )}
         </DialogHeader>
 
-        {!showPlot ? (
-          <div className="grid gap-4 py-4">
-            <div className="flex items-center gap-4">
-              <Label htmlFor="chunkSize" className="w-32">
-                Chunk Size (seconds):
-              </Label>
-              <Input
-                id="chunkSize"
-                type="number"
-                min={1}
-                max={60}
-                value={chunkSizeSeconds}
-                onChange={(e) => setChunkSizeSeconds(Number(e.target.value))}
-                className="w-24"
-              />
-            </div>
+        <div className="flex-grow min-h-0 relative flex flex-col">
+          {/* Error display */}
+          {(error || manualErrorMessage) && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertDescription>
+                {manualErrorMessage || `Error: ${error?.message}`}
+              </AlertDescription>
+            </Alert>
+          )}
 
-            {loading ? (
-              <div className="flex justify-center items-center h-40">
-                <Spinner />
-              </div>
-            ) : error || manualErrorMessage ? (
-              <Alert variant="destructive">
-                <AlertDescription>
-                  {manualErrorMessage ||
-                    `Error loading EDF data: ${
-                      error?.message || "Unknown error"
-                    }`}
-                </AlertDescription>
-              </Alert>
-            ) : data?.getEdfData ? (
-              <>
-                <div className="flex justify-between items-center mt-2">
-                  <Label>Select Channels:</Label>
-                  <div className="space-x-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={selectAllChannels}
-                    >
-                      Select All
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={deselectAllChannels}
-                    >
-                      Deselect All
-                    </Button>
-                  </div>
-                </div>
-
-                <ScrollArea className="h-40 border rounded-md p-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    {data.getEdfData.channelLabels.map((channel: string) => (
-                      <div
-                        key={channel}
-                        className="flex items-center space-x-2"
-                      >
-                        <Checkbox
-                          id={`channel-${channel}`}
-                          checked={selectedChannels.includes(channel)}
-                          onCheckedChange={() => toggleChannel(channel)}
-                        />
-                        <Label
-                          htmlFor={`channel-${channel}`}
-                          className="cursor-pointer text-sm"
-                        >
-                          {channel}
-                        </Label>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-
-                <div className="text-sm text-muted-foreground">
-                  File: {filePath}
-                  <br />
-                  Sample Rate: {data.getEdfData.samplingFrequency} Hz
-                  <br />
-                  Channels: {data.getEdfData.channelLabels.length}
-                  <br />
-                  Total Samples: {data.getEdfData.totalSamples} (
-                  {data.getEdfData.totalSamples /
-                    data.getEdfData.samplingFrequency}{" "}
-                  seconds)
-                </div>
-              </>
-            ) : null}
-          </div>
-        ) : loading || (loadingNewChunk && !eegData) ? (
-          <div className="space-y-4 py-4">
-            <div className="h-[400px] flex flex-col items-center justify-center">
-              <div className="animate-pulse mb-4">
-                <Spinner className="h-8 w-8" />
-              </div>
-              <div className="text-sm font-medium mb-2">
-                {loading
-                  ? "Loading EDF data..."
-                  : `Loading ${
-                      currentChunkNumber < totalChunks ? "next" : "previous"
-                    } chunk...`}
-              </div>
-              {manualErrorMessage && (
-                <div
-                  className={cn(
-                    "text-sm text-destructive mt-2 max-w-xs text-center",
-                    retryCount > 0 && "animate-pulse"
-                  )}
+          {/* Main content */}
+          <div className="grid grid-cols-5 gap-6 h-full overflow-hidden">
+            {/* Chart area */}
+            <div
+              className="col-span-3 relative min-h-[500px]"
+              ref={chartAreaRef}
+            >
+              {/* Add floating edit button */}
+              <Button
+                variant={editMode ? "destructive" : "default"}
+                size="icon"
+                className="absolute top-4 left-4 z-30 rounded-full shadow-lg h-12 w-12"
+                onClick={() => setEditMode(!editMode)}
+                title={editMode ? "Exit Edit Mode" : "Edit Annotations"}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="lucide lucide-pencil"
                 >
-                  {manualErrorMessage}
+                  <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                  <path d="m15 5 4 4" />
+                </svg>
+              </Button>
+
+              {/* Loading state */}
+              {(loading || loadingNewChunk) && (
+                <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-10">
+                  <Spinner size="lg" />
                 </div>
               )}
-            </div>
-          </div>
-        ) : eegData ? (
-          <div className="space-y-4 py-4">
-            <div className="flex justify-between items-center">
-              <div className="text-sm text-muted-foreground">
-                Zoom Level: {zoomLevel.toFixed(1)}x
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleZoomOut}
-                  disabled={zoomLevel <= 0.1}
-                  title="Zoom Out"
+
+              {/* Navigation cues */}
+              {nearEdge === "start" && !loading && (
+                <button
+                  className="absolute left-0 top-1/2 transform -translate-y-1/2 h-1/2 w-16 z-10
+                             bg-gradient-to-r from-primary/20 to-transparent hover:from-primary/40
+                             flex items-center justify-start pl-2 rounded-r-lg"
+                  onClick={handlePrevChunk}
+                  disabled={chunkStart === 0}
                 >
-                  <ZoomOut className="h-4 w-4" />
-                </Button>
+                  <ChevronLeft
+                    className={cn(
+                      "h-8 w-8",
+                      chunkStart === 0
+                        ? "text-muted-foreground"
+                        : "text-primary"
+                    )}
+                  />
+                </button>
+              )}
+
+              {nearEdge === "end" && !loading && (
+                <button
+                  className="absolute right-0 top-1/2 transform -translate-y-1/2 h-1/2 w-16 z-10
+                             bg-gradient-to-l from-primary/20 to-transparent hover:from-primary/40
+                             flex items-center justify-end pr-2 rounded-l-lg"
+                  onClick={handleNextChunk}
+                  disabled={chunkStart + chunkSizeSamples >= totalSamples}
+                >
+                  <ChevronRight
+                    className={cn(
+                      "h-8 w-8",
+                      chunkStart + chunkSizeSamples >= totalSamples
+                        ? "text-muted-foreground"
+                        : "text-primary"
+                    )}
+                  />
+                </button>
+              )}
+
+              {/* EEG Chart */}
+              <div
+                className="flex-1 overflow-hidden relative"
+                ref={chartAreaRef}
+                onClick={handleChartClick}
+              >
+                {editMode && (
+                  <div className="absolute top-2 left-0 right-0 mx-auto w-fit z-30 bg-blue-600 text-white px-4 py-2 rounded-md shadow-lg text-center">
+                    <p className="font-medium">Edit Mode Active</p>
+                    <p className="text-sm">
+                      Click on the plot to add annotations. Right-click on
+                      existing annotations to delete them.
+                    </p>
+                  </div>
+                )}
+
+                {loading ? (
+                  <div className="flex flex-col items-center justify-center h-full">
+                    <Spinner size="lg" />
+                    <div className="mt-4 text-sm text-muted-foreground">
+                      Loading EDF data...
+                    </div>
+                    {downloadProgress > 0 && (
+                      <Progress
+                        value={downloadProgress}
+                        className="w-1/2 mt-2"
+                      />
+                    )}
+                  </div>
+                ) : error || manualErrorMessage ? (
+                  <Alert variant="destructive" className="mt-4">
+                    <AlertDescription>
+                      {manualErrorMessage || error?.message || "Unknown error"}
+                    </AlertDescription>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => {
+                        setManualErrorMessage(null);
+                        setRetryCount(retryCount + 1);
+                        refetch();
+                      }}
+                    >
+                      Retry
+                    </Button>
+                  </Alert>
+                ) : !eegData || selectedChannels.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                    {eegData ? (
+                      <div>Please select at least one channel to display</div>
+                    ) : (
+                      <div>No data available</div>
+                    )}
+                  </div>
+                ) : (
+                  <EEGChart
+                    eegData={eegData}
+                    selectedChannels={selectedChannels}
+                    timeWindow={timeWindow}
+                    absoluteTimeWindow={absoluteTimeWindow}
+                    zoomLevel={zoomLevel}
+                    onTimeWindowChange={handleTimeWindowChange}
+                    className="w-full h-full"
+                    height="100%"
+                    editMode={editMode}
+                    onAnnotationAdd={handleAddAnnotation}
+                    onAnnotationDelete={handleDeleteAnnotation}
+                    filePath={filePath}
+                  />
+                )}
+              </div>
+
+              {/* Zoom controls */}
+              <div className="absolute top-4 right-4 flex flex-col space-y-2">
                 <Button
-                  variant="outline"
-                  size="sm"
+                  variant="secondary"
+                  size="icon"
                   onClick={handleZoomIn}
                   disabled={zoomLevel >= 10}
-                  title="Zoom In"
                 >
                   <ZoomIn className="h-4 w-4" />
                 </Button>
                 <Button
-                  variant="outline"
-                  size="sm"
+                  variant="secondary"
+                  size="icon"
+                  onClick={handleZoomOut}
+                  disabled={zoomLevel <= 0.2}
+                >
+                  <ZoomOut className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="icon"
                   onClick={handleResetZoom}
-                  title="Reset Zoom"
                 >
                   <RotateCcw className="h-4 w-4" />
                 </Button>
               </div>
             </div>
 
-            {/* Chunk navigation controls */}
-            <div className="flex justify-between items-center">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={loadPreviousChunk}
-                disabled={currentChunkNumber <= 1 || loading || loadingNewChunk}
-                title="Previous Chunk"
-              >
-                {loadingNewChunk && currentChunkNumber > 1 ? (
+            {/* Controls panel */}
+            <div className="col-span-2 h-full overflow-hidden flex flex-col">
+              <ScrollArea className="flex-grow">
+                {eegData && (
                   <>
-                    <Spinner className="h-3 w-3 mr-2" />
-                    Loading...
-                  </>
-                ) : (
-                  <>
-                    <ChevronLeft className="h-4 w-4 mr-1" />
-                    Previous Chunk
-                  </>
-                )}
-              </Button>
-
-              <div className="text-sm">
-                Chunk {currentChunkNumber} of {totalChunks}
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={loadNextChunk}
-                disabled={
-                  currentChunkNumber >= totalChunks ||
-                  loading ||
-                  loadingNewChunk
-                }
-                title="Next Chunk"
-              >
-                {loadingNewChunk && currentChunkNumber < totalChunks ? (
-                  <>
-                    <Spinner className="h-3 w-3 mr-2" />
-                    Loading...
-                  </>
-                ) : (
-                  <>
-                    Next Chunk
-                    <ChevronRight className="h-4 w-4 ml-1" />
-                  </>
-                )}
-              </Button>
-            </div>
-
-            <div className="h-[400px] relative">
-              {loading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
-                  <Spinner className="h-8 w-8" />
-                </div>
-              )}
-              {!loading && loadingNewChunk && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 z-10">
-                  <div className="animate-pulse">
-                    <Spinner className="h-8 w-8 mb-2" />
-                  </div>
-                  <div className="text-sm font-medium">
-                    Loading{" "}
-                    {currentChunkNumber < totalChunks ? "next" : "previous"}{" "}
-                    chunk...
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {currentChunkNumber > 1 && currentChunkNumber < totalChunks
-                      ? `Chunk ${currentChunkNumber} → ${
-                          currentChunkNumber +
-                          (currentChunkNumber < totalChunks ? 1 : -1)
-                        }`
-                      : `Navigating to ${
-                          currentChunkNumber < totalChunks ? "next" : "previous"
-                        } section`}
-                  </div>
-                  {manualErrorMessage && (
-                    <div
-                      className={cn(
-                        "text-sm text-destructive mt-2 max-w-xs text-center",
-                        retryCount > 0 && "animate-pulse"
-                      )}
-                    >
-                      {manualErrorMessage}
+                    <div className="flex justify-between items-center mt-2">
+                      <Label>Select Channels:</Label>
+                      <div className="space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={selectAllChannels}
+                        >
+                          Select All
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={deselectAllChannels}
+                        >
+                          Deselect All
+                        </Button>
+                      </div>
                     </div>
-                  )}
-                </div>
-              )}
-              {/* Edge indicators */}
-              {nearEdge === "start" && currentChunkNumber > 1 && (
-                <div className="absolute left-0 top-0 bottom-0 w-16 bg-gradient-to-r from-yellow-500/20 to-transparent flex items-center justify-start pl-2 pointer-events-none">
-                  <ChevronLeft className="h-6 w-6 text-amber-600" />
-                  <div className="absolute bottom-4 left-2 bg-amber-50/90 text-amber-700 text-xs p-1 px-2 rounded whitespace-nowrap border border-amber-200">
-                    Use "Previous Chunk" button to view earlier data
-                  </div>
-                </div>
-              )}
-              {nearEdge === "end" && currentChunkNumber < totalChunks && (
-                <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-yellow-500/20 to-transparent flex items-center justify-end pr-2 pointer-events-none">
-                  <ChevronRight className="h-6 w-6 text-amber-600" />
-                  <div className="absolute bottom-4 right-2 bg-amber-50/90 text-amber-700 text-xs p-1 px-2 rounded whitespace-nowrap border border-amber-200">
-                    Use "Next Chunk" button to view more data
-                  </div>
-                </div>
-              )}
-              <EEGChart
-                eegData={eegData}
-                selectedChannels={selectedChannels}
-                timeWindow={timeWindow}
-                absoluteTimeWindow={absoluteTimeWindow}
-                zoomLevel={zoomLevel}
-                onTimeWindowChange={handleTimeWindowChange}
-              />
-            </div>
 
-            <div className="text-sm text-muted-foreground">
-              <div className="flex justify-between">
-                {loadingNewChunk ? (
-                  <span className="italic">Loading new time window...</span>
-                ) : (
-                  <span>
-                    Viewing: {(timeWindow[1] - timeWindow[0]).toFixed(1)}s
-                    duration at {absoluteTimeWindow[0].toFixed(1)}s -{" "}
-                    {absoluteTimeWindow[1].toFixed(1)}s in file
-                  </span>
+                    <div className="mt-4 space-y-2">
+                      {availableChannels.map((channel) => (
+                        <div
+                          key={channel}
+                          className="flex items-center space-x-2"
+                        >
+                          <Checkbox
+                            id={`channel-${channel}`}
+                            checked={selectedChannels.includes(channel)}
+                            onCheckedChange={() => toggleChannel(channel)}
+                          />
+                          <Label
+                            htmlFor={`channel-${channel}`}
+                            className="cursor-pointer"
+                          >
+                            {channel}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Preprocessing Options Section */}
+                    <div className="mt-6">
+                      <h3 className="text-sm font-medium mb-2">
+                        Preprocessing Options
+                      </h3>
+                      <form
+                        onSubmit={handlePreprocessingSubmit}
+                        className="space-y-4"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="removeOutliers"
+                            checked={preprocessingOptions.removeOutliers}
+                            onCheckedChange={(checked) =>
+                              setPreprocessingOptions({
+                                ...preprocessingOptions,
+                                removeOutliers: checked,
+                              })
+                            }
+                          />
+                          <Label htmlFor="removeOutliers">
+                            Remove outliers
+                          </Label>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="smoothing"
+                            checked={preprocessingOptions.smoothing}
+                            onCheckedChange={(checked) =>
+                              setPreprocessingOptions({
+                                ...preprocessingOptions,
+                                smoothing: checked,
+                              })
+                            }
+                          />
+                          <Label htmlFor="smoothing">Apply smoothing</Label>
+                        </div>
+
+                        {preprocessingOptions.smoothing && (
+                          <div className="space-y-2">
+                            <Label htmlFor="smoothingWindow">
+                              Smoothing window:{" "}
+                              {preprocessingOptions.smoothingWindow}
+                            </Label>
+                            <Slider
+                              id="smoothingWindow"
+                              min={3}
+                              max={15}
+                              step={2}
+                              value={[preprocessingOptions.smoothingWindow]}
+                              onValueChange={(values) =>
+                                setPreprocessingOptions({
+                                  ...preprocessingOptions,
+                                  smoothingWindow: values[0],
+                                })
+                              }
+                            />
+                          </div>
+                        )}
+
+                        <div className="space-y-2">
+                          <Label htmlFor="normalization">Normalization</Label>
+                          <select
+                            id="normalization"
+                            className="w-full rounded-md border border-input bg-background px-3 py-2"
+                            value={preprocessingOptions.normalization}
+                            onChange={(e) =>
+                              setPreprocessingOptions({
+                                ...preprocessingOptions,
+                                normalization: e.target.value,
+                              })
+                            }
+                          >
+                            <option value="none">None</option>
+                            <option value="minmax">Min-Max</option>
+                            <option value="zscore">Z-Score</option>
+                          </select>
+                        </div>
+
+                        <Button type="submit" className="w-full">
+                          Apply Preprocessing
+                        </Button>
+                      </form>
+                    </div>
+
+                    {/* Annotation editor (only show in non-edit mode) */}
+                    {!editMode && (
+                      <div className="border-t p-4 h-60 overflow-auto">
+                        <AnnotationEditor
+                          filePath={filePath}
+                          currentSample={currentSample}
+                          sampleRate={
+                            data?.getEdfData?.samplingFrequency || sampleRate
+                          }
+                          initialAnnotations={annotations}
+                          onAnnotationsChange={handleAnnotationChange}
+                          onAnnotationUpdate={handleAnnotationUpdate}
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
-                <span>
-                  Progress:{" "}
-                  {((absoluteTimeWindow[0] / totalDuration) * 100).toFixed(1)}%
-                  - {((absoluteTimeWindow[1] / totalDuration) * 100).toFixed(1)}
-                  %
-                </span>
-              </div>
-              <div className="mt-1 flex justify-between">
-                <span>
-                  Total Duration: {totalDuration.toFixed(1)}s ({totalSamples}{" "}
-                  samples at {sampleRate}Hz)
-                </span>
-                {eegData &&
-                chunkStart === 0 &&
-                eegData.duration < chunkSizeSeconds * 0.9 ? (
-                  <span className="text-amber-500">
-                    Note: First chunk is limited to{" "}
-                    {eegData.duration.toFixed(1)}s by the server
-                  </span>
-                ) : (
-                  eegData &&
-                  chunkStart > 0 &&
-                  Math.abs(eegData.duration - chunkSizeSeconds) >
-                    chunkSizeSeconds * 0.2 && (
-                    <span className="text-amber-500">
-                      Note: Server returned {eegData.duration.toFixed(1)}s
-                      instead of requested {chunkSizeSeconds}s
-                    </span>
-                  )
-                )}
-              </div>
+              </ScrollArea>
             </div>
           </div>
-        ) : (
-          <div className="py-4 flex flex-col items-center justify-center">
-            <Alert variant="destructive" className="mb-4">
-              <AlertDescription>
-                {manualErrorMessage ||
-                  "Failed to convert data for plotting. The data format may be invalid."}
-              </AlertDescription>
-            </Alert>
-            <Button onClick={() => setShowPlot(false)} variant="outline">
-              Back to Settings
-            </Button>
-          </div>
-        )}
+        </div>
 
-        <DialogFooter>
-          {!showPlot ? (
+        <DialogFooter className="space-x-2">
+          <div className="flex-1 flex items-center justify-start gap-2">
             <Button
-              type="submit"
-              onClick={handlePlot}
-              disabled={loading || selectedChannels.length === 0}
+              variant="outline"
+              onClick={handlePrevChunk}
+              disabled={chunkStart === 0 || loading}
             >
-              Plot Selected Channels
+              <ChevronLeft className="h-4 w-4 mr-1" /> Previous
             </Button>
-          ) : (
-            <Button onClick={() => setShowPlot(false)}>Back to Settings</Button>
-          )}
+            <Button
+              variant="outline"
+              onClick={handleNextChunk}
+              disabled={
+                chunkStart + chunkSizeSamples >= totalSamples || loading
+              }
+            >
+              Next <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          </div>
+
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
