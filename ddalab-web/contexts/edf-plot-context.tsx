@@ -21,6 +21,11 @@ interface EDFPlotState {
   totalDuration: number;
   currentChunkNumber: number;
   totalChunks: number;
+  edfData: any | null; // Cache for the loaded EDF data
+  annotations: any[] | null; // Cache for annotations
+  lastFetchTime: number | null; // Timestamp of last fetch
+  preprocessingOptions: any | null; // Store preprocessing options
+  sampleRate: number; // Sample rate of the EDF file
 }
 
 // Create a context for the EDF plot state
@@ -56,6 +61,11 @@ const defaultPlotState: EDFPlotState = {
   totalDuration: 0,
   currentChunkNumber: 1,
   totalChunks: 1,
+  edfData: null,
+  annotations: null,
+  lastFetchTime: null,
+  preprocessingOptions: null,
+  sampleRate: 256, // Default sample rate
 };
 
 // Create the context with undefined default value

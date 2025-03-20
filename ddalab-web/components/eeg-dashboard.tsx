@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Download,
   Share2,
+  Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,8 +23,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Slider } from "@/components/ui/slider";
 import { EEGChart } from "@/components/eeg-chart";
 import { FileSelector } from "@/components/file-selector";
+import { EEGZoomSettings } from "@/components/eeg-zoom-settings";
 import { parseEDFFile } from "@/lib/edf-parser";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/auth-context";
 import {
   Dialog,
   DialogContent,
@@ -43,7 +46,21 @@ export type EEGData = {
   startTime: Date;
   duration: number;
   absoluteStartTime?: number; // Optional absolute start time in seconds relative to file start
+  annotations?: any[]; // Optional annotations
 };
+
+function QuickZoomSettings({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="p-4">
+      <EEGZoomSettings />
+      <div className="mt-4 flex justify-end">
+        <Button variant="ghost" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export function EEGDashboard() {
   const [eegData, setEEGData] = useState<EEGData | null>(null);
@@ -55,6 +72,7 @@ export function EEGDashboard() {
   const [shareUrl, setShareUrl] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chartRef = useRef<HTMLDivElement>(null);
+  const [showZoomSettings, setShowZoomSettings] = useState(false);
 
   const handleFileSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -106,8 +124,7 @@ export function EEGDashboard() {
       console.error("Error loading EDF file:", error);
       toast({
         title: "Error loading file",
-        description:
-          "There was a problem processing the EDF file. Using simulated data instead.",
+        description: "There was a problem processing the EDF file.",
         variant: "destructive",
       });
     } finally {
@@ -230,16 +247,6 @@ export function EEGDashboard() {
   return (
     <div className="w-full max-w-7xl">
       <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>DDALAB Data Visualization</CardTitle>
-          <CardDescription>
-            Upload an EDF file to visualize and analyze EEG data in your browser
-            <div className="mt-2 text-xs text-amber-500">
-              Note: This demo uses simulated data instead of parsing actual EDF
-              files to ensure stability.
-            </div>
-          </CardDescription>
-        </CardHeader>
         <CardContent>
           <FileSelector
             ref={fileInputRef}
@@ -316,44 +323,92 @@ export function EEGDashboard() {
                 </CardDescription>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={handleExportImage}>
-                  <Download className="h-4 w-4 mr-1" /> Export
+                <Button
+                  variant="outline"
+                  size="icon"
+                  title="Zoom In"
+                  onClick={handleZoomIn}
+                  disabled={!eegData || zoomLevel >= 10}
+                >
+                  <ZoomIn className="h-4 w-4" />
                 </Button>
-
+                <Button
+                  variant="outline"
+                  size="icon"
+                  title="Zoom Out"
+                  onClick={handleZoomOut}
+                  disabled={!eegData || zoomLevel <= 0.1}
+                >
+                  <ZoomOut className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  title="Reset View"
+                  onClick={handleReset}
+                  disabled={!eegData}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  title="Export as Image"
+                  onClick={handleExportImage}
+                  disabled={!eegData}
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
                 <Dialog>
                   <DialogTrigger asChild>
                     <Button
                       variant="outline"
-                      size="sm"
+                      size="icon"
+                      title="Share"
                       onClick={handleShareLink}
+                      disabled={!eegData}
                     >
-                      <Share2 className="h-4 w-4 mr-1" /> Share
+                      <Share2 className="h-4 w-4" />
                     </Button>
                   </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>
-                      <DialogTitle>Share Visualization</DialogTitle>
+                      <DialogTitle>Share this view</DialogTitle>
                       <DialogDescription>
-                        Copy this link to share your current EEG visualization
-                        view
+                        Copy the link below to share your current EEG view with
+                        others.
                       </DialogDescription>
                     </DialogHeader>
-                    <div className="flex items-center space-x-2 mt-4">
-                      <div className="grid flex-1 gap-2">
-                        <Label htmlFor="share-link" className="sr-only">
-                          Share Link
-                        </Label>
-                        <Input id="share-link" value={shareUrl} readOnly />
-                      </div>
-                      <Button
-                        onClick={handleCopyShareLink}
-                        type="submit"
-                        size="sm"
-                        className="px-3"
-                      >
-                        Copy
-                      </Button>
+                    <div className="flex items-center space-x-2">
+                      <Input
+                        value={shareUrl}
+                        readOnly
+                        onClick={(e) => e.currentTarget.select()}
+                      />
+                      <Button onClick={handleCopyShareLink}>Copy</Button>
                     </div>
+                  </DialogContent>
+                </Dialog>
+                <Dialog
+                  open={showZoomSettings}
+                  onOpenChange={setShowZoomSettings}
+                >
+                  <DialogTrigger asChild>
+                    <Button variant="outline" size="icon" title="Zoom Settings">
+                      <Settings className="h-4 w-4" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Zoom Settings</DialogTitle>
+                      <DialogDescription>
+                        Customize how the EEG chart responds to mouse wheel
+                        zooming
+                      </DialogDescription>
+                    </DialogHeader>
+                    <QuickZoomSettings
+                      onClose={() => setShowZoomSettings(false)}
+                    />
                   </DialogContent>
                 </Dialog>
               </div>
