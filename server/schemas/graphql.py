@@ -2,23 +2,20 @@
 
 import asyncio
 import os
-from datetime import datetime
-from pathlib import Path
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import numpy as np
 import strawberry
 from fastapi import BackgroundTasks, Request
 from loguru import logger
-from sqlalchemy.orm import Session
 from strawberry.fastapi import GraphQLRouter
-
-from ddalab.data.edf import read_edf_chunk
 
 from ..config import get_settings
 from ..core.auth import get_current_user_from_request
 from ..core.database import Annotation, FavoriteFile, SessionLocal
 from ..core.dda import get_dda_result, get_task_status, start_dda
+from ..core.edf import get_edf_navigator, read_edf_chunk
 from ..core.files import list_directory, validate_file_path
 from .preprocessing import (
     PreprocessingOptionsInput,
@@ -39,6 +36,41 @@ class FileInfo:
 
 
 @strawberry.type
+class EDFChunkInfo:
+    """EDF chunk information type."""
+
+    start: int = strawberry.field(description="Start position in samples")
+    end: int = strawberry.field(description="End position in samples")
+    size: int = strawberry.field(description="Size of the chunk in samples")
+    timeSeconds: float = strawberry.field(
+        description="Duration of the chunk in seconds"
+    )
+    positionSeconds: float = strawberry.field(
+        description="Position of the chunk in seconds from the start of the file"
+    )
+
+
+@strawberry.type
+class EDFNavigationInfo:
+    """EDF navigation information type."""
+
+    totalSamples: int = strawberry.field(
+        description="Total number of samples in the file"
+    )
+    fileDurationSeconds: float = strawberry.field(
+        description="Total duration of the file in seconds"
+    )
+    numSignals: int = strawberry.field(description="Number of signals in the file")
+    signalLabels: List[str] = strawberry.field(description="Labels of the signals")
+    samplingFrequencies: List[float] = strawberry.field(
+        description="Sampling frequencies for each signal"
+    )
+    chunks: List[EDFChunkInfo] = strawberry.field(
+        description="Available chunk ranges based on the given chunk size"
+    )
+
+
+@strawberry.type
 class EDFData:
     """EDF data type."""
 
@@ -48,10 +80,16 @@ class EDFData:
     totalSamples: int
     chunkStart: int
     chunkSize: int
+    navigationInfo: Optional[EDFNavigationInfo] = strawberry.field(
+        description="Navigation information for the file"
+    )
+    chunkInfo: Optional[EDFChunkInfo] = strawberry.field(
+        description="Information about the current chunk"
+    )
 
     @strawberry.field
     def has_more(self) -> bool:
-        """Check if there is more data available."""
+        """Check if there are more samples available after this chunk."""
         return bool(self.chunkStart + self.chunkSize < self.totalSamples)
 
 
@@ -211,12 +249,110 @@ class Query:
             db.close()
 
     @strawberry.field
+    async def get_edf_navigation(
+        self,
+        filename: str,
+        chunkSize: int = 51_200,  # Default to 10 seconds at 512 Hz
+    ) -> EDFNavigationInfo:
+        """Get navigation information for an EDF file.
+
+        Args:
+            filename: Path to the EDF file
+            chunkSize: Size to use for chunk calculations
+
+        Returns:
+            EDFNavigationInfo object with navigation data
+        """
+        try:
+            # Validate file path
+            if not await validate_file_path(filename):
+                raise ValueError(f"Invalid file path: {filename}")
+
+            settings = get_settings()
+            full_path = os.path.join(settings.data_dir, filename)
+            logger.info(f"Getting EDF navigation info: {full_path}")
+
+            # Use the navigator to get file metadata without loading the entire file
+            loop = asyncio.get_event_loop()
+            navigator = await loop.run_in_executor(
+                None,
+                get_edf_navigator,
+                full_path,
+            )
+
+            # Get navigation info and chunk ranges
+            nav_info = navigator.get_navigation_info()
+            chunk_ranges = navigator.get_chunk_ranges(chunkSize)
+
+            # Convert snake_case to camelCase if needed
+            if "total_samples" in nav_info:
+                nav_info = {
+                    "totalSamples": nav_info.get("total_samples", 0),
+                    "fileDurationSeconds": nav_info.get("file_duration_seconds", 0),
+                    "numSignals": nav_info.get("num_signals", 0),
+                    "signalLabels": nav_info.get("signal_labels", []),
+                    "samplingFrequencies": nav_info.get("sampling_frequencies", []),
+                }
+
+            # Convert snake_case to camelCase in chunks if needed
+            converted_chunks = []
+            for chunk in chunk_ranges:
+                if "time_seconds" in chunk:
+                    converted_chunks.append(
+                        {
+                            "start": chunk["start"],
+                            "end": chunk["end"],
+                            "size": chunk["size"],
+                            "timeSeconds": chunk.get("time_seconds", 0),
+                            "positionSeconds": chunk.get("position_seconds", 0),
+                        }
+                    )
+                else:
+                    converted_chunks.append(chunk)
+
+            # Convert to schema types
+            chunks = [
+                EDFChunkInfo(
+                    start=chunk["start"],
+                    end=chunk["end"],
+                    size=chunk["size"],
+                    timeSeconds=chunk.get("timeSeconds", chunk.get("time_seconds", 0)),
+                    positionSeconds=chunk.get(
+                        "positionSeconds", chunk.get("position_seconds", 0)
+                    ),
+                )
+                for chunk in converted_chunks
+            ]
+
+            return EDFNavigationInfo(
+                totalSamples=nav_info.get(
+                    "totalSamples", nav_info.get("total_samples", 0)
+                ),
+                fileDurationSeconds=nav_info.get(
+                    "fileDurationSeconds", nav_info.get("file_duration_seconds", 0)
+                ),
+                numSignals=nav_info.get("numSignals", nav_info.get("num_signals", 0)),
+                signalLabels=nav_info.get(
+                    "signalLabels", nav_info.get("signal_labels", [])
+                ),
+                samplingFrequencies=nav_info.get(
+                    "samplingFrequencies", nav_info.get("sampling_frequencies", [])
+                ),
+                chunks=chunks,
+            )
+
+        except Exception as e:
+            logger.error(f"Error getting EDF navigation info: {str(e)}")
+            raise ValueError(f"Failed to get EDF navigation info: {str(e)}")
+
+    @strawberry.field
     async def get_edf_data(
         self,
         filename: str,
         chunkStart: int = 0,
         chunkSize: int = 51_200,  # Default to 10 seconds at 512 Hz for higher resolution files
         preprocessingOptions: Optional[VisualizationPreprocessingOptionsInput] = None,
+        includeNavigationInfo: bool = False,  # Whether to include navigation info
     ) -> EDFData:
         """Get raw EDF data for a file.
 
@@ -225,6 +361,7 @@ class Query:
             chunkStart: Start index for data chunk
             chunkSize: Size of data chunk to return (in samples)
             preprocessingOptions: Optional preprocessing options for visualization
+            includeNavigationInfo: Whether to include navigation info in the response
 
         Returns:
             EDFData containing the raw data and metadata
@@ -247,6 +384,96 @@ class Query:
                     "smoothingWindow": preprocessingOptions.smoothingWindow,
                     "normalization": preprocessingOptions.normalization,
                 }
+
+            # Create a navigator instance to get additional information
+            navigation_info = None
+            chunk_info = None
+            if includeNavigationInfo:
+                loop = asyncio.get_event_loop()
+                navigator = await loop.run_in_executor(
+                    None,
+                    get_edf_navigator,
+                    full_path,
+                )
+                nav_info = navigator.get_navigation_info()
+                chunk_ranges = navigator.get_chunk_ranges(chunkSize)
+
+                # Convert snake_case to camelCase if needed
+                if "total_samples" in nav_info:
+                    nav_info = {
+                        "totalSamples": nav_info.get("total_samples", 0),
+                        "fileDurationSeconds": nav_info.get("file_duration_seconds", 0),
+                        "numSignals": nav_info.get("num_signals", 0),
+                        "signalLabels": nav_info.get("signal_labels", []),
+                        "samplingFrequencies": nav_info.get("sampling_frequencies", []),
+                    }
+
+                # Convert snake_case to camelCase in chunks if needed
+                converted_chunks = []
+                for chunk in chunk_ranges:
+                    if "time_seconds" in chunk:
+                        converted_chunks.append(
+                            {
+                                "start": chunk["start"],
+                                "end": chunk["end"],
+                                "size": chunk["size"],
+                                "timeSeconds": chunk.get("time_seconds", 0),
+                                "positionSeconds": chunk.get("position_seconds", 0),
+                            }
+                        )
+                    else:
+                        converted_chunks.append(chunk)
+
+                # Get current chunk info
+                for chunk in converted_chunks:
+                    if chunk["start"] <= chunkStart < chunk["end"]:
+                        chunk_info = EDFChunkInfo(
+                            start=chunk["start"],
+                            end=chunk["end"],
+                            size=chunk["size"],
+                            timeSeconds=chunk.get(
+                                "timeSeconds", chunk.get("time_seconds", 0)
+                            ),
+                            positionSeconds=chunk.get(
+                                "positionSeconds", chunk.get("position_seconds", 0)
+                            ),
+                        )
+                        break
+
+                # Create navigation info object
+                chunks = [
+                    EDFChunkInfo(
+                        start=chunk["start"],
+                        end=chunk["end"],
+                        size=chunk["size"],
+                        timeSeconds=chunk.get(
+                            "timeSeconds", chunk.get("time_seconds", 0)
+                        ),
+                        positionSeconds=chunk.get(
+                            "positionSeconds", chunk.get("position_seconds", 0)
+                        ),
+                    )
+                    for chunk in converted_chunks
+                ]
+
+                navigation_info = EDFNavigationInfo(
+                    totalSamples=nav_info.get(
+                        "totalSamples", nav_info.get("total_samples", 0)
+                    ),
+                    fileDurationSeconds=nav_info.get(
+                        "fileDurationSeconds", nav_info.get("file_duration_seconds", 0)
+                    ),
+                    numSignals=nav_info.get(
+                        "numSignals", nav_info.get("num_signals", 0)
+                    ),
+                    signalLabels=nav_info.get(
+                        "signalLabels", nav_info.get("signal_labels", [])
+                    ),
+                    samplingFrequencies=nav_info.get(
+                        "samplingFrequencies", nav_info.get("sampling_frequencies", [])
+                    ),
+                    chunks=chunks,
+                )
 
             # Read the data chunk
             loop = asyncio.get_event_loop()
@@ -279,6 +506,16 @@ class Query:
                 data.append(reduced_data.tolist())
             logger.info("Data conversion complete")
 
+            # If we didn't get chunk info from the navigator but have chunk data in the file
+            if chunk_info is None and edf_file.chunk_info is not None:
+                chunk_info = EDFChunkInfo(
+                    start=edf_file.chunk_info["start"],
+                    end=edf_file.chunk_info["end"],
+                    size=edf_file.chunk_info["size"],
+                    timeSeconds=edf_file.chunk_info["time_seconds"],
+                    positionSeconds=edf_file.chunk_info["position_seconds"],
+                )
+
             logger.info("Creating EDFData object...")
             edf_data = EDFData(
                 data=data,
@@ -287,6 +524,8 @@ class Query:
                 totalSamples=total_samples,
                 chunkStart=chunkStart,
                 chunkSize=actual_chunk_size,
+                navigationInfo=navigation_info,
+                chunkInfo=chunk_info,
             )
             logger.info("EDFData object created successfully")
 
@@ -440,7 +679,7 @@ class Mutation:
             raise ValueError(f"Invalid file path: {annotation_input.file_path}")
 
         # Create a new annotation
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         new_annotation = Annotation(
             user_id=current_user.id,
             file_path=annotation_input.file_path,
@@ -509,7 +748,7 @@ class Mutation:
             annotation.start_time = annotation_input.start_time
             annotation.end_time = annotation_input.end_time
             annotation.text = annotation_input.text
-            annotation.updated_at = datetime.utcnow()
+            annotation.updated_at = datetime.now(timezone.utc)
 
             db.commit()
             db.refresh(annotation)
