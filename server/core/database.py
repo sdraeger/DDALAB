@@ -56,6 +56,9 @@ class User(Base):
     refresh_tokens = relationship(
         "UserRefreshToken", back_populates="user", cascade="all, delete-orphan"
     )
+    favorite_files = relationship(
+        "FavoriteFile", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class UserToken(Base):
@@ -84,6 +87,38 @@ class UserRefreshToken(Base):
 
     # Relationships
     user = relationship("User", back_populates="refresh_tokens")
+
+
+class Annotation(Base):
+    """Annotation model for EDF data."""
+
+    __tablename__ = "annotations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    file_path = Column(String, index=True)  # Path to the EDF file
+    start_time = Column(Integer)  # Start sample position
+    end_time = Column(Integer, nullable=True)  # End sample position (optional)
+    text = Column(String)  # Annotation text
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = relationship("User", backref="annotations")
+
+
+class FavoriteFile(Base):
+    """Favorite file model for starred files."""
+
+    __tablename__ = "favorite_files"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    file_path = Column(String, index=True)  # Path to the favorited file
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    user = relationship("User", back_populates="favorite_files")
 
 
 class PasswordResetToken(Base):

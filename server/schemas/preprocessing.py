@@ -21,5 +21,5 @@ class VisualizationPreprocessingOptionsInput:
 
     removeOutliers: bool = False
     smoothing: bool = False
-    smoothingWindow: int = 5
+    smoothingWindow: int = 3
     normalization: str = "none"
