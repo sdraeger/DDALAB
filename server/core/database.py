@@ -1,7 +1,7 @@
 """Database configuration and models."""
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean,
@@ -100,8 +100,16 @@ class Annotation(Base):
     start_time = Column(Integer)  # Start sample position
     end_time = Column(Integer, nullable=True)  # End sample position (optional)
     text = Column(String)  # Annotation text
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(
+        DateTime,
+        default=datetime.now(timezone.utc),
+        onupdate=datetime.now(timezone.utc),
+    )
+    updated_at = Column(
+        DateTime,
+        default=datetime.now(timezone.utc),
+        onupdate=datetime.now(timezone.utc),
+    )
 
     # Relationships
     user = relationship("User", backref="annotations")
@@ -115,7 +123,11 @@ class FavoriteFile(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     file_path = Column(String, index=True)  # Path to the favorited file
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(
+        DateTime,
+        default=datetime.now(timezone.utc),
+        onupdate=datetime.now(timezone.utc),
+    )
 
     # Relationships
     user = relationship("User", back_populates="favorite_files")
@@ -143,7 +155,11 @@ class InviteCode(Base):
     id = Column(Integer, primary_key=True, index=True)
     code = Column(String, unique=True, index=True)
     email = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(
+        DateTime,
+        default=datetime.now(timezone.utc),
+        onupdate=datetime.now(timezone.utc),
+    )
     expires_at = Column(DateTime)
     used_at = Column(DateTime, nullable=True)
 
