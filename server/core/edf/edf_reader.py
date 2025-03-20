@@ -1,7 +1,8 @@
 """EDF file reader implementation."""
 
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
-from typing import Dict, List, Tuple, Optional
 from loguru import logger
 
 
