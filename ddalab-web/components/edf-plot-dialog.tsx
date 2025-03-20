@@ -202,6 +202,7 @@ export function EDFPlotDialog({
       chunkStart: chunkStart,
       chunkSize: Math.round(chunkSizeSeconds * sampleRate), // Calculate based on actual sample rate
       preprocessingOptions: preprocessingOptions,
+      includeNavigationInfo: true,
     },
     skip:
       !open ||
@@ -341,7 +342,7 @@ export function EDFPlotDialog({
 
       return () => clearTimeout(timeout);
     }
-  }, [loading]);
+  }, [loading, downloadProgress]);
 
   // Navigate to previous chunk
   const handlePrevChunk = () => {
@@ -766,9 +767,12 @@ export function EDFPlotDialog({
             <div className="mt-2">
               <div className="flex justify-between text-xs text-muted-foreground mb-1">
                 <span>Downloading data</span>
-                <span>{downloadProgress}%</span>
+                <span>{Math.min(downloadProgress, 100).toFixed(0)}%</span>
               </div>
-              <Progress value={downloadProgress} className="h-1" />
+              <Progress
+                value={Math.min(downloadProgress, 100)}
+                className="h-1"
+              />
             </div>
           )}
         </DialogHeader>
@@ -974,6 +978,7 @@ export function EDFPlotDialog({
                           variant="outline"
                           size="sm"
                           onClick={selectAllChannels}
+                          disabled={!availableChannels.length}
                         >
                           Select All
                         </Button>
@@ -981,6 +986,7 @@ export function EDFPlotDialog({
                           variant="outline"
                           size="sm"
                           onClick={deselectAllChannels}
+                          disabled={!selectedChannels.length}
                         >
                           Deselect All
                         </Button>
@@ -988,24 +994,38 @@ export function EDFPlotDialog({
                     </div>
 
                     <div className="mt-4 space-y-2">
-                      {availableChannels.map((channel) => (
-                        <div
-                          key={channel}
-                          className="flex items-center space-x-2"
-                        >
-                          <Checkbox
-                            id={`channel-${channel}`}
-                            checked={selectedChannels.includes(channel)}
-                            onCheckedChange={() => toggleChannel(channel)}
-                          />
-                          <Label
-                            htmlFor={`channel-${channel}`}
-                            className="cursor-pointer"
-                          >
-                            {channel}
-                          </Label>
+                      {error ? (
+                        <div className="text-red-500 p-2 border border-red-200 rounded-md">
+                          Error loading channels: {error.message}
                         </div>
-                      ))}
+                      ) : loading ? (
+                        <div className="text-center text-muted-foreground p-2">
+                          Loading channels...
+                        </div>
+                      ) : availableChannels.length === 0 ? (
+                        <div className="text-center text-muted-foreground p-2">
+                          No channels available
+                        </div>
+                      ) : (
+                        availableChannels.map((channel) => (
+                          <div
+                            key={channel}
+                            className="flex items-center space-x-2"
+                          >
+                            <Checkbox
+                              id={`channel-${channel}`}
+                              checked={selectedChannels.includes(channel)}
+                              onCheckedChange={() => toggleChannel(channel)}
+                            />
+                            <Label
+                              htmlFor={`channel-${channel}`}
+                              className="cursor-pointer"
+                            >
+                              {channel}
+                            </Label>
+                          </div>
+                        ))
+                      )}
                     </div>
 
                     {/* Preprocessing Options Section */}
