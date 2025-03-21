@@ -27,27 +27,28 @@
 
 const fs = require('fs');
 const path = require('path');
-const { Client } = require('pg');
+const { Client, Pool } = require('pg');
 const bcrypt = require('bcrypt');
 const dotenv = require('dotenv');
 const axios = require('axios');
+const { getEnvVar, getNumericEnvVar } = require('../../lib/utils/env');
 
 // Load environment variables from .env.local file (if exists) 
 dotenv.config({ path: path.join(__dirname, '../../.env.local') });
 
-// Default configuration values
+// Configuration
 const config = {
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'ddalab',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD,
-  adminUsername: process.env.ADMIN_USERNAME || 'admin',
-  adminPassword: process.env.ADMIN_PASSWORD,
-  adminEmail: process.env.ADMIN_EMAIL,
-  directusUrl: process.env.DIRECTUS_URL || 'http://localhost:8055',
-  directusEmail: process.env.DIRECTUS_EMAIL,
-  directusPassword: process.env.DIRECTUS_PASSWORD,
+  host: getEnvVar('DB_HOST', 'localhost'),
+  port: getNumericEnvVar('DB_PORT', 5432),
+  database: getEnvVar('DB_NAME', 'ddalab'),
+  user: getEnvVar('DB_USER', 'postgres'),
+  password: getEnvVar('DB_PASSWORD'),
+  adminUsername: getEnvVar('ADMIN_USERNAME', 'admin'),
+  adminPassword: getEnvVar('ADMIN_PASSWORD'),
+  adminEmail: getEnvVar('ADMIN_EMAIL'),
+  directusUrl: getEnvVar('DIRECTUS_URL', 'http://localhost:8055'),
+  directusEmail: getEnvVar('DIRECTUS_EMAIL'),
+  directusPassword: getEnvVar('DIRECTUS_PASSWORD'),
 };
 
 // Verify required configuration

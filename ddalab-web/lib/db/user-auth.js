@@ -4,18 +4,19 @@
  * Provides functions for user credential management and authentication
  * using PostgreSQL and bcrypt for secure password handling.
  */
-const { Pool } = require('pg');
-const bcrypt = require('bcrypt');
-const crypto = require('crypto');
-const axios = require('axios');
+import { Pool } from 'pg';
+import { hash, compare } from 'bcrypt';
+import { randomBytes } from 'crypto';
+import { post, get } from 'axios';
+import { getEnvVar } from "../lib/utils/env";
 
 // Initialize database connection pool
 const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'ddalab',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD,
+  host: getEnvVar('DB_HOST', 'localhost'),
+  port: getEnvVar('DB_PORT', '5432'),
+  database: getEnvVar('DB_NAME', 'ddalab'),
+  user: getEnvVar('DB_USER', 'postgres'),
+  password: getEnvVar('DB_PASSWORD'), // Required, no default
   // Auto-reconnection and connection limiting
   max: 20, // Maximum number of clients in the pool
   idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
@@ -32,16 +33,12 @@ pool.on('error', (err) => {
  * @returns {Promise<string>} Directus admin token
  */
 async function getDirectusAdminToken() {
-  const directusUrl = process.env.DIRECTUS_URL || 'http://localhost:8055';
-  const directusEmail = process.env.DIRECTUS_EMAIL;
-  const directusPassword = process.env.DIRECTUS_PASSWORD;
-
-  if (!directusEmail || !directusPassword) {
-    throw new Error('Directus admin credentials not found in environment variables');
-  }
+  const directusUrl = getEnvVar('DIRECTUS_URL', 'http://localhost:8055');
+  const directusEmail = getEnvVar('DIRECTUS_EMAIL');
+  const directusPassword = getEnvVar('DIRECTUS_PASSWORD');
 
   try {
-    const response = await axios.post(`${directusUrl}/auth/login`, {
+    const response = await post(`${directusUrl}/auth/login`, {
       email: directusEmail,
       password: directusPassword,
     });
@@ -59,10 +56,10 @@ async function getDirectusAdminToken() {
  * @returns {Promise<string>} Public role ID
  */
 async function getDirectusPublicRoleId(adminToken) {
-  const directusUrl = process.env.DIRECTUS_URL || 'http://localhost:8055';
+  const directusUrl = getEnvVar('DIRECTUS_URL', 'http://localhost:8055');
 
   try {
-    const response = await axios.get(`${directusUrl}/roles`, {
+    const response = await get(`${directusUrl}/roles`, {
       headers: {
         Authorization: `Bearer ${adminToken}`,
       },
@@ -88,7 +85,7 @@ async function getDirectusPublicRoleId(adminToken) {
  * @returns {Promise<Object>} Created Directus user
  */
 async function createDirectusUser(userData, adminToken) {
-  const directusUrl = process.env.DIRECTUS_URL || 'http://localhost:8055';
+  const directusUrl = getEnvVar('DIRECTUS_URL', 'http://localhost:8055');
   
   try {
     console.log(`Attempting to create Directus user for email: ${userData.email}`);
@@ -111,7 +108,7 @@ async function createDirectusUser(userData, adminToken) {
     console.log("Sending user creation request to Directus...");
     
     // Create user in Directus
-    const response = await axios.post(`${directusUrl}/users`, directusUserData, {
+    const response = await post(`${directusUrl}/users`, directusUserData, {
       headers: {
         Authorization: `Bearer ${adminToken}`,
       },
@@ -147,7 +144,7 @@ const userAuth = {
     const { createdBy, email, maxUses = 1, expiresAt } = options;
 
     // Generate a random code
-    const code = crypto.randomBytes(16).toString('hex');
+    const code = randomBytes(16).toString('hex');
     
     const query = `
       INSERT INTO invite_codes 
@@ -273,7 +270,7 @@ const userAuth = {
       
       // Hash password with bcrypt before storing
       const saltRounds = 12;
-      const passwordHash = await bcrypt.hash(password, saltRounds);
+      const passwordHash = await hash(password, saltRounds);
       
       // Insert user into PostgreSQL database
       // Note: invite_code_id column is defined in the schema but may not exist in all database deployments
@@ -349,7 +346,7 @@ const userAuth = {
       
       // Hash password with bcrypt before storing
       const saltRounds = 12; // Higher for more security, but slower
-      const passwordHash = await bcrypt.hash(password, saltRounds);
+      const passwordHash = await hash(password, saltRounds);
       
       // Insert user into PostgreSQL database
       const query = `
@@ -425,7 +422,7 @@ const userAuth = {
     const user = result.rows[0];
     
     // Verify password using bcrypt
-    const passwordMatch = await bcrypt.compare(password, user.password_hash);
+    const passwordMatch = await compare(password, user.password_hash);
     
     if (!passwordMatch) {
       return null; // Password doesn't match
@@ -451,7 +448,7 @@ const userAuth = {
    */
   async createUserToken(userId, description = 'API Access', expiresInDays = 30) {
     // Generate a secure random token
-    const token = crypto.randomBytes(32).toString('hex');
+    const token = randomBytes(32).toString('hex');
     
     // Calculate expiration date
     const expiresAt = new Date();
@@ -542,7 +539,7 @@ const userAuth = {
     const userId = userResult.rows[0].id;
     
     // Generate a secure random token
-    const token = crypto.randomBytes(20).toString('hex');
+    const token = randomBytes(20).toString('hex');
     
     // Token expires in 24 hours
     const expiresAt = new Date();
@@ -591,7 +588,7 @@ const userAuth = {
     
     // Hash the new password
     const saltRounds = 12;
-    const passwordHash = await bcrypt.hash(newPassword, saltRounds);
+    const passwordHash = await hash(newPassword, saltRounds);
     
     // Update the user's password
     await pool.query(
@@ -630,7 +627,7 @@ const userAuth = {
     }
     
     // Verify current password
-    const passwordMatch = await bcrypt.compare(
+    const passwordMatch = await compare(
       currentPassword,
       userResult.rows[0].password_hash
     );
@@ -641,7 +638,7 @@ const userAuth = {
     
     // Hash the new password
     const saltRounds = 12;
-    const passwordHash = await bcrypt.hash(newPassword, saltRounds);
+    const passwordHash = await hash(newPassword, saltRounds);
     
     // Update the password
     await pool.query(
@@ -653,4 +650,4 @@ const userAuth = {
   }
 };
 
-module.exports = userAuth; 
+export default userAuth; 

@@ -4,18 +4,23 @@
  * It can be run manually or via cron job
  */
 
-const https = require('https');
-const fs = require('fs');
-const path = require('path');
+import { request } from 'https';
+import { existsSync, readFileSync } from 'fs';
+import { resolve, join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { getEnvVar } from '../lib/utils/env.ts';
+import { config } from 'dotenv';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Load environment variables
-require('dotenv').config({ path: path.resolve(__dirname, '../.env.local') });
+config({ path: resolve(__dirname, '../.env.local') });
 
 // Configuration
-const API_URL = process.env.API_URL || 'https://localhost:8001';
-const API_KEY = process.env.API_KEY || ''; // Admin API key for authentication
+const API_URL = getEnvVar('API_URL', 'https://localhost:8001');
+const API_KEY = getEnvVar('API_KEY', ''); // Admin API key for authentication
 const SYNC_ENDPOINT = '/api/tickets/sync-users';
-const SSL_CERT_PATH = process.env.API_SSL_CERT_PATH || path.join(__dirname, '../certificates/localhost.pem');
+const SSL_CERT_PATH = getEnvVar('API_SSL_CERT_PATH', join(__dirname, '../certificates/localhost.pem'));
 
 /**
  * Make an authenticated request to the API
@@ -37,8 +42,8 @@ async function callSyncEndpoint() {
     // Add SSL certificate for HTTPS
     if (url.startsWith('https://')) {
       try {
-        if (fs.existsSync(SSL_CERT_PATH)) {
-          options.ca = fs.readFileSync(SSL_CERT_PATH);
+        if (existsSync(SSL_CERT_PATH)) {
+          options.ca = readFileSync(SSL_CERT_PATH);
           console.log('SSL certificate loaded successfully');
         } else {
           console.warn(`SSL certificate not found at ${SSL_CERT_PATH}, proceeding without it`);
@@ -51,7 +56,7 @@ async function callSyncEndpoint() {
     }
 
     // Make the request
-    const req = https.request(url, options, (res) => {
+    const req = request(url, options, (res) => {
       let data = '';
 
       // Collect data chunks
