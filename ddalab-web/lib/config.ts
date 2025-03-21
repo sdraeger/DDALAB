@@ -1,10 +1,12 @@
 // Configuration for the application
 // In a real app, you might want to use environment variables for sensitive information
 
+import { getEnvVar } from "./utils/env";
+
 export const config = {
   // API configuration
   api: {
-    baseUrl: process.env.NEXT_PUBLIC_API_URL || "https://api.example.com",
+    baseUrl: getEnvVar("NEXT_PUBLIC_API_URL", "https://api.example.com"),
     timeout: 10000, // 10 seconds
   },
 

@@ -1,7 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server";
 import https from "https";
-import fs from "fs";
-import path from "path";
+import { getEnvVar } from "@/lib/utils/env";
+
+// Environment variables
+const baseUrl = getEnvVar("NEXT_PUBLIC_API_URL");
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,7 +47,6 @@ export async function POST(request: NextRequest) {
     }).toString();
 
     // Get the base URL from environment variable
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "https://localhost:8001";
     const url = new URL(`${baseUrl}/api/auth/backend-token`);
 
     console.log("Auth request will be sent to:", url.toString());

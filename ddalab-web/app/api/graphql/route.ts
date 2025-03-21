@@ -1,6 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server";
 import https from "https";
 import fs from "fs";
+import { getEnvVar } from "@/lib/utils/env";
+
+// Environment variables
+const caPath = getEnvVar("API_SSL_CERT_PATH", "../ssl/cert.pem");
+const baseUrl = getEnvVar("NEXT_PUBLIC_API_URL", "https://localhost:8001");
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,12 +15,10 @@ export async function POST(request: NextRequest) {
     const authHeader = request.headers.get("authorization");
 
     // Load the CA certificate
-    const caPath = process.env.API_SSL_CERT_PATH || "../ssl/cert.pem";
     const ca = fs.readFileSync(caPath);
     console.log("Using CA from:", caPath); // Keep this for debugging
 
     // Get the base URL from environment variable
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "https://localhost:8001";
     const url = new URL(`${baseUrl}/graphql`);
 
     // Prepare the request body

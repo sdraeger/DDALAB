@@ -1,12 +1,13 @@
-const { createServer } = require("https")
-const { parse } = require("url")
-const next = require("next")
-const fs = require("fs")
-const path = require("path")
+const https = require('https');
+const next = require('next');
+const fs = require('fs');
+const path = require('path');
+const { getEnvVar, getNumericEnvVar } = require('../lib/utils/env');
 
-// Define paths to SSL certificates
-const keyPath = process.env.SSL_KEY_PATH || path.join(process.cwd(), "key.pem")
-const certPath = process.env.SSL_CERT_PATH || path.join(process.cwd(), "cert.pem")
+// Environment variables
+const keyPath = getEnvVar('SSL_KEY_PATH', path.join(process.cwd(), "key.pem"));
+const certPath = getEnvVar('SSL_CERT_PATH', path.join(process.cwd(), "cert.pem"));
+const port = getNumericEnvVar('PORT', 3000);
 
 // Check if certificates exist
 try {
@@ -29,10 +30,8 @@ const httpsOptions = {
   cert: fs.readFileSync(certPath),
 }
 
-const port = process.env.PORT || 3000
-
 app.prepare().then(() => {
-  createServer(httpsOptions, (req, res) => {
+  https.createServer(httpsOptions, (req, res) => {
     const parsedUrl = parse(req.url, true)
     handle(req, res, parsedUrl)
   }).listen(port, (err) => {

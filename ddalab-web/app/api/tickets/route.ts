@@ -1,15 +1,20 @@
 import { type NextRequest, NextResponse } from "next/server";
 import https from "https";
 import fs from "fs";
+import { getEnvVar } from "@/lib/utils/env";
+import path from "path";
 
 // Directus ticket collection name
 const TICKETS_COLLECTION = "help_tickets";
 
+// Environment variables
+const directusUrl = getEnvVar("DIRECTUS_URL", "http://localhost:8055");
+const backendBaseUrl = getEnvVar("API_URL", "http://localhost:8001");
+const caPath = getEnvVar("API_SSL_CERT_PATH", "./ssl/cert.pem");
+
 // Helper function to make authenticated requests to Directus
 async function directusRequest(path: string, options: any = {}) {
   try {
-    // Get the Directus URL from environment variables
-    const directusUrl = process.env.DIRECTUS_URL || "http://localhost:8055";
     console.log(`Directus URL: ${directusUrl}`);
 
     const url = new URL(`${directusUrl}${path}`);
@@ -32,8 +37,6 @@ async function directusRequest(path: string, options: any = {}) {
     // Only load and use the certificate for HTTPS connections
     if (url.protocol === "https:") {
       try {
-        // Load the CA certificate
-        const caPath = process.env.API_SSL_CERT_PATH || "./ssl/cert.pem";
         console.log(`Looking for CA certificate at: ${caPath}`);
 
         if (fs.existsSync(caPath)) {
@@ -275,9 +278,6 @@ async function forwardToServer(
         { status: 401 }
       );
     }
-
-    // Direct connection to the Python backend API
-    const backendBaseUrl = process.env.API_URL || "http://localhost:8001";
 
     // Don't modify the endpoint path - use it exactly as provided
     const serverEndpoint = `${backendBaseUrl}${endpoint}`;
