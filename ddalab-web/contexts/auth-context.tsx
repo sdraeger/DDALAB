@@ -18,7 +18,6 @@ import {
   registerUser,
   type RegisterCredentials,
 } from "@/lib/auth";
-import { toast } from "@/hooks/use-toast";
 import { useToast } from "@/components/ui/use-toast";
 
 interface AuthContextType {
@@ -66,13 +65,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Always use real login
       const response = await loginUser(credentials);
 
-      setUser(
-        response.user || {
-          id: "1",
-          username: credentials.username,
-          name: credentials.username,
-        }
-      );
+      if (!response.user) {
+        throw new Error("No user found in response");
+      }
+
+      setUser(response.user);
 
       toast({
         title: "Login successful",

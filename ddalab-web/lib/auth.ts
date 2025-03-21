@@ -49,6 +49,7 @@ export async function loginUser(
     const formData = new URLSearchParams({
       username: credentials.username,
       password: credentials.password,
+      grant_type: "password", // Adding standard OAuth2 grant_type
     }).toString();
 
     const response = await fetch("/api/auth/token", {
@@ -66,22 +67,31 @@ export async function loginUser(
     }
 
     const data = await response.json();
-    console.log("Login response:", data);
+    console.log("Login response:", {
+      hasAccessToken: !!data.access_token,
+      responseKeys: Object.keys(data),
+      fullResponse: data,
+    });
 
-    // Extract token and user from response
+    // Extract token from response
     const token = data.access_token;
 
-    // Use the returned user data if available, otherwise create a basic user object
-    const user: User = data.user || {
-      id: "1", // Placeholder
+    if (!token) {
+      throw new Error("No access token received from server");
+    }
+
+    // For now, create a minimal user object from the token payload
+    // TODO: Backend needs to be modified to include user data in /api/auth/token response
+    const user: User = {
+      id: credentials.username, // Temporary ID
       username: credentials.username,
-      name: credentials.username, // Use username as name for now
+      name: credentials.username,
     };
+    console.log("User:", user);
 
     // Calculate and store token expiration time
     // Default to 30 minutes if expiresIn not specified from server
-    const expiresInSeconds =
-      data.expires_in || user.preferences?.sessionExpiration || 30 * 60;
+    const expiresInSeconds = data.expires_in || 30 * 60;
     const expirationTime = Date.now() + expiresInSeconds * 1000;
 
     // Store token, expiration time and user in localStorage
