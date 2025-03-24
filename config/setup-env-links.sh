@@ -8,6 +8,9 @@
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_DIR="$BASE_DIR/config/environments"
 
+echo "BASE_DIR: $BASE_DIR"
+echo "ENV_DIR: $ENV_DIR"
+
 # Create consolidated .env.local file from the appropriate env files
 create_env_file() {
   local target_dir=$1
@@ -51,4 +54,4 @@ create_env_file "$BASE_DIR/ddalab-web/scripts/db-setup" "db-setup"
 # server/scripts
 create_env_file "$BASE_DIR/server/scripts" "server-scripts"
 
-echo "Environment setup complete." 
+echo "Environment setup complete."

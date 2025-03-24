@@ -1,6 +1,6 @@
-let userConfig = undefined
+let userConfig = undefined;
 try {
-  userConfig = await import('./v0-user-next.config')
+  userConfig = await import("./v0-user-next.config");
 } catch (e) {
   // ignore error
 }
@@ -20,57 +20,57 @@ const nextConfig = {
   async headers() {
     return [
       {
-        source: '/_next/webpack-hmr',
+        source: "/_next/webpack-hmr",
         headers: [
           {
-            key: 'Connection',
-            value: 'Upgrade',
+            key: "Connection",
+            value: "Upgrade",
           },
           {
-            key: 'Upgrade',
-            value: 'websocket',
+            key: "Upgrade",
+            value: "websocket",
           },
         ],
       },
-    ]
+    ];
   },
   // Add rewrites to ensure API routes work correctly
   async rewrites() {
     return [
       // Rewrites for API server
       {
-        source: '/api/direct/:path*',
-        destination: 'https://localhost:8001/api/:path*',
+        source: "/api/direct/:path*",
+        destination: "https://localhost:8001/api/:path*",
       },
-    ]
+    ];
   },
   experimental: {
     webpackBuildWorker: true,
     parallelServerBuildTraces: true,
     parallelServerCompiles: true,
   },
-}
+};
 
-mergeConfig(nextConfig, userConfig)
+mergeConfig(nextConfig, userConfig);
 
 function mergeConfig(nextConfig, userConfig) {
   if (!userConfig) {
-    return
+    return;
   }
 
   for (const key in userConfig) {
     if (
-      typeof nextConfig[key] === 'object' &&
+      typeof nextConfig[key] === "object" &&
       !Array.isArray(nextConfig[key])
     ) {
       nextConfig[key] = {
         ...nextConfig[key],
         ...userConfig[key],
-      }
+      };
     } else {
-      nextConfig[key] = userConfig[key]
+      nextConfig[key] = userConfig[key];
     }
   }
 }
 
-export default nextConfig
+export default nextConfig;

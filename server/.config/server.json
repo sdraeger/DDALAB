@@ -1,7 +1,7 @@
 {
   "host": "localhost",
   "port": 8001,
-  "ssl_enabled": true,
+  "ssl_enabled": false,
   "ssl_cert_path": "ssl/cert.pem",
   "ssl_key_path": "ssl/key.pem",
   "auth_enabled": true,

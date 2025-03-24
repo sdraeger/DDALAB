@@ -6,5 +6,6 @@
   "ddalab_celery_result_backend": "redis://localhost:6379/0",
   "ddalab_redis_host": "localhost",
   "ddalab_redis_port": "6379",
-  "ddalab_redis_db": "0"
+  "ddalab_redis_db": "0",
+  "ddalab_ssl_enabled": false
 }
