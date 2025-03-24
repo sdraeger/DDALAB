@@ -7,12 +7,25 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from server.api import router as api_router
 from server.api.auth import router as auth_router
 from server.core.auth import get_current_user
 from server.core.config import get_server_settings, initialize_config
 from server.schemas.graphql import graphql_app
+
+
+class DBSessionMiddleware(BaseHTTPMiddleware):
+    """Middleware to ensure database sessions are properly closed."""
+
+    async def dispatch(self, request: Request, call_next):
+        """Handle database session cleanup."""
+        response = await call_next(request)
+        if hasattr(request.state, "db"):
+            request.state.db.close()
+            logger.debug("Database session closed in middleware")
+        return response
 
 
 @asynccontextmanager
@@ -48,15 +61,12 @@ app = FastAPI(
     description="GraphQL API for DDALAB data analysis and visualization",
     version="0.1.0",
     lifespan=lifespan,
+    # Configure trailing slash behavior
+    redirect_slashes=False,
 )
 
-
-# Add health check endpoint
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {"status": "ok", "ssl": get_server_settings().ssl_enabled}
-
+# Add database session middleware
+app.add_middleware(DBSessionMiddleware)
 
 # Add CORS middleware
 app.add_middleware(
@@ -66,18 +76,22 @@ app.add_middleware(
         "https://localhost:3000",
         "http://localhost:8001",
         "https://localhost:8001",
+        "http://localhost",
+        "https://localhost",
         "file://",  # Allow Electron app
         "*",  # Allow all origins during development
     ],
     allow_credentials=False,  # Set to False for wildcard origins
-    allow_methods=["GET", "POST", "OPTIONS"],  # Allow GET for file downloads
-    allow_headers=[
-        "Content-Type",
-        "Authorization",
-        "X-Requested-With",
-        "Accept",
-        "Origin",
-    ],
+    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers (Authorization, etc.)
+    # allow_methods=["GET", "POST", "OPTIONS"],  # Allow GET for file downloads
+    # allow_headers=[
+    #     "Content-Type",
+    #     "Authorization",
+    #     "X-Requested-With",
+    #     "Accept",
+    #     "Origin",
+    # ],
     expose_headers=[
         "Content-Type",
         "Content-Disposition",
