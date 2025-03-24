@@ -4,8 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useAuth } from "@/contexts/auth-context";
-import { validateInviteCode } from "@/lib/auth";
+// import { validateInviteCode } from "@/contexts/settings-context"; // TODO
 
 import {
   Dialog,
@@ -26,6 +25,8 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
+import { signIn } from "next-auth/react";
+import { useSession } from "next-auth/react";
 
 // Schema for invite code step
 const inviteCodeSchema = z.object({
@@ -64,7 +65,8 @@ export function RegisterDialog({ open, onOpenChange }: RegisterDialogProps) {
   const [email, setEmail] = useState<string | null>(null);
   const [username, setUsername] = useState("");
 
-  const { register } = useAuth();
+  const { data: session, status } = useSession();
+  const isLoading = status === "loading";
 
   // Form for invite code step
   const inviteForm = useForm<InviteCodeFormValues>({
@@ -100,14 +102,12 @@ export function RegisterDialog({ open, onOpenChange }: RegisterDialogProps) {
       });
       // Reset our directly controlled username
       setUsername("");
-      console.log("Reset username field to empty string");
     }
   }, [step, registerForm]);
 
   // Custom handler to ensure username field doesn't default to invite code
   const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    console.log("Setting username to:", value);
     registerForm.setValue("username", value);
   };
 
@@ -117,10 +117,11 @@ export function RegisterDialog({ open, onOpenChange }: RegisterDialogProps) {
     setError(null);
 
     try {
-      const isValid = await validateInviteCode(
-        data.code,
-        data.email || undefined
-      );
+      // const isValid = await validateInviteCode(
+      //   data.code,
+      //   data.email || undefined
+      // );
+      const isValid = true; // TODO: implement invite code validation
 
       if (isValid) {
         setValidInviteCode(data.code);
@@ -145,8 +146,6 @@ export function RegisterDialog({ open, onOpenChange }: RegisterDialogProps) {
 
   // Handle registration manually without relying on form submission
   async function handleRegister() {
-    console.log("handleRegister called");
-
     if (!validInviteCode) {
       setError("Missing invite code. Please start again.");
       setStep("invite");
@@ -193,29 +192,33 @@ export function RegisterDialog({ open, onOpenChange }: RegisterDialogProps) {
     setLoading(true);
     setError(null);
 
-    console.log("Registration data:", {
-      username,
-      email: email || "",
-      firstName,
-      lastName,
-      inviteCode: validInviteCode,
-      hasPassword: !!password,
-    });
-
     try {
-      await register({
-        username,
-        password,
-        email: email || "",
-        firstName,
-        lastName,
-        inviteCode: validInviteCode,
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username,
+          password,
+          email,
+          firstName,
+          lastName,
+          inviteCode: validInviteCode,
+        }),
       });
 
-      // Close dialog on successful registration
-      onOpenChange(false);
+      if (!response.ok) throw new Error("Registration failed");
+
+      // After successful registration, attempt to sign in
+      const signInResult = await signIn("credentials", {
+        redirect: false,
+        username,
+        password,
+      });
+
+      if (signInResult?.error) throw new Error(signInResult.error);
+
+      onOpenChange(false); // Close dialog on success
     } catch (err: any) {
-      console.error("Registration error:", err);
       setError(err.message || "Registration failed. Please try again.");
     } finally {
       setLoading(false);
@@ -240,7 +243,6 @@ export function RegisterDialog({ open, onOpenChange }: RegisterDialogProps) {
   // Defensive check - if username somehow equals invite code, clear it
   useEffect(() => {
     if (validInviteCode && username === validInviteCode) {
-      console.log("Detected username equals invite code - clearing username");
       setUsername("");
     }
   }, [username, validInviteCode]);
@@ -318,7 +320,6 @@ export function RegisterDialog({ open, onOpenChange }: RegisterDialogProps) {
               onSubmit={(e) => {
                 // Prevent default form submission
                 e.preventDefault();
-                console.log("Form submitted");
               }}
             >
               <div className="space-y-2">
@@ -456,6 +457,3 @@ export function RegisterDialog({ open, onOpenChange }: RegisterDialogProps) {
     </Dialog>
   );
 }
-
-// Log the component's render - useful for debugging
-console.log("RegisterDialog component rendered");

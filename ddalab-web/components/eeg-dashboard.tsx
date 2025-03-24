@@ -26,7 +26,6 @@ import { FileSelector } from "@/components/file-selector";
 import { EEGZoomSettings } from "@/components/eeg-zoom-settings";
 import { parseEDFFile } from "@/lib/edf-parser";
 import { toast } from "@/hooks/use-toast";
-import { useAuth } from "@/contexts/auth-context";
 import {
   Dialog,
   DialogContent,
@@ -36,7 +35,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import logger from "@/lib/utils/logger";
 
 export type EEGData = {
   channels: string[];
@@ -91,13 +90,13 @@ export function EEGDashboard() {
         return;
       }
 
-      console.log(`Processing file: ${file.name}, size: ${file.size} bytes`);
+      logger.info(`Processing file: ${file.name}, size: ${file.size} bytes`);
       setCurrentFileName(file.name);
 
       // Parse the EDF file
       const parsedData = await parseEDFFile(file);
 
-      console.log("EEG data loaded:", {
+      logger.info("EEG data loaded:", {
         channels: parsedData.channels.length,
         samplesPerChannel: parsedData.samplesPerChannel,
         sampleRate: parsedData.sampleRate,
@@ -121,7 +120,7 @@ export function EEGDashboard() {
         description: `Loaded ${parsedData.channels.length} channels of EEG data`,
       });
     } catch (error) {
-      console.error("Error loading EDF file:", error);
+      logger.error("Error loading EDF file:", error);
       toast({
         title: "Error loading file",
         description: "There was a problem processing the EDF file.",
@@ -210,7 +209,7 @@ export function EEGDashboard() {
         description: "Chart image has been downloaded",
       });
     } catch (error) {
-      console.error("Error exporting image:", error);
+      logger.error("Error exporting image:", error);
       toast({
         title: "Export failed",
         description: "There was a problem exporting the chart image",

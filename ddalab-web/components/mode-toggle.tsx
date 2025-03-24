@@ -4,9 +4,9 @@ import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { Moon, Sun, MonitorSmartphone } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useAuth } from "@/contexts/auth-context";
-import { updateUserPreferences } from "@/lib/auth";
+import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/use-toast";
+import { useSettings } from "@/contexts/settings-context";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,8 +17,10 @@ import {
 export function ModeToggle() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
-  const { user, refreshUserData } = useAuth();
+  const { data: session } = useSession();
   const { toast } = useToast();
+  const { updatePreference, saveChanges, pendingChanges, hasUnsavedChanges } =
+    useSettings();
 
   // Only render the toggle after mounting to avoid hydration mismatch
   useEffect(() => {
@@ -29,54 +31,37 @@ export function ModeToggle() {
   useEffect(() => {
     if (
       mounted &&
-      user?.preferences?.theme &&
-      theme !== user.preferences.theme
+      session?.user?.preferences?.theme &&
+      theme !== session.user.preferences.theme
     ) {
-      setTheme(user.preferences.theme);
+      setTheme(session.user.preferences.theme);
     }
-  }, [mounted, user, setTheme, theme]);
+  }, [mounted, session, setTheme, theme]);
 
-  // Update user preferences when changing theme
-  const handleThemeChange = async (newTheme: string) => {
-    // Skip if already on this theme
+  const handleThemeChange = async (newTheme: "light" | "dark" | "system") => {
     if (theme === newTheme) return;
 
-    // Get theme name for toast
-    const themeName =
-      newTheme === "dark"
-        ? "Dark Mode"
-        : newTheme === "light"
-        ? "Light Mode"
-        : "System Theme";
-
-    // First, update the theme immediately for UI responsiveness
     setTheme(newTheme);
 
-    // Then update user preferences if logged in
-    if (user) {
-      try {
-        await updateUserPreferences({
-          theme: newTheme as "light" | "dark" | "system",
-        });
-        refreshUserData();
-
-        // Show toast notification
+    try {
+      updatePreference("theme", newTheme);
+      const success = await saveChanges(); // Persists changes to backend
+      if (success) {
         toast({
-          title: `Switched to ${themeName}`,
+          title: `Switched to ${newTheme} theme`,
           description: "Your theme preference has been saved.",
           duration: 3000,
           variant: "default",
         });
-      } catch (error) {
-        console.error("Failed to update theme preference:", error);
-        // Show error toast
-        toast({
-          title: "Failed to Save Theme",
-          description: "Could not save your theme preference.",
-          variant: "destructive",
-          duration: 5000,
-        });
       }
+    } catch (error) {
+      console.error("Failed to update theme preference:", error);
+      toast({
+        title: "Failed to Save Theme",
+        description: "Could not save your theme preference.",
+        variant: "destructive",
+        duration: 5000,
+      });
     }
   };
 

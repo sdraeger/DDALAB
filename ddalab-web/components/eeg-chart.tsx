@@ -13,7 +13,6 @@ import { useTheme } from "next-themes";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/contexts/auth-context";
 import type { EEGData } from "./eeg-dashboard";
 import type { Annotation } from "./annotation-editor";
 import {
@@ -31,7 +30,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
-import { isAuthenticated } from "@/lib/auth";
+import { useSession } from "next-auth/react";
 
 interface EEGChartProps {
   eegData: EEGData;
@@ -67,7 +66,8 @@ export function EEGChart({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { theme } = useTheme();
-  const { user } = useAuth(); // Get user to access preferences
+  const { data: session, status } = useSession();
+  const user = session?.user;
   const { toast } = useToast(); // Import toast function
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState(0);

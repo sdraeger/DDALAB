@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { LifeBuoy } from "lucide-react";
-import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,12 +16,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { useSession } from "next-auth/react";
+import { parseCookies } from "nookies";
 
 export function HelpButton() {
-  const { isLoggedIn, user } = useAuth();
+  const { data: session, status } = useSession();
+  const user = session?.user;
+  const isLoggedIn = !!session;
+  const _loading = status === "loading";
+  const [isLoading, setIsLoading] = useState(false);
+  const loading = _loading || isLoading;
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
 
@@ -38,23 +43,38 @@ export function HelpButton() {
     }
 
     try {
-      setLoading(true);
+      setIsLoading(true);
 
-      // Get the auth token from localStorage
-      const token = localStorage.getItem("ddalab_auth_token");
+      // const cookies = parseCookies();
+      // const token = cookies["__Secure-next-auth.session-token"];
 
-      // Use the Next.js API route which will proxy to the correct backend endpoint
+      const token = session?.user.token; // Use session.user.token
+      if (!token) throw new Error("No token found in session");
+
       const response = await fetch(`/api/tickets`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          title,
-          description,
-        }),
+        body: JSON.stringify({ title, description }),
       });
+
+      // Get the auth token from localStorage
+      // const token = localStorage.getItem("ddalab_auth_token");
+
+      // // Use the Next.js API route which will proxy to the correct backend endpoint
+      // const response = await fetch(`/api/tickets`, {
+      //   method: "POST",
+      //   headers: {
+      //     "Content-Type": "application/json",
+      //     Authorization: `Bearer ${token}`,
+      //   },
+      //   body: JSON.stringify({
+      //     title,
+      //     description,
+      //   }),
+      // });
 
       // Try to parse the response even if it's not OK, to get error details
       let data;
@@ -95,7 +115,7 @@ export function HelpButton() {
         variant: "destructive",
       });
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
