@@ -90,24 +90,25 @@ async def get_current_user_from_request(
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme), session: AsyncSession = Depends(get_db)
+    token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)
 ) -> User:
-    if not token:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    async with db.begin():
+        if not token:
+            raise HTTPException(status_code=401, detail="Authentication required")
 
-    user_token = await session.scalar(select(UserToken).where(UserToken.token == token))
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+        user_token = await db.scalar(select(UserToken).where(UserToken.token == token))
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
 
-    if not user_token or user_token.expires_at < now:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        if not user_token or user_token.expires_at < now:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    user = await session.get(User, user_token.user_id)
-    logger.debug(f"user: {user}")
+        user = await db.get(User, user_token.user_id)
+        logger.debug(f"user: {user}")
 
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
 
-    return user
+        return user
 
 
 async def create_user(

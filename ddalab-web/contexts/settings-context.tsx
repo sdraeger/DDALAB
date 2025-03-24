@@ -147,6 +147,8 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   // Save all pending changes
   const saveChanges = useCallback(async () => {
     try {
+      console.log("saveChanges pendingChanges", pendingChanges);
+
       const res = await fetch("/api/user-preferences", {
         method: "PUT",
         headers: {
