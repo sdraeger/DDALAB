@@ -1,98 +1,127 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser, updateUserPreferences } from "@/lib/auth";
-import type { UserPreferences } from "@/lib/auth";
+import { UserPreferences } from "@/contexts/settings-context";
+import { getSession } from "next-auth/react";
+import { pool } from "@/lib/db/pool";
+import logger from "@/lib/utils/logger";
 
 // Default values for user preferences
-const DEFAULT_PREFERENCES: Required<
-  Pick<UserPreferences, "eegZoomFactor" | "theme">
-> = {
+const DEFAULT_PREFERENCES: Required<UserPreferences> = {
   eegZoomFactor: 0.05, // Default 5% zoom factor
   theme: "system", // Default theme follows system preference
+  sessionExpiration: 30 * 60, // Default 30 minutes
 };
 
 // GET endpoint to retrieve user preferences
 export async function GET(req: NextRequest) {
+  const session = await getSession({ req });
+  const userId = session?.user?.id;
+  const token = session?.accessToken;
+
+  logger.info("userId:", userId);
+  logger.info("token:", token);
+
+  if (!userId || !token) {
+    return NextResponse.json(
+      { sessionExpiration: DEFAULT_PREFERENCES.sessionExpiration },
+      { status: 200 }
+    );
+  }
+
   try {
-    // Get current user
-    const user = getCurrentUser();
-    if (!user) {
+    // Proxy to FastAPI if needed, or use local DB
+    const res = await fetch("/api/user-preferences", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    console.log("Response:", res);
+    if (!res.ok) throw new Error(`FastAPI error: ${res.status}`);
+    const data = await res.json();
+    return NextResponse.json(
+      { sessionExpiration: data.sessionExpiration },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error("Error fetching from FastAPI:", error);
+    // Fallback to local DB
+    const query = `
+      SELECT session_expiration
+      FROM user_preferences
+      WHERE user_id = $1
+    `;
+    const result = await pool.query(query, [userId]);
+    const sessionExpiration =
+      result.rows.length > 0 && result.rows[0].session_expiration
+        ? result.rows[0].session_expiration
+        : DEFAULT_PREFERENCES.sessionExpiration;
+    return NextResponse.json({ sessionExpiration }, { status: 200 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const session = await getSession({ req });
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { sessionExpiration } = await req.json();
+    if (typeof sessionExpiration !== "number") {
       return NextResponse.json(
-        { error: "User not authenticated" },
-        { status: 401 }
+        { error: "Invalid sessionExpiration" },
+        { status: 400 }
       );
     }
 
-    // Return current preferences or defaults if not set
-    return NextResponse.json({
-      preferences: {
-        ...DEFAULT_PREFERENCES,
-        ...user.preferences,
-      },
-    });
+    const userId = session.user.id;
+    const query = `
+      INSERT INTO user_preferences (user_id, session_expiration)
+      VALUES ($1, $2)
+      ON CONFLICT (user_id)
+      DO UPDATE SET session_expiration = $2
+      RETURNING user_id
+    `;
+    const result = await pool.query(query, [userId, sessionExpiration]);
+
+    if (result.rowCount === 0) {
+      return NextResponse.json({ error: "Failed to update" }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {
-    console.error("Error retrieving user preferences:", error);
+    console.error("Error updating session expiration:", error);
     return NextResponse.json(
-      { error: "Failed to retrieve preferences" },
+      { error: "Failed to update session expiration" },
       { status: 500 }
     );
   }
 }
 
-// POST endpoint to update user preferences
-export async function POST(req: NextRequest) {
-  try {
-    // Get current user
-    const user = getCurrentUser();
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not authenticated" },
-        { status: 401 }
-      );
-    }
+export async function PUT(request: NextRequest) {
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const token = authHeader.split(" ")[1];
+  const body = await request.json();
 
-    // Get preferences from request body
-    const data = await req.json();
-    const newPreferences: UserPreferences = data.preferences || {};
+  const res = await fetch("http://localhost:8001/api/user-preferences", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
 
-    // Validate zoom factor (if provided)
-    if (newPreferences.eegZoomFactor !== undefined) {
-      if (
-        typeof newPreferences.eegZoomFactor !== "number" ||
-        newPreferences.eegZoomFactor < 0.01 ||
-        newPreferences.eegZoomFactor > 0.2
-      ) {
-        return NextResponse.json(
-          {
-            error: "Invalid zoom factor. Must be a number between 0.01 and 0.2",
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Update preferences
-    const success = await updateUserPreferences(newPreferences);
-    if (!success) {
-      return NextResponse.json(
-        { error: "Failed to update preferences" },
-        { status: 500 }
-      );
-    }
-
-    // Get updated user
-    const updatedUser = getCurrentUser();
-
-    // Return updated preferences
-    return NextResponse.json({
-      preferences: updatedUser?.preferences || {},
-    });
-  } catch (error) {
-    console.error("Error updating user preferences:", error);
+  if (!res.ok) {
     return NextResponse.json(
       { error: "Failed to update preferences" },
-      { status: 500 }
+      { status: res.status }
     );
   }
+  return NextResponse.json({ success: true });
 }
 
 // DELETE endpoint to reset a specific preference or all preferences
