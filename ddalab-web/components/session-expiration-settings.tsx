@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getTokenExpirationTime } from "@/lib/auth";
 import { useSettings } from "@/contexts/settings-context";
+import { useSession } from "next-auth/react";
 import {
   Card,
   CardContent,
@@ -33,20 +33,17 @@ export function SessionExpirationSettings() {
     `session-expiration-${Math.random().toString(36).substring(2, 9)}`
   );
   const { userPreferences, pendingChanges, updatePreference } = useSettings();
+  const { data: session } = useSession();
 
-  // Local UI state
   const [selectedExpiration, setSelectedExpiration] = useState<string>(
     (30 * 60).toString()
   );
+  const [expirationTimeText, setExpirationTimeText] =
+    useState<string>("Unknown");
 
-  // Tracking refs
   const isUpdatingRef = useRef(false);
   const wasInitializedRef = useRef(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Time display state
-  const [expirationTimeText, setExpirationTimeText] =
-    useState<string>("Unknown");
 
   // Initialize component once
   useEffect(() => {
@@ -73,8 +70,8 @@ export function SessionExpirationSettings() {
       pendingValue !== undefined
         ? pendingValue.toString()
         : prefsValue !== undefined
-        ? prefsValue.toString()
-        : null;
+          ? prefsValue.toString()
+          : null;
 
     // Update local state if needed
     if (contextValue && contextValue !== selectedExpiration) {
@@ -91,19 +88,18 @@ export function SessionExpirationSettings() {
 
   // Get formatted time until expiration
   const getExpirationTimeText = useCallback(() => {
-    const expirationTime = getTokenExpirationTime();
-    if (!expirationTime) return "Unknown";
+    if (!session?.expires) return "Unknown";
 
+    const expirationTime = new Date(session.expires).getTime();
     const timeRemaining = expirationTime - Date.now();
     if (timeRemaining <= 0) return "Expired";
 
-    // Format as HH:MM
     const date = new Date(expirationTime);
     const hours = date.getHours().toString().padStart(2, "0");
     const minutes = date.getMinutes().toString().padStart(2, "0");
 
     return `${hours}:${minutes}`;
-  }, []);
+  }, [session]);
 
   // Set up expiration time update
   useEffect(() => {
@@ -127,25 +123,18 @@ export function SessionExpirationSettings() {
   // Handle expiration selection change
   const handleExpirationChange = useCallback(
     (value: string) => {
-      if (isUpdatingRef.current) return;
-      if (value === selectedExpiration) return;
+      if (isUpdatingRef.current || value === selectedExpiration) return;
 
       console.log(
         `[${componentId.current}] User changed session expiration to ${value}`
       );
 
-      // Update local UI state
       setSelectedExpiration(value);
-
-      // Prevent further updates while processing
       isUpdatingRef.current = true;
 
-      // Schedule context update
       setTimeout(() => {
         const expirationSeconds = parseInt(value, 10);
         updatePreference("sessionExpiration", expirationSeconds);
-
-        // Reset update flag
         setTimeout(() => {
           isUpdatingRef.current = false;
         }, 50);

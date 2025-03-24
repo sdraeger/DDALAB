@@ -1,6 +1,5 @@
 "use client";
 
-import { useAuth } from "@/contexts/auth-context";
 import { getInitials } from "@/lib/utils";
 import {
   Card,
@@ -16,10 +15,11 @@ import { EEGZoomSettings } from "@/components/eeg-zoom-settings";
 import { ThemeSettings } from "@/components/theme-settings";
 import { SaveSettingsButton } from "@/components/save-settings-button";
 import { useSettings } from "@/contexts/settings-context";
-
+import { useSession } from "next-auth/react";
 export default function SettingsPage() {
-  const { user } = useAuth();
+  const { data: session, status } = useSession();
   const { hasUnsavedChanges } = useSettings();
+  const user = session?.user;
 
   if (!user) {
     return (

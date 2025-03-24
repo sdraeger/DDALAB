@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { useAuth } from "../contexts/auth-context";
+import { useSession } from "next-auth/react";
 
 const UserSettings = () => {
-  const { user } = useAuth();
+  const { data: session, status } = useSession();
+  const user = session?.user;
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [theme, setTheme] = useState<"light" | "dark" | "system">("light");
@@ -21,14 +22,14 @@ const UserSettings = () => {
 
   const handleProfileSave = (e: React.FormEvent) => {
     e.preventDefault();
-    // API call would go here in a real implementation
+    // TODO: API call to update user preferences
     setSuccessMessage("Profile updated successfully");
     setTimeout(() => setSuccessMessage(""), 3000);
   };
 
   const handlePreferencesSave = (e: React.FormEvent) => {
     e.preventDefault();
-    // API call would go here in a real implementation
+    // TODO: API call to update user preferences
     setSuccessMessage("Settings saved successfully");
     setTimeout(() => setSuccessMessage(""), 3000);
   };
