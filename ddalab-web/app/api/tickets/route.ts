@@ -2,10 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import https from "https";
 import fs from "fs";
 import { getEnvVar } from "@/lib/utils/env";
-import path from "path";
-
-// Directus ticket collection name
-const TICKETS_COLLECTION = "help_tickets";
+import logger from "@/lib/utils/logger";
 
 // Environment variables
 const directusUrl = getEnvVar("DIRECTUS_URL", "http://localhost:8055");
@@ -15,10 +12,10 @@ const caPath = getEnvVar("API_SSL_CERT_PATH", "./ssl/cert.pem");
 // Helper function to make authenticated requests to Directus
 async function directusRequest(path: string, options: any = {}) {
   try {
-    console.log(`Directus URL: ${directusUrl}`);
+    logger.info(`Directus URL: ${directusUrl}`);
 
     const url = new URL(`${directusUrl}${path}`);
-    console.log(`Making request to: ${url.toString()}`);
+    logger.info(`Making request to: ${url.toString()}`);
 
     // Set default headers
     const headers = {
@@ -37,21 +34,21 @@ async function directusRequest(path: string, options: any = {}) {
     // Only load and use the certificate for HTTPS connections
     if (url.protocol === "https:") {
       try {
-        console.log(`Looking for CA certificate at: ${caPath}`);
+        logger.info(`Looking for CA certificate at: ${caPath}`);
 
         if (fs.existsSync(caPath)) {
           const ca = fs.readFileSync(caPath);
           requestOptions.ca = ca;
-          console.log("CA certificate loaded successfully");
+          logger.info("CA certificate loaded successfully");
         } else {
-          console.warn(
+          logger.warn(
             `CA certificate not found at ${caPath}, proceeding without it`
           );
           // For self-signed certificates in development
           requestOptions.rejectUnauthorized = false;
         }
       } catch (certError: unknown) {
-        console.warn(
+        logger.warn(
           `Error loading certificate: ${
             (certError as Error).message
           }, proceeding without it`
@@ -63,13 +60,13 @@ async function directusRequest(path: string, options: any = {}) {
 
     // Make the request using the appropriate protocol
     const httpModule = url.protocol === "https:" ? https : require("http");
-    console.log(
+    logger.info(
       `Using ${url.protocol === "https:" ? "HTTPS" : "HTTP"} module for request`
     );
 
     // Make the request
     return new Promise((resolve, reject) => {
-      console.log(
+      logger.info(
         `Sending ${requestOptions.method} request to ${url.hostname}:${requestOptions.port}${requestOptions.path}`
       );
 
@@ -81,15 +78,15 @@ async function directusRequest(path: string, options: any = {}) {
 
         res.on("end", () => {
           try {
-            console.log(`Response status: ${res.statusCode}`);
+            logger.info(`Response status: ${res.statusCode}`);
 
             // For non-200 responses, provide more detailed error info
             if (res.statusCode >= 400) {
-              console.error(`Error response from Directus: ${res.statusCode}`);
+              logger.error(`Error response from Directus: ${res.statusCode}`);
               try {
                 if (data.trim()) {
                   const errorData = JSON.parse(data);
-                  console.error("Error details:", errorData);
+                  logger.error("Error details:", errorData);
 
                   // Special handling for 404 errors
                   if (res.statusCode === 404) {
@@ -118,7 +115,7 @@ async function directusRequest(path: string, options: any = {}) {
                   });
                 }
               } catch (parseError) {
-                console.error("Failed to parse error response:", data);
+                logger.error("Failed to parse error response:", data);
                 resolve({
                   statusCode: res.statusCode,
                   data: {
@@ -131,7 +128,7 @@ async function directusRequest(path: string, options: any = {}) {
 
             // Handle empty responses
             if (!data.trim()) {
-              console.log("Empty response received");
+              logger.info("Empty response received");
               resolve({ statusCode: res.statusCode, data: {} });
               return;
             }
@@ -140,7 +137,7 @@ async function directusRequest(path: string, options: any = {}) {
             resolve({ statusCode: res.statusCode, data: jsonData });
           } catch (e) {
             const error = e as Error;
-            console.error(`Failed to parse response: ${error.message}`, data);
+            logger.error(`Failed to parse response: ${error.message}`, data);
             reject(new Error(`Failed to parse response: ${error.message}`));
           }
         });
@@ -148,7 +145,7 @@ async function directusRequest(path: string, options: any = {}) {
 
       req.on("error", (e: unknown) => {
         const error = e as Error;
-        console.error(`Request failed: ${error.message}`, {
+        logger.error(`Request failed: ${error.message}`, {
           url: url.toString(),
           method: requestOptions.method,
           headers: requestOptions.headers,
@@ -174,7 +171,7 @@ async function directusRequest(path: string, options: any = {}) {
     });
   } catch (e) {
     const error = e as Error;
-    console.error("Directus request error:", error);
+    logger.error("Directus request error:", error);
     throw error;
   }
 }
@@ -185,14 +182,14 @@ async function isAuthenticated(request: NextRequest) {
 
   // No auth header means not authenticated
   if (!authHeader) {
-    console.log("Missing Authorization header");
+    logger.info("Missing Authorization header");
     return false;
   }
 
   // Extract token from auth header - must be in format "Bearer <token>"
   const parts = authHeader.split(" ");
   if (parts.length !== 2 || parts[0] !== "Bearer") {
-    console.log(
+    logger.info(
       "Invalid Authorization header format, expected 'Bearer <token>'"
     );
     return false;
@@ -200,11 +197,11 @@ async function isAuthenticated(request: NextRequest) {
 
   const token = parts[1];
   if (!token || token.trim() === "") {
-    console.log("Empty token provided");
+    logger.info("Empty token provided");
     return false;
   }
 
-  console.log("Token validation successful");
+  logger.info("Token validation successful");
   return true;
 }
 
@@ -219,7 +216,7 @@ async function getUserFromToken(request: NextRequest) {
     };
   } catch (e) {
     const error = e as Error;
-    console.error("Error getting user from token:", error);
+    logger.error("Error getting user from token:", error);
     return null;
   }
 }
@@ -235,7 +232,7 @@ async function forwardToServer(
   try {
     // Check if this is a recursive request
     if (isRecursive) {
-      console.log(
+      logger.info(
         `[forwardToServer] Recursive request detected, breaking loop`
       );
       throw new Error("Recursive request detected");
@@ -244,7 +241,7 @@ async function forwardToServer(
     // Get the auth token from the request
     const authHeader = request.headers.get("authorization");
     if (!authHeader) {
-      console.log("[forwardToServer] No authorization header found");
+      logger.info("[forwardToServer] No authorization header found");
       return NextResponse.json(
         {
           error: "Unauthorized",
@@ -257,7 +254,7 @@ async function forwardToServer(
     // Extract token properly
     const parts = authHeader.split(" ");
     if (parts.length !== 2 || parts[0] !== "Bearer") {
-      console.log("[forwardToServer] Invalid authorization header format");
+      logger.info("[forwardToServer] Invalid authorization header format");
       return NextResponse.json(
         {
           error: "Unauthorized",
@@ -269,7 +266,7 @@ async function forwardToServer(
 
     const token = parts[1];
     if (!token) {
-      console.log("[forwardToServer] No token found in authorization header");
+      logger.info("[forwardToServer] No token found in authorization header");
       return NextResponse.json(
         {
           error: "Unauthorized",
@@ -281,7 +278,7 @@ async function forwardToServer(
 
     // Don't modify the endpoint path - use it exactly as provided
     const serverEndpoint = `${backendBaseUrl}${endpoint}`;
-    console.log(
+    logger.info(
       `[forwardToServer] Forwarding request directly to backend: ${serverEndpoint}`
     );
 
@@ -308,7 +305,7 @@ async function forwardToServer(
 
     // Reduce request timeout to prevent hanging
     const timeoutMs = 2000; // 2 seconds timeout
-    console.log(`[forwardToServer] Set request timeout to ${timeoutMs}ms`);
+    logger.info(`[forwardToServer] Set request timeout to ${timeoutMs}ms`);
 
     // Make the request to the server with a shorter timeout
     const serverResponse = await new Promise<{ statusCode: number; data: any }>(
@@ -324,7 +321,7 @@ async function forwardToServer(
             try {
               // Check if we got a redirect
               if (res.statusCode >= 300 && res.statusCode < 400) {
-                console.log(
+                logger.info(
                   `[forwardToServer] Received redirect (${res.statusCode}) to: ${res.headers.location}`
                 );
                 return resolve({
@@ -342,7 +339,7 @@ async function forwardToServer(
                 try {
                   responseData = JSON.parse(data);
                 } catch (parseError) {
-                  console.error(
+                  logger.error(
                     "[forwardToServer] Failed to parse response as JSON:",
                     (parseError as Error).message
                   );
@@ -365,7 +362,7 @@ async function forwardToServer(
                 data: responseData,
               });
             } catch (error) {
-              console.error(
+              logger.error(
                 "[forwardToServer] Error processing response:",
                 error
               );
@@ -379,7 +376,7 @@ async function forwardToServer(
         });
 
         req.on("error", (error: Error) => {
-          console.error(
+          logger.error(
             "[forwardToServer] Network error during request:",
             error.message
           );
@@ -392,7 +389,7 @@ async function forwardToServer(
 
         // Set timeout
         req.setTimeout(timeoutMs, () => {
-          console.error(
+          logger.error(
             `[forwardToServer] Request timed out after ${timeoutMs}ms, falling back to mock data`
           );
           req.destroy();
@@ -404,7 +401,7 @@ async function forwardToServer(
     );
 
     // Return the response from the server
-    console.log(
+    logger.info(
       `[forwardToServer] Request complete, status: ${serverResponse.statusCode}`
     );
     return NextResponse.json(serverResponse.data, {
@@ -415,7 +412,7 @@ async function forwardToServer(
       },
     });
   } catch (error) {
-    console.error(
+    logger.error(
       "[forwardToServer] Error forwarding request to server:",
       error
     );
@@ -425,12 +422,12 @@ async function forwardToServer(
 
 // Handler for GET requests
 export async function GET(request: NextRequest) {
-  console.log("[GET /api/tickets] Starting request handler");
+  logger.info("[GET /api/tickets] Starting request handler");
 
   // Check for authentication using the helper
   const authenticated = await isAuthenticated(request);
   if (!authenticated) {
-    console.log("[GET /api/tickets] Authentication failed, returning 401");
+    logger.info("[GET /api/tickets] Authentication failed, returning 401");
     return NextResponse.json(
       {
         error: "Unauthorized",
@@ -441,7 +438,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  console.log("[GET /api/tickets] Authentication successful");
+  logger.info("[GET /api/tickets] Authentication successful");
 
   // Check if this is a recursive request by examining headers or URL
   const isRecursiveRequest =
@@ -450,7 +447,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // Use explicit full path to avoid any URL construction issues
-    console.log("[GET /api/tickets] Forwarding to backend");
+    logger.info("[GET /api/tickets] Forwarding to backend");
 
     return await forwardToServer(
       request,
@@ -473,7 +470,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    console.log(
+    logger.info(
       "[GET /api/tickets] Backend connection failed, returning mock data"
     );
 
@@ -494,12 +491,12 @@ export async function GET(request: NextRequest) {
 
 // Handler for POST requests
 export async function POST(request: NextRequest) {
-  console.log("[POST /api/tickets] Starting request handler");
+  logger.info("[POST /api/tickets] Starting request handler");
 
   // Check for authentication using the helper
   const authenticated = await isAuthenticated(request);
   if (!authenticated) {
-    console.log("[POST /api/tickets] Authentication failed, returning 401");
+    logger.info("[POST /api/tickets] Authentication failed, returning 401");
     return NextResponse.json(
       {
         error: "Unauthorized",
@@ -510,7 +507,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  console.log("[POST /api/tickets] Authentication successful");
+  logger.info("[POST /api/tickets] Authentication successful");
 
   // Check if this is a recursive request by examining headers or URL
   const isRecursiveRequest =
@@ -525,7 +522,7 @@ export async function POST(request: NextRequest) {
       body = {};
     }
 
-    console.log("[POST /api/tickets] Forwarding to backend");
+    logger.info("[POST /api/tickets] Forwarding to backend");
 
     // Use explicit full path to avoid any URL construction issues
     return await forwardToServer(
@@ -549,7 +546,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(
+    logger.info(
       "[POST /api/tickets] Backend connection failed, using mock response"
     );
 

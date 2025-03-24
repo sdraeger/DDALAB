@@ -3,8 +3,9 @@
 from datetime import datetime
 from typing import List, Optional, Union
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from server.core.auth import get_current_user
@@ -15,8 +16,9 @@ from server.core.directus_sync import (
     submit_ticket_to_directus,
     sync_users_to_directus,
 )
+from server.schemas.tickets import TicketUpdate
 
-router = APIRouter()
+router = APIRouter(prefix="")
 
 
 class TicketCreate(BaseModel):
@@ -160,3 +162,64 @@ async def sync_users(
         )
 
     return {"message": "User synchronization completed successfully"}
+
+
+@router.get("/{ticket_id}")
+async def get_ticket(
+    request: Request,
+    ticket_id: str,
+    db: Session = Depends(get_db),
+):
+    """Get ticket by ID."""
+    try:
+        # Get current user
+        current_user = await get_current_user(request)
+
+        # Placeholder implementation
+        return {"ticket_id": ticket_id, "user_id": current_user.id}
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Database error retrieving ticket: {str(e)}"
+        )
+
+
+@router.put("/{ticket_id}")
+async def update_ticket(
+    request: Request,
+    ticket_id: str,
+    ticket_update: TicketUpdate,
+    db: Session = Depends(get_db),
+):
+    """Update ticket."""
+    try:
+        # Get current user
+        current_user = await get_current_user(request)
+
+        # Placeholder implementation
+        return {"ticket_id": ticket_id, "user_id": current_user.id, "updated": True}
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Database error updating ticket: {str(e)}"
+        )
+
+
+@router.delete("/{ticket_id}")
+async def delete_ticket(
+    request: Request,
+    ticket_id: str,
+    db: Session = Depends(get_db),
+):
+    """Delete ticket."""
+    try:
+        # Get current user
+        current_user = await get_current_user(request)
+
+        # Placeholder implementation
+        return {"ticket_id": ticket_id, "user_id": current_user.id, "deleted": True}
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Database error deleting ticket: {str(e)}"
+        )

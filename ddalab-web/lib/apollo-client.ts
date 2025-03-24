@@ -1,12 +1,12 @@
 import {
   ApolloClient,
+  ApolloLink,
   InMemoryCache,
   createHttpLink,
-  from,
 } from "@apollo/client";
 import { setContext } from "@apollo/client/link/context";
 import { onError } from "@apollo/client/link/error";
-import { getAuthToken } from "./auth";
+import { getSession } from "next-auth/react";
 
 // Create an error link to handle GraphQL errors
 const errorLink = onError(({ graphQLErrors, networkError, operation }) => {
@@ -32,26 +32,15 @@ const errorLink = onError(({ graphQLErrors, networkError, operation }) => {
   }
 });
 
-// Create an HTTP link to our local GraphQL proxy
+// Create the http link
 const httpLink = createHttpLink({
-  uri: "/graphql", // Use our local proxy
-  credentials: "include", // Always include credentials
-  fetchOptions: {
-    credentials: "include", // Ensure cookies are sent with every request
-  },
+  uri: "/graphql",
 });
 
-// Create an auth link to add the token to the headers
-const authLink = setContext((_, { headers }) => {
-  // Get the authentication token from local storage
-  const token = getAuthToken();
-
-  // Log auth status for debugging
-  if (!token) {
-    console.warn("No auth token available for GraphQL request");
-  }
-
-  // Return the headers to the context so httpLink can read them
+const authLink = setContext(async (_, { headers }) => {
+  const session = await getSession();
+  const token = session?.accessToken;
+  console.log("Apollo - Sending token:", token);
   return {
     headers: {
       ...headers,
@@ -61,43 +50,53 @@ const authLink = setContext((_, { headers }) => {
 });
 
 // Create the Apollo Client
+// export const apolloClient = new ApolloClient({
+//   link: from([errorLink, authLink, httpLink]),
+//   cache: new InMemoryCache({
+//     typePolicies: {
+//       Query: {
+//         fields: {
+//           getAnnotations: {
+//             merge(existing, incoming) {
+//               return incoming; // Always prefer incoming data
+//             },
+//           },
+//         },
+//       },
+//       AnnotationType: {
+//         keyFields: ["id"],
+//         fields: {
+//           id: {
+//             read(id) {
+//               // Make sure IDs are read as numbers
+//               return typeof id === "string" ? parseInt(id, 10) : id;
+//             },
+//           },
+//         },
+//       },
+//     },
+//   }),
+//   defaultOptions: {
+//     watchQuery: {
+//       fetchPolicy: "network-only",
+//       errorPolicy: "all",
+//     },
+//     query: {
+//       fetchPolicy: "network-only",
+//       errorPolicy: "all",
+//     },
+//     mutate: {
+//       errorPolicy: "all",
+//     },
+//   },
+// });
+
 export const apolloClient = new ApolloClient({
-  link: from([errorLink, authLink, httpLink]),
-  cache: new InMemoryCache({
-    typePolicies: {
-      Query: {
-        fields: {
-          getAnnotations: {
-            merge(existing, incoming) {
-              return incoming; // Always prefer incoming data
-            },
-          },
-        },
-      },
-      AnnotationType: {
-        keyFields: ["id"],
-        fields: {
-          id: {
-            read(id) {
-              // Make sure IDs are read as numbers
-              return typeof id === "string" ? parseInt(id, 10) : id;
-            },
-          },
-        },
-      },
-    },
-  }),
+  link: ApolloLink.from([authLink, httpLink]),
+  cache: new InMemoryCache(),
   defaultOptions: {
-    watchQuery: {
-      fetchPolicy: "network-only",
-      errorPolicy: "all",
-    },
-    query: {
-      fetchPolicy: "network-only",
-      errorPolicy: "all",
-    },
-    mutate: {
-      errorPolicy: "all",
-    },
+    watchQuery: { fetchPolicy: "no-cache", errorPolicy: "all" },
+    query: { fetchPolicy: "no-cache", errorPolicy: "all" },
+    mutate: { errorPolicy: "all" },
   },
 });

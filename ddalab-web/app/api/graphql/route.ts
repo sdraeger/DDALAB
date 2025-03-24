@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import https from "https";
 import fs from "fs";
 import { getEnvVar } from "@/lib/utils/env";
+import logger from "@/lib/utils/logger";
 
 // Environment variables
 const caPath = getEnvVar("API_SSL_CERT_PATH", "../ssl/cert.pem");
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
 
     // Load the CA certificate
     const ca = fs.readFileSync(caPath);
-    console.log("Using CA from:", caPath); // Keep this for debugging
+    logger.info("Using CA from:", caPath); // Keep this for debugging
 
     // Get the base URL from environment variable
     const url = new URL(`${baseUrl}/graphql`);
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
             const jsonData = JSON.parse(data); // Assuming GraphQL returns JSON
             resolve(NextResponse.json(jsonData, { status: res.statusCode }));
           } catch (e) {
-            console.error("Response parse error:", e);
+            logger.error("Response parse error:", e);
             resolve(
               NextResponse.json(
                 { errors: [{ message: "Invalid response format" }] },
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
       });
 
       req.on("error", (error) => {
-        console.error("HTTPS request error:", error);
+        logger.error("HTTPS request error:", error);
         resolve(
           NextResponse.json(
             { errors: [{ message: error.message }] },
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
       req.end();
     });
   } catch (error) {
-    console.error("GraphQL proxy error:", error);
+    logger.error("GraphQL proxy error:", error);
     return NextResponse.json(
       {
         errors: [

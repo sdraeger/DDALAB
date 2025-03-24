@@ -79,19 +79,22 @@ The following API endpoints are available for user management:
 
 ```javascript
 // Login
-const loginResponse = await fetch('/api/auth/login', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ username: 'admin', password: 'your_secure_admin_password' })
+const loginResponse = await fetch("/api/auth/login", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    username: "admin",
+    password: "your_secure_admin_password",
+  }),
 });
 
 const { user, token } = await loginResponse.json();
 
 // Use the token for authenticated requests
-const response = await fetch('/api/some-protected-endpoint', {
+const response = await fetch("/api/some-protected-endpoint", {
   headers: {
-    'Authorization': `Bearer ${token}`
-  }
+    Authorization: `Bearer ${token}`,
+  },
 });
 ```
 
@@ -112,6 +115,7 @@ The user system automatically integrates with Directus:
 2. **Role Assignment**: All users created through this system are assigned to the "Public" role in Directus by default.
 
 3. **Configuration**: Make sure to set the following environment variables for Directus integration:
+
    ```
    DIRECTUS_URL=http://localhost:8055
    DIRECTUS_EMAIL=admin@example.com
@@ -147,29 +151,30 @@ The user registration system includes an invite code mechanism to control who ca
 Admin users can generate and manage invite codes through the API:
 
 1. **Generate Codes**: `POST /api/auth/invite` (admin only)
+
    ```javascript
    // Generate a new invite code
-   const response = await fetch('/api/auth/invite', {
-     method: 'POST',
+   const response = await fetch("/api/auth/invite", {
+     method: "POST",
      headers: {
-       'Content-Type': 'application/json',
-       'Authorization': `Bearer ${adminToken}`
+       "Content-Type": "application/json",
+       Authorization: `Bearer ${adminToken}`,
      },
      body: JSON.stringify({
-       email: 'user@example.com', // Optional: restrict to this email
+       email: "user@example.com", // Optional: restrict to this email
        maxUses: 5, // How many times the code can be used (default: 1)
-       expiresInDays: 30 // Optional: code expires after this many days
-     })
+       expiresInDays: 30, // Optional: code expires after this many days
+     }),
    });
    ```
 
 2. **List Codes**: `GET /api/auth/invite` (admin only)
    ```javascript
    // List all invite codes
-   const response = await fetch('/api/auth/invite?active=true', {
+   const response = await fetch("/api/auth/invite?active=true", {
      headers: {
-       'Authorization': `Bearer ${adminToken}`
-     }
+       Authorization: `Bearer ${adminToken}`,
+     },
    });
    ```
 
@@ -178,25 +183,28 @@ Admin users can generate and manage invite codes through the API:
 Users can register with a valid invite code:
 
 1. **Validate Code**: `GET /api/auth/register/validate-code?code=XXXX&email=user@example.com`
+
    ```javascript
    // Check if an invite code is valid
-   const response = await fetch(`/api/auth/register/validate-code?code=${inviteCode}`);
+   const response = await fetch(
+     `/api/auth/register/validate-code?code=${inviteCode}`
+   );
    ```
 
 2. **Register**: `POST /api/auth/register`
    ```javascript
    // Register with an invite code
-   const response = await fetch('/api/auth/register', {
-     method: 'POST',
-     headers: { 'Content-Type': 'application/json' },
+   const response = await fetch("/api/auth/register", {
+     method: "POST",
+     headers: { "Content-Type": "application/json" },
      body: JSON.stringify({
-       username: 'newuser',
-       password: 'secure_password',
-       email: 'user@example.com',
-       firstName: 'New',
-       lastName: 'User',
-       inviteCode: 'abc123' // Valid invite code
-     })
+       username: "newuser",
+       password: "secure_password",
+       email: "user@example.com",
+       firstName: "New",
+       lastName: "User",
+       inviteCode: "abc123", // Valid invite code
+     }),
    });
    ```
 
@@ -210,4 +218,4 @@ The invite code system works seamlessly with the Directus integration:
 
 1. Users registered with invite codes are also created in Directus
 2. The same password validation and security features apply
-3. All users are assigned to the Public role in Directus 
+3. All users are assigned to the Public role in Directus

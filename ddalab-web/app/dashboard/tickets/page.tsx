@@ -14,12 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import {
-  getAuthToken,
-  isTokenExpired,
-  logoutUser,
-  secureFetch,
-} from "@/lib/auth";
+import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
 type Ticket = {
@@ -37,90 +32,45 @@ export default function TicketsPage() {
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
   const router = useRouter();
+  const { data: session, status } = useSession();
 
   const fetchTickets = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      // Use our Next.js API route with secureFetch
-      const endpoint = `/api/tickets`;
-      console.log("Fetching tickets from:", endpoint);
-
-      const response = await secureFetch(endpoint, {
+      const response = await fetch("/api/tickets", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
+          // NextAuth automatically includes the token via middleware
         },
       });
 
-      console.log(
-        "Tickets API response status:",
-        response.status,
-        response.statusText
-      );
-
-      // If response is 401 (Unauthorized), handle expired token
       if (response.status === 401) {
-        console.error("Token is invalid or expired");
         toast({
           title: "Session Expired",
           description: "Your session has expired. Please log in again.",
           variant: "destructive",
         });
-        logoutUser();
-        router.push("/login");
+        signOut({ callbackUrl: "/login" });
         return;
       }
 
-      // If response isn't ok, try to get error details
       if (!response.ok) {
-        let errorMessage = `Failed to fetch tickets (status ${response.status})`;
-
-        try {
-          const textResponse = await response.text();
-          if (textResponse) {
-            const errorData = JSON.parse(textResponse);
-            console.error("API error response:", errorData);
-            // Check for both error and detail fields in the error response
-            errorMessage = errorData.detail || errorData.error || errorMessage;
-          }
-        } catch (parseError) {
-          console.error("Could not parse error response:", parseError);
-        }
-
-        throw new Error(errorMessage);
+        const errorData = await response.json();
+        throw new Error(
+          errorData.message ||
+            `Failed to fetch tickets (status ${response.status})`
+        );
       }
 
-      // Try to parse the successful response
-      let data;
-      try {
-        const textResponse = await response.text();
-        data = textResponse ? JSON.parse(textResponse) : [];
-      } catch (parseError) {
-        console.error("Failed to parse success response:", parseError);
-        throw new Error("Failed to parse server response");
-      }
-
-      console.log("Received tickets:", data);
+      const data = await response.json();
       setTickets(Array.isArray(data) ? data : []);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "An unknown error occurred";
-
-      console.error("Ticket fetch error:", errorMessage);
       setError(errorMessage);
-
-      // Handle authentication errors
-      if (
-        errorMessage.includes("authentication") ||
-        errorMessage.includes("token") ||
-        errorMessage.includes("log in")
-      ) {
-        logoutUser();
-        router.push("/login");
-      }
-
       toast({
         title: "Error",
         description: errorMessage,
@@ -132,20 +82,14 @@ export default function TicketsPage() {
   };
 
   useEffect(() => {
-    // Check token validity before fetching
-    if (isTokenExpired()) {
-      toast({
-        title: "Session Expired",
-        description: "Your session has expired. Please log in again.",
-        variant: "destructive",
-      });
-      logoutUser();
+    if (status === "unauthenticated") {
       router.push("/login");
       return;
     }
-
-    fetchTickets();
-  }, [router]);
+    if (status === "authenticated") {
+      fetchTickets();
+    }
+  }, [status, router]);
 
   // Filter tickets based on status
   const openTickets = tickets.filter(
@@ -172,9 +116,8 @@ export default function TicketsPage() {
   };
 
   // Format date to a more readable format
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString();
-  };
+  const formatDate = (dateString: string) =>
+    new Date(dateString).toLocaleString();
 
   return (
     <ProtectedRoute>
