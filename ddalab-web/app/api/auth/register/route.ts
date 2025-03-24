@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import userAuth from "@/lib/db/user-auth";
+import logger from "@/lib/utils/logger";
 
 // Define interfaces for the returned objects
 interface User {
@@ -45,7 +46,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { username, password, email, firstName, lastName, inviteCode } = body;
 
-    console.log("Registration request received:", {
+    logger.info("Registration request received:", {
       username,
       email,
       firstName,
@@ -126,7 +127,7 @@ export async function POST(request: NextRequest) {
       throw dbError;
     }
   } catch (error: any) {
-    console.error("Registration error:", error);
+    logger.error("Registration error:", error);
     return NextResponse.json(
       { error: error.message || "Registration failed" },
       { status: 500 }
@@ -178,10 +179,52 @@ export async function GET(request: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
-    console.error("Code validation error:", error);
+    logger.error("Code validation error:", error);
     return NextResponse.json(
       { error: "Failed to validate invite code" },
       { status: 500 }
     );
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const userData = await request.json();
+    const { username, password, email, firstName, lastName } = userData;
+    if (!username || !password || !email) {
+      return NextResponse.json(
+        { error: "Username, password, and email are required" },
+        { status: 400 }
+      );
+    }
+
+    try {
+      const newUser = await userAuth.registerUser({
+        username,
+        password,
+        email,
+        firstName,
+        lastName,
+      });
+      return NextResponse.json({ user: newUser });
+    } catch (error: any) {
+      if (error.code === "23505") {
+        if (error.detail?.includes("username")) {
+          return NextResponse.json(
+            { error: "Username already exists" },
+            { status: 409 }
+          );
+        } else if (error.detail?.includes("email")) {
+          return NextResponse.json(
+            { error: "Email already exists" },
+            { status: 409 }
+          );
+        }
+      }
+      throw error;
+    }
+  } catch (error) {
+    logger.error("Registration error:", error);
+    return NextResponse.json({ error: "Registration failed" }, { status: 500 });
   }
 }

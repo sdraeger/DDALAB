@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import userAuth from "@/lib/db/user-auth";
+import logger from "@/lib/utils/logger";
 
 // Define interfaces for typed data
 interface User {
@@ -27,7 +28,7 @@ interface TokenResult {
  */
 export async function POST(request: NextRequest) {
   try {
-    console.log("Received direct auth request to backend-token");
+    logger.info("Received direct auth request to backend-token");
 
     // Parse credentials from request body (handle both JSON and form-urlencoded)
     let username: string = "";
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Auth error:", error);
+    logger.error("Auth error:", error);
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Authentication failed",

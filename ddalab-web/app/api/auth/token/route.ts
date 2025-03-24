@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import https from "https";
 import { getEnvVar } from "@/lib/utils/env";
+import logger from "@/lib/utils/logger";
 
 // Environment variables
 const baseUrl = getEnvVar("NEXT_PUBLIC_API_URL");
@@ -13,7 +14,7 @@ export async function POST(request: NextRequest) {
 
     const contentType = request.headers.get("content-type") || "";
 
-    console.log("Received auth request with content type:", contentType);
+    logger.info("Received auth request with content type:", contentType);
 
     if (contentType.includes("application/json")) {
       // Handle JSON request
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
     // Get the base URL from environment variable
     const url = new URL(`${baseUrl}/api/auth/backend-token`);
 
-    console.log("Auth request will be sent to:", url.toString());
+    logger.info("Auth request will be sent to:", url.toString());
 
     // Configure the HTTPS request
     const options: https.RequestOptions = {
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
     };
 
     // For production, we'd use proper SSL certs instead of disabling verification
-    console.log("SSL verification disabled for development environment");
+    logger.info("SSL verification disabled for development environment");
 
     // Make the request
     return new Promise((resolve) => {
@@ -79,7 +80,7 @@ export async function POST(request: NextRequest) {
             // Add expires_in field if not present in response
             // This is based on the default JWT token expiration of 30 minutes
             if (!jsonData.expires_in && jsonData.access_token) {
-              console.log("Adding default token expiration time (30 minutes)");
+              logger.info("Adding default token expiration time (30 minutes)");
               jsonData.expires_in = 30 * 60; // 30 minutes in seconds
             }
 
@@ -96,7 +97,7 @@ export async function POST(request: NextRequest) {
       });
 
       req.on("error", (error) => {
-        console.error("HTTPS request error:", error);
+        logger.error("HTTPS request error:", error);
         resolve(NextResponse.json({ error: error.message }, { status: 500 }));
       });
 
@@ -105,7 +106,7 @@ export async function POST(request: NextRequest) {
       req.end();
     });
   } catch (error) {
-    console.error("Auth proxy error:", error);
+    logger.error("Auth proxy error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
