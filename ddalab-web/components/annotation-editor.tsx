@@ -21,10 +21,7 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Plus, Edit, Trash, X } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { gql } from "@apollo/client";
-import { isAuthenticated } from "@/lib/auth";
+import { Plus, Edit, Trash } from "lucide-react";
 
 export type Annotation = {
   id: number;

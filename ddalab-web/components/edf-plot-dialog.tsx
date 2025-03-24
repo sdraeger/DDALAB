@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useQuery, useMutation, useLazyQuery } from "@apollo/client";
-import { GET_EDF_DATA, GET_ANNOTATIONS } from "@/lib/graphql/queries";
+import { useQuery, useMutation } from "@apollo/client";
+import { GET_EDF_DATA } from "@/lib/graphql/queries";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
@@ -32,14 +31,11 @@ import { useEDFPlot } from "@/contexts/edf-plot-context";
 import { toast } from "@/components/ui/use-toast";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
-import { Switch } from "@/components/ui/switch";
 import {
   CREATE_ANNOTATION,
   DELETE_ANNOTATION,
   UPDATE_ANNOTATION,
 } from "@/lib/graphql/queries";
-import { useTheme } from "next-themes";
-import { isAuthenticated } from "@/lib/auth";
 
 interface EDFPlotDialogProps {
   open: boolean;

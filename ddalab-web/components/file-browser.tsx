@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EDFPlotDialog } from "@/components/edf-plot-dialog";
 import { useEDFPlot } from "@/contexts/edf-plot-context";
+import { toast } from "@/components/ui/use-toast";
 
 interface FileItem {
   name: string;
@@ -76,11 +77,32 @@ export function FileBrowser({
   };
 
   // Handle star/favorite button click
-  const handleStarClick = (e: React.MouseEvent, file: FileItem) => {
+  const handleStarClick = async (e: React.MouseEvent, file: FileItem) => {
     e.stopPropagation(); // Prevent triggering row click
-    toggleFavorite({
-      variables: { filePath: file.path },
-    });
+    try {
+      await toggleFavorite({
+        variables: { filePath: file.path },
+        onError: (error) => {
+          if (error.message.includes("Authentication required")) {
+            // Show authentication error toast
+            toast({
+              title: "Authentication Required",
+              description: "Please log in to favorite files",
+              variant: "destructive",
+            });
+          } else {
+            // Show generic error toast
+            toast({
+              title: "Error",
+              description: "Failed to update favorite status",
+              variant: "destructive",
+            });
+          }
+        },
+      });
+    } catch (error) {
+      console.error("Error toggling favorite:", error);
+    }
   };
 
   // Format file size

@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import logger from "@/lib/utils/logger";
 
 export function DashboardTabs() {
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
@@ -31,7 +32,7 @@ export function DashboardTabs() {
 
   const handleTaskComplete = (results: any) => {
     // You could do something with the results here
-    console.log("Task completed with results:", results);
+    logger.info("Task completed with results:", results);
   };
 
   const toggleFileBrowser = () => {

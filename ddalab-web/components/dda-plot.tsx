@@ -16,7 +16,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
 import { EEGChart } from "@/components/eeg-chart";
 import { useToast } from "@/components/ui/use-toast";
@@ -29,7 +28,6 @@ import {
   Settings,
 } from "lucide-react";
 import type { EEGData } from "@/components/eeg-dashboard";
-import { cn } from "@/lib/utils";
 import { AnnotationEditor, Annotation } from "@/components/annotation-editor";
 import {
   Dialog,
@@ -40,10 +38,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { EEGZoomSettings } from "@/components/eeg-zoom-settings";
-import { useAuth } from "@/contexts/auth-context";
 import { useEDFPlot } from "@/contexts/edf-plot-context";
-import { Checkbox } from "@/components/ui/checkbox";
-import { isAuthenticated } from "@/lib/auth";
+import { useSession } from "next-auth/react";
+import logger from "@/lib/utils/logger";
 
 // Helper function to determine if any preprocessing options are active
 const hasActivePreprocessing = (options: any): boolean => {
@@ -53,7 +50,7 @@ const hasActivePreprocessing = (options: any): boolean => {
     options.smoothing ||
     (options.normalization && options.normalization !== "none");
 
-  console.log("Preprocessing options active check:", options, isActive);
+  logger.info("Preprocessing options active check:", options, isActive);
   return isActive;
 };
 
@@ -109,7 +106,8 @@ export function DDAPlot({
     plotState.annotations || []
   );
   const [downloadProgress, setDownloadProgress] = useState(0);
-  const { user } = useAuth();
+  const { data: session, status } = useSession();
+  const user = session?.user;
 
   // Add state to track annotation edit mode
   const [editMode, setEditMode] = useState(false);
@@ -121,19 +119,19 @@ export function DDAPlot({
   // Initialize the plot state if needed
   useEffect(() => {
     if (filePath) {
-      console.log("Initializing plot state for file:", filePath);
+      logger.info("Initializing plot state for file:", filePath);
       initPlotState(filePath);
 
       // Set flag to load the chunk on initial file selection
       // Only if we don't already have data for this file
       const currentPlotState = getPlotState(filePath);
-      console.log("Initial plot state:", currentPlotState);
+      logger.info("Initial plot state:", currentPlotState);
 
       if (!currentPlotState || !currentPlotState.edfData) {
-        console.log("No existing data found, setting shouldLoadChunk to true");
+        logger.info("No existing data found, setting shouldLoadChunk to true");
         setShouldLoadChunk(true);
       } else {
-        console.log("Using existing cached data, not loading chunk");
+        logger.info("Using existing cached data, not loading chunk");
       }
     }
   }, [filePath, initPlotState, getPlotState]);
@@ -199,7 +197,7 @@ export function DDAPlot({
       preprocessingOptions.normalization === "none";
 
     if (hasDefaultValuesOnly && filePath) {
-      console.log(
+      logger.info(
         "Detected default preprocessingOptions - updating context only"
       );
       // Only update the context, don't change the local state to avoid a loop
@@ -289,14 +287,14 @@ export function DDAPlot({
   // Reset shouldLoadChunk after data is loaded
   useEffect(() => {
     if (data && shouldLoadChunk) {
-      console.log("Data loaded, resetting shouldLoadChunk flag");
+      logger.info("Data loaded, resetting shouldLoadChunk flag");
       setShouldLoadChunk(false);
     }
   }, [data, shouldLoadChunk]);
 
   // Debug log when shouldLoadChunk changes
   useEffect(() => {
-    console.log(`shouldLoadChunk changed to: ${shouldLoadChunk}`);
+    logger.info(`shouldLoadChunk changed to: ${shouldLoadChunk}`);
   }, [shouldLoadChunk]);
 
   // Query for DDA results if task ID is provided
@@ -404,10 +402,10 @@ export function DDAPlot({
 
     try {
       // Log the actual data received
-      console.log(
+      logger.info(
         `Received data: samples=${edfDataToUse.chunkSize}, samplingFrequency=${edfDataToUse.samplingFrequency}`
       );
-      console.log(
+      logger.info(
         `Duration: ${
           edfDataToUse.chunkSize / edfDataToUse.samplingFrequency
         } seconds`
@@ -485,7 +483,7 @@ export function DDAPlot({
     setTimeWindow([0, actualDuration]);
     setAbsoluteTimeWindow([absStart, absStart + actualDuration]);
 
-    console.log(
+    logger.info(
       `Reset time window: start=${absStart}s, duration=${actualDuration}s`
     );
   };
@@ -588,7 +586,7 @@ export function DDAPlot({
   const handleChunkSizeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseInt(e.target.value);
     if (!isNaN(value) && value > 0) {
-      console.log(
+      logger.info(
         `Chunk size changed to ${value} samples (${
           value / sampleRate
         }s) - not loading yet`
@@ -679,7 +677,7 @@ export function DDAPlot({
 
   // Load chunk with new size - only called when the load button is clicked
   const handleLoadChunk = () => {
-    console.log("Loading chunk at position:", chunkStart);
+    logger.info("Loading chunk at position:", chunkStart);
     setShouldLoadChunk(true);
     setDownloadProgress(0);
     updatePlotState(filePath, {
@@ -718,7 +716,7 @@ export function DDAPlot({
     const chunkStartSample = chunkStart;
     const chunkEndSample = chunkStart + chunkSize;
 
-    console.log(
+    logger.info(
       `Selecting annotation at sample ${annotationSample}, current chunk: ${chunkStartSample}-${chunkEndSample}`
     );
 
@@ -727,7 +725,7 @@ export function DDAPlot({
       annotationSample >= chunkStartSample &&
       annotationSample <= chunkEndSample
     ) {
-      console.log("Annotation is in current chunk, panning to it");
+      logger.info("Annotation is in current chunk, panning to it");
       // Annotation is in the current chunk, just pan to it
       // Calculate annotation position within the chunk in seconds
       const annotationTimeInChunk =
@@ -763,7 +761,7 @@ export function DDAPlot({
       }, 300);
     } else {
       // Annotation is in a different chunk, need to load that chunk
-      console.log("Annotation is in a different chunk, loading it");
+      logger.info("Annotation is in a different chunk, loading it");
 
       // Calculate the new chunk start to center the annotation in the chunk if possible
       // Ensure the annotation will be roughly in the middle of the new chunk
@@ -989,7 +987,7 @@ export function DDAPlot({
   useEffect(() => {
     // Check if we have loaded data and have a target annotation to focus on
     if (eegData && targetAnnotationAfterLoad && !loading) {
-      console.log(
+      logger.info(
         "Chunk loaded, focusing on annotation:",
         targetAnnotationAfterLoad
       );
@@ -1166,10 +1164,10 @@ export function DDAPlot({
                   {error
                     ? `Error loading EDF data: ${error.message}`
                     : manualErrorMessage
-                    ? manualErrorMessage
-                    : ddaError
-                    ? `Error loading DDA results: ${ddaError.message}`
-                    : "An unknown error occurred"}
+                      ? manualErrorMessage
+                      : ddaError
+                        ? `Error loading DDA results: ${ddaError.message}`
+                        : "An unknown error occurred"}
                 </AlertDescription>
               </Alert>
             )}
@@ -1204,8 +1202,8 @@ export function DDAPlot({
                   {!eegData
                     ? "No data available"
                     : selectedChannels.length === 0
-                    ? "No channels selected"
-                    : "Loading data..."}
+                      ? "No channels selected"
+                      : "Loading data..."}
                 </div>
               )}
             </div>

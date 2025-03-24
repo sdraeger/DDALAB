@@ -1,59 +1,61 @@
-"use client"
+"use client";
 
-import type React from "react"
+import type React from "react";
 
-import { forwardRef, useRef, useState } from "react"
-import { FileUp, Loader2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { forwardRef, useRef, useState } from "react";
+import { FileUp, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface FileSelectorProps {
-  onFilesSelected: (files: FileList | null) => void
-  isLoading?: boolean
-  accept?: string
+  onFilesSelected: (files: FileList | null) => void;
+  isLoading?: boolean;
+  accept?: string;
 }
 
 export const FileSelector = forwardRef<HTMLInputElement, FileSelectorProps>(
   ({ onFilesSelected, isLoading = false, accept = "" }, ref) => {
-    const inputRef = useRef<HTMLInputElement>(null)
-    const [isDragging, setIsDragging] = useState(false)
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [isDragging, setIsDragging] = useState(false);
 
     const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      onFilesSelected(e.target.files)
-    }
+      onFilesSelected(e.target.files);
+    };
 
     const handleButtonClick = () => {
       if (ref) {
         if (typeof ref === "function") {
-          const input = inputRef.current
-          if (input) ref(input)
-          input?.click()
+          const input = inputRef.current;
+          if (input) ref(input);
+          input?.click();
         } else {
-          ref.current?.click()
+          ref.current?.click();
         }
       } else {
-        inputRef.current?.click()
+        inputRef.current?.click();
       }
-    }
+    };
 
     const handleDragOver = (e: React.DragEvent) => {
-      e.preventDefault()
-      setIsDragging(true)
-    }
+      e.preventDefault();
+      setIsDragging(true);
+    };
 
     const handleDragLeave = () => {
-      setIsDragging(false)
-    }
+      setIsDragging(false);
+    };
 
     const handleDrop = (e: React.DragEvent) => {
-      e.preventDefault()
-      setIsDragging(false)
-      onFilesSelected(e.dataTransfer.files)
-    }
+      e.preventDefault();
+      setIsDragging(false);
+      onFilesSelected(e.dataTransfer.files);
+    };
 
     return (
       <div
         className={`border-2 border-dashed rounded-lg p-8 text-center ${
-          isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/20"
+          isDragging
+            ? "border-primary bg-primary/5"
+            : "border-muted-foreground/20"
         }`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -64,11 +66,11 @@ export const FileSelector = forwardRef<HTMLInputElement, FileSelectorProps>(
           className="hidden"
           onChange={handleFileInputChange}
           ref={(node) => {
-            inputRef.current = node
+            inputRef.current = node;
             if (typeof ref === "function") {
-              ref(node)
+              ref(node);
             } else if (ref) {
-              ref.current = node
+              ref.current = node;
             }
           }}
           accept={accept}
@@ -79,10 +81,18 @@ export const FileSelector = forwardRef<HTMLInputElement, FileSelectorProps>(
             <FileUp className="h-6 w-6 text-muted-foreground" />
           </div>
           <div>
-            <p className="font-medium mb-1">Drag and drop your EDF file here, or click to browse</p>
-            <p className="text-sm text-muted-foreground">Supports .edf files containing EEG data</p>
+            <p className="font-medium mb-1">
+              Drag and drop your EDF file here, or click to browse
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Supports .edf files containing EEG data
+            </p>
           </div>
-          <Button onClick={handleButtonClick} disabled={isLoading} className="mt-2">
+          <Button
+            onClick={handleButtonClick}
+            disabled={isLoading}
+            className="mt-2"
+          >
             {isLoading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -94,9 +104,8 @@ export const FileSelector = forwardRef<HTMLInputElement, FileSelectorProps>(
           </Button>
         </div>
       </div>
-    )
-  },
-)
+    );
+  }
+);
 
-FileSelector.displayName = "FileSelector"
-
+FileSelector.displayName = "FileSelector";

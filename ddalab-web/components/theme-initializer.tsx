@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useTheme } from "next-themes";
-import { useAuth } from "@/contexts/auth-context";
+import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/use-toast";
 
 /**
@@ -11,13 +11,16 @@ import { useToast } from "@/components/ui/use-toast";
  */
 export function ThemeInitializer() {
   const { theme, setTheme } = useTheme();
-  const { user } = useAuth();
+  const { data: session } = useSession();
   const { toast } = useToast();
 
   // Apply user's theme preference when user data is available
   useEffect(() => {
-    if (user?.preferences?.theme && theme !== user.preferences.theme) {
-      const newTheme = user.preferences.theme;
+    if (
+      session?.user?.preferences?.theme &&
+      theme !== session.user.preferences.theme
+    ) {
+      const newTheme = session.user.preferences.theme;
       setTheme(newTheme);
 
       // Toast notification when theme is applied from settings
@@ -25,8 +28,8 @@ export function ThemeInitializer() {
         newTheme === "dark"
           ? "Dark Mode"
           : newTheme === "light"
-          ? "Light Mode"
-          : "System Theme";
+            ? "Light Mode"
+            : "System Theme";
 
       toast({
         title: `Applied Theme: ${themeName}`,
@@ -34,7 +37,7 @@ export function ThemeInitializer() {
         duration: 3000,
       });
     }
-  }, [user, theme, setTheme, toast]);
+  }, [session, theme, setTheme, toast]);
 
   // This component doesn't render anything
   return null;

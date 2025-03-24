@@ -93,8 +93,8 @@ export function SaveSettingsButton({
         saveSuccess
           ? "bg-green-600 hover:bg-green-700 text-white"
           : shouldEnableButton
-          ? "bg-primary hover:bg-primary/90 text-primary-foreground"
-          : "bg-muted hover:bg-muted/80 text-muted-foreground",
+            ? "bg-primary hover:bg-primary/90 text-primary-foreground"
+            : "bg-muted hover:bg-muted/80 text-muted-foreground",
         !shouldEnableButton && "opacity-70",
         "min-w-[120px] h-12 rounded-full"
       );

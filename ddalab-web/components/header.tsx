@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -16,10 +15,19 @@ import { ModeToggle } from "@/components/mode-toggle";
 import { HelpButton } from "@/components/help-button";
 import { useState } from "react";
 import { RegisterDialog } from "@/components/register-dialog";
+import { useSession } from "next-auth/react";
+import { signOut } from "next-auth/react";
 
 export function Header() {
-  const { user, logout, isLoggedIn } = useAuth();
+  const { data: session, status } = useSession();
+  const user = session?.user;
+  const isLoggedIn = !!session;
+  const loading = status === "loading";
   const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
+
+  const handleLogout = async () => {
+    await signOut({ callbackUrl: "/" });
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -82,7 +90,7 @@ export function Header() {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={logout}>
+                  <DropdownMenuItem onClick={handleLogout}>
                     <LogOut className="mr-2 h-4 w-4" />
                     <span>Log out</span>
                   </DropdownMenuItem>

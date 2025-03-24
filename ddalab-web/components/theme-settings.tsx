@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTheme } from "next-themes";
 import { useSettings } from "@/contexts/settings-context";
+import { useSession } from "next-auth/react";
 import {
   Card,
   CardContent,
@@ -30,6 +31,7 @@ export function ThemeSettings() {
 
   const { theme, setTheme } = useTheme();
   const { updatePreference, userPreferences, pendingChanges } = useSettings();
+  const { data: session } = useSession();
 
   // Local UI state
   const [localTheme, setLocalTheme] = useState<ThemeOption>("system");
@@ -44,7 +46,7 @@ export function ThemeSettings() {
 
     // Determine initial theme from preferences or system
     const initialTheme =
-      (userPreferences?.theme as ThemeOption) ||
+      (session?.user?.preferences?.theme as ThemeOption) ||
       (theme as ThemeOption) ||
       "system";
 
@@ -57,7 +59,7 @@ export function ThemeSettings() {
     }
 
     wasInitializedRef.current = true;
-  }, [userPreferences, theme, setTheme]);
+  }, [session, theme, setTheme]);
 
   // Listen for context changes
   useEffect(() => {
