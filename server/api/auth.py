@@ -1,11 +1,13 @@
 """Authentication routes."""
 
-from datetime import timedelta
-from typing import Optional
+import uuid
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+from loguru import logger
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from server.core.auth import (
@@ -15,15 +17,13 @@ from server.core.auth import (
     get_current_user,
 )
 from server.core.config import get_server_settings
-from server.core.database import User, get_db
+from server.core.database import User, UserToken, get_db
 
 router = APIRouter()
 settings = get_server_settings()
 
 
 class Token(BaseModel):
-    """Token response model."""
-
     access_token: str
     token_type: str
 
@@ -36,38 +36,110 @@ class UserCreate(BaseModel):
     is_admin: bool = False
 
 
-@router.post("/token", response_model=Token)
+# @router.post("/token", response_model=Token)
+# async def login_for_access_token(
+#     form_data: OAuth2PasswordRequestForm = Depends(),
+#     db: Session = Depends(get_db),
+# ):
+#     """Login endpoint to get access token."""
+#     if not settings.auth_enabled:
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="Authentication is currently disabled",
+#         )
+
+#     user = authenticate_user(db, form_data.username, form_data.password)
+#     if not user:
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED,
+#             detail="Incorrect username or password",
+#             headers={"WWW-Authenticate": "Bearer"},
+#         )
+
+#     access_token_expires = timedelta(minutes=settings.jwt_token_expire_minutes)
+#     access_token = create_access_token(
+#         data={"sub": user.username}, expires_delta=access_token_expires
+#     )
+#     return {"access_token": access_token, "token_type": "bearer"}
+
+
+# @router.post("/token", response_model=Token)
+# async def login_for_access_token(
+#     form_data: OAuth2PasswordRequestForm = Depends(),
+#     db: Session = Depends(get_db),
+# ):
+#     if not settings.auth_enabled:
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="Authentication is disabled",
+#         )
+
+#     user = authenticate_user(db, form_data.username, form_data.password)
+#     if not user:
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED,
+#             detail="Incorrect username or password",
+#             headers={"WWW-Authenticate": "Bearer"},
+#         )
+
+#     access_token = str(uuid.uuid4())
+#     expires_at = datetime.now(timezone.utc) + timedelta(
+#         minutes=settings.jwt_token_expire_minutes
+#     )
+
+#     user_token = UserToken(
+#         token=access_token,
+#         user_id=user.id,
+#         expires_at=expires_at,
+#         last_used_at=datetime.now(timezone.utc),
+#     )
+#     db.add(user_token)
+#     logger.debug(f"Storing token: {access_token} for user_id: {user.id}")
+#     db.commit()
+#     logger.debug(f"Token committed: {access_token}")
+
+#     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/token")
 async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Login endpoint to get access token."""
-    if not settings.auth_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Authentication is currently disabled",
-        )
-
-    user = authenticate_user(db, form_data.username, form_data.password)
+    """Login endpoint to issue access tokens."""
+    user = await authenticate_user(db, form_data.username, form_data.password)
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
 
-    access_token_expires = timedelta(minutes=settings.jwt_token_expire_minutes)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+    token = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).replace(tzinfo=None)  # Make naive
+    expires_at = now + timedelta(minutes=30)
+
+    user_token = UserToken(
+        token=token,
+        user_id=user.id,
+        expires_at=expires_at,
+        last_used_at=now,
+        created_at=now,
+        updated_at=now,
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    db.add(user_token)
+    logger.debug(f"Storing token: {token} for user_id: {user.id}")
+    await db.commit()
+    logger.debug(f"Token committed: {token}")
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": 3600,  # 1 hour in seconds
+    }
 
 
 @router.post("/users", response_model=Token)
 async def create_new_user(
+    request: Request,
     user_data: UserCreate,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user),
 ):
     """Create a new user (requires admin privileges, except for first admin)."""
     if not settings.auth_enabled:
@@ -90,10 +162,17 @@ async def create_new_user(
             )
     else:
         # For subsequent users, require admin privileges
-        if not current_user or not current_user.is_admin:
+        try:
+            current_user = await get_current_user(request)
+            if not current_user or not current_user.is_admin:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Not authorized to create users",
+                )
+        except HTTPException:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not authorized to create users",
+                detail="Authentication required to create users",
             )
 
     # Create the new user

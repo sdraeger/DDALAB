@@ -1,4 +1,4 @@
-import type { Agent } from "https"
+import type { Agent } from "https";
 
 // This function will only be called on the server side
 export const createHttpsAgent = async (): Promise<Agent | undefined> => {
@@ -6,15 +6,15 @@ export const createHttpsAgent = async (): Promise<Agent | undefined> => {
   if (typeof window === "undefined") {
     try {
       // Dynamically import Node.js modules
-      const { readFileSync } = await import("fs")
-      const https = await import("https")
+      const { readFileSync } = await import("fs");
+      const https = await import("https");
 
-      const keyPath = process.env.SSL_KEY_PATH
-      const certPath = process.env.SSL_CERT_PATH
+      const keyPath = process.env.SSL_KEY_PATH;
+      const certPath = process.env.SSL_CERT_PATH;
 
       if (!keyPath || !certPath) {
-        console.warn("SSL certificate paths not provided")
-        return undefined
+        console.warn("SSL certificate paths not provided");
+        return undefined;
       }
 
       return new https.Agent({
@@ -22,13 +22,12 @@ export const createHttpsAgent = async (): Promise<Agent | undefined> => {
         cert: readFileSync(certPath),
         // Set to false if using self-signed certificates
         rejectUnauthorized: process.env.NODE_TLS_REJECT_UNAUTHORIZED !== "0",
-      })
+      });
     } catch (error) {
-      console.warn("Failed to create HTTPS agent:", error)
-      return undefined
+      console.warn("Failed to create HTTPS agent:", error);
+      return undefined;
     }
   }
 
-  return undefined
-}
-
+  return undefined;
+};

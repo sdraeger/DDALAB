@@ -4,7 +4,6 @@ const nextConfig = {
     domains: ["placeholder.com"],
   },
   // No custom server configuration needed
-}
+};
 
-module.exports = nextConfig
-
+module.exports = nextConfig;

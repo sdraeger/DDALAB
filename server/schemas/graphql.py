@@ -7,9 +7,11 @@ from typing import List, Optional
 
 import numpy as np
 import strawberry
-from fastapi import BackgroundTasks, Request
+from fastapi import Depends, Request
 from loguru import logger
-from strawberry.fastapi import GraphQLRouter
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from strawberry.fastapi import BaseContext, GraphQLRouter
 
 from ..config import get_settings
 from ..core.auth import get_current_user_from_request
@@ -21,6 +23,21 @@ from .preprocessing import (
     PreprocessingOptionsInput,
     VisualizationPreprocessingOptionsInput,
 )
+
+
+class Context(BaseContext):
+    def __init__(self, request: Request, session: AsyncSession):
+        self.request = request
+        self.session = session
+
+
+async def db_session() -> AsyncSession:
+    async with SessionLocal() as session:
+        yield session
+
+
+async def get_context(request: Request, db_session: AsyncSession = Depends(db_session)):
+    return Context(request=request, session=db_session)
 
 
 @strawberry.type
@@ -154,42 +171,27 @@ class Query:
 
     @strawberry.field
     async def list_directory(
-        self, path: str = "", info: strawberry.Info = None
+        self,
+        path: str,
+        info: strawberry.Info[Context, None],
     ) -> List[FileInfo]:
-        """List contents of a directory.
-
-        Args:
-            path: Directory path to list
-            info: GraphQL request info containing context
-
-        Returns:
-            List of file information
-        """
-        # Get the current user from the request context
-        request = info.context["request"]
-        try:
-            current_user = await get_current_user_from_request(request)
-        except Exception:
-            # If authentication fails or is disabled, proceed without a user
-            current_user = None
-
+        request = info.context.request
+        current_user = await get_current_user_from_request(
+            request, info.context.session
+        )
         items = await list_directory(path)
 
-        # Get favorite files for the current user
         favorite_files = []
         if current_user:
-            db = SessionLocal()
             try:
-                favorites = (
-                    db.query(FavoriteFile)
-                    .filter(FavoriteFile.user_id == current_user.id)
-                    .all()
+                favorites = await info.context.session.execute(
+                    select(FavoriteFile).where(FavoriteFile.user_id == current_user.id)
                 )
-                favorite_files = [fav.file_path for fav in favorites]
-            finally:
-                db.close()
+                favorite_files = [fav.file_path for fav in favorites.scalars().all()]
+            except Exception as e:
+                logger.error(f"Error fetching favorite files: {e}")
+                favorite_files = []
 
-        # Create file info with favorite status
         file_info_list = []
         for item in items:
             is_favorite = item["path"] in favorite_files
@@ -204,11 +206,9 @@ class Query:
                 )
             )
 
-        # Sort favorites to the top
         file_info_list.sort(
             key=lambda x: (not x.isFavorite, not x.isDirectory, x.name.lower())
         )
-
         return file_info_list
 
     @strawberry.field
@@ -224,11 +224,13 @@ class Query:
             List of favorite files
         """
         # Get the current user from the request context
-        request = info.context["request"]
-        current_user = await get_current_user_from_request(request)
+        request = info.context.request
+        current_user = await get_current_user_from_request(
+            request, info.context.session
+        )
 
         # Get favorite files from the database
-        db = SessionLocal()
+        db = info.context.session
         try:
             favorites = (
                 db.query(FavoriteFile)
@@ -245,8 +247,9 @@ class Query:
                 )
                 for fav in favorites
             ]
-        finally:
-            db.close()
+        except Exception as e:
+            logger.error(f"Error fetching favorite files: {e}")
+            return []
 
     @strawberry.field
     async def get_edf_navigation(
@@ -584,7 +587,7 @@ class Query:
 
     @strawberry.field
     async def get_annotations(
-        self, file_path: str, info: strawberry.Info = None
+        self, file_path: str, info: strawberry.Info[Context, None]
     ) -> List[AnnotationType]:
         """Get annotations for a file.
 
@@ -594,36 +597,23 @@ class Query:
         Returns:
             List of annotations for the file
         """
-        # Get the current user from the request context
-        request = info.context["request"]
-        try:
-            current_user = await get_current_user_from_request(request)
-        except Exception:
-            # If authentication fails or is disabled, proceed without a user
-            current_user = None
-
-        # Get annotations from the database using synchronous session
-        db = SessionLocal()
-        try:
-            # Create query
-            query = db.query(Annotation).filter(Annotation.file_path == file_path).all()
-
-            # Convert database models to GraphQL types
-            return [
-                AnnotationType(
-                    id=annotation.id,
-                    user_id=annotation.user_id,
-                    file_path=annotation.file_path,
-                    start_time=annotation.start_time,
-                    end_time=annotation.end_time,
-                    text=annotation.text,
-                    created_at=annotation.created_at.isoformat(),
-                    updated_at=annotation.updated_at.isoformat(),
-                )
-                for annotation in query
-            ]
-        finally:
-            db.close()
+        # Get annotations from the database using async session
+        annotations = await info.context.session.execute(
+            select(Annotation).where(Annotation.file_path == file_path)
+        )
+        return [
+            AnnotationType(
+                id=annotation.id,
+                user_id=annotation.user_id,
+                file_path=annotation.file_path,
+                start_time=annotation.start_time,
+                end_time=annotation.end_time,
+                text=annotation.text,
+                created_at=annotation.created_at.isoformat(),
+                updated_at=annotation.updated_at.isoformat(),
+            )
+            for annotation in annotations.scalars().all()
+        ]
 
 
 @strawberry.type
@@ -647,7 +637,7 @@ class Mutation:
         Returns:
             DDA analysis result
         """
-        background_tasks = info.context["background_tasks"]
+        background_tasks = info.context.background_tasks
         task_id = await start_dda(
             file_path=file_path,
             preprocessing_options=preprocessing_options,
@@ -657,210 +647,241 @@ class Mutation:
 
     @strawberry.mutation
     async def create_annotation(
-        self, annotation_input: AnnotationInput, info: strawberry.Info = None
+        self, annotation_input: AnnotationInput, info: strawberry.Info[Context, None]
     ) -> AnnotationType:
-        """Create a new annotation.
+        current_user = await get_current_user_from_request(
+            info.context.request, info.context.session
+        )
 
-        Args:
-            annotation_input: Annotation data
+        await validate_file_path(annotation_input.file_path)
 
-        Returns:
-            Created annotation
-        """
-        # Get the current user from the request context
-        request = info.context["request"]
-        current_user = await get_current_user_from_request(request)
-
-        if not current_user:
-            raise ValueError("Authentication required")
-
-        # Validate the file path
-        if not await validate_file_path(annotation_input.file_path):
-            raise ValueError(f"Invalid file path: {annotation_input.file_path}")
-
-        # Create a new annotation
-        now = datetime.now(timezone.utc)
-        new_annotation = Annotation(
+        annotation = Annotation(
             user_id=current_user.id,
             file_path=annotation_input.file_path,
             start_time=annotation_input.start_time,
             end_time=annotation_input.end_time,
             text=annotation_input.text,
-            created_at=now,
-            updated_at=now,
         )
 
-        # Save the annotation to the database
-        db = SessionLocal()
-        try:
-            db.add(new_annotation)
-            db.commit()
-            db.refresh(new_annotation)
+        info.context.session.add(annotation)
 
-            # Convert the database model to a GraphQL type
-            return AnnotationType(
-                id=new_annotation.id,
-                user_id=new_annotation.user_id,
-                file_path=new_annotation.file_path,
-                start_time=new_annotation.start_time,
-                end_time=new_annotation.end_time,
-                text=new_annotation.text,
-                created_at=new_annotation.created_at.isoformat(),
-                updated_at=new_annotation.updated_at.isoformat(),
-            )
-        finally:
-            db.close()
+        await info.context.session.commit()
+        await info.context.session.refresh(annotation)
+
+        return AnnotationType(
+            id=annotation.id,
+            user_id=annotation.user_id,
+            file_path=annotation.file_path,
+            start_time=annotation.start_time,
+            end_time=annotation.end_time,
+            text=annotation.text,
+            created_at=annotation.created_at.isoformat(),
+            updated_at=annotation.updated_at.isoformat(),
+        )
 
     @strawberry.mutation
     async def update_annotation(
-        self, id: int, annotation_input: AnnotationInput, info: strawberry.Info = None
+        self,
+        id: int,
+        annotation_input: AnnotationInput,
+        info: strawberry.Info[Context, None],
     ) -> AnnotationType:
-        """Update an existing annotation.
+        current_user = await get_current_user_from_request(
+            info.context.request, info.context.session
+        )
+        annotation = await info.context.session.scalar(
+            select(Annotation).where(Annotation.id == id)
+        )
 
-        Args:
-            id: Annotation ID
-            annotation_input: Updated annotation data
+        if not annotation:
+            raise ValueError(f"Annotation with ID {id} not found")
 
-        Returns:
-            Updated annotation
-        """
-        # Get the current user from the request context
-        request = info.context["request"]
-        current_user = await get_current_user_from_request(request)
+        if annotation.user_id != current_user.id and not current_user.is_admin:
+            raise ValueError("Not authorized to update this annotation")
 
-        if not current_user:
-            raise ValueError("Authentication required")
+        annotation.file_path = annotation_input.file_path
+        annotation.start_time = annotation_input.start_time
+        annotation.end_time = annotation_input.end_time
+        annotation.text = annotation_input.text
+        annotation.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
-        # Get the annotation from the database
-        db = SessionLocal()
-        try:
-            annotation = db.query(Annotation).filter(Annotation.id == id).first()
+        await info.context.session.commit()
+        await info.context.session.refresh(annotation)
 
-            if not annotation:
-                raise ValueError(f"Annotation with ID {id} not found")
-
-            # Check if the user is authorized to update this annotation
-            if annotation.user_id != current_user.id and not current_user.is_admin:
-                raise ValueError("Not authorized to update this annotation")
-
-            # Update the annotation
-            annotation.file_path = annotation_input.file_path
-            annotation.start_time = annotation_input.start_time
-            annotation.end_time = annotation_input.end_time
-            annotation.text = annotation_input.text
-            annotation.updated_at = datetime.now(timezone.utc)
-
-            db.commit()
-            db.refresh(annotation)
-
-            # Convert the database model to a GraphQL type
-            return AnnotationType(
-                id=annotation.id,
-                user_id=annotation.user_id,
-                file_path=annotation.file_path,
-                start_time=annotation.start_time,
-                end_time=annotation.end_time,
-                text=annotation.text,
-                created_at=annotation.created_at.isoformat(),
-                updated_at=annotation.updated_at.isoformat(),
-            )
-        finally:
-            db.close()
+        return AnnotationType(
+            id=annotation.id,
+            user_id=annotation.user_id,
+            file_path=annotation.file_path,
+            start_time=annotation.start_time,
+            end_time=annotation.end_time,
+            text=annotation.text,
+            created_at=annotation.created_at.isoformat(),
+            updated_at=annotation.updated_at.isoformat(),
+        )
 
     @strawberry.mutation
-    async def delete_annotation(self, id: int, info: strawberry.Info = None) -> bool:
-        """Delete an annotation.
+    async def delete_annotation(
+        self, id: int, info: strawberry.Info[Context, None]
+    ) -> bool:
+        current_user = await get_current_user_from_request(
+            info.context.request, info.context.session
+        )
+        annotation = await info.context.session.scalar(
+            select(Annotation).where(Annotation.id == id)
+        )
 
-        Args:
-            id: Annotation ID
+        if not annotation:
+            raise ValueError(f"Annotation with ID {id} not found")
 
-        Returns:
-            True if the annotation was deleted successfully
-        """
-        # Get the current user from the request context
-        request = info.context["request"]
-        current_user = await get_current_user_from_request(request)
+        if annotation.user_id != current_user.id and not current_user.is_admin:
+            raise ValueError("Not authorized to delete this annotation")
 
-        if not current_user:
-            raise ValueError("Authentication required")
+        await info.context.session.delete(annotation)
+        await info.context.session.commit()
 
-        # Get the annotation from the database
-        db = SessionLocal()
-        try:
-            annotation = db.query(Annotation).filter(Annotation.id == id).first()
+        return True
 
-            if not annotation:
-                raise ValueError(f"Annotation with ID {id} not found")
+    # @strawberry.mutation
+    # async def toggle_favorite_file(
+    #     self, file_path: str, info: strawberry.Info = None
+    # ) -> bool:
+    #     """Toggle favorite status of a file.
 
-            # Check if the user is authorized to delete this annotation
-            if annotation.user_id != current_user.id and not current_user.is_admin:
-                raise ValueError("Not authorized to delete this annotation")
+    #     Args:
+    #         file_path: Path to the file
+    #         info: GraphQL request info containing context
 
-            # Delete the annotation
-            db.delete(annotation)
-            db.commit()
+    #     Returns:
+    #         True if file is now favorited, False if unfavorited
+    #     """
+    #     # Get the current user from the request context
+    #     request = info.context["request"]
+    #     current_user = await get_current_user_from_request(request)
 
-            return True
-        finally:
-            db.close()
+    #     # Validate file path
+    #     await validate_file_path(file_path)
+
+    #     # Check if file is already favorited
+    #     db = info.context["db"]
+    #     try:
+    #         favorite = (
+    #             db.query(FavoriteFile)
+    #             .filter(
+    #                 FavoriteFile.user_id == current_user.id,
+    #                 FavoriteFile.file_path == file_path,
+    #             )
+    #             .first()
+    #         )
+
+    #         if favorite:
+    #             # Remove from favorites
+    #             db.delete(favorite)
+    #             db.commit()
+    #             return False
+    #         else:
+    #             # Add to favorites
+    #             favorite = FavoriteFile(
+    #                 user_id=current_user.id,
+    #                 file_path=file_path,
+    #             )
+    #             db.add(favorite)
+    #             db.commit()
+    #             return True
+    #     except Exception as e:
+    #         db.rollback()
+    #         logger.error(f"Error toggling favorite file: {e}")
+    #         raise
+
+    # @strawberry.mutation
+    # async def toggle_favorite_file(
+    #     self, file_path: str, info: strawberry.Info = None
+    # ) -> bool:
+    #     request = info.context["request"]
+    #     current_user = await get_current_user_from_request(request)
+
+    #     if not current_user:
+    #         raise ValueError("Authentication required")
+
+    #     await validate_file_path(file_path)
+
+    #     db = info.context["db"]
+    #     try:
+    #         favorite = (
+    #             db.query(FavoriteFile)
+    #             .filter(
+    #                 FavoriteFile.user_id == current_user.id,
+    #                 FavoriteFile.file_path == file_path,
+    #             )
+    #             .first()
+    #         )
+
+    #         if favorite:
+    #             db.delete(favorite)
+    #             db.commit()
+    #             return False
+    #         else:
+    #             favorite = FavoriteFile(
+    #                 user_id=current_user.id,
+    #                 file_path=file_path,
+    #             )
+    #             db.add(favorite)
+    #             db.commit()
+    #             return True
+    #     except Exception as e:
+    #         db.rollback()
+    #         logger.error(f"Error toggling favorite file: {e}")
+    #         raise
 
     @strawberry.mutation
     async def toggle_favorite_file(
-        self, file_path: str, info: strawberry.Info = None
+        file_path: str, info: strawberry.Info[Context, None]
     ) -> bool:
-        """Toggle favorite status for a file.
-
-        Args:
-            file_path: Path to the file
-            info: GraphQL request info containing context
-
-        Returns:
-            True if the file is now favorited, False if it was removed
-        """
-        # Get the current user from the request context
-        request = info.context["request"]
-        current_user = await get_current_user_from_request(request)
-
-        # Check if the file exists
-        if not await validate_file_path(file_path):
-            raise ValueError(f"File not found: {file_path}")
-
-        # Check if the file is already favorited
-        db = SessionLocal()
+        current_user = await get_current_user_from_request(
+            info.context.request, info.context.session
+        )
         try:
-            existing_favorite = (
-                db.query(FavoriteFile)
-                .filter(
+            favorite = await info.context.session.scalar(
+                select(FavoriteFile).where(
                     FavoriteFile.user_id == current_user.id,
                     FavoriteFile.file_path == file_path,
                 )
-                .first()
             )
-
-            if existing_favorite:
-                # If it exists, remove it
-                db.delete(existing_favorite)
-                db.commit()
-                return False
+            if favorite:
+                await info.context.session.delete(favorite)
             else:
-                # If it doesn't exist, add it
                 new_favorite = FavoriteFile(
-                    user_id=current_user.id, file_path=file_path
+                    user_id=current_user.id,
+                    file_path=file_path,
+                    created_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 )
-                db.add(new_favorite)
-                db.commit()
-                return True
-        finally:
-            db.close()
+                info.context.session.add(new_favorite)
+            await info.context.session.commit()
+            return True
+        except Exception as e:
+            await info.context.session.rollback()
+            logger.error(f"Error toggling favorite file: {e}")
+            raise
 
 
-async def get_context(request: Request, background_tasks: BackgroundTasks):
-    """Get GraphQL context with request and background tasks."""
-    return {
-        "request": request,
-        "background_tasks": background_tasks,
-    }
+# async def get_context(request: Request, background_tasks: BackgroundTasks):
+#     """Get GraphQL context with database session."""
+#     db = SessionLocal()
+#     try:
+#         context = {
+#             "request": request,
+#             "background_tasks": background_tasks,
+#             "db": db,
+#         }
+#         yield context
+#     finally:
+#         if db:
+#             db.close()
+#             logger.debug("Database session closed")
 
 
+# Create GraphQL app with context
 schema = strawberry.Schema(query=Query, mutation=Mutation)
-graphql_app = GraphQLRouter(schema, context_getter=get_context)
+graphql_app = GraphQLRouter(
+    schema,
+    context_getter=get_context,
+)

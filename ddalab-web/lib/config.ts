@@ -6,7 +6,7 @@ import { getEnvVar } from "./utils/env";
 export const config = {
   // API configuration
   api: {
-    baseUrl: getEnvVar("NEXT_PUBLIC_API_URL", "https://api.example.com"),
+    baseUrl: getEnvVar("NEXT_PUBLIC_API_URL", "bla"),
     timeout: 10000, // 10 seconds
   },
 

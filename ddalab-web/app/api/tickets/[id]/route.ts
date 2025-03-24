@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import https from "https";
 import fs from "fs";
+import logger from "@/lib/utils/logger";
 
 // Directus ticket collection name
 const TICKETS_COLLECTION = "help_tickets";
@@ -62,7 +63,7 @@ async function directusRequest(path: string, options: any = {}) {
     });
   } catch (e) {
     const error = e as Error;
-    console.error("Directus request error:", error);
+    logger.error("Directus request error:", error);
     throw error;
   }
 }
@@ -94,7 +95,7 @@ async function getUserFromToken(request: NextRequest) {
     };
   } catch (e) {
     const error = e as Error;
-    console.error("Error getting user from token:", error);
+    logger.error("Error getting user from token:", error);
     return null;
   }
 }
@@ -134,7 +135,7 @@ export async function GET(
     // Construct the complete URL with proper path handling
     const endpoint = `${baseUrl.protocol}//${baseUrl.host}${basePath}${apiPath}`;
 
-    console.log(`Forwarding GET request to: ${endpoint}`);
+    logger.info(`Forwarding GET request to: ${endpoint}`);
 
     try {
       // Get SSL certificate if needed
@@ -145,14 +146,14 @@ export async function GET(
           const caPath = process.env.API_SSL_CERT_PATH || "./ssl/cert.pem";
           if (fs.existsSync(caPath)) {
             ca = fs.readFileSync(caPath);
-            console.log("SSL certificate loaded successfully");
+            logger.info("SSL certificate loaded successfully");
           } else {
-            console.warn(
+            logger.warn(
               `CA certificate not found at ${caPath}, proceeding with rejectUnauthorized=false`
             );
           }
         } catch (certError) {
-          console.warn(
+          logger.warn(
             `Error loading certificate: ${
               (certError as Error).message
             }, proceeding with rejectUnauthorized=false`
@@ -193,7 +194,7 @@ export async function GET(
           res.on("end", () => {
             // Check if we got a redirect
             if (res.statusCode >= 300 && res.statusCode < 400) {
-              console.log(
+              logger.info(
                 `Received redirect (${res.statusCode}) to: ${res.headers.location}`
               );
               return resolve({
@@ -210,13 +211,13 @@ export async function GET(
             const isHtml = contentType.includes("text/html");
 
             if (isHtml) {
-              console.warn(
+              logger.warn(
                 "Received HTML response instead of JSON. This likely indicates a server configuration issue."
               );
-              console.warn(
+              logger.warn(
                 `Status code: ${res.statusCode}, Content-Type: ${contentType}`
               );
-              console.warn(
+              logger.warn(
                 "HTML content preview:",
                 data.substring(0, 200) + "..."
               );
@@ -236,11 +237,11 @@ export async function GET(
                 try {
                   responseData = JSON.parse(data);
                 } catch (parseError) {
-                  console.error(
+                  logger.error(
                     "Failed to parse response as JSON:",
                     (parseError as Error).message
                   );
-                  console.error("Response preview:", data.substring(0, 200));
+                  logger.error("Response preview:", data.substring(0, 200));
 
                   return resolve({
                     statusCode: 500,
@@ -261,7 +262,7 @@ export async function GET(
                 data: responseData,
               });
             } catch (error) {
-              console.error("Error processing response:", error);
+              logger.error("Error processing response:", error);
               reject(
                 new Error(
                   `Failed to process response: ${(error as Error).message}`
@@ -272,13 +273,13 @@ export async function GET(
         });
 
         req.on("error", (error: Error) => {
-          console.error("Network error during request:", error.message);
+          logger.error("Network error during request:", error.message);
           reject(error);
         });
 
         // Set request timeout
         req.setTimeout(15000, () => {
-          console.error("Request timed out after 15 seconds");
+          logger.error("Request timed out after 15 seconds");
           req.destroy();
           reject(new Error("Request timed out after 15 seconds"));
         });
@@ -294,14 +295,14 @@ export async function GET(
 
       return NextResponse.json(serverResponse.data);
     } catch (error) {
-      console.error("Error fetching ticket from server:", error);
+      logger.error("Error fetching ticket from server:", error);
       return NextResponse.json(
         { error: `Failed to retrieve ticket: ${(error as Error).message}` },
         { status: 500 }
       );
     }
   } catch (error) {
-    console.error("Get ticket error:", error);
+    logger.error("Get ticket error:", error);
     return NextResponse.json(
       { error: `Failed to retrieve ticket: ${(error as Error).message}` },
       { status: 500 }
@@ -346,7 +347,7 @@ export async function PATCH(
     // Construct the complete URL with proper path handling
     const endpoint = `${baseUrl.protocol}//${baseUrl.host}${basePath}${apiPath}`;
 
-    console.log(`Forwarding PATCH request to: ${endpoint}`);
+    logger.info(`Forwarding PATCH request to: ${endpoint}`);
 
     try {
       // Get SSL certificate if needed
@@ -357,14 +358,14 @@ export async function PATCH(
           const caPath = process.env.API_SSL_CERT_PATH || "./ssl/cert.pem";
           if (fs.existsSync(caPath)) {
             ca = fs.readFileSync(caPath);
-            console.log("SSL certificate loaded successfully");
+            logger.info("SSL certificate loaded successfully");
           } else {
-            console.warn(
+            logger.warn(
               `CA certificate not found at ${caPath}, proceeding with rejectUnauthorized=false`
             );
           }
         } catch (certError) {
-          console.warn(
+          logger.warn(
             `Error loading certificate: ${
               (certError as Error).message
             }, proceeding with rejectUnauthorized=false`
@@ -405,7 +406,7 @@ export async function PATCH(
           res.on("end", () => {
             // Check if we got a redirect
             if (res.statusCode >= 300 && res.statusCode < 400) {
-              console.log(
+              logger.info(
                 `Received redirect (${res.statusCode}) to: ${res.headers.location}`
               );
               return resolve({
@@ -422,13 +423,13 @@ export async function PATCH(
             const isHtml = contentType.includes("text/html");
 
             if (isHtml) {
-              console.warn(
+              logger.warn(
                 "Received HTML response instead of JSON. This likely indicates a server configuration issue."
               );
-              console.warn(
+              logger.warn(
                 `Status code: ${res.statusCode}, Content-Type: ${contentType}`
               );
-              console.warn(
+              logger.warn(
                 "HTML content preview:",
                 data.substring(0, 200) + "..."
               );
@@ -448,11 +449,11 @@ export async function PATCH(
                 try {
                   responseData = JSON.parse(data);
                 } catch (parseError) {
-                  console.error(
+                  logger.error(
                     "Failed to parse response as JSON:",
                     (parseError as Error).message
                   );
-                  console.error("Response preview:", data.substring(0, 200));
+                  logger.error("Response preview:", data.substring(0, 200));
 
                   return resolve({
                     statusCode: 500,
@@ -473,7 +474,7 @@ export async function PATCH(
                 data: responseData,
               });
             } catch (error) {
-              console.error("Error processing response:", error);
+              logger.error("Error processing response:", error);
               reject(
                 new Error(
                   `Failed to process response: ${(error as Error).message}`
@@ -484,7 +485,7 @@ export async function PATCH(
         });
 
         req.on("error", (error: Error) => {
-          console.error("Network error during request:", error.message);
+          logger.error("Network error during request:", error.message);
           reject(error);
         });
 
@@ -493,7 +494,7 @@ export async function PATCH(
 
         // Set request timeout
         req.setTimeout(15000, () => {
-          console.error("Request timed out after 15 seconds");
+          logger.error("Request timed out after 15 seconds");
           req.destroy();
           reject(new Error("Request timed out after 15 seconds"));
         });
@@ -509,14 +510,14 @@ export async function PATCH(
 
       return NextResponse.json(serverResponse.data);
     } catch (error) {
-      console.error("Error updating ticket on server:", error);
+      logger.error("Error updating ticket on server:", error);
       return NextResponse.json(
         { error: `Failed to update ticket: ${(error as Error).message}` },
         { status: 500 }
       );
     }
   } catch (error) {
-    console.error("Update ticket error:", error);
+    logger.error("Update ticket error:", error);
     return NextResponse.json(
       { error: `Failed to update ticket: ${(error as Error).message}` },
       { status: 500 }

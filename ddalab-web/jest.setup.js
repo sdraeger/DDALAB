@@ -1,19 +1,19 @@
 // Import Jest DOM extensions
-import '@testing-library/jest-dom';
+import "@testing-library/jest-dom";
 
 // Polyfill for TextEncoder/TextDecoder that's missing in Jest environment
-global.TextEncoder = require('util').TextEncoder;
-global.TextDecoder = require('util').TextDecoder;
+global.TextEncoder = require("util").TextEncoder;
+global.TextDecoder = require("util").TextDecoder;
 
 // Add fetch polyfill
-global.fetch = require('node-fetch');
-global.Request = require('node-fetch').Request;
-global.Response = require('node-fetch').Response;
+global.fetch = require("node-fetch");
+global.Request = require("node-fetch").Request;
+global.Response = require("node-fetch").Response;
 
 // Mock for window.matchMedia
-Object.defineProperty(window, 'matchMedia', {
+Object.defineProperty(window, "matchMedia", {
   writable: true,
-  value: jest.fn().mockImplementation(query => ({
+  value: jest.fn().mockImplementation((query) => ({
     matches: false,
     media: query,
     onchange: null,
@@ -26,7 +26,7 @@ Object.defineProperty(window, 'matchMedia', {
 });
 
 // Mock Next.js router
-jest.mock('next/navigation', () => ({
+jest.mock("next/navigation", () => ({
   useRouter: () => ({
     push: jest.fn(),
     replace: jest.fn(),
@@ -34,14 +34,14 @@ jest.mock('next/navigation', () => ({
     back: jest.fn(),
     forward: jest.fn(),
     refresh: jest.fn(),
-    pathname: '/',
+    pathname: "/",
   }),
-  usePathname: () => '/',
+  usePathname: () => "/",
   useSearchParams: () => new URLSearchParams(),
 }));
 
 // Mock next/image
-jest.mock('next/image', () => ({
+jest.mock("next/image", () => ({
   __esModule: true,
   default: (props) => {
     // eslint-disable-next-line jsx-a11y/alt-text
@@ -72,7 +72,7 @@ class LocalStorageMock {
   }
 }
 
-Object.defineProperty(window, 'localStorage', {
+Object.defineProperty(window, "localStorage", {
   value: new LocalStorageMock(),
 });
 
@@ -80,11 +80,11 @@ Object.defineProperty(window, 'localStorage', {
 const originalConsoleError = console.error;
 console.error = (...args) => {
   if (
-    args[0]?.includes?.('Error: Uncaught [') ||
-    args[0]?.includes?.('Warning: ReactDOM.render') ||
-    args[0]?.includes?.('act(...)')
+    args[0]?.includes?.("Error: Uncaught [") ||
+    args[0]?.includes?.("Warning: ReactDOM.render") ||
+    args[0]?.includes?.("act(...)")
   ) {
     return;
   }
   originalConsoleError(...args);
-}; 
+};

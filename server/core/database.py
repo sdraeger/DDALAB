@@ -7,12 +7,17 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
-    create_engine,
 )
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import declarative_base, relationship
 
 from server.core.config import get_settings
 
@@ -27,27 +32,44 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 
 # Create SQLAlchemy engine for PostgreSQL
 SQLALCHEMY_DATABASE_URL = (
-    f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 )
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+engine = create_async_engine(SQLALCHEMY_DATABASE_URL, echo=True)
 
-# Create session factory
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Create async session factory
+SessionLocal = async_sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+    class_=AsyncSession,
+)
 
 # Create base class for models
 Base = declarative_base()
 
 
 class User(Base):
-    """User model for authentication."""
+    """User model."""
 
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
     password_hash = Column(String)
+    email = Column(String, unique=True, index=True)
+    first_name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
+    created_at = Column(
+        DateTime,
+        default=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    updated_at = Column(
+        DateTime,
+        default=datetime.now(timezone.utc).replace(tzinfo=None),
+        onupdate=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
 
     # Relationships
     tokens = relationship(
@@ -59,6 +81,31 @@ class User(Base):
     favorite_files = relationship(
         "FavoriteFile", back_populates="user", cascade="all, delete-orphan"
     )
+    preferences = relationship(
+        "UserPreferences",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+
+class UserPreferences(Base):
+    """User preferences model."""
+
+    __tablename__ = "user_preferences"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True, index=True)
+    theme = Column(String, default="system")
+    session_expiration = Column(Integer, default=1800)  # 30 minutes in seconds
+    eeg_zoom_factor = Column(Float, default=0.05)
+    updated_at = Column(
+        DateTime,
+        default=datetime.now(timezone.utc).replace(tzinfo=None),
+        onupdate=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+
+    # Relationships
+    user = relationship("User", back_populates="preferences")
 
 
 class UserToken(Base):
@@ -67,9 +114,20 @@ class UserToken(Base):
     __tablename__ = "user_tokens"
 
     id = Column(Integer, primary_key=True, index=True)
-    token = Column(String, unique=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
+    token = Column(String, unique=True, index=True)
+    description = Column(String, nullable=True)
+    last_used_at = Column(DateTime)
     expires_at = Column(DateTime)
+    created_at = Column(
+        DateTime,
+        default=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    updated_at = Column(
+        DateTime,
+        default=datetime.now(timezone.utc).replace(tzinfo=None),
+        onupdate=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
 
     # Relationships
     user = relationship("User", back_populates="tokens")
@@ -81,9 +139,13 @@ class UserRefreshToken(Base):
     __tablename__ = "user_refresh_tokens"
 
     id = Column(Integer, primary_key=True, index=True)
-    token = Column(String, unique=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
+    token = Column(String, unique=True, index=True)
     expires_at = Column(DateTime)
+    created_at = Column(
+        DateTime,
+        default=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
 
     # Relationships
     user = relationship("User", back_populates="refresh_tokens")
@@ -102,13 +164,12 @@ class Annotation(Base):
     text = Column(String)  # Annotation text
     created_at = Column(
         DateTime,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        default=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     updated_at = Column(
         DateTime,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        default=datetime.now(timezone.utc).replace(tzinfo=None),
+        onupdate=datetime.now(timezone.utc).replace(tzinfo=None),
     )
 
     # Relationships
@@ -122,14 +183,12 @@ class FavoriteFile(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    file_path = Column(String, index=True)  # Path to the favorited file
+    file_path = Column(String, index=True)
     created_at = Column(
         DateTime,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
 
-    # Relationships
     user = relationship("User", back_populates="favorite_files")
 
 
@@ -164,10 +223,7 @@ class InviteCode(Base):
     used_at = Column(DateTime, nullable=True)
 
 
-def get_db():
-    """Get database session."""
-    db = SessionLocal()
-    try:
+async def get_db():
+    """Get async database session."""
+    async with SessionLocal() as db:
         yield db
-    finally:
-        db.close()
