@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from loguru import logger
 from sqlalchemy import select
@@ -8,7 +10,6 @@ from server.core.auth import get_current_user
 from server.core.database import User, get_db
 from server.core.database import UserPreferences as UserPreferencesModel
 from server.schemas.user_preferences import UserPreferences
-import re
 
 # Create router with explicit prefix
 router = APIRouter(prefix="")
