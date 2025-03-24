@@ -32,6 +32,7 @@ npm run setup-tickets
 ```
 
 This script:
+
 - Creates a new "help_tickets" collection in Directus
 - Adds all necessary fields (title, description, status, etc.)
 - Sets up proper permissions
@@ -39,6 +40,7 @@ This script:
 ### 3. Directus Admin Interface
 
 After setting up the collection, you can manage tickets through the Directus admin interface:
+
 - Log in to Directus at http://localhost:8055/admin
 - Navigate to the "help_tickets" collection
 - Update ticket status from "open" to "in_progress", "resolved", or "closed"
@@ -49,6 +51,7 @@ After setting up the collection, you can manage tickets through the Directus adm
 ### For Users
 
 1. **Submitting a Ticket**:
+
    - Log in to the DDALAB application
    - Click the help icon (life buoy) in the header
    - Fill in the ticket title and description
@@ -129,6 +132,7 @@ npm run test:integration
 ### Coverage
 
 The goal is to maintain high coverage for critical application paths:
+
 - Authentication flows
 - Form validation
 - Error handling
@@ -139,24 +143,29 @@ The goal is to maintain high coverage for critical application paths:
 The application includes integration tests for the following key user flows:
 
 1. **Authentication**:
+
    - Login flow (`login-flow.test.tsx`)
    - Registration flow (`register-flow.test.tsx`)
 
 2. **Dashboard Navigation**:
+
    - Tab switching (`dashboard-navigation.test.tsx`)
    - Content loading for different tabs
 
 3. **Data Visualization**:
+
    - EEG data visualization (`eeg-visualization.test.tsx`)
    - Chart controls and interactions
    - Data loading and error handling
 
 4. **Help Ticket System**:
+
    - Ticket submission (`help-ticket.test.tsx`)
    - Form validation
    - API error handling
 
 5. **User Profile Management**:
+
    - User settings updates (`user-profile.test.tsx`)
    - Preference management
    - Validation and error handling
@@ -171,6 +180,7 @@ The application includes integration tests for the following key user flows:
 While we have implemented a comprehensive suite of integration tests, some of the newly added tests require additional components and context providers to be implemented before they will pass. The current status is:
 
 - ✅ **Working Tests**:
+
   - Login flow integration tests
   - Authentication context unit tests
   - Login form unit tests
@@ -179,9 +189,9 @@ While we have implemented a comprehensive suite of integration tests, some of th
 - 🛠️ **Tests Needing Component Implementation**:
   - Registration flow tests (need `RegisterDialog` component)
   - Dashboard navigation tests (need `EDFPlotProvider` context)
-  - EEG visualization tests (need `EEGDashboard` component) 
+  - EEG visualization tests (need `EEGDashboard` component)
   - User profile tests (need `UserSettings` component)
   - File upload tests (need `FileUpload` component)
   - Help ticket tests (need `HelpButton` component with proper validation)
 
-These tests serve as a specification for the components that need to be implemented. Once the required components are created, the tests will validate their functionality. 
+These tests serve as a specification for the components that need to be implemented. Once the required components are created, the tests will validate their functionality.
