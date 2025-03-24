@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 from server.core.config import get_settings
 
@@ -37,11 +37,10 @@ SQLALCHEMY_DATABASE_URL = (
 engine = create_async_engine(SQLALCHEMY_DATABASE_URL, echo=True)
 
 # Create async session factory
-SessionLocal = async_sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine,
+AsyncSessionLocal = sessionmaker(
+    engine,
     class_=AsyncSession,
+    expire_on_commit=False,
 )
 
 # Create base class for models
@@ -224,6 +223,8 @@ class InviteCode(Base):
 
 
 async def get_db():
-    """Get async database session."""
-    async with SessionLocal() as db:
+    db = AsyncSessionLocal()
+    try:
         yield db
+    finally:
+        await db.close()

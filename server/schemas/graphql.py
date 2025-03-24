@@ -15,7 +15,7 @@ from strawberry.fastapi import BaseContext, GraphQLRouter
 
 from ..config import get_settings
 from ..core.auth import get_current_user_from_request
-from ..core.database import Annotation, FavoriteFile, SessionLocal
+from ..core.database import Annotation, FavoriteFile, get_db
 from ..core.dda import get_dda_result, get_task_status, start_dda
 from ..core.edf import get_edf_navigator, read_edf_chunk
 from ..core.files import list_directory, validate_file_path
@@ -31,12 +31,12 @@ class Context(BaseContext):
         self.session = session
 
 
-async def db_session() -> AsyncSession:
-    async with SessionLocal() as session:
-        yield session
+# async def db_session() -> AsyncSession:
+#     async with AsyncSessionLocal() as session:
+#         yield session
 
 
-async def get_context(request: Request, db_session: AsyncSession = Depends(db_session)):
+async def get_context(request: Request, db_session: AsyncSession = Depends(get_db)):
     return Context(request=request, session=db_session)
 
 

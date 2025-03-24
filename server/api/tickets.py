@@ -6,6 +6,7 @@ from typing import List, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from server.core.auth import get_current_user
@@ -58,12 +59,9 @@ def parse_date(date_str):
 @router.post("/", response_model=TicketResponse)
 async def create_ticket(
     ticket_data: TicketCreate,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Create a help ticket and sync it to Directus."""
-    # First, ensure users are synced
-    sync_users_to_directus(db)
 
     # Get Directus token
     directus_token = get_directus_token()
@@ -103,10 +101,10 @@ async def create_ticket(
 
 @router.get("/", response_model=List[TicketResponse])
 async def get_tickets(
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get all tickets for the current user."""
+
     # Get Directus token
     directus_token = get_directus_token()
     if not directus_token:
@@ -142,84 +140,93 @@ async def get_tickets(
 
 @router.get("/sync-users", status_code=status.HTTP_200_OK)
 async def sync_users(
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Manually trigger user synchronization (admin only)."""
-    # Check if the user is an admin
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only administrators can sync users",
-        )
 
-    # Sync users
-    result = sync_users_to_directus(db)
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="User synchronization failed",
-        )
+    async with db.begin():
+        # Check if the user is an admin
+        if not current_user.is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only administrators can sync users",
+            )
 
-    return {"message": "User synchronization completed successfully"}
+        # Sync users
+        result = sync_users_to_directus(db)
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="User synchronization failed",
+            )
+
+        return {"message": "User synchronization completed successfully"}
 
 
 @router.get("/{ticket_id}")
 async def get_ticket(
     request: Request,
     ticket_id: str,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get ticket by ID."""
-    try:
-        # Get current user
-        current_user = await get_current_user(request)
 
-        # Placeholder implementation
-        return {"ticket_id": ticket_id, "user_id": current_user.id}
-    except SQLAlchemyError as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=500, detail=f"Database error retrieving ticket: {str(e)}"
-        )
+    async with db.begin():
+        try:
+            # Get current user
+            current_user = await get_current_user(request)
+
+            # Placeholder implementation
+            return {"ticket_id": ticket_id, "user_id": current_user.id}
+        except SQLAlchemyError as e:
+            db.rollback()
+            raise HTTPException(
+                status_code=500, detail=f"Database error retrieving ticket: {str(e)}"
+            )
 
 
 @router.put("/{ticket_id}")
 async def update_ticket(
     request: Request,
     ticket_id: str,
-    ticket_update: TicketUpdate,
-    db: Session = Depends(get_db),
+    ticket_update: TicketUpdate,  # TODO
+    db: AsyncSession = Depends(get_db),
 ):
     """Update ticket."""
-    try:
-        # Get current user
-        current_user = await get_current_user(request)
 
-        # Placeholder implementation
-        return {"ticket_id": ticket_id, "user_id": current_user.id, "updated": True}
-    except SQLAlchemyError as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=500, detail=f"Database error updating ticket: {str(e)}"
-        )
+    async with db.begin():
+        try:
+            # Get current user
+            current_user = await get_current_user(request)
+
+            # TODO: Update ticket
+
+            # Placeholder implementation
+            return {"ticket_id": ticket_id, "user_id": current_user.id, "updated": True}
+        except SQLAlchemyError as e:
+            db.rollback()
+            raise HTTPException(
+                status_code=500, detail=f"Database error updating ticket: {str(e)}"
+            )
 
 
 @router.delete("/{ticket_id}")
 async def delete_ticket(
     request: Request,
     ticket_id: str,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """Delete ticket."""
-    try:
-        # Get current user
-        current_user = await get_current_user(request)
+    async with db.begin():
+        try:
+            # Get current user
+            current_user = await get_current_user(request)
 
-        # Placeholder implementation
-        return {"ticket_id": ticket_id, "user_id": current_user.id, "deleted": True}
-    except SQLAlchemyError as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=500, detail=f"Database error deleting ticket: {str(e)}"
-        )
+            # Placeholder implementation
+            return {"ticket_id": ticket_id, "user_id": current_user.id, "deleted": True}
+        except SQLAlchemyError as e:
+            db.rollback()
+            raise HTTPException(
+                status_code=500, detail=f"Database error deleting ticket: {str(e)}"
+            )
