@@ -12,11 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
 )
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 from server.core.config import get_settings
@@ -220,6 +216,27 @@ class InviteCode(Base):
     )
     expires_at = Column(DateTime)
     used_at = Column(DateTime, nullable=True)
+
+
+class Ticket(Base):
+    """Ticket model."""
+
+    __tablename__ = "help_tickets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    title = Column(String)
+    description = Column(String)
+    status = Column(String)
+    created_at = Column(
+        DateTime,
+        default=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    updated_at = Column(
+        DateTime,
+        default=datetime.now(timezone.utc).replace(tzinfo=None),
+        onupdate=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
 
 
 async def get_db():
