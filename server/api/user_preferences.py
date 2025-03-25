@@ -1,5 +1,3 @@
-import re
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from loguru import logger
 from sqlalchemy import select
@@ -9,17 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.core.auth import get_current_user
 from server.core.database import User, get_db
 from server.core.database import UserPreferences as UserPreferencesModel
+from server.core.utils import camel_to_snake
 from server.schemas.user_preferences import UserPreferences
 
 # Create router with explicit prefix
 router = APIRouter(prefix="")
-
-
-def camel_to_snake(name):
-    """Converts a camel case string to snake case."""
-    name = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
-    name = re.sub("([a-z0-9])([A-Z])", r"\1_\2", name).lower()
-    return name
 
 
 @router.get("")

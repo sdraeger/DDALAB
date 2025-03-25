@@ -69,86 +69,86 @@ export interface RegisterCredentials {
   inviteCode: string;
 }
 
-// Format preference values for display in the UI
-const formatPreferenceLabel = (key: string, value: any): string => {
-  switch (key) {
-    case "theme":
-      return `Theme: ${
-        value === "light"
-          ? "Light Mode"
-          : value === "dark"
-            ? "Dark Mode"
-            : "System"
-      }`;
-    case "sessionExpiration":
-      const minutes = Math.floor(value / 60);
-      return `Session timeout: ${
-        minutes >= 60
-          ? `${Math.floor(minutes / 60)} hour${
-              Math.floor(minutes / 60) > 1 ? "s" : ""
-            }`
-          : `${minutes} minute${minutes > 1 ? "s" : ""}`
-      }`;
-    case "eegZoomFactor":
-      return `EEG zoom factor: ${(value * 100).toFixed(0)}%`;
-    default:
-      return `${key}: ${value}`;
-  }
-};
-
 export function SettingsProvider({ children }: SettingsProviderProps) {
   const { data: session, update: updateSession } = useSession();
   const { toast } = useToast();
   const pathname = usePathname();
 
   // State for tracking changes
-  const [userPreferences, setUserPreferences] =
-    useState<UserPreferences | null>(null);
+  const [userPreferences, setUserPreferences] = useState<UserPreferences>({
+    sessionExpiration: 30 * 60, // Default values
+    theme: "system",
+    eegZoomFactor: 0.05,
+  });
   const [pendingChanges, setPendingChanges] = useState<
     Partial<UserPreferences>
   >({});
   const [unsavedChangesList, setUnsavedChangesList] = useState<string[]>([]);
 
-  // Initialize preferences from session
-  useEffect(() => {
-    const fetchPreferences = async () => {
-      try {
-        const res = await fetch("/api/user-preferences", {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session?.accessToken}`,
-          },
-        });
-        if (!res.ok) throw new Error("Failed to fetch preferences");
-        const data = await res.json();
-        setUserPreferences({ sessionExpiration: data.sessionExpiration });
-      } catch (error) {
-        console.error("Error fetching preferences:", error);
-        setUserPreferences({ sessionExpiration: 30 * 60 }); // Default
-      }
-    };
+  // Fetch preferences and force sync
+  const fetchPreferences = useCallback(async () => {
+    if (!session?.accessToken) return;
 
-    if (session) fetchPreferences();
-  }, [session]);
+    try {
+      const res = await fetch("/api/user-preferences", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "Cache-Control": "no-cache",
+        },
+      });
+
+      if (!res.ok)
+        throw new Error(`Failed to fetch preferences: ${res.status}`);
+      const data = await res.json();
+      const newPrefs = {
+        sessionExpiration: data.session_expiration ?? 30 * 60,
+        theme: data.theme ?? "system",
+        eegZoomFactor: data.eeg_zoom_factor ?? 0.05,
+      };
+
+      console.log("Fetched preferences (SettingsProvider):", newPrefs);
+
+      setUserPreferences(newPrefs);
+      setPendingChanges({}); // Clear pending changes after fetch
+    } catch (error) {
+      console.error("Error fetching preferences:", error);
+      setUserPreferences({
+        sessionExpiration: 30 * 60,
+        theme: "system",
+        eegZoomFactor: 0.05,
+      });
+      setPendingChanges({});
+    }
+  }, [session?.accessToken]);
+
+  useEffect(() => {
+    if (session?.accessToken) fetchPreferences();
+  }, [session?.accessToken, fetchPreferences]);
 
   // Update a single preference
   const updatePreference = useCallback(
     (key: keyof UserPreferences, value: any) => {
       setPendingChanges((prev) => {
+        if (userPreferences[key] === value) {
+          const { [key]: _, ...rest } = prev;
+          setUnsavedChangesList(Object.keys(rest));
+          return rest;
+        }
         const newChanges = { ...prev, [key]: value };
         setUnsavedChangesList(Object.keys(newChanges));
         return newChanges;
       });
     },
-    []
+    [userPreferences]
   );
 
   // Save all pending changes
   const saveChanges = useCallback(async () => {
-    try {
-      console.log("saveChanges pendingChanges", pendingChanges);
+    if (Object.keys(pendingChanges).length === 0) return true;
 
+    try {
       const res = await fetch("/api/user-preferences", {
         method: "PUT",
         headers: {
@@ -158,25 +158,29 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
         body: JSON.stringify(pendingChanges),
       });
 
-      if (!res.ok) throw new Error("Failed to save preferences");
+      if (!res.ok) throw new Error(`Failed to save preferences: ${res.status}`);
 
-      setUserPreferences((prev) => ({ ...prev, ...pendingChanges }));
+      // Refetch and sync
+      await fetchPreferences(); // Reuse fetch function
+
       if (session) {
+        const updatedPrefs = { ...userPreferences, ...pendingChanges };
         await updateSession({
           ...session,
           user: {
             ...session.user,
-            preferences: { ...session.user?.preferences, ...pendingChanges },
+            preferences: updatedPrefs,
           },
         });
       }
 
       setPendingChanges({});
       setUnsavedChangesList([]);
-      toast({
-        title: "Settings Saved",
-        description: "Preferences updated successfully.",
-      });
+      //   toast({
+      //     title: "Settings Saved",
+      //     description: "Preferences updated successfully.",
+      //   });
+
       return true;
     } catch (error) {
       console.error("Error saving preferences:", error);
@@ -187,17 +191,13 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
       });
       return false;
     }
-  }, [pendingChanges, session, updateSession, toast]);
+  }, [pendingChanges, session, updateSession, toast, fetchPreferences]);
 
   // Reset changes to last saved state
   const resetChanges = useCallback(() => {
-    if (session?.user?.preferences) {
-      setPendingChanges(session.user.preferences);
-    } else {
-      setPendingChanges({});
-    }
+    setPendingChanges({});
     setUnsavedChangesList([]);
-  }, [session]);
+  }, []);
 
   // Alert when navigating away with unsaved changes
   useEffect(() => {
@@ -217,7 +217,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   }, [unsavedChangesList, pathname]);
 
   const value = {
-    userPreferences: session?.user?.preferences || {},
+    userPreferences,
     pendingChanges,
     hasUnsavedChanges: unsavedChangesList.length > 0,
     updatePreference,
@@ -235,8 +235,10 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
 
 export function useSettings() {
   const context = useContext(SettingsContext);
+
   if (context === undefined) {
     throw new Error("useSettings must be used within a SettingsProvider");
   }
+
   return context;
 }

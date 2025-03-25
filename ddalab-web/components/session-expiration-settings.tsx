@@ -18,13 +18,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import logger from "@/lib/utils/logger";
 
 const SESSION_EXPIRATION_OPTIONS = [
-  { value: 10 * 60, label: "10 minutes" }, // 10 minutes in seconds
-  { value: 30 * 60, label: "30 minutes" }, // 30 minutes in seconds
-  { value: 60 * 60, label: "1 hour" }, // 1 hour in seconds
-  { value: 2 * 60 * 60, label: "2 hours" }, // 2 hours in seconds
-  { value: 5 * 60 * 60, label: "5 hours" }, // 5 hours in seconds
+  { value: 10 * 60, label: "10 minutes" },
+  { value: 30 * 60, label: "30 minutes" },
+  { value: 60 * 60, label: "1 hour" },
+  { value: 2 * 60 * 60, label: "2 hours" },
+  { value: 5 * 60 * 60, label: "5 hours" },
 ];
 
 export function SessionExpirationSettings() {
@@ -33,7 +34,7 @@ export function SessionExpirationSettings() {
     `session-expiration-${Math.random().toString(36).substring(2, 9)}`
   );
   const { userPreferences, pendingChanges, updatePreference } = useSettings();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
 
   const [selectedExpiration, setSelectedExpiration] = useState<string>(
     (30 * 60).toString()
@@ -49,40 +50,36 @@ export function SessionExpirationSettings() {
   useEffect(() => {
     if (wasInitializedRef.current) return;
 
-    // Set initial expiration from preferences or default
-    if (userPreferences?.sessionExpiration) {
-      const value = userPreferences.sessionExpiration.toString();
-      setSelectedExpiration(value);
-    }
+    // Set initial expiration from userPreferences or pendingChanges
+    const initialValue =
+      pendingChanges.sessionExpiration ??
+      userPreferences.sessionExpiration ??
+      30 * 60;
+    setSelectedExpiration(initialValue.toString());
+    logger.info(`[${componentId.current}] Initialized with ${initialValue}`);
 
     wasInitializedRef.current = true;
-  }, [userPreferences]);
+  }, [userPreferences.sessionExpiration, pendingChanges.sessionExpiration]);
 
   // Effect to update from context changes
   useEffect(() => {
     if (isUpdatingRef.current) return;
 
-    const pendingValue = pendingChanges.sessionExpiration as number | undefined;
-    const prefsValue = userPreferences?.sessionExpiration as number | undefined;
+    const pendingValue = pendingChanges.sessionExpiration;
+    const prefsValue = userPreferences.sessionExpiration;
 
-    // Get the current value from context or preferences
     const contextValue =
-      pendingValue !== undefined
-        ? pendingValue.toString()
-        : prefsValue !== undefined
-          ? prefsValue.toString()
-          : null;
+      pendingValue !== undefined ? pendingValue : (prefsValue ?? 30 * 60);
 
-    // Update local state if needed
-    if (contextValue && contextValue !== selectedExpiration) {
-      console.log(
+    if (contextValue.toString() !== selectedExpiration) {
+      logger.info(
         `[${componentId.current}] Context session expiration changed to ${contextValue}`
       );
-      setSelectedExpiration(contextValue);
+      setSelectedExpiration(contextValue.toString());
     }
   }, [
     pendingChanges.sessionExpiration,
-    userPreferences?.sessionExpiration,
+    userPreferences.sessionExpiration,
     selectedExpiration,
   ]);
 
@@ -103,20 +100,13 @@ export function SessionExpirationSettings() {
 
   // Set up expiration time update
   useEffect(() => {
-    // Update immediately
     setExpirationTimeText(getExpirationTimeText());
-
-    // Set up interval for updates
     intervalRef.current = setInterval(() => {
       setExpirationTimeText(getExpirationTimeText());
-    }, 60000); // Update every minute
+    }, 60000);
 
-    // Cleanup on unmount
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
+      if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [getExpirationTimeText]);
 
@@ -125,7 +115,7 @@ export function SessionExpirationSettings() {
     (value: string) => {
       if (isUpdatingRef.current || value === selectedExpiration) return;
 
-      console.log(
+      logger.info(
         `[${componentId.current}] User changed session expiration to ${value}`
       );
 
