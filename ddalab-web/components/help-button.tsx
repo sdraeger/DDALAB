@@ -135,7 +135,8 @@ export function HelpButton() {
         <DialogHeader>
           <DialogTitle>Get Help</DialogTitle>
           <DialogDescription>
-            Submit a help ticket and our support team will assist you shortly.
+            Submit a help ticket and someone will get back to you shortly. You
+            can submit bug reports, feature requests, or other issues.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">

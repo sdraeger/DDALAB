@@ -22,7 +22,6 @@ export function Header() {
   const { data: session, status } = useSession();
   const user = session?.user;
   const isLoggedIn = !!session;
-  const loading = status === "loading";
   const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
 
   const handleLogout = async () => {
@@ -36,6 +35,9 @@ export function Header() {
           <BrainCircuit className="h-6 w-6 mr-2" />
           <Link href="/" className="font-bold">
             DDALAB
+            {process.env.INSTITUTION_NAME
+              ? ` @ ${process.env.INSTITUTION_NAME}`
+              : ""}
           </Link>
         </div>
 

@@ -1,10 +1,14 @@
 import type React from "react";
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Source_Sans_3 } from "next/font/google";
 import { Providers } from "@/components/providers";
+import Footer from "@/components/footer";
 import "@/styles/globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+const sourceSans3 = Source_Sans_3({
+  subsets: ["latin"],
+  weight: ["400", "700"],
+});
 
 export const metadata: Metadata = {
   title: "DDALAB - EEG Data Visualization",
@@ -19,8 +23,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
-        <Providers>{children}</Providers>
+      <body className={sourceSans3.className}>
+        <div className="flex flex-col min-h-screen">
+          <Providers>{children}</Providers>
+          <Footer />
+        </div>
       </body>
     </html>
   );
