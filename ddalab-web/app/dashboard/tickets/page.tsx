@@ -43,7 +43,7 @@ export default function TicketsPage() {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
-          // NextAuth automatically includes the token via middleware
+          Authorization: `Bearer ${session?.accessToken}`,
         },
       });
 
@@ -82,6 +82,7 @@ export default function TicketsPage() {
   };
 
   useEffect(() => {
+    console.log("tickets status", status);
     if (status === "unauthenticated") {
       router.push("/login");
       return;

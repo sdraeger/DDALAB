@@ -10,15 +10,8 @@ class TicketBase(BaseModel):
     """Base schema for tickets."""
 
     title: str
-    description: Optional[str] = None
-    priority: Optional[str] = "medium"
-    status: Optional[str] = "new"
-
-
-class TicketCreate(TicketBase):
-    """Schema for creating tickets."""
-
-    pass
+    description: str
+    status: str
 
 
 class TicketUpdate(BaseModel):
@@ -26,7 +19,6 @@ class TicketUpdate(BaseModel):
 
     title: Optional[str] = None
     description: Optional[str] = None
-    priority: Optional[str] = None
     status: Optional[str] = None
 
 
@@ -35,6 +27,9 @@ class Ticket(TicketBase):
 
     id: int
     user_id: int
+    title: str
+    description: str
+    status: str
     created_at: datetime
     updated_at: datetime
 
@@ -42,3 +37,22 @@ class Ticket(TicketBase):
         """Pydantic config."""
 
         from_attributes = True
+
+
+class TicketCreate(BaseModel):
+    """Ticket creation request model."""
+
+    title: str
+    description: str
+
+
+class TicketResponse(BaseModel):
+    """Ticket response model."""
+
+    id: int
+    user_id: str
+    title: str
+    description: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
