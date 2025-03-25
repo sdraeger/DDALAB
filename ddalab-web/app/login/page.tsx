@@ -5,7 +5,6 @@ import { useRouter, usePathname } from "next/navigation";
 import { LoginForm } from "@/components/login-form";
 import { Loader2 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import logger from "@/lib/utils/logger";
 
 export default function LoginPage() {
   const { data: session, status } = useSession();
@@ -21,7 +20,6 @@ export default function LoginPage() {
     }
   }, [isLoggedIn, loading, router, pathname]);
 
-  logger.info("Rendering LoginPage from /app/login/page.tsx");
   if (loading) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
