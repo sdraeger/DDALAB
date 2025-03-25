@@ -35,11 +35,13 @@ export async function GET(req: NextRequest) {
         Authorization: `Bearer ${token}`,
       },
     });
+
     console.log("Response:", res);
     if (!res.ok) throw new Error(`FastAPI error: ${res.status}`);
+
     const data = await res.json();
     return NextResponse.json(
-      { sessionExpiration: data.sessionExpiration },
+      { sessionExpiration: data.session_expiration },
       { status: 200 }
     );
   } catch (error) {
