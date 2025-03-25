@@ -7,6 +7,9 @@ try {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  env: {
+    INSTITUTION_NAME: process.env.INSTITUTION_NAME || "",
+  },
   eslint: {
     ignoreDuringBuilds: true,
   },

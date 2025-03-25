@@ -11,9 +11,13 @@ The DDALAB application includes a help ticket system that allows logged-in users
 
 ## Setup
 
-Before using the help ticket system, you need to set up the "help_tickets" collection in Directus.
+### 1. Change constants
 
-### 1. Configure Directus Connection
+Some constants are defined in the `.env.local` file. You need to change the following constants to match your institution:
+
+- `INSTITUTION_NAME`: The name of your institution
+
+### 2. Configure Directus Connection
 
 Ensure your Directus connection is properly configured in your `.env.local` file:
 
