@@ -6,6 +6,7 @@ from .dda import router as dda_router
 from .files import router as files_router
 from .tickets import router as tickets_router
 from .user_preferences import router as user_preferences_router
+from .users import router as users_router
 
 # Create router with trailing slash config
 router = APIRouter()
@@ -20,3 +21,4 @@ router.include_router(
     tags=["user_preferences"],
     include_in_schema=True,
 )
+router.include_router(users_router, prefix="/users", tags=["users"])
