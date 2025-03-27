@@ -19,8 +19,8 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
 };
 
 type SettingsContextType = {
-  userPreferences: UserPreferences;
-  pendingChanges: UserPreferences;
+  userPreferences: UserPreferences | undefined;
+  pendingChanges: Partial<UserPreferences>;
   hasUnsavedChanges: boolean;
   updatePreference: <K extends keyof UserPreferences>(
     key: K,
@@ -81,7 +81,9 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   const pathname = usePathname();
 
   // State for tracking changes
-  const [userPreferences, setUserPreferences] = useState<UserPreferences>();
+  const [userPreferences, setUserPreferences] = useState<UserPreferences>(
+    DEFAULT_USER_PREFERENCES
+  );
   const [pendingChanges, setPendingChanges] = useState<
     Partial<UserPreferences>
   >({});
