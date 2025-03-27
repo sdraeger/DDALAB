@@ -10,6 +10,7 @@ import { randomBytes } from "crypto";
 import axios from "axios";
 import { getEnvVar } from "../utils/env";
 import * as jwt from "jsonwebtoken";
+import { DEFAULT_USER_PREFERENCES } from "@/contexts/settings-context";
 
 interface UserData {
   username: string;
@@ -65,8 +66,8 @@ pool.on("error", (err: Error) => {
 });
 
 // Add JWT configuration to match the server
-const JWT_SECRET_KEY = "ddalab-auth-secret-key-2024-03-21-development";
-const JWT_ALGORITHM = "HS256";
+const JWT_SECRET_KEY = getEnvVar("JWT_SECRET_KEY");
+const JWT_ALGORITHM = getEnvVar("JWT_ALGORITHM");
 
 /**
  * Get Directus admin credentials and authenticate
@@ -515,9 +516,12 @@ const userAuth = {
 
     // Format preferences
     const preferences = {
-      theme: safeUser.theme || "system",
-      sessionExpiration: safeUser.session_expiration || 30 * 60, // Default 30 minutes
-      eegZoomFactor: safeUser.eeg_zoom_factor || 0.05, // Default 5%
+      theme: safeUser.theme || DEFAULT_USER_PREFERENCES.theme,
+      sessionExpiration:
+        safeUser.session_expiration ||
+        DEFAULT_USER_PREFERENCES.sessionExpiration,
+      eegZoomFactor:
+        safeUser.eeg_zoom_factor || DEFAULT_USER_PREFERENCES.eegZoomFactor,
     };
 
     // Remove individual preference fields

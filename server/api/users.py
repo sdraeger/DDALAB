@@ -1,6 +1,7 @@
 """User management routes."""
 
 from datetime import timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -13,12 +14,19 @@ from server.core.auth import (
 )
 from server.core.auth import (
     create_user as create_user_core,
-    get_users as get_users_core,
-    update_user as update_user_core,
+)
+from server.core.auth import (
     delete_user as delete_user_core,
 )
+from server.core.auth import (
+    get_users as get_users_core,
+)
+from server.core.auth import (
+    update_user as update_user_core,
+)
 from server.core.config import get_server_settings
-from server.core.database import User as UserDB, get_db
+from server.core.database import User as UserDB
+from server.core.database import get_db
 from server.schemas.user import User
 
 router = APIRouter()

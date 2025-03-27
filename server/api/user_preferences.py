@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.core.auth import get_current_user
 from server.core.database import User, get_db
 from server.core.database import UserPreferences as UserPreferencesModel
-from server.core.utils import camel_to_snake
+from server.core.utils.utils import camel_to_snake
 from server.schemas.user_preferences import UserPreferences
 
 # Create router with explicit prefix

@@ -17,7 +17,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useSession } from "next-auth/react";
-import { parseCookies } from "nookies";
 
 export function HelpButton() {
   const { data: session, status } = useSession();
@@ -45,10 +44,7 @@ export function HelpButton() {
     try {
       setIsLoading(true);
 
-      // const cookies = parseCookies();
-      // const token = cookies["__Secure-next-auth.session-token"];
-
-      const token = session?.user.token; // Use session.user.token
+      const token = session?.accessToken;
       if (!token) throw new Error("No token found in session");
 
       const response = await fetch(`/api/tickets`, {
@@ -59,22 +55,6 @@ export function HelpButton() {
         },
         body: JSON.stringify({ title, description }),
       });
-
-      // Get the auth token from localStorage
-      // const token = localStorage.getItem("ddalab_auth_token");
-
-      // // Use the Next.js API route which will proxy to the correct backend endpoint
-      // const response = await fetch(`/api/tickets`, {
-      //   method: "POST",
-      //   headers: {
-      //     "Content-Type": "application/json",
-      //     Authorization: `Bearer ${token}`,
-      //   },
-      //   body: JSON.stringify({
-      //     title,
-      //     description,
-      //   }),
-      // });
 
       // Try to parse the response even if it's not OK, to get error details
       let data;

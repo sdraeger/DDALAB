@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useSettings } from "@/contexts/settings-context";
+import {
+  DEFAULT_USER_PREFERENCES,
+  useSettings,
+} from "@/contexts/settings-context";
 import { useSession } from "next-auth/react";
 import {
   Card,
@@ -37,7 +40,7 @@ export function SessionExpirationSettings() {
   const { data: session, status } = useSession();
 
   const [selectedExpiration, setSelectedExpiration] = useState<string>(
-    (30 * 60).toString()
+    DEFAULT_USER_PREFERENCES.sessionExpiration!.toString()
   );
   const [expirationTimeText, setExpirationTimeText] =
     useState<string>("Unknown");
@@ -54,8 +57,8 @@ export function SessionExpirationSettings() {
     const initialValue =
       pendingChanges.sessionExpiration ??
       userPreferences.sessionExpiration ??
-      30 * 60;
-    setSelectedExpiration(initialValue.toString());
+      DEFAULT_USER_PREFERENCES.sessionExpiration;
+    setSelectedExpiration(initialValue!.toString());
     logger.info(`[${componentId.current}] Initialized with ${initialValue}`);
 
     wasInitializedRef.current = true;
@@ -69,13 +72,15 @@ export function SessionExpirationSettings() {
     const prefsValue = userPreferences.sessionExpiration;
 
     const contextValue =
-      pendingValue !== undefined ? pendingValue : (prefsValue ?? 30 * 60);
+      pendingValue !== undefined
+        ? pendingValue
+        : (prefsValue ?? DEFAULT_USER_PREFERENCES.sessionExpiration!);
 
-    if (contextValue.toString() !== selectedExpiration) {
+    if (contextValue!.toString() !== selectedExpiration) {
       logger.info(
         `[${componentId.current}] Context session expiration changed to ${contextValue}`
       );
-      setSelectedExpiration(contextValue.toString());
+      setSelectedExpiration(contextValue!.toString());
     }
   }, [
     pendingChanges.sessionExpiration,

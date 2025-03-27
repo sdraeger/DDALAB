@@ -19,7 +19,7 @@ export function ModeToggle() {
   const [mounted, setMounted] = useState(false);
   const { data: session } = useSession();
   const { toast } = useToast();
-  const { updatePreference, saveChanges, pendingChanges, hasUnsavedChanges } =
+  const { updatePreference, saveChanges, userPreferences, pendingChanges } =
     useSettings();
 
   // Only render the toggle after mounting to avoid hydration mismatch
@@ -36,33 +36,46 @@ export function ModeToggle() {
     ) {
       setTheme(session.user.preferences.theme);
     }
-  }, [mounted, session, setTheme, theme]);
+  }, [mounted, session?.user?.preferences?.theme, setTheme]);
 
   const handleThemeChange = async (newTheme: "light" | "dark" | "system") => {
     if (theme === newTheme) return;
 
+    console.log("Theme changing to:", newTheme);
     setTheme(newTheme);
 
-    try {
-      updatePreference("theme", newTheme);
-      const success = await saveChanges(); // Persists changes to backend
-      if (success) {
+    console.log("Before updatePreference, pendingChanges:", pendingChanges);
+    updatePreference("theme", newTheme);
+    console.log("After updatePreference, pendingChanges:", pendingChanges);
+
+    saveChanges()
+      .then((success) => {
+        console.log("saveChanges result:", success);
+        if (success) {
+          console.log(
+            "Theme save successful, new preferences:",
+            userPreferences
+          );
+          toast({
+            title: `Switched to ${newTheme} theme`,
+            description: "Your theme preference has been saved.",
+            duration: 3000,
+            variant: "default",
+          });
+        } else {
+          throw new Error("Save reported success but failed");
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to update theme preference:", error);
         toast({
-          title: `Switched to ${newTheme} theme`,
-          description: "Your theme preference has been saved.",
-          duration: 3000,
-          variant: "default",
+          title: "Failed to Save Theme",
+          description: "Could not save your theme preference.",
+          variant: "destructive",
+          duration: 5000,
         });
-      }
-    } catch (error) {
-      console.error("Failed to update theme preference:", error);
-      toast({
-        title: "Failed to Save Theme",
-        description: "Could not save your theme preference.",
-        variant: "destructive",
-        duration: 5000,
+        setTheme(userPreferences.theme || "system");
       });
-    }
   };
 
   if (!mounted) {
@@ -76,7 +89,7 @@ export function ModeToggle() {
 
   // Show different icon based on current theme
   const ThemeIcon =
-    theme === "dark" ? Sun : theme === "light" ? Moon : MonitorSmartphone;
+    theme === "dark" ? Moon : theme === "light" ? Sun : MonitorSmartphone;
 
   return (
     <DropdownMenu>
@@ -87,15 +100,15 @@ export function ModeToggle() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => handleThemeChange("light")}>
+        <DropdownMenuItem onSelect={() => handleThemeChange("light")}>
           <Sun className="mr-2 h-4 w-4" />
           <span>Light</span>
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleThemeChange("dark")}>
+        <DropdownMenuItem onSelect={() => handleThemeChange("dark")}>
           <Moon className="mr-2 h-4 w-4" />
           <span>Dark</span>
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleThemeChange("system")}>
+        <DropdownMenuItem onSelect={() => handleThemeChange("system")}>
           <MonitorSmartphone className="mr-2 h-4 w-4" />
           <span>System</span>
         </DropdownMenuItem>
