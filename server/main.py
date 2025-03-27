@@ -1,9 +1,11 @@
 """Main server application."""
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -14,6 +16,8 @@ from server.api.auth import router as auth_router
 from server.core.auth import get_current_user
 from server.core.config import get_server_settings, initialize_config
 from server.schemas.graphql import graphql_app
+
+load_dotenv()
 
 
 class DBSessionMiddleware(BaseHTTPMiddleware):
@@ -37,15 +41,15 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     logger.info("Initializing server configuration...")
-    configs = initialize_config()
+    initialize_config()
     logger.info("Configuration loaded successfully")
 
     # Log the current configuration
     server_settings = get_server_settings()
     logger.info(
         "Server configured with host={}, port={}, auth_enabled={}",
-        server_settings.host,
-        server_settings.port,
+        server_settings.api_host,
+        server_settings.api_port,
         server_settings.auth_enabled,
     )
 
@@ -84,14 +88,6 @@ app.add_middleware(
     allow_credentials=False,  # Set to False for wildcard origins
     allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
     allow_headers=["*"],  # Allow all headers (Authorization, etc.)
-    # allow_methods=["GET", "POST", "OPTIONS"],  # Allow GET for file downloads
-    # allow_headers=[
-    #     "Content-Type",
-    #     "Authorization",
-    #     "X-Requested-With",
-    #     "Accept",
-    #     "Origin",
-    # ],
     expose_headers=[
         "Content-Type",
         "Content-Disposition",
@@ -135,16 +131,18 @@ app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 
 def main():
     """Start the server."""
-    settings = get_server_settings()
     logger.info("Starting server...")
 
-    ssl_config = None
+    settings = get_server_settings()
+    ssl_config = {}
+
     if settings.ssl_enabled:
-        if not settings.ssl_cert_path or not settings.ssl_key_path:
+        if not (settings.ssl_cert_path and settings.ssl_key_path):
             logger.error("SSL is enabled but certificate or key path is not set")
             raise ValueError(
                 "SSL certificate and key paths must be set when SSL is enabled"
             )
+
         # Convert relative paths to absolute paths
         base_dir = Path(__file__).parent.parent
         ssl_config = {
@@ -154,15 +152,13 @@ def main():
         }
         logger.info(f"SSL encryption enabled with certificates: {ssl_config}")
 
-    uvicorn.run(
-        "server.main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=True,  # Enable auto-reload during development
-        ssl_keyfile=ssl_config["ssl_keyfile"] if ssl_config else None,
-        ssl_certfile=ssl_config["ssl_certfile"] if ssl_config else None,
-        ssl_version=ssl_config["ssl_version"] if ssl_config else None,
-    )
+    kwargs = {
+        "host": settings.api_host,
+        "port": settings.api_port,
+        "reload": os.getenv("RELOAD", False),
+        **ssl_config,
+    }
+    uvicorn.run("server.main:app", **kwargs)
 
 
 if __name__ == "__main__":

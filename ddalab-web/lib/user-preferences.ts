@@ -1,15 +1,15 @@
+import { DEFAULT_USER_PREFERENCES } from "@/contexts/settings-context";
 import { pool } from "@/lib/db/pool";
 import { getSession } from "next-auth/react";
-export const DEFAULT_SESSION_EXPIRATION = 30 * 60;
 
 export async function getSessionExpiration(req?: any): Promise<number> {
   try {
     const session = req ? await getSession({ req }) : await getSession();
-    const token = session?.sessionToken; // NextAuth JWT token
+    const token = session?.accessToken; // NextAuth JWT token
 
     const url = process.env.NEXTAUTH_URL
       ? `${process.env.NEXTAUTH_URL}/api/user-preferences`
-      : "http://localhost:3000/api/user-preferences";
+      : "http://localhost:8001/api/user-preferences";
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -30,7 +30,7 @@ export async function getSessionExpiration(req?: any): Promise<number> {
         "Failed to fetch session expiration, using default:",
         res.status
       );
-      return DEFAULT_SESSION_EXPIRATION;
+      return DEFAULT_USER_PREFERENCES.sessionExpiration!;
     }
 
     const data = await res.json();
@@ -40,13 +40,13 @@ export async function getSessionExpiration(req?: any): Promise<number> {
         "Invalid session expiration value, using default:",
         data.sessionExpiration
       );
-      return DEFAULT_SESSION_EXPIRATION;
+      return DEFAULT_USER_PREFERENCES.sessionExpiration!;
     }
 
     return expiration;
   } catch (error) {
     console.error("Error in getSessionExpiration:", error);
-    return DEFAULT_SESSION_EXPIRATION;
+    return DEFAULT_USER_PREFERENCES.sessionExpiration!;
   }
 }
 

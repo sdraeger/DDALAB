@@ -3,7 +3,7 @@
 import asyncio
 import os
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Optional
 
 import numpy as np
 import strawberry
@@ -16,7 +16,7 @@ from strawberry.fastapi import BaseContext, GraphQLRouter
 from ..config import get_settings
 from ..core.auth import get_current_user_from_request
 from ..core.database import Annotation, FavoriteFile, get_db
-from ..core.dda import get_dda_result, get_task_status, start_dda
+from ..core.dda import get_dda_result, get_task_status, run_dda
 from ..core.edf import get_edf_navigator, read_edf_chunk
 from ..core.files import list_directory, validate_file_path
 from .preprocessing import (
@@ -29,11 +29,6 @@ class Context(BaseContext):
     def __init__(self, request: Request, session: AsyncSession):
         self.request = request
         self.session = session
-
-
-# async def db_session() -> AsyncSession:
-#     async with AsyncSessionLocal() as session:
-#         yield session
 
 
 async def get_context(request: Request, db_session: AsyncSession = Depends(get_db)):
@@ -78,11 +73,11 @@ class EDFNavigationInfo:
         description="Total duration of the file in seconds"
     )
     numSignals: int = strawberry.field(description="Number of signals in the file")
-    signalLabels: List[str] = strawberry.field(description="Labels of the signals")
-    samplingFrequencies: List[float] = strawberry.field(
+    signalLabels: list[str] = strawberry.field(description="Labels of the signals")
+    samplingFrequencies: list[float] = strawberry.field(
         description="Sampling frequencies for each signal"
     )
-    chunks: List[EDFChunkInfo] = strawberry.field(
+    chunks: list[EDFChunkInfo] = strawberry.field(
         description="Available chunk ranges based on the given chunk size"
     )
 
@@ -91,9 +86,9 @@ class EDFNavigationInfo:
 class EDFData:
     """EDF data type."""
 
-    data: List[List[float]]
+    data: list[list[float]]
     samplingFrequency: float = strawberry.field(description="Sampling frequency in Hz")
-    channelLabels: List[str]
+    channelLabels: list[str]
     totalSamples: int
     chunkStart: int
     chunkSize: int
@@ -112,12 +107,11 @@ class EDFData:
 
 @strawberry.type
 class DDAResult:
-    """DDA analysis result type."""
+    """DDA result type."""
 
-    taskId: str
-    filePath: str
-    peaks: Optional[List[float]] = None
-    status: str
+    file_path: str
+    Q: list[list[float]]
+    metadata: Optional[str] = None
 
 
 @strawberry.type
@@ -174,7 +168,7 @@ class Query:
         self,
         path: str,
         info: strawberry.Info[Context, None],
-    ) -> List[FileInfo]:
+    ) -> list[FileInfo]:
         request = info.context.request
         current_user = await get_current_user_from_request(
             request, info.context.session
@@ -214,7 +208,7 @@ class Query:
     @strawberry.field
     async def get_favorite_files(
         self, info: strawberry.Info = None
-    ) -> List[FavoriteFileType]:
+    ) -> list[FavoriteFileType]:
         """Get favorite files for the current user.
 
         Args:
@@ -588,7 +582,7 @@ class Query:
     @strawberry.field
     async def get_annotations(
         self, file_path: str, info: strawberry.Info[Context, None]
-    ) -> List[AnnotationType]:
+    ) -> list[AnnotationType]:
         """Get annotations for a file.
 
         Args:
@@ -621,29 +615,25 @@ class Mutation:
     """GraphQL mutation type."""
 
     @strawberry.mutation
-    async def start_dda(
+    async def run_dda(
         self,
         file_path: str,
         preprocessing_options: Optional[PreprocessingOptionsInput] = None,
-        info: strawberry.Info = None,
-    ) -> DDAResult:
-        """Start DDA analysis.
+    ) -> DDAStatus:
+        """Run DDA.
 
         Args:
             file_path: Path to the EDF file
             preprocessing_options: Optional preprocessing options
-            info: GraphQL request info containing context
 
         Returns:
-            DDA analysis result
+            DDA status
         """
-        background_tasks = info.context.background_tasks
-        task_id = await start_dda(
+        task_id = await run_dda(
             file_path=file_path,
             preprocessing_options=preprocessing_options,
-            background_tasks=background_tasks,
         )
-        return DDAResult(taskId=task_id, filePath=file_path, status="pending")
+        return DDAStatus(taskId=task_id, status="pending")
 
     @strawberry.mutation
     async def create_annotation(
@@ -741,97 +731,6 @@ class Mutation:
 
         return True
 
-    # @strawberry.mutation
-    # async def toggle_favorite_file(
-    #     self, file_path: str, info: strawberry.Info = None
-    # ) -> bool:
-    #     """Toggle favorite status of a file.
-
-    #     Args:
-    #         file_path: Path to the file
-    #         info: GraphQL request info containing context
-
-    #     Returns:
-    #         True if file is now favorited, False if unfavorited
-    #     """
-    #     # Get the current user from the request context
-    #     request = info.context["request"]
-    #     current_user = await get_current_user_from_request(request)
-
-    #     # Validate file path
-    #     await validate_file_path(file_path)
-
-    #     # Check if file is already favorited
-    #     db = info.context["db"]
-    #     try:
-    #         favorite = (
-    #             db.query(FavoriteFile)
-    #             .filter(
-    #                 FavoriteFile.user_id == current_user.id,
-    #                 FavoriteFile.file_path == file_path,
-    #             )
-    #             .first()
-    #         )
-
-    #         if favorite:
-    #             # Remove from favorites
-    #             db.delete(favorite)
-    #             db.commit()
-    #             return False
-    #         else:
-    #             # Add to favorites
-    #             favorite = FavoriteFile(
-    #                 user_id=current_user.id,
-    #                 file_path=file_path,
-    #             )
-    #             db.add(favorite)
-    #             db.commit()
-    #             return True
-    #     except Exception as e:
-    #         db.rollback()
-    #         logger.error(f"Error toggling favorite file: {e}")
-    #         raise
-
-    # @strawberry.mutation
-    # async def toggle_favorite_file(
-    #     self, file_path: str, info: strawberry.Info = None
-    # ) -> bool:
-    #     request = info.context["request"]
-    #     current_user = await get_current_user_from_request(request)
-
-    #     if not current_user:
-    #         raise ValueError("Authentication required")
-
-    #     await validate_file_path(file_path)
-
-    #     db = info.context["db"]
-    #     try:
-    #         favorite = (
-    #             db.query(FavoriteFile)
-    #             .filter(
-    #                 FavoriteFile.user_id == current_user.id,
-    #                 FavoriteFile.file_path == file_path,
-    #             )
-    #             .first()
-    #         )
-
-    #         if favorite:
-    #             db.delete(favorite)
-    #             db.commit()
-    #             return False
-    #         else:
-    #             favorite = FavoriteFile(
-    #                 user_id=current_user.id,
-    #                 file_path=file_path,
-    #             )
-    #             db.add(favorite)
-    #             db.commit()
-    #             return True
-    #     except Exception as e:
-    #         db.rollback()
-    #         logger.error(f"Error toggling favorite file: {e}")
-    #         raise
-
     @strawberry.mutation
     async def toggle_favorite_file(
         file_path: str, info: strawberry.Info[Context, None]
@@ -861,22 +760,6 @@ class Mutation:
             await info.context.session.rollback()
             logger.error(f"Error toggling favorite file: {e}")
             raise
-
-
-# async def get_context(request: Request, background_tasks: BackgroundTasks):
-#     """Get GraphQL context with database session."""
-#     db = SessionLocal()
-#     try:
-#         context = {
-#             "request": request,
-#             "background_tasks": background_tasks,
-#             "db": db,
-#         }
-#         yield context
-#     finally:
-#         if db:
-#             db.close()
-#             logger.debug("Database session closed")
 
 
 # Create GraphQL app with context

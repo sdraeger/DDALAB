@@ -14,51 +14,54 @@ T = TypeVar("T", bound=BaseModel)
 class Settings(BaseSettings):
     """Server settings loaded from environment variables."""
 
+    # Development settings
+    reload: bool
+
     # API settings
-    host: str = "localhost"
-    port: int = 8001
+    api_host: str
+    api_port: int
 
     # Data directory settings
-    data_dir: str = str(Path("data").absolute())
+    data_dir: str
 
     # DDA binary settings
-    dda_binary_path: str = "/usr/local/bin/dda"  # Default path to DDA binary
+    dda_binary_path: str
 
     # Analysis settings
-    max_concurrent_tasks: int = 5
-    task_timeout: int = 300  # seconds
+    max_concurrent_tasks: int
+    task_timeout: int
 
     # Celery settings
-    celery_broker_url: str = "redis://localhost:6379/0"
-    celery_result_backend: str = "redis://localhost:6379/0"
+    celery_broker_url: str
+    celery_result_backend: str
 
     # Redis settings (for task result storage)
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    redis_db: int = 0
+    redis_host: str
+    redis_port: int
+    redis_db: int
 
     # PostgreSQL Database settings
-    db_host: str = "localhost"
-    db_port: int = 5432
-    db_name: str = "ddalab"
-    db_user: str = "postgres"
-    db_password: str = ""
+    db_host: str
+    db_port: int
+    db_name: str
+    db_user: str
+    db_password: str
 
     # SSL settings
-    ssl_enabled: bool = False
-    ssl_cert_path: str = "ssl/cert.pem"
-    ssl_key_path: str = "ssl/key.pem"
+    ssl_enabled: bool
+    ssl_cert_path: str
+    ssl_key_path: str
 
     # Authentication settings
-    auth_enabled: bool = True
-    jwt_token_expire_minutes: int = 30
+    auth_enabled: bool
+    jwt_token_expire_minutes: int
 
     # Email settings
-    admin_email: str = "admin@example.com"
-    smtp_server: str = "smtp.gmail.com"
-    smtp_port: int = 587
-    smtp_username: str = ""
-    smtp_password: str = ""
+    admin_email: str
+    smtp_server: str
+    smtp_port: int
+    smtp_username: str
+    smtp_password: str
 
     class Config:
         env_prefix = "DDALAB_"

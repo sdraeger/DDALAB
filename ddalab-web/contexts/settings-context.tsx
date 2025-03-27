@@ -12,6 +12,12 @@ import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/use-toast";
 import { usePathname } from "next/navigation";
 
+export const DEFAULT_USER_PREFERENCES: UserPreferences = {
+  sessionExpiration: 30 * 60,
+  theme: "system",
+  eegZoomFactor: 0.05,
+};
+
 type SettingsContextType = {
   userPreferences: UserPreferences;
   pendingChanges: UserPreferences;
@@ -75,11 +81,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   const pathname = usePathname();
 
   // State for tracking changes
-  const [userPreferences, setUserPreferences] = useState<UserPreferences>({
-    sessionExpiration: 30 * 60, // Default values
-    theme: "system",
-    eegZoomFactor: 0.05,
-  });
+  const [userPreferences, setUserPreferences] = useState<UserPreferences>();
   const [pendingChanges, setPendingChanges] = useState<
     Partial<UserPreferences>
   >({});
@@ -103,9 +105,11 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
         throw new Error(`Failed to fetch preferences: ${res.status}`);
       const data = await res.json();
       const newPrefs = {
-        sessionExpiration: data.session_expiration ?? 30 * 60,
-        theme: data.theme ?? "system",
-        eegZoomFactor: data.eeg_zoom_factor ?? 0.05,
+        sessionExpiration:
+          data.session_expiration ?? DEFAULT_USER_PREFERENCES.sessionExpiration,
+        theme: data.theme ?? DEFAULT_USER_PREFERENCES.theme,
+        eegZoomFactor:
+          data.eeg_zoom_factor ?? DEFAULT_USER_PREFERENCES.eegZoomFactor,
       };
 
       console.log("Fetched preferences (SettingsProvider):", newPrefs);
@@ -114,11 +118,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
       setPendingChanges({}); // Clear pending changes after fetch
     } catch (error) {
       console.error("Error fetching preferences:", error);
-      setUserPreferences({
-        sessionExpiration: 30 * 60,
-        theme: "system",
-        eegZoomFactor: 0.05,
-      });
+      setUserPreferences(DEFAULT_USER_PREFERENCES);
       setPendingChanges({});
     }
   }, [session?.accessToken]);
@@ -127,16 +127,16 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     if (session?.accessToken) fetchPreferences();
   }, [session?.accessToken, fetchPreferences]);
 
-  // Update a single preference
   const updatePreference = useCallback(
-    (key: keyof UserPreferences, value: any) => {
+    <K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
       setPendingChanges((prev) => {
-        if (userPreferences[key] === value) {
-          const { [key]: _, ...rest } = prev;
-          setUnsavedChangesList(Object.keys(rest));
-          return rest;
+        const newChanges = { ...prev };
+        if (userPreferences?.[key] === value) {
+          delete newChanges[key];
+        } else {
+          newChanges[key] = value;
         }
-        const newChanges = { ...prev, [key]: value };
+        console.log("Updated pendingChanges:", newChanges);
         setUnsavedChangesList(Object.keys(newChanges));
         return newChanges;
       });
@@ -146,52 +146,43 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
 
   // Save all pending changes
   const saveChanges = useCallback(async () => {
-    if (Object.keys(pendingChanges).length === 0) return true;
+    if (Object.keys(pendingChanges).length === 0) {
+      console.log("No pending changes to save");
+      return true;
+    }
 
     try {
+      console.log("Saving changes:", pendingChanges);
+      const payload = {
+        session_expiration: pendingChanges.sessionExpiration,
+        theme: pendingChanges.theme,
+        eeg_zoom_factor: pendingChanges.eegZoomFactor,
+      };
+      console.log("PUT payload:", payload);
       const res = await fetch("/api/user-preferences", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session?.accessToken}`,
         },
-        body: JSON.stringify(pendingChanges),
+        body: JSON.stringify(payload),
       });
+      const responseData = await res.json();
+      console.log("PUT response:", res.status, responseData);
 
       if (!res.ok) throw new Error(`Failed to save preferences: ${res.status}`);
 
-      // Refetch and sync
-      await fetchPreferences(); // Reuse fetch function
-
-      if (session) {
-        const updatedPrefs = { ...userPreferences, ...pendingChanges };
-        await updateSession({
-          ...session,
-          user: {
-            ...session.user,
-            preferences: updatedPrefs,
-          },
-        });
-      }
-
+      // Update local preferences immediately
+      setUserPreferences((prev) => ({ ...prev, ...pendingChanges }));
+      await fetchPreferences(); // Sync with backend
       setPendingChanges({});
       setUnsavedChangesList([]);
-      //   toast({
-      //     title: "Settings Saved",
-      //     description: "Preferences updated successfully.",
-      //   });
-
       return true;
     } catch (error) {
       console.error("Error saving preferences:", error);
-      toast({
-        title: "Save Failed",
-        description: "Could not save preferences.",
-        variant: "destructive",
-      });
       return false;
     }
-  }, [pendingChanges, session, updateSession, toast, fetchPreferences]);
+  }, [pendingChanges, session?.accessToken, fetchPreferences]);
 
   // Reset changes to last saved state
   const resetChanges = useCallback(() => {

@@ -17,39 +17,6 @@ Some constants are defined in the `.env.local` file. You need to change the foll
 
 - `INSTITUTION_NAME`: The name of your institution
 
-### 2. Configure Directus Connection
-
-Ensure your Directus connection is properly configured in your `.env.local` file:
-
-```
-DIRECTUS_URL=http://localhost:8055
-DIRECTUS_EMAIL=admin@example.com
-DIRECTUS_PASSWORD=yourpassword
-```
-
-### 2. Create the Help Tickets Collection
-
-Run the setup script to create the "help_tickets" collection in Directus:
-
-```bash
-npm run setup-tickets
-```
-
-This script:
-
-- Creates a new "help_tickets" collection in Directus
-- Adds all necessary fields (title, description, status, etc.)
-- Sets up proper permissions
-
-### 3. Directus Admin Interface
-
-After setting up the collection, you can manage tickets through the Directus admin interface:
-
-- Log in to Directus at http://localhost:8055/admin
-- Navigate to the "help_tickets" collection
-- Update ticket status from "open" to "in_progress", "resolved", or "closed"
-- Add admin notes to tickets
-
 ## Using the Help Ticket System
 
 ### For Users

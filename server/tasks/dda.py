@@ -1,70 +1,31 @@
 """DDA task definitions."""
 
-from typing import Dict, Optional
+import os
+import subprocess
+from pathlib import Path
 
 import numpy as np
-from scipy import signal
+from dotenv import load_dotenv
+from loguru import logger
 
 from ..celery_app import celery_app
+from ..core.utils.utils import create_tempfile, make_dda_command
+from ..schemas.dda import DDARequest, DDAResult
 
-__all__ = ["run_dda", "cleanup_task"]  # Export task names
+__all__ = ["run_dda", "cleanup_task"]
 
+load_dotenv()
 
-def preprocess_data(
-    data: np.ndarray, sampling_rate: float, options: Optional[Dict[str, bool]] = None
-) -> np.ndarray:
-    """Preprocess the data according to the specified options.
-
-    Args:
-        data: Raw data array
-        sampling_rate: Original sampling rate in Hz
-        options: Dictionary of preprocessing options
-
-    Returns:
-        Preprocessed data array
-    """
-    if not options:
-        return data
-
-    processed_data = data.copy()
-
-    # Resampling
-    if options.get("resample1000hz") and sampling_rate != 1000:
-        new_length = int(len(data) * 1000 / sampling_rate)
-        processed_data = signal.resample(processed_data, new_length)
-    elif options.get("resample500hz") and sampling_rate != 500:
-        new_length = int(len(data) * 500 / sampling_rate)
-        processed_data = signal.resample(processed_data, new_length)
-
-    # Filtering
-    nyquist = sampling_rate / 2
-    if options.get("lowpassFilter"):
-        b, a = signal.butter(4, 40 / nyquist, btype="low")
-        processed_data = signal.filtfilt(b, a, processed_data)
-
-    if options.get("highpassFilter"):
-        b, a = signal.butter(4, 0.5 / nyquist, btype="high")
-        processed_data = signal.filtfilt(b, a, processed_data)
-
-    if options.get("notchFilter"):
-        for freq in [50, 60]:  # Both 50Hz and 60Hz
-            b, a = signal.iirnotch(freq, 30, sampling_rate)
-            processed_data = signal.filtfilt(b, a, processed_data)
-
-    if options.get("detrend"):
-        processed_data = signal.detrend(processed_data)
-
-    return processed_data
+DDA_BINARY_PATH = os.getenv("DDA_BINARY_PATH")
 
 
 @celery_app.task(
     name="server.tasks.dda.run_dda", bind=True, ignore_result=False, track_started=True
 )
 def run_dda(
-    self,  # Celery task instance
-    file_path: str,
-    preprocessing_options: Optional[Dict[str, bool]] = None,
-) -> Dict:
+    self,
+    request: DDARequest,
+) -> dict:
     """Run DDA on a file.
 
     Args:
@@ -75,49 +36,56 @@ def run_dda(
     Returns:
         Dictionary containing DDA results
     """
-    self.update_state(state="STARTED", meta={"file_path": file_path})
-    print(f"[Task {self.request.id}] Starting DDA analysis for file: {file_path}")
-    print(f"[Task {self.request.id}] Preprocessing options: {preprocessing_options}")
+
+    self.update_state(state="STARTED", meta={"file_path": request.file_path})
+    logger.info(
+        f"[Task {self.request.id}] Starting DDA analysis for file: {request.file_path}"
+    )
+    logger.info(
+        f"[Task {self.request.id}] Preprocessing options: {request.preprocessing_options}"
+    )
+
+    tempf = create_tempfile(subdir=f"task-{self.request.id}", suffix=".dda")
+    command = make_dda_command(
+        DDA_BINARY_PATH,
+        request.file_path,
+        tempf.name,
+        request.channel_list,
+        request.bounds,
+        request.cpu_time,
+    )
+
+    logger.info(f"{command = }")
 
     try:
-        # Generate sample multi-channel data for now (replace with actual DDA implementation)
-        n_channels = 256
-        n_samples = 10000
-        data = np.random.randn(n_channels, n_samples)  # Multi-channel data
-        sampling_rate = 1000.0  # Replace with actual sampling rate from file
-        print(f"[Task {self.request.id}] Generated sample data with shape {data.shape}")
+        p = subprocess.Popen(command, stdout=subprocess.PIPE)
+        p.wait()
+        output = p.stdout.read().decode("utf-8")
+        logger.info(f"[Task {self.request.id}] DDA output: {output}")
 
-        if preprocessing_options:
-            print(f"[Task {self.request.id}] Applying preprocessing...")
-            # Preprocess each channel
-            for i in range(n_channels):
-                data[i] = preprocess_data(data[i], sampling_rate, preprocessing_options)
-            print(f"[Task {self.request.id}] Preprocessing complete")
+        p.stdout.close()
+        p.wait()
 
-        # Compute mean across channels for DDA analysis
-        mean_data = data.mean(axis=0)
-        print(f"[Task {self.request.id}] Computed mean across channels")
+        logger.info(f"Return code: {p.returncode}")
 
-        # Simulate DDA peaks on the mean signal (replace with actual DDA algorithm)
-        peaks = np.zeros_like(mean_data)
-        for i in range(
-            50, len(mean_data), 100
-        ):  # Add synthetic peaks every 100 samples
-            peaks[i] = 1.0
-        print(f"[Task {self.request.id}] Generated peaks array with {sum(peaks)} peaks")
+        ST_filename = f"{tempf.name}_ST"
+        file_path = Path(ST_filename)
 
-        result = {
-            "file_path": file_path,
-            "results": {
-                "data": mean_data.tolist(),  # Return mean signal for visualization
-                "peaks": peaks.tolist(),  # Return peaks for visualization
-            },
-            "preprocessing": preprocessing_options,
-        }
-        print(f"[Task {self.request.id}] Task completed successfully")
-        return result
+        # Read all lines, skip the last one, and write back
+        lines = file_path.read_text().splitlines()[:-1]
+        file_path.write_text("\n".join(lines))
+
+        Q = np.loadtxt(ST_filename)
+        logger.info(f"{Q.shape = }")
+        logger.info(f"[Task {self.request.id}] Task completed successfully")
+
+        return DDAResult(
+            file_path=request.file_path,
+            Q=Q.tolist(),
+            preprocessing_options=request.preprocessing_options,
+        )
     except Exception as e:
-        print(f"[Task {self.request.id}] Error during task execution: {e}")
+        logger.error(f"[Task {self.request.id}] Error during task execution: {e}")
         self.update_state(state="FAILURE", meta={"error": str(e)})
         raise
 

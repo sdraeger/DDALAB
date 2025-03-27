@@ -1,23 +1,19 @@
 """API endpoints for help tickets."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from loguru import logger
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
 from server.core.auth import (
     get_admin_user,
     get_current_user,
 )
-from server.core.database import User, Ticket, get_db
-from server.core.directus_sync import (
-    get_directus_token,
-    submit_ticket_to_directus,
-    sync_users_to_directus,
-)
-from server.schemas.tickets import TicketUpdate, TicketCreate, TicketResponse
+from server.core.database import Ticket, User, get_db
+from server.schemas.tickets import TicketCreate, TicketResponse, TicketUpdate
 
 router = APIRouter(prefix="")
 
@@ -38,64 +34,40 @@ def parse_date(date_str):
             return date_str
 
 
-@router.get("/sync-users", status_code=status.HTTP_200_OK)
-async def sync_users(
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_admin_user),
-):
-    """Manually trigger user synchronization (admin only)."""
-
-    async with db.begin():
-        result = sync_users_to_directus(db)
-        if not result:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="User synchronization failed",
-            )
-
-        return {"message": "User synchronization completed successfully"}
-
-
 @router.post("", response_model=TicketResponse)
 async def create_ticket(
     ticket_data: TicketCreate,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Create a help ticket and sync it to Directus."""
+    """Create a help ticket."""
 
-    # Get Directus token
-    directus_token = get_directus_token()
-    if not directus_token:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Could not connect to the ticket system",
-        )
+    # Set created date as now
+    created_at = datetime.now()
 
-    # Submit the ticket to Directus
-    ticket_result = submit_ticket_to_directus(
-        directus_token,
-        ticket_data.title,
-        ticket_data.description,
-        str(current_user.id),
+    # Create the ticket
+    ticket = Ticket(
+        title=ticket_data.title,
+        description=ticket_data.description,
+        status="open",
+        user_id=current_user.id,
     )
 
-    if not ticket_result:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create ticket",
-        )
-
-    # Get created date
-    created_at = parse_date(ticket_result.get("created_at"))
+    # Add the ticket to the database
+    async with db.begin():
+        db.add(ticket)
+        await db.commit()
 
     # Return the created ticket
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     return TicketResponse(
-        id=ticket_result.get("id"),
-        title=ticket_result.get("title"),
-        description=ticket_result.get("description"),
-        status=ticket_result.get("status", "open"),
+        id=ticket.id,
         user_id=str(current_user.id),
+        title=ticket.title,
+        description=ticket.description,
+        status=ticket.status,
         created_at=created_at,
+        updated_at=now,
     )
 
 
@@ -117,14 +89,16 @@ async def get_tickets(
             detail="Failed to retrieve tickets",
         )
 
+    tickets_data = tickets_data.scalars().all()
+
     # Convert tickets to TicketResponse format
     tickets = [
         TicketResponse(
             id=ticket.id,
+            user_id=str(current_user.id),
             title=ticket.title,
             description=ticket.description,
             status=ticket.status,
-            user_id=str(current_user.id),
             created_at=ticket.created_at,
             updated_at=ticket.updated_at,
         )

@@ -1,6 +1,5 @@
 """Database configuration and models."""
 
-import os
 from datetime import datetime, timezone
 
 from sqlalchemy import (
@@ -20,11 +19,11 @@ from server.core.config import get_settings
 settings = get_settings()
 
 # Get PostgreSQL connection details from environment variables
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_NAME = os.getenv("DB_NAME", "ddalab")
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+DB_HOST = settings.db_host
+DB_PORT = settings.db_port
+DB_NAME = settings.db_name
+DB_USER = settings.db_user
+DB_PASSWORD = settings.db_password
 
 # Create SQLAlchemy engine for PostgreSQL
 SQLALCHEMY_DATABASE_URL = (

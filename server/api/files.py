@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from ..core.config import get_data_settings
 from ..core.files import get_available_files, list_directory, validate_file_path
-from ..core.utils import calculate_file_hash
+from ..core.utils.utils import calculate_file_hash
 from ..schemas.files import FileList
 
 router = APIRouter()
