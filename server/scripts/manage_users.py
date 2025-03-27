@@ -9,23 +9,21 @@ Usage:
 """
 
 import argparse
-import sys
-from pathlib import Path
+import asyncio
 
-# Add server directory to path so we can import server modules
-server_dir = Path(__file__).resolve().parent.parent
-sys.path.append(str(server_dir.parent))
+import setup_paths
 
 from server.core.auth import create_user, get_password_hash
-from server.core.database import SessionLocal, User
+from server.core.database import User, get_db
+
+setup_paths.configure_paths()
 
 
-def create_user_cmd(
+async def create_user_cmd(
     username: str, password: str = None, is_superuser: bool = False
 ) -> None:
     """Create a new user."""
-    db = SessionLocal()
-    try:
+    async with get_db() as db:
         # Check if user already exists
         if db.query(User).filter(User.username == username).first():
             print(f"Error: User '{username}' already exists")
@@ -42,16 +40,13 @@ def create_user_cmd(
                 return
 
         # Create user
-        user = create_user(db, username, password, is_superuser)
+        _ = create_user(db, username, password, is_superuser)
         print(f"Created {'superuser' if is_superuser else 'user'} '{username}'")
-    finally:
-        db.close()
 
 
-def list_users() -> None:
+async def list_users() -> None:
     """List all users."""
-    db = SessionLocal()
-    try:
+    async with get_db() as db:
         users = db.query(User).all()
         if not users:
             print("No users found")
@@ -66,14 +61,11 @@ def list_users() -> None:
                 f"{user.username:<20} {str(user.is_superuser):<10} {str(user.is_active):<10}"
             )
         print("-" * 60)
-    finally:
-        db.close()
 
 
-def delete_user(username: str) -> None:
+async def delete_user(username: str) -> None:
     """Delete a user."""
-    db = SessionLocal()
-    try:
+    async with get_db() as db:
         user = db.query(User).filter(User.username == username).first()
         if not user:
             print(f"Error: User '{username}' not found")
@@ -89,16 +81,13 @@ def delete_user(username: str) -> None:
         db.delete(user)
         db.commit()
         print(f"Deleted user '{username}'")
-    finally:
-        db.close()
 
 
-def modify_user(
+async def modify_user(
     username: str, password: bool = False, superuser: bool = None, active: bool = None
 ) -> None:
     """Modify a user's attributes."""
-    db = SessionLocal()
-    try:
+    async with get_db() as db:
         user = db.query(User).filter(User.username == username).first()
         if not user:
             print(f"Error: User '{username}' not found")
@@ -140,11 +129,9 @@ def modify_user(
             print(f"User {'activated' if active else 'deactivated'}")
 
         db.commit()
-    finally:
-        db.close()
 
 
-def main():
+async def main():
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(description="Manage DDALAB users")
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
@@ -190,4 +177,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

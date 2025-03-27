@@ -20,7 +20,7 @@ DB_USER = os.getenv("DB_USER", os.getenv("USER", "postgres"))
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 
 # Log connection parameters
-logger.info(f"Using database connection parameters:")
+logger.info("Using database connection parameters:")
 logger.info(f"  DB_HOST: {DB_HOST}")
 logger.info(f"  DB_PORT: {DB_PORT}")
 logger.info(f"  DB_NAME: {DB_NAME}")
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS annotations (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     file_path VARCHAR(255) NOT NULL,
-    start_time INTEGER NOT NULL, 
+    start_time INTEGER NOT NULL,
     end_time INTEGER,
     text TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -71,8 +71,8 @@ def create_annotations_table():
         # Verify the table was created
         cursor.execute("""
             SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_schema = 'public' 
+                SELECT FROM information_schema.tables
+                WHERE table_schema = 'public'
                 AND table_name = 'annotations'
             );
         """)
