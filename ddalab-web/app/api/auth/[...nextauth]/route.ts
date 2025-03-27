@@ -1,5 +1,6 @@
 import NextAuth, { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import { DEFAULT_USER_PREFERENCES } from "@/contexts/settings-context";
 
 declare module "next-auth" {
   interface User {
@@ -77,7 +78,8 @@ export const authOptions: NextAuthOptions = {
           firstName: data.user.first_name,
           lastName: data.user.last_name,
           accessToken: data.access_token,
-          expiresIn: data.expires_in || 30 * 60,
+          expiresIn:
+            data.expires_in || DEFAULT_USER_PREFERENCES.sessionExpiration,
         };
 
         console.log("Authorize user:", user);
@@ -119,12 +121,16 @@ export const authOptions: NextAuthOptions = {
           const data = await res.json();
           console.log("JWT - Preferences data:", data);
 
-          token.sessionExpiration = data.session_expiration ?? 30 * 60;
-          token.theme = data.theme ?? "system";
-          token.eegZoomFactor = data.eeg_zoom_factor ?? 0.05;
+          token.sessionExpiration =
+            data.session_expiration ??
+            DEFAULT_USER_PREFERENCES.sessionExpiration;
+          token.theme = data.theme ?? DEFAULT_USER_PREFERENCES.theme;
+          token.eegZoomFactor =
+            data.eeg_zoom_factor ?? DEFAULT_USER_PREFERENCES.eegZoomFactor;
           token.exp =
             Math.floor(Date.now() / 1000) +
-            (data.session_expiration ?? 30 * 60);
+            (data.session_expiration ??
+              DEFAULT_USER_PREFERENCES.sessionExpiration);
 
           console.log("JWT - Preferences fetched:", {
             sessionExpiration: token.sessionExpiration,
@@ -172,7 +178,8 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: "jwt",
-    maxAge: 30 * 60,
+    // maxAge: DEFAULT_USER_PREFERENCES.sessionExpiration!, // Leads to errors
+    // maxAge: 30 * 60,
   },
 };
 

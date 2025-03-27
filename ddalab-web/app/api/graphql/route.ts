@@ -6,7 +6,7 @@ import logger from "@/lib/utils/logger";
 
 // Environment variables
 const caPath = getEnvVar("API_SSL_CERT_PATH", "../ssl/cert.pem");
-const baseUrl = getEnvVar("NEXT_PUBLIC_API_URL", "https://localhost:8001");
+const baseUrl = getEnvVar("NEXT_PUBLIC_API_URL");
 
 export async function POST(request: NextRequest) {
   try {
