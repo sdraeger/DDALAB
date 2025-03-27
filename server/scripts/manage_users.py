@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """User management script for DDALAB server.
 
 Usage:
@@ -16,6 +15,7 @@ import setup_paths
 from server.core.auth import create_user, get_password_hash
 from server.core.database import User, get_db
 
+# Placeholder so the linter doesn't complain about the import.
 setup_paths.configure_paths()
 
 
