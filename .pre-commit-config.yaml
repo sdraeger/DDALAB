@@ -1,18 +1,29 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.6
+    rev: v0.11.2
     hooks:
+      # Run the linter.
+      - id: ruff
+        args: [--fix]
+      # Run the formatter.
+      - id: ruff-format
       - id: ruff
         name: ruff (import sorting)
         args: [--select, I, --fix]
         types_or: [python, pyi, jupyter]
+    # hooks:
+    #   - id: ruff
+    #     name: ruff (formatting)
+    #     args: [format, .]
+    #   - id: ruff
+    #     name: ruff (import sorting)
+    #     args: [--select, I, --fix]
+    #     types_or: [python, pyi, jupyter]
 
-  - repo: local
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
     hooks:
-      - id: tests
-        name: run tests
-        entry: pytest tests/unit
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [commit]
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-added-large-files

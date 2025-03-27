@@ -1,10 +1,8 @@
 """Authentication utilities and configuration."""
 
-import os
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt
@@ -14,9 +12,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from server.core.config import get_settings
 from server.core.database import User, UserToken, get_db
-
-load_dotenv()
 
 # Password hashing configuration
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -24,9 +21,11 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # OAuth2 configuration with password flow
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
+settings = get_settings()
+
 # JWT configuration
-SECRET_KEY = os.getenv("DDALAB_JWT_SECRET_KEY")
-ALGORITHM = os.getenv("DDALAB_JWT_ALGORITHM")
+SECRET_KEY = settings.jwt_secret_key
+ALGORITHM = settings.jwt_algorithm
 
 
 class Token(BaseModel):
