@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { UserPreferences } from "@/contexts/settings-context";
+import {
+  UserPreferences,
+  DEFAULT_USER_PREFERENCES,
+} from "@/contexts/settings-context";
 import { getSession } from "next-auth/react";
 import { pool } from "@/lib/db/pool";
 import logger from "@/lib/utils/logger";
-
-// Default values for user preferences
-const DEFAULT_PREFERENCES: Required<UserPreferences> = {
-  eegZoomFactor: 0.05, // Default 5% zoom factor
-  theme: "system", // Default theme follows system preference
-  sessionExpiration: 30 * 60, // Default 30 minutes
-};
 
 // GET endpoint to retrieve user preferences
 export async function GET(req: NextRequest) {
@@ -22,7 +18,7 @@ export async function GET(req: NextRequest) {
 
   if (!userId || !token) {
     return NextResponse.json(
-      { sessionExpiration: DEFAULT_PREFERENCES.sessionExpiration },
+      { sessionExpiration: DEFAULT_USER_PREFERENCES.sessionExpiration },
       { status: 200 }
     );
   }
@@ -56,7 +52,7 @@ export async function GET(req: NextRequest) {
     const sessionExpiration =
       result.rows.length > 0 && result.rows[0].session_expiration
         ? result.rows[0].session_expiration
-        : DEFAULT_PREFERENCES.sessionExpiration;
+        : DEFAULT_USER_PREFERENCES.sessionExpiration;
     return NextResponse.json({ sessionExpiration }, { status: 200 });
   }
 }
@@ -143,10 +139,12 @@ export async function DELETE(req: NextRequest) {
     const preferenceKey = searchParams.get("key");
 
     // If key provided, reset only that preference to default
-    if (preferenceKey && preferenceKey in DEFAULT_PREFERENCES) {
+    if (preferenceKey && preferenceKey in DEFAULT_USER_PREFERENCES) {
       const resetPreferences: UserPreferences = {};
       resetPreferences[preferenceKey as keyof UserPreferences] =
-        DEFAULT_PREFERENCES[preferenceKey as keyof typeof DEFAULT_PREFERENCES];
+        DEFAULT_USER_PREFERENCES[
+          preferenceKey as keyof typeof DEFAULT_USER_PREFERENCES
+        ];
 
       const success = await updateUserPreferences(resetPreferences);
       if (!success) {
@@ -158,7 +156,7 @@ export async function DELETE(req: NextRequest) {
     }
     // Otherwise reset all preferences to defaults
     else if (!preferenceKey) {
-      const success = await updateUserPreferences(DEFAULT_PREFERENCES);
+      const success = await updateUserPreferences(DEFAULT_USER_PREFERENCES);
       if (!success) {
         return NextResponse.json(
           { error: "Failed to reset preferences" },
