@@ -1,6 +1,5 @@
 """Main server application."""
 
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -155,7 +154,7 @@ def main():
     kwargs = {
         "host": settings.api_host,
         "port": settings.api_port,
-        "reload": os.getenv("RELOAD", False),
+        "reload": settings.reload,
         **ssl_config,
     }
     uvicorn.run("server.main:app", **kwargs)

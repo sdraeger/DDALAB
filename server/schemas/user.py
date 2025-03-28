@@ -20,3 +20,25 @@ class User(BaseModel):
                 "is_admin": False,
             }
         }
+
+
+class UserCreate(BaseModel):
+    """User creation request model."""
+
+    username: str
+    password: str
+    email: str
+    first_name: str
+    last_name: str
+    is_admin: bool = False
+
+
+class UserUpdate(BaseModel):
+    """User update request model."""
+
+    username: str
+    password: str
+    email: str
+    first_name: str
+    last_name: str
+    is_admin: bool = False

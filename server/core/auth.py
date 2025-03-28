@@ -8,12 +8,12 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import jwt
 from loguru import logger
 from passlib.context import CryptContext
-from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.core.config import get_settings
 from server.core.database import User, UserToken, get_db
+from server.schemas.user import UserCreate, UserUpdate
 
 # Password hashing configuration
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -22,37 +22,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 settings = get_settings()
-
-# JWT configuration
-SECRET_KEY = settings.jwt_secret_key
-ALGORITHM = settings.jwt_algorithm
-
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-
-
-class UserCreate(BaseModel):
-    """User creation request model."""
-
-    username: str
-    password: str
-    email: str
-    first_name: str
-    last_name: str
-    is_admin: bool = False
-
-
-class UserUpdate(BaseModel):
-    """User update request model."""
-
-    username: str
-    password: str
-    email: str
-    first_name: str
-    last_name: str
-    is_admin: bool = False
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -85,13 +54,16 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
     to_encode = data.copy()
 
-    if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
-    else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+    expire = datetime.now(timezone.utc) + (
+        expires_delta
+        if expires_delta
+        else timedelta(minutes=settings.token_expiration_minutes)
+    )
 
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(
+        to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+    )
     return encoded_jwt
 
 

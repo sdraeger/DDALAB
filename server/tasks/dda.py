@@ -1,22 +1,19 @@
 """DDA task definitions."""
 
-import os
 import subprocess
 from pathlib import Path
 
 import numpy as np
-from dotenv import load_dotenv
 from loguru import logger
 
 from ..celery_app import celery_app
+from ..core.config import get_server_settings
 from ..core.utils.utils import create_tempfile, make_dda_command
 from ..schemas.dda import DDARequest, DDAResult
 
 __all__ = ["run_dda", "cleanup_task"]
 
-load_dotenv()
-
-DDA_BINARY_PATH = os.getenv("DDA_BINARY_PATH")
+settings = get_server_settings()
 
 
 @celery_app.task(
@@ -30,8 +27,6 @@ def run_dda(
 
     Args:
         self: Celery task instance
-        file_path: Path to the file to analyze
-        preprocessing_options: Dictionary of preprocessing options
 
     Returns:
         Dictionary containing DDA results
@@ -47,7 +42,7 @@ def run_dda(
 
     tempf = create_tempfile(subdir=f"task-{self.request.id}", suffix=".dda")
     command = make_dda_command(
-        DDA_BINARY_PATH,
+        settings.dda_binary_path,
         request.file_path,
         tempf.name,
         request.channel_list,

@@ -61,7 +61,7 @@ async def create_user(
             )
 
         # Generate and return access token for the new user
-        access_token_expires = timedelta(minutes=settings.jwt_token_expire_minutes)
+        access_token_expires = timedelta(minutes=settings.token_expiration_minutes)
         access_token = create_access_token(
             data={"sub": user.username}, expires_delta=access_token_expires
         )
