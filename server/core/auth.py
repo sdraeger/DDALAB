@@ -22,7 +22,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 settings = get_server_settings()
-print(f"settings: {settings}")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
