@@ -13,8 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from strawberry.fastapi import BaseContext, GraphQLRouter
 
-from ..config import get_settings
 from ..core.auth import get_current_user_from_request
+from ..core.config import get_server_settings
 from ..core.database import Annotation, FavoriteFile, get_db
 from ..core.dda import get_dda_result, get_task_status, run_dda
 from ..core.edf import get_edf_navigator, read_edf_chunk
@@ -265,7 +265,7 @@ class Query:
             if not await validate_file_path(filename):
                 raise ValueError(f"Invalid file path: {filename}")
 
-            settings = get_settings()
+            settings = get_server_settings()
             full_path = os.path.join(settings.data_dir, filename)
             logger.info(f"Getting EDF navigation info: {full_path}")
 
@@ -368,7 +368,7 @@ class Query:
             if not await validate_file_path(filename):
                 raise ValueError(f"Invalid file path: {filename}")
 
-            settings = get_settings()
+            settings = get_server_settings()
             full_path = os.path.join(settings.data_dir, filename)
             logger.info(f"Reading EDF file chunk: {full_path}")
 

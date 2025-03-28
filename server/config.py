@@ -1,6 +1,5 @@
 """Server configuration settings."""
 
-from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
@@ -48,13 +47,3 @@ class Settings(BaseSettings):
         env_prefix = "DDALAB_"
         env_file = ".env"
         env_file_encoding = "utf-8"
-
-
-@lru_cache
-def get_settings() -> Settings:
-    """Get cached settings instance.
-
-    Returns:
-        Settings instance
-    """
-    return Settings()

@@ -14,9 +14,9 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
-from server.core.config import get_settings
+from server.core.config import get_server_settings
 
-settings = get_settings()
+settings = get_server_settings()
 
 # Get PostgreSQL connection details from environment variables
 DB_HOST = settings.db_host

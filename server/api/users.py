@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from server.core.auth import (
-    Token,
     UserCreate,
     UserUpdate,
     create_access_token,
@@ -27,6 +26,7 @@ from server.core.auth import (
 from server.core.config import get_server_settings
 from server.core.database import User as UserDB
 from server.core.database import get_db
+from server.schemas.auth import Token
 from server.schemas.user import User
 
 router = APIRouter()

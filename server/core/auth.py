@@ -11,7 +11,7 @@ from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from server.core.config import get_settings
+from server.core.config import get_server_settings
 from server.core.database import User, UserToken, get_db
 from server.schemas.user import UserCreate, UserUpdate
 
@@ -21,7 +21,8 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # OAuth2 configuration with password flow
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
-settings = get_settings()
+settings = get_server_settings()
+print(f"settings: {settings}")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

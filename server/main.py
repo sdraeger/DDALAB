@@ -4,7 +4,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -16,7 +15,7 @@ from server.core.auth import get_current_user
 from server.core.config import get_server_settings, initialize_config
 from server.schemas.graphql import graphql_app
 
-load_dotenv()
+settings = get_server_settings()
 
 
 class DBSessionMiddleware(BaseHTTPMiddleware):

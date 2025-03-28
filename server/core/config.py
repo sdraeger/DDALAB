@@ -59,11 +59,11 @@ class Settings(BaseSettings):
     token_expiration_minutes: int
 
     # Email settings
-    admin_email: str
-    smtp_server: str
-    smtp_port: int
-    smtp_username: str
-    smtp_password: str
+    # admin_email: str
+    # smtp_server: str
+    # smtp_port: int
+    # smtp_username: str
+    # smtp_password: str
 
     class Config:
         env_prefix = "DDALAB_"
@@ -213,16 +213,6 @@ def initialize_config() -> Dict[str, BaseModel]:
 
 
 @lru_cache
-def get_settings() -> Settings:
-    """Get cached settings instance.
-
-    Returns:
-        Settings instance
-    """
-    return Settings()
-
-
-@lru_cache
 def get_server_settings() -> Settings:
     """Get cached server settings instance.
 
@@ -257,17 +247,17 @@ def update_settings(setting_type: str, updates: Dict[str, Any]) -> BaseModel:
     """
     # Clear the cache for the updated settings
     if setting_type == "server":
-        get_settings.cache_clear()
-        current = get_settings()
+        get_server_settings.cache_clear()
+        current = get_server_settings()
     elif setting_type == "data":
-        get_settings.cache_clear()
-        current = get_settings()
+        get_server_settings.cache_clear()
+        current = get_server_settings()
     elif setting_type == "celery":
-        get_settings.cache_clear()
-        current = get_settings()
+        get_server_settings.cache_clear()
+        current = get_server_settings()
     elif setting_type == "redis":
-        get_settings.cache_clear()
-        current = get_settings()
+        get_server_settings.cache_clear()
+        current = get_server_settings()
     else:
         raise ValueError(f"Invalid setting type: {setting_type}")
 

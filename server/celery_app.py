@@ -2,9 +2,9 @@
 
 from celery import Celery
 
-from .config import get_settings
+from .core.config import get_server_settings
 
-settings = get_settings()
+settings = get_server_settings()
 
 celery_app = Celery(
     "server",
