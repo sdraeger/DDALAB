@@ -1,0 +1,31 @@
+vars: {
+  apisrv: {
+    label: "API Server"
+    style.fill: "#blue"
+  }
+  websrv: {
+    label: "Web Server"
+    style.fill: "#green"
+  }
+}
+
+apisrv: {
+  label: ${apisrv.label}
+}
+
+websrv: {
+  label: ${websrv.label}
+}
+
+nginx -> websrv
+nginx -> apisrv
+websrv -> apisrv: {
+  label: "GraphQL"
+}
+apisrv -> websrv: {
+  label: "GraphQL"
+}
+apisrv -> Database
+
+# websrv -> apisrv
+# apisrv -> Database

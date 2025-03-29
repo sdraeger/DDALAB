@@ -1,0 +1,113 @@
+services:
+  web:
+    build:
+      context: ./ddalab-web
+      dockerfile: Dockerfile
+    env_file:
+      - ./ddalab-web/.env.local
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 120s
+      timeout: 3s
+      retries: 5
+    depends_on:
+      - api
+    networks:
+      - internal
+
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 120s
+      timeout: 3s
+      retries: 5
+    ports:
+      - "8001:8001"
+    environment:
+      env_file: .env
+      REDIS_URL: ${REDIS_URL}
+    volumes:
+      - ${DDALAB_ALLOWED_DIRS}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      celery:
+        condition: service_started
+    networks:
+      - internal
+
+  redis:
+    image: redis:7.0
+    volumes:
+      - ./redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    ports:
+      - "6379:6379"
+    networks:
+      - internal
+
+  celery:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    command: celery -A server.celery_app worker -l info -Q celery,dda
+    environment:
+      BROKER_URL: ${CELERY_BROKER_URL}
+    volumes:
+      - ${DDALAB_ALLOWED_DIRS}
+    depends_on:
+      - redis
+    networks:
+      - internal
+
+  postgres:
+    image: postgres:16  # Use a specific version for stability
+    environment:
+      POSTGRES_USER: ${DDALAB_DB_USER}
+      POSTGRES_PASSWORD: ${DDALAB_DB_PASSWORD}
+      POSTGRES_DB: ${DDALAB_DB_NAME}
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${DDALAB_DB_USER}", "-d", "${DDALAB_DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data  # Persist data
+    ports:
+      - "5432:5432"  # Expose Postgres port (optional for local access)
+    networks:
+      - internal
+
+  nginx:
+    image: nginx:latest
+    ports:
+      - "443:443"    # Map host 443 to container 443
+      - "80:80"      # Map host 80 to container 80
+    depends_on:
+      # web:
+      #   condition: service_healthy
+      # api:
+      #   condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./nginx-proxy/nginx.conf:/etc/nginx/nginx.conf:ro  # Mount Nginx config
+      - ./nginx-proxy/certs:/etc/nginx/certs:ro            # Mount self-signed certificates
+    restart: unless-stopped
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
