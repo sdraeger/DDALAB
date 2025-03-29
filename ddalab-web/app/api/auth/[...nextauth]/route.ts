@@ -1,6 +1,9 @@
 import NextAuth, { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { DEFAULT_USER_PREFERENCES } from "@/contexts/settings-context";
+import { getEnvVar } from "@/lib/utils/env";
+
+const API_URL = getEnvVar("NEXT_PUBLIC_API_URL");
 
 declare module "next-auth" {
   interface User {
@@ -52,11 +55,15 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
+        console.log("Authorizing user:", credentials);
+        const url = `${API_URL}/api/auth/token`;
+        console.log("Fetching token from:", url);
+
         if (!credentials?.username || !credentials?.password) {
           throw new Error("Missing credentials");
         }
 
-        const res = await fetch("http://localhost:8001/api/auth/token", {
+        const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({
@@ -65,6 +72,7 @@ export const authOptions: NextAuthOptions = {
             grant_type: "password",
           }),
         });
+        console.log("Response:", res);
         const data = await res.json();
 
         if (!res.ok || !data.access_token) {
@@ -105,16 +113,13 @@ export const authOptions: NextAuthOptions = {
       // Fetch preferences for token
       if (token.accessToken && (trigger === "signIn" || trigger === "update")) {
         try {
-          const res = await fetch(
-            "http://localhost:8001/api/user-preferences",
-            {
-              method: "GET",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token.accessToken}`,
-              },
-            }
-          );
+          const res = await fetch(`${API_URL}/api/user-preferences`, {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token.accessToken}`,
+            },
+          });
 
           if (!res.ok) throw new Error("Failed to fetch preferences");
 

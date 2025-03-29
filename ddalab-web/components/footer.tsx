@@ -38,7 +38,11 @@ const Footer: FC = () => {
           </div>
 
           <div className="text-sm text-muted-foreground">
-            &copy; {currentYear} DDALAB. All rights reserved.
+            &copy; {currentYear} DDALAB
+            {process.env.INSTITUTION_NAME
+              ? ` @ ${process.env.INSTITUTION_NAME}`
+              : ""}
+            . All rights reserved.
           </div>
         </div>
       </div>

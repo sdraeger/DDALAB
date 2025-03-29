@@ -64,7 +64,6 @@ The setup creates the following tables:
 1. **users**: Stores user credentials with bcrypt-hashed passwords
 2. **user_tokens**: Stores API tokens for authenticated users
 3. **password_reset_tokens**: Stores temporary password reset tokens
-4. **user_refresh_tokens**: Stores JWT refresh tokens
 
 ## API Endpoints
 

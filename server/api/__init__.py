@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from .dda import router as dda_router
 from .files import router as files_router
+from .health import router as health_router
 from .tickets import router as tickets_router
 from .user_preferences import router as user_preferences_router
 from .users import router as users_router
@@ -22,3 +23,4 @@ router.include_router(
     include_in_schema=True,
 )
 router.include_router(users_router, prefix="/users", tags=["users"])
+router.include_router(health_router, prefix="/health", tags=["health"])

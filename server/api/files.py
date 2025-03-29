@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from ..core.config import get_data_settings
 from ..core.files import get_available_files, list_directory, validate_file_path
+from ..core.utils.file import is_path_allowed
 from ..core.utils.utils import calculate_file_hash
 from ..schemas.files import FileList
 
@@ -39,6 +40,10 @@ async def check_file_exists(file_path: str) -> bool:
         True if file exists, False otherwise
     """
     try:
+        if not is_path_allowed(file_path):
+            raise HTTPException(
+                status_code=403, detail="Access to this directory is forbidden"
+            )
         return await validate_file_path(file_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -55,6 +60,10 @@ async def list_directory_endpoint(path: str = "") -> List[Dict[str, str]]:
         List of dictionaries containing file/directory information
     """
     try:
+        if not is_path_allowed(path):
+            raise HTTPException(
+                status_code=403, detail="Access to this directory is forbidden"
+            )
         return await list_directory(path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -71,6 +80,11 @@ async def get_file_hash(file_path: str):
         dict: Contains the file hash
     """
     try:
+        if not is_path_allowed(file_path):
+            raise HTTPException(
+                status_code=403, detail="Access to this directory is forbidden"
+            )
+
         settings = get_data_settings()
         full_path = Path(settings.data_dir) / file_path
         if not await validate_file_path(file_path):
@@ -94,6 +108,11 @@ async def download_file(file_path: str, client_hash: Optional[str] = None):
         FileResponse or JSONResponse: File download or hash match response
     """
     try:
+        if not is_path_allowed(file_path):
+            raise HTTPException(
+                status_code=403, detail="Access to this directory is forbidden"
+            )
+
         settings = get_data_settings()
         if not await validate_file_path(file_path):
             raise HTTPException(status_code=404, detail="File not found")

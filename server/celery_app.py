@@ -1,8 +1,11 @@
 """Celery application configuration."""
 
+import sys
+
 from celery import Celery
 
-from .core.config import get_server_settings
+sys.path.append("..")
+from server.core.config import get_server_settings
 
 settings = get_server_settings()
 

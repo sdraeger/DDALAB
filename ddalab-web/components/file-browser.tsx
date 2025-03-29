@@ -170,80 +170,82 @@ export function FileBrowser({
             Error loading files: {error.message}
           </div>
         ) : (
-          <div className="border rounded-md">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="text-left p-2">Name</th>
-                  <th className="text-left p-2 hidden md:table-cell">Size</th>
-                  <th className="text-left p-2 hidden md:table-cell">
-                    Last Modified
-                  </th>
-                  <th className="text-right p-2 w-12">Favorite</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.listDirectory?.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={4}
-                      className="p-4 text-center text-muted-foreground"
-                    >
-                      No files found in this directory
-                    </td>
+          <div className="border rounded-md overflow-hidden">
+            <div className="max-h-[900px] overflow-auto">
+              <table className="w-full">
+                <thead className="sticky top-0 bg-background z-10">
+                  <tr className="border-b bg-muted/50">
+                    <th className="text-left p-2">Name</th>
+                    <th className="text-left p-2 hidden md:table-cell">Size</th>
+                    <th className="text-left p-2 hidden md:table-cell">
+                      Last Modified
+                    </th>
+                    <th className="text-right p-2 w-12">Favorite</th>
                   </tr>
-                ) : (
-                  data?.listDirectory?.map((file: FileItem) => (
-                    <tr
-                      key={file.path}
-                      className="border-b hover:bg-muted/50 cursor-pointer"
-                      onClick={() => handleFileSelect(file)}
-                    >
-                      <td className="p-2 flex items-center gap-2">
-                        {file.isDirectory ? (
-                          <>
-                            <Folder className="h-4 w-4 text-blue-500" />
-                            <span>{file.name}</span>
-                            <ChevronRight className="h-4 w-4 text-muted-foreground ml-auto" />
-                          </>
-                        ) : (
-                          <>
-                            <File className="h-4 w-4 text-gray-500" />
-                            <span>{file.name}</span>
-                          </>
-                        )}
-                      </td>
-                      <td className="p-2 hidden md:table-cell">
-                        {file.isDirectory ? "--" : formatFileSize(file.size)}
-                      </td>
-                      <td className="p-2 hidden md:table-cell">
-                        {formatDate(file.lastModified)}
-                      </td>
-                      <td className="p-2 text-right">
-                        {!file.isDirectory && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={(e) => handleStarClick(e, file)}
-                            title={
-                              file.isFavorite ? "Unstar file" : "Star file"
-                            }
-                          >
-                            <Star
-                              className={`h-4 w-4 ${
-                                file.isFavorite
-                                  ? "fill-yellow-400 text-yellow-400"
-                                  : ""
-                              }`}
-                            />
-                          </Button>
-                        )}
+                </thead>
+                <tbody>
+                  {data?.listDirectory?.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={4}
+                        className="p-4 text-center text-muted-foreground"
+                      >
+                        No files found in this directory
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    data?.listDirectory?.map((file: FileItem) => (
+                      <tr
+                        key={file.path}
+                        className="border-b hover:bg-muted/50 cursor-pointer"
+                        onClick={() => handleFileSelect(file)}
+                      >
+                        <td className="p-2 flex items-center gap-2">
+                          {file.isDirectory ? (
+                            <>
+                              <Folder className="h-4 w-4 text-blue-500" />
+                              <span>{file.name}</span>
+                              <ChevronRight className="h-4 w-4 text-muted-foreground ml-auto" />
+                            </>
+                          ) : (
+                            <>
+                              <File className="h-4 w-4 text-gray-500" />
+                              <span>{file.name}</span>
+                            </>
+                          )}
+                        </td>
+                        <td className="p-2 hidden md:table-cell">
+                          {file.isDirectory ? "--" : formatFileSize(file.size)}
+                        </td>
+                        <td className="p-2 hidden md:table-cell">
+                          {formatDate(file.lastModified)}
+                        </td>
+                        <td className="p-2 text-right">
+                          {!file.isDirectory && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => handleStarClick(e, file)}
+                              title={
+                                file.isFavorite ? "Unstar file" : "Star file"
+                              }
+                            >
+                              <Star
+                                className={`h-4 w-4 ${
+                                  file.isFavorite
+                                    ? "fill-yellow-400 text-yellow-400"
+                                    : ""
+                                }`}
+                              />
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </CardContent>

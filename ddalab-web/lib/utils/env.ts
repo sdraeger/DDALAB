@@ -8,7 +8,9 @@
 export function getEnvVar(key: string, defaultValue?: string): string {
   const value = process.env[key];
   if (value === undefined && defaultValue === undefined) {
-    throw new Error(`Environment variable ${key} is not set in .env.local`);
+    throw new Error(
+      `Environment variable ${key} is not set in .env or .env.local`
+    );
   }
   return (value ?? defaultValue)!;
 }

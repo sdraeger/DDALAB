@@ -127,6 +127,9 @@ app.include_router(api_router, prefix="/api")
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 
 
+# @click.command()
+# @click.option("--host", type=str, default="0.0.0.0", help="Host to run the server on")
+# @click.option("--port", type=int, default=8001, help="Port to run the server on")
 def main():
     """Start the server."""
     logger.info("Starting server...")

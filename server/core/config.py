@@ -3,9 +3,10 @@
 import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Optional, Type, TypeVar
+from typing import Any, Dict, Optional, Type, TypeVar, Union
 
-from pydantic import BaseModel
+from loguru import logger
+from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings
 
 T = TypeVar("T", bound=BaseModel)
@@ -49,8 +50,8 @@ class Settings(BaseSettings):
 
     # SSL settings
     ssl_enabled: bool
-    ssl_cert_path: str
-    ssl_key_path: str
+    ssl_cert_path: str | None = None
+    ssl_key_path: str | None = None
 
     # Authentication settings
     jwt_secret_key: str
@@ -58,12 +59,23 @@ class Settings(BaseSettings):
     auth_enabled: bool
     token_expiration_minutes: int
 
-    # Email settings
-    # admin_email: str
-    # smtp_server: str
-    # smtp_port: int
-    # smtp_username: str
-    # smtp_password: str
+    # Allowed directories
+    allowed_dirs: Union[list[str], str]
+
+    @field_validator("allowed_dirs", mode="before")
+    @classmethod
+    def parse_allowed_dirs(cls, value):
+        logger.info(f"Raw allowed_dirs value: {value}")
+        if isinstance(value, str):
+            try:
+                # Parse the comma-separated string with colon-separated parts
+                return {pair.split(":")[1] for pair in value.split(",")}
+            except (IndexError, ValueError) as e:
+                logger.error(f"Failed to parse allowed_dirs: {e}")
+                raise ValueError(f"Invalid ALLOWED_DIRS format: {value}")
+        elif value is None:
+            return []  # Default to empty list if not provided
+        return value  # Return as-is if already a list
 
     class Config:
         env_prefix = "DDALAB_"

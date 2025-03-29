@@ -69,9 +69,6 @@ class User(Base):
     tokens = relationship(
         "UserToken", back_populates="user", cascade="all, delete-orphan"
     )
-    refresh_tokens = relationship(
-        "UserRefreshToken", back_populates="user", cascade="all, delete-orphan"
-    )
     favorite_files = relationship(
         "FavoriteFile", back_populates="user", cascade="all, delete-orphan"
     )
@@ -125,24 +122,6 @@ class UserToken(Base):
 
     # Relationships
     user = relationship("User", back_populates="tokens")
-
-
-class UserRefreshToken(Base):
-    """User refresh token model for authentication."""
-
-    __tablename__ = "user_refresh_tokens"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    token = Column(String, unique=True, index=True)
-    expires_at = Column(DateTime)
-    created_at = Column(
-        DateTime,
-        default=datetime.now(timezone.utc).replace(tzinfo=None),
-    )
-
-    # Relationships
-    user = relationship("User", back_populates="refresh_tokens")
 
 
 class Annotation(Base):
