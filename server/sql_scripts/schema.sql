@@ -305,60 +305,12 @@ ALTER SEQUENCE public.signup_requests_id_seq OWNED BY public.signup_requests.id;
 CREATE TABLE public.user_preferences (
     user_id integer NOT NULL,
     theme character varying(10),
-    session_expiration integer,
     eeg_zoom_factor double precision,
     updated_at timestamp with time zone DEFAULT now()
 );
 
 
 ALTER TABLE public.user_preferences OWNER TO admin;
-
-
---
--- Name: user_tokens; Type: TABLE; Schema: public; Owner: admin
---
-
-CREATE TABLE public.user_tokens (
-    id integer NOT NULL,
-    user_id integer NOT NULL,
-    token character varying(255) NOT NULL,
-    description character varying(255),
-    last_used_at timestamp without time zone,
-    expires_at timestamp without time zone,
-    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
-);
-
-
-ALTER TABLE public.user_tokens OWNER TO admin;
-
---
--- Name: TABLE user_tokens; Type: COMMENT; Schema: public; Owner: admin
---
-
-COMMENT ON TABLE public.user_tokens IS 'Stores API access tokens for authenticated users';
-
-
---
--- Name: user_tokens_id_seq; Type: SEQUENCE; Schema: public; Owner: admin
---
-
-CREATE SEQUENCE public.user_tokens_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER TABLE public.user_tokens_id_seq OWNER TO admin;
-
---
--- Name: user_tokens_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: admin
---
-
-ALTER SEQUENCE public.user_tokens_id_seq OWNED BY public.user_tokens.id;
 
 
 --
@@ -459,12 +411,6 @@ ALTER TABLE ONLY public.password_reset_tokens ALTER COLUMN id SET DEFAULT nextva
 
 ALTER TABLE ONLY public.signup_requests ALTER COLUMN id SET DEFAULT nextval('public.signup_requests_id_seq'::regclass);
 
---
--- Name: user_tokens id; Type: DEFAULT; Schema: public; Owner: admin
---
-
-ALTER TABLE ONLY public.user_tokens ALTER COLUMN id SET DEFAULT nextval('public.user_tokens_id_seq'::regclass);
-
 
 --
 -- Name: users id; Type: DEFAULT; Schema: public; Owner: admin
@@ -562,22 +508,6 @@ ALTER TABLE ONLY public.user_preferences
 
 
 --
--- Name: user_tokens user_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
---
-
-ALTER TABLE ONLY public.user_tokens
-    ADD CONSTRAINT user_tokens_pkey PRIMARY KEY (id);
-
-
---
--- Name: user_tokens user_tokens_token_key; Type: CONSTRAINT; Schema: public; Owner: admin
---
-
-ALTER TABLE ONLY public.user_tokens
-    ADD CONSTRAINT user_tokens_token_key UNIQUE (token);
-
-
---
 -- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: admin
 --
 
@@ -658,20 +588,6 @@ CREATE INDEX idx_user_preferences_user_id ON public.user_preferences USING btree
 
 
 --
--- Name: idx_user_tokens_token; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX idx_user_tokens_token ON public.user_tokens USING btree (token);
-
-
---
--- Name: idx_user_tokens_user_id; Type: INDEX; Schema: public; Owner: admin
---
-
-CREATE INDEX idx_user_tokens_user_id ON public.user_tokens USING btree (user_id);
-
-
---
 -- Name: idx_users_email; Type: INDEX; Schema: public; Owner: admin
 --
 
@@ -738,14 +654,6 @@ ALTER TABLE ONLY public.password_reset_tokens
 
 ALTER TABLE ONLY public.user_preferences
     ADD CONSTRAINT user_preferences_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
-
-
---
--- Name: user_tokens user_tokens_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: admin
---
-
-ALTER TABLE ONLY public.user_tokens
-    ADD CONSTRAINT user_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --
