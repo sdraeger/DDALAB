@@ -1,4 +1,18 @@
 services:
+  minio:
+    image: minio/minio:RELEASE.2025-03-12T18-04-18Z
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - ./minio-data:/data
+    networks:
+      - internal
+
   web:
     build:
       context: ./ddalab-web
@@ -28,17 +42,26 @@ services:
       retries: 5
     ports:
       - "8001:8001"
+    # expose:
+    # - "8002"
     environment:
       env_file: .env
       REDIS_URL: ${REDIS_URL}
+      MINIO_HOST: "minio:9000"
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      DDALAB_ALLOWED_DIRS: ${DDALAB_ALLOWED_DIRS}
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus
     volumes:
-      - ${DDALAB_ALLOWED_DIRS}
+      - ./prometheus_metrics:/tmp/prometheus
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       celery:
+        condition: service_started
+      minio:
         condition: service_started
     networks:
       - internal
@@ -72,28 +95,36 @@ services:
       - internal
 
   postgres:
-    image: postgres:16  # Use a specific version for stability
+    image: postgres:16 # Use a specific version for stability
     environment:
       POSTGRES_USER: ${DDALAB_DB_USER}
       POSTGRES_PASSWORD: ${DDALAB_DB_PASSWORD}
       POSTGRES_DB: ${DDALAB_DB_NAME}
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${DDALAB_DB_USER}", "-d", "${DDALAB_DB_NAME}"]
+      test:
+        [
+          "CMD",
+          "pg_isready",
+          "-U",
+          "${DDALAB_DB_USER}",
+          "-d",
+          "${DDALAB_DB_NAME}",
+        ]
       interval: 5s
       timeout: 3s
       retries: 10
     volumes:
-      - ./postgres-data:/var/lib/postgresql/data  # Persist data
+      - ./postgres-data:/var/lib/postgresql/data # Persist data
     ports:
-      - "5432:5432"  # Expose Postgres port (optional for local access)
+      - "5432:5432" # Expose Postgres port (optional for local access)
     networks:
       - internal
 
   nginx:
     image: nginx:latest
     ports:
-      - "443:443"    # Map host 443 to container 443
-      - "80:80"      # Map host 80 to container 80
+      - "443:443" # Map host 443 to container 443
+      - "80:80" # Map host 80 to container 80
     depends_on:
       # web:
       #   condition: service_healthy
@@ -102,11 +133,55 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./nginx-proxy/nginx.conf:/etc/nginx/nginx.conf:ro  # Mount Nginx config
-      - ./nginx-proxy/certs:/etc/nginx/certs:ro            # Mount self-signed certificates
+      - ./nginx-proxy/nginx.conf:/etc/nginx/nginx.conf:ro # Mount Nginx config
+      - ./nginx-proxy/certs:/etc/nginx/certs:ro # Mount self-signed certificates
     restart: unless-stopped
     networks:
       - internal
+
+  flower:
+    image: mher/flower:2.0.1
+    command: celery --broker=${CELERY_BROKER_URL} flower --port=5555
+    ports:
+      - "5555:5555" # Expose Flower's default port
+    depends_on:
+      - redis # We need Redis
+    environment:
+      CELERY_BROKER_URL: ${REDIS_URL}
+    networks:
+      - internal
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus # Persistent storage for Prometheus data
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    restart: unless-stopped
+    networks:
+      - internal
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3005:3005"
+    volumes:
+      - grafana_data:/var/lib/grafana # Persistent storage for Grafana data
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin # Default Grafana admin username
+      - GF_SECURITY_ADMIN_PASSWORD=admin # Default Grafana admin password
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - internal
+
+volumes:
+  prometheus_data:
+  grafana_data:
 
 networks:
   internal:

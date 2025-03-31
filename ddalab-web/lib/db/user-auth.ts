@@ -215,9 +215,9 @@ const userAuth = {
     const code = randomBytes(16).toString("hex");
 
     const query = `
-      INSERT INTO invite_codes 
+      INSERT INTO invite_codes
         (code, email, created_by, max_uses, expires_at)
-      VALUES 
+      VALUES
         ($1, $2, $3, $4, $5)
       RETURNING id, code, email, max_uses, expires_at, created_at
     `;
@@ -343,9 +343,9 @@ const userAuth = {
       // Insert user into PostgreSQL database
       // Note: invite_code_id column is defined in the schema but may not exist in all database deployments
       const query = `
-        INSERT INTO users 
-          (username, password_hash, email, first_name, last_name) 
-        VALUES 
+        INSERT INTO users
+          (username, password_hash, email, first_name, last_name)
+        VALUES
           ($1, $2, $3, $4, $5)
         RETURNING id, username, email, first_name, last_name, created_at
       `;
@@ -424,9 +424,9 @@ const userAuth = {
 
       // Insert user into PostgreSQL database
       const query = `
-        INSERT INTO users 
-          (username, password_hash, email, first_name, last_name) 
-        VALUES 
+        INSERT INTO users
+          (username, password_hash, email, first_name, last_name)
+        VALUES
           ($1, $2, $3, $4, $5)
         RETURNING id, username, email, first_name, last_name, created_at
       `;
@@ -517,9 +517,6 @@ const userAuth = {
     // Format preferences
     const preferences = {
       theme: safeUser.theme || DEFAULT_USER_PREFERENCES.theme,
-      sessionExpiration:
-        safeUser.session_expiration ||
-        DEFAULT_USER_PREFERENCES.sessionExpiration,
       eegZoomFactor:
         safeUser.eeg_zoom_factor || DEFAULT_USER_PREFERENCES.eegZoomFactor,
     };
@@ -570,22 +567,22 @@ const userAuth = {
     };
 
     // Generate JWT token using the same algorithm and secret as the API server
-    const token = jwt.sign(jwtPayload, JWT_SECRET_KEY, {
-      algorithm: JWT_ALGORITHM,
-    });
+    // const token = jwt.sign(jwtPayload, JWT_SECRET_KEY, {
+    //   algorithm: JWT_ALGORITHM,
+    // });
 
     // Store the token in the database
     const query = `
-      INSERT INTO user_tokens 
+      INSERT INTO user_tokens
         (user_id, token, description, expires_at)
-      VALUES 
+      VALUES
         ($1, $2, $3, $4)
       RETURNING id, token, description, expires_at, created_at
     `;
 
     const result = await pool.query(query, [
       userId,
-      token,
+      // token, // TODO: this is an OLD file
       description,
       expiresAt,
     ]);
@@ -673,9 +670,9 @@ const userAuth = {
 
     // Create a new reset token
     const query = `
-      INSERT INTO password_reset_tokens 
+      INSERT INTO password_reset_tokens
         (user_id, token, expires_at)
-      VALUES 
+      VALUES
         ($1, $2, $3)
       RETURNING token, expires_at
     `;

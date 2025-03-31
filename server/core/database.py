@@ -66,9 +66,6 @@ class User(Base):
     )
 
     # Relationships
-    tokens = relationship(
-        "UserToken", back_populates="user", cascade="all, delete-orphan"
-    )
     favorite_files = relationship(
         "FavoriteFile", back_populates="user", cascade="all, delete-orphan"
     )
@@ -87,7 +84,6 @@ class UserPreferences(Base):
 
     user_id = Column(Integer, ForeignKey("users.id"), primary_key=True, index=True)
     theme = Column(String, default="system")
-    session_expiration = Column(Integer, default=1800)  # 30 minutes in seconds
     eeg_zoom_factor = Column(Float, default=0.05)
     updated_at = Column(
         DateTime,
@@ -97,31 +93,6 @@ class UserPreferences(Base):
 
     # Relationships
     user = relationship("User", back_populates="preferences")
-
-
-class UserToken(Base):
-    """User token model for authentication."""
-
-    __tablename__ = "user_tokens"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    token = Column(String, unique=True, index=True)
-    description = Column(String, nullable=True)
-    last_used_at = Column(DateTime)
-    expires_at = Column(DateTime)
-    created_at = Column(
-        DateTime,
-        default=datetime.now(timezone.utc).replace(tzinfo=None),
-    )
-    updated_at = Column(
-        DateTime,
-        default=datetime.now(timezone.utc).replace(tzinfo=None),
-        onupdate=datetime.now(timezone.utc).replace(tzinfo=None),
-    )
-
-    # Relationships
-    user = relationship("User", back_populates="tokens")
 
 
 class Annotation(Base):

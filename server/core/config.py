@@ -62,10 +62,24 @@ class Settings(BaseSettings):
     # Allowed directories
     allowed_dirs: Union[list[str], str]
 
+    # Minio settings
+    minio_host: str
+    minio_access_key: str
+    minio_secret_key: str
+    minio_bucket_name: str
+
     @field_validator("allowed_dirs", mode="before")
     @classmethod
     def parse_allowed_dirs(cls, value):
-        logger.info(f"Raw allowed_dirs value: {value}")
+        """Parse the allowed_dirs setting.
+
+        Args:
+            value: Value to parse
+
+        Returns:
+            Parsed value
+        """
+
         if isinstance(value, str):
             try:
                 # Parse the comma-separated string with colon-separated parts
@@ -75,6 +89,7 @@ class Settings(BaseSettings):
                 raise ValueError(f"Invalid ALLOWED_DIRS format: {value}")
         elif value is None:
             return []  # Default to empty list if not provided
+
         return value  # Return as-is if already a list
 
     class Config:

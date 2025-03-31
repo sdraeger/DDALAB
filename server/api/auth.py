@@ -1,16 +1,16 @@
 """Authentication routes."""
 
-import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
-from loguru import logger
+from jose import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.core.auth import authenticate_user
 from server.core.config import get_server_settings
-from server.core.database import UserToken, get_db
+from server.core.database import get_db
+from server.schemas.auth import RefreshTokenRequest
 
 router = APIRouter()
 settings = get_server_settings()
@@ -30,27 +30,28 @@ async def login_for_access_token(
                 status_code=401, detail="Incorrect username or password"
             )
 
-        token = str(uuid.uuid4())
         now = datetime.now(timezone.utc).replace(tzinfo=None)
-        expires_at = now + timedelta(minutes=30)
+        expires_at = now + timedelta(days=7)
 
-        user_token = UserToken(
-            token=token,
-            user_id=user.id,
-            expires_at=expires_at,
-            last_used_at=now,
-            created_at=now,
-            updated_at=now,
+        token = jwt.encode(
+            {"sub": form_data.username, "exp": expires_at, "iat": now},
+            settings.jwt_secret_key,
+            algorithm=settings.jwt_algorithm,
         )
-        db.add(user_token)
-        logger.debug(f"Storing token: {token} for user_id: {user.id}")
-        await db.commit()
-        logger.debug(f"Token committed: {token}")
+
+        refresh_payload = {
+            "sub": form_data.username,
+            "exp": now + timedelta(days=7),  # 7 days
+            "iat": now,
+        }
+        refresh_token = jwt.encode(
+            refresh_payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+        )
 
         return {
             "access_token": token,
+            "refresh_token": refresh_token,
             "token_type": "bearer",
-            "expires_in": 3600,  # 1 hour in seconds
             "user": {
                 "id": user.id,
                 "username": user.username,
@@ -59,3 +60,38 @@ async def login_for_access_token(
                 "last_name": user.last_name,
             },
         }
+
+
+@router.post("/refresh-token")
+async def refresh_token(
+    refresh_token_request: RefreshTokenRequest,
+):
+    try:
+        # Decode and verify refresh token
+        payload = jwt.decode(
+            refresh_token_request.refresh_token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+        )
+        username = payload["sub"]
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        # Generate new access token
+        access_payload = {
+            "sub": username,
+            "exp": now + timedelta(days=7),
+            "iat": now,
+        }
+        new_access_token = jwt.encode(
+            access_payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+        )
+
+        return {
+            "access_token": new_access_token,
+            "expires_in": 7 * 24 * 60 * 60,  # TODO: Use env var
+        }
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Refresh token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")

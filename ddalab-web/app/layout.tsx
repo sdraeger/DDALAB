@@ -14,6 +14,14 @@ export const metadata: Metadata = {
   title: "DDALAB - EEG Data Visualization",
   description: "Visualize and analyze EEG data in your browser",
   creator: "DDALAB Team",
+  icons: {
+    icon: [
+      {
+        url: "/brain-circuit.svg",
+        type: "image/svg+xml",
+      },
+    ],
+  },
 };
 
 export default function RootLayout({

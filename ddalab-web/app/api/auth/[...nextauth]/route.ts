@@ -4,11 +4,12 @@ import { DEFAULT_USER_PREFERENCES } from "@/contexts/settings-context";
 import { getEnvVar } from "@/lib/utils/env";
 
 const API_URL = getEnvVar("NEXT_PUBLIC_API_URL");
+const SESSION_EXPIRATION = parseInt(getEnvVar("SESSION_EXPIRATION"));
 
 declare module "next-auth" {
   interface User {
     accessToken?: string;
-    expiresIn?: number;
+    refreshToken?: string;
     id: string;
     name?: string | null;
     email?: string | null;
@@ -25,7 +26,6 @@ declare module "next-auth" {
       firstName?: string | null;
       lastName?: string | null;
       preferences?: {
-        sessionExpiration?: number;
         eegZoomFactor?: number;
         theme?: "light" | "dark" | "system";
       };
@@ -36,7 +36,6 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
   interface JWT {
     accessToken?: string;
-    expiresIn?: number;
     exp?: number;
     id?: string;
     name?: string | null;
@@ -86,8 +85,7 @@ export const authOptions: NextAuthOptions = {
           firstName: data.user.first_name,
           lastName: data.user.last_name,
           accessToken: data.access_token,
-          expiresIn:
-            data.expires_in || DEFAULT_USER_PREFERENCES.sessionExpiration,
+          refreshToken: data.refresh_token,
         };
 
         console.log("Authorize user:", user);
@@ -107,7 +105,7 @@ export const authOptions: NextAuthOptions = {
         token.firstName = user.firstName;
         token.lastName = user.lastName;
         token.accessToken = user.accessToken;
-        token.expiresIn = user.expiresIn;
+        token.refreshToken = user.refreshToken;
       }
 
       // Fetch preferences for token
@@ -126,19 +124,14 @@ export const authOptions: NextAuthOptions = {
           const data = await res.json();
           console.log("JWT - Preferences data:", data);
 
-          token.sessionExpiration =
-            data.session_expiration ??
-            DEFAULT_USER_PREFERENCES.sessionExpiration;
           token.theme = data.theme ?? DEFAULT_USER_PREFERENCES.theme;
           token.eegZoomFactor =
             data.eeg_zoom_factor ?? DEFAULT_USER_PREFERENCES.eegZoomFactor;
-          token.exp =
-            Math.floor(Date.now() / 1000) +
-            (data.session_expiration ??
-              DEFAULT_USER_PREFERENCES.sessionExpiration);
+          const sessionExpirationMs = SESSION_EXPIRATION * 60 * 1000;
+          token.exp = Math.floor((Date.now() + sessionExpirationMs) / 1000);
 
           console.log("JWT - Preferences fetched:", {
-            sessionExpiration: token.sessionExpiration,
+            exp: token.exp,
             theme: token.theme,
             eegZoomFactor: token.eegZoomFactor,
           });
@@ -147,8 +140,18 @@ export const authOptions: NextAuthOptions = {
         }
       }
 
-      console.log("JWT token final:", token);
-      return token;
+      const now = Math.floor(Date.now() / 1000);
+      if (token.exp && token.exp < now) {
+        console.log("JWT - Token expired:", token);
+        throw new Error("Token expired");
+      }
+
+      if (Date.now() < (token.exp as number)) {
+        return token;
+      }
+
+      // Refresh token
+      return await refreshAccessToken(token);
     },
     async session({ session, token }) {
       if (token) {
@@ -159,19 +162,11 @@ export const authOptions: NextAuthOptions = {
           firstName: token.firstName ?? null,
           lastName: token.lastName ?? null,
           preferences: {
-            sessionExpiration: token.sessionExpiration as number,
             theme: token.theme as "light" | "dark" | "system",
             eegZoomFactor: token.eegZoomFactor as number,
           },
         };
         session.accessToken = token.accessToken;
-
-        if (token.exp) {
-          session.expires = new Date(
-            (token.exp as number) * 1000
-          ).toISOString();
-          console.log("Session expires set to:", session.expires);
-        }
 
         console.log("Session:", session);
       }
@@ -183,10 +178,37 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: "jwt",
-    // maxAge: DEFAULT_USER_PREFERENCES.sessionExpiration!, // Leads to errors
-    // maxAge: 30 * 60,
   },
 };
+
+async function refreshAccessToken(token: any) {
+  try {
+    const response = await fetch(`${API_URL}/api/auth/refresh-token`, {
+      method: "POST",
+      body: JSON.stringify({ refresh_token: token.refreshToken }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const refreshedTokens = await response.json();
+
+    if (!response.ok) {
+      throw refreshedTokens;
+    }
+
+    return {
+      ...token,
+      accessToken: refreshedTokens.access_token,
+      accessTokenExpires: Date.now() + refreshedTokens.expires_in * 1000, // Convert to milliseconds
+      refreshToken: token.refreshToken, // Keep the same refresh token
+    };
+  } catch (error) {
+    console.error("Error refreshing access token:", error);
+    return {
+      ...token,
+      error: "RefreshAccessTokenError",
+    };
+  }
+}
 
 const handler = NextAuth(authOptions);
 export { handler as GET, handler as POST };

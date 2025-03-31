@@ -48,7 +48,6 @@ async def get_user_preferences(
             # Convert to Pydantic model
             return UserPreferences(
                 theme=preferences.theme,
-                session_expiration=preferences.session_expiration,
                 eeg_zoom_factor=preferences.eeg_zoom_factor,
             )
         except Exception as e:
@@ -93,7 +92,7 @@ async def update_user_preferences(
                 setattr(db_preferences, camel_to_snake(key), value)
 
             logger.debug(
-                f"db_preferences: {db_preferences.eeg_zoom_factor}, {db_preferences.session_expiration}, {db_preferences.theme}, {db_preferences.user_id}"
+                f"db_preferences: {db_preferences.eeg_zoom_factor}, {db_preferences.theme}, {db_preferences.user_id}"
             )
             logger.debug("before commit")
             await db.commit()
@@ -105,7 +104,6 @@ async def update_user_preferences(
             # Return updated preferences
             return UserPreferences(
                 theme=db_preferences.theme,
-                session_expiration=db_preferences.session_expiration,
                 eeg_zoom_factor=db_preferences.eeg_zoom_factor,
             )
         except SQLAlchemyError as e:
@@ -148,7 +146,6 @@ async def reset_user_preferences(
 
                 return UserPreferences(
                     theme=db_preferences.theme,
-                    session_expiration=db_preferences.session_expiration,
                     eeg_zoom_factor=db_preferences.eeg_zoom_factor,
                 )
             else:

@@ -24,6 +24,8 @@ from .preprocessing import (
     VisualizationPreprocessingOptionsInput,
 )
 
+settings = get_server_settings()
+
 
 class Context(BaseContext):
     def __init__(self, request: Request, session: AsyncSession):
@@ -265,7 +267,6 @@ class Query:
             if not await validate_file_path(filename):
                 raise ValueError(f"Invalid file path: {filename}")
 
-            settings = get_server_settings()
             full_path = os.path.join(settings.data_dir, filename)
             logger.info(f"Getting EDF navigation info: {full_path}")
 
@@ -368,7 +369,6 @@ class Query:
             if not await validate_file_path(filename):
                 raise ValueError(f"Invalid file path: {filename}")
 
-            settings = get_server_settings()
             full_path = os.path.join(settings.data_dir, filename)
             logger.info(f"Reading EDF file chunk: {full_path}")
 

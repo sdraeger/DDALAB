@@ -5,12 +5,15 @@ from fastapi import APIRouter
 from .dda import router as dda_router
 from .files import router as files_router
 from .health import router as health_router
+from .metrics import router as metrics_router
+from .results import router as results_router
 from .tickets import router as tickets_router
 from .user_preferences import router as user_preferences_router
 from .users import router as users_router
 
 # Create router with trailing slash config
 router = APIRouter()
+router_metrics = APIRouter()
 
 # Include all sub-routers
 router.include_router(dda_router, prefix="/dda", tags=["dda"])
@@ -24,3 +27,5 @@ router.include_router(
 )
 router.include_router(users_router, prefix="/users", tags=["users"])
 router.include_router(health_router, prefix="/health", tags=["health"])
+router.include_router(results_router, prefix="/results", tags=["results"])
+router_metrics.include_router(metrics_router, prefix="/metrics", tags=["metrics"])

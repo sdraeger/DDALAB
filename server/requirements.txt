@@ -16,6 +16,8 @@ email-validator>=2.0.0
 pyhumps>=3.8.0
 asyncpg>=0.30.0
 click>=8.1.8
+minio>=7.2.15
+prometheus-client>=0.21.1
 
 # GraphQL dependencies
 strawberry-graphql>=0.96.0

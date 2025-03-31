@@ -13,7 +13,6 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
-import { SessionExpirationSettings } from "@/components/session-expiration-settings";
 import { EEGZoomSettings } from "@/components/eeg-zoom-settings";
 import { ThemeSettings } from "@/components/theme-settings";
 import { SaveSettingsButton } from "@/components/save-settings-button";
@@ -186,8 +185,6 @@ export default function SettingsPage() {
         </Card>
 
         <ThemeSettings />
-
-        <SessionExpirationSettings />
 
         <EEGZoomSettings />
       </div>

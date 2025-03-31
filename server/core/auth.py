@@ -12,14 +12,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.core.config import get_server_settings
-from server.core.database import User, UserToken, get_db
+from server.core.database import User, get_db
 from server.schemas.user import UserCreate, UserUpdate
 
 # Password hashing configuration
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # OAuth2 configuration with password flow
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+# oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 settings = get_server_settings()
 
@@ -80,43 +81,102 @@ async def get_current_user_from_request(
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    user_token = await session.scalar(select(UserToken).where(UserToken.token == token))
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        # Decode the JWT token using the secret key and algorithm
+        payload = jwt.decode(
+            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+        )
+        logger.debug(f"Decoded JWT payload: {payload}")
 
-    if not user_token or user_token.expires_at < now:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        # Extract user identifier (e.g., 'sub' from the JWT payload)
+        username = payload.get("sub")
+        if not username:
+            raise HTTPException(
+                status_code=401, detail="Invalid token: 'sub' not found"
+            )
 
-    user = await session.get(User, user_token.user_id)
-
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-
-    logger.debug(f"user_token: {user_token}")
-    return user
-
-
-async def get_current_user(
-    token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)
-) -> User:
-    """Get the current user from the token."""
-
-    async with db.begin():
-        if not token:
-            raise HTTPException(status_code=401, detail="Authentication required")
-
-        user_token = await db.scalar(select(UserToken).where(UserToken.token == token))
+        # Get the current time for expiration check
         now = datetime.now(timezone.utc).replace(tzinfo=None)
+        expires_at = datetime.fromtimestamp(
+            payload.get("exp"), tz=timezone.utc
+        ).replace(tzinfo=None)
 
-        if not user_token or user_token.expires_at < now:
-            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        if expires_at < now:
+            raise HTTPException(status_code=401, detail="Token has expired")
 
-        user = await db.get(User, user_token.user_id)
-        logger.debug(f"user: {user}")
+        # Fetch the user from the database using the username (or adjust for user_id if 'sub' is an ID)
+        user = await session.scalar(select(User).where(User.username == username))
 
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
 
+        logger.debug(f"User fetched: {user.username}")
         return user
+    except jwt.ExpiredSignatureError as e:
+        logger.error(f"JWT decoding error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.JWTError as e:
+        logger.error(f"JWT decoding error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+async def get_current_user(
+    # token: str = Depends(oauth2_scheme),
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Get the current user from the token."""
+
+    token = getattr(request.state, "token", None)
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    try:
+        # Decode the JWT token using the secret key and algorithm
+        payload = jwt.decode(
+            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+        )
+        logger.debug(f"Decoded JWT payload: {payload}")
+
+        # Extract user identifier (e.g., 'sub' from the JWT payload)
+        username = payload.get("sub")  # Assuming 'sub' is the username
+        if not username:
+            raise HTTPException(
+                status_code=401, detail="Invalid token: 'sub' not found"
+            )
+
+        # Check token expiration
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        expires_at = datetime.fromtimestamp(
+            payload.get("exp"), tz=timezone.utc
+        ).replace(tzinfo=None)
+
+        if expires_at < now:
+            raise HTTPException(status_code=401, detail="Token has expired")
+
+        # Fetch the user from the database using the username from 'sub'
+        async with db.begin():
+            user = await db.scalar(select(User).where(User.username == username))
+
+            if not user:
+                raise HTTPException(status_code=401, detail="User not found")
+
+            logger.debug(f"user: {user}")
+            return user
+
+    except jwt.ExpiredSignatureError as e:
+        logger.error(f"JWT decoding error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.JWTError as e:
+        logger.error(f"JWT decoding error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 async def get_admin_user(

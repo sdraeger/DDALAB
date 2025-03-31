@@ -13,7 +13,6 @@ import { useToast } from "@/components/ui/use-toast";
 import { usePathname } from "next/navigation";
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
-  sessionExpiration: 30 * 60,
   theme: "system",
   eegZoomFactor: 0.05,
 };
@@ -49,7 +48,6 @@ export interface User {
 }
 
 export interface UserPreferences {
-  sessionExpiration?: number; // in seconds
   eegZoomFactor?: number; // Zoom factor for EEG chart (between 0.01 and 0.2)
   theme?: "light" | "dark" | "system"; // Theme preference
 }
@@ -63,7 +61,6 @@ export interface AuthResponse {
   accessToken: string;
   tokenType: string;
   user?: User;
-  expiresIn?: number;
 }
 
 export interface RegisterCredentials {
@@ -107,8 +104,6 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
         throw new Error(`Failed to fetch preferences: ${res.status}`);
       const data = await res.json();
       const newPrefs = {
-        sessionExpiration:
-          data.session_expiration ?? DEFAULT_USER_PREFERENCES.sessionExpiration,
         theme: data.theme ?? DEFAULT_USER_PREFERENCES.theme,
         eegZoomFactor:
           data.eeg_zoom_factor ?? DEFAULT_USER_PREFERENCES.eegZoomFactor,
@@ -156,7 +151,6 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     try {
       console.log("Saving changes:", pendingChanges);
       const payload = {
-        session_expiration: pendingChanges.sessionExpiration,
         theme: pendingChanges.theme,
         eeg_zoom_factor: pendingChanges.eegZoomFactor,
       };
