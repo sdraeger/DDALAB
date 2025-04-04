@@ -70,8 +70,8 @@ docker-compose --version
    ```
 
 4. **Access the application**:
-   - Web interface: `http://localhost:8000`
-   - API documentation: `http://localhost:8000/docs`
+   - Web interface: `https://localhost`
+   - API documentation: `https://localhost/docs`
 
 5. **Stop the application**:
 
@@ -84,7 +84,19 @@ docker-compose --version
 If using `traefik` for SSL:
 
 1. Create `server.crt` and `server.key` in the `certs/` directory
+
+   ```bash
+   openssl genrsa -out server.key 2048
+   openssl req -new -key server.key -out server.csr
+   openssl x509 -req -days 365 -in server.csr -signkey server.key -out server.crt
+   ```
+
 2. Generate a username and password hash for the traefik dashboard
+
+   ```bash
+   echo -n "admin" | htpasswd -c auth admin
+   ```
+
 3. Set the hash in your `.env` file:
 
    ```
@@ -114,7 +126,7 @@ If using `traefik` for SSL:
 │   ├── ddalab/           # GUI client package
 │   ├── server/           # FastAPI server package
 │   └── ...
-└── data/                 # Data directory
+└── data/                 # Default data directory
 ```
 
 ## API Documentation
