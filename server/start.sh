@@ -12,6 +12,10 @@ python server/apply_sql_files.py \
 	--first_name Admin \
 	--last_name User
 
+mkdir -p /tmp/prometheus
+chown apiuser:apiuser /tmp/prometheus
+chmod 775 /tmp/prometheus
+
 # Start the main API server on port 8001
 uvicorn server.main:app --host 0.0.0.0 --port 8001 --workers 2 &
 
