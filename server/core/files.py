@@ -5,7 +5,11 @@ import os
 from pathlib import Path
 from typing import Dict, List
 
+from loguru import logger
+
 from ..core.config import get_data_settings
+
+settings = get_data_settings()
 
 
 async def get_available_files() -> List[str]:
@@ -14,7 +18,6 @@ async def get_available_files() -> List[str]:
     Returns:
         List of file paths relative to the data directory
     """
-    settings = get_data_settings()
     data_dir = Path(settings.data_dir)
 
     if not data_dir.exists():
@@ -39,7 +42,7 @@ async def validate_file_path(file_path: str) -> bool:
     Returns:
         True if file exists, False otherwise
     """
-    settings = get_data_settings()
+
     data_dir = Path(settings.data_dir)
     full_path = data_dir / file_path
 
@@ -55,10 +58,12 @@ async def list_directory(path: str = "") -> List[Dict[str, str]]:
     Returns:
         List of dictionaries containing file/directory information
     """
-    settings = get_data_settings()
-    data_dir = Path(settings.data_dir).resolve()  # Get absolute path
 
+    data_dir = Path(settings.data_dir).resolve()  # Get absolute path
     target_dir = data_dir / path if path else data_dir
+
+    logger.info(f"Data dir: {data_dir}")
+    logger.info(f"Target dir: {target_dir}")
 
     try:
         # Verify target_dir is within data_dir
@@ -105,5 +110,6 @@ async def list_directory(path: str = "") -> List[Dict[str, str]]:
                 )
 
         return sorted(items, key=lambda x: (x["type"] == "file", x["name"]))
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error listing directory: {e}")
         return []

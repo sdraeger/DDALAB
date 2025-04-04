@@ -10,10 +10,20 @@ from server.api.metrics import REQUEST_COUNT, REQUEST_LATENCY
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Skip authentication for specific routes (e.g., login)
-        if request.url.path in ["/login", "/docs", "/openapi.json", "/api/health"]:
+        # Skip authentication for specific routes
+        if request.url.path in [
+            "/login",
+            "/docs",
+            "/openapi.json",
+            "/api/health",
+            "/api/auth/token",
+            "/api/auth/login",
+            "/api/auth/refresh-token",
+        ]:
             logger.info(f"Skipping authentication for route: {request.url.path}")
             return await call_next(request)
+
+        logger.info(f"Request: {request}")
 
         # Extract token from Authorization header
         auth_header = request.headers.get("Authorization")
@@ -55,6 +65,8 @@ class DBSessionMiddleware(BaseHTTPMiddleware):
 
 class PrometheusMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> StarletteResponse:
+        logger.info("Prometheus middleware")
+
         # Record start time
         start_time = time.time()
 

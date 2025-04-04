@@ -17,11 +17,11 @@ class DDARequest(BaseModel):
 
     file_path: str
     channel_list: list[int]
-    bounds: tuple[int, int]
-    cpu_time: bool
-    preprocessing_options: Optional[
-        dict[str, Union[str, bool, int, float]]
-    ]  # TODO: Check that these are the only types that need to be supported
+    bounds: tuple[int, int] | None = None
+    cpu_time: bool = False
+    preprocessing_options: dict[str, Union[str, bool, int, float]] | None = (
+        None  # TODO: Check that these are the only types that need to be supported
+    )
 
 
 class DDAResponse(BaseModel):
@@ -34,7 +34,7 @@ class DDAResult(BaseModel):
     """DDA result schema."""
 
     file_path: str
-    Q: list[list[float]]
+    Q: list[list[float | None]]
     metadata: Optional[str] = None
 
 

@@ -112,7 +112,7 @@ class DDAResult:
     """DDA result type."""
 
     file_path: str
-    Q: list[list[float]]
+    Q: list[list[float | None]]
     metadata: Optional[str] = None
 
 
@@ -172,10 +172,16 @@ class Query:
         info: strawberry.Info[Context, None],
     ) -> list[FileInfo]:
         request = info.context.request
+
+        logger.info(f"Request: {request.headers}")
+
         current_user = await get_current_user_from_request(
             request, info.context.session
         )
         items = await list_directory(path)
+        logger.info(f"Path: {path}")
+        logger.info(f"info: {info}")
+        logger.info(f"Items: {items}")
 
         favorite_files = []
         if current_user:
@@ -548,8 +554,10 @@ class Query:
             DDA analysis result or None if not ready
         """
         result = await get_dda_result(task_id)
+
         if result is None:
             return None
+
         return DDAResult(**result)
 
     @strawberry.field
@@ -618,6 +626,7 @@ class Mutation:
     async def run_dda(
         self,
         file_path: str,
+        channel_list: list[int],
         preprocessing_options: Optional[PreprocessingOptionsInput] = None,
     ) -> DDAStatus:
         """Run DDA.
@@ -629,11 +638,14 @@ class Mutation:
         Returns:
             DDA status
         """
+        logger.info(f"Running DDA for file: {file_path}")
         task_id = await run_dda(
             file_path=file_path,
+            channel_list=channel_list,
             preprocessing_options=preprocessing_options,
         )
-        return DDAStatus(taskId=task_id, status="pending")
+        logger.info(f"DDA task ID: {task_id}")
+        return DDAStatus(taskId=task_id, status="pending", info="Running DDA")
 
     @strawberry.mutation
     async def create_annotation(

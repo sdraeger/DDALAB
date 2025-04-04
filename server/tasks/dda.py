@@ -1,19 +1,19 @@
 """DDA task definitions."""
 
-import subprocess
 from pathlib import Path
 
+import dda_py
 import numpy as np
 from loguru import logger
 
 from ..celery_app import celery_app
 from ..core.config import get_server_settings
-from ..core.utils.utils import create_tempfile, make_dda_command
-from ..schemas.dda import DDARequest, DDAResult
+from ..schemas.dda import DDAResult
 
 __all__ = ["run_dda", "cleanup_task"]
 
 settings = get_server_settings()
+dda_py.init(settings.dda_binary_path)
 
 
 @celery_app.task(
@@ -21,64 +21,46 @@ settings = get_server_settings()
 )
 def run_dda(
     self,
-    request: DDARequest,
-) -> dict:
+    file_path: Path,
+    channel_list: list[int],
+    preprocessing_options: dict[str, bool | int | float | str],
+) -> DDAResult:
     """Run DDA on a file.
 
     Args:
         self: Celery task instance
 
     Returns:
-        Dictionary containing DDA results
+        DDAResult object
     """
 
-    self.update_state(state="STARTED", meta={"file_path": request.file_path})
-    logger.info(
-        f"[Task {self.request.id}] Starting DDA analysis for file: {request.file_path}"
-    )
-    logger.info(
-        f"[Task {self.request.id}] Preprocessing options: {request.preprocessing_options}"
-    )
+    self.update_state(state="STARTED", meta={"file_path": file_path})
 
-    tempf = create_tempfile(subdir=f"task-{self.request.id}", suffix=".dda")
-    command = make_dda_command(
-        settings.dda_binary_path,
-        request.file_path,
-        tempf.name,
-        request.channel_list,
-        request.bounds,
-        request.cpu_time,
+    logger.info(f"[Task {self.request.id}] Starting DDA for file: {file_path}")
+    logger.info(
+        f"[Task {self.request.id}] Preprocessing options: {preprocessing_options}"
     )
-
-    logger.info(f"{command = }")
+    logger.info(f"[Task {self.request.id}] file_path: {file_path}")
 
     try:
-        p = subprocess.Popen(command, stdout=subprocess.PIPE)
-        p.wait()
-        output = p.stdout.read().decode("utf-8")
-        logger.info(f"[Task {self.request.id}] DDA output: {output}")
+        Q, ST_filepath = dda_py.run_dda(
+            input_file=file_path,
+            output_file=None,
+            channel_list=channel_list,
+            bounds=None,
+            cpu_time=False,
+        )
 
-        p.stdout.close()
-        p.wait()
-
-        logger.info(f"Return code: {p.returncode}")
-
-        ST_filename = f"{tempf.name}_ST"
-        file_path = Path(ST_filename)
-
-        # Read all lines, skip the last one, and write back
-        lines = file_path.read_text().splitlines()[:-1]
-        file_path.write_text("\n".join(lines))
-
-        Q = np.loadtxt(ST_filename)
         logger.info(f"{Q.shape = }")
         logger.info(f"[Task {self.request.id}] Task completed successfully")
 
+        Q = np.where(np.isnan(Q), None, Q).tolist()
+
         return DDAResult(
-            file_path=request.file_path,
-            Q=Q.tolist(),
-            preprocessing_options=request.preprocessing_options,
-        )
+            file_path=file_path,
+            Q=Q,
+            preprocessing_options=preprocessing_options,
+        ).model_dump()
     except Exception as e:
         logger.error(f"[Task {self.request.id}] Error during task execution: {e}")
         self.update_state(state="FAILURE", meta={"error": str(e)})

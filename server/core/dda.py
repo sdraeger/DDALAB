@@ -1,15 +1,19 @@
 """Core DDA functionality."""
 
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import numpy as np
+import strawberry
 from celery.result import AsyncResult
 from loguru import logger
 from scipy import signal
 
-from ..schemas.dda import DDAResult
+from ..core.config import get_server_settings
 from ..schemas.preprocessing import PreprocessingOptionsInput
 from ..tasks.dda import run_dda as run_dda_task
+
+settings = get_server_settings()
 
 
 def preprocess_data(
@@ -61,6 +65,7 @@ def preprocess_data(
 
 async def run_dda(
     file_path: str,
+    channel_list: list[int],
     preprocessing_options: Optional[PreprocessingOptionsInput] = None,
 ) -> str:
     """Run a DDA task.
@@ -70,29 +75,22 @@ async def run_dda(
         preprocessing_options: Options for preprocessing the data
 
     Returns:
-        Task ID for tracking the DDA
+        Task ID for tracking the task
     """
-    logger.info(f"Starting DDA task for file: {file_path}")
 
-    # Convert preprocessing options to dictionary if present
-    preprocessing_dict = None
-    if preprocessing_options:
-        preprocessing_dict = {
-            "resample1000hz": preprocessing_options.resample1000hz,
-            "resample500hz": preprocessing_options.resample500hz,
-            "lowpassFilter": preprocessing_options.lowpassFilter,
-            "highpassFilter": preprocessing_options.highpassFilter,
-            "notchFilter": preprocessing_options.notchFilter,
-            "detrend": preprocessing_options.detrend,
-        }
-        logger.info(f"Using preprocessing options: {preprocessing_dict}")
+    file_path = str(Path(settings.data_dir) / file_path)
+    logger.info(f"Starting DDA task for file: {file_path}")
 
     # Submit task directly to Celery
     try:
         logger.info("Submitting task to Celery...")
         celery_task = run_dda_task.apply_async(
-            args=[file_path, preprocessing_dict],
-            queue="dda",  # Explicitly specify the queue
+            args=[
+                file_path,
+                channel_list,
+                strawberry.asdict(preprocessing_options),
+            ],
+            queue="dda",
         )
         logger.info(
             f"Task submitted successfully with ID: {celery_task.id} to queue: dda"
@@ -103,7 +101,7 @@ async def run_dda(
         raise
 
 
-async def get_dda_result(task_id: str) -> Optional[DDAResult]:
+async def get_dda_result(task_id: str) -> Optional[dict[str, Any]]:
     """Get the result of a DDA task.
 
     Args:
@@ -122,15 +120,8 @@ async def get_dda_result(task_id: str) -> Optional[DDAResult]:
     if task_result.status == "SUCCESS":
         try:
             result = task_result.get()
-            logger.info(f"Got task result: {result}")
-            return {
-                "taskId": task_id,
-                "filePath": result["file_path"],
-                "peaks": result["results"][
-                    "data"
-                ],  # Use the data array for visualization
-                "status": "completed",
-            }
+            logger.info(f"Got task result keys: {result.keys()}")
+            return result
         except Exception as e:
             logger.error(f"Error getting task result: {e}")
             return None

@@ -25,7 +25,9 @@ async def submit_dda_request(
     Returns:
         Task ID for tracking the DDA
     """
-    task_id = await run_dda(request.file_path, preprocessing_options)
+    task_id = await run_dda(
+        request.file_path, request.channel_list, preprocessing_options
+    )
     return DDAResponse(task_id=task_id)
 
 

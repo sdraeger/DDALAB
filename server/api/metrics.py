@@ -27,12 +27,8 @@ REQUEST_LATENCY = Histogram(
 )
 
 
-def get_registry():
-    return registry
-
-
 @router.get("")
 async def metrics():
     MultiProcessCollector(registry)
-    data = generate_latest()
+    data = generate_latest(registry)
     return Response(content=data, media_type=CONTENT_TYPE_LATEST)
