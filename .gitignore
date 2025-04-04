@@ -42,3 +42,11 @@ workflow_state.md
 **/*.pfx
 **/*.p12
 **/*.jks
+
+.tox/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.vscode/
+.idea/
+.config/
