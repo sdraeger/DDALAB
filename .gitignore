@@ -34,3 +34,11 @@ server/bin/
 .cursorrules
 project_config.md
 workflow_state.md
+
+**/*.crt
+**/*.key
+**/*.csr
+**/*.pem
+**/*.pfx
+**/*.p12
+**/*.jks
