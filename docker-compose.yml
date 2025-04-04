@@ -19,17 +19,37 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ./ddalab-web/.env.local
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000"]
-      interval: 120s
+      interval: 5s
       timeout: 3s
       retries: 5
     depends_on:
       - api
     networks:
       - internal
+    labels:
+      - "traefik.enable=true"
+      # Default catch-all for web
+      - "traefik.http.routers.web.rule=Host(`localhost`)"
+      - "traefik.http.routers.web.entrypoints=websecure"
+      - "traefik.http.routers.web.tls=true"
+      - "traefik.http.services.web.loadbalancer.server.port=3000"
+      # Specific Next.js API routes
+      - "traefik.http.routers.web-auth.rule=Host(`localhost`) && PathPrefix(`/api/auth/`)"
+      - "traefik.http.routers.web-auth.entrypoints=websecure"
+      - "traefik.http.routers.web-auth.tls=true"
+      - "traefik.http.routers.web-auth.service=web"
+      - "traefik.http.routers.web-api.rule=Host(`localhost`) && Path(`/api`)"
+      - "traefik.http.routers.web-api.entrypoints=websecure"
+      - "traefik.http.routers.web-api.tls=true"
+      - "traefik.http.routers.web-api.service=web"
+      - "traefik.http.routers.web-debug.rule=Host(`localhost`) && PathPrefix(`/api/debug`)"
+      - "traefik.http.routers.web-debug.entrypoints=websecure"
+      - "traefik.http.routers.web-debug.tls=true"
+      - "traefik.http.routers.web-debug.service=web"
 
   api:
     build:
@@ -37,13 +57,11 @@ services:
       dockerfile: server/Dockerfile
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
-      interval: 120s
+      interval: 5s
       timeout: 3s
       retries: 5
-    ports:
-      - "8001:8001"
-    # expose:
-    # - "8002"
+    expose:
+      - "8002"
     environment:
       env_file: .env
       REDIS_URL: ${REDIS_URL}
@@ -54,6 +72,7 @@ services:
       PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus
     volumes:
       - ./prometheus_metrics:/tmp/prometheus
+      - ${DDALAB_ALLOWED_DIRS}
     depends_on:
       postgres:
         condition: service_healthy
@@ -65,6 +84,24 @@ services:
         condition: service_started
     networks:
       - internal
+    labels:
+      - "traefik.enable=true"
+      # General API route
+      - "traefik.http.routers.api.rule=Host(`localhost`) && PathPrefix(`/api/`)"
+      - "traefik.http.routers.api.entrypoints=websecure"
+      - "traefik.http.routers.api.tls=true"
+      - "traefik.http.routers.api.service=api"
+      - "traefik.http.services.api.loadbalancer.server.port=8001"
+      # Specific tickets route
+      - "traefik.http.routers.api-tickets.rule=Host(`localhost`) && PathPrefix(`/api/tickets`)"
+      - "traefik.http.routers.api-tickets.entrypoints=websecure"
+      - "traefik.http.routers.api-tickets.tls=true"
+      - "traefik.http.routers.api-tickets.service=api"
+      # GraphQL route
+      - "traefik.http.routers.api-graphql.rule=Host(`localhost`) && PathPrefix(`/graphql`)"
+      - "traefik.http.routers.api-graphql.entrypoints=websecure"
+      - "traefik.http.routers.api-graphql.tls=true"
+      - "traefik.http.routers.api-graphql.service=api"
 
   redis:
     image: redis:7.0
@@ -120,32 +157,43 @@ services:
     networks:
       - internal
 
-  nginx:
-    image: nginx:latest
+  traefik:
+    image: traefik:v2.10
     ports:
-      - "443:443" # Map host 443 to container 443
-      - "80:80" # Map host 80 to container 80
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./certs:/etc/traefik/certs:ro
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik-logs:/traefik.log
+      - ./acme.json:/acme.json
     depends_on:
-      # web:
-      #   condition: service_healthy
-      # api:
-      #   condition: service_healthy
       postgres:
         condition: service_healthy
-    volumes:
-      - ./nginx-proxy/nginx.conf:/etc/nginx/nginx.conf:ro # Mount Nginx config
-      - ./nginx-proxy/certs:/etc/nginx/certs:ro # Mount self-signed certificates
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.localhost`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls=true"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.middlewares=auth"
+      - "traefik.http.middlewares.auth.basicAuth.users=${TRAEFIK_PASSWORD_HASH}"
 
   flower:
     image: mher/flower:2.0.1
     command: celery --broker=${CELERY_BROKER_URL} flower --port=5555
     ports:
-      - "5555:5555" # Expose Flower's default port
+      - "5555:5555"
     depends_on:
-      - redis # We need Redis
+      - redis
     environment:
       CELERY_BROKER_URL: ${REDIS_URL}
     networks:
@@ -155,7 +203,7 @@ services:
     image: prom/prometheus:latest
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus # Persistent storage for Prometheus data
+      - ./prometheus_data:/prometheus
     ports:
       - "9090:9090"
     command:
@@ -169,10 +217,10 @@ services:
     ports:
       - "3005:3005"
     volumes:
-      - grafana_data:/var/lib/grafana # Persistent storage for Grafana data
+      - ./grafana_data:/var/lib/grafana
     environment:
-      - GF_SECURITY_ADMIN_USER=admin # Default Grafana admin username
-      - GF_SECURITY_ADMIN_PASSWORD=admin # Default Grafana admin password
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
     depends_on:
       - prometheus
     restart: unless-stopped
