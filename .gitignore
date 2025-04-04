@@ -19,7 +19,18 @@ node_modules/
 
 .coverage
 .config/
+.traefikpasswd
 
 postgres-data/
 redis-data/
 minio-data/
+prometheus_metrics/
+traefik-logs/
+prometheus_data/
+grafana_data/
+
+server/bin/
+
+.cursorrules
+project_config.md
+workflow_state.md
