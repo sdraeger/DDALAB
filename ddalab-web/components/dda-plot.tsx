@@ -5,6 +5,7 @@ import { useQuery, useMutation } from "@apollo/client";
 import {
   GET_EDF_DATA,
   GET_DDA_TASK_RESULT,
+  GET_DDA_TASK_STATUS,
   CREATE_ANNOTATION,
   DELETE_ANNOTATION,
   UPDATE_ANNOTATION,
@@ -41,6 +42,7 @@ import { EEGZoomSettings } from "@/components/eeg-zoom-settings";
 import { useEDFPlot } from "@/contexts/edf-plot-context";
 import { useSession } from "next-auth/react";
 import logger from "@/lib/utils/logger";
+import { DDAHeatmap } from "@/components/dda-heatmap";
 
 // Helper function to determine if any preprocessing options are active
 const hasActivePreprocessing = (options: any): boolean => {
@@ -67,6 +69,14 @@ export function DDAPlot({
   onChunkLoaded,
   preprocessingOptions: externalPreprocessingOptions,
 }: DDAPlotProps) {
+  // Log props on component mount
+  useEffect(() => {
+    console.log("DDAPlot component mounted with props:", {
+      filePath,
+      taskId,
+      hasPreprocessingOptions: !!externalPreprocessingOptions,
+    });
+  }, [filePath, taskId, externalPreprocessingOptions]);
   // Context for managing shared state between components
   const { getPlotState, updatePlotState, initPlotState } = useEDFPlot();
   const { toast } = useToast();
@@ -96,9 +106,7 @@ export function DDAPlot({
   const [currentSample, setCurrentSample] = useState(0);
   const [availableChannels, setAvailableChannels] = useState<string[]>([]);
   const [shouldLoadChunk, setShouldLoadChunk] = useState(false);
-  const [showZoomControls, setShowZoomControls] = useState(false);
   const [showZoomSettings, setShowZoomSettings] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [manualErrorMessage, setManualErrorMessage] = useState<string | null>(
     null
   );
@@ -106,7 +114,7 @@ export function DDAPlot({
     plotState.annotations || []
   );
   const [downloadProgress, setDownloadProgress] = useState(0);
-  const { data: session, status } = useSession();
+  const { data: session } = useSession();
   const user = session?.user;
 
   // Add state to track annotation edit mode
@@ -115,6 +123,11 @@ export function DDAPlot({
   // Add state to track the annotation to focus on after loading a chunk
   const [targetAnnotationAfterLoad, setTargetAnnotationAfterLoad] =
     useState<Annotation | null>(null);
+
+  // Add state for DDA task polling and results
+  const [isPolling, setIsPolling] = useState(false);
+  const [ddaHeatmapData, setDdaHeatmapData] = useState<any[]>([]);
+  const [showHeatmap, setShowHeatmap] = useState(false);
 
   // Initialize the plot state if needed
   useEffect(() => {
@@ -188,8 +201,7 @@ export function DDAPlot({
 
   // Ensure we don't consider default values as active preprocessing
   useEffect(() => {
-    // Use a ref to track if we've already processed this options object
-    const optionsKey = JSON.stringify(preprocessingOptions);
+    // Check if we have only default values
     const hasDefaultValuesOnly =
       preprocessingOptions &&
       !preprocessingOptions.removeOutliers &&
@@ -261,11 +273,7 @@ export function DDAPlot({
   });
 
   // Query for annotations
-  const {
-    data: annotationsData,
-    loading: annotationsLoading,
-    error: annotationsError,
-  } = useQuery(GET_ANNOTATIONS, {
+  const { data: annotationsData } = useQuery(GET_ANNOTATIONS, {
     variables: { filePath },
     skip: !filePath,
     fetchPolicy: "network-only",
@@ -297,12 +305,12 @@ export function DDAPlot({
     logger.info(`shouldLoadChunk changed to: ${shouldLoadChunk}`);
   }, [shouldLoadChunk]);
 
-  // Query for DDA results if task ID is provided
+  // Query for DDA task status
   const {
-    loading: ddaLoading,
-    error: ddaError,
-    data: ddaData,
-  } = useQuery(GET_DDA_TASK_RESULT, {
+    error: statusError,
+    data: statusData,
+    refetch: refetchStatus,
+  } = useQuery(GET_DDA_TASK_STATUS, {
     variables: {
       taskId,
     },
@@ -310,6 +318,186 @@ export function DDAPlot({
     notifyOnNetworkStatusChange: true,
     fetchPolicy: "network-only",
   });
+
+  // Query for DDA results if task ID is provided
+  const { data: ddaData, refetch: refetchDdaResult } = useQuery(
+    GET_DDA_TASK_RESULT,
+    {
+      variables: {
+        taskId,
+      },
+      skip: !taskId,
+      notifyOnNetworkStatusChange: true,
+      fetchPolicy: "network-only",
+    }
+  );
+
+  // Log status data when it changes
+  useEffect(() => {
+    if (statusData) {
+      console.log("Initial task status data:", statusData);
+    }
+    if (statusError) {
+      console.error("Error fetching task status:", statusError);
+    }
+  }, [statusData, statusError]);
+
+  // Set up polling for task status and results
+  useEffect(() => {
+    console.log("DDAPlot useEffect for polling - taskId:", taskId);
+    if (!taskId) {
+      console.log("No taskId provided, skipping polling setup");
+      return;
+    }
+
+    // Start polling
+    setIsPolling(true);
+    console.log("Starting polling for task status...");
+
+    // Check status initially
+    refetchStatus();
+
+    // Directly try to fetch results first in case the task is already complete
+    refetchDdaResult().then((result) => {
+      console.log("Initial DDA result check:", result);
+      if (result.data?.getDdaResult) {
+        console.log("Task already completed, stopping polling");
+        setIsPolling(false);
+        return;
+      }
+    });
+
+    const pollInterval = setInterval(() => {
+      console.log("Polling for task status...");
+      // Check task status
+      refetchStatus().then(({ data }) => {
+        console.log("Task status response:", data);
+        if (data?.getTaskStatus) {
+          const status = data.getTaskStatus.status;
+          console.log("Current task status:", status);
+
+          // Log the actual status value to help debug
+          console.log(`Task status: "${status}" (type: ${typeof status})`);
+
+          // If task is complete, fetch the results and stop polling
+          // Check for various possible success status values - be very permissive
+          if (
+            status === "SUCCESS" ||
+            status === "completed" ||
+            status === "COMPLETED" ||
+            status === "success"
+          ) {
+            console.log("Task completed, fetching DDA results...");
+            refetchDdaResult()
+              .then((result) => {
+                console.log("DDA result fetched:", result);
+                if (result.data?.getDdaResult) {
+                  console.log("DDA result data:", result.data.getDdaResult);
+
+                  // Notify of completion
+                  toast({
+                    title: "DDA Task Completed",
+                    description: "Your analysis is ready to view",
+                  });
+                } else {
+                  console.warn("Task completed but no result data returned");
+                }
+                setIsPolling(false);
+                clearInterval(pollInterval);
+              })
+              .catch((error) => {
+                console.error("Error fetching DDA result:", error);
+                toast({
+                  title: "Error Fetching Results",
+                  description: error.message,
+                  variant: "destructive",
+                });
+                setIsPolling(false);
+                clearInterval(pollInterval);
+              });
+          } else if (
+            status === "FAILURE" ||
+            status === "REVOKED" ||
+            status === "failed" ||
+            status === "failure"
+          ) {
+            // If task failed, stop polling
+            setIsPolling(false);
+            clearInterval(pollInterval);
+            toast({
+              title: "DDA Task Failed",
+              description: `Task status: ${status}`,
+              variant: "destructive",
+            });
+          }
+        }
+      });
+    }, 2000); // Poll every 2 seconds
+
+    // Clean up interval on unmount
+    return () => {
+      console.log("Cleaning up polling interval");
+      clearInterval(pollInterval);
+      setIsPolling(false);
+    };
+  }, [taskId, refetchStatus, refetchDdaResult, toast]);
+
+  // Process DDA results into heatmap data when available
+  useEffect(() => {
+    console.log("DDA data check:", {
+      hasData: !!ddaData,
+      hasGetDdaResult: ddaData && !!ddaData.getDdaResult,
+      hasQ: ddaData?.getDdaResult?.Q ? true : false,
+      taskId,
+      isPolling,
+    });
+
+    if (ddaData?.getDdaResult?.Q) {
+      try {
+        console.log("DDA Result received:", ddaData.getDdaResult);
+
+        // Convert Q matrix into heatmap data
+        const heatmapData = [];
+        const Q = ddaData.getDdaResult.Q;
+
+        if (!Array.isArray(Q) || Q.length === 0) {
+          console.error("Invalid Q matrix format:", Q);
+          toast({
+            title: "Error Processing DDA Results",
+            description: "The Q matrix format is invalid or empty.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        // Process each row of the Q matrix
+        for (let i = 0; i < Q.length; i++) {
+          for (let j = 0; j < Q[i].length; j++) {
+            if (Q[i][j] !== null) {
+              heatmapData.push({
+                x: i, // Time index
+                y: j, // Frequency index
+                value: Q[i][j],
+              });
+            }
+          }
+        }
+
+        console.log(`Processed ${heatmapData.length} data points for heatmap`);
+        setDdaHeatmapData(heatmapData);
+        setShowHeatmap(true);
+      } catch (error) {
+        console.error("Error parsing DDA data:", error);
+        toast({
+          title: "Error Processing DDA Results",
+          description: "Could not parse the DDA results data.",
+          variant: "destructive",
+        });
+      }
+    } else if (ddaData && !ddaData.getDdaResult?.Q) {
+      console.warn("DDA results received but Q matrix is missing", ddaData);
+    }
+  }, [ddaData, toast, taskId]);
 
   // Store the data in the context when it's loaded
   useEffect(() => {
@@ -934,7 +1122,7 @@ export function DDAPlot({
   const handleAnnotationDelete = (id: number) => {
     deleteAnnotation({
       variables: { id },
-      update: (cache) => {
+      update: () => {
         // Update local state after deletion
         const updatedAnnotations =
           annotations?.filter((annotation) => annotation.id !== id) || [];
@@ -1050,9 +1238,9 @@ export function DDAPlot({
   ]);
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-      {/* Main EEG chart area - takes 4/6 of the space */}
-      <div className="md:col-span-4">
+    <div className="grid grid-cols-1 gap-4">
+      {/* Main EEG chart area - full width */}
+      <div>
         <Card>
           <CardContent className="p-4">
             {/* Control buttons */}
@@ -1151,23 +1339,19 @@ export function DDAPlot({
               </div>
             )}
 
-            {(loading || ddaLoading) && (
+            {loading && (
               <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-10">
                 <Spinner size="lg" variant="loader" />
               </div>
             )}
 
             {/* Display errors if any */}
-            {(error || manualErrorMessage || ddaError) && (
+            {(error || manualErrorMessage) && (
               <Alert variant="destructive" className="mb-4">
                 <AlertDescription>
                   {error
                     ? `Error loading EDF data: ${error.message}`
-                    : manualErrorMessage
-                      ? manualErrorMessage
-                      : ddaError
-                        ? `Error loading DDA results: ${ddaError.message}`
-                        : "An unknown error occurred"}
+                    : manualErrorMessage || "An unknown error occurred"}
                 </AlertDescription>
               </Alert>
             )}
@@ -1207,28 +1391,101 @@ export function DDAPlot({
                 </div>
               )}
             </div>
+          </CardContent>
+        </Card>
+      </div>
 
-            {/* DDA Results overlay */}
-            {ddaData?.getDdaResult?.peaks && (
-              <div className="mt-4 p-2 border rounded bg-muted/20">
-                <h3 className="text-sm font-medium mb-2">
-                  DDA Analysis Results
-                </h3>
-                <p className="text-xs text-muted-foreground">
-                  Peaks detected:{" "}
-                  {Array.isArray(ddaData.getDdaResult.peaks)
-                    ? ddaData.getDdaResult.peaks.length
-                    : "N/A"}
-                </p>
-                {/* Additional DDA result visualizations could be added here */}
+      {/* DDA Heatmap section - moved below the EEG chart */}
+      <div>
+        <Card className="mb-4 border-2 border-primary/30">
+          <CardContent className="p-4">
+            <h3 className="text-lg font-medium mb-3">DDA Analysis Results</h3>
+
+            {/* DDA Loading state */}
+            {taskId && !ddaData?.getDdaResult?.Q && isPolling && (
+              <div className="p-2 border rounded bg-muted/20">
+                <div className="flex items-center justify-center p-4">
+                  <Spinner size="lg" className="mr-3" />
+                  <div>
+                    <h3 className="text-sm font-medium">
+                      DDA Analysis in Progress
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Waiting for results from the server...
+                    </p>
+                  </div>
+                </div>
               </div>
+            )}
+
+            {/* No task ID message */}
+            {!taskId && !isPolling && (
+              <div className="p-4 border rounded bg-muted/20 text-center">
+                <p className="text-sm text-muted-foreground">
+                  No DDA analysis task running.
+                </p>
+                <p className="text-xs mt-1">
+                  Submit a DDA analysis to see results here.
+                </p>
+              </div>
+            )}
+
+            {/* DDA Results display */}
+            {ddaData?.getDdaResult?.Q ? (
+              <div>
+                <div className="mb-3 p-2 border rounded bg-muted/20">
+                  <p className="text-xs text-muted-foreground">
+                    Matrix dimensions: {ddaData.getDdaResult.Q.length} x{" "}
+                    {ddaData.getDdaResult.Q[0]?.length || 0}
+                  </p>
+                </div>
+
+                {/* DDA Heatmap Visualization */}
+                {showHeatmap && ddaData?.getDdaResult?.Q ? (
+                  <div className="w-full h-[400px]">
+                    <DDAHeatmap data={ddaData.getDdaResult.Q} height={400} />
+                  </div>
+                ) : (
+                  <div className="p-3 border rounded bg-muted">
+                    <p className="text-sm font-medium mb-2">
+                      DDA Results (Raw Data)
+                    </p>
+                    <div className="max-h-[200px] overflow-auto text-xs bg-background p-2 rounded border">
+                      <pre>
+                        {JSON.stringify(ddaData?.getDdaResult?.Q, null, 2)}
+                      </pre>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Could not visualize as heatmap. Check the console for more
+                      details.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                {taskId && (
+                  <div className="p-3 border rounded bg-muted mt-4">
+                    <p className="text-sm font-medium mb-2">Debug Info</p>
+                    <div className="text-xs space-y-1">
+                      <p>Task ID: {taskId}</p>
+                      <p>Polling: {isPolling ? "Yes" : "No"}</p>
+                      <p>Has DDA data: {ddaData ? "Yes" : "No"}</p>
+                      <p>
+                        Status: {statusData?.getTaskStatus?.status || "Unknown"}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Controls sidebar - takes 2/6 of the space */}
-      <div className="md:col-span-2">
+      {/* Controls grid - now at the bottom */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Controls sidebar - maintain all existing functionality */}
         <Card>
           <CardContent className="p-4 space-y-4">
             <div>
@@ -1330,7 +1587,11 @@ export function DDAPlot({
                 )}
               </div>
             </div>
+          </CardContent>
+        </Card>
 
+        <Card>
+          <CardContent className="p-4 space-y-4">
             <div className="space-y-2">
               <h3 className="text-sm font-medium mb-2">Channel Selection</h3>
               <div className="space-y-1 max-h-[250px] overflow-y-auto border rounded-md p-2">

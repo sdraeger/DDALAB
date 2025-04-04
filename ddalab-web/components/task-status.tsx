@@ -153,10 +153,11 @@ export function TaskStatus({ taskId, onComplete }: TaskStatusProps) {
               <h3 className="text-sm font-medium mb-2">Results Summary</h3>
               <div className="text-sm space-y-1">
                 <div>File: {resultData.getDdaResult.filePath}</div>
-                <div>Status: {resultData.getDdaResult.status}</div>
-                {resultData.getDdaResult.peaks && (
+                <div>Status: {statusData.getTaskStatus.status}</div>
+                {resultData.getDdaResult.Q && (
                   <div>
-                    Peaks detected: {resultData.getDdaResult.peaks.length}
+                    Matrix dimensions: {resultData.getDdaResult.Q.length} x{" "}
+                    {resultData.getDdaResult.Q[0]?.length || 0}
                   </div>
                 )}
               </div>

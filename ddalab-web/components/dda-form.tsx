@@ -53,6 +53,8 @@ interface DDAFormProps {
 export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
   const [submitDDATask, { loading }] = useMutation(SUBMIT_DDA_TASK);
   const [taskId, setTaskId] = useState<string | undefined>(undefined);
+  // Default to empty array for channel selection
+  const selectedChannels = useState<number[]>([])[0];
 
   // NOTE: To prevent infinite update loops when clicking the form items:
   // 1. We wrap each checkbox in a div with class "checkbox-container"
@@ -83,6 +85,7 @@ export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
       const { data: responseData } = await submitDDATask({
         variables: {
           filePath: data.filePath,
+          channelList: selectedChannels,
           preprocessingOptions: {
             resample1000hz: data.resample1000hz,
             resample500hz: data.resample500hz,
@@ -98,13 +101,21 @@ export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
         },
       });
 
-      if (responseData?.startDda?.taskId) {
+      if (responseData?.runDda?.taskId) {
         toast({
           title: "DDA Task Submitted",
-          description: `Task ID: ${responseData.startDda.taskId}`,
+          description: `Task ID: ${responseData.runDda.taskId}`,
         });
-        setTaskId(responseData.startDda.taskId);
-        onTaskSubmitted(responseData.startDda.taskId);
+        const newTaskId = responseData.runDda.taskId;
+        console.log("DDA Task submitted successfully, taskId:", newTaskId);
+        console.log("Response data:", responseData);
+        setTaskId(newTaskId);
+        onTaskSubmitted(newTaskId);
+
+        // Add a delay and then log to verify the state was updated
+        setTimeout(() => {
+          console.log("Verifying taskId state was updated:", taskId);
+        }, 100);
       }
     } catch (error) {
       toast({
@@ -531,7 +542,15 @@ export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
         </CardContent>
       </Card>
 
+      {/* Debug log for taskId */}
+      {(() => {
+        console.log("Rendering DDAPlot with taskId:", taskId);
+        return null;
+      })()}
+
+      {/* Force re-render of DDAPlot when taskId changes */}
       <DDAPlot
+        key={taskId || "no-task"}
         filePath={filePath}
         taskId={taskId}
         preprocessingOptions={{

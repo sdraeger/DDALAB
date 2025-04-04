@@ -15,21 +15,21 @@ const Footer: FC = () => {
 
           <div className="flex justify-center gap-8 mb-6">
             <a
-              href="#"
+              href="mailto:sdraeger@salk.edu"
               className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors text-sm"
             >
               <Mail className="h-4 w-4" />
               <span>Contact</span>
             </a>
             <a
-              href="#"
+              href="https://www.salk.edu"
               className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors text-sm"
             >
               <Globe className="h-4 w-4" />
               <span>Website</span>
             </a>
             <a
-              href="#"
+              href="https://github.com/sdraeger/DDALAB"
               className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors text-sm"
             >
               <Github className="h-4 w-4" />

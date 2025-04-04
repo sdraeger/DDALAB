@@ -62,9 +62,8 @@ export const GET_DDA_TASK_RESULT = gql`
   query GetDDATaskResult($taskId: String!) {
     getDdaResult(taskId: $taskId) {
       filePath
-      taskId
-      peaks
-      status
+      Q
+      metadata
     }
   }
 `;

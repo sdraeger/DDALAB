@@ -13,6 +13,7 @@ import logger from "@/lib/utils/logger";
 
 export function DashboardTabs() {
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const [selectedChannels, setSelectedChannels] = useState<number[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("eeg_files");
   const [fileBrowserCollapsed, setFileBrowserCollapsed] = useState(false);
@@ -111,6 +112,7 @@ export function DashboardTabs() {
                 {selectedFilePath ? (
                   <DDAForm
                     filePath={selectedFilePath}
+                    channelList={selectedChannels}
                     onTaskSubmitted={handleTaskSubmitted}
                   />
                 ) : (

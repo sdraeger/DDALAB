@@ -29,13 +29,17 @@ export const CREATE_USER = gql`
 
 // DDA mutations
 export const SUBMIT_DDA_TASK = gql`
-  mutation StartDDA(
+  mutation RunDDA(
     $filePath: String!
+    $channelList: [Int!]!
     $preprocessingOptions: PreprocessingOptionsInput
   ) {
-    startDda(filePath: $filePath, preprocessingOptions: $preprocessingOptions) {
+    runDda(
+      filePath: $filePath
+      channelList: $channelList
+      preprocessingOptions: $preprocessingOptions
+    ) {
       taskId
-      filePath
       status
     }
   }
