@@ -59,6 +59,7 @@ const hasActivePreprocessing = (options: any): boolean => {
 interface DDAPlotProps {
   filePath: string;
   taskId?: string;
+  ddaData?: any; // Direct DDA result data
   onChunkLoaded?: (data: EEGData) => void;
   preprocessingOptions?: any;
 }
@@ -66,6 +67,7 @@ interface DDAPlotProps {
 export function DDAPlot({
   filePath,
   taskId,
+  ddaData: externalDdaData,
   onChunkLoaded,
   preprocessingOptions: externalPreprocessingOptions,
 }: DDAPlotProps) {
@@ -74,9 +76,11 @@ export function DDAPlot({
     console.log("DDAPlot component mounted with props:", {
       filePath,
       taskId,
+      hasExternalDdaData: !!externalDdaData,
+      externalDdaData,
       hasPreprocessingOptions: !!externalPreprocessingOptions,
     });
-  }, [filePath, taskId, externalPreprocessingOptions]);
+  }, [filePath, taskId, externalDdaData, externalPreprocessingOptions]);
   // Context for managing shared state between components
   const { getPlotState, updatePlotState, initPlotState } = useEDFPlot();
   const { toast } = useToast();
@@ -342,30 +346,15 @@ export function DDAPlot({
     }
   }, [statusData, statusError]);
 
-  // Set up polling for task status and results
+  // Effect for polling task status and fetching results when done
   useEffect(() => {
-    console.log("DDAPlot useEffect for polling - taskId:", taskId);
-    if (!taskId) {
-      console.log("No taskId provided, skipping polling setup");
+    // Skip if no task ID or using external data
+    if (!taskId || externalDdaData || taskId === "completed") {
       return;
     }
 
-    // Start polling
+    console.log("Setting up polling for task status:", taskId);
     setIsPolling(true);
-    console.log("Starting polling for task status...");
-
-    // Check status initially
-    refetchStatus();
-
-    // Directly try to fetch results first in case the task is already complete
-    refetchDdaResult().then((result) => {
-      console.log("Initial DDA result check:", result);
-      if (result.data?.getDdaResult) {
-        console.log("Task already completed, stopping polling");
-        setIsPolling(false);
-        return;
-      }
-    });
 
     const pollInterval = setInterval(() => {
       console.log("Polling for task status...");
@@ -379,13 +368,13 @@ export function DDAPlot({
           // Log the actual status value to help debug
           console.log(`Task status: "${status}" (type: ${typeof status})`);
 
+          // Normalize status for consistent comparison
+          const normalizedStatus = status.toUpperCase();
+
           // If task is complete, fetch the results and stop polling
-          // Check for various possible success status values - be very permissive
           if (
-            status === "SUCCESS" ||
-            status === "completed" ||
-            status === "COMPLETED" ||
-            status === "success"
+            normalizedStatus === "SUCCESS" ||
+            normalizedStatus === "COMPLETED"
           ) {
             console.log("Task completed, fetching DDA results...");
             refetchDdaResult()
@@ -393,6 +382,37 @@ export function DDAPlot({
                 console.log("DDA result fetched:", result);
                 if (result.data?.getDdaResult) {
                   console.log("DDA result data:", result.data.getDdaResult);
+
+                  // Process the Q matrix into heatmap data
+                  if (result.data.getDdaResult.Q) {
+                    try {
+                      // Process the Q matrix directly here
+                      const Q = result.data.getDdaResult.Q;
+                      const heatmapData = [];
+
+                      if (Array.isArray(Q) && Q.length > 0) {
+                        for (let i = 0; i < Q.length; i++) {
+                          for (let j = 0; j < Q[i].length; j++) {
+                            if (Q[i][j] !== null) {
+                              heatmapData.push({
+                                x: j,
+                                y: i,
+                                value: Q[i][j],
+                              });
+                            }
+                          }
+                        }
+
+                        setDdaHeatmapData(heatmapData);
+                        setShowHeatmap(true);
+                      }
+                    } catch (err) {
+                      console.error(
+                        "Error processing matrix data for heatmap:",
+                        err
+                      );
+                    }
+                  }
 
                   // Notify of completion
                   toast({
@@ -416,10 +436,9 @@ export function DDAPlot({
                 clearInterval(pollInterval);
               });
           } else if (
-            status === "FAILURE" ||
-            status === "REVOKED" ||
-            status === "failed" ||
-            status === "failure"
+            normalizedStatus === "FAILURE" ||
+            normalizedStatus === "REVOKED" ||
+            normalizedStatus === "FAILED"
           ) {
             // If task failed, stop polling
             setIsPolling(false);
@@ -440,7 +459,7 @@ export function DDAPlot({
       clearInterval(pollInterval);
       setIsPolling(false);
     };
-  }, [taskId, refetchStatus, refetchDdaResult, toast]);
+  }, [taskId, refetchStatus, refetchDdaResult, toast, externalDdaData]);
 
   // Process DDA results into heatmap data when available
   useEffect(() => {
@@ -498,6 +517,50 @@ export function DDAPlot({
       console.warn("DDA results received but Q matrix is missing", ddaData);
     }
   }, [ddaData, toast, taskId]);
+
+  // Use external DDA data if provided
+  useEffect(() => {
+    if (externalDdaData) {
+      console.log("Using externally provided DDA data:", externalDdaData);
+
+      // Process the data for the heatmap
+      try {
+        if (externalDdaData.Q) {
+          const heatmapData = processMatrixForHeatmap(externalDdaData.Q);
+          setDdaHeatmapData(heatmapData);
+          setShowHeatmap(true);
+        }
+      } catch (error) {
+        console.error("Error processing external DDA data:", error);
+      }
+
+      // No need to poll since we already have the data
+      setIsPolling(false);
+    }
+  }, [externalDdaData]);
+
+  // Helper function to process matrix data for heatmap
+  const processMatrixForHeatmap = (matrix: any[][]): any[] => {
+    if (!matrix || !Array.isArray(matrix) || matrix.length === 0) {
+      console.warn("Invalid matrix data for heatmap processing");
+      return [];
+    }
+
+    const heatmapData: any[] = [];
+    for (let i = 0; i < matrix.length; i++) {
+      for (let j = 0; j < matrix[i].length; j++) {
+        if (matrix[i][j] !== null) {
+          heatmapData.push({
+            x: j,
+            y: i,
+            value: matrix[i][j],
+          });
+        }
+      }
+    }
+
+    return heatmapData;
+  };
 
   // Store the data in the context when it's loaded
   useEffect(() => {
@@ -1395,93 +1458,55 @@ export function DDAPlot({
         </Card>
       </div>
 
-      {/* DDA Heatmap section - moved below the EEG chart */}
-      <div>
-        <Card className="mb-4 border-2 border-primary/30">
-          <CardContent className="p-4">
-            <h3 className="text-lg font-medium mb-3">DDA Analysis Results</h3>
+      {taskId && (
+        <Card className="mb-4">
+          <CardContent className="pt-6">
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h3 className="text-sm font-medium">DDA Analysis Results</h3>
+                {!externalDdaData && isPolling && (
+                  <div className="flex items-center">
+                    <Spinner className="mr-2 h-4 w-4" />
+                    <span className="text-sm text-muted-foreground">
+                      Polling for results...
+                    </span>
+                  </div>
+                )}
+              </div>
 
-            {/* DDA Loading state */}
-            {taskId && !ddaData?.getDdaResult?.Q && isPolling && (
-              <div className="p-2 border rounded bg-muted/20">
-                <div className="flex items-center justify-center p-4">
-                  <Spinner size="lg" className="mr-3" />
-                  <div>
-                    <h3 className="text-sm font-medium">
-                      DDA Analysis in Progress
-                    </h3>
+              {/* Direct heatmap rendering when external data is available */}
+              {externalDdaData?.Q && (
+                <div>
+                  <div className="mb-3 p-2 border rounded bg-muted/20">
                     <p className="text-xs text-muted-foreground">
-                      Waiting for results from the server...
+                      Matrix dimensions: {externalDdaData.Q.length} x{" "}
+                      {externalDdaData.Q[0]?.length || 0}
                     </p>
                   </div>
-                </div>
-              </div>
-            )}
 
-            {/* No task ID message */}
-            {!taskId && !isPolling && (
-              <div className="p-4 border rounded bg-muted/20 text-center">
-                <p className="text-sm text-muted-foreground">
-                  No DDA analysis task running.
-                </p>
-                <p className="text-xs mt-1">
-                  Submit a DDA analysis to see results here.
-                </p>
-              </div>
-            )}
-
-            {/* DDA Results display */}
-            {ddaData?.getDdaResult?.Q ? (
-              <div>
-                <div className="mb-3 p-2 border rounded bg-muted/20">
-                  <p className="text-xs text-muted-foreground">
-                    Matrix dimensions: {ddaData.getDdaResult.Q.length} x{" "}
-                    {ddaData.getDdaResult.Q[0]?.length || 0}
-                  </p>
-                </div>
-
-                {/* DDA Heatmap Visualization */}
-                {showHeatmap && ddaData?.getDdaResult?.Q ? (
-                  <div className="w-full h-[400px]">
-                    <DDAHeatmap data={ddaData.getDdaResult.Q} height={400} />
-                  </div>
-                ) : (
-                  <div className="p-3 border rounded bg-muted">
-                    <p className="text-sm font-medium mb-2">
-                      DDA Results (Raw Data)
-                    </p>
-                    <div className="max-h-[200px] overflow-auto text-xs bg-background p-2 rounded border">
-                      <pre>
-                        {JSON.stringify(ddaData?.getDdaResult?.Q, null, 2)}
-                      </pre>
+                  {/* DDA Heatmap Visualization with enhanced scroll prevention */}
+                  {showHeatmap && (
+                    <div
+                      className="w-full h-[400px]"
+                      style={{ overflow: "hidden" }}
+                      onWheel={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onScroll={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                    >
+                      <DDAHeatmap data={ddaHeatmapData} height={400} />
                     </div>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Could not visualize as heatmap. Check the console for more
-                      details.
-                    </p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <>
-                {taskId && (
-                  <div className="p-3 border rounded bg-muted mt-4">
-                    <p className="text-sm font-medium mb-2">Debug Info</p>
-                    <div className="text-xs space-y-1">
-                      <p>Task ID: {taskId}</p>
-                      <p>Polling: {isPolling ? "Yes" : "No"}</p>
-                      <p>Has DDA data: {ddaData ? "Yes" : "No"}</p>
-                      <p>
-                        Status: {statusData?.getTaskStatus?.status || "Unknown"}
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
+                  )}
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
-      </div>
+      )}
 
       {/* Controls grid - now at the bottom */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

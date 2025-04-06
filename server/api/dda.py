@@ -12,10 +12,10 @@ router = APIRouter()
 
 
 @router.post("/", response_model=DDAResponse)
-async def submit_dda_request(
+def submit_dda_request(
     request: DDARequest,
     preprocessing_options: Optional[PreprocessingOptionsInput] = None,
-) -> DDAResponse:
+) -> DDAResult:
     """Submit a DDA task.
 
     Args:
@@ -25,9 +25,7 @@ async def submit_dda_request(
     Returns:
         Task ID for tracking the DDA
     """
-    task_id = await run_dda(
-        request.file_path, request.channel_list, preprocessing_options
-    )
+    task_id = run_dda(request.file_path, request.channel_list, preprocessing_options)
     return DDAResponse(task_id=task_id)
 
 
@@ -43,17 +41,3 @@ async def get_result(task_id: str) -> Optional[DDAResult]:
     """
     result = await get_dda_result(task_id)
     return result
-
-
-@router.get("/{task_id}/status")
-async def get_status(task_id: str):
-    """Get the status of a DDA task.
-
-    Args:
-        task_id: Task ID returned by submit_dda_request
-
-    Returns:
-        Dictionary containing task status information
-    """
-    result = await get_dda_result(task_id)
-    return {"status": "completed" if result else "processing"}

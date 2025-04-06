@@ -1,307 +1,385 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import {
-  ResponsiveContainer,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ScatterChart,
-  Scatter,
-  Cell,
-  Legend,
-} from "recharts";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
 
-interface DDAHeatmapProps {
-  data: Array<Array<number | null>>;
-  height?: number | string;
-}
-
-interface ScatterPoint {
+interface HeatmapPoint {
   x: number;
   y: number;
   value: number;
 }
 
-// Define a maximum number of points to display to prevent browser freezing
-const MAX_POINTS = 3000;
+interface DDAHeatmapProps {
+  data: HeatmapPoint[];
+  width?: number;
+  height?: number;
+}
 
-/**
- * A component that renders a 2D array as a heatmap using Recharts.
- * It converts a 2D array into a format suitable for Recharts ScatterChart.
- */
-export function DDAHeatmap({ data, height = 400 }: DDAHeatmapProps) {
-  const [samplingRate, setSamplingRate] = useState(1); // 1 means show every point, 2 means every other point
-  const [pointsDisplayed, setPointsDisplayed] = useState(MAX_POINTS);
+// Default values
+const DEFAULT_ZOOM = 1;
+const DEFAULT_PAN = { x: 0, y: 0 };
 
-  // Convert 2D matrix to scatter plot data format with sampling
-  const scatterData = useMemo(() => {
-    console.log("DDAHeatmap received data:", {
-      type: typeof data,
-      isArray: Array.isArray(data),
-      length: data?.length,
-      sample: data?.slice?.(0, 2),
-    });
+export function DDAHeatmap({
+  data,
+  width = 800,
+  height = 600,
+}: DDAHeatmapProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Ensure state has valid initial values
+  const [zoom, setZoom] = useState<number>(DEFAULT_ZOOM);
+  const [pan, setPan] = useState<{ x: number; y: number }>(DEFAULT_PAN);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [colorRange, setColorRange] = useState<[number, number]>([0, 1]);
+  const initialViewCalculated = useRef(false);
 
-    if (!data || !Array.isArray(data) || data.length === 0) {
-      console.error("Invalid data format for DDAHeatmap:", data);
-      return [];
+  // Effect 1: Calculate data bounds and initial view setting
+  useEffect(() => {
+    // console.log("Heatmap data received, length:", data.length);
+    if (data.length === 0) {
+      // Reset view and flag when data is cleared
+      initialViewCalculated.current = false;
+      setZoom(DEFAULT_ZOOM);
+      setPan(DEFAULT_PAN);
+      setColorRange([0, 1]);
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext("2d");
+      if (ctx) ctx.clearRect(0, 0, width, height);
+      return;
     }
 
-    const result: ScatterPoint[] = [];
+    let minVal = Infinity,
+      maxVal = -Infinity;
+    let minX = Infinity,
+      maxX = -Infinity;
+    let minY = Infinity,
+      maxY = -Infinity;
 
-    // Check if data is already in the expected format or needs conversion
-    if (Array.isArray(data[0])) {
-      // Data is a 2D array (matrix), process each row
+    for (const point of data) {
+      if (
+        typeof point?.x !== "number" ||
+        typeof point?.y !== "number" ||
+        typeof point?.value !== "number" ||
+        isNaN(point.x) ||
+        isNaN(point.y) ||
+        isNaN(point.value)
+      )
+        continue;
+      if (point.value < minVal) minVal = point.value;
+      if (point.value > maxVal) maxVal = point.value;
+      if (point.x < minX) minX = point.x;
+      if (point.x > maxX) maxX = point.x;
+      if (point.y < minY) minY = point.y;
+      if (point.y > maxY) maxY = point.y;
+    }
+
+    // Safely determine bounds and color range
+    minVal = isFinite(minVal) ? minVal : 0;
+    maxVal = isFinite(maxVal) ? maxVal : minVal + 1; // Ensure max > min
+    if (maxVal <= minVal) maxVal = minVal + 1;
+    setColorRange([minVal, maxVal]);
+
+    minX = isFinite(minX) ? minX : 0;
+    maxX = isFinite(maxX) ? maxX : width;
+    if (maxX <= minX) maxX = minX + 1;
+
+    minY = isFinite(minY) ? minY : 0;
+    maxY = isFinite(maxY) ? maxY : height;
+    if (maxY <= minY) maxY = minY + 1;
+
+    // Set initial view only once
+    if (!initialViewCalculated.current) {
+      const dataWidth = maxX - minX;
+      const dataHeight = maxY - minY;
+
+      const zoomX = dataWidth > 0 ? width / dataWidth : 1;
+      const zoomY = dataHeight > 0 ? height / dataHeight : 1;
+      let newInitialZoom = Math.min(zoomX, zoomY) * 0.9;
+      newInitialZoom = Math.max(0.001, Math.min(newInitialZoom, 10)); // Clamp zoom
+
+      const dataCenterX = minX + dataWidth / 2;
+      const dataCenterY = minY + dataHeight / 2;
+
+      // Calculate pan based on the *new* initial zoom
+      const newInitialPanX = dataCenterX - width / (2 * newInitialZoom);
+      const newInitialPanY = dataCenterY - height / (2 * newInitialZoom);
+
       console.log(
-        "Processing as 2D array, dimensions:",
-        data.length,
-        "x",
-        data[0].length
+        `Setting Initial View: Zoom=${newInitialZoom.toFixed(4)}, Pan=(${newInitialPanX.toFixed(2)}, ${newInitialPanY.toFixed(2)})`
       );
+      setZoom(newInitialZoom); // Set state
+      setPan({ x: newInitialPanX, y: newInitialPanY }); // Set state
+      initialViewCalculated.current = true;
+    }
+  }, [data, width, height]); // Dependencies are correct
 
-      // Calculate sampling based on data size to prevent browser freezing
-      const estimatedPoints = data.length * (data[0]?.length || 0);
-      console.log(`Estimated total points: ${estimatedPoints}`);
+  // Effect 2: Drawing logic, depends on state variables set by Effect 1 and interactions
+  const drawHeatmap = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-      // Only process every Nth point based on sampling rate
-      let pointCount = 0;
-      for (let i = 0; i < data.length; i += samplingRate) {
-        if (!Array.isArray(data[i])) continue;
+    // Use current state values directly
+    const currentZoom = zoom;
+    const currentPan = pan;
+    const currentData = data;
+    const currentColorRange = colorRange;
 
-        for (let j = 0; j < data[i].length; j += samplingRate) {
-          const value = data[i][j];
-          if (value !== null) {
-            result.push({
-              x: i, // Time index
-              y: j, // Frequency index
-              value, // The value at this position
-            });
+    ctx.clearRect(0, 0, width, height);
 
-            pointCount++;
-            if (pointCount >= pointsDisplayed) {
-              console.log(
-                `Reached maximum points (${pointsDisplayed}), stopping processing`
-              );
-              break;
-            }
-          }
-        }
+    if (currentData.length === 0) return;
 
-        if (pointCount >= pointsDisplayed) {
-          break;
-        }
+    const visibleWidth = width / currentZoom;
+    const visibleHeight = height / currentZoom;
+    const visibleX = currentPan.x;
+    const visibleY = currentPan.y;
+
+    const offscreenCanvas = document.createElement("canvas");
+    offscreenCanvas.width = width;
+    offscreenCanvas.height = height;
+    const offscreenCtx = offscreenCanvas.getContext("2d", { alpha: false });
+    if (!offscreenCtx) return;
+
+    const [minValue, maxValue] = currentColorRange;
+    const valueRange = maxValue - minValue === 0 ? 1 : maxValue - minValue;
+
+    let drawnPoints = 0;
+    for (const point of currentData) {
+      if (
+        point.x < visibleX ||
+        point.x > visibleX + visibleWidth ||
+        point.y < visibleY ||
+        point.y > visibleY + visibleHeight
+      )
+        continue;
+
+      const screenX = (point.x - visibleX) * currentZoom;
+      const screenY = (point.y - visibleY) * currentZoom;
+      const normalizedValue = Math.max(
+        0,
+        Math.min(1, (point.value - minValue) / valueRange)
+      );
+      const r = Math.floor(normalizedValue * 255);
+      const g = 0;
+      const b = Math.floor((1 - normalizedValue) * 255);
+      const color = `rgb(${r},${g},${b})`;
+      const pointSize = Math.max(1, Math.ceil(currentZoom * 1.5));
+
+      offscreenCtx.fillStyle = color;
+      offscreenCtx.fillRect(
+        Math.floor(screenX - pointSize / 2),
+        Math.floor(screenY - pointSize / 2),
+        pointSize,
+        pointSize
+      );
+      drawnPoints++;
+    }
+
+    // if (drawnPoints === 0 && currentData.length > 0) { console.warn("No points drawn in visible area."); }
+
+    ctx.drawImage(offscreenCanvas, 0, 0);
+  }, [data, width, height, zoom, pan, colorRange]); // Keep dependencies for useCallback
+
+  // Effect 3: Trigger redraw when drawHeatmap callback changes (due to its dependencies changing)
+  useEffect(() => {
+    const rafId = requestAnimationFrame(drawHeatmap);
+    return () => cancelAnimationFrame(rafId);
+  }, [drawHeatmap]); // Redraw when the callback itself changes
+
+  // --- Interaction Handlers ---
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      e.preventDefault(); // Prevent default scrolling behavior
+      e.stopPropagation(); // Stop event from propagating up to the page
+      const currentZoom = zoom;
+      const currentPan = pan;
+      const delta = -e.deltaY;
+      const scale = delta > 0 ? 1.1 : 1 / 1.1;
+      const newZoom = Math.min(Math.max(currentZoom * scale, 0.001), 500);
+      const rect = e.currentTarget.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const worldXBefore = currentPan.x + mouseX / currentZoom;
+      const worldYBefore = currentPan.y + mouseY / currentZoom;
+      const newPanX = worldXBefore - mouseX / newZoom;
+      const newPanY = worldYBefore - mouseY / newZoom;
+      setZoom(newZoom); // Schedule state update
+      setPan({ x: newPanX, y: newPanY }); // Schedule state update
+    },
+    [zoom, pan]
+  );
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    setIsDragging(true);
+    setDragStart({ x: e.clientX, y: e.clientY });
+    (e.target as HTMLElement).style.cursor = "grabbing";
+  }, []); // No dependencies needed
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (!isDragging) return;
+      const dx = e.clientX - dragStart.x;
+      const dy = e.clientY - dragStart.y;
+      // Update pan based on previous pan state and drag delta
+      setPan((prevPan) => ({
+        x: prevPan.x - dx / zoom, // Use current zoom state here
+        y: prevPan.y - dy / zoom,
+      }));
+      // Update drag start position for next move calculation
+      setDragStart({ x: e.clientX, y: e.clientY });
+    },
+    [isDragging, dragStart, zoom]
+  ); // Depends on isDragging, dragStart, zoom
+
+  const handleMouseUp = useCallback(
+    (e: React.MouseEvent) => {
+      if (isDragging) {
+        setIsDragging(false);
+        (e.target as HTMLElement).style.cursor = "grab";
       }
+    },
+    [isDragging]
+  ); // Depends on isDragging
+
+  const handleMouseLeave = useCallback(
+    (e: React.MouseEvent) => {
+      if (isDragging) {
+        setIsDragging(false);
+        (e.target as HTMLElement).style.cursor = "grab";
+      }
+    },
+    [isDragging]
+  ); // Depends on isDragging
+
+  const resetView = useCallback(() => {
+    initialViewCalculated.current = false; // Force recalculation in useEffect
+    // The useEffect will handle resetting zoom and pan based on data
+    // If data is empty, it resets to defaults. If data exists, it recalculates.
+    // We might need to force a re-render if data hasn't changed but we want reset
+    // A simple way is to slightly change a dependency of the useEffect, e.g., data itself?
+    // Or trigger the calculation logic directly here ONLY IF data exists
+    if (data.length > 0) {
+      let minX = Infinity,
+        maxX = -Infinity,
+        minY = Infinity,
+        maxY = -Infinity;
+      for (const point of data) {
+        if (isNaN(point.x) || isNaN(point.y)) continue;
+        if (point.x < minX) minX = point.x;
+        if (point.x > maxX) maxX = point.x;
+        if (point.y < minY) minY = point.y;
+        if (point.y > maxY) maxY = point.y;
+      }
+      minX = isFinite(minX) ? minX : 0;
+      maxX = isFinite(maxX) ? maxX : width;
+      minY = isFinite(minY) ? minY : 0;
+      maxY = isFinite(maxY) ? maxY : height;
+      if (maxX <= minX) maxX = minX + 1;
+      if (maxY <= minY) maxY = minY + 1;
+      const dataWidth = maxX - minX;
+      const dataHeight = maxY - minY;
+      const zoomX = dataWidth > 0 ? width / dataWidth : 1;
+      const zoomY = dataHeight > 0 ? height / dataHeight : 1;
+      let initialZoom = Math.min(zoomX, zoomY) * 0.9;
+      initialZoom = Math.max(0.001, Math.min(initialZoom, 10));
+      const dataCenterX = minX + dataWidth / 2;
+      const dataCenterY = minY + dataHeight / 2;
+      const initialPanX = dataCenterX - width / (2 * initialZoom);
+      const initialPanY = dataCenterY - height / (2 * initialZoom);
+      setZoom(initialZoom);
+      setPan({ x: initialPanX, y: initialPanY });
+      initialViewCalculated.current = true;
     } else {
-      // Data is in a different format, try to convert
-      console.warn("Data not in expected 2D array format, trying to adapt");
-      try {
-        // If data is a string, try to parse it
-        const parsedData = typeof data === "string" ? JSON.parse(data) : data;
-
-        if (Array.isArray(parsedData)) {
-          // Process as 1D array of objects or values
-          let pointCount = 0;
-          for (let i = 0; i < parsedData.length; i += samplingRate) {
-            const item = parsedData[i];
-            if (typeof item === "object" && item !== null) {
-              // If item has x, y, value properties
-              if ("x" in item && "y" in item && "value" in item) {
-                result.push({
-                  x: Number(item.x),
-                  y: Number(item.y),
-                  value: Number(item.value),
-                });
-              }
-            } else if (typeof item === "number") {
-              // Handle 1D array of values
-              result.push({
-                x: i,
-                y: 0,
-                value: item,
-              });
-            }
-
-            pointCount++;
-            if (pointCount >= pointsDisplayed) {
-              break;
-            }
-          }
-        }
-      } catch (error) {
-        console.error("Failed to convert data format:", error);
-      }
+      setZoom(DEFAULT_ZOOM);
+      setPan(DEFAULT_PAN);
     }
+  }, [data, width, height]); // Depend on data, width, height
 
-    console.log(`Processed ${result.length} data points for heatmap`);
-    return result;
-  }, [data, samplingRate, pointsDisplayed]);
-
-  // Calculate min and max values for color scaling
-  const { minValue, maxValue } = useMemo(() => {
-    if (scatterData.length === 0) return { minValue: 0, maxValue: 1 };
-
-    let min = Infinity;
-    let max = -Infinity;
-
-    for (const point of scatterData) {
-      if (point.value < min) min = point.value;
-      if (point.value > max) max = point.value;
-    }
-
-    return { minValue: min, maxValue: max };
-  }, [scatterData]);
-
-  // Estimate total points in dataset
-  const totalPoints = useMemo(() => {
-    if (!data || !Array.isArray(data)) return 0;
-    let count = 0;
-    for (const row of data) {
-      if (Array.isArray(row)) {
-        for (const val of row) {
-          if (val !== null) count++;
-        }
-      }
-    }
-    return count;
-  }, [data]);
-
-  // Handle increasing sampling rate
-  const increaseSampling = () => {
-    setSamplingRate((prev) => Math.min(prev + 1, 10));
+  // --- Helper for safe number formatting ---
+  const formatNumber = (num: number | undefined | null, fixed = 0): string => {
+    if (typeof num !== "number" || isNaN(num)) return "...";
+    return num.toFixed(fixed);
+  };
+  const formatZoom = (num: number | undefined | null, fixed = 2): string => {
+    if (typeof num !== "number" || isNaN(num)) return "...";
+    return num.toFixed(fixed);
   };
 
-  // Handle decreasing sampling rate
-  const decreaseSampling = () => {
-    setSamplingRate((prev) => Math.max(prev - 1, 1));
-  };
-
-  // Handle changing points displayed
-  const handlePointsChange = (value: number[]) => {
-    setPointsDisplayed(value[0]);
-  };
-
-  if (scatterData.length === 0) {
-    return (
-      <div className="p-4 text-center border rounded bg-muted">
-        <p>No valid data available for heatmap visualization</p>
-        <p className="text-xs text-muted-foreground mt-2">
-          Received data of type: {typeof data}, length:{" "}
-          {Array.isArray(data) ? data.length : "N/A"}
-        </p>
-      </div>
-    );
-  }
-
+  // --- Render Logic ---
   return (
     <div className="space-y-4">
-      <div className="flex flex-col space-y-2">
-        <div className="flex justify-between items-center">
-          <p className="text-sm">
-            Showing {scatterData.length} of approximately {totalPoints} points
-          </p>
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={decreaseSampling}
-              disabled={samplingRate <= 1}
-            >
-              Higher Resolution
-            </Button>
-            <span className="text-xs">Sampling: {samplingRate}x</span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={increaseSampling}
-              disabled={samplingRate >= 10}
-            >
-              Lower Resolution
-            </Button>
-          </div>
+      <div className="flex flex-wrap justify-between items-center gap-2">
+        <div className="flex items-center space-x-2">
+          <Button variant="outline" size="sm" onClick={resetView}>
+            {" "}
+            Reset View{" "}
+          </Button>
+          {/* Use safe formatters */}
+          <span className="text-sm tabular-nums whitespace-nowrap">
+            Zoom: {formatZoom(zoom)}x | Pan: ({formatNumber(pan?.x)},{" "}
+            {formatNumber(pan?.y)})
+          </span>
         </div>
-        <div className="px-2">
-          <p className="text-xs mb-1">
-            Max points to display: {pointsDisplayed}
-          </p>
-          <Slider
-            value={[pointsDisplayed]}
-            min={100}
-            max={5000}
-            step={100}
-            onValueChange={handlePointsChange}
-          />
+        <div className="text-sm whitespace-nowrap">
+          Data points: {data.length}
         </div>
       </div>
 
-      <div style={{ width: "100%", height }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <ScatterChart
-            margin={{
-              top: 20,
-              right: 30,
-              bottom: 40,
-              left: 30,
-            }}
+      <div
+        className="border rounded-md overflow-hidden relative bg-background cursor-grab"
+        style={{ width, height }}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
+      >
+        <canvas
+          ref={canvasRef}
+          width={width}
+          height={height}
+          className="block"
+        />
+        <div className="absolute bottom-4 right-4 flex flex-col space-y-2 z-10">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              handleWheel({
+                deltaY: -100,
+                clientX: width / 2,
+                clientY: height / 2,
+                currentTarget: canvasRef.current,
+                preventDefault: () => {},
+              } as any)
+            }
+            className="w-8 h-8 p-0"
+            aria-label="Zoom In"
           >
-            <XAxis
-              type="number"
-              dataKey="x"
-              name="Time"
-              unit=" s"
-              domain={["dataMin", "dataMax"]}
-              label={{ value: "Time (s)", position: "bottom" }}
-            />
-            <YAxis
-              type="number"
-              dataKey="y"
-              name="Frequency"
-              unit=" Hz"
-              domain={["dataMin", "dataMax"]}
-              label={{
-                value: "Frequency (Hz)",
-                angle: -90,
-                position: "insideLeft",
-              }}
-            />
-            <Tooltip
-              cursor={{ strokeDasharray: "3 3" }}
-              formatter={(value: any, name: string) => {
-                if (name === "value")
-                  return [`${Number(value).toFixed(2)}`, "Value"];
-                if (name === "x") return [`${value}`, "Time"];
-                if (name === "y") return [`${value}`, "Frequency"];
-                return [value, name];
-              }}
-            />
-            <Scatter name="DDA Matrix" data={scatterData} fill="#8884d8">
-              {scatterData.map((entry, index) => {
-                // Calculate color based on value
-                const normalizedValue =
-                  (entry.value - minValue) / (maxValue - minValue);
-
-                // Use a better color scale: blue (cold) to red (hot)
-                const r = Math.floor(normalizedValue * 255);
-                const g = Math.floor(
-                  Math.max(0, (0.5 - Math.abs(normalizedValue - 0.5)) * 255 * 2)
-                );
-                const b = Math.floor((1 - normalizedValue) * 255);
-                const color = `rgb(${r}, ${g}, ${b})`;
-
-                return (
-                  <Cell
-                    key={`cell-${index}`}
-                    fill={color}
-                    r={2} // Smaller fixed size for better performance
-                  />
-                );
-              })}
-            </Scatter>
-            <Legend />
-          </ScatterChart>
-        </ResponsiveContainer>
+            {" "}
+            +{" "}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              handleWheel({
+                deltaY: 100,
+                clientX: width / 2,
+                clientY: height / 2,
+                currentTarget: canvasRef.current,
+                preventDefault: () => {},
+              } as any)
+            }
+            className="w-8 h-8 p-0"
+            aria-label="Zoom Out"
+          >
+            {" "}
+            -{" "}
+          </Button>
+        </div>
       </div>
     </div>
   );

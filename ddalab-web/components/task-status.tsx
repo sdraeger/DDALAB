@@ -54,10 +54,40 @@ export function TaskStatus({ taskId, onComplete }: TaskStatusProps) {
 
   // Update progress based on status
   useEffect(() => {
-    if (statusData?.getTaskStatus?.status === "processing") {
-      // Simulate progress while processing
+    console.log("[TaskStatus] Status data updated:", statusData?.getTaskStatus);
+
+    if (!statusData?.getTaskStatus) {
+      console.log("[TaskStatus] No status data available yet");
+      return;
+    }
+
+    const currentStatus = statusData.getTaskStatus.status;
+    console.log(
+      `[TaskStatus] Current status: ${currentStatus}, info: ${statusData.getTaskStatus.info || "none"}`
+    );
+
+    if (currentStatus === "PENDING" || currentStatus === "pending") {
+      // Task is pending - waiting to start
+      console.log("[TaskStatus] Task is pending, setting progress to 10%");
+      setProgress(10);
+    } else if (
+      currentStatus === "STARTED" ||
+      currentStatus === "started" ||
+      currentStatus === "PROGRESS" ||
+      currentStatus === "progress" ||
+      currentStatus === "processing"
+    ) {
+      // Task is in progress
+      console.log("[TaskStatus] Task is in progress, simulating progress");
       setProgress((prev) => Math.min(prev + 5, 90));
-    } else if (statusData?.getTaskStatus?.status === "completed") {
+    } else if (
+      currentStatus === "SUCCESS" ||
+      currentStatus === "success" ||
+      currentStatus === "COMPLETED" ||
+      currentStatus === "completed"
+    ) {
+      // Task is complete
+      console.log("[TaskStatus] Task is complete, setting progress to 100%");
       setProgress(100);
       setRefreshInterval(0); // Stop polling
 
@@ -68,14 +98,32 @@ export function TaskStatus({ taskId, onComplete }: TaskStatusProps) {
       });
 
       // Fetch results if not already fetched
+      console.log("[TaskStatus] Fetching results for completed task");
       refetchResult();
 
       // Call onComplete callback with results
       if (onComplete && resultData?.getDdaResult) {
+        console.log("[TaskStatus] Calling onComplete with results");
         onComplete(resultData.getDdaResult);
       }
+    } else if (
+      currentStatus === "FAILURE" ||
+      currentStatus === "failure" ||
+      currentStatus === "FAILED" ||
+      currentStatus === "failed"
+    ) {
+      // Task failed
+      console.log("[TaskStatus] Task failed");
+      setProgress(0);
+      setRefreshInterval(0); // Stop polling
+
+      toast({
+        title: "DDA Task Failed",
+        description: statusData.getTaskStatus.info || "Unknown error",
+        variant: "destructive",
+      });
     }
-  }, [statusData?.getTaskStatus?.status, resultData]);
+  }, [statusData, resultData, onComplete, refetchResult, toast]);
 
   // Manual refresh
   const handleRefresh = () => {

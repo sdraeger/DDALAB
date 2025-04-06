@@ -3,7 +3,8 @@
 import asyncio
 import os
 from datetime import datetime, timezone
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
 import numpy as np
 import strawberry
@@ -16,9 +17,10 @@ from strawberry.fastapi import BaseContext, GraphQLRouter
 from ..core.auth import get_current_user_from_request
 from ..core.config import get_server_settings
 from ..core.database import Annotation, FavoriteFile, get_db
-from ..core.dda import get_dda_result, get_task_status, run_dda
+from ..core.dda import get_dda_result
 from ..core.edf import get_edf_navigator, read_edf_chunk
 from ..core.files import list_directory, validate_file_path
+from ..tasks.dda import run_dda as run_dda_task
 from .preprocessing import (
     PreprocessingOptionsInput,
     VisualizationPreprocessingOptionsInput,
@@ -560,18 +562,18 @@ class Query:
 
         return DDAResult(**result)
 
-    @strawberry.field
-    async def get_task_status(self, task_id: str) -> DDAStatus:
-        """Get task status.
+    # @strawberry.field
+    # async def get_task_status(self, task_id: str) -> DDAStatus:
+    #     """Get task status.
 
-        Args:
-            task_id: Task ID
+    #     Args:
+    #         task_id: Task ID
 
-        Returns:
-            Task status
-        """
-        status = await get_task_status(task_id)
-        return DDAStatus(**status)
+    #     Returns:
+    #         Task status
+    #     """
+    #     status = await get_task_status(task_id)
+    #     return DDAStatus(**status)
 
     @strawberry.field
     async def download_file(self, file_path: str) -> str:
@@ -628,24 +630,55 @@ class Mutation:
         file_path: str,
         channel_list: list[int],
         preprocessing_options: Optional[PreprocessingOptionsInput] = None,
-    ) -> DDAStatus:
-        """Run DDA.
+    ) -> Union[DDAStatus, DDAResult]:
+        """Run DDA synchronously.
 
         Args:
-            file_path: Path to the EDF file
+            file_path: Path to the file
+            channel_list: List of channels to analyze
             preprocessing_options: Optional preprocessing options
 
         Returns:
-            DDA status
+            Complete DDA results
         """
-        logger.info(f"Running DDA for file: {file_path}")
-        task_id = await run_dda(
-            file_path=file_path,
-            channel_list=channel_list,
-            preprocessing_options=preprocessing_options,
-        )
-        logger.info(f"DDA task ID: {task_id}")
-        return DDAStatus(taskId=task_id, status="pending", info="Running DDA")
+        logger.info(f"Running DDA synchronously for file: {file_path}")
+
+        file_path_full = str(Path(settings.data_dir) / file_path)
+        logger.info(f"Full file path: {file_path_full}")
+
+        try:
+            # Convert preprocessing options to dict if provided
+            preprocessing_options_dict = (
+                strawberry.asdict(preprocessing_options)
+                if preprocessing_options
+                else {}
+            )
+
+            # Run the task directly without Celery
+            result = run_dda_task(
+                file_path_full,
+                channel_list,
+                preprocessing_options_dict,
+            )
+
+            logger.info(
+                f"DDA completed successfully with result keys: {result.keys() if isinstance(result, dict) else 'not a dict'}"
+            )
+
+            # Convert the result to the GraphQL type
+            return DDAResult(
+                file_path=result.get("file_path", file_path),
+                Q=result.get("Q", []),
+                metadata=result.get("metadata", {}),
+            )
+        except Exception as e:
+            logger.error(f"Error during synchronous DDA execution: {str(e)}")
+            # Return status with error
+            return DDAStatus(
+                taskId="error",
+                status="error",
+                info=f"Error during DDA execution: {str(e)}",
+            )
 
     @strawberry.mutation
     async def create_annotation(

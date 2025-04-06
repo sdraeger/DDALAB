@@ -1,10 +1,9 @@
 """Core DDA functionality."""
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import numpy as np
-import strawberry
 from celery.result import AsyncResult
 from loguru import logger
 from scipy import signal
@@ -63,7 +62,7 @@ def preprocess_data(
     return processed_data
 
 
-async def run_dda(
+def run_dda(
     file_path: str,
     channel_list: list[int],
     preprocessing_options: Optional[PreprocessingOptionsInput] = None,
@@ -84,18 +83,21 @@ async def run_dda(
     # Submit task directly to Celery
     try:
         logger.info("Submitting task to Celery...")
-        celery_task = run_dda_task.apply_async(
-            args=[
-                file_path,
-                channel_list,
-                strawberry.asdict(preprocessing_options),
-            ],
-            queue="dda",
+        result = run_dda_task(
+            file_path=file_path,
+            channel_list=channel_list,
+            preprocessing_options=preprocessing_options,
         )
-        logger.info(
-            f"Task submitted successfully with ID: {celery_task.id} to queue: dda"
-        )
-        return celery_task.id
+        # celery_task = run_dda_task.apply_async(
+        #     args=[
+        #         file_path,
+        #         channel_list,
+        #         strawberry.asdict(preprocessing_options),
+        #     ],
+        #     queue="dda",
+        # )
+        logger.info(f"Task submitted successfully with ID: {result.id}")
+        return result
     except Exception as e:
         logger.error(f"Error submitting Celery task: {e}")
         raise
@@ -133,18 +135,41 @@ async def get_dda_result(task_id: str) -> Optional[dict[str, Any]]:
         return None
 
 
-async def get_task_status(task_id: str) -> Dict[str, Any]:
-    """Get detailed status of a task.
+# async def get_task_status(task_id: str) -> Dict[str, Any]:
+#     """Get detailed status of a task.
 
-    Args:
-        task_id: Task ID to check
+#     Args:
+#         task_id: Task ID to check
 
-    Returns:
-        Dictionary containing task status information
-    """
-    task_result = AsyncResult(task_id)
-    return {
-        "taskId": task_id,
-        "status": task_result.status,
-        "info": str(task_result.info) if task_result.info else None,
-    }
+#     Returns:
+#         Dictionary containing task status information
+#     """
+#     task_result = AsyncResult(task_id)
+
+#     # Enhanced logging
+#     logger.info(f"[Task Status] Task ID: {task_id}")
+#     logger.info(f"[Task Status] Status: {task_result.status}")
+#     logger.info(f"[Task Status] Backend: {task_result.backend}")
+
+#     # Log result info if available
+#     if task_result.info:
+#         logger.info(f"[Task Status] Info: {task_result.info}")
+
+#     # Check if result is ready and what it contains
+#     if task_result.ready():
+#         logger.info(
+#             f"[Task Status] Task is ready, successful: {task_result.successful()}"
+#         )
+#         if task_result.successful():
+#             try:
+#                 # Try to peek at the result without consuming it
+#                 result_peek = task_result.result
+#                 logger.info(f"[Task Status] Result peek: {type(result_peek)}")
+#             except Exception as e:
+#                 logger.error(f"[Task Status] Error peeking at result: {e}")
+
+#     return {
+#         "taskId": task_id,
+#         "status": task_result.status,
+#         "info": str(task_result.info) if task_result.info else None,
+#     }

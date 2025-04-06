@@ -53,8 +53,14 @@ interface DDAFormProps {
 export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
   const [submitDDATask, { loading }] = useMutation(SUBMIT_DDA_TASK);
   const [taskId, setTaskId] = useState<string | undefined>(undefined);
+  const [ddaData, setDdaData] = useState<any>(null);
   // Default to empty array for channel selection
   const selectedChannels = useState<number[]>([])[0];
+
+  // Function to determine if the response is a DDAResult or DDAStatus
+  const isDDAResult = (response: any): boolean => {
+    return response && response.Q !== undefined;
+  };
 
   // NOTE: To prevent infinite update loops when clicking the form items:
   // 1. We wrap each checkbox in a div with class "checkbox-container"
@@ -101,22 +107,19 @@ export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
         },
       });
 
-      if (responseData?.runDda?.taskId) {
-        toast({
-          title: "DDA Task Submitted",
-          description: `Task ID: ${responseData.runDda.taskId}`,
-        });
-        const newTaskId = responseData.runDda.taskId;
-        console.log("DDA Task submitted successfully, taskId:", newTaskId);
-        console.log("Response data:", responseData);
-        setTaskId(newTaskId);
-        onTaskSubmitted(newTaskId);
+      const response = responseData?.runDda;
+      console.log("DDA response:", response);
 
-        // Add a delay and then log to verify the state was updated
-        setTimeout(() => {
-          console.log("Verifying taskId state was updated:", taskId);
-        }, 100);
-      }
+      toast({
+        title: "DDA Analysis Complete",
+        description: "Analysis results received successfully",
+      });
+
+      console.log("DDA data received directly:", response);
+      setDdaData(response);
+
+      setTaskId("completed");
+      onTaskSubmitted("completed");
     } catch (error) {
       toast({
         title: "Error Submitting DDA Task",
@@ -545,6 +548,7 @@ export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
       {/* Debug log for taskId */}
       {(() => {
         console.log("Rendering DDAPlot with taskId:", taskId);
+        console.log("DDA data available:", !!ddaData);
         return null;
       })()}
 
@@ -553,6 +557,7 @@ export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
         key={taskId || "no-task"}
         filePath={filePath}
         taskId={taskId}
+        ddaData={ddaData}
         preprocessingOptions={{
           removeOutliers: form.watch("removeOutliers"),
           smoothing: form.watch("smoothing"),

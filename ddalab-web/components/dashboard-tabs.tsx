@@ -27,8 +27,8 @@ export function DashboardTabs() {
   };
 
   const handleTaskSubmitted = (taskId: string) => {
-    setActiveTaskId(taskId);
-    setActiveTab("tasks");
+    // setActiveTaskId(taskId);
+    // setActiveTab("tasks");
   };
 
   const handleTaskComplete = (results: any) => {
