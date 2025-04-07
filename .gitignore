@@ -50,3 +50,4 @@ workflow_state.md
 .vscode/
 .idea/
 .config/
+data/bin/
