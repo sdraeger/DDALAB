@@ -45,16 +45,18 @@ docker-compose --version
    ```
 
 2. **Configure environment variables**:
-   - Copy the example .env file:
+   - Copy the example .env files (root and ddalab-web):
 
      ```bash
      cp .env.example .env
+     cp ddalab-web/.env.example ddalab-web/.env.local
      ```
 
-   - Edit the .env file with your preferred settings:
+   - Edit the .env files with your preferred settings:
 
      ```bash
-     nano .env
+     vim .env
+     vim ddalab-web/.env.local
      ```
 
 3. **Start the application**:
