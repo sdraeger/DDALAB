@@ -1,6 +1,6 @@
 # DDALAB - Delay Differential Analysis Laboratory
 
-DDALAB is a Python application for performing Delay Differential Analysis (DDA) on EDF and ASCII files, consisting of a web-based GUI client and a FastAPI backend server with Celery for task management.
+DDALAB is an application for performing Delay Differential Analysis (DDA) on EDF and ASCII files, consisting of a web-based GUI client and a FastAPI backend server with Celery for task management.
 The application is designed to be run on a local machine, but can be deployed to a remote server with the appropriate configuration. In the local case, the data does not leave the local machine. Additionally, the
 traffic within the virtualized network is encrypted via SSL.
 
@@ -9,11 +9,13 @@ traffic within the virtualized network is encrypted via SSL.
 ### Installing Docker
 
 1. **For macOS**:
+
    - Download [Docker Desktop for Mac](https://www.docker.com/products/docker-desktop)
    - Double-click the downloaded .dmg file and drag Docker to Applications
    - Open Docker from Applications folder
 
 2. **For Windows**:
+
    - Download [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop)
    - Run the installer and follow the prompts
    - Start Docker Desktop from the Start menu
@@ -45,6 +47,7 @@ docker-compose --version
    ```
 
 2. **Configure environment variables**:
+
    - Copy the example .env files (root and ddalab-web):
 
      ```bash
@@ -72,6 +75,7 @@ docker-compose --version
    ```
 
 4. **Access the application**:
+
    - Web interface: `https://localhost`
    - API documentation: `https://localhost/docs`
 
@@ -108,10 +112,12 @@ If using `traefik` for SSL:
 ## Troubleshooting
 
 1. **Container startup issues**:
+
    - Check logs: `docker-compose logs`
    - Specific service logs: `docker-compose logs server`
 
 2. **Connection issues**:
+
    - Ensure ports aren't blocked by firewall
    - Verify ports aren't being used by other services
 
