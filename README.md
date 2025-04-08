@@ -42,8 +42,8 @@ docker-compose --version
 1. **Clone the repository**:
 
    ```bash
-   git clone https://github.com/sdraeger/ddalab.git
-   cd ddalab
+   git clone https://github.com/sdraeger/DDALAB.git
+   cd DDALAB
    ```
 
 2. **Configure environment variables**:
@@ -52,6 +52,9 @@ docker-compose --version
 
      ```bash
      cp .env.example .env
+     ```
+
+     ```bash
      cp ddalab-web/.env.example ddalab-web/.env.local
      ```
 
@@ -59,19 +62,22 @@ docker-compose --version
 
      ```bash
      vim .env
+     ```
+
+     ```bash
      vim ddalab-web/.env.local
      ```
 
 3. **Start the application**:
 
    ```bash
-   docker-compose up
+   docker-compose up --build
    ```
 
    Add `-d` flag to run in detached mode:
 
    ```bash
-   docker-compose up -d
+   docker-compose up --build -d
    ```
 
 4. **Access the application**:
