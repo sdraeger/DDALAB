@@ -78,8 +78,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      celery:
-        condition: service_started
       minio:
         condition: service_started
     networks:
@@ -114,20 +112,6 @@ services:
       retries: 30
     ports:
       - "6379:6379"
-    networks:
-      - internal
-
-  celery:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
-    command: celery -A server.celery_app worker -l info -Q celery,dda
-    environment:
-      BROKER_URL: ${CELERY_BROKER_URL}
-    volumes:
-      - ${DDALAB_ALLOWED_DIRS}
-    depends_on:
-      - redis
     networks:
       - internal
 
@@ -186,18 +170,6 @@ services:
       - "traefik.http.routers.traefik.service=api@internal"
       - "traefik.http.routers.traefik.middlewares=auth"
       - "traefik.http.middlewares.auth.basicAuth.users=${TRAEFIK_PASSWORD_HASH}"
-
-  flower:
-    image: mher/flower:2.0.1
-    command: celery --broker=${CELERY_BROKER_URL} flower --port=5555
-    ports:
-      - "5555:5555"
-    depends_on:
-      - redis
-    environment:
-      CELERY_BROKER_URL: ${REDIS_URL}
-    networks:
-      - internal
 
   prometheus:
     image: prom/prometheus:latest
