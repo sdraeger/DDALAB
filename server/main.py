@@ -2,8 +2,6 @@
 
 from contextlib import asynccontextmanager
 
-# from pathlib import Path
-# import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -19,7 +17,7 @@ from server.core.middleware import (
     DBSessionMiddleware,
     PrometheusMiddleware,
 )
-from server.schemas.graphql import graphql_app
+from server.graphql.app import graphql_app
 
 settings = get_server_settings()
 
@@ -122,38 +120,3 @@ app.include_router(api_router, prefix="/api")
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 
 app_metrics.include_router(api_router_metrics)
-
-
-# def main():
-#     """Start the server."""
-#     logger.info("Starting server...")
-
-#     ssl_config = {}
-
-#     if settings.ssl_enabled:
-#         if not (settings.ssl_cert_path and settings.ssl_key_path):
-#             logger.error("SSL is enabled but certificate or key path is not set")
-#             raise ValueError(
-#                 "SSL certificate and key paths must be set when SSL is enabled"
-#             )
-
-#         # Convert relative paths to absolute paths
-#         base_dir = Path(__file__).parent.parent
-#         ssl_config = {
-#             "ssl_keyfile": str(base_dir / settings.ssl_key_path),
-#             "ssl_certfile": str(base_dir / settings.ssl_cert_path),
-#             "ssl_version": 2,  # Use TLS 1.2
-#         }
-#         logger.info(f"SSL encryption enabled with certificates: {ssl_config}")
-
-#     kwargs = {
-#         "host": settings.api_host,
-#         "port": settings.api_port,
-#         "reload": settings.reload,
-#         **ssl_config,
-#     }
-#     uvicorn.run("server.main:app", **kwargs)
-
-
-# if __name__ == "__main__":
-#     main()

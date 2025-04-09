@@ -84,3 +84,13 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         REQUEST_LATENCY.labels(path=request.url.path).observe(duration)
 
         return response
+
+
+class EDFAnonymizationMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> StarletteResponse:
+        logger.info("EDF Anonymization middleware")
+
+        # Process the request and get the response
+        response = await call_next(request)
+
+        return response

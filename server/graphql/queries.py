@@ -1,166 +1,31 @@
-"""GraphQL schema definitions."""
+"""GraphQL query resolvers."""
 
 import asyncio
 import os
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
 import numpy as np
 import strawberry
-from fastapi import Depends, Request
 from loguru import logger
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from strawberry.fastapi import BaseContext, GraphQLRouter
 
 from ..core.auth import get_current_user_from_request
 from ..core.config import get_server_settings
-from ..core.database import Annotation, FavoriteFile, get_db
-from ..core.dda import get_dda_result
+from ..core.database import Annotation, FavoriteFile
 from ..core.edf import get_edf_navigator, read_edf_chunk
 from ..core.files import list_directory, validate_file_path
-from ..tasks.dda import run_dda as run_dda_task
-from .preprocessing import (
-    PreprocessingOptionsInput,
-    VisualizationPreprocessingOptionsInput,
+from ..schemas.preprocessing import VisualizationPreprocessingOptionsInput
+from .context import Context
+from .types import (
+    AnnotationType,
+    EDFChunkInfo,
+    EDFData,
+    EDFNavigationInfo,
+    FavoriteFileType,
+    FileInfo,
 )
 
 settings = get_server_settings()
-
-
-class Context(BaseContext):
-    def __init__(self, request: Request, session: AsyncSession):
-        self.request = request
-        self.session = session
-
-
-async def get_context(request: Request, db_session: AsyncSession = Depends(get_db)):
-    return Context(request=request, session=db_session)
-
-
-@strawberry.type
-class FileInfo:
-    """File information type."""
-
-    name: str
-    path: str
-    isDirectory: bool
-    size: Optional[int] = None
-    lastModified: Optional[str] = None
-    isFavorite: Optional[bool] = False
-
-
-@strawberry.type
-class EDFChunkInfo:
-    """EDF chunk information type."""
-
-    start: int = strawberry.field(description="Start position in samples")
-    end: int = strawberry.field(description="End position in samples")
-    size: int = strawberry.field(description="Size of the chunk in samples")
-    timeSeconds: float = strawberry.field(
-        description="Duration of the chunk in seconds"
-    )
-    positionSeconds: float = strawberry.field(
-        description="Position of the chunk in seconds from the start of the file"
-    )
-
-
-@strawberry.type
-class EDFNavigationInfo:
-    """EDF navigation information type."""
-
-    totalSamples: int = strawberry.field(
-        description="Total number of samples in the file"
-    )
-    fileDurationSeconds: float = strawberry.field(
-        description="Total duration of the file in seconds"
-    )
-    numSignals: int = strawberry.field(description="Number of signals in the file")
-    signalLabels: list[str] = strawberry.field(description="Labels of the signals")
-    samplingFrequencies: list[float] = strawberry.field(
-        description="Sampling frequencies for each signal"
-    )
-    chunks: list[EDFChunkInfo] = strawberry.field(
-        description="Available chunk ranges based on the given chunk size"
-    )
-
-
-@strawberry.type
-class EDFData:
-    """EDF data type."""
-
-    data: list[list[float]]
-    samplingFrequency: float = strawberry.field(description="Sampling frequency in Hz")
-    channelLabels: list[str]
-    totalSamples: int
-    chunkStart: int
-    chunkSize: int
-    navigationInfo: Optional[EDFNavigationInfo] = strawberry.field(
-        description="Navigation information for the file"
-    )
-    chunkInfo: Optional[EDFChunkInfo] = strawberry.field(
-        description="Information about the current chunk"
-    )
-
-    @strawberry.field
-    def has_more(self) -> bool:
-        """Check if there are more samples available after this chunk."""
-        return bool(self.chunkStart + self.chunkSize < self.totalSamples)
-
-
-@strawberry.type
-class DDAResult:
-    """DDA result type."""
-
-    file_path: str
-    Q: list[list[float | None]]
-    metadata: Optional[str] = None
-
-
-@strawberry.type
-class DDAStatus:
-    """DDA task status type."""
-
-    taskId: str = strawberry.field(description="Task ID")
-    status: str = strawberry.field(description="Task status")
-    info: Optional[str] = strawberry.field(
-        description="Additional information about the task"
-    )
-
-
-@strawberry.type
-class AnnotationType:
-    """Annotation type for GraphQL."""
-
-    id: int
-    user_id: int
-    file_path: str
-    start_time: int
-    end_time: Optional[int] = None
-    text: str
-    created_at: str
-    updated_at: str
-
-
-@strawberry.type
-class FavoriteFileType:
-    """Favorite file type for GraphQL."""
-
-    id: int
-    user_id: int
-    file_path: str
-    created_at: str
-
-
-@strawberry.input
-class AnnotationInput:
-    """Input for creating/updating annotations."""
-
-    file_path: str
-    start_time: int
-    end_time: Optional[int] = None
-    text: str
 
 
 @strawberry.type
@@ -203,7 +68,7 @@ class Query:
                 FileInfo(
                     name=item["name"],
                     path=item["path"],
-                    isDirectory=item["type"] == "directory",
+                    isDirectory=item["is_directory"],
                     size=item.get("size"),
                     lastModified=item.get("last_modified"),
                     isFavorite=is_favorite,
@@ -546,36 +411,6 @@ class Query:
             raise ValueError(f"Failed to process EDF file: {str(e)}")
 
     @strawberry.field
-    async def get_dda_result(self, task_id: str) -> Optional[DDAResult]:
-        """Get DDA analysis result.
-
-        Args:
-            task_id: Task ID
-
-        Returns:
-            DDA analysis result or None if not ready
-        """
-        result = await get_dda_result(task_id)
-
-        if result is None:
-            return None
-
-        return DDAResult(**result)
-
-    # @strawberry.field
-    # async def get_task_status(self, task_id: str) -> DDAStatus:
-    #     """Get task status.
-
-    #     Args:
-    #         task_id: Task ID
-
-    #     Returns:
-    #         Task status
-    #     """
-    #     status = await get_task_status(task_id)
-    #     return DDAStatus(**status)
-
-    @strawberry.field
     async def download_file(self, file_path: str) -> str:
         """Get the download URL for a file.
 
@@ -618,198 +453,3 @@ class Query:
             )
             for annotation in annotations.scalars().all()
         ]
-
-
-@strawberry.type
-class Mutation:
-    """GraphQL mutation type."""
-
-    @strawberry.mutation
-    async def run_dda(
-        self,
-        file_path: str,
-        channel_list: list[int],
-        preprocessing_options: Optional[PreprocessingOptionsInput] = None,
-    ) -> Union[DDAStatus, DDAResult]:
-        """Run DDA synchronously.
-
-        Args:
-            file_path: Path to the file
-            channel_list: List of channels to analyze
-            preprocessing_options: Optional preprocessing options
-
-        Returns:
-            Complete DDA results
-        """
-        logger.info(f"Running DDA synchronously for file: {file_path}")
-
-        file_path_full = str(Path(settings.data_dir) / file_path)
-        logger.info(f"Full file path: {file_path_full}")
-
-        try:
-            # Convert preprocessing options to dict if provided
-            preprocessing_options_dict = (
-                strawberry.asdict(preprocessing_options)
-                if preprocessing_options
-                else {}
-            )
-
-            # Run the task directly without Celery
-            result = run_dda_task(
-                file_path_full,
-                channel_list,
-                preprocessing_options_dict,
-            )
-
-            logger.info(
-                f"DDA completed successfully with result keys: {result.keys() if isinstance(result, dict) else 'not a dict'}"
-            )
-
-            # Convert the result to the GraphQL type
-            return DDAResult(
-                file_path=result.get("file_path", file_path),
-                Q=result.get("Q", []),
-                metadata=result.get("metadata", {}),
-            )
-        except Exception as e:
-            logger.error(f"Error during synchronous DDA execution: {str(e)}")
-            # Return status with error
-            return DDAStatus(
-                taskId="error",
-                status="error",
-                info=f"Error during DDA execution: {str(e)}",
-            )
-
-    @strawberry.mutation
-    async def create_annotation(
-        self, annotation_input: AnnotationInput, info: strawberry.Info[Context, None]
-    ) -> AnnotationType:
-        current_user = await get_current_user_from_request(
-            info.context.request, info.context.session
-        )
-
-        await validate_file_path(annotation_input.file_path)
-
-        annotation = Annotation(
-            user_id=current_user.id,
-            file_path=annotation_input.file_path,
-            start_time=annotation_input.start_time,
-            end_time=annotation_input.end_time,
-            text=annotation_input.text,
-        )
-
-        info.context.session.add(annotation)
-
-        await info.context.session.commit()
-        await info.context.session.refresh(annotation)
-
-        return AnnotationType(
-            id=annotation.id,
-            user_id=annotation.user_id,
-            file_path=annotation.file_path,
-            start_time=annotation.start_time,
-            end_time=annotation.end_time,
-            text=annotation.text,
-            created_at=annotation.created_at.isoformat(),
-            updated_at=annotation.updated_at.isoformat(),
-        )
-
-    @strawberry.mutation
-    async def update_annotation(
-        self,
-        id: int,
-        annotation_input: AnnotationInput,
-        info: strawberry.Info[Context, None],
-    ) -> AnnotationType:
-        current_user = await get_current_user_from_request(
-            info.context.request, info.context.session
-        )
-        annotation = await info.context.session.scalar(
-            select(Annotation).where(Annotation.id == id)
-        )
-
-        if not annotation:
-            raise ValueError(f"Annotation with ID {id} not found")
-
-        if annotation.user_id != current_user.id and not current_user.is_admin:
-            raise ValueError("Not authorized to update this annotation")
-
-        annotation.file_path = annotation_input.file_path
-        annotation.start_time = annotation_input.start_time
-        annotation.end_time = annotation_input.end_time
-        annotation.text = annotation_input.text
-        annotation.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-
-        await info.context.session.commit()
-        await info.context.session.refresh(annotation)
-
-        return AnnotationType(
-            id=annotation.id,
-            user_id=annotation.user_id,
-            file_path=annotation.file_path,
-            start_time=annotation.start_time,
-            end_time=annotation.end_time,
-            text=annotation.text,
-            created_at=annotation.created_at.isoformat(),
-            updated_at=annotation.updated_at.isoformat(),
-        )
-
-    @strawberry.mutation
-    async def delete_annotation(
-        self, id: int, info: strawberry.Info[Context, None]
-    ) -> bool:
-        current_user = await get_current_user_from_request(
-            info.context.request, info.context.session
-        )
-        annotation = await info.context.session.scalar(
-            select(Annotation).where(Annotation.id == id)
-        )
-
-        if not annotation:
-            raise ValueError(f"Annotation with ID {id} not found")
-
-        if annotation.user_id != current_user.id and not current_user.is_admin:
-            raise ValueError("Not authorized to delete this annotation")
-
-        await info.context.session.delete(annotation)
-        await info.context.session.commit()
-
-        return True
-
-    @strawberry.mutation
-    async def toggle_favorite_file(
-        file_path: str, info: strawberry.Info[Context, None]
-    ) -> bool:
-        current_user = await get_current_user_from_request(
-            info.context.request, info.context.session
-        )
-        try:
-            favorite = await info.context.session.scalar(
-                select(FavoriteFile).where(
-                    FavoriteFile.user_id == current_user.id,
-                    FavoriteFile.file_path == file_path,
-                )
-            )
-            if favorite:
-                await info.context.session.delete(favorite)
-            else:
-                new_favorite = FavoriteFile(
-                    user_id=current_user.id,
-                    file_path=file_path,
-                    created_at=datetime.now(timezone.utc).replace(tzinfo=None),
-                )
-                info.context.session.add(new_favorite)
-            await info.context.session.commit()
-            return True
-        except Exception as e:
-            await info.context.session.rollback()
-            logger.error(f"Error toggling favorite file: {e}")
-            raise
-
-
-# Create GraphQL app with context
-schema = strawberry.Schema(query=Query, mutation=Mutation)
-graphql_app = GraphQLRouter(
-    schema,
-    context_getter=get_context,
-)

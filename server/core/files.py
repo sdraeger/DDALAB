@@ -87,7 +87,7 @@ async def list_directory(path: str = "") -> List[Dict[str, str]]:
                     {
                         "name": item.name,
                         "path": rel_path,
-                        "type": "file",
+                        "is_directory": False,
                         "size": file_stat.st_size,
                         "last_modified": last_modified,
                     }
@@ -103,13 +103,13 @@ async def list_directory(path: str = "") -> List[Dict[str, str]]:
                     {
                         "name": item.name,
                         "path": rel_path,
-                        "type": "directory",
-                        "size": 0,
+                        "is_directory": True,
+                        "size": None,
                         "last_modified": last_modified,
                     }
                 )
 
-        return sorted(items, key=lambda x: (x["type"] == "file", x["name"]))
+        return sorted(items, key=lambda x: (not x["is_directory"], x["name"]))
     except Exception as e:
         logger.error(f"Error listing directory: {e}")
         return []

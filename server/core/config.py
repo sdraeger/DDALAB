@@ -33,8 +33,8 @@ class Settings(BaseSettings):
     task_timeout: int
 
     # Celery settings
-    celery_broker_url: str
-    celery_result_backend: str
+    # celery_broker_url: str
+    # celery_result_backend: str
 
     # Redis settings (for task result storage)
     redis_host: str
@@ -210,11 +210,11 @@ class ConfigManager:
         configs["data"] = data_settings
 
         # Initialize celery settings
-        celery_settings = self.load_config(Settings, "celery")
-        if celery_settings is None:
-            celery_settings = Settings()
-            self.save_config(celery_settings, "celery")
-        configs["celery"] = celery_settings
+        # celery_settings = self.load_config(Settings, "celery")
+        # if celery_settings is None:
+        #     celery_settings = Settings()
+        #     self.save_config(celery_settings, "celery")
+        # configs["celery"] = celery_settings
 
         # Initialize redis settings
         redis_settings = self.load_config(Settings, "redis")
@@ -263,7 +263,7 @@ def update_settings(setting_type: str, updates: Dict[str, Any]) -> BaseModel:
     """Update settings of a specific type.
 
     Args:
-        setting_type: Type of settings to update ("server", "data", "celery", or "redis")
+        setting_type: Type of settings to update ("server", "data", or "redis")
         updates: Dictionary of updates to apply
 
     Returns:
@@ -277,11 +277,11 @@ def update_settings(setting_type: str, updates: Dict[str, Any]) -> BaseModel:
         get_server_settings.cache_clear()
         current = get_server_settings()
     elif setting_type == "data":
-        get_server_settings.cache_clear()
-        current = get_server_settings()
-    elif setting_type == "celery":
-        get_server_settings.cache_clear()
-        current = get_server_settings()
+        get_data_settings.cache_clear()
+        current = get_data_settings()
+    # elif setting_type == "celery":
+    #     get_server_settings.cache_clear()
+    #     current = get_server_settings()
     elif setting_type == "redis":
         get_server_settings.cache_clear()
         current = get_server_settings()
