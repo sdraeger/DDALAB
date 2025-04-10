@@ -8,9 +8,9 @@ from sqlalchemy import select
 
 from ..core.auth import get_current_user_from_request
 from ..core.database import Annotation, FavoriteFile
+from ..core.dda import run_dda as run_dda_core
 from ..core.files import validate_file_path
 from ..schemas.preprocessing import PreprocessingOptionsInput
-from ..tasks.dda import run_dda as run_dda_task
 from .context import Context
 from .types import AnnotationInput, AnnotationType, DDAResult
 
@@ -31,12 +31,12 @@ class Mutation:
         Args:
             file_path: Path to the file
             channel_list: List of channels to analyze
-            preprocessing_options: Optional preprocessing options
+            preprocessing_options: Optional[PreprocessingOptionsInput] = None
 
         Returns:
             Complete DDA results
         """
-        result = await run_dda_task(
+        result = await run_dda_core(
             file_path=file_path,
             channel_list=channel_list,
             preprocessing_options=(

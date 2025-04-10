@@ -24,6 +24,7 @@ class Settings(BaseSettings):
 
     # Data directory settings
     data_dir: str
+    anonymize_edf: bool = False  # Whether to anonymize EDF files by default
 
     # DDA binary settings
     dda_binary_path: str
@@ -31,10 +32,6 @@ class Settings(BaseSettings):
     # Analysis settings
     max_concurrent_tasks: int
     task_timeout: int
-
-    # Celery settings
-    # celery_broker_url: str
-    # celery_result_backend: str
 
     # Redis settings (for task result storage)
     redis_host: str
@@ -209,13 +206,6 @@ class ConfigManager:
             self.save_config(data_settings, "data")
         configs["data"] = data_settings
 
-        # Initialize celery settings
-        # celery_settings = self.load_config(Settings, "celery")
-        # if celery_settings is None:
-        #     celery_settings = Settings()
-        #     self.save_config(celery_settings, "celery")
-        # configs["celery"] = celery_settings
-
         # Initialize redis settings
         redis_settings = self.load_config(Settings, "redis")
         if redis_settings is None:
@@ -279,9 +269,6 @@ def update_settings(setting_type: str, updates: Dict[str, Any]) -> BaseModel:
     elif setting_type == "data":
         get_data_settings.cache_clear()
         current = get_data_settings()
-    # elif setting_type == "celery":
-    #     get_server_settings.cache_clear()
-    #     current = get_server_settings()
     elif setting_type == "redis":
         get_server_settings.cache_clear()
         current = get_server_settings()

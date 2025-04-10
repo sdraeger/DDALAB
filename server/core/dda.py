@@ -3,13 +3,13 @@
 from pathlib import Path
 from typing import Optional
 
+import dda_py
 import numpy as np
 from loguru import logger
 from scipy import signal
 
 from ..core.config import get_server_settings
-from ..schemas.preprocessing import PreprocessingOptionsInput
-from ..tasks.dda import run_dda as run_dda_task
+from ..schemas.dda import DDAResult
 
 settings = get_server_settings()
 
@@ -62,32 +62,47 @@ def preprocess_data(
 
 
 def run_dda(
-    file_path: str,
-    channel_list: list[int],
-    preprocessing_options: Optional[PreprocessingOptionsInput] = None,
-) -> str:
-    """Run a DDA task.
+    file_path: Path = None,
+    channel_list: list[int] = None,
+    preprocessing_options: dict[str, bool | int | float | str] = None,
+) -> DDAResult:
+    """Run DDA on a file.
 
     Args:
-        file_path: Path to the file to analyze
-        preprocessing_options: Options for preprocessing the data
+        file_path: Path to the file
+        channel_list: List of channels to analyze
+        preprocessing_options: Preprocessing options
 
     Returns:
-        Task ID for tracking the task
+        DDAResult object
     """
 
     file_path = str(Path(settings.data_dir) / file_path)
-    logger.info(f"Starting DDA task for file: {file_path}")
+    logger.info(f"Running DDA on file: {file_path}")
+    logger.info(f"Preprocessing options: {preprocessing_options}")
 
     try:
-        logger.info("Running DDA task...")
-        result = run_dda_task(
-            file_path=file_path,
+        Q, ST_filepath = dda_py.run_dda(
+            input_file=file_path,
+            output_file=None,
             channel_list=channel_list,
-            preprocessing_options=preprocessing_options,
+            bounds=None,
+            cpu_time=False,
         )
-        logger.info("DDA task completed successfully")
+
+        logger.info("DDA computation completed successfully")
+
+        Q = np.where(np.isnan(Q), None, Q).tolist()
+
+        result = DDAResult(
+            file_path=file_path,
+            Q=Q,
+            preprocessing_options=preprocessing_options,
+        ).model_dump()
+
+        logger.info("Returning DDA result")
         return result
     except Exception as e:
-        logger.error(f"Error running DDA task: {e}")
+        error_msg = f"Error during DDA computation: {e}"
+        logger.error(error_msg)
         raise
