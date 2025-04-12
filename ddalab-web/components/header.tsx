@@ -13,20 +13,30 @@ import {
 import { LogOut, User, BrainCircuit, Ticket, Settings } from "lucide-react";
 import { ModeToggle } from "@/components/mode-toggle";
 import { HelpButton } from "@/components/help-button";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { RegisterDialog } from "@/components/register-dialog";
 import { useSession } from "next-auth/react";
 import { signOut } from "next-auth/react";
 
 export function Header() {
-  const { data: session, status } = useSession();
+  const { data: session } = useSession();
   const user = session?.user;
   const isLoggedIn = !!session;
   const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
+  const [institutionName, setInstitutionName] = useState("DEFAULT");
 
   const handleLogout = async () => {
     await signOut({ callbackUrl: "/" });
   };
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then((res) => res.json())
+      .then((data) => {
+        setInstitutionName(data.institution_name);
+        console.log("Header INSTITUTION_NAME:", data.institution_name);
+      });
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -35,9 +45,7 @@ export function Header() {
           <BrainCircuit className="h-6 w-6 mr-2" />
           <Link href="/" className="font-bold">
             DDALAB
-            {process.env.INSTITUTION_NAME
-              ? ` @ ${process.env.INSTITUTION_NAME}`
-              : ""}
+            {institutionName ? ` @ ${institutionName}` : ""}
           </Link>
         </div>
 

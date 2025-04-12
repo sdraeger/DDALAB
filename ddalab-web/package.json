@@ -2,7 +2,6 @@
   "name": "ddalab-web",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "scripts": {
     "dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 ts-node --project tsconfig.node.json server.ts",
     "build": "next build",
@@ -53,6 +52,7 @@
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",
     "date-fns": "3.6.0",
+    "dotenv": "^16.5.0",
     "embla-carousel-react": "8.5.1",
     "fs": "latest",
     "graphql": "latest",
@@ -97,7 +97,6 @@
     "@types/react-dom": "^19",
     "axios": "^1.6.7",
     "babel-jest": "^29.7.0",
-    "dotenv": "^16.4.7",
     "eslint": "^9.23.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-import": "^2.31.0",

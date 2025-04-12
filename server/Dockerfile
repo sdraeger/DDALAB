@@ -2,8 +2,10 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-COPY server/ /app/server
-COPY .env /app/.env
+COPY server /app/server
+# COPY . /app/server
+
+# COPY ./.env /app/.env
 RUN chmod +x /app/server/start.sh
 
 RUN apt update

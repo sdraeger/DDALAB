@@ -1,3 +1,9 @@
+import { loadEnvConfig } from './lib/env.mjs';
+
+if (typeof window === 'undefined') {
+  loadEnvConfig();
+}
+
 let userConfig = undefined;
 try {
   userConfig = await import("./v0-user-next.config");
@@ -7,9 +13,6 @@ try {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  env: {
-    INSTITUTION_NAME: process.env.INSTITUTION_NAME || "",
-  },
   eslint: {
     ignoreDuringBuilds: true,
   },

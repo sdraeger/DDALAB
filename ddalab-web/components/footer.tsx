@@ -1,8 +1,20 @@
-import { FC } from "react";
-import { BrainCircuit, Mail, Globe, Github } from "lucide-react";
+"use client";
 
-const Footer: FC = () => {
+import { BrainCircuit, Mail, Globe, Github } from "lucide-react";
+import { useState, useEffect } from "react";
+
+export function Footer() {
   const currentYear = new Date().getFullYear();
+  const [institutionName, setInstitutionName] = useState("DEFAULT");
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then((res) => res.json())
+      .then((data) => {
+        setInstitutionName(data.institution_name);
+        console.log("Footer INSTITUTION_NAME:", data.institution_name);
+      });
+  }, []);
 
   return (
     <footer className="w-full bg-background border-t shadow-sm mt-auto">
@@ -39,15 +51,13 @@ const Footer: FC = () => {
 
           <div className="text-sm text-muted-foreground">
             &copy; {currentYear} DDALAB
-            {process.env.INSTITUTION_NAME
-              ? ` @ ${process.env.INSTITUTION_NAME}`
-              : ""}
-            . All rights reserved.
+            {institutionName ? ` @ ${institutionName}` : ""}. All rights
+            reserved.
           </div>
         </div>
       </div>
     </footer>
   );
-};
+}
 
 export default Footer;
