@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     api_host: str
     api_port: int
 
+    # Institution name
+    institution_name: str
+
     # Data directory settings
     data_dir: str
     anonymize_edf: bool = False  # Whether to anonymize EDF files by default
@@ -29,26 +32,12 @@ class Settings(BaseSettings):
     # DDA binary settings
     dda_binary_path: str
 
-    # Analysis settings
-    max_concurrent_tasks: int
-    task_timeout: int
-
-    # Redis settings (for task result storage)
-    redis_host: str
-    redis_port: int
-    redis_db: int
-
     # PostgreSQL Database settings
     db_host: str
     db_port: int
     db_name: str
     db_user: str
     db_password: str
-
-    # SSL settings
-    ssl_enabled: bool
-    ssl_cert_path: str | None = None
-    ssl_key_path: str | None = None
 
     # Authentication settings
     jwt_secret_key: str
@@ -206,13 +195,6 @@ class ConfigManager:
             self.save_config(data_settings, "data")
         configs["data"] = data_settings
 
-        # Initialize redis settings
-        redis_settings = self.load_config(Settings, "redis")
-        if redis_settings is None:
-            redis_settings = Settings()
-            self.save_config(redis_settings, "redis")
-        configs["redis"] = redis_settings
-
         return configs
 
 
@@ -269,9 +251,6 @@ def update_settings(setting_type: str, updates: Dict[str, Any]) -> BaseModel:
     elif setting_type == "data":
         get_data_settings.cache_clear()
         current = get_data_settings()
-    elif setting_type == "redis":
-        get_server_settings.cache_clear()
-        current = get_server_settings()
     else:
         raise ValueError(f"Invalid setting type: {setting_type}")
 

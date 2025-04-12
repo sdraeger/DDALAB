@@ -16,6 +16,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/docs",
             "/openapi.json",
             "/api/health",
+            "/api/config",
             "/api/auth/token",
             "/api/auth/login",
             "/api/auth/refresh-token",

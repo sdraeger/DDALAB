@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from .config import router as config_router
 from .dda import router as dda_router
 from .files import router as files_router
 from .health import router as health_router
@@ -28,4 +29,6 @@ router.include_router(
 router.include_router(users_router, prefix="/users", tags=["users"])
 router.include_router(health_router, prefix="/health", tags=["health"])
 router.include_router(results_router, prefix="/results", tags=["results"])
+router.include_router(config_router, prefix="/config", tags=["config"])
+
 router_metrics.include_router(metrics_router, prefix="/metrics", tags=["metrics"])
