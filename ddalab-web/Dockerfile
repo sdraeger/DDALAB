@@ -3,6 +3,7 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
+# Install dependencies
 RUN apk update && apk add --no-cache \
 	build-base \
 	gcc \
@@ -11,14 +12,16 @@ RUN apk update && apk add --no-cache \
 	libpq-dev \
 	&& rm -rf /var/cache/apk/*
 
+# Copy package files
 COPY ddalab-web/package*.json ./
 
+# Install dependencies
 RUN npm install
 
+# Copy source files
 COPY ddalab-web .
 
 # Load .env and run build
-# RUN node -e "require('dotenv').config({ path: './.env' });" && npm run build
 RUN echo "NEXT_PUBLIC_API_URL=https://localhost" > /app/.env.default
 RUN echo "SESSION_EXPIRATION=10080" >> /app/.env.default
 RUN npm install dotenv && \

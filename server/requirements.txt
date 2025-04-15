@@ -9,6 +9,11 @@ redis>=5.0.1
 aiofiles>=23.2.1
 uvicorn>=0.15.0
 loguru>=0.5.3
+opentelemetry-api>=0.53b0
+opentelemetry-instrumentation>=0.53b0
+opentelemetry-instrumentation-fastapi>=0.53b0
+opentelemetry-sdk>=1.32.0
+opentelemetry-exporter-jaeger==1.21.0
 gunicorn
 cryptography>=41.0.0
 email-validator>=2.0.0
@@ -17,7 +22,7 @@ asyncpg>=0.30.0
 click>=8.1.8
 minio>=7.2.15
 prometheus-client>=0.21.1
-dda-py>=0.1.1
+dda-py>=0.1.3
 
 # GraphQL dependencies
 strawberry-graphql>=0.96.0

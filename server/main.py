@@ -7,6 +7,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from minio import Minio
 from minio.error import S3Error
+from opentelemetry import trace
+from opentelemetry.exporter.jaeger.thrift import JaegerExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 from server.api import router as api_router
 from server.api import router_metrics as api_router_metrics
@@ -17,7 +23,7 @@ from server.core.middleware import (
     DBSessionMiddleware,
     PrometheusMiddleware,
 )
-from server.graphql.app import graphql_app
+from server.graphql.graphql import graphql_app
 
 settings = get_server_settings()
 
@@ -78,6 +84,21 @@ app_metrics = FastAPI(
     description="Metrics endpoint for Prometheus",
     version="0.1.0",
 )
+
+# Set up OpenTelemetry tracer provider with service name
+trace.set_tracer_provider(
+    TracerProvider(resource=Resource.create({"service.name": "ddalab-api"}))
+)
+
+jaeger_exporter = JaegerExporter(
+    agent_host_name=settings.jaeger_host,
+    agent_port=settings.jaeger_port,
+)
+span_processor = BatchSpanProcessor(jaeger_exporter)
+trace.get_tracer_provider().add_span_processor(span_processor)
+
+# Instrument FastAPI app (this enables automatic tracing)
+FastAPIInstrumentor.instrument_app(app)
 
 # Add database session middleware
 app.add_middleware(DBSessionMiddleware)

@@ -35,7 +35,6 @@ export function DDAHeatmap({
 
   // Effect 1: Calculate data bounds and initial view setting
   useEffect(() => {
-    // console.log("Heatmap data received, length:", data.length);
     if (data.length === 0) {
       // Reset view and flag when data is cleared
       initialViewCalculated.current = false;
@@ -113,6 +112,49 @@ export function DDAHeatmap({
     }
   }, [data, width, height]); // Dependencies are correct
 
+  function intToInfernoRGB(value: number): [number, number, number] {
+    // Validate input
+    if (isNaN(value)) {
+      console.warn(`Invalid value: ${value}`);
+      return [0, 0, 0]; // Fallback to black
+    }
+
+    // Clamp to [0, 1] since value is already normalized
+    const normalized = Math.min(Math.max(value, 0), 1);
+
+    // Inferno control points (scalar: [0, 1], rgb: [0-255])
+    const infernoControlPoints: {
+      scalar: number;
+      rgb: [number, number, number];
+    }[] = [
+      { scalar: 0.0, rgb: [0, 0, 4] }, // Black
+      { scalar: 0.2, rgb: [20, 11, 52] }, // Dark purple
+      { scalar: 0.4, rgb: [66, 10, 104] }, // Purple
+      { scalar: 0.6, rgb: [147, 38, 103] }, // Magenta
+      { scalar: 0.8, rgb: [229, 92, 48] }, // Orange
+      { scalar: 1.0, rgb: [252, 255, 164] }, // Yellow
+    ];
+
+    // Linear interpolation
+    for (let i = 0; i < infernoControlPoints.length - 1; i++) {
+      const point1 = infernoControlPoints[i];
+      const point2 = infernoControlPoints[i + 1];
+
+      if (normalized >= point1.scalar && normalized <= point2.scalar) {
+        const t =
+          (normalized - point1.scalar) / (point2.scalar - point1.scalar);
+        return [
+          Math.round(point1.rgb[0] + (point2.rgb[0] - point1.rgb[0]) * t),
+          Math.round(point1.rgb[1] + (point2.rgb[1] - point1.rgb[1]) * t),
+          Math.round(point1.rgb[2] + (point2.rgb[2] - point1.rgb[2]) * t),
+        ];
+      }
+    }
+
+    // Return last color if normalized == 1
+    return infernoControlPoints[infernoControlPoints.length - 1].rgb;
+  }
+
   // Effect 2: Drawing logic, depends on state variables set by Effect 1 and interactions
   const drawHeatmap = useCallback(() => {
     const canvas = canvasRef.current;
@@ -160,9 +202,7 @@ export function DDAHeatmap({
         0,
         Math.min(1, (point.value - minValue) / valueRange)
       );
-      const r = Math.floor(normalizedValue * 255);
-      const g = 0;
-      const b = Math.floor((1 - normalizedValue) * 255);
+      const [r, g, b] = intToInfernoRGB(normalizedValue);
       const color = `rgb(${r},${g},${b})`;
       const pointSize = Math.max(1, Math.ceil(currentZoom * 1.5));
 
@@ -176,10 +216,8 @@ export function DDAHeatmap({
       drawnPoints++;
     }
 
-    // if (drawnPoints === 0 && currentData.length > 0) { console.warn("No points drawn in visible area."); }
-
     ctx.drawImage(offscreenCanvas, 0, 0);
-  }, [data, width, height, zoom, pan, colorRange]); // Keep dependencies for useCallback
+  }, [data, width, height, zoom, pan, colorRange]);
 
   // Effect 3: Trigger redraw when drawHeatmap callback changes (due to its dependencies changing)
   useEffect(() => {

@@ -13,6 +13,8 @@ from ..schemas.dda import DDAResult
 
 settings = get_server_settings()
 
+dda_py.init(settings.dda_binary_path)
+
 
 def preprocess_data(
     data: np.ndarray, sampling_rate: float, options: Optional[dict[str, bool]] = None
@@ -61,7 +63,7 @@ def preprocess_data(
     return processed_data
 
 
-def run_dda(
+async def run_dda(
     file_path: Path = None,
     channel_list: list[int] = None,
     preprocessing_options: dict[str, bool | int | float | str] = None,
@@ -82,15 +84,14 @@ def run_dda(
     logger.info(f"Preprocessing options: {preprocessing_options}")
 
     try:
-        Q, ST_filepath = dda_py.run_dda(
+        Q, _ = await dda_py.run_dda_async(
             input_file=file_path,
             output_file=None,
             channel_list=channel_list,
             bounds=None,
             cpu_time=False,
+            raise_on_error=False,
         )
-
-        logger.info("DDA computation completed successfully")
 
         Q = np.where(np.isnan(Q), None, Q).tolist()
 
@@ -100,7 +101,6 @@ def run_dda(
             preprocessing_options=preprocessing_options,
         ).model_dump()
 
-        logger.info("Returning DDA result")
         return result
     except Exception as e:
         error_msg = f"Error during DDA computation: {e}"

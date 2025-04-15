@@ -39,16 +39,9 @@ export const SUBMIT_DDA_TASK = gql`
       channelList: $channelList
       preprocessingOptions: $preprocessingOptions
     ) {
-      ... on DDAStatus {
-        taskId
-        status
-        info
-      }
-      ... on DDAResult {
-        filePath
-        Q
-        metadata
-      }
+      filePath
+      Q
+      metadata
     }
   }
 `;
