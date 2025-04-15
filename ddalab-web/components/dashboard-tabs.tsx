@@ -112,7 +112,6 @@ export function DashboardTabs() {
                 {selectedFilePath ? (
                   <DDAForm
                     filePath={selectedFilePath}
-                    channelList={selectedChannels}
                     onTaskSubmitted={handleTaskSubmitted}
                   />
                 ) : (

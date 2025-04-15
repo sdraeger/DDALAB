@@ -40,7 +40,9 @@ class Mutation:
             file_path=file_path,
             channel_list=channel_list,
             preprocessing_options=(
-                preprocessing_options.to_dict() if preprocessing_options else None
+                strawberry.asdict(preprocessing_options)
+                if preprocessing_options
+                else None
             ),
         )
         return DDAResult(

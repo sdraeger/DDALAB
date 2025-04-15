@@ -23,30 +23,13 @@ services:
       - internal
     labels:
       - "traefik.enable=true"
-      # Default catch-all for web
-      - "traefik.http.routers.web.rule=Host(`localhost`)"
-      - "traefik.http.routers.web.entrypoints=websecure"
-      - "traefik.http.routers.web.tls=true"
-      - "traefik.http.services.web.loadbalancer.server.port=3000"
-      # Specific Next.js API routes
-      - "traefik.http.routers.web-auth.rule=Host(`localhost`) && PathPrefix(`/api/auth/`)"
-      - "traefik.http.routers.web-auth.entrypoints=websecure"
-      - "traefik.http.routers.web-auth.tls=true"
-      - "traefik.http.routers.web-auth.service=web"
-      - "traefik.http.routers.web-api.rule=Host(`localhost`) && Path(`/api`)"
-      - "traefik.http.routers.web-api.entrypoints=websecure"
-      - "traefik.http.routers.web-api.tls=true"
-      - "traefik.http.routers.web-api.service=web"
-      - "traefik.http.routers.web-debug.rule=Host(`localhost`) && PathPrefix(`/api/debug`)"
-      - "traefik.http.routers.web-debug.entrypoints=websecure"
-      - "traefik.http.routers.web-debug.tls=true"
-      - "traefik.http.routers.web-debug.service=web"
 
   api:
     build:
       context: .
       dockerfile: ./server/Dockerfile
     image: sdraeger1/ddalab-api-server:latest
+    platform: linux/amd64
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
       interval: 5s
@@ -74,22 +57,6 @@ services:
       - internal
     labels:
       - "traefik.enable=true"
-      # General API route
-      - "traefik.http.routers.api.rule=Host(`localhost`) && PathPrefix(`/api/`)"
-      - "traefik.http.routers.api.entrypoints=websecure"
-      - "traefik.http.routers.api.tls=true"
-      - "traefik.http.routers.api.service=api"
-      - "traefik.http.services.api.loadbalancer.server.port=8001"
-      # Specific tickets route
-      - "traefik.http.routers.api-tickets.rule=Host(`localhost`) && PathPrefix(`/api/tickets`)"
-      - "traefik.http.routers.api-tickets.entrypoints=websecure"
-      - "traefik.http.routers.api-tickets.tls=true"
-      - "traefik.http.routers.api-tickets.service=api"
-      # GraphQL route
-      - "traefik.http.routers.api-graphql.rule=Host(`localhost`) && PathPrefix(`/graphql`)"
-      - "traefik.http.routers.api-graphql.entrypoints=websecure"
-      - "traefik.http.routers.api-graphql.tls=true"
-      - "traefik.http.routers.api-graphql.service=api"
 
   minio:
     image: minio/minio:RELEASE.2025-03-12T18-04-18Z
@@ -106,7 +73,7 @@ services:
       - internal
 
   postgres:
-    image: postgres:16 # Use a specific version for stability
+    image: postgres:16
     environment:
       POSTGRES_USER: ${DDALAB_DB_USER}
       POSTGRES_PASSWORD: ${DDALAB_DB_PASSWORD}
@@ -125,23 +92,28 @@ services:
       timeout: 3s
       retries: 10
     volumes:
-      - ./postgres-data:/var/lib/postgresql/data # Persist data
+      - ./postgres-data:/var/lib/postgresql/data
     ports:
-      - "5432:5432" # Expose Postgres port (optional for local access)
+      - "5432:5432"
     networks:
       - internal
 
   traefik:
-    image: traefik:v2.10
+    image: traefik:v3.3.5
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      - TRAEFIK_PASSWORD_HASH=${TRAEFIK_PASSWORD_HASH}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./certs:/etc/traefik/certs:ro
       - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./dynamic:/etc/traefik/dynamic:ro
       - ./traefik-logs:/traefik.log
-      - ./acme.json:/acme.json
+      - type: bind
+        source: ./acme.json
+        target: /acme.json
     depends_on:
       postgres:
         condition: service_healthy
@@ -154,15 +126,21 @@ services:
       - internal
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.traefik.rule=Host(`traefik.localhost`)"
-      - "traefik.http.routers.traefik.entrypoints=websecure"
-      - "traefik.http.routers.traefik.tls=true"
-      - "traefik.http.routers.traefik.service=api@internal"
-      - "traefik.http.routers.traefik.middlewares=auth"
-      - "traefik.http.middlewares.auth.basicAuth.users=${TRAEFIK_PASSWORD_HASH}"
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "6831:6831/udp"
+      - "16686:16686"
+      - "14268:14268"
+      - "14250:14250"
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+    networks:
+      - internal
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.2.1
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - ./prometheus_data:/prometheus
@@ -175,7 +153,7 @@ services:
       - internal
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.6.0
     ports:
       - "3005:3005"
     volumes:

@@ -13,6 +13,9 @@ providers:
   docker:
     exposedByDefault: false
     network: "ddalab_internal"
+    watch: true
+  file:
+    directory: /etc/traefik/dynamic
 
 certificatesResolvers:
   letsencrypt:

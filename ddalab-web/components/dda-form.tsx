@@ -51,28 +51,10 @@ interface DDAFormProps {
 }
 
 export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
-  const [submitDDATask, { loading }] = useMutation(SUBMIT_DDA_TASK);
-  const [taskId, setTaskId] = useState<string | undefined>(undefined);
-  const [ddaData, setDdaData] = useState<any>(null);
-  // Default to empty array for channel selection
-  const selectedChannels = useState<number[]>([])[0];
-
-  // Function to determine if the response is a DDAResult or DDAStatus
-  const isDDAResult = (response: any): boolean => {
-    return response && response.Q !== undefined;
-  };
-
-  // NOTE: To prevent infinite update loops when clicking the form items:
-  // 1. We wrap each checkbox in a div with class "checkbox-container"
-  // 2. In the onClick handlers, we check if the click target is NOT inside that container
-  // 3. We only toggle the checkbox value if the click happened outside the checkbox
-  // This prevents the checkbox's onChange and the FormItem's onClick from both firing and
-  // creating an infinite loop of state updates
-
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      filePath,
+      filePath: filePath,
       resample1000hz: false,
       resample500hz: false,
       lowpassFilter: false,
@@ -86,12 +68,23 @@ export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
     },
   });
 
+  const [submitDdaTask, { loading }] = useMutation(SUBMIT_DDA_TASK);
+  const [taskId, setTaskId] = useState<string | undefined>(undefined);
+  const [Q, setQ] = useState<any>(null);
+  const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
+  const [availableChannels, setAvailableChannels] = useState<string[]>([]);
+
   const onSubmit = async (data: FormValues) => {
     try {
-      const { data: responseData } = await submitDDATask({
+      // Convert selected channel labels to indices based on available channels
+      const channelIndices = selectedChannels
+        .map((label) => availableChannels.indexOf(label))
+        .filter((index) => index !== -1); // Filter out any channels not found in availableChannels
+
+      const { data: responseData } = await submitDdaTask({
         variables: {
           filePath: data.filePath,
-          channelList: selectedChannels,
+          channelList: channelIndices,
           preprocessingOptions: {
             resample1000hz: data.resample1000hz,
             resample500hz: data.resample500hz,
@@ -115,8 +108,7 @@ export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
         description: "Analysis results received successfully",
       });
 
-      console.log("DDA data received directly:", response);
-      setDdaData(response);
+      setQ(response?.Q);
 
       setTaskId("completed");
       onTaskSubmitted("completed");
@@ -128,6 +120,14 @@ export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
         variant: "destructive",
       });
     }
+  };
+
+  const handleChannelSelectionChange = (selectedChannels: string[]) => {
+    setSelectedChannels(selectedChannels);
+  };
+
+  const handleAvailableChannelsChange = (channels: string[]) => {
+    setAvailableChannels(channels);
   };
 
   return (
@@ -545,19 +545,14 @@ export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
         </CardContent>
       </Card>
 
-      {/* Debug log for taskId */}
-      {(() => {
-        console.log("Rendering DDAPlot with taskId:", taskId);
-        console.log("DDA data available:", !!ddaData);
-        return null;
-      })()}
-
-      {/* Force re-render of DDAPlot when taskId changes */}
       <DDAPlot
         key={taskId || "no-task"}
         filePath={filePath}
         taskId={taskId}
-        ddaData={ddaData}
+        Q={Q}
+        selectedChannels={selectedChannels}
+        onChannelSelectionChange={handleChannelSelectionChange}
+        onAvailableChannelsChange={handleAvailableChannelsChange}
         preprocessingOptions={{
           removeOutliers: form.watch("removeOutliers"),
           smoothing: form.watch("smoothing"),

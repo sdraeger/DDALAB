@@ -4,8 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@apollo/client";
 import {
   GET_EDF_DATA,
-  GET_DDA_TASK_RESULT,
-  GET_DDA_TASK_STATUS,
   CREATE_ANNOTATION,
   DELETE_ANNOTATION,
   UPDATE_ANNOTATION,
@@ -59,28 +57,24 @@ const hasActivePreprocessing = (options: any): boolean => {
 interface DDAPlotProps {
   filePath: string;
   taskId?: string;
-  ddaData?: any; // Direct DDA result data
+  Q?: any;
   onChunkLoaded?: (data: EEGData) => void;
   preprocessingOptions?: any;
+  selectedChannels: string[];
+  onChannelSelectionChange: (channels: string[]) => void;
+  onAvailableChannelsChange?: (channels: string[]) => void;
 }
 
 export function DDAPlot({
   filePath,
   taskId,
-  ddaData: externalDdaData,
+  Q,
   onChunkLoaded,
   preprocessingOptions: externalPreprocessingOptions,
+  selectedChannels,
+  onChannelSelectionChange,
+  onAvailableChannelsChange
 }: DDAPlotProps) {
-  // Log props on component mount
-  useEffect(() => {
-    console.log("DDAPlot component mounted with props:", {
-      filePath,
-      taskId,
-      hasExternalDdaData: !!externalDdaData,
-      externalDdaData,
-      hasPreprocessingOptions: !!externalPreprocessingOptions,
-    });
-  }, [filePath, taskId, externalDdaData, externalPreprocessingOptions]);
   // Context for managing shared state between components
   const { getPlotState, updatePlotState, initPlotState } = useEDFPlot();
   const { toast } = useToast();
@@ -128,8 +122,6 @@ export function DDAPlot({
   const [targetAnnotationAfterLoad, setTargetAnnotationAfterLoad] =
     useState<Annotation | null>(null);
 
-  // Add state for DDA task polling and results
-  const [isPolling, setIsPolling] = useState(false);
   const [ddaHeatmapData, setDdaHeatmapData] = useState<any[]>([]);
   const [showHeatmap, setShowHeatmap] = useState(false);
 
@@ -169,16 +161,13 @@ export function DDAPlot({
   const [absoluteTimeWindow, setAbsoluteTimeWindow] = useState<
     [number, number] | undefined
   >(plotState.absoluteTimeWindow);
-  const [selectedChannels, setSelectedChannels] = useState<string[]>(
-    plotState.selectedChannels || []
-  );
   const [zoomLevel, setZoomLevel] = useState(plotState.zoomLevel || 1);
 
   // Initialize preprocessing options - making sure to not interpret defaults as active preprocessing
   const defaultPreprocessingOptions = {
     removeOutliers: false,
     smoothing: false,
-    smoothingWindow: 3, // Smaller default value, more appropriate for shorter windows
+    smoothingWindow: 3,
     normalization: "none",
   };
 
@@ -304,240 +293,20 @@ export function DDAPlot({
     }
   }, [data, shouldLoadChunk]);
 
-  // Debug log when shouldLoadChunk changes
+  // Process Q matrix for heatmap
   useEffect(() => {
-    logger.info(`shouldLoadChunk changed to: ${shouldLoadChunk}`);
-  }, [shouldLoadChunk]);
-
-  // Query for DDA task status
-  const {
-    error: statusError,
-    data: statusData,
-    refetch: refetchStatus,
-  } = useQuery(GET_DDA_TASK_STATUS, {
-    variables: {
-      taskId,
-    },
-    skip: !taskId,
-    notifyOnNetworkStatusChange: true,
-    fetchPolicy: "network-only",
-  });
-
-  // Query for DDA results if task ID is provided
-  const { data: ddaData, refetch: refetchDdaResult } = useQuery(
-    GET_DDA_TASK_RESULT,
-    {
-      variables: {
-        taskId,
-      },
-      skip: !taskId,
-      notifyOnNetworkStatusChange: true,
-      fetchPolicy: "network-only",
-    }
-  );
-
-  // Log status data when it changes
-  useEffect(() => {
-    if (statusData) {
-      console.log("Initial task status data:", statusData);
-    }
-    if (statusError) {
-      console.error("Error fetching task status:", statusError);
-    }
-  }, [statusData, statusError]);
-
-  // Effect for polling task status and fetching results when done
-  useEffect(() => {
-    // Skip if no task ID or using external data
-    if (!taskId || externalDdaData || taskId === "completed") {
-      return;
-    }
-
-    console.log("Setting up polling for task status:", taskId);
-    setIsPolling(true);
-
-    const pollInterval = setInterval(() => {
-      console.log("Polling for task status...");
-      // Check task status
-      refetchStatus().then(({ data }) => {
-        console.log("Task status response:", data);
-        if (data?.getTaskStatus) {
-          const status = data.getTaskStatus.status;
-          console.log("Current task status:", status);
-
-          // Log the actual status value to help debug
-          console.log(`Task status: "${status}" (type: ${typeof status})`);
-
-          // Normalize status for consistent comparison
-          const normalizedStatus = status.toUpperCase();
-
-          // If task is complete, fetch the results and stop polling
-          if (
-            normalizedStatus === "SUCCESS" ||
-            normalizedStatus === "COMPLETED"
-          ) {
-            console.log("Task completed, fetching DDA results...");
-            refetchDdaResult()
-              .then((result) => {
-                console.log("DDA result fetched:", result);
-                if (result.data?.getDdaResult) {
-                  console.log("DDA result data:", result.data.getDdaResult);
-
-                  // Process the Q matrix into heatmap data
-                  if (result.data.getDdaResult.Q) {
-                    try {
-                      // Process the Q matrix directly here
-                      const Q = result.data.getDdaResult.Q;
-                      const heatmapData = [];
-
-                      if (Array.isArray(Q) && Q.length > 0) {
-                        for (let i = 0; i < Q.length; i++) {
-                          for (let j = 0; j < Q[i].length; j++) {
-                            if (Q[i][j] !== null) {
-                              heatmapData.push({
-                                x: j,
-                                y: i,
-                                value: Q[i][j],
-                              });
-                            }
-                          }
-                        }
-
-                        setDdaHeatmapData(heatmapData);
-                        setShowHeatmap(true);
-                      }
-                    } catch (err) {
-                      console.error(
-                        "Error processing matrix data for heatmap:",
-                        err
-                      );
-                    }
-                  }
-
-                  // Notify of completion
-                  toast({
-                    title: "DDA Task Completed",
-                    description: "Your analysis is ready to view",
-                  });
-                } else {
-                  console.warn("Task completed but no result data returned");
-                }
-                setIsPolling(false);
-                clearInterval(pollInterval);
-              })
-              .catch((error) => {
-                console.error("Error fetching DDA result:", error);
-                toast({
-                  title: "Error Fetching Results",
-                  description: error.message,
-                  variant: "destructive",
-                });
-                setIsPolling(false);
-                clearInterval(pollInterval);
-              });
-          } else if (
-            normalizedStatus === "FAILURE" ||
-            normalizedStatus === "REVOKED" ||
-            normalizedStatus === "FAILED"
-          ) {
-            // If task failed, stop polling
-            setIsPolling(false);
-            clearInterval(pollInterval);
-            toast({
-              title: "DDA Task Failed",
-              description: `Task status: ${status}`,
-              variant: "destructive",
-            });
-          }
-        }
-      });
-    }, 2000); // Poll every 2 seconds
-
-    // Clean up interval on unmount
-    return () => {
-      console.log("Cleaning up polling interval");
-      clearInterval(pollInterval);
-      setIsPolling(false);
-    };
-  }, [taskId, refetchStatus, refetchDdaResult, toast, externalDdaData]);
-
-  // Process DDA results into heatmap data when available
-  useEffect(() => {
-    console.log("DDA data check:", {
-      hasData: !!ddaData,
-      hasGetDdaResult: ddaData && !!ddaData.getDdaResult,
-      hasQ: ddaData?.getDdaResult?.Q ? true : false,
-      taskId,
-      isPolling,
-    });
-
-    if (ddaData?.getDdaResult?.Q) {
+    if (Q) {
       try {
-        console.log("DDA Result received:", ddaData.getDdaResult);
-
-        // Convert Q matrix into heatmap data
-        const heatmapData = [];
-        const Q = ddaData.getDdaResult.Q;
-
-        if (!Array.isArray(Q) || Q.length === 0) {
-          console.error("Invalid Q matrix format:", Q);
-          toast({
-            title: "Error Processing DDA Results",
-            description: "The Q matrix format is invalid or empty.",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        // Process each row of the Q matrix
-        for (let i = 0; i < Q.length; i++) {
-          for (let j = 0; j < Q[i].length; j++) {
-            if (Q[i][j] !== null) {
-              heatmapData.push({
-                x: i, // Time index
-                y: j, // Frequency index
-                value: Q[i][j],
-              });
-            }
-          }
-        }
-
-        console.log(`Processed ${heatmapData.length} data points for heatmap`);
+        console.log("Q matrix dimensions:", Q.length, Q[0].length);
+        console.log("Q matrix:", Q);
+        const heatmapData = processMatrixForHeatmap(Q);
         setDdaHeatmapData(heatmapData);
         setShowHeatmap(true);
       } catch (error) {
-        console.error("Error parsing DDA data:", error);
-        toast({
-          title: "Error Processing DDA Results",
-          description: "Could not parse the DDA results data.",
-          variant: "destructive",
-        });
-      }
-    } else if (ddaData && !ddaData.getDdaResult?.Q) {
-      console.warn("DDA results received but Q matrix is missing", ddaData);
-    }
-  }, [ddaData, toast, taskId]);
-
-  // Use external DDA data if provided
-  useEffect(() => {
-    if (externalDdaData) {
-      console.log("Using externally provided DDA data:", externalDdaData);
-
-      // Process the data for the heatmap
-      try {
-        if (externalDdaData.Q) {
-          const heatmapData = processMatrixForHeatmap(externalDdaData.Q);
-          setDdaHeatmapData(heatmapData);
-          setShowHeatmap(true);
-        }
-      } catch (error) {
         console.error("Error processing external DDA data:", error);
       }
-
-      // No need to poll since we already have the data
-      setIsPolling(false);
     }
-  }, [externalDdaData]);
+  }, [Q]);
 
   // Helper function to process matrix data for heatmap
   const processMatrixForHeatmap = (matrix: any[][]): any[] => {
@@ -551,8 +320,8 @@ export function DDAPlot({
       for (let j = 0; j < matrix[i].length; j++) {
         if (matrix[i][j] !== null) {
           heatmapData.push({
-            x: j,
-            y: i,
+            x: i,
+            y: j,
             value: matrix[i][j],
           });
         }
@@ -612,15 +381,8 @@ export function DDAPlot({
         data.getEdfData.channelLabels.length > 0
       ) {
         setAvailableChannels(data.getEdfData.channelLabels);
-
-        // Select first 5 channels by default (or all if fewer)
-        if (selectedChannels.length === 0) {
-          setSelectedChannels(
-            data.getEdfData.channelLabels.slice(
-              0,
-              Math.min(5, data.getEdfData.channelLabels.length)
-            )
-          );
+        if (onAvailableChannelsChange) {
+          onAvailableChannelsChange(data.getEdfData.channelLabels);
         }
       }
     }
@@ -628,9 +390,9 @@ export function DDAPlot({
     data,
     filePath,
     updatePlotState,
-    selectedChannels,
     chunkStart,
     timeWindow,
+    onAvailableChannelsChange,
   ]);
 
   // Handle annotation changes
@@ -732,7 +494,10 @@ export function DDAPlot({
 
     // Use the actual duration for the time window
     setTimeWindow([0, actualDuration]);
-    setAbsoluteTimeWindow([absStart, absStart + actualDuration]);
+    setAbsoluteTimeWindow([
+      absStart,
+      absStart + actualDuration,
+    ]);
 
     logger.info(
       `Reset time window: start=${absStart}s, duration=${actualDuration}s`
@@ -910,8 +675,6 @@ export function DDAPlot({
       updatePlotState(filePath, {
         chunkStart,
         totalSamples,
-        selectedChannels,
-        // Only store preprocessing options if they're actually active
         preprocessingOptions: hasActivePreprocessing(preprocessingOptions)
           ? preprocessingOptions
           : null,
@@ -922,7 +685,6 @@ export function DDAPlot({
     updatePlotState,
     chunkStart,
     totalSamples,
-    selectedChannels,
     preprocessingOptions,
   ]);
 
@@ -939,10 +701,10 @@ export function DDAPlot({
 
   // Toggle channel selection
   const toggleChannel = (channel: string) => {
-    setSelectedChannels((prev) =>
-      prev.includes(channel)
-        ? prev.filter((ch) => ch !== channel)
-        : [...prev, channel]
+    onChannelSelectionChange(
+      selectedChannels.includes(channel)
+        ? selectedChannels.filter((ch) => ch !== channel)
+        : [...selectedChannels, channel]
     );
   };
 
@@ -1462,25 +1224,12 @@ export function DDAPlot({
         <Card className="mb-4">
           <CardContent className="pt-6">
             <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="text-sm font-medium">DDA Analysis Results</h3>
-                {!externalDdaData && isPolling && (
-                  <div className="flex items-center">
-                    <Spinner className="mr-2 h-4 w-4" />
-                    <span className="text-sm text-muted-foreground">
-                      Polling for results...
-                    </span>
-                  </div>
-                )}
-              </div>
-
               {/* Direct heatmap rendering when external data is available */}
-              {externalDdaData?.Q && (
+              {Q && (
                 <div>
                   <div className="mb-3 p-2 border rounded bg-muted/20">
                     <p className="text-xs text-muted-foreground">
-                      Matrix dimensions: {externalDdaData.Q.length} x{" "}
-                      {externalDdaData.Q[0]?.length || 0}
+                      Matrix dimensions: {Q.length} x {Q[0]?.length || 0}
                     </p>
                   </div>
 
@@ -1660,7 +1409,7 @@ export function DDAPlot({
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setSelectedChannels(availableChannels)}
+                    onClick={() => onChannelSelectionChange(availableChannels)}
                     className="flex-1 text-xs"
                   >
                     Select All
@@ -1668,7 +1417,7 @@ export function DDAPlot({
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setSelectedChannels([])}
+                    onClick={() => onChannelSelectionChange([])}
                     className="flex-1 text-xs"
                   >
                     Clear

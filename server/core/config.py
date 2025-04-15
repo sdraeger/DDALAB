@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     minio_secret_key: str
     minio_bucket_name: str
 
+    # Jaeger settings
+    jaeger_host: str
+    jaeger_port: int
+
     @field_validator("allowed_dirs", mode="before")
     @classmethod
     def parse_allowed_dirs(cls, value):
