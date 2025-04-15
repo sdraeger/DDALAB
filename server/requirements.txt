@@ -22,7 +22,7 @@ asyncpg>=0.30.0
 click>=8.1.8
 minio>=7.2.15
 prometheus-client>=0.21.1
-dda-py>=0.1.3
+dda-py>=0.1.4
 
 # GraphQL dependencies
 strawberry-graphql>=0.96.0
