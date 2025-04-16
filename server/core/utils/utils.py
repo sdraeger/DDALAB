@@ -22,6 +22,7 @@ BASE_PARAMS = {
 __all__ = [
     "get_env_var",
     "calculate_file_hash",
+    "calculate_str_hash",
     "camel_to_snake",
     "make_dda_command",
     "create_tempfile",
@@ -45,6 +46,11 @@ def calculate_file_hash(file_path: Path) -> str:
             sha256_hash.update(byte_block)
 
     return sha256_hash.hexdigest()
+
+
+def calculate_str_hash(string: str) -> str:
+    """Get the hash of a string."""
+    return hashlib.sha256(string.encode()).hexdigest()
 
 
 def camel_to_snake(name):

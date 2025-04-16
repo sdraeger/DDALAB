@@ -75,6 +75,9 @@ class User(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    edf_configs = relationship(
+        "EdfConfig", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class UserPreferences(Base):
@@ -93,6 +96,19 @@ class UserPreferences(Base):
 
     # Relationships
     user = relationship("User", back_populates="preferences")
+
+
+class EdfConfig(Base):
+    """EDF config model."""
+
+    __tablename__ = "edf_configs"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True, index=True)
+    file_hash = Column(String, primary_key=True, index=True)
+    config = Column(String)
+
+    # Relationships
+    user = relationship("User", back_populates="edf_configs")
 
 
 class Annotation(Base):
