@@ -2,6 +2,7 @@ import NextAuth, { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { DEFAULT_USER_PREFERENCES } from "@/contexts/settings-context";
 import { getEnvVar } from "@/lib/utils/env";
+import { apiRequest } from "@/lib/utils/request";
 
 const API_URL = getEnvVar("NEXT_PUBLIC_API_URL");
 const SESSION_EXPIRATION = parseInt(getEnvVar("SESSION_EXPIRATION"));
@@ -62,15 +63,17 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Missing credentials");
         }
 
-        const res = await fetch(url, {
+        const res = await apiRequest({
+          url,
           method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          contentType: "application/x-www-form-urlencoded",
           body: new URLSearchParams({
             username: credentials.username,
             password: credentials.password,
             grant_type: "password",
           }),
         });
+
         console.log("Response:", res);
         const data = await res.json();
 
@@ -111,12 +114,11 @@ export const authOptions: NextAuthOptions = {
       // Fetch preferences for token
       if (token.accessToken && (trigger === "signIn" || trigger === "update")) {
         try {
-          const res = await fetch(`${API_URL}/api/user-preferences`, {
+          const res = await apiRequest({
+            url: `${API_URL}/api/user-preferences`,
+            token: token.accessToken,
             method: "GET",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token.accessToken}`,
-            },
+            contentType: "application/json",
           });
 
           if (!res.ok) throw new Error("Failed to fetch preferences");
@@ -183,10 +185,11 @@ export const authOptions: NextAuthOptions = {
 
 async function refreshAccessToken(token: any) {
   try {
-    const response = await fetch(`${API_URL}/api/auth/refresh-token`, {
+    const response = await apiRequest({
+      url: `${API_URL}/api/auth/refresh-token`,
       method: "POST",
-      body: JSON.stringify({ refresh_token: token.refreshToken }),
-      headers: { "Content-Type": "application/json" },
+      body: { refresh_token: token.refreshToken },
+      contentType: "application/json",
     });
 
     const refreshedTokens = await response.json();

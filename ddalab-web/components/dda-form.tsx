@@ -47,10 +47,15 @@ type FormValues = z.infer<typeof formSchema>;
 
 interface DDAFormProps {
   filePath: string;
-  onTaskSubmitted: (taskId: string) => void;
+  selectedChannels: string[];
+  setSelectedChannels: (channels: string[]) => void;
 }
 
-export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
+export function DDAForm({
+  filePath,
+  selectedChannels,
+  setSelectedChannels,
+}: DDAFormProps) {
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -69,16 +74,14 @@ export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
   });
 
   const [submitDdaTask, { loading }] = useMutation(SUBMIT_DDA_TASK);
-  const [taskId, setTaskId] = useState<string | undefined>(undefined);
   const [Q, setQ] = useState<any>(null);
-  const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   const [availableChannels, setAvailableChannels] = useState<string[]>([]);
 
   const onSubmit = async (data: FormValues) => {
     try {
       // Convert selected channel labels to indices based on available channels
       const channelIndices = selectedChannels
-        .map((label) => availableChannels.indexOf(label))
+        .map((label) => availableChannels.indexOf(label) + 1) // Respect DDA's 1-based indexing
         .filter((index) => index !== -1); // Filter out any channels not found in availableChannels
 
       const { data: responseData } = await submitDdaTask({
@@ -109,9 +112,6 @@ export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
       });
 
       setQ(response?.Q);
-
-      setTaskId("completed");
-      onTaskSubmitted("completed");
     } catch (error) {
       toast({
         title: "Error Submitting DDA Task",
@@ -546,11 +546,10 @@ export function DDAForm({ filePath, onTaskSubmitted }: DDAFormProps) {
       </Card>
 
       <DDAPlot
-        key={taskId || "no-task"}
         filePath={filePath}
-        taskId={taskId}
         Q={Q}
-        selectedChannels={selectedChannels}
+        selectedChannels={selectedChannels || availableChannels.slice(5)}
+        setSelectedChannels={setSelectedChannels}
         onChannelSelectionChange={handleChannelSelectionChange}
         onAvailableChannelsChange={handleAvailableChannelsChange}
         preprocessingOptions={{

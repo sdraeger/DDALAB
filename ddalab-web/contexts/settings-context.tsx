@@ -11,6 +11,7 @@ import {
 import { useSession } from "next-auth/react";
 import { useToast } from "@/components/ui/use-toast";
 import { usePathname } from "next/navigation";
+import { apiRequest } from "@/lib/utils/request";
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   theme: "system",
@@ -91,13 +92,11 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     if (!session?.accessToken) return;
 
     try {
-      const res = await fetch("/api/user-preferences", {
+      const res = await apiRequest({
+        url: `/api/user-preferences`,
         method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.accessToken}`,
-          "Cache-Control": "no-cache",
-        },
+        token: session.accessToken,
+        contentType: "application/json",
       });
 
       if (!res.ok)
@@ -149,22 +148,18 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     }
 
     try {
-      console.log("Saving changes:", pendingChanges);
       const payload = {
         theme: pendingChanges.theme,
         eeg_zoom_factor: pendingChanges.eegZoomFactor,
       };
-      console.log("PUT payload:", payload);
-      const res = await fetch("/api/user-preferences", {
+      const res = await apiRequest({
+        url: `/api/user-preferences`,
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.accessToken}`,
-        },
-        body: JSON.stringify(payload),
+        token: session?.accessToken,
+        contentType: "application/json",
+        body: payload,
       });
       const responseData = await res.json();
-      console.log("PUT response:", res.status, responseData);
 
       if (!res.ok) throw new Error(`Failed to save preferences: ${res.status}`);
 

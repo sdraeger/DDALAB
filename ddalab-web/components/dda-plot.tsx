@@ -61,19 +61,20 @@ interface DDAPlotProps {
   onChunkLoaded?: (data: EEGData) => void;
   preprocessingOptions?: any;
   selectedChannels: string[];
+  setSelectedChannels: (channels: string[]) => void;
   onChannelSelectionChange: (channels: string[]) => void;
   onAvailableChannelsChange?: (channels: string[]) => void;
 }
 
 export function DDAPlot({
   filePath,
-  taskId,
   Q,
   onChunkLoaded,
   preprocessingOptions: externalPreprocessingOptions,
   selectedChannels,
+  setSelectedChannels,
   onChannelSelectionChange,
-  onAvailableChannelsChange
+  onAvailableChannelsChange,
 }: DDAPlotProps) {
   // Context for managing shared state between components
   const { getPlotState, updatePlotState, initPlotState } = useEDFPlot();
@@ -381,8 +382,18 @@ export function DDAPlot({
         data.getEdfData.channelLabels.length > 0
       ) {
         setAvailableChannels(data.getEdfData.channelLabels);
+
         if (onAvailableChannelsChange) {
           onAvailableChannelsChange(data.getEdfData.channelLabels);
+        }
+
+        if (selectedChannels.length === 0) {
+          setSelectedChannels(
+            data.getEdfData.channelLabels.slice(
+              0,
+              Math.min(5, data.getEdfData.channelLabels.length)
+            )
+          );
         }
       }
     }
@@ -494,10 +505,7 @@ export function DDAPlot({
 
     // Use the actual duration for the time window
     setTimeWindow([0, actualDuration]);
-    setAbsoluteTimeWindow([
-      absStart,
-      absStart + actualDuration,
-    ]);
+    setAbsoluteTimeWindow([absStart, absStart + actualDuration]);
 
     logger.info(
       `Reset time window: start=${absStart}s, duration=${actualDuration}s`
@@ -1220,7 +1228,7 @@ export function DDAPlot({
         </Card>
       </div>
 
-      {taskId && (
+      {Q && (
         <Card className="mb-4">
           <CardContent className="pt-6">
             <div className="space-y-4">
