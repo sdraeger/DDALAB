@@ -17,10 +17,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useSession } from "next-auth/react";
+import { apiRequest } from "@/lib/utils/request";
 
 export function HelpButton() {
   const { data: session, status } = useSession();
-  const user = session?.user;
   const isLoggedIn = !!session;
   const _loading = status === "loading";
   const [isLoading, setIsLoading] = useState(false);
@@ -47,13 +47,12 @@ export function HelpButton() {
       const token = session?.accessToken;
       if (!token) throw new Error("No token found in session");
 
-      const response = await fetch(`/api/tickets`, {
+      const response = await apiRequest({
+        url: `/api/tickets`,
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ title, description }),
+        body: { title, description },
+        contentType: "application/json",
+        token,
       });
 
       // Try to parse the response even if it's not OK, to get error details
