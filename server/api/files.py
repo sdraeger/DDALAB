@@ -15,6 +15,7 @@ from ..core.utils.utils import calculate_file_hash
 from ..schemas.files import FileList
 
 router = APIRouter()
+settings = get_data_settings()
 
 
 @router.get("/", response_model=FileList)
@@ -87,7 +88,6 @@ async def get_file_hash(file_path: str):
                 status_code=403, detail="Access to this directory is forbidden"
             )
 
-        settings = get_data_settings()
         full_path = Path(settings.data_dir) / file_path
         if not await validate_file_path(file_path):
             raise HTTPException(status_code=404, detail="File not found")

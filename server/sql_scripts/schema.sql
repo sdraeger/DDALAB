@@ -349,6 +349,18 @@ COMMENT ON COLUMN public.users.password_hash IS 'Bcrypt hashed password - NEVER 
 
 
 --
+-- Name: edf_configs; Type: TABLE; Schema: public; Owner: admin
+--
+
+CREATE TABLE public.edf_configs (
+    user_id integer NOT NULL,
+    file_hash TEXT NOT NULL,
+    config TEXT NOT NULL, -- JSON string, e.g., '{"selected_channels": ["ch1", "ch2"]}'
+    PRIMARY KEY (user_id, file_hash)
+);
+
+
+--
 -- Name: users_id_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
