@@ -11,32 +11,8 @@ from sqlalchemy import (
     Integer,
     String,
 )
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
-
-from server.core.config import get_server_settings
-
-settings = get_server_settings()
-
-# Get PostgreSQL connection details from environment variables
-DB_HOST = settings.db_host
-DB_PORT = settings.db_port
-DB_NAME = settings.db_name
-DB_USER = settings.db_user
-DB_PASSWORD = settings.db_password
-
-# Create SQLAlchemy engine for PostgreSQL
-SQLALCHEMY_DATABASE_URL = (
-    f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
-engine = create_async_engine(SQLALCHEMY_DATABASE_URL, echo=True)
-
-# Create async session factory
-AsyncSessionLocal = sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
+from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.sql import func
 
 # Create base class for models
 Base = declarative_base()
@@ -99,16 +75,25 @@ class UserPreferences(Base):
 
 
 class EdfConfig(Base):
-    """EDF config model."""
-
     __tablename__ = "edf_configs"
 
-    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True, index=True)
-    file_hash = Column(String, primary_key=True, index=True)
-    config = Column(String)
+    id = Column(Integer, primary_key=True, index=True)
+    file_hash = Column(String(255), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
 
-    # Relationships
     user = relationship("User", back_populates="edf_configs")
+    channels = relationship("EdfConfigChannel", back_populates="config")
+
+
+class EdfConfigChannel(Base):
+    __tablename__ = "edf_config_channels"
+
+    id = Column(Integer, primary_key=True, index=True)
+    config_id = Column(Integer, ForeignKey("edf_configs.id"), nullable=False)
+    channel = Column(String(100), nullable=False)
+
+    config = relationship("EdfConfig", back_populates="channels")
 
 
 class Annotation(Base):
@@ -202,11 +187,3 @@ class Ticket(Base):
         default=datetime.now(timezone.utc).replace(tzinfo=None),
         onupdate=datetime.now(timezone.utc).replace(tzinfo=None),
     )
-
-
-async def get_db():
-    db = AsyncSessionLocal()
-    try:
-        yield db
-    finally:
-        await db.close()

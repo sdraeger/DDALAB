@@ -25,6 +25,8 @@ import { toast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import { DDAPlot } from "@/components/dda-plot";
+import { apiRequest } from "@/lib/utils/request";
+import { useSession } from "next-auth/react";
 
 // Form validation schema
 const formSchema = z.object({
@@ -73,6 +75,7 @@ export function DDAForm({
     },
   });
 
+  const { data: session } = useSession();
   const [submitDdaTask, { loading }] = useMutation(SUBMIT_DDA_TASK);
   const [Q, setQ] = useState<any>(null);
   const [availableChannels, setAvailableChannels] = useState<string[]>([]);
@@ -122,8 +125,23 @@ export function DDAForm({
     }
   };
 
-  const handleChannelSelectionChange = (selectedChannels: string[]) => {
+  const handleChannelSelectionChange = async (selectedChannels: string[]) => {
     setSelectedChannels(selectedChannels);
+
+    const encodedFilePath = encodeURIComponent(filePath);
+    const req = apiRequest({
+      url: `/api/config/edf?file_path=${encodedFilePath}`,
+      method: "POST",
+      token: session?.accessToken,
+      contentType: "application/json",
+      body: {
+        channels: selectedChannels,
+      },
+    });
+
+    const response = await req;
+    const data = await response.json();
+    console.log("File config:", data);
   };
 
   const handleAvailableChannelsChange = (channels: string[]) => {

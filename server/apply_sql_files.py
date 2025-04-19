@@ -105,8 +105,10 @@ def check_tables_exist(db):
     cur = db.cursor()
 
     try:
-        cur.execute("""SELECT table_name FROM information_schema.tables
-       WHERE table_schema = 'public'""")
+        cur.execute(
+            """SELECT table_name FROM information_schema.tables
+       WHERE table_schema = 'public'"""
+        )
 
         tables = cur.fetchall()
         return len(tables) > 0
@@ -128,11 +130,15 @@ def main(username, password, email, first_name, last_name):
     try:
         db = connect_to_db()
 
-        if not check_tables_exist(db):
+        tables_exist = check_tables_exist(db)
+        print(f"Tables exist: {tables_exist}")
+        if not tables_exist:
             logger.info("Applying schema")
             apply_schema(db)
 
-        if not check_users_exist(db):
+        users_exist = check_users_exist(db)
+        print(f"Users exist: {users_exist}")
+        if not users_exist:
             logger.info("Inserting admin user")
             insert_admin_user(db, username, password, email, first_name, last_name)
     except Exception as e:

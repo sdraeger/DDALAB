@@ -36,10 +36,3 @@ class DDAResult(BaseModel):
     file_path: str
     Q: list[list[float | None]]
     metadata: Optional[str] = None
-
-
-class TaskStatus(BaseModel):
-    """Task status schema."""
-
-    status: str  # "pending", "processing", "completed", "failed"
-    error: Optional[str] = None

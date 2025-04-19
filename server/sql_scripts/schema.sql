@@ -318,10 +318,10 @@ ALTER TABLE public.user_preferences OWNER TO admin;
 --
 
 CREATE TABLE public.users (
-    id integer NOT NULL,
-    username character varying(255) NOT NULL,
+    id SERIAL PRIMARY KEY,
+    username character varying(255) UNIQUE NOT NULL,
     password_hash character(60) NOT NULL,
-    email character varying(255),
+    email character varying(255) UNIQUE NOT NULL,
     first_name character varying(100),
     last_name character varying(100),
     is_active boolean DEFAULT true,
@@ -353,24 +353,39 @@ COMMENT ON COLUMN public.users.password_hash IS 'Bcrypt hashed password - NEVER 
 --
 
 CREATE TABLE public.edf_configs (
-    user_id integer NOT NULL,
-    file_hash TEXT NOT NULL,
-    config TEXT NOT NULL, -- JSON string, e.g., '{"selected_channels": ["ch1", "ch2"]}'
-    PRIMARY KEY (user_id, file_hash)
+    id SERIAL PRIMARY KEY,
+    file_hash VARCHAR(255) NOT NULL,
+    user_id INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
 
+ALTER TABLE public.edf_configs OWNER TO admin;
+
+--
+-- Name: edf_config_channels; Type: TABLE; Schema: public; Owner: admin
+--
+
+CREATE TABLE public.edf_config_channels (
+    id SERIAL PRIMARY KEY,
+    config_id INTEGER NOT NULL,
+    channel VARCHAR(100) NOT NULL,
+    FOREIGN KEY (config_id) REFERENCES public.edf_configs(id)
+);
+
+ALTER TABLE public.edf_config_channels OWNER TO admin;
 
 --
 -- Name: users_id_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --
 
-CREATE SEQUENCE public.users_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
+-- CREATE SEQUENCE public.users_id_seq
+--     AS integer
+--     START WITH 1
+--     INCREMENT BY 1
+--     NO MINVALUE
+--     NO MAXVALUE
+--     CACHE 1;
 
 
 ALTER TABLE public.users_id_seq OWNER TO admin;
@@ -523,24 +538,16 @@ ALTER TABLE ONLY public.user_preferences
 -- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: admin
 --
 
-ALTER TABLE ONLY public.users
-    ADD CONSTRAINT users_email_key UNIQUE (email);
-
-
---
--- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: admin
---
-
-ALTER TABLE ONLY public.users
-    ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+-- ALTER TABLE ONLY public.users
+--     ADD CONSTRAINT users_email_key UNIQUE (email);
 
 
 --
 -- Name: users users_username_key; Type: CONSTRAINT; Schema: public; Owner: admin
 --
 
-ALTER TABLE ONLY public.users
-    ADD CONSTRAINT users_username_key UNIQUE (username);
+-- ALTER TABLE ONLY public.users
+--     ADD CONSTRAINT users_username_key UNIQUE (username);
 
 
 --

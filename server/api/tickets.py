@@ -2,17 +2,15 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from server.core.auth import (
+from ..core.auth import (
     get_admin_user,
     get_current_user,
 )
-from server.core.database import Ticket, User, get_db
-from server.schemas.tickets import TicketCreate, TicketResponse, TicketUpdate
+from ..core.database import Ticket, User
+from ..core.repository import TicketRepository, get_repository
+from ..schemas.tickets import TicketCreate, TicketResponse, TicketUpdate
 
 router = APIRouter(prefix="")
 
@@ -22,7 +20,7 @@ def parse_date(date_str):
     if not date_str:
         return None
     try:
-        # Try ISO format first (which is what Directus typically uses)
+        # Try ISO format first
         return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
         try:
@@ -37,7 +35,7 @@ def parse_date(date_str):
 async def create_ticket(
     ticket_data: TicketCreate,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    ticket_repo: TicketRepository = Depends(get_repository(TicketRepository)),
 ):
     """Create a help ticket."""
 
@@ -53,9 +51,7 @@ async def create_ticket(
     )
 
     # Add the ticket to the database
-    async with db.begin():
-        db.add(ticket)
-        await db.commit()
+    await ticket_repo.add(ticket)
 
     # Return the created ticket
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -73,22 +69,17 @@ async def create_ticket(
 @router.get("", response_model=list[TicketResponse])
 async def get_tickets(
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    ticket_repo: TicketRepository = Depends(get_repository(TicketRepository)),
 ):
     """Get all tickets for the current user."""
 
-    async with db.begin():
-        tickets_data = await db.execute(
-            select(Ticket).where(Ticket.user_id == current_user.id)
-        )
+    tickets_data = await ticket_repo.get_by_user_id(current_user.id)
 
     if tickets_data is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve tickets",
         )
-
-    tickets_data = tickets_data.scalars().all()
 
     # Convert tickets to TicketResponse format
     tickets = [
@@ -110,67 +101,51 @@ async def get_tickets(
 @router.get("/{ticket_id}")
 async def get_ticket(
     ticket_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    ticket_repo: TicketRepository = Depends(get_repository(TicketRepository)),
+    _: User = Depends(get_current_user),
 ):
     """Get ticket by ID."""
 
-    async with db.begin():
-        try:
-            # Get ticket by ID
-            ticket = await db.execute(
-                select(Ticket).where(
-                    Ticket.id == ticket_id and Ticket.user_id == current_user.id
-                )
-            )
-            return ticket
-        except SQLAlchemyError as e:
-            db.rollback()
-            raise HTTPException(
-                status_code=500, detail=f"Database error retrieving ticket: {str(e)}"
-            )
+    try:
+        # Get ticket by ID
+        ticket = await ticket_repo.get_by_id(ticket_id)
+        return ticket
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Database error retrieving ticket: {str(e)}"
+        )
 
 
 @router.put("/{ticket_id}")
 async def update_ticket(
-    request: Request,
     ticket_id: str,
-    ticket_update: TicketUpdate,  # TODO
-    db: AsyncSession = Depends(get_db),
+    ticket_update: TicketUpdate,
+    ticket_repo: TicketRepository = Depends(get_repository(TicketRepository)),
     _: User = Depends(get_admin_user),
 ):
     """Update ticket."""
 
-    async with db.begin():
-        try:
-            # Get current user
-            current_user = await get_current_user(request)
-
-            # TODO: Update ticket
-
-            # Placeholder implementation
-            return {"ticket_id": ticket_id, "user_id": current_user.id, "updated": True}
-        except SQLAlchemyError as e:
-            db.rollback()
-            raise HTTPException(
-                status_code=500, detail=f"Database error updating ticket: {str(e)}"
-            )
+    try:
+        ticket = await ticket_repo.update(ticket_id, ticket_update)
+        return ticket
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Database error updating ticket: {str(e)}"
+        )
 
 
 @router.delete("/{ticket_id}")
 async def delete_ticket(
     ticket_id: str,
-    db: AsyncSession = Depends(get_db),
+    ticket_repo: TicketRepository = Depends(get_repository(TicketRepository)),
     _: User = Depends(get_admin_user),
-):  # TODO
+):
     """Delete ticket."""
 
-    async with db.begin():
-        try:
-            # Placeholder implementation
-            return {"ticket_id": ticket_id, "deleted": True}
-        except SQLAlchemyError as e:
-            db.rollback()
-            raise HTTPException(
-                status_code=500, detail=f"Database error deleting ticket: {str(e)}"
-            )
+    try:
+        await ticket_repo.delete(ticket_id)
+        return {"ticket_id": ticket_id, "deleted": True}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Database error deleting ticket: {str(e)}"
+        )
