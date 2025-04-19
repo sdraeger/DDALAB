@@ -37,7 +37,7 @@ export function DashboardTabs() {
 
     const data = await response.json();
     console.log("File config:", data);
-    setSelectedChannels(data?.config?.channels || []);
+    setSelectedChannels(data?.channels || []);
   };
 
   const toggleFileBrowser = () => {

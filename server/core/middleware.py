@@ -5,7 +5,8 @@ from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
 
-from server.api.metrics import REQUEST_COUNT, REQUEST_LATENCY
+from ..api.metrics import REQUEST_COUNT, REQUEST_LATENCY
+from .dependencies import AsyncSessionLocal
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -55,13 +56,15 @@ class DBSessionMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         """Handle database session cleanup."""
 
-        response = await call_next(request)
-
-        if hasattr(request.state, "db"):
-            request.state.db.close()
-            logger.debug("Database session closed in middleware")
-
-        return response
+        async with AsyncSessionLocal() as session:
+            request.state.db = session
+            try:
+                response = await call_next(request)
+                await session.commit()
+                return response
+            except Exception:
+                await session.rollback()
+                raise
 
 
 class PrometheusMiddleware(BaseHTTPMiddleware):

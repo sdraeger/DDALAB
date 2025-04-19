@@ -58,9 +58,7 @@ class Mutation:
         info: strawberry.Info[Context, None],
     ) -> AnnotationType:
         """Create a new annotation."""
-        current_user = await get_current_user_from_request(
-            info.context.request, info.context.session
-        )
+        current_user = await get_current_user_from_request(info.context.request)
         if not current_user:
             raise Exception("Not authenticated")
 

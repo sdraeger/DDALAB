@@ -36,9 +36,9 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     """User update request model."""
 
-    username: str
-    password: str
-    email: str
-    first_name: str
-    last_name: str
-    is_admin: bool = False
+    username: str | None = None
+    password: str | None = None
+    email: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    is_admin: bool | None = None

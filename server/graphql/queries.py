@@ -42,9 +42,7 @@ class Query:
 
         logger.info(f"Request: {request.headers}")
 
-        current_user = await get_current_user_from_request(
-            request, info.context.session
-        )
+        current_user = await get_current_user_from_request(request)
         items = await list_directory(path)
         logger.info(f"Path: {path}")
         logger.info(f"info: {info}")
@@ -101,12 +99,8 @@ class Query:
         # Get favorite files from the database
         db = info.context.session
         try:
-            favorites = (
-                db.query(FavoriteFile)
-                .filter(FavoriteFile.user_id == current_user.id)
-                .all()
-            )
-
+            stmt = select(FavoriteFile).filter(FavoriteFile.user_id == current_user.id)
+            favorites = (await db.execute(stmt)).scalars().all()
             return [
                 FavoriteFileType(
                     id=fav.id,

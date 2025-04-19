@@ -11,6 +11,7 @@ import argparse
 import asyncio
 
 import setup_paths
+from sqlalchemy import select
 
 from server.core.auth import create_user, get_password_hash
 from server.core.database import User, get_db
@@ -25,7 +26,8 @@ async def create_user_cmd(
     """Create a new user."""
     async with get_db() as db:
         # Check if user already exists
-        if db.query(User).filter(User.username == username).first():
+        stmt = select(User).filter(User.username == username)
+        if await db.execute(stmt).scalars().first():
             print(f"Error: User '{username}' already exists")
             return
 
@@ -47,7 +49,8 @@ async def create_user_cmd(
 async def list_users() -> None:
     """List all users."""
     async with get_db() as db:
-        users = db.query(User).all()
+        stmt = select(User)
+        users = (await db.execute(stmt)).scalars().all()
         if not users:
             print("No users found")
             return
@@ -66,14 +69,16 @@ async def list_users() -> None:
 async def delete_user(username: str) -> None:
     """Delete a user."""
     async with get_db() as db:
-        user = db.query(User).filter(User.username == username).first()
+        stmt = select(User).filter(User.username == username)
+        user = (await db.execute(stmt)).scalars().first()
         if not user:
             print(f"Error: User '{username}' not found")
             return
 
         # Prevent deleting the last superuser
         if user.is_superuser:
-            superuser_count = db.query(User).filter(User.is_superuser).count()
+            stmt = select(User).filter(User.is_superuser)
+            superuser_count = (await db.execute(stmt)).scalars().first()
             if superuser_count <= 1:
                 print("Error: Cannot delete the last superuser")
                 return
@@ -88,7 +93,8 @@ async def modify_user(
 ) -> None:
     """Modify a user's attributes."""
     async with get_db() as db:
-        user = db.query(User).filter(User.username == username).first()
+        stmt = select(User).filter(User.username == username)
+        user = (await db.execute(stmt)).scalars().first()
         if not user:
             print(f"Error: User '{username}' not found")
             return
@@ -107,7 +113,8 @@ async def modify_user(
         if superuser is not None:
             # Prevent removing superuser status from the last superuser
             if not superuser and user.is_superuser:
-                superuser_count = db.query(User).filter(User.is_superuser).count()
+                stmt = select(User).filter(User.is_superuser)
+                superuser_count = (await db.execute(stmt)).scalars().first()
                 if superuser_count <= 1:
                     print(
                         "Error: Cannot remove superuser status from the last superuser"
@@ -119,9 +126,8 @@ async def modify_user(
         if active is not None:
             # Prevent deactivating the last active superuser
             if not active and user.is_superuser:
-                active_superuser_count = (
-                    db.query(User).filter(User.is_superuser, User.is_active).count()
-                )
+                stmt = select(User).filter(User.is_superuser, User.is_active)
+                active_superuser_count = (await db.execute(stmt)).scalars().first()
                 if active_superuser_count <= 1:
                     print("Error: Cannot deactivate the last active superuser")
                     return

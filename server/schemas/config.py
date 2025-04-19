@@ -1,9 +1,23 @@
-from typing import Any
+from typing import List
 
 from pydantic import BaseModel
 
 
-class EdfConfig(BaseModel):
-    user_id: int
+# Input model for creating/updating config
+class EdfConfigCreate(BaseModel):
+    channels: List[str]
+
+
+class EdfConfigUpdate(BaseModel):
+    channels: List[str] | None
+
+
+# Response model for EdfConfigDB
+class EdfConfigResponse(BaseModel):
+    id: int
     file_hash: str
-    config: dict[str, Any]
+    user_id: int
+    channels: List[str]
+
+    class Config:
+        from_attributes = True

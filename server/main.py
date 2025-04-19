@@ -20,7 +20,6 @@ from server.api.auth import router as auth_router
 from server.core.config import get_server_settings, initialize_config
 from server.core.middleware import (
     AuthMiddleware,
-    DBSessionMiddleware,
     PrometheusMiddleware,
 )
 from server.graphql.graphql import graphql_app
@@ -101,7 +100,7 @@ trace.get_tracer_provider().add_span_processor(span_processor)
 FastAPIInstrumentor.instrument_app(app)
 
 # Add database session middleware
-app.add_middleware(DBSessionMiddleware)
+# app.add_middleware(DBSessionMiddleware)
 
 # Add Prometheus middleware
 app.add_middleware(PrometheusMiddleware)

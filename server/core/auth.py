@@ -1,53 +1,90 @@
 """Authentication utilities and configuration."""
 
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt
 from loguru import logger
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.core.config import get_server_settings
-from server.core.database import User, get_db
-from server.schemas.user import UserCreate, UserUpdate
-
-# Password hashing configuration
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+from server.core.database import User
+from server.core.dependencies import get_db, get_service
+from server.core.security import verify_password
+from server.core.services.user_service import UserService
 
 # OAuth2 configuration with password flow
-# oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 settings = get_server_settings()
 
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash."""
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def get_password_hash(password: str) -> str:
-    """Generate password hash."""
-    return pwd_context.hash(password)
-
-
 async def authenticate_user(
-    db: AsyncSession, username: str, password: str
-) -> User | None:
-    """Authenticate a user with username and password."""
-
-    stmt = select(User).where(User.username == username)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
+    username: str,
+    password: str,
+    user_service: UserService = Depends(get_service(UserService)),
+) -> Optional[User]:
+    """Authenticate user using repository pattern"""
+    user = await user_service.get_user(username=username)
 
     if not user or not verify_password(password, user.password_hash):
+        logger.warning(f"Failed authentication attempt for user: {username}")
         return None
 
+    logger.debug(f"User authenticated: {user.username}")
     return user
+
+
+async def get_current_user(
+    request: Request,
+    user_service: UserService = Depends(get_service(UserService)),
+) -> User:
+    """Get current user using JWT token and repository"""
+    token = getattr(request.state, "token", None)
+
+    if not token:
+        logger.error("No token provided in request")
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    try:
+        payload = jwt.decode(
+            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+        )
+        username = payload.get("sub")
+
+        if not username:
+            logger.error("Token missing 'sub' claim")
+            raise HTTPException(status_code=401, detail="Invalid token format")
+
+        if datetime.fromtimestamp(payload["exp"], tz=timezone.utc) < datetime.now(
+            timezone.utc
+        ):
+            logger.warning(f"Expired token for user: {username}")
+            raise HTTPException(status_code=401, detail="Token expired")
+
+        logger.debug("Before get_user")
+        user = await user_service.get_user(username=username)
+        logger.debug("After get_user")
+
+        if not user:
+            logger.error(f"User not found: {username}")
+            raise HTTPException(status_code=404, detail="User not found")
+
+        logger.debug(f"Authenticated user: {user.username}")
+        return user
+
+    except jwt.ExpiredSignatureError:
+        logger.warning("Expired token signature")
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.JWTError as e:
+        logger.error(f"JWT error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception as e:
+        logger.error(f"Authentication error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -68,115 +105,97 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 
-async def get_current_user_from_request(
-    request: Request, session: AsyncSession
-) -> User:
-    """Get the current user from the request."""
+async def get_current_user_from_request(request: Request) -> User:
+    """Get the current user from the request using JWT authentication.
 
-    logger.debug(f"request.headers: {request.headers}")
-    token = request.headers.get("authorization", "").replace("Bearer ", "")
-    logger.debug(f"authorization: {request.headers.get('authorization')}")
-    logger.debug(f"token: {token}")
+    Args:
+        request: The incoming request containing the JWT token
 
+    Returns:
+        User: The authenticated user
+
+    Raises:
+        HTTPException: For various authentication failures
+    """
+    # Extract and validate token
+    token = _extract_token_from_request(request)
     if not token:
+        _log_auth_failure("No token provided")
         raise HTTPException(status_code=401, detail="Authentication required")
 
     try:
-        # Decode the JWT token using the secret key and algorithm
-        payload = jwt.decode(
-            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
-        )
-        logger.debug(f"Decoded JWT payload: {payload}")
+        payload = _decode_jwt_token(token)
+        username = _validate_jwt_payload(payload)
+        _check_token_expiration(payload)
 
-        # Extract user identifier (e.g., 'sub' from the JWT payload)
-        username = payload.get("sub")
-        if not username:
-            raise HTTPException(
-                status_code=401, detail="Invalid token: 'sub' not found"
-            )
+        async with get_db() as db:
+            user = await _fetch_user_from_db(db, username)
 
-        # Get the current time for expiration check
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        expires_at = datetime.fromtimestamp(
-            payload.get("exp"), tz=timezone.utc
-        ).replace(tzinfo=None)
-
-        if expires_at < now:
-            raise HTTPException(status_code=401, detail="Token has expired")
-
-        # Fetch the user from the database using the username (or adjust for user_id if 'sub' is an ID)
-        user = await session.scalar(select(User).where(User.username == username))
-
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-
-        logger.debug(f"User fetched: {user.username}")
+        _log_successful_auth(user)
         return user
-    except jwt.ExpiredSignatureError as e:
-        logger.error(f"JWT decoding error: {str(e)}")
+
+    except jwt.ExpiredSignatureError:
+        _log_auth_failure("Token has expired")
         raise HTTPException(status_code=401, detail="Token has expired")
     except jwt.JWTError as e:
-        logger.error(f"JWT decoding error: {str(e)}")
+        _log_auth_failure(f"Invalid token: {str(e)}")
         raise HTTPException(status_code=401, detail="Invalid token")
+    except HTTPException:
+        raise  # Re-raise already handled exceptions
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        _log_auth_failure(f"Unexpected error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-async def get_current_user(
-    # token: str = Depends(oauth2_scheme),
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    """Get the current user from the token."""
+# Helper functions
+def _extract_token_from_request(request: Request) -> str:
+    """Extract and clean the JWT token from request headers."""
+    auth_header = request.headers.get("authorization", "")
+    return auth_header.replace("Bearer ", "").strip()
 
-    token = getattr(request.state, "token", None)
 
-    if not token:
-        raise HTTPException(status_code=401, detail="Authentication required")
+def _decode_jwt_token(token: str) -> dict:
+    """Decode and verify the JWT token."""
+    return jwt.decode(
+        token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+    )
 
-    try:
-        # Decode the JWT token using the secret key and algorithm
-        payload = jwt.decode(
-            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
-        )
-        logger.debug(f"Decoded JWT payload: {payload}")
 
-        # Extract user identifier (e.g., 'sub' from the JWT payload)
-        username = payload.get("sub")  # Assuming 'sub' is the username
-        if not username:
-            raise HTTPException(
-                status_code=401, detail="Invalid token: 'sub' not found"
-            )
+def _validate_jwt_payload(payload: dict) -> str:
+    """Validate JWT payload and extract username."""
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token: 'sub' not found")
+    return username
 
-        # Check token expiration
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        expires_at = datetime.fromtimestamp(
-            payload.get("exp"), tz=timezone.utc
-        ).replace(tzinfo=None)
 
-        if expires_at < now:
-            raise HTTPException(status_code=401, detail="Token has expired")
+def _check_token_expiration(payload: dict):
+    """Verify token hasn't expired."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    expires_at = datetime.fromtimestamp(payload.get("exp"), tz=timezone.utc).replace(
+        tzinfo=None
+    )
 
-        # Fetch the user from the database using the username from 'sub'
-        async with db.begin():
-            user = await db.scalar(select(User).where(User.username == username))
-
-            if not user:
-                raise HTTPException(status_code=401, detail="User not found")
-
-            logger.debug(f"user: {user}")
-            return user
-
-    except jwt.ExpiredSignatureError as e:
-        logger.error(f"JWT decoding error: {str(e)}")
+    if expires_at < now:
         raise HTTPException(status_code=401, detail="Token has expired")
-    except jwt.JWTError as e:
-        logger.error(f"JWT decoding error: {str(e)}")
-        raise HTTPException(status_code=401, detail="Invalid token")
-    except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+async def _fetch_user_from_db(session: AsyncSession, username: str) -> User:
+    """Fetch user from database."""
+    user = await session.scalar(select(User).where(User.username == username))
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+
+
+def _log_successful_auth(user: User):
+    """Log successful authentication."""
+    logger.debug(f"User authenticated: {user.username}")
+
+
+def _log_auth_failure(message: str):
+    """Log authentication failures."""
+    logger.error(f"Authentication failed: {message}")
 
 
 async def get_admin_user(
@@ -191,61 +210,3 @@ async def get_admin_user(
         )
 
     return current_user
-
-
-async def get_users(db: AsyncSession) -> List[User]:
-    """Get all users."""
-
-    stmt = select(User)
-    result = await db.execute(stmt)
-    return result.scalars().all()
-
-
-async def create_user(db: AsyncSession, user_data: UserCreate) -> User:
-    """Create a new user."""
-
-    hashed_password = get_password_hash(user_data.password)
-    user = User(
-        username=user_data.username,
-        password_hash=hashed_password,
-        is_admin=user_data.is_admin,
-    )
-
-    async with db.begin():
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
-
-    return user
-
-
-async def update_user(db: AsyncSession, user_id: int, user_data: UserUpdate):
-    """Update a user."""
-
-    async with db.begin():
-        stmt = select(User).where(User.id == user_id)
-        result = await db.execute(stmt)
-        user = result.scalar_one_or_none()
-
-        if user:
-            for key, value in user_data.model_dump().items():
-                setattr(user, key, value)
-            await db.commit()
-            await db.refresh(user)
-
-    return user
-
-
-async def delete_user(db: AsyncSession, user_id: int):
-    """Delete a user."""
-
-    async with db.begin():
-        stmt = select(User).where(User.id == user_id)
-        result = await db.execute(stmt)
-        user = result.scalar_one_or_none()
-
-        if user:
-            await db.delete(user)
-            await db.commit()
-
-        return user

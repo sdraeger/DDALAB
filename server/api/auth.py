@@ -1,16 +1,21 @@
 """Authentication routes."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import jwt
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.core.auth import authenticate_user
 from server.core.config import get_server_settings
-from server.core.database import get_db
+from server.core.security import (
+    create_jwt_token,
+    verify_refresh_token,
+)
 from server.schemas.auth import RefreshTokenRequest
+
+from ..core.dependencies import get_service
+from ..core.services import UserService
 
 router = APIRouter()
 settings = get_server_settings()
@@ -19,78 +24,56 @@ settings = get_server_settings()
 @router.post("/token")
 async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: AsyncSession = Depends(get_db),
+    user_service: UserService = Depends(get_service(UserService)),
 ):
-    """Login endpoint to issue access tokens."""
+    """Login endpoint to issue access tokens using repository pattern"""
+    user = await authenticate_user(form_data.username, form_data.password, user_service)
 
-    async with db.begin():
-        user = await authenticate_user(db, form_data.username, form_data.password)
-        if not user:
-            raise HTTPException(
-                status_code=401, detail="Incorrect username or password"
-            )
+    if not user:
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
 
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        expires_at = now + timedelta(days=7)
+    access_token = create_jwt_token(
+        username=user.username,
+        expires_delta=timedelta(days=7),
+        secret_key=settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
+    )
 
-        token = jwt.encode(
-            {"sub": form_data.username, "exp": expires_at, "iat": now},
-            settings.jwt_secret_key,
-            algorithm=settings.jwt_algorithm,
-        )
-
-        refresh_payload = {
-            "sub": form_data.username,
-            "exp": now + timedelta(days=7),  # 7 days
-            "iat": now,
-        }
-        refresh_token = jwt.encode(
-            refresh_payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
-        )
-
-        return {
-            "access_token": token,
-            "refresh_token": refresh_token,
-            "token_type": "bearer",
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-            },
-        }
+    return {
+        "access_token": access_token,
+        "expires_in": 7 * 24 * 60 * 60,  # TODO: Use env var
+    }
 
 
 @router.post("/refresh-token")
 async def refresh_token(
     refresh_token_request: RefreshTokenRequest,
+    user_service: UserService = Depends(get_service(UserService)),
 ):
+    """Refresh access token using valid refresh token"""
     try:
-        # Decode and verify refresh token
-        payload = jwt.decode(
+        payload = verify_refresh_token(
             refresh_token_request.refresh_token,
             settings.jwt_secret_key,
-            algorithms=[settings.jwt_algorithm],
+            settings.jwt_algorithm,
         )
-        username = payload["sub"]
 
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        user = await user_service.get_user(username=payload["sub"])
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
 
-        # Generate new access token
-        access_payload = {
-            "sub": username,
-            "exp": now + timedelta(days=7),
-            "iat": now,
-        }
-        new_access_token = jwt.encode(
-            access_payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+        new_access_token = create_jwt_token(
+            username=user.username,
+            expires_delta=timedelta(days=7),
+            secret_key=settings.jwt_secret_key,
+            algorithm=settings.jwt_algorithm,
         )
 
         return {
             "access_token": new_access_token,
-            "expires_in": 7 * 24 * 60 * 60,  # TODO: Use env var
+            "expires_in": 7 * 24 * 60 * 60,  # 7 days in seconds
         }
+
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Refresh token expired")
     except jwt.InvalidTokenError:
