@@ -63,36 +63,41 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Missing credentials");
         }
 
-        const res = await apiRequest({
-          url,
-          method: "POST",
-          contentType: "application/x-www-form-urlencoded",
-          body: new URLSearchParams({
-            username: credentials.username,
-            password: credentials.password,
-            grant_type: "password",
-          }),
-        });
+        try {
+          const res = await apiRequest({
+            url,
+            method: "POST",
+            contentType: "application/x-www-form-urlencoded",
+            body: new URLSearchParams({
+              username: credentials.username,
+              password: credentials.password,
+              grant_type: "password",
+            }),
+          });
 
-        console.log("Response:", res);
-        const data = await res.json();
+          console.log("Response:", res);
+          const data = await res.json();
 
-        if (!res.ok || !data.access_token) {
-          throw new Error(data.error || "Login failed");
+          if (!res.ok || !data.access_token) {
+            throw new Error(data.error || "Login failed");
+          }
+
+          const user = {
+            id: data.user.id.toString(),
+            name: data.user.username,
+            email: data.user.email,
+            firstName: data.user.first_name,
+            lastName: data.user.last_name,
+            accessToken: data.access_token,
+            refreshToken: data.refresh_token,
+          };
+
+          console.log("Authorize user:", user);
+          return user;
+        } catch (error) {
+          console.error("Authorize error:", error.message);
+          throw error;
         }
-
-        const user = {
-          id: data.user.id.toString(),
-          name: data.user.username,
-          email: data.user.email,
-          firstName: data.user.first_name,
-          lastName: data.user.last_name,
-          accessToken: data.access_token,
-          refreshToken: data.refresh_token,
-        };
-
-        console.log("Authorize user:", user);
-        return user;
       },
     }),
   ],

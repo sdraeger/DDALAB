@@ -46,7 +46,7 @@ services:
       DDALAB_ALLOWED_DIRS: ${DDALAB_ALLOWED_DIRS}
       PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus
     volumes:
-      - ./prometheus_metrics:/tmp/prometheus
+      - prometheus_metrics:/tmp/prometheus
       - ${DDALAB_ALLOWED_DIRS}
     depends_on:
       postgres:
@@ -68,7 +68,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     command: server /data --console-address ":9001"
     volumes:
-      - ./minio-data:/data
+      - minio-data:/data
     networks:
       - internal
 
@@ -92,7 +92,7 @@ services:
       timeout: 3s
       retries: 10
     volumes:
-      - ./postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     networks:
@@ -106,7 +106,6 @@ services:
     environment:
       - TRAEFIK_PASSWORD_HASH=${TRAEFIK_PASSWORD_HASH}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./certs:/etc/traefik/certs:ro
       - ./traefik.yml:/etc/traefik/traefik.yml:ro
       - ./dynamic:/etc/traefik/dynamic:ro
@@ -143,7 +142,7 @@ services:
     image: prom/prometheus:v3.2.1
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
-      - ./prometheus_data:/prometheus
+      - prometheus_data:/prometheus
     ports:
       - "9090:9090"
     command:
@@ -157,7 +156,7 @@ services:
     ports:
       - "3005:3005"
     volumes:
-      - ./grafana_data:/var/lib/grafana
+      - grafana_data:/var/lib/grafana
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
@@ -169,7 +168,10 @@ services:
 
 volumes:
   prometheus_data:
+  prometheus_metrics:
   grafana_data:
+  postgres-data:
+  minio-data:
 
 networks:
   internal:

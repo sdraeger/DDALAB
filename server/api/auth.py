@@ -33,7 +33,7 @@ async def login_for_access_token(
         raise HTTPException(status_code=401, detail="Incorrect username or password")
 
     access_token = create_jwt_token(
-        username=user.username,
+        subject=user.username,
         expires_delta=timedelta(days=7),
         secret_key=settings.jwt_secret_key,
         algorithm=settings.jwt_algorithm,
