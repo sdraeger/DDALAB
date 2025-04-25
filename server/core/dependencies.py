@@ -1,4 +1,3 @@
-from contextlib import asynccontextmanager
 from typing import Callable, Type, TypeVar
 
 from fastapi import Depends
@@ -34,13 +33,14 @@ AsyncSessionLocal = sessionmaker(
 )
 
 
-@asynccontextmanager
+# @asynccontextmanager
 async def get_db():
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+    # async with AsyncSessionLocal() as session:
+    session = AsyncSessionLocal()
+    try:
+        yield session
+    finally:
+        await session.close()
 
 
 def register_service(

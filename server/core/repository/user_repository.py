@@ -1,17 +1,17 @@
 from typing import List, Optional
 
-from fastapi import Request
 from sqlalchemy import select
 
 from ..database import User, UserPreferences
 from .base_repository import BaseRepository
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class UserRepository(BaseRepository[User]):
     _instance = None
 
-    def __init__(self, request: Request):
-        super().__init__(User, request)
+    def __init__(self, db: AsyncSession):
+        super().__init__(User, db)
 
     @staticmethod
     def get_instance() -> "UserRepository":

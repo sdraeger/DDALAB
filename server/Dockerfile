@@ -29,7 +29,10 @@ RUN pip install --upgrade pip
 RUN pip install -r server/requirements.txt
 
 # Create non-root user
-RUN useradd -m -r apiuser && chown apiuser:apiuser /app
+RUN useradd -m -r apiuser \
+	&& chown apiuser:apiuser /app \
+	&& mkdir -p /tmp/prometheus \
+	&& chown -R apiuser:apiuser /tmp/prometheus
 USER apiuser
 
 # Expose ports
