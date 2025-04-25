@@ -75,8 +75,8 @@ export const authOptions: NextAuthOptions = {
             }),
           });
 
-          console.log("Response:", res);
           const data = await res.json();
+          console.log("Response:", data);
 
           if (!res.ok || !data.access_token) {
             throw new Error(data.error || "Login failed");
