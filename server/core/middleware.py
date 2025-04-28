@@ -6,7 +6,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
 
 from ..api.metrics import REQUEST_COUNT, REQUEST_LATENCY
-from .dependencies import AsyncSessionLocal
+from .dependencies import get_db
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -56,14 +56,14 @@ class DBSessionMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         """Handle database session cleanup."""
 
-        async with AsyncSessionLocal() as session:
-            request.state.db = session
+        async with get_db() as db:
+            request.state.db = db
             try:
                 response = await call_next(request)
-                await session.commit()
+                await db.commit()
                 return response
             except Exception:
-                await session.rollback()
+                await db.rollback()
                 raise
 
 

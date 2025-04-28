@@ -1,23 +1,15 @@
 from typing import List
 
-from fastapi import Request
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import Annotation
 from .base_repository import BaseRepository
 
 
 class AnnotationRepository(BaseRepository[Annotation]):
-    _instance = None
-
-    def __init__(self, request: Request):
-        super().__init__(Annotation, request)
-
-    @staticmethod
-    def get_instance() -> "AnnotationRepository":
-        if AnnotationRepository._instance is None:
-            AnnotationRepository._instance = AnnotationRepository()
-        return AnnotationRepository._instance
+    def __init__(self, db: AsyncSession):
+        super().__init__(Annotation, db)
 
     async def get_by_user_id(
         self, user_id: int, skip: int = 0, limit: int | None = None

@@ -1,23 +1,15 @@
 from typing import List, Optional
 
-from fastapi import Request
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .base_repository import BaseRepository
 from .dda import DDA
 
 
 class DDARepository(BaseRepository[DDA]):
-    _instance = None
-
-    def __init__(self, request: Request):
-        super().__init__(DDA, request)
-
-    @staticmethod
-    def get_instance() -> "DDARepository":
-        if DDARepository._instance is None:
-            DDARepository._instance = DDARepository()
-        return DDARepository._instance
+    def __init__(self, db: AsyncSession):
+        super().__init__(DDA, db)
 
     async def get_by_user_id(
         self, user_id: int, skip: int = 0, limit: int = 100

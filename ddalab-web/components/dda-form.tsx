@@ -129,18 +129,20 @@ export function DDAForm({
     setSelectedChannels(selectedChannels);
 
     const encodedFilePath = encodeURIComponent(filePath);
-    const req = apiRequest({
+    const body = {
+      channels: selectedChannels,
+    };
+    const requestOptions = {
       url: `/api/config/edf?file_path=${encodedFilePath}`,
       method: "POST",
       token: session?.accessToken,
       contentType: "application/json",
-      body: {
-        channels: selectedChannels,
-      },
-    });
-
-    const response = await req;
+      body: body,
+    };
+    const response = await apiRequest(requestOptions);
     const data = await response.json();
+
+    console.log("Request Options:", requestOptions);
     console.log("File config:", data);
   };
 
@@ -152,7 +154,7 @@ export function DDAForm({
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>DDA Analysis</CardTitle>
+          <CardTitle>DDA</CardTitle>
           <CardDescription>
             Configure preprocessing options and run analysis on your EEG data
           </CardDescription>
@@ -173,10 +175,10 @@ export function DDAForm({
                     Preprocessing Options
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {/* DDA Analysis Options Section */}
+                    {/* DDA Options Section */}
                     <div className="col-span-full">
                       <h4 className="text-sm font-medium mb-3 text-muted-foreground">
-                        DDA Analysis Options
+                        DDA Options
                       </h4>
                     </div>
 

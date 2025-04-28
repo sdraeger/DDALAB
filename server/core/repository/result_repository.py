@@ -1,23 +1,15 @@
 from typing import List
 
-from fastapi import Request
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .base_repository import BaseRepository
 from .results import Result
 
 
 class ResultRepository(BaseRepository[Result]):
-    _instance = None
-
-    def __init__(self, request: Request):
-        super().__init__(Result, request)
-
-    @staticmethod
-    def get_instance() -> "ResultRepository":
-        if ResultRepository._instance is None:
-            ResultRepository._instance = ResultRepository()
-        return ResultRepository._instance
+    def __init__(self, db: AsyncSession):
+        super().__init__(Result, db)
 
     async def get_by_ticket_id(
         self, ticket_id: int, skip: int = 0, limit: int | None = None

@@ -7,16 +7,8 @@ from .base_repository import BaseRepository
 
 
 class UserPreferencesRepository(BaseRepository[UserPreferences]):
-    _instance = None
-
     def __init__(self, db: AsyncSession):
         super().__init__(UserPreferences, db)
-
-    @staticmethod
-    def get_instance() -> "UserPreferencesRepository":
-        if UserPreferencesRepository._instance is None:
-            UserPreferencesRepository._instance = UserPreferencesRepository()
-        return UserPreferencesRepository._instance
 
     async def get_by_user_id(self, user_id: int) -> UserPreferences | None:
         stmt = select(UserPreferences).filter(UserPreferences.user_id == user_id)

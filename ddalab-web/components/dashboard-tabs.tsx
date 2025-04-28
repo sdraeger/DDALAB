@@ -28,15 +28,17 @@ export function DashboardTabs() {
     if (!token) throw new Error("No token found in session");
 
     const encodedFilePath = encodeURIComponent(filePath);
-    const response = await apiRequest({
+    const requestOptions = {
       url: `/api/config/edf?file_path=${encodedFilePath}`,
       method: "GET",
       token,
       contentType: "application/json",
-    });
+    };
+    const fileCfgResponse = await apiRequest(requestOptions);
+    const data = await fileCfgResponse.json();
 
-    const data = await response.json();
     console.log("File config:", data);
+
     setSelectedChannels(data?.channels || []);
   };
 

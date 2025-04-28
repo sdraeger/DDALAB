@@ -12,6 +12,13 @@ class BaseRepository(Generic[T]):
         self.model = model
         self.db = db
 
+    async def create(self, obj_in: BaseModel) -> T:
+        db_obj = self.model(**obj_in.model_dump())
+        self.db.add(db_obj)
+        await self.db.commit()
+        await self.db.refresh(db_obj)
+        return db_obj
+
     async def get_by_id(self, id: int) -> Optional[T]:
         return await self.db.execute(
             select(self.model).filter(self.model.id == id)
@@ -22,13 +29,6 @@ class BaseRepository(Generic[T]):
         if limit is not None:
             query = query.limit(limit)
         return await query.all()
-
-    async def create(self, obj_in: BaseModel) -> T:
-        db_obj = self.model(**obj_in.model_dump())
-        self.db.add(db_obj)
-        await self.db.commit()
-        await self.db.refresh(db_obj)
-        return db_obj
 
     async def update(self, db_obj: T, obj_in: BaseModel) -> T:
         for key, value in obj_in.model_dump().items():
