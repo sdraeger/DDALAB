@@ -32,16 +32,18 @@ async def login_for_access_token(
     if not user:
         raise HTTPException(status_code=401, detail="Incorrect username or password")
 
+    expires_in = timedelta(days=7)  # TODO: use env var
     access_token = create_jwt_token(
         subject=user.username,
-        expires_delta=timedelta(days=7),
+        expires_delta=expires_in,
         secret_key=settings.jwt_secret_key,
         algorithm=settings.jwt_algorithm,
     )
 
     return {
         "access_token": access_token,
-        "expires_in": 7 * 24 * 60 * 60,  # TODO: Use env var
+        "expires_in": expires_in.total_seconds(),
+        "user": user,
     }
 
 
@@ -62,16 +64,18 @@ async def refresh_token(
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
+        expires_in = timedelta(days=7)  # TODO: use env var
         new_access_token = create_jwt_token(
             username=user.username,
-            expires_delta=timedelta(days=7),
+            expires_delta=expires_in,
             secret_key=settings.jwt_secret_key,
             algorithm=settings.jwt_algorithm,
         )
 
         return {
             "access_token": new_access_token,
-            "expires_in": 7 * 24 * 60 * 60,  # 7 days in seconds
+            "expires_in": expires_in.total_seconds(),
+            "user": user,
         }
 
     except jwt.ExpiredSignatureError:

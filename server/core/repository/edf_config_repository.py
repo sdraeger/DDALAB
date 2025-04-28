@@ -1,23 +1,26 @@
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import insert, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...schemas.config import EdfConfigCreate
 from ..database import EdfConfig
 from .base_repository import BaseRepository
 
 
 class EdfConfigRepository(BaseRepository[EdfConfig]):
-    _instance = None
-
     def __init__(self, db: AsyncSession):
         super().__init__(EdfConfig, db)
 
-    @staticmethod
-    def get_instance() -> "EdfConfigRepository":
-        if EdfConfigRepository._instance is None:
-            EdfConfigRepository._instance = EdfConfigRepository()
-        return EdfConfigRepository._instance
+    async def create(self, user_id: int, edf_config: EdfConfigCreate) -> EdfConfig:
+        try:
+            result = await self.db.execute(
+                insert(EdfConfig).values(**edf_config.model_dump()).returning(EdfConfig)
+            )
+            return result.scalar_one()
+        except IntegrityError as e:
+            raise ValueError(f"Failed to create config: {str(e)}")
 
     async def get_by_user_id(
         self, user_id: int, skip: int = 0, limit: int | None = None
@@ -33,7 +36,7 @@ class EdfConfigRepository(BaseRepository[EdfConfig]):
 
     async def get_by_user_id_and_file_hash(
         self, user_id: int, file_hash: str
-    ) -> Optional[EdfConfig]:
+    ) -> EdfConfig | None:
         stmt = select(EdfConfig).filter(
             EdfConfig.user_id == user_id, EdfConfig.file_hash == file_hash
         )

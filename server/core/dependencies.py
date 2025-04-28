@@ -1,9 +1,9 @@
+from contextlib import asynccontextmanager
 from typing import Callable, Type, TypeVar
 
 from fastapi import Depends
 from loguru import logger
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from .config import get_server_settings
 
@@ -24,23 +24,29 @@ SQLALCHEMY_DATABASE_URL = (
     f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 )
 engine = create_async_engine(SQLALCHEMY_DATABASE_URL, echo=True)
-
-# Create async session factory
-AsyncSessionLocal = sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
+async_session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
 
 
-# @asynccontextmanager
+@asynccontextmanager
 async def get_db():
-    # async with AsyncSessionLocal() as session:
-    session = AsyncSessionLocal()
-    try:
+    """
+    Dependency to get a database session in an async context
+    """
+    async with async_session_maker() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
+async def get_db_session():
+    """
+    Dependency to get a database session in a Depends
+    """
+    async with get_db() as session:
         yield session
-    finally:
-        await session.close()
 
 
 def register_service(
@@ -68,9 +74,10 @@ def register_service(
 def get_service(service_class: Type[T]) -> Callable[[AsyncSession], T]:
     """Dependency injector for services"""
 
-    def factory(db: AsyncSession = Depends(get_db)) -> T:
+    def factory(db: AsyncSession = Depends(get_db_session)) -> T:
         logger.debug(f"Factory called for service {service_class.__name__}")
         logger.debug(f"Service registry: {_service_registry}")
+        logger.debug(f"{db = }")
         if service_class not in _service_registry:
             raise ValueError(f"Service {service_class.__name__} not registered")
         logger.debug(f"{_service_registry[service_class] = }")

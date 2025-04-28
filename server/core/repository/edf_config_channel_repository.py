@@ -1,23 +1,32 @@
 from typing import List
 
-from fastapi import Request
-from sqlalchemy import select
+from sqlalchemy import delete, insert, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import EdfConfigChannel
+from ...schemas.config import EdfConfigChannelCreate
+from ..database import EdfConfig, EdfConfigChannel
 from .base_repository import BaseRepository
 
 
 class EdfConfigChannelRepository(BaseRepository[EdfConfigChannel]):
-    _instance = None
+    def __init__(self, db: AsyncSession):
+        super().__init__(EdfConfigChannel, db)
 
-    def __init__(self, request: Request):
-        super().__init__(EdfConfigChannel, request)
-
-    @staticmethod
-    def get_instance() -> "EdfConfigChannelRepository":
-        if EdfConfigChannelRepository._instance is None:
-            EdfConfigChannelRepository._instance = EdfConfigChannelRepository()
-        return EdfConfigChannelRepository._instance
+    async def create(
+        self, user_id: int, edf_config: EdfConfigChannelCreate
+    ) -> EdfConfigChannel:
+        data = edf_config.model_dump()
+        channels = data.pop("channels", [])
+        inserted = None
+        for channel in channels:
+            inserted = (
+                await self.db.execute(
+                    insert(EdfConfigChannel).values(
+                        config_id=data["config_id"], channel=channel
+                    )
+                )
+            ).scalar_one()
+        return inserted
 
     async def get_by_config_id(
         self, config_id: int, skip: int = 0, limit: int | None = None
@@ -29,16 +38,25 @@ class EdfConfigChannelRepository(BaseRepository[EdfConfigChannel]):
         )
         if limit is not None:
             query = query.limit(limit)
-        return await query.scalars().all()
+        return (await query).scalars().all()
 
     async def get_by_user_id(
         self, user_id: int, skip: int = 0, limit: int | None = None
     ) -> List[EdfConfigChannel]:
         query = self.db.execute(
             select(EdfConfigChannel)
-            .filter(EdfConfigChannel.user_id == user_id)
+            .join(
+                EdfConfigChannel.config,
+                onclause=EdfConfigChannel.config_id == EdfConfig.id,
+            )
+            .filter(EdfConfig.user_id == user_id)
             .offset(skip)
         )
         if limit is not None:
             query = query.limit(limit)
         return await query.scalars().all()
+
+    async def delete_by_config_id(self, config_id: int) -> None:
+        await self.db.execute(
+            delete(EdfConfigChannel).where(EdfConfigChannel.config_id == config_id)
+        )

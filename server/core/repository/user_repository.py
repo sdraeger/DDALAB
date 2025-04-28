@@ -1,23 +1,15 @@
 from typing import List, Optional
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import User, UserPreferences
 from .base_repository import BaseRepository
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class UserRepository(BaseRepository[User]):
-    _instance = None
-
     def __init__(self, db: AsyncSession):
         super().__init__(User, db)
-
-    @staticmethod
-    def get_instance() -> "UserRepository":
-        if UserRepository._instance is None:
-            UserRepository._instance = UserRepository()
-        return UserRepository._instance
 
     async def get_by_email(self, email: str) -> Optional[User]:
         stmt = select(User).filter(User.email == email)

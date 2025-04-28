@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.database import EdfConfig
-from ...schemas.config import EdfConfigUpdate
+from ...schemas.config import EdfConfigCreate, EdfConfigUpdate
 from ..dependencies import register_service
 from ..repository import EdfConfigRepository
 
@@ -14,6 +14,11 @@ class EdfConfigService:
     @classmethod
     def create(cls, db: AsyncSession) -> "EdfConfigService":
         return cls(db)
+
+    async def create_config(
+        self, user_id: int, edf_config: EdfConfigCreate
+    ) -> EdfConfig:
+        return await self.repo.create(user_id, edf_config)
 
     async def get_config(
         self, user_id: int | None = None, file_hash: str | None = None

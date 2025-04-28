@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.core.config import get_server_settings
 from server.core.database import User
-from server.core.dependencies import get_db, get_service
+from server.core.dependencies import get_service
 from server.core.security import verify_password
 from server.core.services.user_service import UserService
 
@@ -27,7 +27,16 @@ async def authenticate_user(
     password: str,
     user_service: UserService = Depends(get_service(UserService)),
 ) -> Optional[User]:
-    """Authenticate user using repository pattern"""
+    """Authenticate user using repository pattern
+
+    Args:
+        username (str): Username to authenticate
+        password (str): Password to authenticate
+        user_service (UserService, optional): UserService dependency
+
+    Returns:
+        Optional[User]: Authenticated user or None
+    """
     user = await user_service.get_user(username=username)
 
     if not user or not verify_password(password, user.password_hash):
@@ -42,7 +51,15 @@ async def get_current_user(
     request: Request,
     user_service: UserService = Depends(get_service(UserService)),
 ) -> User:
-    """Get current user using JWT token and repository"""
+    """Get current user using JWT token and repository
+
+    Args:
+        request (Request): Request object containing JWT token
+        user_service (UserService, optional): UserService dependency
+
+    Returns:
+        User: Authenticated user
+    """
     token = getattr(request.state, "token", None)
 
     if not token:
@@ -88,7 +105,15 @@ async def get_current_user(
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    """Create a JWT access token."""
+    """Create a JWT access token.
+
+    Args:
+        data (dict): Data to encode in the token
+        expires_delta (Optional[timedelta]): Optional timedelta for token expiration
+
+    Returns:
+        str: JWT access token
+    """
 
     to_encode = data.copy()
 
@@ -128,8 +153,7 @@ async def get_current_user_from_request(request: Request) -> User:
         username = _validate_jwt_payload(payload)
         _check_token_expiration(payload)
 
-        async with get_db() as db:
-            user = await _fetch_user_from_db(db, username)
+        user = await _fetch_user_from_db(request.state.db, username)
 
         _log_successful_auth(user)
         return user
@@ -149,20 +173,44 @@ async def get_current_user_from_request(request: Request) -> User:
 
 # Helper functions
 def _extract_token_from_request(request: Request) -> str:
-    """Extract and clean the JWT token from request headers."""
+    """Extract and clean the JWT token from request headers.
+
+    Args:
+        request (Request): The incoming request containing the JWT token
+
+    Returns:
+        str: Cleaned JWT token
+    """
     auth_header = request.headers.get("authorization", "")
     return auth_header.replace("Bearer ", "").strip()
 
 
 def _decode_jwt_token(token: str) -> dict:
-    """Decode and verify the JWT token."""
+    """Decode and verify the JWT token.
+
+    Args:
+        token (str): JWT token to decode
+
+    Returns:
+        dict: Decoded JWT payload
+    """
     return jwt.decode(
         token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
     )
 
 
 def _validate_jwt_payload(payload: dict) -> str:
-    """Validate JWT payload and extract username."""
+    """Validate JWT payload and extract username.
+
+    Args:
+        payload (dict): JWT payload
+
+    Returns:
+        str: Username extracted from the payload
+
+    Raises:
+        HTTPException: If 'sub' claim is missing
+    """
     username = payload.get("sub")
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token: 'sub' not found")
@@ -170,7 +218,14 @@ def _validate_jwt_payload(payload: dict) -> str:
 
 
 def _check_token_expiration(payload: dict):
-    """Verify token hasn't expired."""
+    """Verify token hasn't expired.
+
+    Args:
+        payload (dict): JWT payload
+
+    Raises:
+        HTTPException: If token has expired
+    """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     expires_at = datetime.fromtimestamp(payload.get("exp"), tz=timezone.utc).replace(
         tzinfo=None
@@ -181,7 +236,18 @@ def _check_token_expiration(payload: dict):
 
 
 async def _fetch_user_from_db(session: AsyncSession, username: str) -> User:
-    """Fetch user from database."""
+    """Fetch user from database.
+
+    Args:
+        session (AsyncSession): Database session
+        username (str): Username to search for
+
+    Returns:
+        User: User object if found
+
+    Raises:
+        HTTPException: If user not found
+    """
     user = await session.scalar(select(User).where(User.username == username))
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
@@ -189,19 +255,37 @@ async def _fetch_user_from_db(session: AsyncSession, username: str) -> User:
 
 
 def _log_successful_auth(user: User):
-    """Log successful authentication."""
+    """Log successful authentication.
+
+    Args:
+        user (User): Authenticated user
+    """
     logger.debug(f"User authenticated: {user.username}")
 
 
 def _log_auth_failure(message: str):
-    """Log authentication failures."""
+    """Log authentication failures.
+
+    Args:
+        message (str): Error message
+    """
     logger.error(f"Authentication failed: {message}")
 
 
 async def get_admin_user(
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """Ensure the current user is an admin."""
+    """Ensure the current user is an admin.
+
+    Args:
+        current_user (User): Current authenticated user
+
+    Returns:
+        User: Admin user
+
+    Raises:
+        HTTPException: If user is not an admin
+    """
 
     if not current_user or not current_user.is_admin:
         raise HTTPException(

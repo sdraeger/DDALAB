@@ -1,23 +1,15 @@
 from typing import List
 
-from fastapi import Request
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import FavoriteFile
 from .base_repository import BaseRepository
 
 
 class FavoriteFileRepository(BaseRepository[FavoriteFile]):
-    _instance = None
-
-    def __init__(self, request: Request):
-        super().__init__(FavoriteFile, request)
-
-    @staticmethod
-    def get_instance() -> "FavoriteFileRepository":
-        if FavoriteFileRepository._instance is None:
-            FavoriteFileRepository._instance = FavoriteFileRepository()
-        return FavoriteFileRepository._instance
+    def __init__(self, db: AsyncSession):
+        super().__init__(FavoriteFile, db)
 
     async def get_by_user_id(
         self, user_id: int, skip: int = 0, limit: int | None = None
