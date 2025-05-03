@@ -13,11 +13,12 @@ class EdfConfigRepository(BaseRepository[EdfConfig]):
     def __init__(self, db: AsyncSession):
         super().__init__(EdfConfig, db)
 
-    async def create(self, user_id: int, edf_config: EdfConfigCreate) -> EdfConfig:
+    async def create(self, edf_config: EdfConfigCreate) -> EdfConfig:
         try:
             result = await self.db.execute(
                 insert(EdfConfig).values(**edf_config.model_dump()).returning(EdfConfig)
             )
+            await self.db.commit()
             return result.scalar_one()
         except IntegrityError as e:
             raise ValueError(f"Failed to create config: {str(e)}")

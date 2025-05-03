@@ -3,6 +3,8 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { DEFAULT_USER_PREFERENCES } from "@/contexts/settings-context";
 import { getEnvVar } from "@/lib/utils/env";
 import { apiRequest } from "@/lib/utils/request";
+import { TokenResponse } from "@/lib/schemas/token";
+import { UserPreferences } from "@/lib/schemas/user_preferences";
 
 const API_URL = getEnvVar("NEXT_PUBLIC_API_URL");
 const SESSION_EXPIRATION = parseInt(getEnvVar("SESSION_EXPIRATION"));
@@ -64,7 +66,7 @@ export const authOptions: NextAuthOptions = {
         }
 
         try {
-          const res = await apiRequest({
+          const res = await apiRequest<TokenResponse>({
             url,
             method: "POST",
             contentType: "application/x-www-form-urlencoded",
@@ -73,29 +75,32 @@ export const authOptions: NextAuthOptions = {
               password: credentials.password,
               grant_type: "password",
             }),
+            responseType: "json",
           });
 
-          const data = await res.json();
-          console.log("Response:", data);
+          console.log("authorize res:", res);
 
-          if (!res.ok || !data.access_token) {
-            throw new Error(data.error || "Login failed");
+          if (!res.access_token) {
+            throw new Error("Login failed");
           }
 
           const user = {
-            id: data.user.id.toString(),
-            name: data.user.username,
-            email: data.user.email,
-            firstName: data.user.first_name,
-            lastName: data.user.last_name,
-            accessToken: data.access_token,
-            refreshToken: data.refresh_token,
+            id: res.user.id.toString(),
+            name: res.user.username,
+            email: res.user.email,
+            firstName: res.user.first_name,
+            lastName: res.user.last_name,
+            accessToken: res.access_token,
+            refreshToken: res.access_token,
           };
 
           console.log("Authorize user:", user);
           return user;
         } catch (error) {
-          console.error("Authorize error:", error.message);
+          console.error(
+            "Authorize error:",
+            error instanceof Error ? error.message : "Unknown error"
+          );
           throw error;
         }
       },
@@ -119,21 +124,22 @@ export const authOptions: NextAuthOptions = {
       // Fetch preferences for token
       if (token.accessToken && (trigger === "signIn" || trigger === "update")) {
         try {
-          const res = await apiRequest({
-            url: `${API_URL}/api/user-preferences`,
+          const url = `${API_URL}/api/user-preferences`;
+          const res = await apiRequest<UserPreferences>({
+            url,
             token: token.accessToken,
             method: "GET",
             contentType: "application/json",
+            responseType: "json",
           });
 
-          if (!res.ok) throw new Error("Failed to fetch preferences");
+          console.log("JWT - Preferences response:", res);
 
-          const data = await res.json();
-          console.log("JWT - Preferences data:", data);
+          if (!res) throw new Error("Failed to fetch preferences");
 
-          token.theme = data.theme ?? DEFAULT_USER_PREFERENCES.theme;
+          token.theme = res.theme ?? DEFAULT_USER_PREFERENCES.theme;
           token.eegZoomFactor =
-            data.eeg_zoom_factor ?? DEFAULT_USER_PREFERENCES.eegZoomFactor;
+            res.eegZoomFactor ?? DEFAULT_USER_PREFERENCES.eegZoomFactor;
           const sessionExpirationMs = SESSION_EXPIRATION * 60 * 1000;
           token.exp = Math.floor((Date.now() + sessionExpirationMs) / 1000);
 
@@ -190,11 +196,13 @@ export const authOptions: NextAuthOptions = {
 
 async function refreshAccessToken(token: any) {
   try {
+    const url = `${API_URL}/api/auth/refresh-token`;
     const response = await apiRequest({
-      url: `${API_URL}/api/auth/refresh-token`,
+      url,
       method: "POST",
       body: { refresh_token: token.refreshToken },
       contentType: "application/json",
+      responseType: "json",
     });
 
     const refreshedTokens = await response.json();

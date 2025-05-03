@@ -9,7 +9,6 @@ import {
   ReactNode,
 } from "react";
 import { useSession } from "next-auth/react";
-import { useToast } from "@/components/ui/use-toast";
 import { usePathname } from "next/navigation";
 import { apiRequest } from "@/lib/utils/request";
 
@@ -73,9 +72,13 @@ export interface RegisterCredentials {
   inviteCode: string;
 }
 
+interface UserPreferencesResponse {
+  theme: string;
+  eegZoomFactor: number;
+}
+
 export function SettingsProvider({ children }: SettingsProviderProps) {
-  const { data: session, update: updateSession } = useSession();
-  const { toast } = useToast();
+  const { data: session } = useSession();
   const pathname = usePathname();
 
   // State for tracking changes
@@ -92,20 +95,18 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     if (!session?.accessToken) return;
 
     try {
-      const res = await apiRequest({
-        url: `/api/user-preferences`,
-        method: "GET",
-        token: session.accessToken,
-        contentType: "application/json",
-      });
+      const res: UserPreferencesResponse =
+        await apiRequest<UserPreferencesResponse>({
+          url: `/api/user-preferences`,
+          method: "GET",
+          token: session.accessToken,
+          contentType: "application/json",
+          responseType: "json",
+        });
 
-      if (!res.ok)
-        throw new Error(`Failed to fetch preferences: ${res.status}`);
-      const data = await res.json();
-      const newPrefs = {
-        theme: data.theme ?? DEFAULT_USER_PREFERENCES.theme,
-        eegZoomFactor:
-          data.eeg_zoom_factor ?? DEFAULT_USER_PREFERENCES.eegZoomFactor,
+      const newPrefs: UserPreferences = {
+        theme: res.theme as "light" | "dark" | "system",
+        eegZoomFactor: res.eegZoomFactor,
       };
 
       console.log("Fetched preferences (SettingsProvider):", newPrefs);
@@ -158,8 +159,8 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
         token: session?.accessToken,
         contentType: "application/json",
         body: payload,
+        responseType: "json",
       });
-      const responseData = await res.json();
 
       if (!res.ok) throw new Error(`Failed to save preferences: ${res.status}`);
 

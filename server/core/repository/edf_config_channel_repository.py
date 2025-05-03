@@ -12,9 +12,7 @@ class EdfConfigChannelRepository(BaseRepository[EdfConfigChannel]):
     def __init__(self, db: AsyncSession):
         super().__init__(EdfConfigChannel, db)
 
-    async def create(
-        self, user_id: int, edf_config: EdfConfigChannelCreate
-    ) -> EdfConfigChannel:
+    async def create(self, edf_config: EdfConfigChannelCreate) -> EdfConfigChannel:
         data = edf_config.model_dump()
         channels = data.pop("channels", [])
         inserted = None
@@ -26,6 +24,7 @@ class EdfConfigChannelRepository(BaseRepository[EdfConfigChannel]):
                     )
                 )
             ).scalar_one()
+        await self.db.commit()
         return inserted
 
     async def get_by_config_id(
@@ -60,3 +59,4 @@ class EdfConfigChannelRepository(BaseRepository[EdfConfigChannel]):
         await self.db.execute(
             delete(EdfConfigChannel).where(EdfConfigChannel.config_id == config_id)
         )
+        await self.db.commit()

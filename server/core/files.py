@@ -1,36 +1,15 @@
 """Core file management functionality."""
 
 import datetime
-import os
 from pathlib import Path
-from typing import Dict, List
+from typing import List
 
 from loguru import logger
 
 from ..core.config import get_data_settings
+from ..schemas.files import FileInfo
 
 settings = get_data_settings()
-
-
-async def get_available_files() -> List[str]:
-    """Get list of available files in the data directory.
-
-    Returns:
-        List of file paths relative to the data directory
-    """
-    data_dir = Path(settings.data_dir)
-
-    if not data_dir.exists():
-        return []
-
-    files = []
-    for root, _, filenames in os.walk(data_dir):
-        for filename in filenames:
-            if filename.endswith(".edf"):  # Add other extensions as needed
-                rel_path = os.path.relpath(os.path.join(root, filename), data_dir)
-                files.append(rel_path)
-
-    return sorted(files)
 
 
 async def validate_file_path(file_path: str) -> bool:
@@ -49,7 +28,7 @@ async def validate_file_path(file_path: str) -> bool:
     return full_path.exists() and full_path.is_file()
 
 
-async def list_directory(path: str = "") -> List[Dict[str, str]]:
+async def list_directory(path: str = "") -> List[FileInfo]:
     """List files and directories in a specific path.
 
     Args:
@@ -68,48 +47,36 @@ async def list_directory(path: str = "") -> List[Dict[str, str]]:
     try:
         # Verify target_dir is within data_dir
         target_dir = target_dir.resolve()
+        logger.info(f"{(not str(target_dir).startswith(str(data_dir))) = }")
+        logger.info(f"{(not (target_dir.exists() and target_dir.is_dir())) = }")
+
         if not str(target_dir).startswith(str(data_dir)):
             return []
 
-        if not target_dir.exists() or not target_dir.is_dir():
+        if not (target_dir.exists() and target_dir.is_dir()):
             return []
 
         items = []
+        logger.info(f"{list(target_dir.iterdir()) = }")
         for item in target_dir.iterdir():
-            if item.is_file() and item.suffix == ".edf":
-                # Get relative path from data directory
-                rel_path = str(item.relative_to(data_dir))
-                file_stat = item.stat()
-                last_modified = datetime.datetime.fromtimestamp(
-                    file_stat.st_mtime
-                ).isoformat()
-                items.append(
-                    {
-                        "name": item.name,
-                        "path": rel_path,
-                        "is_directory": False,
-                        "size": file_stat.st_size,
-                        "last_modified": last_modified,
-                    }
-                )
-            elif item.is_dir():
-                # Get relative path from data directory
-                rel_path = str(item.relative_to(data_dir))
-                dir_stat = item.stat()
-                last_modified = datetime.datetime.fromtimestamp(
-                    dir_stat.st_mtime
-                ).isoformat()
-                items.append(
-                    {
-                        "name": item.name,
-                        "path": rel_path,
-                        "is_directory": True,
-                        "size": None,
-                        "last_modified": last_modified,
-                    }
-                )
+            rel_path = str(item.relative_to(data_dir))
+            file_stat = item.stat()
+            last_modified = datetime.datetime.fromtimestamp(
+                file_stat.st_mtime
+            ).isoformat()
+            file_size = file_stat.st_size if item.is_file() else None
 
-        return sorted(items, key=lambda x: (not x["is_directory"], x["name"]))
+            item = FileInfo(
+                name=item.name,
+                path=rel_path,
+                is_directory=item.is_dir(),
+                size=file_size,
+                is_favorite=False,
+                last_modified=str(last_modified),
+            )
+            items.append(item)
+
+        return sorted(items, key=lambda x: (not x.is_directory, x.name.lower()))
     except Exception as e:
         logger.error(f"Error listing directory: {e}")
         return []

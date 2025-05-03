@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
-import { apiRequest } from "@/lib/utils/request";
+import { apiRequest, ApiRequestOptions } from "@/lib/utils/request";
+import { EdfConfigResponse } from "@/lib/schemas/edf";
 
 export function DashboardTabs() {
   const { data: session } = useSession();
@@ -27,19 +28,17 @@ export function DashboardTabs() {
     const token = session?.accessToken;
     if (!token) throw new Error("No token found in session");
 
-    const encodedFilePath = encodeURIComponent(filePath);
-    const requestOptions = {
-      url: `/api/config/edf?file_path=${encodedFilePath}`,
+    const requestOptions: ApiRequestOptions & { responseType: "json" } = {
+      url: `/api/config/edf?file_path=${encodeURIComponent(filePath)}`,
       method: "GET",
       token,
+      responseType: "json",
       contentType: "application/json",
     };
-    const fileCfgResponse = await apiRequest(requestOptions);
-    const data = await fileCfgResponse.json();
+    const fileCfgResponse = await apiRequest<EdfConfigResponse>(requestOptions);
 
-    console.log("File config:", data);
-
-    setSelectedChannels(data?.channels || []);
+    console.log("File config:", fileCfgResponse);
+    setSelectedChannels(fileCfgResponse?.channels || []);
   };
 
   const toggleFileBrowser = () => {

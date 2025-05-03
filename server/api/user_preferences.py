@@ -24,7 +24,6 @@ async def get_user_preferences(
     try:
         # Get user preferences from database
         preferences = await prefs_service.get_preferences(current_user.id)
-        logger.info("after execute")
         logger.info(f"preferences: {preferences}")
 
         # If no preferences exist, create with defaults

@@ -1,5 +1,6 @@
 from typing import Generic, List, Optional, Type, TypeVar
 
+from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,16 +14,26 @@ class BaseRepository(Generic[T]):
         self.db = db
 
     async def create(self, obj_in: BaseModel) -> T:
-        db_obj = self.model(**obj_in.model_dump())
+        logger.debug(f"obj_in: {obj_in}")
+        model_dict = obj_in.model_dump()
+        logger.debug(f"model_dict: {model_dict}")
+
+        db_obj = self.model(**model_dict)
+        logger.debug(f"db_obj: {db_obj}")
         self.db.add(db_obj)
+        logger.debug("db_obj added")
         await self.db.commit()
+        logger.debug("db_obj committed")
         await self.db.refresh(db_obj)
+        logger.debug("db_obj refreshed")
         return db_obj
 
     async def get_by_id(self, id: int) -> Optional[T]:
-        return await self.db.execute(
-            select(self.model).filter(self.model.id == id)
-        ).first()
+        return (
+            (await self.db.execute(select(self.model).filter(self.model.id == id)))
+            .scalars()
+            .first()
+        )
 
     async def get_all(self, skip: int = 0, limit: int | None = None) -> List[T]:
         query = self.db.execute(select(self.model).offset(skip))

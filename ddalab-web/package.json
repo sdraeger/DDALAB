@@ -62,6 +62,7 @@
     "https": "latest",
     "input-otp": "1.4.1",
     "jsonwebtoken": "^9.0.2",
+    "lodash.debounce": "^4.0.8",
     "lucide-react": "^0.454.0",
     "module-alias": "^2.2.3",
     "next": "15.1.0",

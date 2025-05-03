@@ -3,8 +3,17 @@ from typing import List
 from pydantic import BaseModel
 
 
-class EdfConfigRequest(BaseModel):
+class EdfConfigCreateOrUpdateRequest(BaseModel):
+    """Request for creating/updating configuration for a specific user and file."""
+
+    file_path: str
     channels: List[str]
+
+
+class EdfConfigGetRequest(BaseModel):
+    """Request for getting configuration for a specific user and file."""
+
+    file_path: str
 
 
 # Response model for EdfConfigDB

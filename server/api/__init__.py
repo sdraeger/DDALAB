@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from .config import router as config_router
 from .dda import router as dda_router
+from .favorite_files import router as favorite_files_router
 from .files import router as files_router
 from .health import router as health_router
 from .metrics import router as metrics_router
@@ -24,11 +25,12 @@ router.include_router(
     user_preferences_router,
     prefix="/user-preferences",
     tags=["user_preferences"],
-    include_in_schema=True,
 )
 router.include_router(users_router, prefix="/users", tags=["users"])
 router.include_router(health_router, prefix="/health", tags=["health"])
 router.include_router(results_router, prefix="/results", tags=["results"])
 router.include_router(config_router, prefix="/config", tags=["config"])
-
+router.include_router(
+    favorite_files_router, prefix="/favfiles", tags=["favorite_files"]
+)
 router_metrics.include_router(metrics_router, prefix="/metrics", tags=["metrics"])
