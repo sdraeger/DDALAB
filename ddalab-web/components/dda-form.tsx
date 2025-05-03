@@ -25,8 +25,9 @@ import { toast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import { DDAPlot } from "@/components/dda-plot";
-import { apiRequest } from "@/lib/utils/request";
+import { apiRequest, ApiRequestOptions } from "@/lib/utils/request";
 import { useSession } from "next-auth/react";
+import { EdfConfigResponse } from "@/lib/schemas/edf";
 
 // Form validation schema
 const formSchema = z.object({
@@ -51,6 +52,12 @@ interface DDAFormProps {
   filePath: string;
   selectedChannels: string[];
   setSelectedChannels: (channels: string[]) => void;
+}
+
+interface DDAResponse {
+  Q: number[][];
+  file_path: string;
+  metadata: Record<string, string> | null;
 }
 
 export function DDAForm({
@@ -87,8 +94,11 @@ export function DDAForm({
         .map((label) => availableChannels.indexOf(label) + 1) // Respect DDA's 1-based indexing
         .filter((index) => index !== -1); // Filter out any channels not found in availableChannels
 
-      const { data: responseData } = await submitDdaTask({
-        variables: {
+      const requestOptions: ApiRequestOptions & { responseType: "json" } = {
+        url: "/api/dda",
+        method: "POST",
+        token: session?.accessToken,
+        body: {
           filePath: data.filePath,
           channelList: channelIndices,
           preprocessingOptions: {
@@ -104,17 +114,18 @@ export function DDAForm({
             normalization: data.normalization,
           },
         },
-      });
+        responseType: "json",
+      };
 
-      const response = responseData?.runDda;
+      const response = await apiRequest<DDAResponse>(requestOptions);
       console.log("DDA response:", response);
 
-      toast({
-        title: "DDA Analysis Complete",
-        description: "Analysis results received successfully",
-      });
-
       setQ(response?.Q);
+
+      toast({
+        title: "DDA Complete",
+        description: "Results received successfully",
+      });
     } catch (error) {
       toast({
         title: "Error Submitting DDA Task",
@@ -128,22 +139,21 @@ export function DDAForm({
   const handleChannelSelectionChange = async (selectedChannels: string[]) => {
     setSelectedChannels(selectedChannels);
 
-    const encodedFilePath = encodeURIComponent(filePath);
     const body = {
       channels: selectedChannels,
+      file_path: filePath,
     };
-    const requestOptions = {
-      url: `/api/config/edf?file_path=${encodedFilePath}`,
+    const requestOptions: ApiRequestOptions & { responseType: "json" } = {
+      url: `/api/config/edf`,
       method: "POST",
       token: session?.accessToken,
-      contentType: "application/json",
       body: body,
+      responseType: "json",
     };
-    const response = await apiRequest(requestOptions);
-    const data = await response.json();
+    const response = await apiRequest<EdfConfigResponse>(requestOptions);
 
     console.log("Request Options:", requestOptions);
-    console.log("File config:", data);
+    console.log("File config:", response);
   };
 
   const handleAvailableChannelsChange = (channels: string[]) => {

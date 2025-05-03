@@ -1,14 +1,6 @@
 import { gql } from "@apollo/client";
 
 // File queries
-export const LIST_FILES = gql`
-  query ListFiles {
-    files {
-      files
-    }
-  }
-`;
-
 export const LIST_FILES_IN_PATH = gql`
   query ListFilesInPath($path: String!) {
     listDirectory(path: $path) {

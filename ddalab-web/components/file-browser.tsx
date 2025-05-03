@@ -1,9 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@apollo/client";
-import { LIST_FILES_IN_PATH } from "@/lib/graphql/queries";
-import { TOGGLE_FAVORITE_FILE } from "@/lib/graphql/mutations";
 import { Folder, File, ChevronRight, ArrowLeft, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +8,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EDFPlotDialog } from "@/components/edf-plot-dialog";
 import { useEDFPlot } from "@/contexts/edf-plot-context";
 import { toast } from "@/components/ui/use-toast";
+import { apiRequest } from "@/lib/utils/request";
+import { useApiQuery } from "@/lib/hooks/query";
+import { useSession } from "next-auth/react";
 
 interface FileItem {
   name: string;
@@ -26,11 +26,23 @@ interface FileBrowserProps {
   initialPath?: string;
 }
 
-export function FileBrowser({
-  onFileSelect,
-  initialPath = "",
-}: FileBrowserProps) {
-  const [currentPath, setCurrentPath] = useState(initialPath);
+interface FileListResponse {
+  files: FileItem[];
+}
+
+interface ConfigResponse {
+  institutionName: string;
+  allowedDirs: string[];
+}
+
+interface ToggleFavoriteResponse {
+  success: boolean;
+  file_path: string;
+  message: string | null;
+}
+
+export function FileBrowser({ onFileSelect }: FileBrowserProps) {
+  const [currentPath, setCurrentPath] = useState<string>("");
   const [pathHistory, setPathHistory] = useState<string[]>([]);
 
   // Remove local state and use context instead
@@ -41,16 +53,59 @@ export function FileBrowser({
     selectedFilePath,
   } = useEDFPlot();
 
-  const { loading, error, data, refetch } = useQuery(LIST_FILES_IN_PATH, {
-    variables: { path: currentPath },
-    fetchPolicy: "network-only",
+  const { data: session } = useSession();
+
+  const {
+    loading: configLoading,
+    error: configError,
+    data: configData,
+  } = useApiQuery<ConfigResponse>({
+    url: "/api/config",
+    method: "GET",
+    responseType: "json",
+    enabled: true,
   });
 
-  const [toggleFavorite] = useMutation(TOGGLE_FAVORITE_FILE, {
-    onCompleted: () => {
-      refetch({ path: currentPath });
-    },
-  });
+  useEffect(() => {
+    if (configData && currentPath === "") {
+      const newPath = configData.allowedDirs[0];
+      setCurrentPath(newPath);
+    }
+  }, [configData, currentPath]);
+
+  const { loading, error, data, refetch, updateData } =
+    useApiQuery<FileListResponse>({
+      url: currentPath
+        ? `/api/files/list?path=${encodeURIComponent(currentPath)}`
+        : "",
+      token: session?.accessToken,
+      method: "GET",
+      responseType: "json",
+      enabled: !!currentPath,
+    });
+
+  // Format file size
+  const formatFileSize = (bytes?: number) => {
+    if (!bytes || bytes === 0) return "Unknown";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return (
+      Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
+    );
+  };
+
+  // Format date
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return "Unknown";
+    const date = new Date(dateString);
+    return date.toLocaleDateString() + " " + date.toLocaleTimeString();
+  };
+
+  // Refresh file list
+  const refreshFiles = () => {
+    refetch();
+  };
 
   // Navigate to a directory
   const navigateToDirectory = (dirPath: string) => {
@@ -78,54 +133,38 @@ export function FileBrowser({
 
   // Handle star/favorite button click
   const handleStarClick = async (e: React.MouseEvent, file: FileItem) => {
-    e.stopPropagation(); // Prevent triggering row click
+    e.stopPropagation();
     try {
-      await toggleFavorite({
-        variables: { filePath: file.path },
-        onError: (error) => {
-          if (error.message.includes("Authentication required")) {
-            // Show authentication error toast
-            toast({
-              title: "Authentication Required",
-              description: "Please log in to favorite files",
-              variant: "destructive",
-            });
-          } else {
-            // Show generic error toast
-            toast({
-              title: "Error",
-              description: "Failed to update favorite status",
-              variant: "destructive",
-            });
-          }
-        },
+      const response = await apiRequest<ToggleFavoriteResponse>({
+        url: `/api/favfiles/toggle?file_path=${encodeURIComponent(file.path)}`,
+        token: session?.accessToken,
+        method: "POST",
+        responseType: "json",
+      });
+
+      console.log("favfiles toggle response", response);
+
+      // Update data.files immutably
+      updateData((prevData) => {
+        if (!prevData) return prevData;
+        return {
+          ...prevData,
+          files: prevData.files.map((f) =>
+            f.path === response.file_path
+              ? { ...f, isFavorite: response.success }
+              : f
+          ),
+        };
       });
     } catch (error) {
       console.error("Error toggling favorite:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update favorite status",
+        variant: "destructive",
+      });
+      refetch(); // Sync with backend on error
     }
-  };
-
-  // Format file size
-  const formatFileSize = (bytes?: number) => {
-    if (!bytes || bytes === 0) return "Unknown";
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return (
-      Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
-    );
-  };
-
-  // Format date
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return "Unknown";
-    const date = new Date(dateString);
-    return date.toLocaleDateString() + " " + date.toLocaleTimeString();
-  };
-
-  // Refresh file list
-  const refreshFiles = () => {
-    refetch({ path: currentPath });
   };
 
   useEffect(() => {
@@ -184,7 +223,7 @@ export function FileBrowser({
                   </tr>
                 </thead>
                 <tbody>
-                  {data?.listDirectory?.length === 0 ? (
+                  {data?.files?.length === 0 ? (
                     <tr>
                       <td
                         colSpan={4}
@@ -194,7 +233,7 @@ export function FileBrowser({
                       </td>
                     </tr>
                   ) : (
-                    data?.listDirectory?.map((file: FileItem) => (
+                    data?.files?.map((file: FileItem) => (
                       <tr
                         key={file.path}
                         className="border-b hover:bg-muted/50 cursor-pointer"

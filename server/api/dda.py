@@ -1,21 +1,15 @@
 """DDA endpoints."""
 
-from typing import Optional
-
 from fastapi import APIRouter
 
-from ..core.dda import run_dda
-from ..schemas.dda import DDARequest, DDAResponse, DDAResult
-from ..schemas.preprocessing import PreprocessingOptionsInput
+from ..core.dda import run_dda as run_dda_core
+from ..schemas.dda import DDARequest, DDAResponse
 
 router = APIRouter()
 
 
-@router.post("/", response_model=DDAResponse)
-def submit_dda_request(
-    request: DDARequest,
-    preprocessing_options: Optional[PreprocessingOptionsInput] = None,
-) -> DDAResult:
+@router.post("", response_model=DDAResponse)
+async def run_dda(request: DDARequest) -> DDAResponse:
     """Submit a DDA task.
 
     Args:
@@ -25,5 +19,14 @@ def submit_dda_request(
     Returns:
         Task ID for tracking the DDA
     """
-    task_id = run_dda(request.file_path, request.channel_list, preprocessing_options)
-    return DDAResponse(task_id=task_id)
+
+    result = await run_dda_core(
+        file_path=request.file_path,
+        channel_list=request.channel_list,
+        preprocessing_options=request.preprocessing_options,
+    )
+    return DDAResponse(
+        file_path=request.file_path,
+        Q=result["Q"],
+        metadata=result.get("metadata"),
+    )

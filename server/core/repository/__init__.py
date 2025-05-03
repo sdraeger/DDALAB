@@ -8,7 +8,7 @@ from .base_repository import BaseRepository
 # from .dda_repository import DDARepository
 from .edf_config_channel_repository import EdfConfigChannelRepository
 from .edf_config_repository import EdfConfigRepository
-from .favorite_files_repository import FavoriteFileRepository
+from .favorite_files_repository import FavoriteFilesRepository
 
 # from .file_repository import FileRepository
 # from .result_repository import ResultRepository
@@ -23,7 +23,7 @@ __all__ = [
     # "DDARepository",
     "EdfConfigChannelRepository",
     "EdfConfigRepository",
-    "FavoriteFileRepository",
+    "FavoriteFilesRepository",
     # "FileRepository",
     # "ResultRepository",
     "TicketRepository",

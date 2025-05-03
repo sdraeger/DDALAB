@@ -1,35 +1,24 @@
 """File management endpoints."""
 
 from pathlib import Path
-from typing import Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 
+from ..core.auth import get_current_user
 from ..core.config import get_data_settings
+from ..core.dependencies import get_service
 from ..core.edf.anonymizer import anonymize_edf_file
-from ..core.files import get_available_files, list_directory, validate_file_path
-from ..core.utils.file import is_path_allowed
-from ..core.utils.utils import calculate_file_hash
-from ..schemas.files import FileList
+from ..core.files import list_directory as list_directory_core
+from ..core.files import validate_file_path
+from ..core.services import FavoriteFilesService
+from ..core.utils import calculate_file_hash, is_path_allowed
+from ..schemas.files import FileListResponse
+from ..schemas.user import User
 
 router = APIRouter()
 settings = get_data_settings()
-
-
-@router.get("/", response_model=FileList)
-async def list_files() -> FileList:
-    """List all available EDF files.
-
-    Returns:
-        List of available file paths
-    """
-    try:
-        files = await get_available_files()
-        return FileList(files=files)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{file_path:path}/exists")
@@ -48,26 +37,6 @@ async def check_file_exists(file_path: str) -> bool:
                 status_code=403, detail="Access to this directory is forbidden"
             )
         return await validate_file_path(file_path)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/list/{path:path}")
-async def list_directory_endpoint(path: str = "") -> List[Dict[str, str]]:
-    """List files and directories in a specific path.
-
-    Args:
-        path: Path relative to the data directory
-
-    Returns:
-        List of dictionaries containing file/directory information
-    """
-    try:
-        if not is_path_allowed(path):
-            raise HTTPException(
-                status_code=403, detail="Access to this directory is forbidden"
-            )
-        return await list_directory(path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -98,9 +67,38 @@ async def get_file_hash(file_path: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/list", response_model=FileListResponse)
+async def list_directory(
+    path: str = "/",
+    user: User = Depends(get_current_user),
+    favorite_files_service: FavoriteFilesService = Depends(
+        get_service(FavoriteFilesService)
+    ),
+) -> FileListResponse:
+    items = await list_directory_core(path)
+    favorite_files = []
+
+    try:
+        favorites = await favorite_files_service.get_favorites(user.id)
+        favorite_files = [fav.file_path for fav in favorites]
+    except Exception as e:
+        logger.error(f"Error fetching favorite files: {e}")
+
+    file_info_list = []
+    for item in items:
+        is_favorite = item.path in favorite_files
+        file_info = item
+        file_info.is_favorite = is_favorite
+        file_info_list.append(file_info)
+
+    logger.debug(f"File info list: {file_info_list}")
+
+    return FileListResponse(files=file_info_list)
+
+
 @router.get("/download/{file_path:path}")
 async def download_file(
-    file_path: str, client_hash: Optional[str] = None, anonymize: Optional[bool] = None
+    file_path: str, client_hash: str | None = None, anonymize: bool | None = None
 ):
     """Download a file with optional hash verification and anonymization.
 

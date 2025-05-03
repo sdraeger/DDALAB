@@ -27,12 +27,6 @@ class DDARequest(BaseModel):
 class DDAResponse(BaseModel):
     """DDA response schema."""
 
-    task_id: str
-
-
-class DDAResult(BaseModel):
-    """DDA result schema."""
-
     file_path: str
     Q: list[list[float | None]]
-    metadata: Optional[str] = None
+    metadata: Optional[dict[str, str]] = None

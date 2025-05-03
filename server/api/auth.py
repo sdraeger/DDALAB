@@ -54,11 +54,7 @@ async def refresh_token(
 ):
     """Refresh access token using valid refresh token"""
     try:
-        payload = verify_refresh_token(
-            refresh_token_request.refresh_token,
-            settings.jwt_secret_key,
-            settings.jwt_algorithm,
-        )
+        payload = verify_refresh_token(refresh_token_request.refresh_token)
 
         user = await user_service.get_user(username=payload["sub"])
         if not user:
@@ -66,7 +62,7 @@ async def refresh_token(
 
         expires_in = timedelta(days=7)  # TODO: use env var
         new_access_token = create_jwt_token(
-            username=user.username,
+            subject=user.username,
             expires_delta=expires_in,
             secret_key=settings.jwt_secret_key,
             algorithm=settings.jwt_algorithm,
@@ -80,5 +76,3 @@ async def refresh_token(
 
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Refresh token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid refresh token")

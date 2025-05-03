@@ -7,7 +7,7 @@ import strawberry
 from sqlalchemy import select
 
 from ..core.auth import get_current_user_from_request
-from ..core.database import Annotation, FavoriteFile
+from ..core.database import Annotation
 from ..core.dda import run_dda as run_dda_core
 from ..core.files import validate_file_path
 from ..schemas.preprocessing import PreprocessingOptionsInput
@@ -162,40 +162,3 @@ class Mutation:
         await info.context.session.delete(annotation)
         await info.context.session.commit()
         return True
-
-    @strawberry.mutation
-    async def toggle_favorite_file(
-        self,
-        file_path: str,
-        info: strawberry.Info[Context, None],
-    ) -> bool:
-        """Toggle favorite status for a file."""
-        current_user = await get_current_user_from_request(
-            info.context.request, info.context.session
-        )
-        if not current_user:
-            raise Exception("Not authenticated")
-
-        await validate_file_path(file_path)
-
-        result = await info.context.session.execute(
-            select(FavoriteFile).where(
-                FavoriteFile.user_id == current_user.id,
-                FavoriteFile.file_path == file_path,
-            )
-        )
-        favorite = result.scalar_one_or_none()
-
-        if favorite:
-            await info.context.session.delete(favorite)
-            await info.context.session.commit()
-            return False
-        else:
-            favorite = FavoriteFile(
-                user_id=current_user.id,
-                file_path=file_path,
-                created_at=datetime.now(timezone.utc),
-            )
-            info.context.session.add(favorite)
-            await info.context.session.commit()
-            return True

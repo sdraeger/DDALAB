@@ -1,3 +1,4 @@
+from .file import is_path_allowed
 from .utils import (
     calculate_file_hash,
     camel_to_snake,
@@ -12,4 +13,5 @@ __all__ = [
     "camel_to_snake",
     "make_dda_command",
     "create_tempfile",
+    "is_path_allowed",
 ]

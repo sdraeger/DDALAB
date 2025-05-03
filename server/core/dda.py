@@ -9,7 +9,7 @@ from loguru import logger
 from scipy import signal
 
 from ..core.config import get_server_settings
-from ..schemas.dda import DDAResult
+from ..schemas.dda import DDAResponse
 
 settings = get_server_settings()
 
@@ -67,7 +67,7 @@ async def run_dda(
     file_path: Path = None,
     channel_list: list[int] = None,
     preprocessing_options: dict[str, bool | int | float | str] = None,
-) -> DDAResult:
+) -> DDAResponse:
     """Run DDA on a file.
 
     Args:
@@ -95,7 +95,7 @@ async def run_dda(
 
         Q = np.where(np.isnan(Q), None, Q).tolist()
 
-        result = DDAResult(
+        result = DDAResponse(
             file_path=file_path,
             Q=Q,
             preprocessing_options=preprocessing_options,
@@ -103,6 +103,5 @@ async def run_dda(
 
         return result
     except Exception as e:
-        error_msg = f"Error during DDA computation: {e}"
-        logger.error(error_msg)
+        logger.error(f"Error during DDA computation: {e}")
         raise

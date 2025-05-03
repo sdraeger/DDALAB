@@ -53,6 +53,7 @@ export function HelpButton() {
         body: { title, description },
         contentType: "application/json",
         token,
+        responseType: "json",
       });
 
       // Try to parse the response even if it's not OK, to get error details

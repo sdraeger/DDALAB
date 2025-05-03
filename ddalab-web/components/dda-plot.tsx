@@ -709,6 +709,7 @@ export function DDAPlot({
 
   // Toggle channel selection
   const toggleChannel = (channel: string) => {
+    console.log("toggleChannel", channel);
     onChannelSelectionChange(
       selectedChannels.includes(channel)
         ? selectedChannels.filter((ch) => ch !== channel)
