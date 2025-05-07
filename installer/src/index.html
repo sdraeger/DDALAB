@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Env Editor</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>.env Configuration Editor</h1>
+        </header>
+
+        <section id="file-management">
+            <h2>Environment File</h2>
+            <div class="file-path-controls">
+                <label for="env-file-path">Path:</label>
+                <input type="text" id="env-file-path" placeholder="Enter path or browse...">
+                <span id="file-path-status" class="path-status"></span>
+            </div>
+            <div class="file-actions">
+                <button id="browse-file-btn">Browse</button>
+                <button id="load-file-btn">Load</button>
+                <button id="new-file-btn">New .env</button>
+            </div>
+        </section>
+
+        <section id="variable-editor">
+            <h2>Configure Variable <span id="progress-indicator"></span></h2>
+
+            <div class="variable-form">
+                <div class="form-group">
+                    <label for="var-name">Variable Name:</label>
+                    <input type="text" id="var-name" placeholder="E.g., DB_HOST">
+                </div>
+                <div class="form-group">
+                    <label for="var-value">Value:</label>
+                    <input type="text" id="var-value" placeholder="E.g., localhost">
+                </div>
+                <div class="form-group description-group">
+                    <label for="var-description">Description:</label>
+                    <div id="var-description" class="description-area" contenteditable="true" role="textbox" aria-multiline="true">
+                        <p>Select or load a .env file to start configuring variables.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="navigation-controls">
+            <button id="add-var-btn" disabled>Add New Variable</button>
+            <button id="prev-var-btn" disabled>Previous</button>
+            <button id="skip-var-btn" disabled>Skip</button>
+            <button id="save-next-btn" disabled>Save & Next</button>
+            <button id="preview-env-btn" disabled>Preview</button>
+            <button id="save-all-btn" disabled>Save All</button>
+        </section>
+
+        <section id="preview-section" class="modal" style="display:none;">
+            <div class="modal-content">
+                <span class="close-button">&times;</span>
+                <h2>.env Preview</h2>
+                <textarea id="preview-content" readonly></textarea>
+            </div>
+        </section>
+
+    </div>
+
+    <script>var exports = {};</script>
+    <script src="../dist/src/renderer.js"></script>
+</body>
+</html>

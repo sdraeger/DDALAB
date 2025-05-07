@@ -1,0 +1,25 @@
+{
+  "name": "electron-env-editor",
+  "version": "1.0.0",
+  "description": "An application to help configure .env files.",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc && cpx \"src/installer.html\" \"dist/src\" && cpx \"src/style.css\" \"dist/src\"",
+    "start": "npm run build && electron .",
+    "watch": "tsc -w",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "electron",
+    "env",
+    "editor"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^20.11.16",
+    "cpx": "^1.5.0",
+    "electron": "^28.0.0",
+    "typescript": "^5.3.3"
+  }
+}
