@@ -2,7 +2,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: ./ddalab-web/Dockerfile
+      dockerfile: ./packages/web/Dockerfile
     image: sdraeger1/ddalab-web:${VERSION:-latest}
     env_file:
       - ./.env
@@ -27,7 +27,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: ./server/Dockerfile
+      dockerfile: ./packages/api/Dockerfile
     image: sdraeger1/ddalab-api-server:${VERSION:-latest}
     platform: linux/amd64
     healthcheck:
