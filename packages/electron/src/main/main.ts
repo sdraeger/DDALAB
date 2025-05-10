@@ -19,16 +19,6 @@ const createWindow = async () => {
     },
   });
 
-  // In development, connect to the Next.js dev server
-  if (process.env.NODE_ENV === "development") {
-    await loadDevelopmentServer();
-  } else {
-    // In production, load the built Next.js app
-    const rendererPath = path.join(__dirname, "../renderer/index.html");
-    console.log("Loading production build at", rendererPath);
-    await mainWindow.loadFile(rendererPath);
-  }
-
   mainWindow.on("closed", () => {
     mainWindow = null;
   });

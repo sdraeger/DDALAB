@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-// Define the interface for the API exposed to the renderer process
 export interface ElectronAPI {
   openFile: () => Promise<string | null>;
   readFile: (filePath: string) => Promise<string | { error: string } | null>;
@@ -20,22 +19,25 @@ export interface ElectronAPI {
     content: string
   ) => Promise<{ success: boolean; error?: string }>;
   selectDirectory: () => Promise<string | undefined>;
-  getEnvExampleContent: () => Promise<string | undefined>;
-  parseEnvExampleWithComments: () => Promise<ParsedEnvEntry[] | undefined>;
-  saveEnvConfig: (content: string) => void;
+  loadEnvVars: (dataDir?: string) => Promise<ParsedEnvEntry[] | undefined>;
+  saveEnvConfig: (targetDir: string | null, content: string) => void;
   quitApp: () => void;
   startDockerCompose: () => Promise<boolean>;
-  stopDockerCompose: () => Promise<boolean>;
+  stopDockerCompose: (deleteVolumes?: boolean) => Promise<boolean>;
   getDockerStatus: () => Promise<boolean>;
   getDockerLogs: () => Promise<string>;
   onDockerLogs: (
     callback: (log: { type: string; data: string }) => void
-  ) => void;
+  ) => () => void;
   clearDockerLogsListener: () => void;
+  onAllServicesReady: (callback: () => void) => () => void;
+  getEnvDetails: (envPath: string) => Promise<any>;
+  saveEnvFile: (
+    envPath: string,
+    envData: Record<string, string>
+  ) => Promise<void>;
 }
 
-// Define ParsedEnvEntry if not already globally available or imported
-// For preload, it's safer to redefine or ensure it's accessible
 interface ParsedEnvEntry {
   key: string;
   value: string;
@@ -53,25 +55,38 @@ const exposedAPI: ElectronAPI = {
   saveFile: (filePath, content) =>
     ipcRenderer.invoke("fs:writeFile", filePath, content),
   selectDirectory: () => ipcRenderer.invoke("installer:select-directory"),
-  getEnvExampleContent: () =>
-    ipcRenderer.invoke("installer:get-env-example-content"),
-  parseEnvExampleWithComments: () =>
-    ipcRenderer.invoke("installer:parse-env-example-with-comments"),
-  saveEnvConfig: (content: string) =>
-    ipcRenderer.send("installer:save-env-config", content),
+  loadEnvVars: (dataDir?: string) =>
+    ipcRenderer.invoke("installer:load-env-vars", dataDir),
+  saveEnvConfig: (targetDir: string | null, content: string) =>
+    ipcRenderer.send("installer:save-env-config", targetDir, content),
   quitApp: () => ipcRenderer.send("installer:quit-app"),
-  startDockerCompose: () => ipcRenderer.invoke("docker-compose-up"),
-  stopDockerCompose: () => ipcRenderer.invoke("docker-compose-down"),
+  startDockerCompose: () => ipcRenderer.invoke("start-docker-compose"),
+  stopDockerCompose: (deleteVolumes?: boolean) =>
+    ipcRenderer.invoke("docker-compose-down", deleteVolumes),
   getDockerStatus: () => ipcRenderer.invoke("get-docker-status"),
   getDockerLogs: () => ipcRenderer.invoke("get-docker-logs"),
   onDockerLogs: (callback) => {
-    const listener = (event: any, log: { type: string; data: string }) =>
+    const handler = (_event: any, log: { type: string; data: string }) =>
       callback(log);
-    ipcRenderer.on("docker-logs", listener);
+    ipcRenderer.on("docker-log-stream", handler);
+    return () => {
+      ipcRenderer.removeListener("docker-log-stream", handler);
+    };
   },
   clearDockerLogsListener: () => {
     ipcRenderer.removeAllListeners("docker-logs");
   },
+  onAllServicesReady: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on("all-services-ready", handler);
+    return () => {
+      ipcRenderer.removeListener("all-services-ready", handler);
+    };
+  },
+  getEnvDetails: (envPath: string) =>
+    ipcRenderer.invoke("get-env-details", envPath),
+  saveEnvFile: (envPath: string, envData: Record<string, string>) =>
+    ipcRenderer.invoke("save-env-file", envPath, envData),
 };
 
 contextBridge.exposeInMainWorld("electronAPI", exposedAPI);

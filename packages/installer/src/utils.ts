@@ -1,0 +1,90 @@
+export function getFormattedCommentsHtml(comments: string[]): string {
+  if (!comments || comments.length === 0) {
+    return "<p><em>No description provided.</em></p>";
+  }
+  return comments
+    .map((comment) => {
+      let processedComment = comment;
+      processedComment = processedComment.replace(
+        /\*\*(.*?)\*\*/g,
+        "<strong>$1</strong>"
+      );
+      processedComment = processedComment.replace(/__(.*?)__/g, "<em>$1</em>");
+      processedComment = processedComment.replace(
+        /\*([^\s*][^\*]*?)\*/g,
+        "<strong>$1</strong>"
+      );
+      processedComment = processedComment.replace(
+        /_([^\s_][^_]*?)_/g,
+        "<em>$1</em>"
+      );
+      return processedComment;
+    })
+    .join("<br />");
+}
+
+export function formatTimestamp(): string {
+  const now = new Date();
+  return `${now.getHours().toString().padStart(2, "0")}:${now
+    .getMinutes()
+    .toString()
+    .padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
+}
+
+// Interface for parsed .env entries (from renderer.ts)
+export interface ParsedEnvEntry {
+  key: string;
+  value: string;
+  comments: string[];
+}
+
+// User Selections (from renderer.ts)
+export interface UserSelections {
+  setupType: "" | "automatic" | "manual";
+  dataLocation: string;
+  envVariables: { [key: string]: string };
+  // Potentially add other state installer might need, e.g. installationLog
+  installationLog?: string[];
+}
+
+// Electron API (from preload - ensure this matches your preload.ts definition)
+export interface ElectronAPI {
+  openFile: () => Promise<string | null>;
+  readFile: (filePath: string) => Promise<string | { error: string } | null>;
+  writeFile: (
+    filePath: string,
+    content: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  checkPath: (filePath: string) => Promise<{
+    exists: boolean;
+    isFile: boolean;
+    isDirectory: boolean;
+    message: string;
+  }>;
+  showSaveDialog: (defaultPath?: string) => Promise<string | null>;
+  saveFile: (
+    filePath: string,
+    content: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  selectDirectory: () => Promise<string | undefined>;
+  loadEnvVars: (dataDir?: string) => Promise<ParsedEnvEntry[] | undefined>;
+  saveEnvConfig: (targetDir: string | null, content: string) => void;
+  quitApp: () => void;
+  startDockerCompose: () => Promise<boolean>;
+  stopDockerCompose: (deleteVolumes?: boolean) => Promise<boolean>;
+  getDockerStatus: () => Promise<boolean>;
+  getDockerLogs: () => Promise<string>;
+  onDockerLogs: (
+    callback: (log: { type: string; data: string }) => void
+  ) => () => void;
+  clearDockerLogsListener: () => void;
+  onAllServicesReady: (callback: () => void) => () => void;
+}
+
+// This declares the shape of window.electronAPI for TypeScript
+// Ensure this is the single source of truth for this augmentation in your renderer process code.
+declare global {
+  interface Window {
+    electronAPI?: ElectronAPI;
+  }
+}
