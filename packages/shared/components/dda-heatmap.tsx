@@ -18,6 +18,8 @@ interface DDAHeatmapProps {
 // Default values
 const DEFAULT_ZOOM = 1;
 const DEFAULT_PAN = { x: 0, y: 0 };
+const MAX_ZOOM_LEVEL = 500; // Max zoom out
+const MIN_INITIAL_ZOOM_FACTOR = 0.25; // User can zoom out to 25% of the initial fitted view
 
 export function DDAHeatmap({
   data,
@@ -25,12 +27,18 @@ export function DDAHeatmap({
   height = 600,
 }: DDAHeatmapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const heatmapContainerRef = useRef<HTMLDivElement>(null);
+
+  // State for dynamic canvas dimensions
+  const [currentCanvasWidth, setCurrentCanvasWidth] = useState(width);
+
   // Ensure state has valid initial values
   const [zoom, setZoom] = useState<number>(DEFAULT_ZOOM);
   const [pan, setPan] = useState<{ x: number; y: number }>(DEFAULT_PAN);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [colorRange, setColorRange] = useState<[number, number]>([0, 1]);
+  const [dynamicMinZoom, setDynamicMinZoom] = useState(0.1); // Initial sensible minimum zoom
   const initialViewCalculated = useRef(false);
 
   // Effect 1: Calculate data bounds and initial view setting
@@ -43,7 +51,7 @@ export function DDAHeatmap({
       setColorRange([0, 1]);
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
-      if (ctx) ctx.clearRect(0, 0, width, height);
+      if (ctx) ctx.clearRect(0, 0, currentCanvasWidth, height);
       return;
     }
 
@@ -91,7 +99,8 @@ export function DDAHeatmap({
       const dataWidth = maxX - minX;
       const dataHeight = maxY - minY;
 
-      const zoomX = dataWidth > 0 ? width / dataWidth : 1;
+      // Use currentCanvasWidth for zoom calculation
+      const zoomX = dataWidth > 0 ? currentCanvasWidth / dataWidth : 1;
       const zoomY = dataHeight > 0 ? height / dataHeight : 1;
       let newInitialZoom = Math.min(zoomX, zoomY) * 0.9;
       newInitialZoom = Math.max(0.001, Math.min(newInitialZoom, 10)); // Clamp zoom
@@ -99,8 +108,9 @@ export function DDAHeatmap({
       const dataCenterX = minX + dataWidth / 2;
       const dataCenterY = minY + dataHeight / 2;
 
-      // Calculate pan based on the *new* initial zoom
-      const newInitialPanX = dataCenterX - width / (2 * newInitialZoom);
+      // Calculate pan based on the *new* initial zoom, using currentCanvasWidth
+      const newInitialPanX =
+        dataCenterX - currentCanvasWidth / (2 * newInitialZoom);
       const newInitialPanY = dataCenterY - height / (2 * newInitialZoom);
 
       console.log(
@@ -110,9 +120,12 @@ export function DDAHeatmap({
       );
       setZoom(newInitialZoom); // Set state
       setPan({ x: newInitialPanX, y: newInitialPanY }); // Set state
+      setDynamicMinZoom(
+        Math.max(0.01, newInitialZoom * MIN_INITIAL_ZOOM_FACTOR)
+      ); // Set dynamic min zoom
       initialViewCalculated.current = true;
     }
-  }, [data, width, height]); // Dependencies are correct
+  }, [data, currentCanvasWidth, height, initialViewCalculated]);
 
   function intToInfernoRGB(value: number): [number, number, number] {
     // Validate input
@@ -170,17 +183,19 @@ export function DDAHeatmap({
     const currentData = data;
     const currentColorRange = colorRange;
 
-    ctx.clearRect(0, 0, width, height);
+    // Use dynamic width and prop height for clearing and calculations
+    ctx.clearRect(0, 0, currentCanvasWidth, height);
 
     if (currentData.length === 0) return;
 
-    const visibleWidth = width / currentZoom;
+    const visibleWidth = currentCanvasWidth / currentZoom;
     const visibleHeight = height / currentZoom;
     const visibleX = currentPan.x;
     const visibleY = currentPan.y;
 
     const offscreenCanvas = document.createElement("canvas");
-    offscreenCanvas.width = width;
+    // Use dynamic width and prop height for offscreen canvas
+    offscreenCanvas.width = currentCanvasWidth;
     offscreenCanvas.height = height;
     const offscreenCtx = offscreenCanvas.getContext("2d", { alpha: false });
     if (!offscreenCtx) return;
@@ -219,7 +234,7 @@ export function DDAHeatmap({
     }
 
     ctx.drawImage(offscreenCanvas, 0, 0);
-  }, [data, width, height, zoom, pan, colorRange]);
+  }, [data, currentCanvasWidth, height, zoom, pan, colorRange]);
 
   // Effect 3: Trigger redraw when drawHeatmap callback changes (due to its dependencies changing)
   useEffect(() => {
@@ -229,15 +244,23 @@ export function DDAHeatmap({
 
   // --- Interaction Handlers ---
   const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
+    (e: globalThis.WheelEvent) => {
       e.preventDefault(); // Prevent default scrolling behavior
       e.stopPropagation(); // Stop event from propagating up to the page
       const currentZoom = zoom;
       const currentPan = pan;
       const delta = -e.deltaY;
       const scale = delta > 0 ? 1.1 : 1 / 1.1;
-      const newZoom = Math.min(Math.max(currentZoom * scale, 0.001), 500);
-      const rect = e.currentTarget.getBoundingClientRect();
+
+      // Apply dynamicMinZoom and MAX_ZOOM_LEVEL
+      const newZoom = Math.min(
+        Math.max(currentZoom * scale, dynamicMinZoom),
+        MAX_ZOOM_LEVEL
+      );
+
+      const targetCanvas = e.currentTarget as HTMLCanvasElement;
+      if (!targetCanvas) return;
+      const rect = targetCanvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
       const worldXBefore = currentPan.x + mouseX / currentZoom;
@@ -247,8 +270,28 @@ export function DDAHeatmap({
       setZoom(newZoom); // Schedule state update
       setPan({ x: newPanX, y: newPanY }); // Schedule state update
     },
-    [zoom, pan]
+    [zoom, pan, dynamicMinZoom]
   );
+
+  // Effect 4: Attach non-passive wheel event listener
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // The actual handler function that calls our useCallback version
+    const wheelListener = (event: globalThis.WheelEvent) => {
+      handleWheel(event);
+    };
+
+    // Explicitly type options or cast to any if TS struggles with passive: false recognition
+    const eventOptions: AddEventListenerOptions = { passive: false };
+
+    canvas.addEventListener("wheel", wheelListener, eventOptions);
+
+    return () => {
+      canvas.removeEventListener("wheel", wheelListener, eventOptions); // Use same options for removal
+    };
+  }, [handleWheel]); // Re-attach if handleWheel changes (due to zoom/pan changing)
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -295,11 +338,6 @@ export function DDAHeatmap({
 
   const resetView = useCallback(() => {
     initialViewCalculated.current = false; // Force recalculation in useEffect
-    // The useEffect will handle resetting zoom and pan based on data
-    // If data is empty, it resets to defaults. If data exists, it recalculates.
-    // We might need to force a re-render if data hasn't changed but we want reset
-    // A simple way is to slightly change a dependency of the useEffect, e.g., data itself?
-    // Or trigger the calculation logic directly here ONLY IF data exists
     if (data.length > 0) {
       let minX = Infinity,
         maxX = -Infinity,
@@ -313,29 +351,33 @@ export function DDAHeatmap({
         if (point.y > maxY) maxY = point.y;
       }
       minX = isFinite(minX) ? minX : 0;
-      maxX = isFinite(maxX) ? maxX : width;
+      maxX = isFinite(maxX) ? maxX : currentCanvasWidth; // Use dynamic width
       minY = isFinite(minY) ? minY : 0;
-      maxY = isFinite(maxY) ? maxY : height;
+      maxY = isFinite(maxY) ? maxY : height; // Use prop height
       if (maxX <= minX) maxX = minX + 1;
       if (maxY <= minY) maxY = minY + 1;
       const dataWidth = maxX - minX;
       const dataHeight = maxY - minY;
-      const zoomX = dataWidth > 0 ? width / dataWidth : 1;
+      // Use dynamic width for zoom calculation
+      const zoomX = dataWidth > 0 ? currentCanvasWidth / dataWidth : 1;
       const zoomY = dataHeight > 0 ? height / dataHeight : 1;
       let initialZoom = Math.min(zoomX, zoomY) * 0.9;
       initialZoom = Math.max(0.001, Math.min(initialZoom, 10));
       const dataCenterX = minX + dataWidth / 2;
       const dataCenterY = minY + dataHeight / 2;
-      const initialPanX = dataCenterX - width / (2 * initialZoom);
+      // Use dynamic width for pan calculation
+      const initialPanX = dataCenterX - currentCanvasWidth / (2 * initialZoom);
       const initialPanY = dataCenterY - height / (2 * initialZoom);
       setZoom(initialZoom);
       setPan({ x: initialPanX, y: initialPanY });
+      setDynamicMinZoom(Math.max(0.01, initialZoom * MIN_INITIAL_ZOOM_FACTOR)); // Also set dynamic min zoom on reset
       initialViewCalculated.current = true;
     } else {
       setZoom(DEFAULT_ZOOM);
       setPan(DEFAULT_PAN);
+      setDynamicMinZoom(0.1); // Reset to default if no data
     }
-  }, [data, width, height]); // Depend on data, width, height
+  }, [data, currentCanvasWidth, height]); // Dependencies updated
 
   // --- Helper for safe number formatting ---
   const formatNumber = (num: number | undefined | null, fixed = 0): string => {
@@ -346,6 +388,37 @@ export function DDAHeatmap({
     if (typeof num !== "number" || isNaN(num)) return "...";
     return num.toFixed(fixed);
   };
+
+  // Effect 5: ResizeObserver for dynamic canvas width
+  useEffect(() => {
+    const containerElement = heatmapContainerRef.current;
+    if (!containerElement) return;
+
+    // Set initial width based on the container's actual rendered width
+    setCurrentCanvasWidth(containerElement.offsetWidth);
+
+    const observer = new ResizeObserver((entries) => {
+      if (!entries || !entries.length) return;
+      const newWidth = entries[0].contentRect.width;
+
+      // Use rAF to batch updates and avoid layout thrashing
+      requestAnimationFrame(() => {
+        // Check if the element is still mounted and width has actually changed
+        if (
+          heatmapContainerRef.current &&
+          heatmapContainerRef.current.offsetWidth === newWidth
+        ) {
+          setCurrentCanvasWidth(newWidth);
+        }
+      });
+    });
+
+    observer.observe(containerElement);
+
+    return () => {
+      observer.unobserve(containerElement); // Clean up observer
+    };
+  }, []); // Run once on mount to set up the observer
 
   // --- Render Logic ---
   return (
@@ -368,9 +441,9 @@ export function DDAHeatmap({
       </div>
 
       <div
-        className="border rounded-md overflow-hidden relative bg-background cursor-grab"
-        style={{ width, height }}
-        onWheel={handleWheel}
+        ref={heatmapContainerRef}
+        className="border rounded-md overflow-hidden relative bg-background cursor-grab w-full"
+        style={{ height }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -378,18 +451,18 @@ export function DDAHeatmap({
       >
         <canvas
           ref={canvasRef}
-          width={width}
+          width={currentCanvasWidth}
           height={height}
           className="block"
         />
-        <div className="absolute bottom-4 right-4 flex flex-col space-y-2 z-10">
+        <div className="absolute top-3 right-3 flex flex-col space-y-2 z-10">
           <Button
             variant="outline"
             size="sm"
             onClick={() =>
               handleWheel({
                 deltaY: -100,
-                clientX: width / 2,
+                clientX: currentCanvasWidth / 2,
                 clientY: height / 2,
                 currentTarget: canvasRef.current,
                 preventDefault: () => {},
@@ -407,7 +480,7 @@ export function DDAHeatmap({
             onClick={() =>
               handleWheel({
                 deltaY: 100,
-                clientX: width / 2,
+                clientX: currentCanvasWidth / 2,
                 clientY: height / 2,
                 currentTarget: canvasRef.current,
                 preventDefault: () => {},

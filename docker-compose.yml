@@ -105,6 +105,12 @@ services:
       - "443:443"
     environment:
       - TRAEFIK_PASSWORD_HASH=${TRAEFIK_PASSWORD_HASH}
+    healthcheck:
+      test: ["CMD-SHELL", "traefik healthcheck --ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     volumes:
       - ./certs:/etc/traefik/certs:ro
       - ./traefik.yml:/etc/traefik/traefik.yml:ro

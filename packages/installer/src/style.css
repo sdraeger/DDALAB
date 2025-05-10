@@ -489,8 +489,34 @@ button:disabled {
 }
 
 .log-container::-webkit-scrollbar-thumb:hover {
-    background: #74788d;
+    background: #888;
 }
+
+/* Added styles for log contrast */
+.log-container .log-entry {
+    color: #212529; /* Dark color for general log text */
+    padding: 2px 0; /* Add a little vertical padding for readability */
+}
+
+.log-container .log-entry .timestamp {
+    color: #495057; /* Slightly lighter but still dark gray for timestamps */
+    margin-right: 8px; /* Ensure consistent spacing */
+}
+
+.log-container .log-entry .log-message {
+    /* The color will be inherited from .log-entry, which is good */
+    /* If specific styling is needed for messages, it can be added here */
+    word-break: break-all; /* Break long words/strings to prevent overflow */
+}
+
+/* Ensure Bootstrap's text-danger is sufficiently dark on our specific log background */
+.log-container .log-entry.text-danger,
+.log-container .log-entry.text-danger .timestamp,
+.log-container .log-entry.text-danger .log-message {
+    color: #a94442 !important; /* A common darker red, or choose one like #dc3545 but ensure contrast */
+                                /* Using !important to override Bootstrap if necessary, but use with caution */
+}
+/* End of added styles for log contrast */
 
 /* Loading overlay */
 .loading-overlay {
@@ -581,5 +607,55 @@ button:disabled {
 }
 
 .log-container::-webkit-scrollbar-thumb:hover {
-    background: #74788d;
+    background: #888;
+}
+
+/* Custom Styles for Bootstrap Radio Buttons in Installer */
+
+/* Make radio buttons slightly larger and adjust alignment */
+.form-check-input[type="radio"] {
+    width: 1.2em;
+    height: 1.2em;
+    margin-top: 0.2em; /* Fine-tune vertical alignment with label text */
+}
+
+/* Style for the checked state - using a theme color */
+.form-check-input[type="radio"]:checked {
+    background-color: #3498db; /* Primary button color from your theme */
+    border-color: #2980b9;     /* A slightly darker shade for the border */
+}
+
+/* Ensure the custom checkmark (SVG in Bootstrap 5) is visible on our custom background */
+.form-check-input[type="radio"]:checked {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='2' fill='%23fff'/%3e%3c/svg%3e");
+}
+
+.form-check-label {
+    padding-left: 0.35em; /* Adjust spacing between radio and label */
+    font-size: 0.95em; /* Slightly smaller label text if desired, or keep at 1em */
+    /* color: #333; Ensure good contrast */
+}
+
+/* Optional: A container for a group of radio buttons to give them a bordered section */
+.radio-options-group {
+    padding: 15px;
+    margin-bottom: 20px;
+    border: 1px solid #e0e0e0; /* Similar to 'section' styling */
+    border-radius: 6px;      /* Similar to 'section' styling */
+    background-color: #fdfdfd; /* Similar to 'section' styling */
+}
+
+.radio-options-group h5 { /* Optional title for the radio group */
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 1.1em;
+    color: #34495e; /* Header color from your theme */
+}
+
+.radio-options-group .form-check {
+    margin-bottom: 0.65rem; /* Spacing between radio options within the group */
+}
+
+.radio-options-group .form-check:last-child {
+    margin-bottom: 0;
 }

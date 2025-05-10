@@ -25,6 +25,8 @@ api:
   dashboard: true
   insecure: false
 
+ping: {}
+
 metrics:
   prometheus:
     entryPoint: "websecure"

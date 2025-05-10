@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "target": "ESNext",
+    "target": "ES6",
     "module": "CommonJS",
-    "lib": ["ESNext", "DOM"],
+    "lib": ["dom", "dom.iterable", "esnext"],
     "jsx": "react-jsx",
     "strict": true,
     "esModuleInterop": true,
@@ -21,6 +21,6 @@
     },
     "sourceMap": true
   },
-  "include": ["main.ts", "preload.ts", "src/**/*.ts", "src/**/*.tsx"],
+  "include": ["./*.ts", "src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["node_modules", "dist"]
 }
