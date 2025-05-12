@@ -26,9 +26,6 @@ export function createWindow(): void {
   console.log(
     `[window-manager.ts] In createWindow - Current NODE_ENV: ${process.env.NODE_ENV}`
   );
-  // if (process.env.NODE_ENV !== "production") {
-  //   newWindow.webContents.openDevTools();
-  // }
 
   mainWindow = newWindow;
   setMainProcessMainWindow(newWindow);

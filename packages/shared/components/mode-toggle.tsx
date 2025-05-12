@@ -7,7 +7,6 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useToast } from "./ui/use-toast";
 import { useSettings } from "../contexts/settings-context";
-import { DEFAULT_USER_PREFERENCES } from "../contexts/settings-context";
 import {
   DropdownMenu,
   DropdownMenuContent,

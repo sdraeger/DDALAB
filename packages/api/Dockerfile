@@ -32,7 +32,9 @@ RUN pip install -r server/requirements.txt
 RUN useradd -m -r apiuser \
 	&& chown apiuser:apiuser /app \
 	&& mkdir -p /tmp/prometheus \
-	&& chown -R apiuser:apiuser /tmp/prometheus
+	&& chown -R apiuser:apiuser /tmp/prometheus \
+	&& mkdir -p /app/data \
+	&& chown -R apiuser:apiuser /app/data
 USER apiuser
 
 # Expose ports

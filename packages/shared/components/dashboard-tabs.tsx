@@ -103,7 +103,7 @@ export function DashboardTabs() {
           fileBrowserCollapsed ? "ml-0" : "ml-[700px]"
         )}
       >
-        <div className="px-6">
+        <div className="w-full px-4 md:px-6">
           {selectedFilePath ? (
             <DDAForm
               filePath={selectedFilePath}

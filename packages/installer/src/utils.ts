@@ -79,6 +79,37 @@ export interface ElectronAPI {
   ) => () => void;
   clearDockerLogsListener: () => void;
   onAllServicesReady: (callback: () => void) => () => void;
+  runInitialSetup: (allowedDirsValue: string) => Promise<{
+    success: boolean;
+    message: string;
+    setupPath?: string;
+  }>;
+  getInstallerState: () => Promise<{
+    setupComplete: boolean;
+    setupPath: string | null;
+    error?: boolean;
+  }>;
+  onSetupProgress: (
+    callback: (progress: { message: string; type?: string }) => void
+  ) => () => void;
+  onSetupFinished: (
+    callback: (state: {
+      setupComplete: boolean;
+      setupPath: string | null;
+    }) => void
+  ) => () => void;
+  // Listeners for Control Panel (matching preload.ts)
+  onDockerStatusUpdate: (
+    callback: (statusUpdate: { type: string; message: string }) => void
+  ) => () => void;
+  onDockerLogUpdate: (
+    callback: (logUpdate: {
+      type: string;
+      message: string;
+      logs?: string;
+    }) => void
+  ) => () => void;
+  markSetupComplete: () => Promise<{ success: boolean; message?: string }>;
 }
 
 // This declares the shape of window.electronAPI for TypeScript

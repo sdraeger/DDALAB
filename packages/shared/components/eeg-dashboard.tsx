@@ -21,7 +21,7 @@ import {
 } from "./ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Slider } from "./ui/slider";
-import { EEGChart } from "./eeg-chart";
+import { EEGChart } from "./plot/eeg-chart";
 import { FileSelector } from "./file-selector";
 import { EEGZoomSettings } from "./eeg-zoom-settings";
 import { parseEDFFile } from "../lib/edf-parser";

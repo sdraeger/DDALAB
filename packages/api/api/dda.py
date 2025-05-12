@@ -24,6 +24,7 @@ async def run_dda(request: DDARequest) -> DDAResponse:
         file_path=request.file_path,
         channel_list=request.channel_list,
         preprocessing_options=request.preprocessing_options,
+        detrend_heatmap_axis=request.detrend_heatmap_axis,
     )
     return DDAResponse(
         file_path=request.file_path,

@@ -4,9 +4,13 @@ from pathlib import Path
 from typing import Optional
 
 import dda_py
+import matplotlib
 import numpy as np
 from loguru import logger
 from scipy import signal
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 from ..core.config import get_server_settings
 from ..schemas.dda import DDAResponse
@@ -67,6 +71,7 @@ async def run_dda(
     file_path: Path = None,
     channel_list: list[int] = None,
     preprocessing_options: dict[str, bool | int | float | str] = None,
+    detrend_heatmap_axis: Optional[int] = None,
 ) -> DDAResponse:
     """Run DDA on a file.
 
@@ -74,6 +79,7 @@ async def run_dda(
         file_path: Path to the file
         channel_list: List of channels to analyze
         preprocessing_options: Preprocessing options
+        detrend_heatmap_axis: Axis to detrend Q_transposed along
 
     Returns:
         DDAResult object
@@ -92,6 +98,29 @@ async def run_dda(
             cpu_time=False,
             raise_on_error=False,
         )
+
+        try:
+            Q_for_plotting = np.array(
+                Q,
+                dtype=float,
+            )
+
+            fig, ax = plt.subplots()
+            im = ax.imshow(
+                Q_for_plotting.T,
+                aspect="auto",
+                cmap="viridis",
+                interpolation="nearest",
+            )
+            fig.colorbar(im, ax=ax)
+            debug_image_path = Path(settings.data_dir).absolute() / "heatmap_debug.pdf"
+
+            plt.savefig(debug_image_path)
+            plt.close(fig)
+
+            logger.info(f"Saved heatmap debug image to: {debug_image_path}")
+        except Exception as e:
+            logger.error(f"Could not save heatmap debug image: {e}")
 
         Q = np.where(np.isnan(Q), None, Q).tolist()
 

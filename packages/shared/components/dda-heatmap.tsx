@@ -3,16 +3,22 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "./ui/button";
 
-interface HeatmapPoint {
+export interface HeatmapPoint {
   x: number;
   y: number;
   value: number;
+  isFillValue?: boolean; // Added to mark null/fill values
 }
 
 interface DDAHeatmapProps {
   data: HeatmapPoint[];
   width?: number;
   height?: number;
+  channels?: string[];
+  onClose?: () => void;
+  dataColumnStart?: number; // Start column index for focused color scaling
+  dataColumnEnd?: number; // End column index for focused color scaling
+  nullValueColor?: string; // Optional: color for null values
 }
 
 // Default values
@@ -20,11 +26,17 @@ const DEFAULT_ZOOM = 1;
 const DEFAULT_PAN = { x: 0, y: 0 };
 const MAX_ZOOM_LEVEL = 500; // Max zoom out
 const MIN_INITIAL_ZOOM_FACTOR = 0.25; // User can zoom out to 25% of the initial fitted view
+const DEFAULT_NULL_COLOR = "rgb(220, 220, 220)"; // Light grey for nulls
 
 export function DDAHeatmap({
   data,
   width = 800,
   height = 600,
+  channels,
+  onClose,
+  dataColumnStart, // New prop
+  dataColumnEnd, // New prop
+  nullValueColor = DEFAULT_NULL_COLOR, // New prop with default
 }: DDAHeatmapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const heatmapContainerRef = useRef<HTMLDivElement>(null);
@@ -40,11 +52,18 @@ export function DDAHeatmap({
   const [colorRange, setColorRange] = useState<[number, number]>([0, 1]);
   const [dynamicMinZoom, setDynamicMinZoom] = useState(0.1); // Initial sensible minimum zoom
   const initialViewCalculated = useRef(false);
+  const dataExtentsRef = useRef({
+    minX: 0,
+    maxX: 0,
+    minY: 0,
+    maxY: 0,
+    numX: 1,
+    numY: 1,
+  }); // Added for overall data dimensions
 
-  // Effect 1: Calculate data bounds and initial view setting
+  // Effect 1: Calculate data bounds, initial view setting, and color range
   useEffect(() => {
     if (data.length === 0) {
-      // Reset view and flag when data is cleared
       initialViewCalculated.current = false;
       setZoom(DEFAULT_ZOOM);
       setPan(DEFAULT_PAN);
@@ -55,36 +74,69 @@ export function DDAHeatmap({
       return;
     }
 
-    let minVal = Infinity,
-      maxVal = -Infinity;
     let minX = Infinity,
-      maxX = -Infinity;
-    let minY = Infinity,
+      maxX = -Infinity,
+      minY = Infinity,
       maxY = -Infinity;
+    const pointValuesForColorScale: number[] = [];
 
     for (const point of data) {
+      if (typeof point?.x === "number" && !isNaN(point.x)) {
+        if (point.x < minX) minX = point.x;
+        if (point.x > maxX) maxX = point.x;
+      }
+      if (typeof point?.y === "number" && !isNaN(point.y)) {
+        if (point.y < minY) minY = point.y;
+        if (point.y > maxY) maxY = point.y;
+      }
+
       if (
-        typeof point?.x !== "number" ||
-        typeof point?.y !== "number" ||
-        typeof point?.value !== "number" ||
-        isNaN(point.x) ||
-        isNaN(point.y) ||
-        isNaN(point.value)
-      )
-        continue;
-      if (point.value < minVal) minVal = point.value;
-      if (point.value > maxVal) maxVal = point.value;
-      if (point.x < minX) minX = point.x;
-      if (point.x > maxX) maxX = point.x;
-      if (point.y < minY) minY = point.y;
-      if (point.y > maxY) maxY = point.y;
+        !point.isFillValue &&
+        typeof point?.value === "number" &&
+        !isNaN(point.value) &&
+        (dataColumnStart === undefined || point.x >= dataColumnStart) &&
+        (dataColumnEnd === undefined || point.x <= dataColumnEnd)
+      ) {
+        pointValuesForColorScale.push(point.value);
+      }
     }
 
-    // Safely determine bounds and color range
-    minVal = isFinite(minVal) ? minVal : 0;
-    maxVal = isFinite(maxVal) ? maxVal : minVal + 1; // Ensure max > min
-    if (maxVal <= minVal) maxVal = minVal + 1;
-    setColorRange([minVal, maxVal]);
+    // Calculate color range using percentiles
+    let effectiveMinVal = 0;
+    let effectiveMaxVal = 1;
+    if (pointValuesForColorScale.length > 0) {
+      pointValuesForColorScale.sort((a, b) => a - b);
+      const p5Index = Math.floor(pointValuesForColorScale.length * 0.05);
+      const p95Index = Math.ceil(pointValuesForColorScale.length * 0.95) - 1;
+
+      effectiveMinVal = pointValuesForColorScale[p5Index];
+      effectiveMaxVal = pointValuesForColorScale[p95Index];
+
+      if (pointValuesForColorScale.length < 2) {
+        // Handle very few points
+        effectiveMinVal = pointValuesForColorScale[0];
+        effectiveMaxVal = pointValuesForColorScale[0] + 1;
+      }
+
+      if (effectiveMinVal === undefined || isNaN(effectiveMinVal))
+        effectiveMinVal = 0;
+      if (effectiveMaxVal === undefined || isNaN(effectiveMaxVal))
+        effectiveMaxVal = effectiveMinVal + 1;
+
+      if (effectiveMaxVal <= effectiveMinVal) {
+        // Attempt to use absolute min/max if percentiles are problematic
+        const absMin = pointValuesForColorScale[0];
+        const absMax =
+          pointValuesForColorScale[pointValuesForColorScale.length - 1];
+        if (absMax > absMin) {
+          effectiveMinVal = absMin;
+          effectiveMaxVal = absMax;
+        } else {
+          effectiveMaxVal = effectiveMinVal + 1; // Fallback
+        }
+      }
+    }
+    setColorRange([effectiveMinVal, effectiveMaxVal]);
 
     minX = isFinite(minX) ? minX : 0;
     maxX = isFinite(maxX) ? maxX : width;
@@ -94,38 +146,48 @@ export function DDAHeatmap({
     maxY = isFinite(maxY) ? maxY : height;
     if (maxY <= minY) maxY = minY + 1;
 
-    // Set initial view only once
-    if (!initialViewCalculated.current) {
-      const dataWidth = maxX - minX;
-      const dataHeight = maxY - minY;
+    dataExtentsRef.current = {
+      minX: minX,
+      maxX: maxX,
+      minY: minY,
+      maxY: maxY,
+      numX: maxX - minX + 1, // Assuming contiguous data for numX
+      numY: maxY - minY + 1, // Assuming contiguous data for numY
+    };
 
-      // Use currentCanvasWidth for zoom calculation
+    if (!initialViewCalculated.current) {
+      const dataWidth =
+        dataExtentsRef.current.maxX - dataExtentsRef.current.minX;
+      const dataHeight =
+        dataExtentsRef.current.maxY - dataExtentsRef.current.minY;
+
       const zoomX = dataWidth > 0 ? currentCanvasWidth / dataWidth : 1;
       const zoomY = dataHeight > 0 ? height / dataHeight : 1;
       let newInitialZoom = Math.min(zoomX, zoomY) * 0.9;
-      newInitialZoom = Math.max(0.001, Math.min(newInitialZoom, 10)); // Clamp zoom
+      newInitialZoom = Math.max(0.001, Math.min(newInitialZoom, 10));
 
-      const dataCenterX = minX + dataWidth / 2;
-      const dataCenterY = minY + dataHeight / 2;
+      const dataCenterX = dataExtentsRef.current.minX + dataWidth / 2;
+      const dataCenterY = dataExtentsRef.current.minY + dataHeight / 2;
 
-      // Calculate pan based on the *new* initial zoom, using currentCanvasWidth
       const newInitialPanX =
         dataCenterX - currentCanvasWidth / (2 * newInitialZoom);
       const newInitialPanY = dataCenterY - height / (2 * newInitialZoom);
 
-      console.log(
-        `Setting Initial View: Zoom=${newInitialZoom.toFixed(
-          4
-        )}, Pan=(${newInitialPanX.toFixed(2)}, ${newInitialPanY.toFixed(2)})`
-      );
-      setZoom(newInitialZoom); // Set state
-      setPan({ x: newInitialPanX, y: newInitialPanY }); // Set state
+      setZoom(newInitialZoom);
+      setPan({ x: newInitialPanX, y: newInitialPanY });
       setDynamicMinZoom(
         Math.max(0.01, newInitialZoom * MIN_INITIAL_ZOOM_FACTOR)
-      ); // Set dynamic min zoom
+      );
       initialViewCalculated.current = true;
     }
-  }, [data, currentCanvasWidth, height, initialViewCalculated]);
+  }, [
+    data,
+    currentCanvasWidth,
+    height,
+    dataColumnStart,
+    dataColumnEnd,
+    initialViewCalculated,
+  ]); // Added dataColumnStart/End
 
   function intToInfernoRGB(value: number): [number, number, number] {
     // Validate input
@@ -177,24 +239,24 @@ export function DDAHeatmap({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Use current state values directly
     const currentZoom = zoom;
     const currentPan = pan;
     const currentData = data;
     const currentColorRange = colorRange;
+    const { minX: dataMinXActual, numX: numXActualPoints } =
+      dataExtentsRef.current;
 
-    // Use dynamic width and prop height for clearing and calculations
     ctx.clearRect(0, 0, currentCanvasWidth, height);
 
     if (currentData.length === 0) return;
 
+    // visibleX/Y/Width/Height are for Y-axis panning/zooming and coarse X culling
     const visibleWidth = currentCanvasWidth / currentZoom;
     const visibleHeight = height / currentZoom;
     const visibleX = currentPan.x;
     const visibleY = currentPan.y;
 
     const offscreenCanvas = document.createElement("canvas");
-    // Use dynamic width and prop height for offscreen canvas
     offscreenCanvas.width = currentCanvasWidth;
     offscreenCanvas.height = height;
     const offscreenCtx = offscreenCanvas.getContext("2d", { alpha: false });
@@ -203,38 +265,86 @@ export function DDAHeatmap({
     const [minValue, maxValue] = currentColorRange;
     const valueRange = maxValue - minValue === 0 ? 1 : maxValue - minValue;
 
-    let drawnPoints = 0;
+    // Hybrid drawing: X is stretched, Y uses pan/zoom
+    const cellRenderWidth =
+      numXActualPoints > 0
+        ? currentCanvasWidth / numXActualPoints
+        : currentCanvasWidth;
+    // cellRenderHeight is based on currentZoom, effectively scaling Y points
+    // Assuming Y data points (e.g., channels) are 1 unit apart in data space.
+    const cellRenderHeight = Math.max(1, currentZoom);
+
     for (const point of currentData) {
+      // Coarse culling using Y pan/zoom state. X is always "in view" due to stretching.
+      // A more precise X culling isn't strictly necessary if cellRenderWidth is small,
+      // but points outside dataMinXActual and dataMaxXActual (from dataExtentsRef) should be skipped.
       if (
-        point.x < visibleX ||
-        point.x > visibleX + visibleWidth ||
         point.y < visibleY ||
-        point.y > visibleY + visibleHeight
-      )
+        point.y > visibleY + visibleHeight ||
+        point.x < dataExtentsRef.current.minX || // Cull X outside actual data range
+        point.x > dataExtentsRef.current.maxX || // Cull X outside actual data range
+        (typeof point.value !== "number" && !point.isFillValue) ||
+        (isNaN(point.value) && !point.isFillValue)
+      ) {
         continue;
+      }
 
-      const screenX = (point.x - visibleX) * currentZoom;
-      const screenY = (point.y - visibleY) * currentZoom;
-      const normalizedValue = Math.max(
-        0,
-        Math.min(1, (point.value - minValue) / valueRange)
-      );
-      const [r, g, b] = intToInfernoRGB(normalizedValue);
-      const color = `rgb(${r},${g},${b})`;
-      const pointSize = Math.max(1, Math.ceil(currentZoom * 1.5));
+      // X position is scaled to fit the canvas width
+      const finalScreenX = (point.x - dataMinXActual) * cellRenderWidth;
+      // Y position uses the pan/zoom state
+      const finalScreenY = (point.y - visibleY) * currentZoom;
 
+      let color: string;
+      if (point.isFillValue) {
+        color = nullValueColor;
+      } else {
+        const normalizedValue = (point.value - minValue) / valueRange;
+        const [r, g, b] = intToInfernoRGB(normalizedValue);
+        color = `rgb(${r}, ${g}, ${b})`;
+      }
       offscreenCtx.fillStyle = color;
       offscreenCtx.fillRect(
-        Math.floor(screenX - pointSize / 2),
-        Math.floor(screenY - pointSize / 2),
-        pointSize,
-        pointSize
+        finalScreenX,
+        finalScreenY,
+        cellRenderWidth,
+        cellRenderHeight
       );
-      drawnPoints++;
     }
 
     ctx.drawImage(offscreenCanvas, 0, 0);
-  }, [data, currentCanvasWidth, height, zoom, pan, colorRange]);
+
+    // Draw channel names if provided and visible
+    if (channels && channels.length > 0) {
+      ctx.fillStyle = "black"; // Or a contrasting color
+      ctx.font = "12px Arial";
+      const yChannelPositions = Array.from(
+        new Set(currentData.map((p) => p.y))
+      ).sort((a, b) => a - b);
+
+      yChannelPositions.forEach((yCoord) => {
+        const screenY =
+          (yCoord - visibleY) * currentZoom + cellRenderHeight / 2; // Center text in cell
+        if (screenY > 0 && screenY < height) {
+          // Only draw if visible
+          const channelIndex = yCoord - dataExtentsRef.current.minY; // Assuming y Coords are 0-indexed from minY
+          if (channelIndex >= 0 && channelIndex < channels.length) {
+            // Adjusted to draw to the left of the heatmap
+            ctx.fillText(channels[channelIndex], 5, screenY);
+          }
+        }
+      });
+    }
+  }, [
+    data,
+    zoom,
+    pan,
+    currentCanvasWidth,
+    height,
+    colorRange,
+    nullValueColor,
+    channels, // Added channels
+    dataExtentsRef, // Added dataExtentsRef
+  ]);
 
   // Effect 3: Trigger redraw when drawHeatmap callback changes (due to its dependencies changing)
   useEffect(() => {
@@ -245,8 +355,14 @@ export function DDAHeatmap({
   // --- Interaction Handlers ---
   const handleWheel = useCallback(
     (e: globalThis.WheelEvent) => {
+      // Only zoom if Meta (Cmd on Mac) or Ctrl key is pressed
+      if (!e.metaKey && !e.ctrlKey) {
+        return; // Allow default scroll behavior
+      }
+
       e.preventDefault(); // Prevent default scrolling behavior
       e.stopPropagation(); // Stop event from propagating up to the page
+
       const currentZoom = zoom;
       const currentPan = pan;
       const delta = -e.deltaY;
@@ -337,7 +453,6 @@ export function DDAHeatmap({
   ); // Depends on isDragging
 
   const resetView = useCallback(() => {
-    initialViewCalculated.current = false; // Force recalculation in useEffect
     if (data.length > 0) {
       let minX = Infinity,
         maxX = -Infinity,
