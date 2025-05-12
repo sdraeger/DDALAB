@@ -64,7 +64,7 @@ export function stopLogStream() {
   }
 }
 
-// Main function to run docker-compose up or down
+// Main function to run docker compose up or down
 export async function manageDockerCompose(
   command: "up" | "down",
   mainWindow: BrowserWindow | null,

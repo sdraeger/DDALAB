@@ -23,6 +23,7 @@ click>=8.1.8
 minio>=7.2.15
 prometheus-client>=0.21.1
 dda-py>=0.1.4
+matplotlib>=3.0.0
 
 # GraphQL dependencies
 strawberry-graphql>=0.96.0

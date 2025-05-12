@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { EEGChart } from "./eeg-chart";
+import { EEGChart } from "./plot/eeg-chart";
 import type { EEGData } from "./eeg-dashboard";
-import { DDAPlot } from "./dda-plot";
+import { DDAPlot } from "./plot/dda-plot";
 
 // Define the expected props structure
 interface ResultsFormProps {

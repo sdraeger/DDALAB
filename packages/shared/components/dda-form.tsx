@@ -1,6 +1,5 @@
 "use client";
-import { useMutation } from "@apollo/client";
-import { SUBMIT_DDA_TASK } from "../lib/graphql/mutations";
+
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -12,41 +11,37 @@ import {
   CardHeader,
   CardTitle,
 } from "shared/components/ui/card";
-import { Checkbox } from "shared/components/ui/checkbox";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-} from "shared/components/ui/form";
+import { Form } from "shared/components/ui/form";
 import { toast } from "shared/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
-import { DDAPlot } from "./dda-plot";
+import { DDAPlot } from "./plot/dda-plot";
 import { apiRequest, ApiRequestOptions } from "../lib/utils/request";
 import { useSession } from "next-auth/react";
 import { EdfConfigResponse } from "shared/lib/schemas/edf";
+import { PreprocessingOptionsUI } from "./PreprocessingOptionsUI";
+import { VisualizationOptionsUI } from "./VisualizationOptionsUI";
 
 // Form validation schema
 const formSchema = z.object({
   filePath: z.string().min(1, "File path is required"),
-  // DDA Analysis options
-  resample1000hz: z.boolean().default(false),
-  resample500hz: z.boolean().default(false),
-  lowpassFilter: z.boolean().default(false),
-  highpassFilter: z.boolean().default(false),
-  notchFilter: z.boolean().default(false),
-  detrend: z.boolean().default(false),
-  // Visualization options
+  // DDA Analysis options - New structure for preprocessing
+  preprocessingSteps: z
+    .array(
+      z.object({
+        id: z.string(),
+        label: z.string(),
+      })
+    )
+    .default([]),
+  // Visualization options (remain unchanged for now)
   removeOutliers: z.boolean().default(false),
   smoothing: z.boolean().default(false),
   smoothingWindow: z.number().default(3),
   normalization: z.enum(["none", "minmax", "zscore"]).default("none"),
 });
 
-type FormValues = z.infer<typeof formSchema>;
+export type FormValues = z.infer<typeof formSchema>;
 
 interface DDAFormProps {
   filePath: string;
@@ -69,12 +64,9 @@ export function DDAForm({
     resolver: zodResolver(formSchema),
     defaultValues: {
       filePath: filePath,
-      resample1000hz: false,
-      resample500hz: false,
-      lowpassFilter: false,
-      highpassFilter: false,
-      notchFilter: false,
-      detrend: false,
+      // DDA Analysis options
+      preprocessingSteps: [],
+      // Visualization options
       removeOutliers: false,
       smoothing: false,
       smoothingWindow: 3,
@@ -83,11 +75,13 @@ export function DDAForm({
   });
 
   const { data: session } = useSession();
-  const [submitDdaTask, { loading }] = useMutation(SUBMIT_DDA_TASK);
   const [Q, setQ] = useState<any>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [availableChannels, setAvailableChannels] = useState<string[]>([]);
 
   const onSubmit = async (data: FormValues) => {
+    setIsSubmitting(true);
+    setQ(null);
     try {
       // Convert selected channel labels to indices based on available channels
       const channelIndices = selectedChannels
@@ -102,12 +96,24 @@ export function DDAForm({
           file_path: data.filePath,
           channel_list: channelIndices,
           preprocessing_options: {
-            resample_1000hz: data.resample1000hz,
-            resample_500hz: data.resample500hz,
-            lowpass_filter: data.lowpassFilter,
-            highpass_filter: data.highpassFilter,
-            notch_filter: data.notchFilter,
-            detrend: data.detrend,
+            resample_1000hz: data.preprocessingSteps.some(
+              (step) => step.id === "resample1000hz"
+            ),
+            resample_500hz: data.preprocessingSteps.some(
+              (step) => step.id === "resample500hz"
+            ),
+            lowpass_filter: data.preprocessingSteps.some(
+              (step) => step.id === "lowpassFilter"
+            ),
+            highpass_filter: data.preprocessingSteps.some(
+              (step) => step.id === "highpassFilter"
+            ),
+            notch_filter: data.preprocessingSteps.some(
+              (step) => step.id === "notchFilter"
+            ),
+            detrend: data.preprocessingSteps.some(
+              (step) => step.id === "detrend"
+            ),
             remove_outliers: data.removeOutliers,
             smoothing: data.smoothing,
             smoothing_window: data.smoothingWindow,
@@ -133,6 +139,8 @@ export function DDAForm({
           error instanceof Error ? error.message : "An unknown error occurred",
         variant: "destructive",
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -192,377 +200,26 @@ export function DDAForm({
                       </h4>
                     </div>
 
-                    <FormField
-                      control={form.control}
-                      name="resample1000hz"
-                      render={({ field }) => (
-                        <FormItem
-                          className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 cursor-pointer hover:bg-muted/50 transition-colors ${
-                            field.value ? "bg-primary/10 border-primary/20" : ""
-                          }`}
-                          onClick={(e) => {
-                            if (
-                              !(e.target as HTMLElement).closest(
-                                ".checkbox-container"
-                              )
-                            ) {
-                              field.onChange(!field.value);
-                            }
-                          }}
-                        >
-                          <FormControl>
-                            <div className="checkbox-container">
-                              <Checkbox
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </div>
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel className="cursor-pointer">
-                              Resample to 1000Hz
-                            </FormLabel>
-                            <FormDescription>
-                              Resample the data to 1000Hz
-                            </FormDescription>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
+                    {/* New Preprocessing Steps UI */}
+                    <PreprocessingOptionsUI form={form} />
 
-                    <FormField
-                      control={form.control}
-                      name="resample500hz"
-                      render={({ field }) => (
-                        <FormItem
-                          className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 cursor-pointer hover:bg-muted/50 transition-colors ${
-                            field.value ? "bg-primary/10 border-primary/20" : ""
-                          }`}
-                          onClick={(e) => {
-                            if (
-                              !(e.target as HTMLElement).closest(
-                                ".checkbox-container"
-                              )
-                            ) {
-                              field.onChange(!field.value);
-                            }
-                          }}
-                        >
-                          <FormControl>
-                            <div className="checkbox-container">
-                              <Checkbox
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </div>
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel className="cursor-pointer">
-                              Resample to 500Hz
-                            </FormLabel>
-                            <FormDescription>
-                              Resample the data to 500Hz
-                            </FormDescription>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
+                    {/* End New Preprocessing Steps UI */}
 
-                    <FormField
-                      control={form.control}
-                      name="lowpassFilter"
-                      render={({ field }) => (
-                        <FormItem
-                          className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 cursor-pointer hover:bg-muted/50 transition-colors ${
-                            field.value ? "bg-primary/10 border-primary/20" : ""
-                          }`}
-                          onClick={(e) => {
-                            if (
-                              !(e.target as HTMLElement).closest(
-                                ".checkbox-container"
-                              )
-                            ) {
-                              field.onChange(!field.value);
-                            }
-                          }}
-                        >
-                          <FormControl>
-                            <div className="checkbox-container">
-                              <Checkbox
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </div>
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel className="cursor-pointer">
-                              Low-pass Filter
-                            </FormLabel>
-                            <FormDescription>
-                              Apply a low-pass filter to the data
-                            </FormDescription>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="highpassFilter"
-                      render={({ field }) => (
-                        <FormItem
-                          className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 cursor-pointer hover:bg-muted/50 transition-colors ${
-                            field.value ? "bg-primary/10 border-primary/20" : ""
-                          }`}
-                          onClick={(e) => {
-                            if (
-                              !(e.target as HTMLElement).closest(
-                                ".checkbox-container"
-                              )
-                            ) {
-                              field.onChange(!field.value);
-                            }
-                          }}
-                        >
-                          <FormControl>
-                            <div className="checkbox-container">
-                              <Checkbox
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </div>
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel className="cursor-pointer">
-                              High-pass Filter
-                            </FormLabel>
-                            <FormDescription>
-                              Apply a high-pass filter to the data
-                            </FormDescription>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="notchFilter"
-                      render={({ field }) => (
-                        <FormItem
-                          className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 cursor-pointer hover:bg-muted/50 transition-colors ${
-                            field.value ? "bg-primary/10 border-primary/20" : ""
-                          }`}
-                          onClick={(e) => {
-                            if (
-                              !(e.target as HTMLElement).closest(
-                                ".checkbox-container"
-                              )
-                            ) {
-                              field.onChange(!field.value);
-                            }
-                          }}
-                        >
-                          <FormControl>
-                            <div className="checkbox-container">
-                              <Checkbox
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </div>
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel className="cursor-pointer">
-                              Notch Filter
-                            </FormLabel>
-                            <FormDescription>
-                              Apply a notch filter to remove line noise
-                            </FormDescription>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="detrend"
-                      render={({ field }) => (
-                        <FormItem
-                          className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 cursor-pointer hover:bg-muted/50 transition-colors ${
-                            field.value ? "bg-primary/10 border-primary/20" : ""
-                          }`}
-                          onClick={(e) => {
-                            if (
-                              !(e.target as HTMLElement).closest(
-                                ".checkbox-container"
-                              )
-                            ) {
-                              field.onChange(!field.value);
-                            }
-                          }}
-                        >
-                          <FormControl>
-                            <div className="checkbox-container">
-                              <Checkbox
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </div>
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel className="cursor-pointer">
-                              Detrend
-                            </FormLabel>
-                            <FormDescription>
-                              Remove linear trends from the data
-                            </FormDescription>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
-
-                    {/* Visualization Options Section */}
-                    <div className="col-span-full mt-6">
-                      <h4 className="text-sm font-medium mb-3 text-muted-foreground">
-                        Visualization Options
-                      </h4>
-                    </div>
-
-                    <FormField
-                      control={form.control}
-                      name="removeOutliers"
-                      render={({ field }) => (
-                        <FormItem
-                          className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 cursor-pointer hover:bg-muted/50 transition-colors ${
-                            field.value ? "bg-primary/10 border-primary/20" : ""
-                          }`}
-                          onClick={(e) => {
-                            if (
-                              !(e.target as HTMLElement).closest(
-                                ".checkbox-container"
-                              )
-                            ) {
-                              field.onChange(!field.value);
-                            }
-                          }}
-                        >
-                          <FormControl>
-                            <div className="checkbox-container">
-                              <Checkbox
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </div>
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel className="cursor-pointer">
-                              Remove Outliers
-                            </FormLabel>
-                            <FormDescription>
-                              Remove extreme values from the signal
-                            </FormDescription>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="smoothing"
-                      render={({ field }) => (
-                        <FormItem
-                          className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 cursor-pointer hover:bg-muted/50 transition-colors ${
-                            field.value ? "bg-primary/10 border-primary/20" : ""
-                          }`}
-                          onClick={(e) => {
-                            if (
-                              !(e.target as HTMLElement).closest(
-                                ".checkbox-container"
-                              )
-                            ) {
-                              field.onChange(!field.value);
-                            }
-                          }}
-                        >
-                          <FormControl>
-                            <div className="checkbox-container">
-                              <Checkbox
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </div>
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel className="cursor-pointer">
-                              Apply Smoothing
-                            </FormLabel>
-                            <FormDescription>
-                              Smooth the signal to reduce noise
-                            </FormDescription>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
-
-                    {form.watch("smoothing") && (
-                      <FormField
-                        control={form.control}
-                        name="smoothingWindow"
-                        render={({ field }) => (
-                          <FormItem className="rounded-md border p-4 space-y-2">
-                            <FormLabel>Smoothing Window</FormLabel>
-                            <FormDescription>
-                              Window size for smoothing filter: {field.value}
-                            </FormDescription>
-                            <FormControl>
-                              <input
-                                type="range"
-                                min={3}
-                                max={15}
-                                step={2}
-                                value={field.value}
-                                onChange={(e) =>
-                                  field.onChange(parseInt(e.target.value))
-                                }
-                                className="w-full"
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                    )}
-
-                    <FormField
-                      control={form.control}
-                      name="normalization"
-                      render={({ field }) => (
-                        <FormItem className="rounded-md border p-4 space-y-2">
-                          <FormLabel>Normalization</FormLabel>
-                          <FormDescription>
-                            Choose signal normalization method
-                          </FormDescription>
-                          <FormControl>
-                            <select
-                              className="w-full rounded-md border border-input bg-background px-3 py-2"
-                              value={field.value}
-                              onChange={field.onChange}
-                            >
-                              <option value="none">None</option>
-                              <option value="minmax">Min-Max</option>
-                              <option value="zscore">Z-Score</option>
-                            </select>
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
+                    {/* Visualization Options Section - MOVED to VisualizationOptionsUI.tsx */}
+                    <VisualizationOptionsUI form={form} />
                   </div>
                 </div>
               </div>
 
               <div>
-                <Button type="submit" disabled={loading}>
-                  {loading ? (
+                <Button
+                  type="submit"
+                  disabled={isSubmitting || selectedChannels.length === 0}
+                  className="w-full md:w-auto"
+                >
+                  {isSubmitting ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />{" "}
                       Submitting...
                     </>
                   ) : (

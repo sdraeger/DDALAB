@@ -36,6 +36,40 @@ export interface ElectronAPI {
     envPath: string,
     envData: Record<string, string>
   ) => Promise<void>;
+  runInitialSetup: (allowedDirsValue: string) => Promise<{
+    success: boolean;
+    message: string;
+    setupPath?: string;
+  }>;
+  getInstallerState: () => Promise<{
+    setupComplete: boolean;
+    setupPath: string | null;
+    error?: boolean;
+  }>;
+  onSetupProgress: (
+    callback: (progress: { message: string; type?: string }) => void
+  ) => () => void;
+  onSetupFinished: (
+    callback: (state: {
+      setupComplete: boolean;
+      setupPath: string | null;
+    }) => void
+  ) => () => void;
+  onDockerStatusUpdate: (
+    callback: (statusUpdate: { type: string; message: string }) => void
+  ) => () => void;
+  onDockerLogUpdate: (
+    callback: (logUpdate: {
+      type: string;
+      message: string;
+      logs?: string;
+    }) => void
+  ) => () => void;
+  markSetupComplete: (manualSetupDirectory?: string) => Promise<{
+    success: boolean;
+    message?: string;
+    finalSetupPath: string | null;
+  }>;
 }
 
 interface ParsedEnvEntry {
@@ -78,15 +112,60 @@ const exposedAPI: ElectronAPI = {
   },
   onAllServicesReady: (callback: () => void) => {
     const handler = () => callback();
-    ipcRenderer.on("all-services-ready", handler);
+    ipcRenderer.on("ddalab-services-ready", handler);
     return () => {
-      ipcRenderer.removeListener("all-services-ready", handler);
+      ipcRenderer.removeListener("ddalab-services-ready", handler);
     };
   },
   getEnvDetails: (envPath: string) =>
     ipcRenderer.invoke("get-env-details", envPath),
   saveEnvFile: (envPath: string, envData: Record<string, string>) =>
     ipcRenderer.invoke("save-env-file", envPath, envData),
+  runInitialSetup: (allowedDirsValue: string) =>
+    ipcRenderer.invoke("run-initial-setup", allowedDirsValue),
+  getInstallerState: () => ipcRenderer.invoke("get-installer-state"),
+  onSetupProgress: (callback) => {
+    const handler = (
+      _event: any,
+      progress: { message: string; type?: string }
+    ) => callback(progress);
+    ipcRenderer.on("setup-progress", handler);
+    return () => {
+      ipcRenderer.removeListener("setup-progress", handler);
+    };
+  },
+  onSetupFinished: (callback) => {
+    const handler = (
+      _event: any,
+      state: { setupComplete: boolean; setupPath: string | null }
+    ) => callback(state);
+    ipcRenderer.on("setup-finished", handler);
+    return () => {
+      ipcRenderer.removeListener("setup-finished", handler);
+    };
+  },
+  onDockerStatusUpdate: (callback) => {
+    const handler = (
+      _event: any,
+      statusUpdate: { type: string; message: string }
+    ) => callback(statusUpdate);
+    ipcRenderer.on("docker-status-update", handler);
+    return () => {
+      ipcRenderer.removeListener("docker-status-update", handler);
+    };
+  },
+  onDockerLogUpdate: (callback) => {
+    const handler = (
+      _event: any,
+      logUpdate: { type: string; message: string; logs?: string }
+    ) => callback(logUpdate);
+    ipcRenderer.on("docker-log-update", handler);
+    return () => {
+      ipcRenderer.removeListener("docker-log-update", handler);
+    };
+  },
+  markSetupComplete: (manualSetupDirectory?: string) =>
+    ipcRenderer.invoke("mark-setup-complete", manualSetupDirectory),
 };
 
 contextBridge.exposeInMainWorld("electronAPI", exposedAPI);

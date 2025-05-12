@@ -5,25 +5,12 @@ import { formatTimestamp } from "../utils";
 interface InstallProgressSiteProps {
   userSelections: UserSelections;
   electronAPI: ElectronAPI | undefined;
-  onInstallComplete: (success: boolean) => void;
 }
 
 const InstallProgressSite: React.FC<InstallProgressSiteProps> = ({
   userSelections,
   electronAPI,
-  onInstallComplete,
 }) => {
-  const [logs, setLogs] = useState<
-    Array<{
-      type: "stdout" | "stderr" | "info" | "error";
-      message: string;
-      timestamp: string;
-    }>
-  >([]);
-  const [isInstalling, setIsInstalling] = useState(false);
-  const [installError, setInstallError] = useState<string | null>(null);
-  const [installSuccess, setInstallSuccess] = useState(false);
-
   const [dockerIsRunning, setDockerIsRunning] = useState<boolean | null>(null);
   const [deleteVolumesOnStop, setDeleteVolumesOnStop] = useState(false);
   const [isLoadingDockerAction, setIsLoadingDockerAction] = useState(false);
@@ -31,12 +18,14 @@ const InstallProgressSite: React.FC<InstallProgressSiteProps> = ({
 
   const logContainerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
-  const [isLogsVisible, setIsLogsVisible] = useState(false);
 
-  const addLog = useCallback(
+  const [dockerLogs, setDockerLogs] = useState<
+    Array<{ type: string; message: string; timestamp: string }>
+  >([]);
+  const addDockerLog = useCallback(
     (type: "stdout" | "stderr" | "info" | "error", message: string) => {
-      setLogs((prevLogs) => [
-        ...prevLogs,
+      setDockerLogs((prev) => [
+        ...prev,
         { type, message, timestamp: formatTimestamp() },
       ]);
     },
@@ -44,39 +33,15 @@ const InstallProgressSite: React.FC<InstallProgressSiteProps> = ({
   );
 
   useEffect(() => {
-    if (isLogsVisible && autoScroll && logContainerRef.current) {
+    if (autoScroll && logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
-  }, [logs, autoScroll, isLogsVisible]);
-
-  useEffect(() => {
-    const startInstallation = async () => {
-      if (!electronAPI || !userSelections || isInstalling || installSuccess)
-        return;
-
-      setIsInstalling(true);
-      setInstallError(null);
-      addLog("info", "Starting initial configuration process...");
-
-      addLog(
-        "info",
-        "Initial configuration (e.g., .env file saving) assumed to be handled elsewhere or completed."
-      );
-      addLog("info", "Setup for Docker monitoring and controls is active.");
-
-      setIsInstalling(false);
-      setInstallSuccess(true);
-      onInstallComplete(true);
-    };
-
-    startInstallation();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [electronAPI, userSelections, addLog, onInstallComplete]);
+  }, [userSelections.installationLog, autoScroll]);
 
   useEffect(() => {
     if (!electronAPI) return;
 
-    let logCleanup: (() => void) | undefined;
+    let dockerLogListenerCleanup: (() => void) | undefined;
     let allServicesReadyCleanup: (() => void) | undefined;
 
     const checkDockerStatusAndLogs = async () => {
@@ -84,21 +49,21 @@ const InstallProgressSite: React.FC<InstallProgressSiteProps> = ({
         setIsLoadingDockerAction(true);
         const status = await electronAPI.getDockerStatus();
         setDockerIsRunning(status);
-        addLog(
+        addDockerLog(
           "info",
           `Initial Docker status: ${status ? "Running" : "Stopped"}`
         );
 
         const recentLogs = await electronAPI.getDockerLogs();
         if (recentLogs) {
-          addLog("info", "--- Previous Logs Start ---");
+          addDockerLog("info", "--- Previous Docker Logs Start ---");
           recentLogs.split("\n").forEach((line) => {
-            if (line.trim()) addLog("stdout", line);
+            if (line.trim()) addDockerLog("stdout", line);
           });
-          addLog("info", "--- Previous Logs End ---");
+          addDockerLog("info", "--- Previous Docker Logs End ---");
         }
       } catch (error) {
-        addLog(
+        addDockerLog(
           "error",
           `Error fetching initial Docker status: ${(error as Error).message}`
         );
@@ -108,18 +73,22 @@ const InstallProgressSite: React.FC<InstallProgressSiteProps> = ({
       }
     };
 
-    checkDockerStatusAndLogs();
-
-    logCleanup = electronAPI.onDockerLogs((logEntry) => {
-      addLog(
-        logEntry.type as "stdout" | "stderr" | "info" | "error",
-        logEntry.data
+    if (electronAPI.onDockerLogUpdate) {
+      dockerLogListenerCleanup = electronAPI.onDockerLogUpdate((logEntry) => {
+        addDockerLog(
+          logEntry.type as "stdout" | "stderr" | "info" | "error",
+          logEntry.message
+        );
+      });
+    } else {
+      console.warn(
+        "InstallProgressSite: electronAPI.onDockerLogUpdate is not defined."
       );
-    });
+    }
 
     if (electronAPI.onAllServicesReady) {
       allServicesReadyCleanup = electronAPI.onAllServicesReady(() => {
-        addLog(
+        addDockerLog(
           "info",
           "🎉 All essential Docker services are up and running! Traefik is healthy."
         );
@@ -129,34 +98,34 @@ const InstallProgressSite: React.FC<InstallProgressSiteProps> = ({
       });
     } else {
       console.warn(
-        "electronAPI.onAllServicesReady is not defined. Ensure preload.ts is correct and ElectronAPI type is updated."
+        "InstallProgressSite: electronAPI.onAllServicesReady is not defined."
       );
     }
 
     return () => {
-      if (logCleanup) {
-        logCleanup();
+      if (dockerLogListenerCleanup) {
+        dockerLogListenerCleanup();
       }
       if (allServicesReadyCleanup) {
         allServicesReadyCleanup();
       }
     };
-  }, [electronAPI, addLog]);
+  }, [electronAPI, addDockerLog]);
 
   const handleStartDocker = async () => {
     if (!electronAPI || isLoadingDockerAction) return;
     setIsLoadingDockerAction(true);
     setAllServicesReady(false);
-    addLog("info", "Attempting to start Docker services...");
+    addDockerLog("info", "Attempting to start Docker services...");
     try {
       const success = await electronAPI.startDockerCompose();
       if (success) {
-        addLog(
+        addDockerLog(
           "info",
           "Docker services initiation command sent. Monitoring Traefik health from backend..."
         );
       } else {
-        addLog(
+        addDockerLog(
           "error",
           "Failed to initiate Docker services. Check logs for details."
         );
@@ -164,7 +133,10 @@ const InstallProgressSite: React.FC<InstallProgressSiteProps> = ({
         setIsLoadingDockerAction(false);
       }
     } catch (err) {
-      addLog("error", `Error initiating Docker: ${(err as Error).message}`);
+      addDockerLog(
+        "error",
+        `Error initiating Docker: ${(err as Error).message}`
+      );
       setDockerIsRunning(false);
       setIsLoadingDockerAction(false);
     }
@@ -173,7 +145,7 @@ const InstallProgressSite: React.FC<InstallProgressSiteProps> = ({
   const handleStopDocker = async () => {
     if (!electronAPI || !dockerIsRunning) return;
     setIsLoadingDockerAction(true);
-    addLog(
+    addDockerLog(
       "info",
       `Attempting to stop Docker services... ${
         deleteVolumesOnStop ? "(Deleting volumes)" : ""
@@ -184,15 +156,15 @@ const InstallProgressSite: React.FC<InstallProgressSiteProps> = ({
       if (success) {
         setDockerIsRunning(false);
         setAllServicesReady(false);
-        addLog("info", "Docker services stopped successfully.");
+        addDockerLog("info", "Docker services stopped successfully.");
       } else {
-        addLog(
+        addDockerLog(
           "error",
           "Failed to stop Docker services. Check logs for details."
         );
       }
     } catch (err) {
-      addLog("error", `Error stopping Docker: ${(err as Error).message}`);
+      addDockerLog("error", `Error stopping Docker: ${(err as Error).message}`);
     } finally {
       setIsLoadingDockerAction(false);
     }
@@ -200,34 +172,70 @@ const InstallProgressSite: React.FC<InstallProgressSiteProps> = ({
 
   return (
     <>
-      <h2>Installation & Docker Management</h2>
+      <h2>Initial Setup Progress</h2>
 
-      {isInstalling && <p>Initial setup in progress. Please wait...</p>}
-      {installError && (
-        <p className="alert alert-danger">
-          Error during initial setup: {installError}
-        </p>
-      )}
-      {installSuccess && !installError && (
-        <p className="alert alert-success">
-          Initial setup completed successfully! You can now manage Docker
-          services.
-        </p>
-      )}
+      <div
+        className="logs-container mb-3"
+        ref={logContainerRef}
+        style={{
+          height: "200px",
+          overflowY: "auto",
+          border: "1px solid #ccc",
+          padding: "10px",
+          backgroundColor: "#f8f9fa",
+        }}
+      >
+        {userSelections.installationLog &&
+        userSelections.installationLog.length > 0 ? (
+          userSelections.installationLog.map((log, index) => (
+            <div key={index} className="log-message">
+              {log}
+            </div>
+          ))
+        ) : (
+          <p>Waiting for installation to start...</p>
+        )}
+      </div>
+      <label>
+        <input
+          type="checkbox"
+          checked={autoScroll}
+          onChange={(e) => setAutoScroll(e.target.checked)}
+        />{" "}
+        Autoscroll Logs
+      </label>
 
-      {allServicesReady && (
-        <p className="alert alert-success mt-3">
-          🎉 Application is fully up and running! Traefik is healthy.
-        </p>
-      )}
-      {!allServicesReady && dockerIsRunning && isLoadingDockerAction && (
-        <p className="alert alert-info mt-3">
-          Docker services are starting... Waiting for Traefik to become healthy.
-        </p>
-      )}
-
+      <hr />
       <div className="docker-management-section mt-4 p-3 border rounded">
-        <h4>Docker Service Management</h4>
+        <h4>Docker Service Management (Live Status)</h4>
+        <p className="text-muted small">
+          This section shows live Docker status. Full controls are in the
+          Control Panel after setup.
+        </p>
+
+        <h5>Docker Activity:</h5>
+        <div
+          className="logs-container mb-3"
+          style={{
+            height: "150px",
+            overflowY: "auto",
+            border: "1px solid #ccc",
+            padding: "10px",
+            backgroundColor: "#f0f0f0",
+          }}
+        >
+          {dockerLogs.length > 0 ? (
+            dockerLogs.map((log, index) => (
+              <div key={index} className={`log-message log-${log.type}`}>
+                <span className="log-timestamp">[{log.timestamp}] </span>
+                {log.message}
+              </div>
+            ))
+          ) : (
+            <p>No Docker activity to display yet.</p>
+          )}
+        </div>
+
         {dockerIsRunning === null && <p>Checking Docker status...</p>}
         {dockerIsRunning !== null && (
           <p>
@@ -279,72 +287,6 @@ const InstallProgressSite: React.FC<InstallProgressSiteProps> = ({
             </label>
           )}
         </div>
-      </div>
-
-      <div className="logs-section mt-4 p-3 border rounded">
-        <div className="d-flex justify-content-between align-items-center mb-2">
-          <h4>Runtime Logs</h4>
-          <button
-            className="btn btn-sm btn-outline-secondary"
-            onClick={() => setIsLogsVisible(!isLogsVisible)}
-            aria-expanded={isLogsVisible}
-            aria-controls="collapseLogs"
-          >
-            {isLogsVisible ? "Hide" : "Show"} Logs
-          </button>
-        </div>
-
-        {isLogsVisible && (
-          <div
-            id="collapseLogs"
-            ref={logContainerRef}
-            className="log-container bg-light p-2 border rounded"
-            style={{
-              maxHeight: "300px",
-              overflowY: "auto",
-              fontSize: "0.875em",
-            }}
-          >
-            {logs.length === 0 ? (
-              <p className="text-muted fst-italic">No logs to display yet.</p>
-            ) : (
-              logs.map((log, index) => (
-                <div
-                  key={index}
-                  className={`log-entry log-${log.type}`}
-                  style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}
-                >
-                  <small className="text-muted me-2">[{log.timestamp}]</small>
-                  <span
-                    className={
-                      {
-                        info: "text-primary",
-                        stdout: "",
-                        stderr: "text-danger",
-                        error: "text-danger fw-bold",
-                      }[log.type]
-                    }
-                  >
-                    {log.message.trim()}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-        {isLogsVisible && (
-          <div className="mt-2 text-end">
-            <label className="form-check-label small">
-              <input
-                type="checkbox"
-                className="form-check-input me-1"
-                checked={autoScroll}
-                onChange={() => setAutoScroll(!autoScroll)}
-              />
-              Autoscroll
-            </label>
-          </div>
-        )}
       </div>
     </>
   );

@@ -106,7 +106,7 @@ services:
     environment:
       - TRAEFIK_PASSWORD_HASH=${TRAEFIK_PASSWORD_HASH}
     healthcheck:
-      test: ["CMD-SHELL", "traefik healthcheck --ping || exit 1"]
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -16,7 +16,7 @@ import { Checkbox } from "./ui/checkbox";
 import { Spinner } from "./ui/spinner";
 import { Alert, AlertDescription } from "./ui/alert";
 import { ScrollArea } from "./ui/scroll-area";
-import { EEGChart } from "./eeg-chart";
+import { EEGChart } from "./plot/eeg-chart";
 import { AnnotationEditor, Annotation } from "./annotation-editor";
 import {
   ZoomIn,
