@@ -10,7 +10,7 @@ import {
   Share2,
   Settings,
 } from "lucide-react";
-import { Button } from "./ui/button";
+import { Button } from "../ui/button";
 import {
   Card,
   CardContent,
@@ -18,14 +18,14 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "./ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { Slider } from "./ui/slider";
-import { EEGChart } from "./plot/eeg-chart";
-import { FileSelector } from "./file-selector";
-import { EEGZoomSettings } from "./eeg-zoom-settings";
-import { parseEDFFile } from "../lib/edf-parser";
-import { toast } from "../hooks/use-toast";
+} from "../ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
+import { Slider } from "../ui/slider";
+import { EEGChart } from "../plot/eeg-chart";
+import { FileSelector } from "../files/file-selector";
+import { EEGZoomSettings } from "../settings/eeg-zoom-settings";
+import { EEGData } from "../../types/eeg-types";
+import { toast } from "../../hooks/use-toast";
 import {
   Dialog,
   DialogContent,
@@ -33,20 +33,9 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "./ui/dialog";
-import { Input } from "./ui/input";
-import logger from "../lib/utils/logger";
-
-export type EEGData = {
-  channels: string[];
-  samplesPerChannel: number;
-  sampleRate: number;
-  data: number[][];
-  startTime: Date;
-  duration: number;
-  absoluteStartTime?: number; // Optional absolute start time in seconds relative to file start
-  annotations?: any[]; // Optional annotations
-};
+} from "../ui/dialog";
+import { Input } from "../ui/input";
+import logger from "../../lib/utils/logger";
 
 function QuickZoomSettings({ onClose }: { onClose: () => void }) {
   return (
@@ -76,60 +65,68 @@ export function EEGDashboard() {
   const handleFileSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
-    try {
-      setIsLoading(true);
-      const file = files[0];
-
-      // Check if file is an EDF file
-      if (!file.name.toLowerCase().endsWith(".edf")) {
-        toast({
-          title: "Invalid file format",
-          description: "Please select an .edf file",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      logger.info(`Processing file: ${file.name}, size: ${file.size} bytes`);
-      setCurrentFileName(file.name);
-
-      // Parse the EDF file
-      const parsedData = await parseEDFFile(file);
-
-      logger.info("EEG data loaded:", {
-        channels: parsedData.channels.length,
-        samplesPerChannel: parsedData.samplesPerChannel,
-        sampleRate: parsedData.sampleRate,
-        duration: parsedData.duration,
-        dataArraySizes: parsedData.data.map((channel) => channel.length),
-      });
-
-      setEEGData(parsedData);
-
-      // Select first 5 channels by default (or all if less than 5)
-      setSelectedChannels(
-        parsedData.channels.slice(0, Math.min(5, parsedData.channels.length))
-      );
-
-      // Reset zoom and time window
-      setZoomLevel(1);
-      setTimeWindow([0, Math.min(10, parsedData.duration)]);
-
-      toast({
-        title: "File loaded successfully",
-        description: `Loaded ${parsedData.channels.length} channels of EEG data`,
-      });
-    } catch (error) {
-      logger.error("Error loading EDF file:", error);
-      toast({
-        title: "Error loading file",
-        description: "There was a problem processing the EDF file.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
+    const file = files[0];
   };
+
+  // const handleFileSelected = async (files: FileList | null) => {
+  //   if (!files || files.length === 0) return;
+
+  //   try {
+  //     setIsLoading(true);
+  //     const file = files[0];
+
+  //     // Check if file is an EDF file
+  //     if (!file.name.toLowerCase().endsWith(".edf")) {
+  //       toast({
+  //         title: "Invalid file format",
+  //         description: "Please select an .edf file",
+  //         variant: "destructive",
+  //       });
+  //       return;
+  //     }
+
+  //     logger.info(`Processing file: ${file.name}, size: ${file.size} bytes`);
+  //     setCurrentFileName(file.name);
+
+  //     // Parse the EDF file
+  //     const parsedData = await parseEDFFile(file);
+
+  //     logger.info("EEG data loaded:", {
+  //       channels: parsedData.channels.length,
+  //       samplesPerChannel: parsedData.samplesPerChannel,
+  //       sampleRate: parsedData.sampleRate,
+  //       duration: parsedData.duration,
+  //       dataArraySizes: parsedData.data.map(
+  //         (channel: number[]) => channel.length
+  //       ),
+  //     });
+
+  //     setEEGData(parsedData);
+
+  //     // Select first 5 channels by default (or all if less than 5)
+  //     setSelectedChannels(
+  //       parsedData.channels.slice(0, Math.min(5, parsedData.channels.length))
+  //     );
+
+  //     // Reset zoom and time window
+  //     setZoomLevel(1);
+  //     setTimeWindow([0, Math.min(10, parsedData.duration)]);
+
+  //     toast({
+  //       title: "File loaded successfully",
+  //       description: `Loaded ${parsedData.channels.length} channels of EEG data`,
+  //     });
+  //   } catch (error) {
+  //     logger.error("Error loading EDF file:", error);
+  //     toast({
+  //       title: "Error loading file",
+  //       description: "There was a problem processing the EDF file.",
+  //       variant: "destructive",
+  //     });
+  //   } finally {
+  //     setIsLoading(false);
+  //   }
+  // };
 
   const handleZoomIn = () => {
     if (zoomLevel < 10) {

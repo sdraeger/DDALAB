@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useTheme } from "next-themes";
 import { useSession } from "next-auth/react";
-import { useToast } from "./ui/use-toast";
+import { useToast } from "../ui/use-toast";
 
 /**
  * This component synchronizes the theme with user preferences.

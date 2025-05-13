@@ -4,17 +4,17 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "./ui/card";
-import { Alert, AlertDescription } from "./ui/alert";
+} from "../ui/card";
+import { Alert, AlertDescription } from "../ui/alert";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 

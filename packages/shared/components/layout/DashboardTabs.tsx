@@ -1,15 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { FileBrowser } from "./file-browser";
-import { DDAForm } from "./dda-form";
-import { Card, CardContent } from "./ui/card";
-import { Button } from "./ui/button";
+import { FileBrowser } from "../files/file-browser";
+import { DDAForm } from "../form/dda-form";
+import { Card, CardContent } from "../ui/card";
+import { Button } from "../ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { cn } from "../lib/utils";
+import { cn } from "../../lib/utils";
 import { useSession } from "next-auth/react";
-import { apiRequest, ApiRequestOptions } from "../lib/utils/request";
-import { EdfConfigResponse } from "../lib/schemas/edf";
+import { apiRequest, ApiRequestOptions } from "../../lib/utils/request";
+import { EdfConfigResponse } from "../../lib/schemas/edf";
 
 export function DashboardTabs() {
   const { data: session } = useSession();

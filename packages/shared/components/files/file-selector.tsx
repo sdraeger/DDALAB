@@ -4,7 +4,7 @@ import type React from "react";
 
 import { forwardRef, useRef, useState } from "react";
 import { FileUp, Loader2 } from "lucide-react";
-import { Button } from "./ui/button";
+import { Button } from "../ui/button";
 
 interface FileSelectorProps {
   onFilesSelected: (files: FileList | null) => void;

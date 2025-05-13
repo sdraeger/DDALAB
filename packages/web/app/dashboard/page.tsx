@@ -1,5 +1,5 @@
-import { ProtectedRoute } from "shared/components/protected-route";
-import { DashboardTabs } from "shared/components/dashboard-tabs";
+import { ProtectedRoute } from "shared/components/higher-order/ProtectedRoute";
+import { DashboardTabs } from "shared/components/layout/DashboardTabs";
 
 export default function DashboardPage() {
   return (

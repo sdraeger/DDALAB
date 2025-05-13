@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import type { ElectronAPI, UserSelections } from "../utils";
-import { app } from "electron";
+import { ElectronAPI, UserSelections } from "../utils";
 
 interface ControlPanelSiteProps {
   electronAPI?: ElectronAPI;

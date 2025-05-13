@@ -1,23 +1,7 @@
 import React, { useState } from "react";
-import { EEGChart } from "./plot/eeg-chart";
-import type { EEGData } from "./eeg-dashboard";
-import { DDAPlot } from "./plot/dda-plot";
-
-// Define the expected props structure
-interface ResultsFormProps {
-  edfData: EEGData;
-  filePath: string; // Add filePath prop for DDAPlot
-  taskId?: string; // Add optional taskId prop for DDAPlot
-  sharedByUser: string;
-  snapshotTimestamp: string;
-  selectedChannels?: string[];
-  preprocessingOptions?: {
-    removeOutliers: boolean;
-    smoothing: boolean;
-    smoothingWindow: number;
-    normalization: string;
-  };
-}
+import { EEGChart } from "../plot/eeg-chart";
+import { ResultsFormProps } from "../../types/eeg-types";
+import { DDAPlot } from "../plot/dda-plot";
 
 const ResultsForm: React.FC<ResultsFormProps> = ({
   edfData,

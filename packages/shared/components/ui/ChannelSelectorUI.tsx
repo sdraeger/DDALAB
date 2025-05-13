@@ -1,7 +1,7 @@
 "use client";
 
-import { Button } from "./ui/button";
-import { Spinner } from "./ui/spinner";
+import { Button } from "./button";
+import { Spinner } from "./spinner";
 
 interface ChannelSelectorUIProps {
   availableChannels: string[];

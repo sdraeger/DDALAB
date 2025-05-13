@@ -1,9 +1,9 @@
 "use client";
 
-import { ThemeProvider } from "./theme-provider";
+import { ThemeProvider } from "./theme/theme-provider";
 import { EDFPlotProvider } from "../contexts/edf-plot-context";
-import { ApolloWrapper } from "./apollo-wrapper";
-import { Header } from "./header";
+import { ApolloWrapper } from "./higher-order/ApolloWrapper";
+import { Header } from "./layout/Header";
 import { Toaster } from "./ui/toaster";
 import { SettingsProvider } from "../contexts/settings-context";
 import { SessionProvider } from "next-auth/react";

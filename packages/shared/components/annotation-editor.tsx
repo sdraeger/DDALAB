@@ -21,35 +21,11 @@ import { toast } from "./ui/use-toast";
 import { Spinner } from "./ui/spinner";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Plus, Edit, Trash } from "lucide-react";
-
-export type Annotation = {
-  id: number;
-  userId: number;
-  filePath: string;
-  startTime: number;
-  endTime?: number | null;
-  text: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type AnnotationInput = {
-  filePath: string;
-  startTime: number;
-  endTime?: number | null;
-  text: string;
-};
-
-interface AnnotationEditorProps {
-  filePath?: string;
-  eegData?: any;
-  currentSample: number;
-  sampleRate?: number;
-  onAnnotationSelect?: (annotation: Annotation) => void;
-  initialAnnotations?: Annotation[];
-  onAnnotationsChange?: (annotations: Annotation[]) => void;
-  onAnnotationUpdate?: (id: number, annotation: Partial<Annotation>) => void;
-}
+import {
+  Annotation,
+  AnnotationEditorProps,
+  AnnotationInput,
+} from "../types/eeg-types";
 
 export function AnnotationEditor({
   filePath,
@@ -64,8 +40,6 @@ export function AnnotationEditor({
   const effectiveFilePath = filePath || eegData?.filePath;
   const effectiveSampleRate = sampleRate || eegData?.sampleRate || 256;
 
-  // Use initialAnnotations if provided (for cached annotations)
-  const [localAnnotations, setLocalAnnotations] = useState<Annotation[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
 
   // Use initial annotations or query for them

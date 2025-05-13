@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Button } from "./ui/button";
+import { Button } from "../ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,12 +9,12 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
+} from "../ui/dropdown-menu";
 import { LogOut, User, BrainCircuit, Ticket, Settings } from "lucide-react";
-import { ModeToggle } from "./mode-toggle";
-import { HelpButton } from "./help-button";
+import { ModeToggle } from "../mode-toggle";
+import { HelpButton } from "../help-button";
 import { useState, useEffect } from "react";
-import { RegisterDialog } from "./register-dialog";
+import { RegisterDialog } from "../dialog/register-dialog";
 import { useSession } from "next-auth/react";
 import { signOut } from "next-auth/react";
 

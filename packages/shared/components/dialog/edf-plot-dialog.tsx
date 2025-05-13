@@ -2,22 +2,23 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@apollo/client";
-import { GET_EDF_DATA } from "../lib/graphql/queries";
+import { GET_EDF_DATA } from "../../lib/graphql/queries";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from "./ui/dialog";
-import { Button } from "./ui/button";
-import { Label } from "./ui/label";
-import { Checkbox } from "./ui/checkbox";
-import { Spinner } from "./ui/spinner";
-import { Alert, AlertDescription } from "./ui/alert";
-import { ScrollArea } from "./ui/scroll-area";
-import { EEGChart } from "./plot/eeg-chart";
-import { AnnotationEditor, Annotation } from "./annotation-editor";
+} from "../ui/dialog";
+import { Button } from "../ui/button";
+import { Label } from "../ui/label";
+import { Checkbox } from "../ui/checkbox";
+import { Spinner } from "../ui/spinner";
+import { Alert, AlertDescription } from "../ui/alert";
+import { ScrollArea } from "../ui/scroll-area";
+import { EEGChart } from "../plot/eeg-chart";
+import { AnnotationEditor } from "../annotation-editor";
+import { Annotation } from "../../types/eeg-types";
 import {
   ZoomIn,
   ZoomOut,
@@ -25,17 +26,17 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import type { EEGData } from "./eeg-dashboard";
-import { cn } from "../lib/utils";
-import { useEDFPlot } from "../contexts/edf-plot-context";
-import { toast } from "./ui/use-toast";
-import { Slider } from "./ui/slider";
-import { Progress } from "./ui/progress";
+import type { EEGData } from "../../types/eeg-types";
+import { cn } from "../../lib/utils";
+import { useEDFPlot } from "../../contexts/edf-plot-context";
+import { toast } from "../ui/use-toast";
+import { Slider } from "../ui/slider";
+import { Progress } from "../ui/progress";
 import {
   CREATE_ANNOTATION,
   DELETE_ANNOTATION,
   UPDATE_ANNOTATION,
-} from "../lib/graphql/queries";
+} from "../../lib/graphql/queries";
 
 interface EDFPlotDialogProps {
   open: boolean;

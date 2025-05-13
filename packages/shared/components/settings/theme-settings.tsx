@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTheme } from "next-themes";
-import { useSettings } from "../contexts/settings-context";
+import { useSettings } from "../../contexts/settings-context";
 import { useSession } from "next-auth/react";
 import {
   Card,
@@ -10,15 +10,15 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-} from "./ui/card";
+} from "../ui/card";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "./ui/select";
-import { Button } from "./ui/button";
+} from "../ui/select";
+import { Button } from "../ui/button";
 import { Moon, Sun, MonitorSmartphone } from "lucide-react";
 
 type ThemeOption = "light" | "dark" | "system";

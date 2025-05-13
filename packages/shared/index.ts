@@ -1,7 +1,7 @@
 // UI Components
 export * from "./components/ui/card";
 export * from "./components/ui/avatar";
-export * from "./components/login-form";
+export * from "./components/form/login-form";
 export * from "./components/unsaved-changes-alert";
 
 // Utilities

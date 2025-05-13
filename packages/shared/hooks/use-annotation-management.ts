@@ -6,15 +6,9 @@ import {
   UPDATE_ANNOTATION,
   DELETE_ANNOTATION,
 } from "../lib/graphql/queries";
-import type { Annotation } from "../components/annotation-editor";
+import { Annotation, UseAnnotationManagementProps } from "../types/eeg-types";
 import { useToast } from "../components/ui/use-toast";
 import logger from "../lib/utils/logger";
-
-interface UseAnnotationManagementProps {
-  filePath: string;
-  initialAnnotationsFromPlotState?: Annotation[];
-  onAnnotationsChangeForPlotState: (annotations: Annotation[]) => void;
-}
 
 export function useAnnotationManagement({
   filePath,
