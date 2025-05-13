@@ -22,7 +22,6 @@ node_modules/
 .traefikpasswd
 
 postgres-data/
-redis-data/
 minio-data/
 prometheus_metrics/
 traefik-logs/
