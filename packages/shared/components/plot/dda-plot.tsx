@@ -9,8 +9,8 @@ import { Alert, AlertDescription } from "../ui/alert";
 import { EEGChart } from "./eeg-chart";
 import { useToast } from "../ui/use-toast";
 import { Settings } from "lucide-react";
-import type { EEGData } from "../eeg-dashboard";
-import { AnnotationEditor, Annotation } from "../annotation-editor";
+import { EEGData, Annotation } from "../../types/eeg-types";
+import { AnnotationEditor } from "../annotation-editor";
 import {
   Dialog,
   DialogContent,
@@ -19,14 +19,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "../ui/dialog";
-import { EEGZoomSettings } from "../eeg-zoom-settings";
+import { EEGZoomSettings } from "../settings/eeg-zoom-settings";
 import { useEDFPlot } from "../../contexts/edf-plot-context";
 import { useSession } from "next-auth/react";
 import logger from "../../lib/utils/logger";
-import { DDAHeatmap } from "../dda-heatmap";
-import type { HeatmapPoint } from "../dda-heatmap";
+import { DDAHeatmap } from "./dda-heatmap";
+import type { HeatmapPoint } from "./dda-heatmap";
 import { PlotControls } from "./PlotControls";
-import { ChannelSelectorUI } from "../ChannelSelectorUI";
+import { ChannelSelectorUI } from "../ui/ChannelSelectorUI";
 import { useAnnotationManagement } from "../../hooks/use-annotation-management";
 
 // Helper function to determine if any preprocessing options are active
@@ -437,9 +437,6 @@ export function DDAPlot({
       }
 
       try {
-        // The EEGData object should represent ALL available channels and their data from the query.
-        // Filtering for display is handled by EEGChart using the 'selectedChannels' prop.
-
         const samplesPerChannel = edfNumericDataFromQuery[0]?.length || 0;
 
         if (samplesPerChannel === 0 && allChannelNamesFromQuery.length > 0) {
@@ -548,11 +545,6 @@ export function DDAPlot({
       ) {
         setChunkSize(Math.round(10 * newSampleRateFromQuery));
       }
-
-      console.log("newChannelNamesFromQuery", newChannelNamesFromQuery);
-      console.log("selectedChannels", selectedChannels);
-      console.log("effectiveSampleRate", effectiveSampleRate);
-      console.log("edfNumericDataFromQuery", edfNumericDataFromQuery);
 
       const convertedData = convertToEEGData(
         edfNumericDataFromQuery,
@@ -1321,8 +1313,6 @@ export function DDAPlot({
         onAnnotationUpdate={updateAnnotation}
         onAnnotationSelect={handleAnnotationSelect}
       />
-      {/* Placeholder for where ChannelSelectorUI and other controls might go if the layout had a sidebar or bottom section */}
-      {/* Example: If there was a controls card at the bottom */}
       <Card className="mt-4">
         <CardContent className="p-4">
           <ChannelSelectorUI
@@ -1334,7 +1324,6 @@ export function DDAPlot({
             isLoading={loading && availableChannels.length === 0}
             error={error && availableChannels.length === 0 ? error : null}
           />
-          {/* Other controls like PlotInfoDisplay and ChunkSettingsUI would go here too */}
         </CardContent>
       </Card>
     </Card>

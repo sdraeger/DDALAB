@@ -1,5 +1,5 @@
 import React from "react";
-import type { UserSelections, ElectronAPI } from "../utils";
+import { UserSelections, ElectronAPI } from "../utils";
 
 interface DataLocationSiteProps {
   userSelections: UserSelections;

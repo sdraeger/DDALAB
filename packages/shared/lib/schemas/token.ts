@@ -1,3 +1,3 @@
-import { TokenResponse } from "../../types/user";
+import { TokenResponse } from "../../types/auth";
 
 export type { TokenResponse };

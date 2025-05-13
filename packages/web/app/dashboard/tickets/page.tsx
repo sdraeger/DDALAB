@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ProtectedRoute } from "shared/components/protected-route";
+import { ProtectedRoute } from "shared/components/higher-order/ProtectedRoute";
 import {
   Card,
   CardContent,

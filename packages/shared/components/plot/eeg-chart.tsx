@@ -15,8 +15,7 @@ import { Button } from "../ui/button";
 import { Slider } from "../ui/slider";
 import { Label } from "../ui/label";
 import { cn } from "../../lib/utils";
-import type { EEGData } from "../eeg-dashboard";
-import type { Annotation } from "../annotation-editor";
+import { EEGData, Annotation } from "../../types/eeg-types";
 import { Input } from "../ui/input";
 import {
   Dialog,

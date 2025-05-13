@@ -15,12 +15,12 @@ import { Form } from "shared/components/ui/form";
 import { toast } from "shared/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
-import { DDAPlot } from "./plot/dda-plot";
-import { apiRequest, ApiRequestOptions } from "../lib/utils/request";
+import { DDAPlot } from "../plot/dda-plot";
+import { apiRequest, ApiRequestOptions } from "../../lib/utils/request";
 import { useSession } from "next-auth/react";
 import { EdfConfigResponse } from "shared/lib/schemas/edf";
-import { PreprocessingOptionsUI } from "./PreprocessingOptionsUI";
-import { VisualizationOptionsUI } from "./VisualizationOptionsUI";
+import { PreprocessingOptionsUI } from "../ui/PreprocessingOptionsUI";
+import { VisualizationOptionsUI } from "../ui/VisualizationOptionsUI";
 
 // Form validation schema
 const formSchema = z.object({

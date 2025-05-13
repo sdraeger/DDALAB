@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Button } from "./ui/button";
+import { Button } from "../ui/button";
 
 export interface HeatmapPoint {
   x: number;

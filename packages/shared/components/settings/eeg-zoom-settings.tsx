@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useSettings } from "../contexts/settings-context";
+import { useSettings } from "../../contexts/settings-context";
 import {
   Card,
   CardContent,
@@ -9,10 +9,10 @@ import {
   CardHeader,
   CardTitle,
   CardFooter,
-} from "./ui/card";
-import { Label } from "./ui/label";
-import { Button } from "./ui/button";
-import { Slider } from "./ui/slider";
+} from "../ui/card";
+import { Label } from "../ui/label";
+import { Button } from "../ui/button";
+import { Slider } from "../ui/slider";
 
 // Default value for zoom factor
 const DEFAULT_ZOOM_FACTOR = 0.05; // 5%

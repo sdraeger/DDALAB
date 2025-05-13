@@ -53,3 +53,5 @@ workflow_state.md
 .config/
 .turbo/
 data/bin/
+
+packages/electron/release/

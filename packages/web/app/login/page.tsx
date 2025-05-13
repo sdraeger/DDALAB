@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { LoginForm } from "shared/components/login-form";
+import { LoginForm } from "shared/components/form/login-form";
 import { Loader2 } from "lucide-react";
 import { useSession } from "next-auth/react";
 

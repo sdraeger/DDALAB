@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import type { UserSelections, ElectronAPI } from "../utils";
+import { UserSelections, ElectronAPI } from "../utils";
 import { formatTimestamp } from "../utils";
 
 interface InstallProgressSiteProps {

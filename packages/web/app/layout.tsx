@@ -2,7 +2,7 @@ import type React from "react";
 import type { Metadata } from "next";
 import { Source_Sans_3 } from "next/font/google";
 import { Providers } from "shared/components/providers";
-import { Footer } from "shared/components/footer";
+import { Footer } from "shared/components/layout/Footer";
 import "./styles/globals.css";
 
 const sourceSans3 = Source_Sans_3({

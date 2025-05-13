@@ -23,7 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "shared/components/ui/dropdown-menu";
 import { ArrowDown, ArrowUp, GripVertical, PlusCircle, X } from "lucide-react";
-import { FormValues } from "./dda-form"; // Assuming FormValues is exported from dda-form.tsx
+import { FormValues } from "../form/dda-form"; // Assuming FormValues is exported from dda-form.tsx
 
 // Define available preprocessing steps (can also be passed as prop if needed elsewhere)
 const availablePreprocessingSteps = [
@@ -41,7 +41,6 @@ interface PreprocessingOptionsUIProps {
 
 export function PreprocessingOptionsUI({ form }: PreprocessingOptionsUIProps) {
   const { control, getValues, setValue, watch } = form;
-  const preprocessingStepsWatch = watch("preprocessingSteps"); // Watch for UI updates
 
   const addPreprocessingStep = (step: { id: string; label: string }) => {
     const currentSteps = getValues("preprocessingSteps");

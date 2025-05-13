@@ -9,7 +9,7 @@ import {
   FormLabel,
 } from "shared/components/ui/form";
 import { Checkbox } from "shared/components/ui/checkbox";
-import { FormValues } from "./dda-form";
+import { FormValues } from "../form/dda-form";
 
 interface VisualizationOptionsUIProps {
   form: UseFormReturn<FormValues>;

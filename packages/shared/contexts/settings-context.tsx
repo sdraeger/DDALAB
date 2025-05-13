@@ -11,7 +11,7 @@ import {
 import { useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
 import { apiRequest } from "shared/lib/utils/request";
-import { UserPreferences } from "../types/user";
+import { UserPreferences } from "../types/auth";
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   theme: "system",
