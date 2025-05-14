@@ -270,14 +270,9 @@ export function DDAHeatmap({
       numXActualPoints > 0
         ? currentCanvasWidth / numXActualPoints
         : currentCanvasWidth;
-    // cellRenderHeight is based on currentZoom, effectively scaling Y points
-    // Assuming Y data points (e.g., channels) are 1 unit apart in data space.
     const cellRenderHeight = Math.max(1, currentZoom);
 
     for (const point of currentData) {
-      // Coarse culling using Y pan/zoom state. X is always "in view" due to stretching.
-      // A more precise X culling isn't strictly necessary if cellRenderWidth is small,
-      // but points outside dataMinXActual and dataMaxXActual (from dataExtentsRef) should be skipped.
       if (
         point.y < visibleY ||
         point.y > visibleY + visibleHeight ||
