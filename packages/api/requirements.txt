@@ -5,7 +5,6 @@ mne>=1.6.0
 fastapi>=0.68.0
 pydantic>=1.8.0
 pydantic-settings>=2.0.0
-redis>=5.0.1
 aiofiles>=23.2.1
 uvicorn>=0.15.0
 loguru>=0.5.3

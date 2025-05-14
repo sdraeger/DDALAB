@@ -3,13 +3,11 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 
 from ..core.auth import get_current_user
 from ..core.config import get_data_settings
 from ..core.dependencies import get_service
-from ..core.edf.anonymizer import anonymize_edf_file
 from ..core.files import list_directory as list_directory_core
 from ..core.files import validate_file_path
 from ..core.services import FavoriteFilesService
@@ -94,65 +92,3 @@ async def list_directory(
     logger.debug(f"File info list: {file_info_list}")
 
     return FileListResponse(files=file_info_list)
-
-
-@router.get("/download/{file_path:path}")
-async def download_file(
-    file_path: str, client_hash: str | None = None, anonymize: bool | None = None
-):
-    """Download a file with optional hash verification and anonymization.
-
-    Args:
-        file_path: Path to the file relative to the data directory
-        client_hash: Optional hash from client's cached version
-        anonymize: Whether to anonymize the file (for EDF files only)
-
-    Returns:
-        FileResponse or JSONResponse: File download or hash match response
-    """
-    try:
-        if not is_path_allowed(file_path):
-            raise HTTPException(
-                status_code=403, detail="Access to this directory is forbidden"
-            )
-
-        settings = get_data_settings()
-        data_dir = Path(settings.data_dir)
-        full_path = data_dir / file_path
-
-        if not full_path.exists():
-            raise HTTPException(status_code=404, detail="File not found")
-
-        # Determine if we should anonymize (use config default if not specified)
-        should_anonymize = (
-            anonymize if anonymize is not None else settings.anonymize_edf
-        )
-
-        # Handle EDF anonymization if needed
-        if should_anonymize and file_path.lower().endswith(".edf"):
-            try:
-                anon_path = anonymize_edf_file(str(full_path))
-                full_path = Path(anon_path)
-                file_path = full_path.name  # Use anonymized filename
-            except Exception as e:
-                logger.error(f"Failed to anonymize EDF file: {e}")
-                raise HTTPException(
-                    status_code=500, detail=f"Failed to anonymize EDF file: {str(e)}"
-                )
-
-        # Calculate file hash
-        file_hash = calculate_file_hash(full_path)
-
-        # If client provided a hash and it matches, return 304 Not Modified
-        if client_hash and client_hash == file_hash:
-            return JSONResponse(
-                content={"message": "File unchanged", "hash": file_hash},
-                status_code=304,
-            )
-
-        # Return file with hash in headers
-        return FileResponse(
-            path=full_path, headers={"X-File-Hash": file_hash}, filename=full_path.name
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))

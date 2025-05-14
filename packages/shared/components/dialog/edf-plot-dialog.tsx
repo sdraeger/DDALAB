@@ -17,8 +17,8 @@ import { Spinner } from "../ui/spinner";
 import { Alert, AlertDescription } from "../ui/alert";
 import { ScrollArea } from "../ui/scroll-area";
 import { EEGChart } from "../plot/eeg-chart";
-import { AnnotationEditor } from "../annotation-editor";
-import { Annotation } from "../../types/eeg-types";
+import { AnnotationEditor } from "../ui/annotation-editor";
+import { Annotation } from "../../types/annotation";
 import {
   ZoomIn,
   ZoomOut,
@@ -26,7 +26,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import type { EEGData } from "../../types/eeg-types";
+import type { EEGData } from "../../types/eeg";
 import { cn } from "../../lib/utils";
 import { useEDFPlot } from "../../contexts/edf-plot-context";
 import { toast } from "../ui/use-toast";
@@ -271,6 +271,19 @@ export function EDFPlotDialog({
     if (data?.getEdfData) {
       setTotalSamples(data.getEdfData.totalSamples);
 
+      // Update sampleRate in plotState from actual data
+      const actualSampleRate = data.getEdfData.samplingFrequency;
+      updatePlotState(filePath, { sampleRate: actualSampleRate });
+
+      // Calculate and set total chunks
+      if (actualSampleRate > 0 && chunkSizeSeconds > 0) {
+        const calculatedChunkSizeSamples = chunkSizeSeconds * actualSampleRate;
+        const newTotalChunks = Math.ceil(
+          data.getEdfData.totalSamples / calculatedChunkSizeSamples
+        );
+        setTotalChunks(newTotalChunks);
+      }
+
       if (data.getEdfData.channelLabels.length > 0) {
         setAvailableChannels(data.getEdfData.channelLabels);
 
@@ -292,7 +305,9 @@ export function EDFPlotDialog({
       }
 
       // Update plot state in context
-      updatePlotState(filePath, {});
+      // updatePlotState(filePath, {}); // This call might be redundant now or can be merged.
+      // Let's ensure all necessary state updates are batched if possible or called once.
+      // The individual setters like setTotalSamples, setTotalChunks, etc., already call updatePlotState.
     }
   }, [data]);
 

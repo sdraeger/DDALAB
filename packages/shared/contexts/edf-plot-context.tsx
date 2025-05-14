@@ -65,7 +65,7 @@ const defaultPlotState: EDFPlotState = {
   annotations: null,
   lastFetchTime: null,
   preprocessingOptions: null,
-  sampleRate: 256, // Default sample rate
+  sampleRate: 256,
 };
 
 // Create the context with undefined default value

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { EEGChart } from "../plot/eeg-chart";
-import { ResultsFormProps } from "../../types/eeg-types";
+import { ResultsFormProps } from "../../types/form-props";
 import { DDAPlot } from "../plot/dda-plot";
 
 const ResultsForm: React.FC<ResultsFormProps> = ({

@@ -19,7 +19,7 @@ import { Button } from "shared/components/ui/button";
 import { useState, useEffect } from "react";
 import { EEGZoomSettings } from "shared/components/settings/eeg-zoom-settings";
 import { ThemeSettings } from "shared/components/settings/theme-settings";
-import { SaveSettingsButton } from "shared/components/save-settings-button";
+import { SaveSettingsButton } from "shared/components/ui/save-settings-button";
 import { useSettings } from "shared/contexts/settings-context";
 import { useSession } from "next-auth/react";
 import { useToast } from "shared/components/ui/use-toast";
@@ -145,7 +145,9 @@ export default function SettingsPage() {
                   <Input
                     type="email"
                     value={email}
-                    onChange={(e: string) => setEmail(e)}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setEmail(e.target.value)
+                    }
                     className="text-base"
                   />
                   <Button

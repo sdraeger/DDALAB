@@ -9,8 +9,9 @@ import { Alert, AlertDescription } from "../ui/alert";
 import { EEGChart } from "./eeg-chart";
 import { useToast } from "../ui/use-toast";
 import { Settings } from "lucide-react";
-import { EEGData, Annotation } from "../../types/eeg-types";
-import { AnnotationEditor } from "../annotation-editor";
+import { EEGData } from "../../types/eeg";
+import { Annotation } from "../../types/annotation";
+import { AnnotationEditor } from "../ui/annotation-editor";
 import {
   Dialog,
   DialogContent,
@@ -21,13 +22,16 @@ import {
 } from "../ui/dialog";
 import { EEGZoomSettings } from "../settings/eeg-zoom-settings";
 import { useEDFPlot } from "../../contexts/edf-plot-context";
-import { useSession } from "next-auth/react";
 import logger from "../../lib/utils/logger";
 import { DDAHeatmap } from "./dda-heatmap";
 import type { HeatmapPoint } from "./dda-heatmap";
 import { PlotControls } from "./PlotControls";
 import { ChannelSelectorUI } from "../ui/ChannelSelectorUI";
 import { useAnnotationManagement } from "../../hooks/use-annotation-management";
+import { apiRequest } from "../../lib/utils/request";
+import { ApiRequestOptions } from "../../lib/utils/request";
+import { EdfFileInfo } from "../../lib/schemas/edf";
+import { useSession } from "next-auth/react";
 
 // Helper function to determine if any preprocessing options are active
 const hasActivePreprocessing = (options: any): boolean => {
@@ -68,13 +72,16 @@ export function DDAPlot({
   const { toast } = useToast();
   const chartAreaRef = useRef<HTMLDivElement>(null);
 
+  const { data: session } = useSession();
+  const token = session?.accessToken;
+
   // Get the plot state for this file
   const plotState = getPlotState(filePath) || {
-    chunkSizeSeconds: 10,
+    chunkSizeSeconds: 100,
     selectedChannels: [],
     showPlot: false,
-    timeWindow: [0, 10] as [number, number],
-    absoluteTimeWindow: [0, 10] as [number, number],
+    timeWindow: [0, 100] as [number, number],
+    absoluteTimeWindow: [0, 100] as [number, number],
     zoomLevel: 1,
     chunkStart: 0,
     totalSamples: 0,
@@ -97,8 +104,6 @@ export function DDAPlot({
     null
   );
   const [downloadProgress, setDownloadProgress] = useState(0);
-  const { data: session } = useSession();
-  const user = session?.user;
 
   // Add state to track annotation edit mode
   const [editMode, setEditMode] = useState(false);
@@ -113,23 +118,91 @@ export function DDAPlot({
 
   // Initialize the plot state if needed
   useEffect(() => {
-    if (filePath) {
-      logger.info("Initializing plot state for file:", filePath);
-      initPlotState(filePath);
+    const initializePlotStateAndMetadata = async () => {
+      if (filePath && token) {
+        logger.info("Effect: Initializing metadata for file:", filePath);
+        initPlotState(filePath);
 
-      // Set flag to load the chunk on initial file selection
-      // Only if we don't already have data for this file
-      const currentPlotState = getPlotState(filePath);
-      logger.info("Initial plot state:", currentPlotState);
+        const infoRequestOptions: ApiRequestOptions & { responseType: "json" } =
+          {
+            url: `/api/edf/info?file_path=${encodeURIComponent(filePath)}`,
+            method: "GET",
+            token,
+            responseType: "json",
+            contentType: "application/json",
+          };
 
-      if (!currentPlotState || !currentPlotState.edfData) {
-        logger.info("No existing data found, setting shouldLoadChunk to true");
-        setShouldLoadChunk(true);
-      } else {
-        logger.info("Using existing cached data, not loading chunk");
+        try {
+          const fileInfoResponse = await apiRequest<EdfFileInfo>(
+            infoRequestOptions
+          );
+
+          console.log(
+            "fileInfoResponse from metadata request:",
+            fileInfoResponse
+          );
+
+          if (fileInfoResponse) {
+            updatePlotState(filePath, {
+              totalChunks: fileInfoResponse.num_chunks,
+              totalSamples: fileInfoResponse.total_samples,
+              sampleRate: fileInfoResponse.sampling_rate,
+              totalDuration: fileInfoResponse.total_duration,
+            });
+
+            const currentPlotStateAfterUpdate = getPlotState(filePath);
+            logger.info(
+              "Plot state after metadata update:",
+              currentPlotStateAfterUpdate
+            );
+
+            if (fileInfoResponse.total_samples > 0) {
+              if (
+                !currentPlotStateAfterUpdate?.edfData ||
+                currentPlotStateAfterUpdate?.chunkStart !== 0
+              ) {
+                logger.info(
+                  "Metadata indicates samples exist and initial chunk data (chunk 0) is not present or is for a different chunk. Setting shouldLoadChunk to true."
+                );
+                setShouldLoadChunk(true);
+              } else {
+                logger.info(
+                  "Metadata indicates samples exist, and initial chunk data (chunk 0) appears to be cached. Not setting shouldLoadChunk."
+                );
+                setShouldLoadChunk(false);
+              }
+            } else {
+              logger.info(
+                "Metadata indicates no samples in the file. Not setting shouldLoadChunk."
+              );
+              setShouldLoadChunk(false);
+            }
+          } else {
+            logger.error(
+              "Failed to fetch file info (response was null/undefined), cannot update plot state or decide on chunk loading."
+            );
+            setShouldLoadChunk(false);
+          }
+        } catch (error) {
+          logger.error("Error during apiRequest for file info:", error);
+          toast({
+            title: "Error Fetching File Info",
+            description:
+              error instanceof Error
+                ? error.message
+                : "Could not load file metadata.",
+            variant: "destructive",
+          });
+          setShouldLoadChunk(false);
+        }
       }
+    };
+
+    if (filePath && token) {
+      initializePlotStateAndMetadata();
     }
-  }, [filePath, initPlotState, getPlotState]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filePath, token, initPlotState, updatePlotState, toast]);
 
   // Use cached values or initialize state
   const [chunkStart, setChunkStart] = useState(plotState.chunkStart || 0);
@@ -264,7 +337,9 @@ export function DDAPlot({
   } = useAnnotationManagement({
     filePath,
     initialAnnotationsFromPlotState: plotState.annotations || [],
-    onAnnotationsChangeForPlotState: (updatedPlotStateAnnotations) => {
+    onAnnotationsChangeForPlotState: (
+      updatedPlotStateAnnotations: Annotation[]
+    ) => {
       if (filePath) {
         updatePlotState(filePath, { annotations: updatedPlotStateAnnotations });
       }
@@ -668,13 +743,17 @@ export function DDAPlot({
 
   // Navigate to previous chunk
   const handlePrevChunk = () => {
+    // Clip to 0 if chunkStart would be negative otherwise
     const newChunkStart = Math.max(0, chunkStart - chunkSize);
+
     setChunkStart(newChunkStart);
     setShouldLoadChunk(true);
     setDownloadProgress(0);
     resetTimeWindow(newChunkStart);
+
     updatePlotState(filePath, {
       chunkStart: newChunkStart,
+      currentChunkNumber: newChunkStart / chunkSize,
     });
   };
 
@@ -682,12 +761,16 @@ export function DDAPlot({
   const handleNextChunk = () => {
     if (chunkStart + chunkSize < totalSamples) {
       const newChunkStart = chunkStart + chunkSize;
+      const newChunkNumber = newChunkStart / chunkSize;
+
       setChunkStart(newChunkStart);
       setShouldLoadChunk(true);
       setDownloadProgress(0);
       resetTimeWindow(newChunkStart);
+
       updatePlotState(filePath, {
         chunkStart: newChunkStart,
+        currentChunkNumber: newChunkNumber,
       });
     }
   };

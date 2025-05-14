@@ -12,7 +12,7 @@ import {
 } from "../ui/dropdown-menu";
 import { LogOut, User, BrainCircuit, Ticket, Settings } from "lucide-react";
 import { ModeToggle } from "../mode-toggle";
-import { HelpButton } from "../help-button";
+import { HelpButton } from "../ui/help-button";
 import { useState, useEffect } from "react";
 import { RegisterDialog } from "../dialog/register-dialog";
 import { useSession } from "next-auth/react";

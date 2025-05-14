@@ -405,34 +405,6 @@ class Query:
             raise ValueError(f"Failed to process EDF file: {str(e)}")
 
     @strawberry.field
-    async def download_file(self, file_path: str) -> str:
-        """Get the download URL for a file.
-
-        Args:
-            file_path: Path to the file to download
-
-        Returns:
-            URL to download the file
-        """
-        if not await validate_file_path(file_path):
-            raise ValueError("File not found")
-        return f"/api/files/download/{file_path}"
-
-    @strawberry.field
-    async def download_file_anonymized(self, file_path: str) -> str:
-        """Get the download URL for an anonymized file.
-
-        Args:
-            file_path: Path to the file to download
-
-        Returns:
-            URL to download the anonymized file
-        """
-        if not await validate_file_path(file_path):
-            raise ValueError("File not found")
-        return f"/api/files/download/{file_path}?anonymize=true"
-
-    @strawberry.field
     async def get_annotations(
         self, file_path: str, info: strawberry.Info[Context, None]
     ) -> list[AnnotationType]:

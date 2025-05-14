@@ -7,25 +7,25 @@ import {
   CREATE_ANNOTATION,
   UPDATE_ANNOTATION,
   DELETE_ANNOTATION,
-} from "../lib/graphql/queries";
-import { Button } from "./ui/button";
-import { Textarea } from "./ui/textarea";
+} from "../../lib/graphql/queries";
+import { Button } from "./button";
+import { Textarea } from "./textarea";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from "./ui/dialog";
-import { toast } from "./ui/use-toast";
-import { Spinner } from "./ui/spinner";
-import { Alert, AlertDescription } from "./ui/alert";
+} from "./dialog";
+import { toast } from "./use-toast";
+import { Spinner } from "./spinner";
+import { Alert, AlertDescription } from "./alert";
 import { Plus, Edit, Trash } from "lucide-react";
 import {
   Annotation,
   AnnotationEditorProps,
   AnnotationInput,
-} from "../types/eeg-types";
+} from "../../types/annotation";
 
 export function AnnotationEditor({
   filePath,

@@ -36,6 +36,7 @@ async def get_config_for_user_for_file(
     """
     Endpoint: Get configuration for a specific user and file
     """
+
     # Calculate file hash
     full_path = Path(settings.data_dir) / file_path
     file_hash = calculate_str_hash(str(full_path))
@@ -49,15 +50,13 @@ async def get_config_for_user_for_file(
         )
         edf_config = await edf_config_service.create_config(new_config)
 
-        # default_channels = []
-        # for channel in default_channels:
-        #     channel_config = EdfConfigChannelCreate(
-        #         config_id=edf_config.id,
-        #         channel=channel,
-        #     )
-        #     await edf_config_service.create_config(user.id, channel_config)
-
     channel_configs = await edf_config_service.get_channels(edf_config.id)
+
+    num_chunks = 1
+    total_samples = 1000
+    sampling_rate = 256
+    chunk_size = sampling_rate * 10
+    total_duration = total_samples / sampling_rate
 
     return EdfConfigResponse(
         id=edf_config.id,
@@ -65,6 +64,11 @@ async def get_config_for_user_for_file(
         user_id=edf_config.user_id,
         created_at=edf_config.created_at,
         channels=[channel_config.channel for channel_config in channel_configs],
+        num_chunks=num_chunks,
+        total_samples=total_samples,
+        sampling_rate=sampling_rate,
+        chunk_size=chunk_size,
+        total_duration=total_duration,
     )
 
 
