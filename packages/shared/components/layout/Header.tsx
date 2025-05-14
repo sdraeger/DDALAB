@@ -14,7 +14,6 @@ import { LogOut, User, BrainCircuit, Ticket, Settings } from "lucide-react";
 import { ModeToggle } from "../mode-toggle";
 import { HelpButton } from "../ui/help-button";
 import { useState, useEffect } from "react";
-import { RegisterDialog } from "../dialog/register-dialog";
 import { useSession } from "next-auth/react";
 import { signOut } from "next-auth/react";
 
@@ -22,7 +21,6 @@ export function Header() {
   const { data: session } = useSession();
   const user = session?.user;
   const isLoggedIn = !!session;
-  const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
   const [institutionName, setInstitutionName] = useState("DEFAULT");
 
   const handleLogout = async () => {
@@ -111,17 +109,6 @@ export function Header() {
                 <Button size="sm" asChild className="mr-2">
                   <Link href="/login">Login</Link>
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setRegisterDialogOpen(true)}
-                >
-                  Register
-                </Button>
-                <RegisterDialog
-                  open={registerDialogOpen}
-                  onOpenChange={setRegisterDialogOpen}
-                />
               </>
             )}
           </div>

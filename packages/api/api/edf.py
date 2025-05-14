@@ -16,8 +16,8 @@ settings = get_server_settings()
 @router.get("/info")
 async def get_edf_info(
     file_path: str,
-    _: User = Depends(get_current_user),
     chunk_size_seconds: float = 10,
+    _: User = Depends(get_current_user),
 ) -> EdfFileInfo:
     """Get information about an EDF file."""
 

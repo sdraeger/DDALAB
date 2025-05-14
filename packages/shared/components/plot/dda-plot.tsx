@@ -745,6 +745,7 @@ export function DDAPlot({
   const handlePrevChunk = () => {
     // Clip to 0 if chunkStart would be negative otherwise
     const newChunkStart = Math.max(0, chunkStart - chunkSize);
+    const newChunkNumber = newChunkStart / chunkSize + 1;
 
     setChunkStart(newChunkStart);
     setShouldLoadChunk(true);
@@ -753,7 +754,7 @@ export function DDAPlot({
 
     updatePlotState(filePath, {
       chunkStart: newChunkStart,
-      currentChunkNumber: newChunkStart / chunkSize,
+      currentChunkNumber: newChunkNumber,
     });
   };
 
@@ -761,7 +762,7 @@ export function DDAPlot({
   const handleNextChunk = () => {
     if (chunkStart + chunkSize < totalSamples) {
       const newChunkStart = chunkStart + chunkSize;
-      const newChunkNumber = newChunkStart / chunkSize;
+      const newChunkNumber = newChunkStart / chunkSize + 1;
 
       setChunkStart(newChunkStart);
       setShouldLoadChunk(true);
