@@ -239,7 +239,7 @@ def update_settings(setting_type: str, updates: Dict[str, Any]) -> BaseModel:
     """Update settings of a specific type.
 
     Args:
-        setting_type: Type of settings to update ("server", "data", or "redis")
+        setting_type: Type of settings to update ("server" or "data")
         updates: Dictionary of updates to apply
 
     Returns:

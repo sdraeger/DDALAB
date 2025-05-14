@@ -240,16 +240,6 @@ const App: React.FC = () => {
             console.log(
               "[App.tsx] onLoad for manual-config: Attempting to load initial ENV vars (bundled example)."
             );
-            // Only load if parsedEnvEntries is genuinely empty from the App's state perspective
-            // This requires passing parsedEnvEntries state to onLoad or checking it before calling onLoad.
-            // The current signature doesn't pass the state value, only the setter.
-            // Let's refine this to be called more carefully from the main useEffect.
-
-            // The log spam suggests api.loadEnvVars() itself is being called repeatedly.
-            // This means the `onLoad` function is being called repeatedly.
-            // The guard condition `Object.keys(userSelections.envVariables).length > 0 && parsedEnvEntries.length > 0`
-            // added above uses the `userSelections` from App's scope and `parsedEnvEntries` from App's scope,
-            // which is what we need.
 
             const entries = await api.loadEnvVars(); // No dataDir, loads bundled/default
             if (entries) {
@@ -355,8 +345,8 @@ const App: React.FC = () => {
     electronAPI,
     setParsedEnvEntries,
     setUserSelections,
-    userSelections, // Added userSelections to dependency array because the guard for manual-config's onLoad depends on it
-    parsedEnvEntries, // Added parsedEnvEntries to dependency array for the same reason
+    userSelections,
+    parsedEnvEntries,
   ]);
 
   const handleNext = async () => {
@@ -491,9 +481,6 @@ const App: React.FC = () => {
             // Installation success will be set by onSetupFinished
           }
         } else if (userSelections.setupType === "manual") {
-          // Manual setup: User has configured envVariables directly.
-          // The .env file for this would typically be saved in a location chosen by the user,
-          // or a default location for manual configs. The current saveEnvConfig handles this.
           console.log(
             "[App.tsx] Manual setup type selected. Saving .env configuration."
           );
@@ -502,11 +489,7 @@ const App: React.FC = () => {
               userSelections.envVariables,
               parsedEnvEntries
             );
-            // For manual setup, DDALAB-setup repo is NOT cloned by this installer.
-            // The user is expected to have it or manage it themselves.
-            // We are only saving the .env content they configured.
-            // Where should it be saved? For now, it uses the existing logic of saveEnvConfig (targetDir=null implies default).
-            electronAPI.saveEnvConfig(null, envContent); // targetDir = null uses default path in main
+            electronAPI.saveEnvConfig(null, envContent);
             console.log(
               "[App.tsx] Manual .env configuration saved (using saveEnvConfig)."
             );
@@ -582,26 +565,7 @@ const App: React.FC = () => {
           }
         }
 
-        // The actual saveEnvConfig for the *project root* seems to be for a different purpose
-        // than the .env inside the DDALAB-setup directory. Let's re-evaluate its necessity here.
-        // For now, let's assume it might be for the installer's own settings or an overarching project.
-
-        // This block seems to be a general .env save, possibly for the project root.
-        // It was outside the automatic/manual conditional block earlier. Let's ensure it runs only if no critical error occurred before it.
-        // However, for manual setup, the primary actions (saveEnvConfig for manual path and markSetupComplete) are done.
-        // The navigation to control-panel for manual path is handled above.
-        // If an error occurred in the manual path before this, we would have returned.
-
-        // If the setup was automatic, the flow is handled by runInitialSetup and its listeners.
-        // If the setup was manual, we've already navigated or returned.
-        // This means this saveEnvConfig call below might only be relevant if it's a common operation *after* either path *and* if no navigation/return happened.
-        // Given that manual setup now navigates, this might not be reached for manual flow unless setCurrentSiteId is async and code continues.
-        // To be safe, let's condition this original saveEnvConfig as well.
-
         if (userSelections.setupType === "automatic") {
-          // For automatic setup, runInitialSetup handles the .env within the cloned repo.
-          // This outer saveEnvConfig might be for a different purpose, e.g. saving some global settings.
-          // Let's assume it's still desired for automatic setup if it was there before.
           if (electronAPI.saveEnvConfig) {
             const envContent = generateEnvFileContent(
               userSelections.envVariables,
@@ -621,13 +585,6 @@ const App: React.FC = () => {
             );
           }
         } else if (userSelections.setupType === "manual") {
-          // For manual setup, the .env specifically for the manual config was saved above.
-          // This general saveEnvConfig call might be redundant or for a different .env.
-          // If it's meant to be the same, it's already done.
-          // If it's for a *different* .env (e.g. project root), it could still run.
-          // For clarity, let's assume this was a general save and might still be intended.
-          // However, ensure it doesn't run if we already returned due to an error in markSetupComplete.
-          // The control flow above for manual already handles return on error.
           if (electronAPI.saveEnvConfig) {
             const envContent = generateEnvFileContent(
               userSelections.envVariables, // These are the manually entered vars
@@ -679,14 +636,8 @@ const App: React.FC = () => {
         ));
     }
 
-    if (canProceed) {
-      if (currentSiteIndex < activeSites.length - 1) {
-        setCurrentSiteId(activeSites[currentSiteIndex + 1].id);
-      } else {
-        // Last step is install-progress, or summary if install is skipped/failed
-        // If current is summary, next should be install-progress.
-        // If current is install-progress, its internal logic handles the finish button.
-      }
+    if (canProceed && currentSiteIndex < activeSites.length - 1) {
+      setCurrentSiteId(activeSites[currentSiteIndex + 1].id);
     }
   };
 
@@ -744,11 +695,6 @@ const App: React.FC = () => {
       nextBtn.style.display = "none"; // Hide Next button
       finishBtn.style.display = "none"; // Hide Finish/Close button
     } else if (installationSuccess !== null) {
-      // This case handles the state *after* an installation attempt if not on install-progress site
-      // (e.g., if flow allowed going back and then an install happened, which is unlikely with current nav)
-      // Given the new persistent nature of install-progress, this block might be less relevant
-      // or could be removed if install-progress is truly the final interactive step.
-      // For now, if we land here, it means install happened & we are not on install-progress, show a close.
       backBtn.style.display = "none";
       nextBtn.style.display = "none";
       finishBtn.style.display = "inline-block";
@@ -762,11 +708,10 @@ const App: React.FC = () => {
       }
 
       if (isSummarySite) {
-        // On Summary, Next becomes Finish (triggering save & move to install-progress)
         nextBtn.style.display = "none";
         finishBtn.style.display = "inline-block";
         finishBtn.textContent = "Configure & Proceed";
-        finishBtn.onclick = handleNext; // handleNext on summary page triggers save and moves to install-progress
+        finishBtn.onclick = handleNext;
       } else {
         nextBtn.style.display = "inline-block";
         finishBtn.style.display = "none";
@@ -787,7 +732,7 @@ const App: React.FC = () => {
     installationSuccess,
     handleBack,
     handleNext,
-    electronAPI, // Added electronAPI for quitApp
+    electronAPI,
   ]);
 
   useEffect(() => {
@@ -829,12 +774,7 @@ const App: React.FC = () => {
     // InstallProgressSite
     onInstallComplete: (success: boolean) => {
       setInstallationSuccess(success);
-      updateNavigationButtons(); // Explicitly update nav after install
-      if (success) {
-        // Optionally trigger a final action if all went well
-      } else {
-        // Offer retry or guide user
-      }
+      updateNavigationButtons();
     },
   };
 

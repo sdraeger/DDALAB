@@ -1,3 +1,6 @@
+// CHECK: This is the old dashboard, which is now deprecated.
+// The new dashboard is in `DashboardTabs.tsx`
+
 "use client";
 
 import { useState, useRef } from "react";
@@ -24,7 +27,7 @@ import { Slider } from "../ui/slider";
 import { EEGChart } from "../plot/eeg-chart";
 import { FileSelector } from "../files/file-selector";
 import { EEGZoomSettings } from "../settings/eeg-zoom-settings";
-import { EEGData } from "../../types/eeg-types";
+import { EEGData } from "../../types/eeg";
 import { toast } from "../../hooks/use-toast";
 import {
   Dialog,

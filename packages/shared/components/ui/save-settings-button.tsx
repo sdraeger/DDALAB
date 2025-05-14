@@ -1,16 +1,16 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useSettings } from "../contexts/settings-context";
-import { Button } from "../components/ui/button";
+import { useSettings } from "../../contexts/settings-context";
+import { Button } from "./button";
 import { Save, Loader2, CheckCircle, Info } from "lucide-react";
-import { cn } from "../lib/utils";
+import { cn } from "../../lib/utils";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "../components/ui/tooltip";
+} from "./tooltip";
 
 interface SaveSettingsButtonProps {
   floating?: boolean;

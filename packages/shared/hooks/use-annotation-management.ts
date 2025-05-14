@@ -6,7 +6,7 @@ import {
   UPDATE_ANNOTATION,
   DELETE_ANNOTATION,
 } from "../lib/graphql/queries";
-import { Annotation, UseAnnotationManagementProps } from "../types/eeg-types";
+import { Annotation, UseAnnotationManagementProps } from "../types/annotation";
 import { useToast } from "../components/ui/use-toast";
 import logger from "../lib/utils/logger";
 

@@ -8,4 +8,7 @@ export * from "./components/unsaved-changes-alert";
 export * from "./lib/utils";
 
 // Types
-// export * from "./lib/types";
+export * from "./types/auth";
+export * from "./types/eeg";
+export * from "./types/annotation";
+export * from "./types/form-props";

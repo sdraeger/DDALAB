@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useLazyQuery } from "@apollo/client";
-import { GET_EDF_NAVIGATION } from "../lib/graphql/queries";
-import { Button } from "./ui/button";
+import { GET_EDF_NAVIGATION } from "../../lib/graphql/queries";
+import { Button } from "./button";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   CardDescription,
-} from "./ui/card";
-import { Slider } from "./ui/slider";
+} from "./card";
+import { Slider } from "./slider";
 import {
   Select,
   SelectTrigger,
@@ -17,8 +17,8 @@ import {
   SelectGroup,
   SelectItem,
   SelectLabel,
-} from "./ui/select";
-import { Input } from "./ui/input";
+} from "./select";
+import { Input } from "./input";
 import {
   ChevronLeft,
   ChevronRight,

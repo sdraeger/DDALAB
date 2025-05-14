@@ -19,25 +19,26 @@ export function DashboardTabs() {
 
   const handleFileSelect = async (filePath: string) => {
     setSelectedFilePath(filePath);
-
-    // Optionally collapse file browser when a file is selected on mobile
-    if (window.innerWidth < 768) {
-      setFileBrowserCollapsed(true);
-    }
+    // Collapse the file browser when a file is selected
+    setFileBrowserCollapsed(true);
 
     const token = session?.accessToken;
     if (!token) throw new Error("No token found in session");
 
-    const requestOptions: ApiRequestOptions & { responseType: "json" } = {
+    const configRequestOptions: ApiRequestOptions & { responseType: "json" } = {
       url: `/api/config/edf?file_path=${encodeURIComponent(filePath)}`,
       method: "GET",
       token,
       responseType: "json",
       contentType: "application/json",
     };
-    const fileCfgResponse = await apiRequest<EdfConfigResponse>(requestOptions);
+
+    const fileCfgResponse = await apiRequest<EdfConfigResponse>(
+      configRequestOptions
+    );
 
     console.log("File config:", fileCfgResponse);
+
     setSelectedChannels(fileCfgResponse?.channels || []);
   };
 

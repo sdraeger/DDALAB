@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { LifeBuoy } from "lucide-react";
-import { Button } from "./ui/button";
+import { Button } from "./button";
 import {
   Dialog,
   DialogContent,
@@ -11,13 +11,13 @@ import {
   DialogTrigger,
   DialogDescription,
   DialogFooter,
-} from "./ui/dialog";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
-import { Textarea } from "./ui/textarea";
-import { useToast } from "../hooks/use-toast";
+} from "./dialog";
+import { Input } from "./input";
+import { Label } from "./label";
+import { Textarea } from "./textarea";
+import { useToast } from "../../hooks/use-toast";
 import { useSession } from "next-auth/react";
-import { apiRequest } from "../lib/utils/request";
+import { apiRequest } from "../../lib/utils/request";
 
 export function HelpButton() {
   const { data: session, status } = useSession();

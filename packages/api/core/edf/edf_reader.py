@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from loguru import logger
+from pyedflib import EdfReader
 
 
 class EDFNavigator:
@@ -26,10 +27,6 @@ class EDFNavigator:
     def _load_metadata(self):
         """Load metadata from the EDF file."""
         try:
-            # Since we can't modify ddalab, we'll use a minimalistic approach to extract metadata
-            # In a real implementation, this would use pyedflib or another EDF library
-            from pyedflib import EdfReader
-
             with EdfReader(self.file_path) as reader:
                 self.num_signals = reader.signals_in_file
                 self.signal_labels = reader.getSignalLabels()
@@ -62,6 +59,14 @@ class EDFNavigator:
             self.signal_labels = ["EEG"]
             self.sampling_frequencies = [512]
             self.file_duration_seconds = 1000
+
+    def get_chunk_size(self, chunk_size_seconds: float) -> int:
+        """Get the chunk size for the EDF file.
+
+        Returns:
+            Chunk size in samples
+        """
+        return int(chunk_size_seconds * self.sampling_frequencies[0])
 
     def get_navigation_info(self) -> Dict:
         """Get navigation information for the EDF file.
