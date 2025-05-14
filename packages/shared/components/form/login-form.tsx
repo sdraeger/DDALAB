@@ -40,7 +40,7 @@ export function LoginForm() {
     if (res?.error) {
       setError(res.error);
     } else {
-      router.push("/dashboard"); // Manual redirect on success
+      router.push("/dashboard");
     }
   };
 
@@ -49,7 +49,7 @@ export function LoginForm() {
     handleSubmit,
     formState: { errors },
   } = useForm<LoginFormValues>({
-    resolver: zodResolver(loginSchema),
+    resolver: zodResolver(loginSchema as z.ZodTypeAny),
     defaultValues: {
       username: "",
       password: "",
@@ -83,11 +83,10 @@ export function LoginForm() {
               id="username"
               placeholder="Enter your username"
               {...register("username")}
-              // disabled={loading}
             />
             {errors.username && (
               <p className="text-sm text-destructive">
-                {errors.username.message}
+                {errors.username.message?.toString()}
               </p>
             )}
           </div>
@@ -99,11 +98,10 @@ export function LoginForm() {
               type="password"
               placeholder="Enter your password"
               {...register("password")}
-              // disabled={loading}
             />
             {errors.password && (
               <p className="text-sm text-destructive">
-                {errors.password.message}
+                {errors.password.message?.toString()}
               </p>
             )}
           </div>

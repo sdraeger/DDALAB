@@ -23,23 +23,27 @@ import { PreprocessingOptionsUI } from "../ui/PreprocessingOptionsUI";
 import { VisualizationOptionsUI } from "../ui/VisualizationOptionsUI";
 
 // Form validation schema
-const formSchema = z.object({
-  filePath: z.string().min(1, "File path is required"),
-  // DDA Analysis options - New structure for preprocessing
-  preprocessingSteps: z
-    .array(
-      z.object({
-        id: z.string(),
-        label: z.string(),
-      })
-    )
-    .default([]),
-  // Visualization options (remain unchanged for now)
-  removeOutliers: z.boolean().default(false),
-  smoothing: z.boolean().default(false),
-  smoothingWindow: z.number().default(3),
-  normalization: z.enum(["none", "minmax", "zscore"]).default("none"),
-});
+const formSchema = z
+  .object({
+    filePath: z.string().min(1, "File path is required"),
+    // DDA Analysis options - New structure for preprocessing
+    preprocessingSteps: z
+      .array(
+        z
+          .object({
+            id: z.string(),
+            label: z.string(),
+          })
+          .strict()
+      )
+      .default([]),
+    // Visualization options (remain unchanged for now)
+    removeOutliers: z.boolean().default(false),
+    smoothing: z.boolean().default(false),
+    smoothingWindow: z.number().default(3),
+    normalization: z.enum(["none", "minmax", "zscore"]).default("none"),
+  })
+  .strict();
 
 export type FormValues = z.infer<typeof formSchema>;
 
@@ -61,12 +65,10 @@ export function DDAForm({
   setSelectedChannels,
 }: DDAFormProps) {
   const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema as z.ZodType<FormValues>),
     defaultValues: {
-      filePath: filePath,
-      // DDA Analysis options
+      filePath,
       preprocessingSteps: [],
-      // Visualization options
       removeOutliers: false,
       smoothing: false,
       smoothingWindow: 3,
