@@ -43,6 +43,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "d3": "^7.9.0",
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.344.0",
@@ -60,6 +61,7 @@
     "zod": "^3.24.4"
   },
   "devDependencies": {
+    "@types/d3": "^7.4.3",
     "next": "^15.3.2",
     "typescript": "^5.0.0"
   }
