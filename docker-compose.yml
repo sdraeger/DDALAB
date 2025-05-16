@@ -4,6 +4,7 @@ services:
       context: .
       dockerfile: ./packages/web/Dockerfile
     image: sdraeger1/ddalab-web:${VERSION:-latest}
+    platform: linux/amd64
     env_file:
       - ./.env
     volumes:
@@ -29,7 +30,7 @@ services:
       context: .
       dockerfile: ./packages/api/Dockerfile
     image: sdraeger1/ddalab-api-server:${VERSION:-latest}
-    # platform: linux/amd64
+    platform: linux/amd64
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
       interval: 5s
