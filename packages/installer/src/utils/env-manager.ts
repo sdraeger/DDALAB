@@ -17,9 +17,19 @@ export interface ParsedEnvEntry {
   comments: string[];
 }
 
-export async function loadEnvVars(): Promise<ParsedEnvEntry[] | undefined> {
-  const filePathToLoad = PROJECT_ROOT_ENV_PATH;
-  const pathType = "Project Root .env";
+export async function loadEnvVars(
+  customPath?: string
+): Promise<ParsedEnvEntry[] | undefined> {
+  let filePathToLoad: string;
+  let pathType: string;
+
+  if (customPath) {
+    filePathToLoad = path.join(customPath, ".env");
+    pathType = "Custom .env";
+  } else {
+    filePathToLoad = PROJECT_ROOT_ENV_PATH;
+    pathType = "Project Root .env";
+  }
 
   console.log(
     `[env-manager.ts] Attempting to load exclusively: ${pathType} from ${filePathToLoad}`
@@ -119,5 +129,48 @@ export function saveEnvConfig(
     console.error(
       `[env-manager.ts] Failed to save .env file to ${filePath}: ${error.message}`
     );
+  }
+}
+
+export async function saveEnvFile(
+  envPath: string,
+  envData: Record<string, string>
+): Promise<void> {
+  const filePath = path.join(envPath, ".env");
+
+  try {
+    console.log(
+      `[env-manager.ts] Attempting to save env variables to: ${filePath}`
+    );
+    console.log(`[env-manager.ts] Env data:`, envData);
+
+    // Convert env variables object to .env file format
+    const content = Object.entries(envData)
+      .map(([key, value]) => {
+        // Escape quotes and wrap in quotes if value contains spaces or special chars
+        const needsQuotes = /[\s#'"=]/.test(value) || value === "";
+        const escapedValue = needsQuotes
+          ? `"${value.replace(/"/g, '\\"')}"`
+          : value;
+        return `${key}=${escapedValue}`;
+      })
+      .join("\n");
+
+    // Ensure the directory exists
+    const dirName = path.dirname(filePath);
+    if (!fs.existsSync(dirName)) {
+      fs.mkdirSync(dirName, { recursive: true });
+      console.log(`[env-manager.ts] Created directory: ${dirName}`);
+    }
+
+    await fs.promises.writeFile(filePath, content, "utf-8");
+    console.log(
+      `[env-manager.ts] .env file saved successfully to ${filePath}.`
+    );
+  } catch (error: any) {
+    console.error(
+      `[env-manager.ts] Failed to save .env file to ${filePath}: ${error.message}`
+    );
+    throw error;
   }
 }

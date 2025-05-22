@@ -2,6 +2,7 @@ import { ipcMain, IpcMainInvokeEvent } from "electron";
 import {
   loadEnvVars,
   saveEnvConfig,
+  saveEnvFile,
   ParsedEnvEntry,
 } from "../utils/env-manager";
 
@@ -12,7 +13,7 @@ export function registerEnvIpcHandlers(): void {
       event: IpcMainInvokeEvent,
       dataDir?: string
     ): Promise<ParsedEnvEntry[] | undefined> => {
-      return loadEnvVars();
+      return loadEnvVars(dataDir);
     }
   );
 
@@ -20,6 +21,17 @@ export function registerEnvIpcHandlers(): void {
     "installer:save-env-config",
     (event, targetDirOrSignal: string | null, content: string): void => {
       saveEnvConfig(targetDirOrSignal, content);
+    }
+  );
+
+  ipcMain.handle(
+    "save-env-file",
+    async (
+      event: IpcMainInvokeEvent,
+      envPath: string,
+      envData: Record<string, string>
+    ): Promise<void> => {
+      return saveEnvFile(envPath, envData);
     }
   );
 }

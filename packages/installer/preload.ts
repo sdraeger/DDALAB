@@ -75,6 +75,16 @@ export interface ElectronAPI {
     success: boolean;
     message?: string;
     finalSetupPath: string | null;
+    needsClone?: boolean;
+    targetPath?: string;
+  }>;
+  cloneRepositoryToDirectory: (
+    targetDirectory: string,
+    allowedDirsValue: string
+  ) => Promise<{
+    success: boolean;
+    message: string;
+    setupPath?: string;
   }>;
 }
 
@@ -175,6 +185,15 @@ const exposedAPI: ElectronAPI = {
   },
   markSetupComplete: (manualSetupDirectory?: string) =>
     ipcRenderer.invoke("mark-setup-complete", manualSetupDirectory),
+  cloneRepositoryToDirectory: (
+    targetDirectory: string,
+    allowedDirsValue: string
+  ) =>
+    ipcRenderer.invoke(
+      "clone-repository-to-directory",
+      targetDirectory,
+      allowedDirsValue
+    ),
 };
 
 console.log("[preload.ts] About to expose electronAPI to main world");

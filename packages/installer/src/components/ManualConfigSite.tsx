@@ -1,11 +1,11 @@
 import React, { useState } from "react";
-import type { ElectronAPI as PreloadElectronAPI } from "../../preload";
 import type { UserSelections, ParsedEnvEntry, ElectronAPI } from "../utils";
 import { getFormattedCommentsHtml } from "../utils";
 
 interface ManualConfigSiteProps {
   userSelections: UserSelections;
   onEnvVariableChange: (key: string, value: string) => void;
+  onUpdateSelections: (selections: Partial<UserSelections>) => void;
   electronAPI: ElectronAPI | undefined;
   parsedEnvEntries: ParsedEnvEntry[];
   setParsedEnvEntries: React.Dispatch<React.SetStateAction<ParsedEnvEntry[]>>;
@@ -15,17 +15,17 @@ interface ManualConfigSiteProps {
 const ManualConfigSite: React.FC<ManualConfigSiteProps> = ({
   userSelections,
   onEnvVariableChange,
+  onUpdateSelections,
   electronAPI,
   parsedEnvEntries,
   setParsedEnvEntries,
   onManualSetupCompleted,
 }) => {
-  const [selectedInstallDir, setSelectedInstallDir] = useState<string | null>(
-    null
-  );
+  // Use dataLocation from userSelections instead of local state
+  const selectedInstallDir = userSelections.dataLocation;
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{
-    type: "success" | "error";
+    type: "success" | "error" | "warning";
     text: string;
   } | null>(null);
 
@@ -39,7 +39,71 @@ const ManualConfigSite: React.FC<ManualConfigSiteProps> = ({
       }
       const result = await api.selectDirectory();
       if (result) {
-        setSelectedInstallDir(result);
+        onUpdateSelections({ dataLocation: result });
+
+        // Load environment variables from the selected directory
+        console.log(
+          "[ManualConfigSite] Loading ENV vars from selected directory:",
+          result
+        );
+        try {
+          const entries = await api.loadEnvVars(result);
+          if (entries) {
+            console.log(
+              "[ManualConfigSite] Loaded ENV vars from manual setup directory:",
+              entries
+            );
+            setParsedEnvEntries(entries);
+
+            // Update the user selections with the loaded values
+            const loadedVars: { [key: string]: string } = {};
+            entries.forEach((entry: ParsedEnvEntry) => {
+              loadedVars[entry.key] = entry.value;
+            });
+
+            // Update all variables at once to avoid race conditions
+            console.log(
+              "[ManualConfigSite] Loading variables:",
+              Object.keys(loadedVars)
+            );
+            console.log(
+              "[ManualConfigSite] Current envVariables:",
+              userSelections.envVariables
+            );
+
+            // Use bulk update to set all environment variables at once
+            onUpdateSelections({
+              envVariables: { ...userSelections.envVariables, ...loadedVars },
+            });
+
+            console.log(
+              "[ManualConfigSite] Updated envVariables with:",
+              loadedVars
+            );
+
+            setFeedbackMessage({
+              type: "success",
+              text: `Environment variables loaded from ${result}/.env`,
+            });
+          } else {
+            console.log(
+              "[ManualConfigSite] No .env file found in selected directory"
+            );
+            setFeedbackMessage({
+              type: "success",
+              text: `Directory selected: ${result}. No .env file found - you can configure variables manually.`,
+            });
+          }
+        } catch (envError: any) {
+          console.error(
+            "[ManualConfigSite] Error loading env vars from selected directory:",
+            envError
+          );
+          setFeedbackMessage({
+            type: "error",
+            text: `Directory selected but failed to load environment variables: ${envError.message}`,
+          });
+        }
       } else {
         console.log("Directory selection cancelled or no directory selected.");
       }
@@ -54,75 +118,12 @@ const ManualConfigSite: React.FC<ManualConfigSiteProps> = ({
     }
   };
 
-  const handleFinishManualSetup = async () => {
-    if (!selectedInstallDir) {
-      setFeedbackMessage({
-        type: "error",
-        text: "Please select a DDALAB Install Directory first.",
-      });
-      return;
-    }
-
-    setIsLoading(true);
-    setFeedbackMessage(null);
-
-    try {
-      if (!window.electronAPI) {
-        throw new Error("Electron API (window.electronAPI) not available.");
-      }
-      const result = await (
-        window.electronAPI as PreloadElectronAPI
-      ).markSetupComplete(selectedInstallDir);
-
-      if (result.success && result.finalSetupPath) {
-        setFeedbackMessage({
-          type: "success",
-          text: `Manual setup complete! Install directory is set to: ${result.finalSetupPath}. You can now proceed.`,
-        });
-        if (onManualSetupCompleted) {
-          onManualSetupCompleted(result.finalSetupPath);
-        }
-      } else {
-        setFeedbackMessage({
-          type: "error",
-          text:
-            result.message || "An unknown error occurred during finalization.",
-        });
-      }
-    } catch (error: any) {
-      console.error("Error finishing manual setup:", error);
-      setFeedbackMessage({
-        type: "error",
-        text:
-          error.message ||
-          "Failed to communicate with the setup process. See console.",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Simplified loading/error states - primarily relies on App.tsx providing valid props.
-  if (!parsedEnvEntries) {
-    // parsedEnvEntries might initially be undefined from App.tsx state
-    return <p>Loading configuration options...</p>;
-  }
-
-  if (parsedEnvEntries.length === 0) {
-    return (
-      <p>
-        No environment variables to configure. This might indicate an issue with
-        the bundled default .env.example or the loading process.
-      </p>
-    );
-  }
-
   return (
     <>
       <h2>Manual Configuration</h2>
       <p>
         Please provide values for the following variables. Descriptions are
-        based on the <code>.env.example</code> file.
+        based on the <code>.env</code> file from your selected directory.
       </p>
       <div className="mb-3">
         <p>
@@ -144,51 +145,53 @@ const ManualConfigSite: React.FC<ManualConfigSiteProps> = ({
         )}
       </div>
 
-      <p className="mt-3">
-        2. Optionally, review and adjust any environment variables below. These
-        will be saved if you proceed.
-      </p>
-      <form>
-        {parsedEnvEntries.map(({ key, value: defaultValue, comments }) => (
-          <div className="mb-3 env-variable-item" key={key}>
-            <label htmlFor={`env-${key}`} className="form-label">
-              <strong>{key}</strong>
-            </label>
-            <input
-              type="text"
-              className="form-control form-control-sm"
-              id={`env-${key}`}
-              value={userSelections.envVariables[key] || ""} // Use current value or empty string
-              onChange={(e) => onEnvVariableChange(key, e.target.value)}
-              placeholder={defaultValue} // Show original default as placeholder
-            />
-            {comments && comments.length > 0 && (
-              <div
-                className="form-text variable-description mt-1"
-                dangerouslySetInnerHTML={{
-                  __html: getFormattedCommentsHtml(comments),
-                }}
-              />
-            )}
-          </div>
-        ))}
-      </form>
-
-      <hr />
+      {parsedEnvEntries && parsedEnvEntries.length > 0 ? (
+        <>
+          <p className="mt-3">
+            2. Review and adjust any environment variables below. These will be
+            saved if you proceed.
+          </p>
+          <form>
+            {parsedEnvEntries.map(({ key, value: defaultValue, comments }) => (
+              <div className="mb-3 env-variable-item" key={key}>
+                <label htmlFor={`env-${key}`} className="form-label">
+                  <strong>{key}</strong>
+                </label>
+                <input
+                  type="text"
+                  className="form-control form-control-sm"
+                  id={`env-${key}`}
+                  value={userSelections.envVariables[key] || ""}
+                  onChange={(e) => onEnvVariableChange(key, e.target.value)}
+                  placeholder={defaultValue}
+                />
+                {comments && comments.length > 0 && (
+                  <div
+                    className="form-text variable-description mt-1"
+                    dangerouslySetInnerHTML={{
+                      __html: getFormattedCommentsHtml(comments),
+                    }}
+                  />
+                )}
+              </div>
+            ))}
+          </form>
+        </>
+      ) : (
+        <div className="mt-3">
+          <p className="text-muted">
+            {selectedInstallDir
+              ? "No environment variables found. You can proceed to finalize the setup."
+              : "Please select a directory first to load environment variables."}
+          </p>
+        </div>
+      )}
 
       <div className="mt-3">
-        <p>
-          3. Finalize the manual setup. This will save the selected install
-          directory.
+        <p className="text-info">
+          <i className="fas fa-info-circle"></i> Click "Next" to proceed with
+          the setup validation.
         </p>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={handleFinishManualSetup}
-          disabled={!selectedInstallDir || isLoading}
-        >
-          {isLoading ? "Processing..." : "Finish Manual Setup & Save State"}
-        </button>
       </div>
 
       {feedbackMessage && (
@@ -196,6 +199,8 @@ const ManualConfigSite: React.FC<ManualConfigSiteProps> = ({
           className={`mt-3 alert ${
             feedbackMessage.type === "success"
               ? "alert-success"
+              : feedbackMessage.type === "warning"
+              ? "alert-warning"
               : "alert-danger"
           }`}
           role="alert"
