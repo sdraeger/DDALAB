@@ -133,7 +133,7 @@ export async function fetchCurrentDockerLogs(): Promise<string> {
     const { stdout, stderr } = await execAsync(
       "docker compose logs --tail=50",
       {
-        cwd: app.getAppPath(), // Or your docker-compose.yml directory
+        cwd: app.getAppPath(),
       }
     );
     if (stderr && !stderr.toLowerCase().includes("no containers found")) {

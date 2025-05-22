@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useEffect } from "react";
 import type {
   UserSelections,
   ParsedEnvEntry,
@@ -9,8 +9,11 @@ import WelcomeSite from "./components/WelcomeSite";
 import DataLocationSite from "./components/DataLocationSite";
 import ManualConfigSite from "./components/ManualConfigSite";
 import SummarySite from "./components/SummarySite";
-import InstallProgressSite from "./components/InstallProgressSite";
 import ControlPanelSite from "./components/ControlPanelSite";
+import { SiteNavigationProvider } from "./context/SiteNavigationProvider";
+import { DockerProvider } from "./context/DockerProvider";
+import { useSiteNavigation } from "./hooks/useSiteNavigation";
+import { useNavigationValidation } from "./hooks/useNavigationValidation";
 
 interface Site {
   id: string;
@@ -57,7 +60,7 @@ const generateEnvFileContent = (
     });
   }
 
-  // Add any remaining keys that were not in parsedEntries (e.g., added manually)
+  // Add any remaining keys that were not in parsedEntries
   allKeys.forEach((key) => {
     const value = envVariables[key] || "";
     const needsQuotes = /[\s#'"=]/.test(value) || value === "";
@@ -66,25 +69,39 @@ const generateEnvFileContent = (
       : value;
     content += `${key}=${displayValue}\n`;
   });
-  return content.trim(); // Trim trailing newlines
+  return content.trim();
 };
 
-const App: React.FC = () => {
-  const [currentSiteId, setCurrentSiteId] = useState<string>("loading"); // Start with a loading state
-  const [userSelections, setUserSelections] = useState<UserSelections>({
-    setupType: "automatic",
-    dataLocation: "",
-    envVariables: {},
-    installationLog: [],
-  });
-  const [parsedEnvEntries, setParsedEnvEntries] = useState<ParsedEnvEntry[]>(
-    []
-  );
-  const [installationSuccess, setInstallationSuccess] = useState<
-    boolean | null
-  >(null);
+const AppContent: React.FC = () => {
+  const {
+    currentSite,
+    userSelections,
+    parsedEnvEntries,
+    installationSuccess,
+    goToNextSite,
+    goToPreviousSite,
+    goToSite,
+    updateSelections,
+    updateEnvEntries,
+    setInstallationSuccess,
+  } = useSiteNavigation();
 
+  const [isLoading, setIsLoading] = React.useState(false);
   const electronAPI = window.electronAPI as UtilElectronAPI | undefined;
+
+  // Use the navigation validation hook
+  const {
+    isNextButtonEnabled,
+    isBackButtonEnabled,
+    shouldShowNextButton,
+    shouldShowFinishButton,
+    validationMessage,
+  } = useNavigationValidation(
+    currentSite,
+    userSelections,
+    parsedEnvEntries,
+    isLoading
+  );
 
   // Effect to load initial installer state and decide starting site
   useEffect(() => {
@@ -98,20 +115,17 @@ const App: React.FC = () => {
             console.log(
               "[App.tsx] Setup is complete. Navigating to control panel."
             );
-            setCurrentSiteId("control-panel");
-            // Only update dataLocation if setupPath is a valid string
+            goToSite("control-panel");
             if (typeof state.setupPath === "string") {
-              setUserSelections((prev) => ({
-                ...prev,
-                dataLocation:
-                  state.setupPath! /* Non-null asserted as we checked type */,
-              }));
+              updateSelections({
+                dataLocation: state.setupPath,
+              });
             }
           } else {
             console.log(
               "[App.tsx] Setup is not complete. Navigating to welcome site."
             );
-            setCurrentSiteId("welcome");
+            goToSite("welcome");
           }
         })
         .catch((error) => {
@@ -119,666 +133,272 @@ const App: React.FC = () => {
             "[App.tsx] Error getting initial installer state:",
             error
           );
-          setCurrentSiteId("welcome"); // Default to welcome on error
+          goToSite("welcome");
         });
     } else {
       console.warn(
         "[App.tsx] electronAPI.getInstallerState is not available. Defaulting to welcome page."
       );
-      setCurrentSiteId("welcome"); // Fallback if API is not ready
+      goToSite("welcome");
     }
-  }, [electronAPI]); // Dependency array ensures this runs when electronAPI is available
-
-  const sites: Site[] = [
-    {
-      id: "welcome",
-      title: "Welcome",
-      component: WelcomeSite,
-      onNext: (selections) => {
-        if (!selections.setupType) {
-          alert("Please select a setup type.");
-          return false;
-        }
-        // Reset dependent selections if setupType changes
-        if (selections.setupType === "automatic") {
-          setUserSelections((prev) => ({ ...prev, envVariables: {} })); // Clear manual vars
-        }
-        return true;
-      },
-    },
-    {
-      id: "data-location",
-      title: "Data Location",
-      component: DataLocationSite,
-      condition: (selections) => selections.setupType === "automatic",
-      onNext: async (selections, setSelections, api) => {
-        if (!selections.dataLocation) {
-          alert("Please select a data location.");
-          return false;
-        }
-        if (api && api.loadEnvVars) {
-          try {
-            // Load from selected dataLocation
-            console.log(
-              "[App.tsx] Attempting to load ENV vars from data location:",
-              selections.dataLocation
-            );
-            const entries = await api.loadEnvVars(selections.dataLocation);
-            if (entries) {
-              console.log("[App.tsx] Loaded ENV vars for auto setup:", entries);
-              const autoLoadedVars: { [key: string]: string } = {};
-              entries.forEach(
-                (entry: ParsedEnvEntry) =>
-                  (autoLoadedVars[entry.key] = entry.value)
-              );
-              setSelections((prev) => ({
-                ...prev,
-                envVariables: autoLoadedVars,
-              }));
-            } else {
-              console.log(
-                "[App.tsx] No ENV vars found at data location for auto setup."
-              );
-              // Keep existing envVariables or clear them? For now, let's clear to reflect "nothing loaded from this specific dir"
-              setSelections((prev) => ({
-                ...prev,
-                envVariables: {},
-              }));
-            }
-          } catch (err) {
-            console.error(
-              "[App.tsx] Error loading env vars for auto setup:",
-              err
-            );
-            alert(
-              "Could not load environment variables for automatic setup from the selected directory."
-            );
-            return false;
-          }
-        }
-        return true;
-      },
-    },
-    {
-      id: "manual-config",
-      title: "Manual Configuration",
-      component: ManualConfigSite,
-      condition: (selections) => selections.setupType === "manual",
-      onLoad: async (api, setParsedEnvEntries, setSelectionsInternal) => {
-        // Check if parsedEnvEntries is already populated to prevent loop
-        // This check needs to access the state value, not the setter.
-        // This means `onLoad` needs access to the current `parsedEnvEntries` state.
-        // For simplicity, we'll rely on the component `ManualConfigSite` to fetch
-        // its initial data if needed, or App.tsx can pass parsedEnvEntries to it.
-        // Let's adjust the logic here to be more idempotent or shift it.
-
-        // To make `onLoad` safer, we can check a flag or if `parsedEnvEntries` (the state value) is empty.
-        // However, `onLoad` doesn't have direct access to `parsedEnvEntries` state here.
-        // A common pattern is to fetch data within the component itself (`ManualConfigSite`) using a useEffect hook.
-
-        // For now, let's make this specific `onLoad` only run if `userSelections.envVariables` is empty,
-        // implying it's the very first load of this manual config path for the session.
-        // This is an approximation to break the loop. A more robust solution involves how
-        // ManualConfigSite handles its own data needs.
-
-        // The core issue is that `setUserSelections` or `setParsedEnvEntries` might be causing
-        // the main `useEffect` (which calls `onLoad`) to run again if `activeSites` recomputes.
-
-        // Let's try to ensure this only runs once effectively per visit to manual config without prior data.
-        if (
-          Object.keys(userSelections.envVariables).length > 0 &&
-          parsedEnvEntries.length > 0
-        ) {
-          console.log(
-            "[App.tsx] Manual config onLoad: envVariables or parsedEnvEntries already populated. Skipping initial load."
-          );
-          return;
-        }
-
-        if (api && api.loadEnvVars) {
-          try {
-            console.log(
-              "[App.tsx] onLoad for manual-config: Attempting to load initial ENV vars (bundled example)."
-            );
-
-            const entries = await api.loadEnvVars(); // No dataDir, loads bundled/default
-            if (entries) {
-              console.log(
-                "[App.tsx] onLoad for manual-config: Loaded initial ENV:",
-                entries
-              );
-              setParsedEnvEntries(entries); // This updates state from App.tsx
-
-              // Only pre-fill if envVariables is currently empty
-              setSelectionsInternal((prev) => {
-                // This is setUserSelections from App.tsx
-                if (Object.keys(prev.envVariables).length === 0) {
-                  console.log(
-                    "[App.tsx] onLoad for manual-config: Populating envVariables from loaded entries."
-                  );
-                  const initialVars: { [key: string]: string } = {};
-                  entries.forEach(
-                    (entry: ParsedEnvEntry) =>
-                      (initialVars[entry.key] = entry.value)
-                  );
-                  return { ...prev, envVariables: initialVars };
-                }
-                console.log(
-                  "[App.tsx] onLoad for manual-config: envVariables not empty, not overwriting."
-                );
-                return prev;
-              });
-            } else {
-              console.log(
-                "[App.tsx] onLoad for manual-config: No initial ENV (bundled) found."
-              );
-            }
-          } catch (err) {
-            console.error(
-              "[App.tsx] onLoad for manual-config: Error pre-loading env vars:",
-              err
-            );
-          }
-        }
-      },
-    },
-    {
-      id: "summary",
-      title: "Summary",
-      component: SummarySite,
-    },
-    {
-      id: "install-progress",
-      title: "Installation Progress",
-      component: InstallProgressSite,
-    },
-    {
-      id: "control-panel",
-      title: "Control Panel",
-      component: ControlPanelSite,
-    },
-  ];
-
-  const activeSites = sites.filter(
-    (site) => !site.condition || site.condition(userSelections)
-  );
-  const currentSiteIndex = activeSites.findIndex(
-    (site) => site.id === currentSiteId
-  );
-  const CurrentSiteComponent = activeSites[currentSiteIndex]?.component;
-
-  // This useEffect handles onLoad for specific sites, keep it.
-  useEffect(() => {
-    const siteDef = activeSites[currentSiteIndex];
-    if (siteDef && siteDef.title) {
-      document.title = `DDALAB Setup - ${siteDef.title}`;
-    }
-    // Only call onLoad if currentSiteId is not 'loading'
-    if (currentSiteId !== "loading" && siteDef && siteDef.onLoad) {
-      // Add a more specific guard for the manual-config onLoad
-      if (siteDef.id === "manual-config") {
-        // Only call manual-config's onLoad if its specific conditions are met (e.g., data not yet loaded)
-        // This uses the App.tsx's state for userSelections and parsedEnvEntries
-        if (
-          Object.keys(userSelections.envVariables).length === 0 ||
-          parsedEnvEntries.length === 0
-        ) {
-          console.log(
-            `[App.tsx] Calling onLoad for site: ${currentSiteId} (data seems empty, proceeding).`
-          );
-          siteDef.onLoad(electronAPI, setParsedEnvEntries, setUserSelections);
-        } else {
-          console.log(
-            `[App.tsx] Skipping onLoad for site: ${currentSiteId} (data already present).`
-          );
-        }
-      } else {
-        // For other sites, call onLoad as before
-        console.log(`[App.tsx] Calling onLoad for site: ${currentSiteId}`);
-        siteDef.onLoad(electronAPI, setParsedEnvEntries, setUserSelections);
-      }
-    }
-  }, [
-    currentSiteId,
-    activeSites,
-    currentSiteIndex,
-    electronAPI,
-    setParsedEnvEntries,
-    setUserSelections,
-    userSelections,
-    parsedEnvEntries,
-  ]);
+  }, [electronAPI]);
 
   const handleNext = async () => {
-    const siteDef = activeSites[currentSiteIndex];
+    if (isLoading) return; // Prevent double-clicking
+
+    setIsLoading(true);
     let canProceed = true;
 
-    // If on summary page, and about to proceed (to install-progress)
-    if (siteDef?.id === "summary") {
-      // Pre-flight checks for electronAPI and necessary functions
-      if (!electronAPI) {
-        console.error(
-          "[App.tsx] electronAPI is not available. Cannot proceed with setup."
-        );
-        alert(
-          "Critical error: electronAPI not available. Please restart the installer."
-        );
-        return;
-      }
-      if (typeof electronAPI.runInitialSetup !== "function") {
-        console.error(
-          "[App.tsx] electronAPI.runInitialSetup is not available or not a function!"
-        );
-        alert(
-          "Critical error: runInitialSetup is not configured. Please check the preload script."
-        );
-        return;
-      }
-      if (
-        typeof electronAPI.onSetupProgress !== "function" ||
-        typeof electronAPI.onSetupFinished !== "function"
-      ) {
-        console.error(
-          "[App.tsx] electronAPI.onSetupProgress or onSetupFinished is not available."
-        );
-        alert("Critical error: Setup progress listeners are not configured.");
-        return;
-      }
-
-      // Add log to indicate we've reached the setup initiation point
-      console.log("[App.tsx] Reached Summary, initiating setup process...");
-      setUserSelections((prev) => ({
-        ...prev,
-        installationLog: ["Starting setup..."],
-      }));
-
-      // Setup listeners for progress and completion
-      const removeProgressListener = electronAPI.onSetupProgress(
-        (progress: { message: string; type?: string }) => {
-          console.log("[App.tsx] Setup Progress:", progress);
-          setUserSelections((prev) => {
-            const currentLog = prev.installationLog || [];
-            return {
-              ...prev,
-              installationLog: [...currentLog, progress.message],
-            };
-          });
-        }
-      );
-
-      const removeFinishedListener = electronAPI.onSetupFinished(
-        (state: { setupComplete: boolean; setupPath: string | null }) => {
-          console.log("[App.tsx] Setup Finished. Final State:", state);
-          setInstallationSuccess(state.setupComplete);
-          setUserSelections((prev) => {
-            const currentLog = prev.installationLog || [];
-            return {
-              ...prev,
-              installationLog: [
-                ...currentLog,
-                state.setupComplete
-                  ? "Setup completed successfully! Proceeding to Control Panel..."
-                  : "Setup failed.",
-              ],
-            };
-          });
-          // Clean up listeners
-          removeProgressListener();
-          removeFinishedListener();
-          // Potentially navigate to a final success/failure screen or enable a "Finish" button on InstallProgressSite
-          if (state.setupComplete) {
-            console.log(
-              "[App.tsx] Navigating to control panel after successful setup."
-            );
-            setCurrentSiteId("control-panel");
-          } else {
-            // Optionally, navigate to an error/summary page or stay on install-progress to show logs.
-            console.log(
-              "[App.tsx] Setup failed. Staying on install-progress or current page to show logs."
-            );
+    try {
+      switch (currentSite) {
+        case "welcome":
+          if (!userSelections.setupType) {
+            alert("Please select a setup type.");
+            canProceed = false;
           }
-        }
-      );
+          if (userSelections.setupType === "automatic") {
+            updateSelections({ envVariables: {} });
+          }
+          break;
 
-      try {
-        if (userSelections.setupType === "automatic") {
-          console.log("[App.tsx] Automatic setup type selected.");
+        case "data-location":
           if (!userSelections.dataLocation) {
-            alert(
-              "Data location for automatic setup is not selected. Please go back and select a directory."
-            );
-            // Clean up listeners as we are not proceeding
-            removeProgressListener();
-            removeFinishedListener();
-            return; // Stop processing
+            alert("Please select a data location.");
+            canProceed = false;
+            break;
           }
-          // Construct DDALAB_ALLOWED_DIRS for automatic setup
-          // Using userSelections.dataLocation as HOST_PATH and a default CONTAINER_PATH:PERMISSION
-          // Example: /Users/your-name/Desktop/DDALAB_Data:/app/data/Desktop:ro
-          const allowedDirsValue = `${userSelections.dataLocation}:/app/data/Desktop:ro`;
-          console.log(
-            "[App.tsx] DDALAB_ALLOWED_DIRS for automatic setup will be:",
-            allowedDirsValue
-          );
-
-          console.log(
-            "[App.tsx] Attempting to call window.electronAPI.runInitialSetup..."
-          );
-          // This is the main call to trigger the backend setup logic
-          const setupResult = await electronAPI.runInitialSetup(
-            allowedDirsValue
-          );
-          console.log(
-            "[App.tsx] call to runInitialSetup completed. Result:",
-            setupResult
-          );
-
-          if (!setupResult.success) {
-            // Error already logged by onSetupFinished, but good to have direct result log
-            alert(`Automatic setup failed: ${setupResult.message}`);
-            // Installation success will be set by onSetupFinished
-          } else {
-            // Installation success will be set by onSetupFinished
-          }
-        } else if (userSelections.setupType === "manual") {
-          console.log(
-            "[App.tsx] Manual setup type selected. Saving .env configuration."
-          );
-          if (electronAPI.saveEnvConfig) {
-            const envContent = generateEnvFileContent(
-              userSelections.envVariables,
-              parsedEnvEntries
-            );
-            electronAPI.saveEnvConfig(null, envContent);
-            console.log(
-              "[App.tsx] Manual .env configuration saved (using saveEnvConfig)."
-            );
-
-            // Now, mark the setup as complete in the installer state
-            if (electronAPI.markSetupComplete) {
+          if (electronAPI && electronAPI.loadEnvVars) {
+            try {
               console.log(
-                "[App.tsx] Attempting to mark manual setup as complete..."
+                "[App.tsx] Attempting to load ENV vars from data location:",
+                userSelections.dataLocation
               );
-              const markResult = await electronAPI.markSetupComplete();
-              if (markResult.success) {
+              const entries = await electronAPI.loadEnvVars(
+                userSelections.dataLocation
+              );
+              if (entries) {
                 console.log(
-                  "[App.tsx] Manual setup successfully marked as complete."
+                  "[App.tsx] Loaded ENV vars for auto setup:",
+                  entries
                 );
-                setInstallationSuccess(true);
-                setUserSelections((prev) => {
-                  const currentLog = prev.installationLog || [];
-                  return {
-                    ...prev,
-                    installationLog: [
-                      ...currentLog,
-                      "Manual .env configuration saved and setup marked as complete.",
-                    ],
-                  };
-                });
-                // Navigate to control panel after successful manual setup
-                console.log(
-                  "[App.tsx] Navigating to control panel after manual setup."
+                const autoLoadedVars: { [key: string]: string } = {};
+                entries.forEach(
+                  (entry: ParsedEnvEntry) =>
+                    (autoLoadedVars[entry.key] = entry.value)
                 );
-                setCurrentSiteId("control-panel");
+                updateSelections({ envVariables: autoLoadedVars });
               } else {
-                console.error(
-                  "[App.tsx] Failed to mark manual setup as complete:",
-                  markResult.message
+                console.log(
+                  "[App.tsx] No ENV vars found at data location for auto setup."
                 );
-                alert(
-                  `Error: Could not finalize manual setup. ${markResult.message}`
-                );
-                setInstallationSuccess(false); // Ensure failure is registered
-                setUserSelections((prev) => ({
-                  ...prev,
-                  installationLog: [
-                    ...(prev.installationLog || []),
-                    `Failed to mark setup as complete: ${markResult.message}`,
-                  ],
-                }));
-                // Do not proceed with listeners if marking setup failed
-                removeProgressListener();
-                removeFinishedListener();
-                return;
+                updateSelections({ envVariables: {} });
               }
-            } else {
+            } catch (err) {
               console.error(
-                "[App.tsx] electronAPI.markSetupComplete is not available!"
+                "[App.tsx] Error loading env vars for auto setup:",
+                err
               );
               alert(
-                "Critical error: Cannot finalize manual setup. API not available."
+                "Could not load environment variables for automatic setup from the selected directory."
               );
+              canProceed = false;
+            }
+          }
+          break;
+
+        case "manual-config":
+          // Manual config validation would go here
+          break;
+
+        case "summary":
+          // Execute installation logic based on setup type
+          if (electronAPI) {
+            try {
+              console.log("[App.tsx] Starting installation process...");
+
+              if (userSelections.setupType === "automatic") {
+                // For automatic setup, run the initial setup
+                console.log("[App.tsx] Running automatic setup...");
+                await electronAPI.runInitialSetup(userSelections.dataLocation);
+                console.log("[App.tsx] Automatic setup completed successfully");
+              } else {
+                // For manual setup, save env file and mark setup complete
+                console.log("[App.tsx] Completing manual setup...");
+
+                // Save environment variables using saveEnvFile
+                if (userSelections.dataLocation) {
+                  await electronAPI.saveEnvFile(
+                    userSelections.dataLocation,
+                    userSelections.envVariables
+                  );
+                  console.log("[App.tsx] Environment file saved");
+                }
+
+                // Mark setup as complete
+                await electronAPI.markSetupComplete(
+                  userSelections.dataLocation
+                );
+                console.log("[App.tsx] Manual setup marked as complete");
+              }
+
+              setInstallationSuccess(true);
+              console.log(
+                "[App.tsx] Installation process completed successfully"
+              );
+            } catch (error) {
+              console.error("[App.tsx] Installation failed:", error);
               setInstallationSuccess(false);
-              // Do not proceed with listeners if API is missing
-              removeProgressListener();
-              removeFinishedListener();
-              return;
+              const errorMessage =
+                error instanceof Error ? error.message : String(error);
+              alert(`Installation failed: ${errorMessage}`);
+              canProceed = false;
             }
           } else {
             console.error(
-              "[App.tsx] electronAPI.saveEnvConfig is not available for manual setup!"
+              "[App.tsx] electronAPI not available for installation"
             );
-            alert("Cannot save manual .env configuration. API not available.");
-            removeProgressListener(); // Clean up listeners
-            removeFinishedListener();
-            return;
+            alert("Installation interface not available");
+            canProceed = false;
           }
-        }
-
-        if (userSelections.setupType === "automatic") {
-          if (electronAPI.saveEnvConfig) {
-            const envContent = generateEnvFileContent(
-              userSelections.envVariables,
-              parsedEnvEntries
-            );
-            console.log(
-              "[App.tsx] Attempting to call electronAPI.saveEnvConfig (for project root or similar - automatic path). Content:",
-              envContent
-            );
-            electronAPI.saveEnvConfig(null, envContent);
-            console.log(
-              "[App.tsx] electronAPI.saveEnvConfig called (automatic path context)."
-            );
-          } else {
-            console.warn(
-              "[App.tsx] electronAPI.saveEnvConfig not available (automatic path context), skipping this step."
-            );
-          }
-        } else if (userSelections.setupType === "manual") {
-          if (electronAPI.saveEnvConfig) {
-            const envContent = generateEnvFileContent(
-              userSelections.envVariables, // These are the manually entered vars
-              parsedEnvEntries
-            );
-            console.log(
-              "[App.tsx] Attempting to call general electronAPI.saveEnvConfig (manual path context). Content:",
-              envContent
-            );
-            electronAPI.saveEnvConfig(null, envContent);
-            console.log(
-              "[App.tsx] General electronAPI.saveEnvConfig called (manual path context)."
-            );
-          } else {
-            console.warn(
-              "[App.tsx] General electronAPI.saveEnvConfig not available (manual path context), skipping this step."
-            );
-          }
-        }
-      } catch (error: any) {
-        console.error(
-          "[App.tsx] Error during setup process on summary page:",
-          error
-        );
-        alert(`An error occurred during setup: ${error.message}`);
-        setInstallationSuccess(false);
-        setUserSelections((prev) => {
-          const currentLog = prev.installationLog || [];
-          return {
-            ...prev,
-            installationLog: [...currentLog, `Error: ${error.message}`],
-          };
-        });
-        // Clean up listeners in case of an overarching error
-        removeProgressListener();
-        removeFinishedListener();
-        return; // Stop processing to prevent moving to next site if there was a major error
+          break;
       }
-    }
 
-    if (siteDef?.onNext) {
-      canProceed =
-        canProceed &&
-        (await siteDef.onNext(
-          userSelections,
-          setUserSelections,
-          electronAPI,
-          parsedEnvEntries
-        ));
-    }
-
-    if (canProceed && currentSiteIndex < activeSites.length - 1) {
-      setCurrentSiteId(activeSites[currentSiteIndex + 1].id);
+      if (canProceed) {
+        goToNextSite();
+      }
+    } catch (error) {
+      console.error("[App.tsx] Error in handleNext:", error);
+      alert("An error occurred. Please try again.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleBack = () => {
-    if (currentSiteIndex > 0) {
-      setCurrentSiteId(activeSites[currentSiteIndex - 1].id);
+    goToPreviousSite();
+  };
+
+  const renderCurrentSite = () => {
+    const commonProps = {
+      userSelections,
+      onUpdateSelections: updateSelections,
+      parsedEnvEntries,
+      onUpdateEnvEntries: updateEnvEntries,
+      onNext: handleNext,
+      onBack: handleBack,
+      electronAPI,
+    };
+
+    switch (currentSite) {
+      case "welcome":
+        return (
+          <WelcomeSite
+            {...commonProps}
+            onSetupTypeChange={(type) => updateSelections({ setupType: type })}
+          />
+        );
+      case "data-location":
+        return (
+          <DataLocationSite
+            {...commonProps}
+            onDataLocationChange={(path) =>
+              updateSelections({ dataLocation: path })
+            }
+          />
+        );
+      case "manual-config":
+        return (
+          <ManualConfigSite
+            {...commonProps}
+            onEnvVariableChange={(key, value) =>
+              updateSelections({
+                envVariables: { ...userSelections.envVariables, [key]: value },
+              })
+            }
+            setParsedEnvEntries={updateEnvEntries}
+          />
+        );
+      case "summary":
+        return <SummarySite {...commonProps} />;
+      case "control-panel":
+        return <ControlPanelSite {...commonProps} />;
+      default:
+        return <div>Loading...</div>;
     }
   };
 
-  const handleFinish = () => {
-    // This function might be called by InstallProgressSite or if summary is final
-    alert("Setup process is complete!");
-    const finishButton = document.getElementById(
-      "finish-button"
-    ) as HTMLButtonElement;
-    const nextButton = document.getElementById(
-      "next-button"
-    ) as HTMLButtonElement;
-    const backButton = document.getElementById(
-      "back-button"
-    ) as HTMLButtonElement;
-    if (finishButton) finishButton.textContent = "Close";
-    if (nextButton) nextButton.style.display = "none";
-    if (backButton) backButton.style.display = "none";
-    // Consider closing the window or displaying a final message through electronAPI
-    // window.close(); // Be careful with this, ensure it's the desired behavior
-  };
+  return (
+    <div className="installer-container">
+      {renderCurrentSite()}
+      <footer
+        id="navigation"
+        className="mt-auto pt-3 border-top d-flex justify-content-between"
+      >
+        <button
+          id="back-button"
+          className="btn btn-secondary"
+          onClick={handleBack}
+          disabled={!isBackButtonEnabled}
+        >
+          Back
+        </button>
+        <div>
+          {shouldShowNextButton && (
+            <button
+              id="next-button"
+              className="btn btn-primary"
+              onClick={handleNext}
+              disabled={!isNextButtonEnabled}
+            >
+              {isLoading ? (
+                <>
+                  <span
+                    className="spinner-border spinner-border-sm me-2"
+                    role="status"
+                    aria-hidden="true"
+                  ></span>
+                  Loading...
+                </>
+              ) : (
+                "Next"
+              )}
+            </button>
+          )}
+          {shouldShowFinishButton && (
+            <button
+              id="finish-button"
+              className="btn btn-success"
+              onClick={handleNext}
+              disabled={!isNextButtonEnabled}
+            >
+              {isLoading ? (
+                <>
+                  <span
+                    className="spinner-border spinner-border-sm me-2"
+                    role="status"
+                    aria-hidden="true"
+                  ></span>
+                  Processing...
+                </>
+              ) : (
+                "Finish"
+              )}
+            </button>
+          )}
+        </div>
+      </footer>
+    </div>
+  );
+};
 
-  const updateNavigationButtons = useCallback(() => {
-    const backBtn = document.getElementById("back-button") as HTMLButtonElement;
-    const nextBtn = document.getElementById("next-button") as HTMLButtonElement;
-    const finishBtn = document.getElementById(
-      "finish-button"
-    ) as HTMLButtonElement;
-
-    if (!backBtn || !nextBtn || !finishBtn) return;
-
-    const isInstallSite = currentSiteId === "install-progress";
-    const isSummarySite = activeSites[currentSiteIndex]?.id === "summary";
-
-    // Default states
-    backBtn.style.display = "inline-block";
-    nextBtn.style.display = "inline-block";
-    finishBtn.style.display = "none";
-    backBtn.disabled = currentSiteIndex === 0;
-    nextBtn.disabled = false;
-    finishBtn.disabled = false;
-
-    backBtn.onclick = handleBack;
-    nextBtn.onclick = handleNext;
-    finishBtn.onclick = handleNext; // Default finish action is to proceed (like next)
-
-    if (isInstallSite) {
-      backBtn.style.display = "none"; // Hide Back button
-      nextBtn.style.display = "none"; // Hide Next button
-      finishBtn.style.display = "none"; // Hide Finish/Close button
-    } else if (installationSuccess !== null) {
-      backBtn.style.display = "none";
-      nextBtn.style.display = "none";
-      finishBtn.style.display = "inline-block";
-      finishBtn.textContent = "Close App";
-      finishBtn.onclick = () => electronAPI?.quitApp(); // Use quitApp from electronAPI
-    } else {
-      // Regular site navigation (Welcome, Data Location, Manual Config, Summary)
-      if (currentSiteIndex === 0) {
-        // Welcome site or first active site
-        backBtn.style.display = "none";
-      }
-
-      if (isSummarySite) {
-        nextBtn.style.display = "none";
-        finishBtn.style.display = "inline-block";
-        finishBtn.textContent = "Configure & Proceed";
-        finishBtn.onclick = handleNext;
-      } else {
-        nextBtn.style.display = "inline-block";
-        finishBtn.style.display = "none";
-      }
-
-      // Disable Next on Welcome if no setupType selected
-      if (currentSiteId === "welcome" && !userSelections.setupType) {
-        nextBtn.disabled = true;
-        // If summary is the only other step (e.g. manual -> summary)
-        if (isSummarySite) finishBtn.disabled = true;
-      }
-    }
-  }, [
-    currentSiteIndex,
-    currentSiteId,
-    userSelections.setupType,
-    activeSites,
-    installationSuccess,
-    handleBack,
-    handleNext,
-    electronAPI,
-  ]);
-
-  useEffect(() => {
-    updateNavigationButtons();
-  }, [updateNavigationButtons]);
-
-  if (currentSiteId === "loading") {
-    return <div>Loading application state...</div>; // Or a proper loading spinner component
-  }
-
-  if (!CurrentSiteComponent) {
-    return <div>Loading site or site not found...</div>;
-  }
-
-  // Props for the current site component
-  const componentProps = {
-    userSelections,
-    electronAPI,
-    // WelcomeSite
-    onSetupTypeChange: (setupType: "automatic" | "manual") =>
-      setUserSelections((prev) => ({
-        ...prev,
-        setupType,
-        envVariables: {},
-        dataLocation: prev.setupType === setupType ? prev.dataLocation : "",
-      })),
-    // DataLocationSite
-    onDataLocationChange: (path: string) =>
-      setUserSelections((prev) => ({ ...prev, dataLocation: path })),
-    // ManualConfigSite
-    parsedEnvEntries,
-    setParsedEnvEntries,
-    onEnvVariableChange: (key: string, value: string) =>
-      setUserSelections((prev) => ({
-        ...prev,
-        envVariables: { ...prev.envVariables, [key]: value },
-      })),
-    // SummarySite (no callbacks, just data)
-    // InstallProgressSite
-    onInstallComplete: (success: boolean) => {
-      setInstallationSuccess(success);
-      updateNavigationButtons();
-    },
-  };
-
-  return <CurrentSiteComponent {...componentProps} />;
+const App: React.FC = () => {
+  return (
+    <SiteNavigationProvider>
+      <DockerProvider>
+        <AppContent />
+      </DockerProvider>
+    </SiteNavigationProvider>
+  );
 };
 
 export default App;

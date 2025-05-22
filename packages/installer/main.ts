@@ -14,7 +14,7 @@ import { PROJECT_ROOT_ENV_PATH } from "./src/utils/env-manager";
 
 // --- BEGIN DDALAB Setup Constants ---
 const DDALAB_SETUP_REPO_URL = "https://github.com/sdraeger/DDALAB-setup.git";
-const DDALAB_SETUP_DIR_NAME = "ddalab-setup-data"; // Directory name within userData
+const DDALAB_SETUP_DIR_NAME = "ddalab-setup-data";
 const INSTALLER_STATE_FILE_NAME = "installer-state.json";
 
 function getSetupDataDir(): string {
@@ -51,6 +51,7 @@ async function getInstallerState(): Promise<InstallerState> {
     );
     try {
       const state = JSON.parse(data);
+      console.log("[main.ts] Parsed installer state:", state);
       // Basic validation
       if (
         typeof state.setupComplete === "boolean" &&
@@ -121,11 +122,13 @@ async function saveInstallerState(setupPath: string | null): Promise<void> {
 initializeAppLifecycle();
 
 // Register all IPC handlers
+console.log("[main.ts] Registering IPC handlers...");
 registerFileSystemIpcHandlers();
 registerDialogIpcHandlers();
 registerInstallerIpcHandlers();
 registerEnvIpcHandlers();
 registerDockerIpcHandlers();
+console.log("[main.ts] IPC handlers registered");
 
 // This should be your actual main application window
 let mainWindow: BrowserWindow | null = null;
@@ -178,9 +181,6 @@ ipcMain.handle(
         console.error(
           `[main.ts] Validation Error: docker-compose.yml NOT found in manual path: ${manualSetupDirectory}.`
         );
-        // mainWindow?.webContents.send("error-message", "Selected manual directory is invalid: docker-compose.yml not found.");
-        // Not sending to mainWindow here to keep IPC handler focused on returning to caller.
-        // The renderer should handle displaying this error message based on the return.
         return {
           success: false,
           message: `Invalid manual setup directory: docker-compose.yml not found in ${manualSetupDirectory}.`,
@@ -197,18 +197,11 @@ ipcMain.handle(
         console.log(`[main.ts] Preserving existing setupPath: ${pathForState}`);
       } else {
         console.log("[main.ts] No existing setupPath found to preserve.");
-        // This case (no manualSetupDirectory and no existing currentState.setupPath)
-        // effectively means we are marking setup complete with a null setupPath.
-        // This might be valid if the app supports a mode where setupPath is not needed
-        // after 'mark-setup-complete', or it's an edge case to consider.
-        // For now, we allow it, as saveInstallerState(null) is permissible.
       }
     }
 
     try {
       await saveInstallerState(pathForState);
-      // If pathForState ended up being null (e.g. invalid manual path was attempted but caught,
-      // or no path existed and no manual path provided), the saved state will reflect that.
       console.log(
         `[main.ts] Installer state saved with setupPath: ${pathForState}`
       );
@@ -673,7 +666,7 @@ ipcMain.handle("start-docker-compose", async () => {
   console.log('[main.ts] IPC event "start-docker-compose" received.');
   if (!mainWindow) {
     console.error("[main.ts] Cannot start Docker Compose: mainWindow not set.");
-    return { success: false, message: "Main window not set." };
+    return false;
   }
 
   const state = await getInstallerState();
@@ -685,7 +678,7 @@ ipcMain.handle("start-docker-compose", async () => {
       type: "error",
       message: "Setup is not complete. Please run setup first.",
     });
-    return { success: false, message: "Setup not complete." };
+    return false;
   }
 
   const projectName = await getDockerProjectName(); // ensure this uses the correct path now
@@ -723,10 +716,7 @@ ipcMain.handle("start-docker-compose", async () => {
                 "Failed to get Traefik ID after startup. Services might not be accessible.",
             });
           }
-          resolvePromise({
-            success: true,
-            message: stdout || "Docker services started.",
-          });
+          resolvePromise(true);
         } else {
           console.error(
             `[main.ts] Error starting Docker Compose: ${error.message}. Stderr: ${stderr}`
@@ -737,73 +727,124 @@ ipcMain.handle("start-docker-compose", async () => {
               stderr || error.message
             }`,
           });
-          resolvePromise({ success: false, message: stderr || error.message });
+          resolvePromise(false);
         }
       }
     );
   });
 });
 
-// MODIFICATION NEEDED: Add ipcMain.handle for 'stop-docker-compose'
-// Similar to 'start-docker-compose', it needs to use setupPath and projectName.
-ipcMain.handle("stop-docker-compose", async () => {
-  console.log('[main.ts] IPC event "stop-docker-compose" received.');
-  if (!mainWindow) {
-    console.error("[main.ts] Cannot stop Docker Compose: mainWindow not set.");
-    return { success: false, message: "Main window not set." };
-  }
-
-  const state = await getInstallerState();
-  if (!state.setupComplete || !state.setupPath) {
-    console.error(
-      "[main.ts] Cannot stop Docker Compose: setup not complete or path missing."
+console.log("[main.ts] Registering stop-docker-compose handler");
+ipcMain.handle(
+  "stop-docker-compose",
+  async (event, deleteVolumes?: boolean) => {
+    console.log(
+      '[main.ts] IPC event "stop-docker-compose" received with deleteVolumes:',
+      deleteVolumes
     );
+    if (!mainWindow) {
+      console.error(
+        "[main.ts] Cannot stop Docker Compose: mainWindow not set."
+      );
+      return false;
+    }
+
+    const state = await getInstallerState();
+    if (!state.setupComplete || !state.setupPath) {
+      console.error(
+        "[main.ts] Cannot stop Docker Compose: setup not complete or path missing."
+      );
+      mainWindow.webContents.send("docker-status-update", {
+        type: "error",
+        message: "Setup is not complete. Cannot stop services.",
+      });
+      return false;
+    }
+
+    const projectName = await getDockerProjectName();
+    const composeFile = path.join(state.setupPath, "docker-compose.yml");
+    let composeCommand = `docker compose -f "${composeFile}" -p "${projectName}" down`;
+
+    if (deleteVolumes) {
+      composeCommand += " --volumes";
+    }
+
     mainWindow.webContents.send("docker-status-update", {
-      type: "error",
-      message: "Setup is not complete. Cannot stop services.",
+      type: "info",
+      message: `Stopping Docker services (project: ${projectName}, path: ${state.setupPath})...`,
     });
-    return { success: false, message: "Setup not complete." };
-  }
 
-  const projectName = await getDockerProjectName();
-  const composeFile = path.join(state.setupPath, "docker-compose.yml");
-  const composeCommand = `docker-compose -f "${composeFile}" -p "${projectName}" down`;
-
-  mainWindow.webContents.send("docker-status-update", {
-    type: "info",
-    message: `Stopping Docker services (project: ${projectName}, path: ${state.setupPath})... Command: ${composeCommand}`,
-  });
-
-  return new Promise((resolvePromise) => {
-    exec(
-      composeCommand,
-      { cwd: state.setupPath! }, // Use setupPath as CWD
-      (error, stdout, stderr) => {
-        if (error) {
-          console.error(
-            `[main.ts] Error stopping Docker Compose: ${error.message}. Stderr: ${stderr}`
-          );
-          mainWindow?.webContents.send("docker-status-update", {
-            type: "error",
-            message: `Failed to stop Docker services: ${
-              stderr || error.message
-            }`,
-          });
-          resolvePromise({ success: false, message: stderr || error.message });
-        } else {
-          console.log(
-            `[main.ts] 'docker-compose down' successful. Stdout: ${stdout}`
-          );
-          mainWindow?.webContents.send("docker-status-update", {
-            type: "success",
-            message: "Docker services stopped successfully.",
-          });
-          resolvePromise({
-            success: true,
-            message: stdout || "Docker services stopped.",
-          });
+    return new Promise((resolvePromise) => {
+      exec(
+        composeCommand,
+        { cwd: state.setupPath! }, // Use setupPath as CWD
+        (error, stdout, stderr) => {
+          if (error) {
+            console.error(
+              `[main.ts] Error stopping Docker Compose: ${error.message}. Stderr: ${stderr}`
+            );
+            mainWindow?.webContents.send("docker-status-update", {
+              type: "error",
+              message: `Failed to stop Docker services: ${
+                stderr || error.message
+              }`,
+            });
+            resolvePromise(false);
+          } else {
+            console.log(
+              `[main.ts] 'docker compose down' successful. Stdout: ${stdout}`
+            );
+            mainWindow?.webContents.send("docker-status-update", {
+              type: "success",
+              message: "Docker services stopped successfully.",
+            });
+            resolvePromise(true);
+          }
         }
+      );
+    });
+  }
+);
+
+// Docker status handler - check if containers are actually running
+ipcMain.handle("get-docker-status", async () => {
+  console.log('[main.ts] IPC event "get-docker-status" received.');
+
+  try {
+    const state = await getInstallerState();
+    if (!state.setupComplete || !state.setupPath) {
+      console.log("[main.ts] Docker status: Setup not complete or no path");
+      return false;
+    }
+
+    const projectName = await getDockerProjectName();
+    const composeFile = path.join(state.setupPath, "docker-compose.yml");
+    const command = `docker compose -f "${composeFile}" -p "${projectName}" ps --services --filter status=running`;
+
+    console.log(`[main.ts] Checking Docker status with command: ${command}`);
+
+    const { stdout } = await new Promise<{ stdout: string; stderr: string }>(
+      (resolve, reject) => {
+        exec(command, { cwd: state.setupPath! }, (error, stdout, stderr) => {
+          if (error) {
+            console.log(
+              `[main.ts] Docker status check error (likely no containers): ${error.message}`
+            );
+            resolve({ stdout: "", stderr });
+          } else {
+            resolve({ stdout, stderr });
+          }
+        });
       }
     );
-  });
+
+    const isRunning = stdout.trim().length > 0;
+    console.log(
+      `[main.ts] Docker status result: ${isRunning} (output: "${stdout.trim()}")`
+    );
+    return isRunning;
+  } catch (error) {
+    console.error("[main.ts] Error checking Docker status:", error);
+    return false;
+  }
 });

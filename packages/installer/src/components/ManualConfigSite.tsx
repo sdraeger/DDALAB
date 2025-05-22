@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import type { ElectronAPI as PreloadElectronAPI } from "../../preload";
 import type { UserSelections, ParsedEnvEntry, ElectronAPI } from "../utils";
-import { getFormattedCommentsHtml } from "../utils"; // Using the string version
+import { getFormattedCommentsHtml } from "../utils";
 
 interface ManualConfigSiteProps {
   userSelections: UserSelections;
