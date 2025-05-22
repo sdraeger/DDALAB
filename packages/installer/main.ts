@@ -164,6 +164,7 @@ ipcMain.handle(
   "mark-setup-complete",
   async (event, manualSetupDirectory?: string) => {
     console.log('[main.ts] IPC event "mark-setup-complete" received.');
+    console.log("[main.ts] manualSetupDirectory:", manualSetupDirectory);
     let pathForState: string | null = null;
 
     if (manualSetupDirectory && typeof manualSetupDirectory === "string") {
@@ -181,11 +182,15 @@ ipcMain.handle(
         console.error(
           `[main.ts] Validation Error: docker-compose.yml NOT found in manual path: ${manualSetupDirectory}.`
         );
-        return {
+        const response = {
           success: false,
           message: `Invalid manual setup directory: docker-compose.yml not found in ${manualSetupDirectory}.`,
           finalSetupPath: null,
+          needsClone: true, // Special flag to indicate cloning option
+          targetPath: manualSetupDirectory,
         };
+        console.log("[main.ts] Returning response with needsClone:", response);
+        return response;
       }
     } else {
       console.log(
@@ -396,6 +401,167 @@ ipcMain.handle("run-initial-setup", async (event, allowedDirsValue: string) => {
     return { success: false, message: `Setup failed: ${error.message}` };
   }
 });
+
+ipcMain.handle(
+  "clone-repository-to-directory",
+  async (event, targetDirectory: string, allowedDirsValue: string) => {
+    console.log('[main.ts] IPC event "clone-repository-to-directory" received');
+    console.log(`[main.ts] Target directory: ${targetDirectory}`);
+    console.log(`[main.ts] Allowed dirs value: ${allowedDirsValue}`);
+
+    if (!mainWindow) {
+      console.error("[main.ts] Cannot clone repository: mainWindow not set.");
+      return { success: false, message: "Main window not available." };
+    }
+
+    try {
+      // 1. Check if directory exists and is empty or only contains .env
+      mainWindow.webContents.send("setup-progress", {
+        message: `Checking target directory ${targetDirectory}...`,
+      });
+
+      let directoryContents: string[] = [];
+      try {
+        directoryContents = await fs.readdir(targetDirectory);
+        // Filter out hidden files and common ignored files
+        directoryContents = directoryContents.filter(
+          (file) =>
+            !file.startsWith(".") &&
+            !["node_modules", "dist", "build"].includes(file)
+        );
+      } catch (error: any) {
+        if (error.code === "ENOENT") {
+          // Directory doesn't exist, create it
+          await fs.mkdir(targetDirectory, { recursive: true });
+          console.log(`[main.ts] Created target directory: ${targetDirectory}`);
+        } else {
+          throw error;
+        }
+      }
+
+      if (directoryContents.length > 0) {
+        console.warn(
+          `[main.ts] Target directory ${targetDirectory} is not empty. Contents:`,
+          directoryContents
+        );
+        return {
+          success: false,
+          message: `Target directory is not empty. Please select an empty directory or remove existing files.`,
+        };
+      }
+
+      // 2. Clone the repository
+      mainWindow.webContents.send("setup-progress", {
+        message: `Cloning ${DDALAB_SETUP_REPO_URL} into ${targetDirectory}...`,
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        const cloneCommand = `git clone --depth 1 ${DDALAB_SETUP_REPO_URL} "${targetDirectory}"`;
+        console.log(`[main.ts] Executing clone command: ${cloneCommand}`);
+        exec(cloneCommand, (error, stdout, stderr) => {
+          if (error) {
+            console.error(
+              `[main.ts] Error cloning repository: ${error.message}. Stderr: ${stderr}`
+            );
+            reject(new Error(`Git clone failed: ${stderr || error.message}`));
+            return;
+          }
+          console.log("[main.ts] Git clone successful. Stdout:", stdout);
+          resolve();
+        });
+      });
+
+      mainWindow.webContents.send("setup-progress", {
+        message: "Repository cloned successfully.",
+      });
+
+      // 3. Create/Update .env file with allowed dirs
+      const envFilePath = path.join(targetDirectory, ".env");
+      let envContent = "";
+      try {
+        envContent = await fs.readFile(envFilePath, "utf-8");
+        mainWindow.webContents.send("setup-progress", {
+          message: `Existing .env file found. Updating DDALAB_ALLOWED_DIRS.`,
+        });
+      } catch (error: any) {
+        if (error.code === "ENOENT") {
+          mainWindow.webContents.send("setup-progress", {
+            message: ".env file not found, creating new one.",
+          });
+        } else {
+          throw error;
+        }
+      }
+
+      const allowedDirsLine = `DDALAB_ALLOWED_DIRS=${allowedDirsValue}`;
+      if (envContent.includes("DDALAB_ALLOWED_DIRS=")) {
+        envContent = envContent.replace(
+          /^DDALAB_ALLOWED_DIRS=.*$/m,
+          allowedDirsLine
+        );
+      } else {
+        envContent += `\n${allowedDirsLine}`;
+      }
+      await fs.writeFile(envFilePath, envContent.trim(), "utf-8");
+      mainWindow.webContents.send("setup-progress", {
+        message: ".env file configured.",
+      });
+
+      // 4. Create acme.json and set permissions
+      const acmeJsonPath = path.join(targetDirectory, "acme.json");
+      await fs.writeFile(acmeJsonPath, "{}", "utf-8");
+
+      try {
+        await fs.chmod(acmeJsonPath, 0o600);
+        mainWindow.webContents.send("setup-progress", {
+          message: "acme.json permissions set (600).",
+        });
+      } catch (chmodError: any) {
+        console.warn(
+          `[main.ts] Could not set permissions for acme.json: ${chmodError.message}`
+        );
+        mainWindow.webContents.send("setup-progress", {
+          message: `Warning: Could not set acme.json permissions: ${chmodError.message}`,
+          type: "warning",
+        });
+      }
+
+      // 5. Save installer state
+      await saveInstallerState(targetDirectory);
+      mainWindow.webContents.send("setup-progress", {
+        message: "Repository setup complete!",
+        type: "success",
+      });
+
+      console.log("[main.ts] Repository cloned and configured successfully.");
+      return {
+        success: true,
+        message: "Repository cloned and configured successfully.",
+        setupPath: targetDirectory,
+      };
+    } catch (error: any) {
+      console.error("[main.ts] Error during repository cloning:", error);
+      mainWindow.webContents.send("setup-progress", {
+        message: `Repository cloning failed: ${error.message}`,
+        type: "error",
+      });
+
+      // Attempt to clean up partial clone
+      try {
+        await fs.rm(targetDirectory, { recursive: true, force: true });
+      } catch (cleanupError) {
+        console.error(
+          "[main.ts] Error cleaning up failed clone directory:",
+          cleanupError
+        );
+      }
+      return {
+        success: false,
+        message: `Repository cloning failed: ${error.message}`,
+      };
+    }
+  }
+);
 
 // --- END New IPC Handlers for Setup ---
 

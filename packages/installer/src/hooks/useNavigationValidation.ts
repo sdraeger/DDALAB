@@ -36,13 +36,16 @@ export const useNavigationValidation = (
               : undefined,
           };
         case "manual-config":
-          const hasConfig =
+          // For manual config, we just need a directory to be selected
+          // The actual setup completion will happen when Next is clicked
+          const hasSelection =
+            !!userSelections.dataLocation ||
             Object.keys(userSelections.envVariables).length > 0 ||
             parsedEnvEntries.length > 0;
           return {
-            enabled: hasConfig,
-            message: !hasConfig
-              ? "Please configure environment variables"
+            enabled: hasSelection,
+            message: !hasSelection
+              ? "Please select a directory first"
               : undefined,
           };
         case "summary":
