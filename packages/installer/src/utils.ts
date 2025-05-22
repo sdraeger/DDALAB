@@ -109,7 +109,15 @@ export interface ElectronAPI {
       logs?: string;
     }) => void
   ) => () => void;
-  markSetupComplete: () => Promise<{ success: boolean; message?: string }>;
+  markSetupComplete: (manualSetupDirectory?: string) => Promise<{
+    success: boolean;
+    message?: string;
+    finalSetupPath: string | null;
+  }>;
+  saveEnvFile: (
+    envPath: string,
+    envData: Record<string, string>
+  ) => Promise<void>;
 }
 
 // This declares the shape of window.electronAPI for TypeScript

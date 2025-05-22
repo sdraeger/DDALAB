@@ -1,6 +1,6 @@
 import { app, BrowserWindow } from "electron";
 import { createWindow } from "./window-manager";
-import { stopLogStream as stopDockerLogStream } from "../docker-service";
+import { stopLogStream as stopDockerLogStream } from "../services/docker-service";
 
 export function initializeAppLifecycle(): void {
   app.whenReady().then(() => {
