@@ -34,9 +34,9 @@ export function DDAHeatmap({
   height = 600,
   channels,
   onClose,
-  dataColumnStart, // New prop
-  dataColumnEnd, // New prop
-  nullValueColor = DEFAULT_NULL_COLOR, // New prop with default
+  dataColumnStart,
+  dataColumnEnd,
+  nullValueColor = DEFAULT_NULL_COLOR,
 }: DDAHeatmapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const heatmapContainerRef = useRef<HTMLDivElement>(null);

@@ -53,7 +53,7 @@ export function EEGChart({
   timeWindow,
   absoluteTimeWindow,
   zoomLevel,
-  customZoomFactor = 0.05, // Default zoom factor of 5%
+  customZoomFactor = 0.05,
   onTimeWindowChange,
   className,
   height,
@@ -70,12 +70,12 @@ export function EEGChart({
   const { theme } = useTheme();
   const { data: session, status } = useSession();
   const user = session?.user;
-  const { toast } = useToast(); // Import toast function
+  const { toast } = useToast();
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState(0);
   const [currentTimeWindow, setCurrentTimeWindow] =
     useState<[number, number]>(timeWindow);
-  const [zoomSpeedMultiplier, setZoomSpeedMultiplier] = useState(1.0); // Added state for zoom speed
+  const [zoomSpeedMultiplier, setZoomSpeedMultiplier] = useState(1.0);
 
   // Edit mode state
   const [annotationDialogOpen, setAnnotationDialogOpen] = useState(false);

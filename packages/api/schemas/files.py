@@ -26,3 +26,11 @@ class FileListResponse(BaseModel):
     """Response for a list of files."""
 
     files: List[FileInfo]
+
+
+class FileUploadResponse(BaseModel):
+    """Response for file upload."""
+
+    success: bool
+    message: str
+    file_path: str

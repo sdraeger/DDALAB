@@ -7,28 +7,31 @@ import { Header } from "./layout/Header";
 import { Toaster } from "./ui/toaster";
 import { SettingsProvider } from "../contexts/settings-context";
 import { SessionProvider } from "next-auth/react";
+import { ReduxProvider } from "./providers/ReduxProvider";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <ApolloWrapper>
-      <SessionProvider>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <SettingsProvider>
-            <EDFPlotProvider>
-              <div className="relative flex min-h-screen flex-col">
-                <Header />
-                <div className="flex-1">{children}</div>
-              </div>
-              <Toaster />
-            </EDFPlotProvider>
-          </SettingsProvider>
-        </ThemeProvider>
-      </SessionProvider>
-    </ApolloWrapper>
+    <ReduxProvider>
+      <ApolloWrapper>
+        <SessionProvider>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            <SettingsProvider>
+              <EDFPlotProvider>
+                <div className="relative flex min-h-screen flex-col">
+                  <Header />
+                  <div className="flex-1">{children}</div>
+                </div>
+                <Toaster />
+              </EDFPlotProvider>
+            </SettingsProvider>
+          </ThemeProvider>
+        </SessionProvider>
+      </ApolloWrapper>
+    </ReduxProvider>
   );
 }

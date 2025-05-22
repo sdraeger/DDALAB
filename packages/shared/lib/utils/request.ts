@@ -5,7 +5,7 @@ export interface ApiRequestOptions {
   token?: string; // Optional for endpoints that require authentication
   method?: string; // Optional, defaults to "GET"
   contentType?: string; // Optional, defaults to "application/json"
-  body?: Record<string, any> | null; // Optional, can be any object or null
+  body?: Record<string, any> | FormData | null; // Optional, can be any object, FormData, or null
   headers?: Record<string, string>; // Optional, key-value pairs for headers
   responseType?: "json" | "response"; // Optional, defaults to 'response'
 }
@@ -32,24 +32,38 @@ export async function apiRequest<T = DefaultResponse>(
     responseType = "response",
   } = options;
 
+  // Check if body is FormData
+  const isFormData = body instanceof FormData;
+
   const defaultHeaders: Record<string, string> = {
     ...(token && { Authorization: `Bearer ${token}` }),
-    ...(body && { "Content-Type": contentType }),
+    // Only set Content-Type if it's not FormData (browser sets it with boundary for FormData)
+    ...(body && !isFormData && { "Content-Type": contentType }),
     ...headers,
   };
 
   console.log("Full URL:", url);
 
   try {
+    let data;
+    if (body) {
+      if (isFormData) {
+        // For FormData, pass it directly
+        data = body;
+      } else if (contentType === "application/json") {
+        // For JSON, pass the object as-is (axios will stringify it)
+        data = body;
+      } else {
+        // For other content types, convert to URLSearchParams
+        data = new URLSearchParams(body as Record<string, string>);
+      }
+    }
+
     const axiosResponse: AxiosResponse = await axios({
       url,
       method,
       headers: defaultHeaders,
-      data:
-        body &&
-        (contentType === "application/json"
-          ? body
-          : new URLSearchParams(body as Record<string, string>)),
+      data,
     });
 
     // Return Response object if responseType is 'response'
@@ -66,7 +80,9 @@ export async function apiRequest<T = DefaultResponse>(
   } catch (error) {
     if (axios.isAxiosError(error)) {
       console.error(
-        `Request failed with status ${error.response?.status}: ${JSON.stringify(error.response?.data)}`
+        `Request failed with status ${error.response?.status}: ${JSON.stringify(
+          error.response?.data
+        )}`
       );
 
       if (responseType === "response") {

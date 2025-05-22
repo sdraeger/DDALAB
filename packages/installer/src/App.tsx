@@ -11,44 +11,6 @@ import { DockerProvider } from "./context/DockerProvider";
 import { useSiteNavigation } from "./hooks/useSiteNavigation";
 import { useNavigationValidation } from "./hooks/useNavigationValidation";
 
-const generateEnvFileContent = (
-  envVariables: { [key: string]: string },
-  parsedEntries?: ParsedEnvEntry[]
-): string => {
-  let content = "";
-  const allKeys = new Set(Object.keys(envVariables));
-
-  // If parsedEntries are available, use them for ordering and comments
-  if (parsedEntries && parsedEntries.length > 0) {
-    const entryMap = new Map(
-      parsedEntries.map((e: ParsedEnvEntry) => [e.key, e])
-    );
-    parsedEntries.forEach((entry: ParsedEnvEntry) => {
-      if (entry.comments && entry.comments.length > 0) {
-        content += entry.comments.map((c) => `# ${c}`).join("\n") + "\n";
-      }
-      const value = envVariables[entry.key] || entry.value || "";
-      const needsQuotes = /[\s#'"=]/.test(value) || value === "";
-      const displayValue = needsQuotes
-        ? `"${value.replace(/"/g, '\\"')}"`
-        : value;
-      content += `${entry.key}=${displayValue}\n\n`;
-      allKeys.delete(entry.key);
-    });
-  }
-
-  // Add any remaining keys that were not in parsedEntries
-  allKeys.forEach((key) => {
-    const value = envVariables[key] || "";
-    const needsQuotes = /[\s#'"=]/.test(value) || value === "";
-    const displayValue = needsQuotes
-      ? `"${value.replace(/"/g, '\\"')}"`
-      : value;
-    content += `${key}=${displayValue}\n`;
-  });
-  return content.trim();
-};
-
 const AppContent: React.FC = () => {
   const {
     currentSite,
