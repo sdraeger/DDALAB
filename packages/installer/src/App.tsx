@@ -1,9 +1,5 @@
 import React, { useEffect } from "react";
-import type {
-  UserSelections,
-  ParsedEnvEntry,
-  ElectronAPI as UtilElectronAPI,
-} from "./utils";
+import type { ParsedEnvEntry, ElectronAPI as UtilElectronAPI } from "./utils";
 
 import WelcomeSite from "./components/WelcomeSite";
 import DataLocationSite from "./components/DataLocationSite";
@@ -15,25 +11,6 @@ import { DockerProvider } from "./context/DockerProvider";
 import { useSiteNavigation } from "./hooks/useSiteNavigation";
 import { useNavigationValidation } from "./hooks/useNavigationValidation";
 
-interface Site {
-  id: string;
-  title: string;
-  component: React.FC<any>;
-  condition?: (selections: UserSelections) => boolean;
-  onNext?: (
-    selections: UserSelections,
-    setSelections: React.Dispatch<React.SetStateAction<UserSelections>>,
-    electronAPI?: UtilElectronAPI,
-    parsedEnvEntries?: ParsedEnvEntry[]
-  ) => boolean | Promise<boolean>;
-  onLoad?: (
-    electronAPI: UtilElectronAPI | undefined,
-    setParsedEnvEntries: React.Dispatch<React.SetStateAction<ParsedEnvEntry[]>>,
-    setUserSelections: React.Dispatch<React.SetStateAction<UserSelections>>
-  ) => Promise<void>;
-}
-
-// Helper to generate .env file content
 const generateEnvFileContent = (
   envVariables: { [key: string]: string },
   parsedEntries?: ParsedEnvEntry[]
@@ -77,7 +54,6 @@ const AppContent: React.FC = () => {
     currentSite,
     userSelections,
     parsedEnvEntries,
-    installationSuccess,
     goToNextSite,
     goToPreviousSite,
     goToSite,
@@ -87,9 +63,13 @@ const AppContent: React.FC = () => {
   } = useSiteNavigation();
 
   const [isLoading, setIsLoading] = React.useState(false);
+  const [showCloneDialog, setShowCloneDialog] = React.useState<{
+    show: boolean;
+    targetPath: string;
+    message: string;
+  } | null>(null);
   const electronAPI = window.electronAPI as UtilElectronAPI | undefined;
 
-  // Use the navigation validation hook
   const {
     isNextButtonEnabled,
     isBackButtonEnabled,
@@ -207,7 +187,57 @@ const AppContent: React.FC = () => {
           break;
 
         case "manual-config":
-          // Manual config validation would go here
+          // Handle manual setup completion and validation
+          if (!userSelections.dataLocation) {
+            alert("Please select a directory first.");
+            canProceed = false;
+            break;
+          }
+
+          if (electronAPI) {
+            try {
+              console.log(
+                "[App.tsx] Attempting to mark manual setup complete for:",
+                userSelections.dataLocation
+              );
+              const result = await electronAPI.markSetupComplete(
+                userSelections.dataLocation
+              );
+
+              if (result.success && result.finalSetupPath) {
+                console.log(
+                  "[App.tsx] Manual setup validation successful:",
+                  result.finalSetupPath
+                );
+                // Update the data location to the final setup path
+                updateSelections({ dataLocation: result.finalSetupPath });
+              } else if (result.needsClone && result.targetPath) {
+                // Need to clone - show dialog and stop navigation
+                setShowCloneDialog({
+                  show: true,
+                  targetPath: result.targetPath,
+                  message:
+                    result.message ||
+                    `No docker-compose.yml found in ${result.targetPath}. Would you like to clone the DDALAB repository into this directory?`,
+                });
+                canProceed = false;
+              } else {
+                alert(
+                  result.message || "Failed to validate manual setup directory."
+                );
+                canProceed = false;
+              }
+            } catch (error) {
+              console.error("[App.tsx] Error validating manual setup:", error);
+              const errorMessage =
+                error instanceof Error ? error.message : String(error);
+              alert(`Failed to validate manual setup: ${errorMessage}`);
+              canProceed = false;
+            }
+          } else {
+            alert("Setup validation not available.");
+            canProceed = false;
+          }
           break;
 
         case "summary":
@@ -278,6 +308,67 @@ const AppContent: React.FC = () => {
     goToPreviousSite();
   };
 
+  const handleCloneRepository = async () => {
+    if (!showCloneDialog?.targetPath || !electronAPI) {
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const result = await electronAPI.cloneRepositoryToDirectory(
+        showCloneDialog.targetPath,
+        showCloneDialog.targetPath // Use target path as allowed dirs value
+      );
+
+      if (result.success && result.setupPath) {
+        // Clone successful - update data location and close dialog
+        updateSelections({ dataLocation: result.setupPath });
+        setShowCloneDialog(null);
+
+        // Load environment variables from the cloned repository
+        try {
+          const entries = await electronAPI.loadEnvVars(result.setupPath);
+          if (entries) {
+            console.log(
+              "[App.tsx] Loaded ENV vars from cloned repository:",
+              entries
+            );
+            const loadedVars: { [key: string]: string } = {};
+            entries.forEach((entry: ParsedEnvEntry) => {
+              loadedVars[entry.key] = entry.value;
+            });
+            updateSelections({
+              envVariables: { ...userSelections.envVariables, ...loadedVars },
+            });
+            updateEnvEntries(entries);
+          }
+        } catch (envError) {
+          console.warn(
+            "[App.tsx] Could not load env vars from cloned repo:",
+            envError
+          );
+        }
+
+        // Now proceed to next site
+        goToNextSite();
+      } else {
+        alert(result.message || "Failed to clone repository.");
+      }
+    } catch (error) {
+      console.error("[App.tsx] Error cloning repository:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      alert(`Failed to clone repository: ${errorMessage}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCancelClone = () => {
+    setShowCloneDialog(null);
+  };
+
   const renderCurrentSite = () => {
     const commonProps = {
       userSelections,
@@ -315,6 +406,7 @@ const AppContent: React.FC = () => {
                 envVariables: { ...userSelections.envVariables, [key]: value },
               })
             }
+            onUpdateSelections={updateSelections}
             setParsedEnvEntries={updateEnvEntries}
           />
         );
@@ -387,6 +479,69 @@ const AppContent: React.FC = () => {
           )}
         </div>
       </footer>
+
+      {/* Clone Repository Dialog */}
+      {showCloneDialog?.show && (
+        <div
+          className="modal d-block"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) handleCancelClone();
+          }}
+        >
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Clone DDALAB Repository?</h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={handleCancelClone}
+                  disabled={isLoading}
+                ></button>
+              </div>
+              <div className="modal-body">
+                <p>{showCloneDialog.message}</p>
+                <p className="text-muted">
+                  <small>
+                    This will clone the DDALAB repository into:{" "}
+                    <code>{showCloneDialog.targetPath}</code>
+                  </small>
+                </p>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleCancelClone}
+                  disabled={isLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleCloneRepository}
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <>
+                      <span
+                        className="spinner-border spinner-border-sm me-2"
+                        role="status"
+                        aria-hidden="true"
+                      ></span>
+                      Cloning...
+                    </>
+                  ) : (
+                    "Yes, Clone Repository"
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

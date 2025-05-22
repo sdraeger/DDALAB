@@ -113,6 +113,16 @@ export interface ElectronAPI {
     success: boolean;
     message?: string;
     finalSetupPath: string | null;
+    needsClone?: boolean;
+    targetPath?: string;
+  }>;
+  cloneRepositoryToDirectory: (
+    targetDirectory: string,
+    allowedDirsValue: string
+  ) => Promise<{
+    success: boolean;
+    message: string;
+    setupPath?: string;
   }>;
   saveEnvFile: (
     envPath: string,
