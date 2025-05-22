@@ -20,8 +20,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./app/*", "./lib/*", "./contexts/*", "./hooks/*"],
-      "shared/*": ["../shared/*"]
+      "@/*": ["./src/*", "./app/*", "./lib/*", "./contexts/*", "./hooks/*"],
+      "shared/*": ["../shared/*"],
+      "shared/src/*": ["../shared/src/*"]
     },
     "baseUrl": "."
   },

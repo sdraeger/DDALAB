@@ -18,8 +18,11 @@
     "declaration": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"],
-      "shared/*": ["./*"]
+      "@/*": ["./src/*"],
+      "shared/*": ["./src/*"],
+      "@/store/*": ["./src/store/*"],
+      "@/components/*": ["./src/components/*"],
+      "@/providers/*": ["./src/providers/*"]
     },
     "rootDir": ".",
     "typeRoots": ["./types", "./node_modules/@types"]

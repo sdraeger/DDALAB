@@ -30,7 +30,6 @@ const loadDevelopmentServer = async () => {
   try {
     console.log("Loading development server at http://localhost:3000");
     await mainWindow.loadURL("http://localhost:3000");
-    mainWindow.webContents.openDevTools();
     retryCount = 0; // Reset retry count on successful connection
   } catch (error) {
     console.error("Failed to connect to development server:", error);
