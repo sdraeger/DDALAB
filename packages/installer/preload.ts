@@ -1,5 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+console.log("=== PRELOAD SCRIPT STARTING ===");
+console.log(
+  "[preload.ts] Script execution started at:",
+  new Date().toISOString()
+);
+
 export interface ElectronAPI {
   openFile: () => Promise<string | null>;
   readFile: (filePath: string) => Promise<string | { error: string } | null>;
@@ -95,8 +101,11 @@ const exposedAPI: ElectronAPI = {
     ipcRenderer.send("installer:save-env-config", targetDir, content),
   quitApp: () => ipcRenderer.send("installer:quit-app"),
   startDockerCompose: () => ipcRenderer.invoke("start-docker-compose"),
-  stopDockerCompose: (deleteVolumes?: boolean) =>
-    ipcRenderer.invoke("docker-compose-down", deleteVolumes),
+  stopDockerCompose: (deleteVolumes?: boolean) => {
+    console.log("[preload.ts] stopDockerCompose called with:", deleteVolumes);
+    console.log("[preload.ts] About to invoke stop-docker-compose");
+    return ipcRenderer.invoke("stop-docker-compose", deleteVolumes);
+  },
   getDockerStatus: () => ipcRenderer.invoke("get-docker-status"),
   getDockerLogs: () => ipcRenderer.invoke("get-docker-logs"),
   onDockerLogs: (callback) => {
@@ -168,4 +177,13 @@ const exposedAPI: ElectronAPI = {
     ipcRenderer.invoke("mark-setup-complete", manualSetupDirectory),
 };
 
+console.log("[preload.ts] About to expose electronAPI to main world");
+console.log("[preload.ts] exposedAPI keys:", Object.keys(exposedAPI));
+console.log(
+  "[preload.ts] stopDockerCompose type:",
+  typeof exposedAPI.stopDockerCompose
+);
+
 contextBridge.exposeInMainWorld("electronAPI", exposedAPI);
+
+console.log("[preload.ts] electronAPI exposed to main world");
