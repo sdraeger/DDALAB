@@ -54,9 +54,9 @@ class Settings(BaseSettings):
     minio_secret_key: str
     minio_bucket_name: str
 
-    # Jaeger settings
-    jaeger_host: str
-    jaeger_port: int
+    # OpenTelemetry settings
+    otlp_host: str
+    otlp_port: int = 4317
 
     @field_validator("allowed_dirs", mode="before")
     @classmethod

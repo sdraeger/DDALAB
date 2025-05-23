@@ -54,3 +54,6 @@ workflow_state.md
 data/bin/
 
 packages/electron/release/
+
+# Auto-generated Docker Compose files
+docker-compose.volumes.yml

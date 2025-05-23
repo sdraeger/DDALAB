@@ -1,17 +1,9 @@
 import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
-import { GET_EDF_DATA } from "../../lib/graphql/queries"; // Assuming this path is correct
-import { apolloClient } from "../../lib/apollo-client"; // Corrected path
-import { apiRequest, ApiRequestOptions } from "../../lib/utils/request"; // Assuming this path
-import { EdfFileInfo } from "../../lib/schemas/edf"; // Assuming this path
-import { Annotation } from "../../types/annotation"; // Assuming this path
-import { EEGData } from "../../types/eeg"; // Assuming this path
-import logger from "../../lib/utils/logger"; // Assuming this path
-
-// Helper types
-interface PlotData {
-  series: { name: string; data: number[] }[];
-  time: number[];
-}
+import { apiRequest, ApiRequestOptions } from "../../lib/utils/request";
+import { EdfFileInfo } from "../../lib/schemas/edf";
+import { Annotation } from "../../types/annotation";
+import { EEGData } from "../../types/eeg";
+import logger from "../../lib/utils/logger";
 
 interface PlotMetadata extends EdfFileInfo {
   availableChannels?: string[];
