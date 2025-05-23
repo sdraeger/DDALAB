@@ -99,13 +99,13 @@ async def list_directory(
 async def upload_file(
     file: UploadFile = File(...),
     target_path: str = Form(...),
-    user: User = Depends(get_current_user),
+    _: User = Depends(get_current_user),
 ) -> FileUploadResponse:
     """Upload a file to a specific directory.
 
     Args:
         file: The file to upload
-        target_path: Path to the target directory relative to data directory
+        target_path: Absolute path to the target directory
         user: Current authenticated user
 
     Returns:
@@ -116,25 +116,19 @@ async def upload_file(
             f"Upload request - target_path: {target_path}, filename: {file.filename}"
         )
 
-        # Validate the target directory path using same logic as list_directory
-        data_dir = Path(settings.data_dir).resolve()
-        target_dir = data_dir / target_path if target_path else data_dir
-        target_dir = target_dir.resolve()
-
-        logger.info(
-            f"Upload path validation - data_dir: {data_dir}, target_dir: {target_dir}"
-        )
-
-        # Verify target_dir is within data_dir
-        if not str(target_dir).startswith(str(data_dir)):
+        # Validate that the target directory is allowed and exists
+        try:
+            target_dir = is_path_allowed(target_path)
+        except HTTPException as e:
             logger.error(
-                f"Path validation failed - target_dir {target_dir} not within data_dir {data_dir}"
+                f"Path validation failed - target_path: {target_path}, error: {e.detail}"
             )
             raise HTTPException(
-                status_code=403, detail="Access to this directory is forbidden"
+                status_code=403,
+                detail=f"Access to directory '{target_path}' is forbidden",
             )
 
-        if not target_dir.exists() or not target_dir.is_dir():
+        if not target_dir.is_dir():
             raise HTTPException(status_code=404, detail="Target directory not found")
 
         # Check file extension
@@ -169,7 +163,7 @@ async def upload_file(
         return FileUploadResponse(
             success=True,
             message="File uploaded successfully",
-            file_path=str(target_file_path.relative_to(settings.data_dir)),
+            file_path=str(target_file_path),
         )
 
     except Exception as e:

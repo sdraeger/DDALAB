@@ -12,7 +12,7 @@ opentelemetry-api>=0.53b0
 opentelemetry-instrumentation>=0.53b0
 opentelemetry-instrumentation-fastapi>=0.53b0
 opentelemetry-sdk>=1.32.0
-opentelemetry-exporter-jaeger==1.21.0
+opentelemetry-exporter-otlp-proto-http>=1.32.0
 gunicorn
 cryptography>=41.0.0
 email-validator>=2.0.0

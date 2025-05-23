@@ -1,13 +1,13 @@
 import * as dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
-import http from "http"; // Import the standard http module
+import http from "http";
 import httpProxy from "http-proxy";
 import type { ServerOptions } from "http-proxy";
 import { spawn, ChildProcess } from "child_process";
 import { IncomingMessage, ServerResponse } from "http";
-import { getEnvVar } from "./lib/utils/env.ts"; // Assuming this works correctly
-import logger from "./lib/utils/logger.ts";
+import { getEnvVar } from "../shared/lib/utils/env";
+import logger from "../shared/lib/utils/logger";
 import { Writable } from "stream";
 
 // --- Configuration ---
@@ -71,15 +71,9 @@ proxy.on(
       }
       res.end("Proxy Error: Could not connect to the target service.");
     } else if (res instanceof Writable) {
-      // Check against imported Writable
-      // For WebSocket errors, the 'res' is the underlying socket (a Writable stream)
       logger.warn("WebSocket proxy error. Closing connection.");
 
-      // FIX: Check if 'destroyed' property exists and is false before acting
-      // Also check if 'end' method exists.
       if (typeof res.end === "function") {
-        // Check if the stream has a 'destroyed' property and if it's false.
-        // If it doesn't have 'destroyed' (older node?) or if it's not destroyed, try ending.
         const isDestroyed =
           "destroyed" in res &&
           typeof res.destroyed === "boolean" &&

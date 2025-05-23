@@ -115,7 +115,7 @@ export function DashboardTabs() {
             <Card>
               <CardContent className="pt-6">
                 <p className="text-center text-muted-foreground">
-                  Please select a file from the sidebar to start a DDA analysis
+                  Please select a file from the sidebar to analyze data.
                 </p>
               </CardContent>
             </Card>
