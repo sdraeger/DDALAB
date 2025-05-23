@@ -1,82 +1,71 @@
 """Core file management functionality."""
 
 import datetime
-from pathlib import Path
 from typing import List
 
 from loguru import logger
 
 from ..core.config import get_data_settings
+from ..core.utils import is_path_allowed
 from ..schemas.files import FileInfo
 
 settings = get_data_settings()
 
 
 async def validate_file_path(file_path: str) -> bool:
-    """Check if a file exists in the data directory.
+    """Check if a file exists in an allowed directory.
 
     Args:
-        file_path: Path to the file relative to the data directory
+        file_path: Absolute path to the file
 
     Returns:
         True if file exists, False otherwise
     """
-
-    data_dir = Path(settings.data_dir)
-    full_path = data_dir / file_path
-
-    return full_path.exists() and full_path.is_file()
+    try:
+        file_path_obj = is_path_allowed(file_path)
+        return file_path_obj.exists() and file_path_obj.is_file()
+    except Exception:
+        return False
 
 
 async def list_directory(path: str = "") -> List[FileInfo]:
     """List files and directories in a specific path.
 
     Args:
-        path: Path relative to the data directory
+        path: Absolute path to the directory to list
 
     Returns:
         List of dictionaries containing file/directory information
     """
-
-    data_dir = Path(settings.data_dir).resolve()  # Get absolute path
-    target_dir = data_dir / path if path else data_dir
-
-    logger.info(f"Data dir: {data_dir}")
-    logger.info(f"Target dir: {target_dir}")
-
     try:
-        # Verify target_dir is within data_dir
-        target_dir = target_dir.resolve()
-        logger.info(f"{(not str(target_dir).startswith(str(data_dir))) = }")
-        logger.info(f"{(not (target_dir.exists() and target_dir.is_dir())) = }")
+        # Validate that the requested path is allowed
+        target_dir = is_path_allowed(path)
 
-        if not str(target_dir).startswith(str(data_dir)):
+        if not target_dir.is_dir():
+            logger.warning(f"Requested path is not a directory: {path}")
             return []
 
-        if not (target_dir.exists() and target_dir.is_dir()):
-            return []
+        logger.info(f"Listing directory: {target_dir}")
 
         items = []
-        logger.info(f"{list(target_dir.iterdir()) = }")
         for item in target_dir.iterdir():
-            rel_path = str(item.relative_to(data_dir))
             file_stat = item.stat()
             last_modified = datetime.datetime.fromtimestamp(
                 file_stat.st_mtime
             ).isoformat()
             file_size = file_stat.st_size if item.is_file() else None
 
-            item = FileInfo(
+            file_info = FileInfo(
                 name=item.name,
-                path=rel_path,
+                path=str(item),  # Use absolute path instead of relative
                 is_directory=item.is_dir(),
                 size=file_size,
                 is_favorite=False,
                 last_modified=str(last_modified),
             )
-            items.append(item)
+            items.append(file_info)
 
         return sorted(items, key=lambda x: (not x.is_directory, x.name.lower()))
     except Exception as e:
-        logger.error(f"Error listing directory: {e}")
+        logger.error(f"Error listing directory '{path}': {e}")
         return []

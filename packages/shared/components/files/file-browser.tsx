@@ -158,8 +158,6 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
         responseType: "json",
       });
 
-      console.log("favfiles toggle response", response);
-
       // Update data.files immutably
       updateData((prevData) => {
         if (!prevData) return prevData;

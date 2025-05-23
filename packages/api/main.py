@@ -8,8 +8,7 @@ from loguru import logger
 from minio import Minio
 from minio.error import S3Error
 from opentelemetry import trace
-from opentelemetry.exporter.jaeger.thrift import JaegerExporter
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -90,15 +89,32 @@ trace.set_tracer_provider(
     TracerProvider(resource=Resource.create({"service.name": "ddalab-api"}))
 )
 
-jaeger_exporter = JaegerExporter(
-    agent_host_name=settings.jaeger_host,
-    agent_port=settings.jaeger_port,
-)
-span_processor = BatchSpanProcessor(jaeger_exporter)
-trace.get_tracer_provider().add_span_processor(span_processor)
+# Use OTLP HTTP exporter instead of UDP to avoid packet size limitations
+try:
+    otlp_exporter = OTLPSpanExporter(
+        endpoint=f"http://{settings.otlp_host}:4318/v1/traces",
+    )
+    span_processor = BatchSpanProcessor(
+        otlp_exporter,
+        # Configure batch processing to handle large spans better
+        max_queue_size=2048,
+        max_export_batch_size=512,
+        export_timeout_millis=30000,
+    )
+    trace.get_tracer_provider().add_span_processor(span_processor)
+    logger.info(f"OTLP tracing configured for {settings.otlp_host}:4318")
+except Exception as e:
+    logger.warning(f"Failed to configure OTLP tracing: {e}. Tracing will be disabled.")
+    # Continue without tracing if OTLP endpoint is not available
+
 
 # Instrument FastAPI app (this enables automatic tracing)
-FastAPIInstrumentor.instrument_app(app)
+# Temporarily disabled to isolate file upload issues
+# FastAPIInstrumentor.instrument_app(
+#     app,
+#     server_request_hook=request_hook,
+#     client_response_hook=response_hook,
+# )
 
 # Add database session middleware
 app.add_middleware(DBSessionMiddleware)
