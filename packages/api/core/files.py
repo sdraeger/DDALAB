@@ -37,6 +37,8 @@ async def list_directory(path: str = "") -> List[FileInfo]:
     Returns:
         List of dictionaries containing file/directory information
     """
+    logger.info(f"[Files] list_directory called with path: '{path}'")
+
     try:
         # Validate that the requested path is allowed
         target_dir = is_path_allowed(path)
@@ -46,6 +48,7 @@ async def list_directory(path: str = "") -> List[FileInfo]:
             return []
 
         logger.info(f"Listing directory: {target_dir}")
+        print(f"target_dir: {list(target_dir.iterdir())}")
 
         items = []
         for item in target_dir.iterdir():
@@ -57,7 +60,7 @@ async def list_directory(path: str = "") -> List[FileInfo]:
 
             file_info = FileInfo(
                 name=item.name,
-                path=str(item),  # Use absolute path instead of relative
+                path=str(item),
                 is_directory=item.is_dir(),
                 size=file_size,
                 is_favorite=False,

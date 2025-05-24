@@ -138,6 +138,16 @@ export function setMainWindow(win: BrowserWindow) {
   console.log("[main.ts] setMainWindow called with window ID:", win.id);
   mainWindow = win;
 
+  // Add keyboard shortcut to open DevTools (Cmd+Option+I on Mac, Ctrl+Shift+I on others)
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (
+      (input.meta && input.alt && input.key.toLowerCase() === "i") ||
+      (input.control && input.shift && input.key.toLowerCase() === "i")
+    ) {
+      mainWindow?.webContents.toggleDevTools();
+    }
+  });
+
   // After window is set, check installer state and inform renderer
   getInstallerState()
     .then((state) => {
@@ -287,6 +297,12 @@ ipcMain.handle("run-initial-setup", async (event, allowedDirsValue: string) => {
     mainWindow.webContents.send("setup-progress", {
       message: `Cloning ${DDALAB_SETUP_REPO_URL}...`,
     });
+
+    console.log(
+      `[main.ts] About to clone repository: ${DDALAB_SETUP_REPO_URL}`
+    );
+    console.log(`[main.ts] Target directory: ${setupDataDir}`);
+
     await new Promise<void>((resolve, reject) => {
       const cloneCommand = `git clone --depth 1 ${DDALAB_SETUP_REPO_URL} "${setupDataDir}"`;
       console.log(`[main.ts] Executing clone command: ${cloneCommand}`);
@@ -565,6 +581,129 @@ ipcMain.handle(
 
 // --- END New IPC Handlers for Setup ---
 
+// Helper function to get environment with Docker paths
+function getDockerEnvironment() {
+  const currentPath = process.env.PATH || "";
+  const dockerPaths = [
+    "/usr/local/bin", // Common Docker Desktop location on macOS
+    "/opt/homebrew/bin", // Homebrew on Apple Silicon
+    "/usr/bin", // Standard system location
+    "/bin", // Basic system location
+    "/Applications/Docker.app/Contents/Resources/bin", // Docker Desktop app bundle
+  ];
+
+  // Add Docker paths to the existing PATH
+  const newPath = [...dockerPaths, ...currentPath.split(":")].join(":");
+
+  return {
+    ...process.env,
+    PATH: newPath,
+  };
+}
+
+// Validation function to ensure required files exist before starting Docker
+async function validateDockerFiles(setupPath: string): Promise<void> {
+  const requiredFiles = [
+    "docker-compose.yml",
+    "prometheus.yml",
+    "traefik.yml",
+    ".env",
+    "acme.json",
+  ];
+
+  const requiredDirectories = ["dynamic", "certs"];
+
+  console.log(`[main.ts] Validating required files in ${setupPath}`);
+
+  for (const file of requiredFiles) {
+    const filePath = path.join(setupPath, file);
+    try {
+      await fs.access(filePath);
+      console.log(`[main.ts] ✓ Found required file: ${file}`);
+    } catch (error) {
+      throw new Error(`Required file missing: ${file} at ${filePath}`);
+    }
+  }
+
+  for (const dir of requiredDirectories) {
+    const dirPath = path.join(setupPath, dir);
+    try {
+      const stat = await fs.stat(dirPath);
+      if (!stat.isDirectory()) {
+        throw new Error(`${dir} exists but is not a directory`);
+      }
+      console.log(`[main.ts] ✓ Found required directory: ${dir}`);
+    } catch (error) {
+      throw new Error(`Required directory missing: ${dir} at ${dirPath}`);
+    }
+  }
+
+  console.log(
+    `[main.ts] All required files and directories validated successfully`
+  );
+}
+
+// JavaScript implementation of generate-volumes.sh functionality
+async function generateDockerVolumes(setupPath: string): Promise<void> {
+  console.log(
+    `[main.ts] Generating docker-compose.volumes.yml in ${setupPath}`
+  );
+
+  // Read .env file to get DDALAB_ALLOWED_DIRS
+  const envFilePath = path.join(setupPath, ".env");
+  let envContent = "";
+  try {
+    envContent = await fs.readFile(envFilePath, "utf-8");
+  } catch (error) {
+    throw new Error(`Could not read .env file at ${envFilePath}: ${error}`);
+  }
+
+  // Extract DDALAB_ALLOWED_DIRS from .env content
+  const allowedDirsMatch = envContent.match(/^DDALAB_ALLOWED_DIRS=(.*)$/m);
+  if (!allowedDirsMatch) {
+    throw new Error("DDALAB_ALLOWED_DIRS not found in .env file");
+  }
+
+  const allowedDirs = allowedDirsMatch[1].trim();
+  console.log(`[main.ts] Found DDALAB_ALLOWED_DIRS: ${allowedDirs}`);
+
+  // Generate docker-compose.volumes.yml content
+  let volumesContent = `# Auto-generated file - do not edit manually
+# Generated from DDALAB_ALLOWED_DIRS: ${allowedDirs}
+
+services:
+  api:
+    volumes:
+      - prometheus_metrics:/tmp/prometheus
+`;
+
+  // Parse DDALAB_ALLOWED_DIRS and generate volume mounts
+  const dirs = allowedDirs.split(",");
+  for (const dir of dirs) {
+    const parts = dir.trim().split(":");
+    if (parts.length === 3) {
+      const sourcePath = parts[0];
+      const targetPath = parts[1];
+      const mode = parts[2];
+
+      volumesContent += `      - type: bind\n`;
+      volumesContent += `        source: ${sourcePath}\n`;
+      volumesContent += `        target: ${targetPath}\n`;
+      if (mode === "ro") {
+        volumesContent += `        read_only: true\n`;
+      }
+    } else {
+      console.warn(`[main.ts] Invalid directory format: ${dir}`);
+    }
+  }
+
+  // Write docker-compose.volumes.yml file
+  const volumesFilePath = path.join(setupPath, "docker-compose.volumes.yml");
+  await fs.writeFile(volumesFilePath, volumesContent, "utf-8");
+  console.log(`[main.ts] Generated ${volumesFilePath}`);
+  console.log(`[main.ts] Volume configuration:\n${volumesContent}`);
+}
+
 // Function to get the project name (directory name of the docker-compose.yml)
 // MODIFICATION NEEDED: This should use the setupPath from installer state.
 async function getDockerProjectName(): Promise<string> {
@@ -608,14 +747,13 @@ async function getTraefikContainerId(
     }
     return null;
   }
-  const composeFilePath = path.join(state.setupPath, "docker-compose.yml");
-  const command = `docker compose -f "${composeFilePath}" -p ${projectName} ps -q traefik`;
+  const command = `docker-compose -f docker-compose.yml -f docker-compose.volumes.yml ps -q traefik`;
   console.log(`[main.ts] Executing command to get Traefik ID: ${command}`);
 
   return new Promise((resolve) => {
     exec(
       command,
-      { cwd: state.setupPath! }, // Use setupPath as CWD
+      { cwd: state.setupPath!, env: getDockerEnvironment() }, // Use setupPath as CWD and Docker environment
       (error, stdout, stderr) => {
         if (error) {
           console.error(
@@ -693,7 +831,7 @@ async function checkTraefikHealth(
   // Fetch the entire State object as JSON
   const command = `docker inspect --format='{{json .State}}' ${containerId}`;
 
-  exec(command, (error, stdout, stderr) => {
+  exec(command, { env: getDockerEnvironment() }, (error, stdout, stderr) => {
     if (error) {
       console.error(
         `[main.ts] Error inspecting Traefik (${containerId}): ${stderr}`
@@ -760,13 +898,16 @@ async function checkTraefikHealth(
         }`
       );
 
-      // If health status is 'healthy', or if no health status is available but Docker state is 'running'
+      // If health status is 'healthy', 'starting' with running container, or if no health status is available but Docker state is 'running'
       if (
         status === "healthy" ||
+        (status === "starting" && state.Status === "running") ||
         (status === undefined && state.Status === "running")
       ) {
         console.log(
-          `[main.ts] Traefik (${containerId}) is considered operational (Health: ${status}, State: ${state.Status}). All services should be ready.`
+          `[main.ts] Traefik (${containerId}) is considered operational (Health: ${
+            status || "undefined"
+          }, State: ${state.Status}). All services should be ready.`
         );
         if (mainWindow) {
           // Consider renaming "all-services-ready" if it implies the old setup.
@@ -830,12 +971,18 @@ async function checkTraefikHealth(
 // MODIFICATION NEEDED: This must use the setupPath for CWD and compose file path.
 ipcMain.handle("start-docker-compose", async () => {
   console.log('[main.ts] IPC event "start-docker-compose" received.');
+  console.log(
+    "[main.ts] 🚀 INSTALLER VERSION: 2025-05-23-v2 (JavaScript volume generation)"
+  );
+
   if (!mainWindow) {
     console.error("[main.ts] Cannot start Docker Compose: mainWindow not set.");
     return false;
   }
 
   const state = await getInstallerState();
+  console.log(`[main.ts] Current installer state:`, state);
+
   if (!state.setupComplete || !state.setupPath) {
     console.error(
       "[main.ts] Cannot start Docker Compose: setup not complete or path missing."
@@ -848,56 +995,97 @@ ipcMain.handle("start-docker-compose", async () => {
   }
 
   const projectName = await getDockerProjectName(); // ensure this uses the correct path now
-  const composeFile = path.join(state.setupPath, "docker-compose.yml");
-  const composeCommand = `docker compose -f "${composeFile}" -p "${projectName}" up -d`;
+  console.log(`[main.ts] Project name: ${projectName}`);
 
   mainWindow.webContents.send("docker-status-update", {
     type: "info",
-    message: `Starting Docker services (project: ${projectName}, path: ${state.setupPath})... Command: ${composeCommand}`,
+    message: `Generating volume configuration from DDALAB_ALLOWED_DIRS...`,
   });
 
-  return new Promise((resolvePromise) => {
-    exec(
-      composeCommand,
-      { cwd: state.setupPath! }, // Use setupPath as CWD
-      async (error, stdout, stderr) => {
-        if (!error) {
-          console.log(
-            `[main.ts] 'docker-compose up -d' successful. Stdout: ${stdout}`
-          );
-          mainWindow?.webContents.send("docker-status-update", {
-            type: "success",
-            message: "Docker services started. Checking Traefik health...",
-          });
-          const traefikContainerId = await getTraefikContainerId(projectName);
-          if (traefikContainerId) {
-            checkTraefikHealth(traefikContainerId);
-          } else {
-            console.error(
-              "[main.ts] Could not get Traefik container ID after startup."
+  // Generate volumes configuration using JavaScript instead of shell script
+  console.log(`[main.ts] About to generate volume configuration`);
+  console.log(`[main.ts] Working directory: ${state.setupPath}`);
+
+  try {
+    await validateDockerFiles(state.setupPath);
+    await generateDockerVolumes(state.setupPath);
+    console.log(`[main.ts] Volume generation successful`);
+
+    // Now start services with both compose files (equivalent to the start-with-volumes.sh approach)
+    const composeCommand = `docker-compose -f docker-compose.yml -f docker-compose.volumes.yml up --build -d`;
+
+    console.log(
+      `[main.ts] About to execute compose command: ${composeCommand}`
+    );
+    console.log(`[main.ts] Working directory: ${state.setupPath}`);
+
+    mainWindow?.webContents.send("docker-status-update", {
+      type: "info",
+      message: `Starting Docker services with volume configuration (project: ${projectName}, path: ${state.setupPath})...`,
+    });
+
+    return new Promise((resolvePromise) => {
+      exec(
+        composeCommand,
+        { cwd: state.setupPath!, env: getDockerEnvironment() }, // Use setupPath as CWD and Docker environment
+        async (error, stdout, stderr) => {
+          if (!error) {
+            console.log(
+              `[main.ts] 'docker-compose up -d' successful. Stdout: ${stdout}`
             );
             mainWindow?.webContents.send("docker-status-update", {
-              type: "error",
-              message:
-                "Failed to get Traefik ID after startup. Services might not be accessible.",
+              type: "success",
+              message: "Docker services started. Checking Traefik health...",
             });
+            const traefikContainerId = await getTraefikContainerId(projectName);
+            if (traefikContainerId) {
+              checkTraefikHealth(traefikContainerId);
+            } else {
+              console.error(
+                "[main.ts] Could not get Traefik container ID after startup."
+              );
+              mainWindow?.webContents.send("docker-status-update", {
+                type: "error",
+                message:
+                  "Failed to get Traefik ID after startup. Services might not be accessible.",
+              });
+            }
+            resolvePromise(true);
+          } else {
+            console.error(
+              `[main.ts] Error starting Docker Compose: ${error.message}. Stderr: ${stderr}`
+            );
+
+            // Check for specific mount/path errors and provide helpful messages
+            let errorMessage = stderr || error.message;
+            if (
+              errorMessage.includes("mount source path") &&
+              errorMessage.includes("prometheus.yml")
+            ) {
+              errorMessage = `Failed to mount prometheus.yml file. This may be due to Docker Desktop file sharing settings or the file being missing/inaccessible. Original error: ${errorMessage}`;
+            } else if (errorMessage.includes("mount source path")) {
+              errorMessage = `Docker failed to mount a required file or directory. Check that all required files exist and Docker Desktop has access to the setup directory. Original error: ${errorMessage}`;
+            }
+
+            mainWindow?.webContents.send("docker-status-update", {
+              type: "error",
+              message: `Failed to start Docker services: ${errorMessage}`,
+            });
+            resolvePromise(false);
           }
-          resolvePromise(true);
-        } else {
-          console.error(
-            `[main.ts] Error starting Docker Compose: ${error.message}. Stderr: ${stderr}`
-          );
-          mainWindow?.webContents.send("docker-status-update", {
-            type: "error",
-            message: `Failed to start Docker services: ${
-              stderr || error.message
-            }`,
-          });
-          resolvePromise(false);
         }
-      }
+      );
+    });
+  } catch (generateError: any) {
+    console.error(
+      `[main.ts] Error generating volumes: ${generateError.message}`
     );
-  });
+    mainWindow?.webContents.send("docker-status-update", {
+      type: "error",
+      message: `Failed to generate volume configuration: ${generateError.message}`,
+    });
+    return false;
+  }
 });
 
 console.log("[main.ts] Registering stop-docker-compose handler");
@@ -928,8 +1116,7 @@ ipcMain.handle(
     }
 
     const projectName = await getDockerProjectName();
-    const composeFile = path.join(state.setupPath, "docker-compose.yml");
-    let composeCommand = `docker compose -f "${composeFile}" -p "${projectName}" down`;
+    let composeCommand = `docker-compose -f docker-compose.yml -f docker-compose.volumes.yml down`;
 
     if (deleteVolumes) {
       composeCommand += " --volumes";
@@ -943,7 +1130,7 @@ ipcMain.handle(
     return new Promise((resolvePromise) => {
       exec(
         composeCommand,
-        { cwd: state.setupPath! }, // Use setupPath as CWD
+        { cwd: state.setupPath!, env: getDockerEnvironment() }, // Use setupPath as CWD and Docker environment
         (error, stdout, stderr) => {
           if (error) {
             console.error(
@@ -984,23 +1171,26 @@ ipcMain.handle("get-docker-status", async () => {
     }
 
     const projectName = await getDockerProjectName();
-    const composeFile = path.join(state.setupPath, "docker-compose.yml");
-    const command = `docker compose -f "${composeFile}" -p "${projectName}" ps --services --filter status=running`;
+    const command = `docker-compose -f docker-compose.yml -f docker-compose.volumes.yml ps --services --filter status=running`;
 
     console.log(`[main.ts] Checking Docker status with command: ${command}`);
 
     const { stdout } = await new Promise<{ stdout: string; stderr: string }>(
       (resolve, reject) => {
-        exec(command, { cwd: state.setupPath! }, (error, stdout, stderr) => {
-          if (error) {
-            console.log(
-              `[main.ts] Docker status check error (likely no containers): ${error.message}`
-            );
-            resolve({ stdout: "", stderr });
-          } else {
-            resolve({ stdout, stderr });
+        exec(
+          command,
+          { cwd: state.setupPath!, env: getDockerEnvironment() },
+          (error, stdout, stderr) => {
+            if (error) {
+              console.log(
+                `[main.ts] Docker status check error (likely no containers): ${error.message}`
+              );
+              resolve({ stdout: "", stderr });
+            } else {
+              resolve({ stdout, stderr });
+            }
           }
-        });
+        );
       }
     );
 
