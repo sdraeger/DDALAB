@@ -15,7 +15,7 @@ function streamDockerLogs(mainWindow: BrowserWindow | null) {
     stopLogStream(); // Stop existing stream before starting a new one
   }
 
-  logProcess = spawn("docker", ["compose", "logs", "--follow"], {
+  logProcess = spawn("docker-compose", ["logs", "--follow"], {
     cwd: app.getAppPath(),
   });
 
@@ -71,7 +71,7 @@ export async function manageDockerCompose(
   deleteVolumes?: boolean
 ): Promise<boolean> {
   try {
-    let dockerCmd = `docker compose ${command}`;
+    let dockerCmd = `docker-compose ${command}`;
     if (command === "up") {
       dockerCmd += " -d";
     } else if (command === "down" && deleteVolumes) {
@@ -131,7 +131,7 @@ export function getIsDockerRunning(): boolean {
 export async function fetchCurrentDockerLogs(): Promise<string> {
   try {
     const { stdout, stderr } = await execAsync(
-      "docker compose logs --tail=50",
+      "docker-compose logs --tail=50",
       {
         cwd: app.getAppPath(),
       }

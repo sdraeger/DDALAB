@@ -24,7 +24,9 @@ async def get_config():
     """
     Endpoint: Get global (public-facing) server configuration
     """
-    return settings.model_dump(include={"institution_name", "allowed_dirs"})
+    config_data = settings.model_dump(include={"institution_name", "allowed_dirs"})
+    logger.info(f"[Config API] Returning config: {config_data}")
+    return config_data
 
 
 @router.get("/edf", response_model=EdfConfigResponse)

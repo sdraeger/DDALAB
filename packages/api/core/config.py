@@ -69,11 +69,14 @@ class Settings(BaseSettings):
         Returns:
             Parsed value
         """
+        logger.info(f"[Config] Parsing allowed_dirs from value: {value}")
 
         if isinstance(value, str):
             try:
                 # Parse the comma-separated string with colon-separated parts
-                return {pair.split(":")[1] for pair in value.split(",")}
+                parsed_dirs = {pair.split(":")[1] for pair in value.split(",")}
+                logger.info(f"[Config] Parsed allowed_dirs result: {parsed_dirs}")
+                return parsed_dirs
             except (IndexError, ValueError) as e:
                 logger.error(f"Failed to parse allowed_dirs: {e}")
                 raise ValueError(f"Invalid ALLOWED_DIRS format: {value}")

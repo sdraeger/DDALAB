@@ -1,7 +1,7 @@
 import esbuild from 'esbuild';
 import cpx from 'cpx';
 
-const sharedConfig = {
+const rendererConfig = {
   entryPoints: ['src/renderer.tsx'],
   bundle: true,
   outfile: 'dist/src/renderer.bundle.js',
@@ -24,9 +24,25 @@ const sharedConfig = {
   // ],
 };
 
+const mainConfig = {
+  entryPoints: ['main.ts'],
+  bundle: false,
+  outfile: 'dist/main.js',
+  platform: 'node',
+  format: 'cjs',
+  sourcemap: true,
+  loader: {
+    '.ts': 'ts',
+  },
+};
+
 async function build() {
   try {
-    await esbuild.build(sharedConfig);
+    // Build both main and renderer processes
+    await esbuild.build(mainConfig);
+    console.log('Main process build successful with esbuild!');
+
+    await esbuild.build(rendererConfig);
     console.log('Renderer build successful with esbuild!');
   } catch (error) {
     console.error('esbuild failed:', error);
