@@ -164,6 +164,16 @@ const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
             onClick={handleStartDDALAB}
             disabled={!canStart()}
           >
+            {dockerStatus.includes("Starting") ||
+            dockerStatus.includes("Checking Health") ? (
+              <span
+                className="spinner-border spinner-border-sm me-2"
+                role="status"
+                aria-hidden="true"
+              ></span>
+            ) : (
+              <></>
+            )}
             Start DDALAB
           </button>
           <button
@@ -171,6 +181,15 @@ const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
             onClick={handleStopDDALAB}
             disabled={!canStop()}
           >
+            {dockerStatus.includes("Stopping") ? (
+              <span
+                className="spinner-border spinner-border-sm me-2"
+                role="status"
+                aria-hidden="true"
+              ></span>
+            ) : (
+              <></>
+            )}
             Stop DDALAB
           </button>
           {/* <button className="btn btn-info" onClick={handleFetchLogs}>

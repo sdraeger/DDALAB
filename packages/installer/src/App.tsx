@@ -211,7 +211,9 @@ const AppContent: React.FC = () => {
               if (userSelections.setupType === "automatic") {
                 // For automatic setup, run the initial setup
                 console.log("[App.tsx] Running automatic setup...");
-                await electronAPI.runInitialSetup(userSelections.dataLocation);
+                // Convert directory path to proper DDALAB_ALLOWED_DIRS format
+                const allowedDirsValue = `${userSelections.dataLocation}:/app/data:rw`;
+                await electronAPI.runInitialSetup(allowedDirsValue);
                 console.log("[App.tsx] Automatic setup completed successfully");
               } else {
                 // For manual setup, save env file and mark setup complete
@@ -278,9 +280,11 @@ const AppContent: React.FC = () => {
     setIsLoading(true);
 
     try {
+      // Convert directory path to proper DDALAB_ALLOWED_DIRS format
+      const allowedDirsValue = `${showCloneDialog.targetPath}:/app/data:rw`;
       const result = await electronAPI.cloneRepositoryToDirectory(
         showCloneDialog.targetPath,
-        showCloneDialog.targetPath // Use target path as allowed dirs value
+        allowedDirsValue
       );
 
       if (result.success && result.setupPath) {
