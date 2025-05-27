@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { LoginForm } from "shared/components/form/login-form";
 import { useSession } from "next-auth/react";
@@ -12,12 +11,6 @@ export default function LoginPage() {
   const isLoggedIn = !!session;
   const loading = status === "loading";
 
-  useEffect(() => {
-    if (!loading && isLoggedIn) {
-      router.push("/dashboard");
-    }
-  }, [isLoggedIn, loading, router]);
-
   if (loading) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
@@ -25,6 +18,11 @@ export default function LoginPage() {
         <span className="ml-2">Loading...</span>
       </div>
     );
+  }
+
+  if (isLoggedIn) {
+    router.push("/dashboard");
+    return null;
   }
 
   return (

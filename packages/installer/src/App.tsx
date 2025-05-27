@@ -37,7 +37,6 @@ const AppContent: React.FC = () => {
     isBackButtonEnabled,
     shouldShowNextButton,
     shouldShowFinishButton,
-    validationMessage,
   } = useNavigationValidation(
     currentSite,
     userSelections,

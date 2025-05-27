@@ -1,11 +1,11 @@
-import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
+import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 
 export interface Ticket {
   id: string;
   title: string;
   description: string;
-  status: 'open' | 'in-progress' | 'resolved' | 'closed';
-  priority: 'low' | 'medium' | 'high' | 'critical';
+  status: "open" | "in-progress" | "resolved" | "closed";
+  priority: "low" | "medium" | "high" | "critical";
   createdAt: string;
   updatedAt: string;
   createdBy: string;
@@ -26,34 +26,23 @@ const initialState: TicketsState = {
   currentTicket: null,
 };
 
-export const fetchTickets = createAsyncThunk(
-  'tickets/fetchTickets',
-  async (_, { rejectWithValue }) => {
-    try {
-      const response = await fetch('/api/tickets');
-      if (!response.ok) {
-        throw new Error('Failed to fetch tickets');
-      }
-      return await response.json();
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-      return rejectWithValue(errorMessage);
-    }
-  }
-);
-
 const ticketsSlice = createSlice({
-  name: 'tickets',
+  name: "tickets",
   initialState,
   reducers: {
     setTickets: (state, action: PayloadAction<Ticket[]>) => {
       state.tickets = action.payload;
+      state.loading = false;
+      state.error = null;
     },
     setCurrentTicket: (state, action: PayloadAction<Ticket | null>) => {
       state.currentTicket = action.payload;
     },
-    updateTicketInState: (state, action: PayloadAction<Partial<Ticket> & { id: string }>) => {
-      const index = state.tickets.findIndex(t => t.id === action.payload.id);
+    updateTicketInState: (
+      state,
+      action: PayloadAction<Partial<Ticket> & { id: string }>
+    ) => {
+      const index = state.tickets.findIndex((t) => t.id === action.payload.id);
       if (index !== -1) {
         state.tickets[index] = { ...state.tickets[index], ...action.payload };
       }
@@ -61,23 +50,21 @@ const ticketsSlice = createSlice({
         state.currentTicket = { ...state.currentTicket, ...action.payload };
       }
     },
-  },
-  extraReducers: (builder) => {
-    builder
-      .addCase(fetchTickets.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(fetchTickets.fulfilled, (state, action) => {
-        state.loading = false;
-        state.tickets = action.payload;
-      })
-      .addCase(fetchTickets.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload as string;
-      });
+    setLoading: (state, action: PayloadAction<boolean>) => {
+      state.loading = action.payload;
+    },
+    setError: (state, action: PayloadAction<string | null>) => {
+      state.error = action.payload;
+      state.loading = false;
+    },
   },
 });
 
-export const { setTickets, setCurrentTicket, updateTicketInState } = ticketsSlice.actions;
+export const {
+  setTickets,
+  setCurrentTicket,
+  updateTicketInState,
+  setLoading,
+  setError,
+} = ticketsSlice.actions;
 export default ticketsSlice.reducer;

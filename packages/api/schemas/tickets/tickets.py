@@ -25,7 +25,6 @@ class TicketUpdate(BaseModel):
 class Ticket(TicketBase):
     """Schema for retrieving tickets."""
 
-    id: int
     user_id: int
     title: str
     description: str

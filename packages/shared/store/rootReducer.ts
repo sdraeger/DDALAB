@@ -1,9 +1,10 @@
 import { combineReducers } from "@reduxjs/toolkit";
-import plotsReducer from "./slices/plotSlice";
+import authReducer from "../src/store/slices/authSlice";
+import ticketsReducer from "../src/store/slices/ticketsSlice";
 
 const rootReducer = combineReducers({
-  plots: plotsReducer,
-  // Add other reducers here as your application grows
+  auth: authReducer,
+  tickets: ticketsReducer,
 });
 
 export type RootState = ReturnType<typeof rootReducer>;

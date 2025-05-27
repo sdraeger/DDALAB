@@ -173,7 +173,13 @@ class Ticket(Base):
 
     __tablename__ = "help_tickets"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+        autoincrement=True,
+        nullable=False,
+    )
     user_id = Column(Integer, ForeignKey("users.id"))
     title = Column(String)
     description = Column(String)

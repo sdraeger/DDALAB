@@ -16,36 +16,26 @@ import {
 import { Label } from "shared/components/ui/label";
 import { Input } from "shared/components/ui/input";
 import { Button } from "shared/components/ui/button";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { EEGZoomSettings } from "shared/components/settings/eeg-zoom-settings";
 import { ThemeSettings } from "shared/components/settings/theme-settings";
 import { SaveSettingsButton } from "shared/components/ui/save-settings-button";
-import { useSettings } from "shared/contexts/settings-context";
 import { useSession } from "next-auth/react";
 import { useToast } from "shared/components/ui/use-toast";
 
 export default function SettingsPage() {
-  const { data: session, status, update: updateSession } = useSession();
-  const { hasUnsavedChanges } = useSettings();
+  const { data: session, update: updateSession } = useSession();
   const { toast } = useToast();
-  const user = session?.user;
   const [email, setEmail] = useState("");
   const [isEditingEmail, setIsEditingEmail] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-
-  // Initialize email from session
-  useEffect(() => {
-    if (user?.email) {
-      setEmail(user.email);
-    }
-  }, [user]);
+  const user = session?.user;
 
   const handleSaveEmail = async () => {
     if (!user) return;
 
     setIsSaving(true);
     try {
-      console.log("session handleSaveEmail", session);
       const response = await fetch(`/api/users/${user.id}`, {
         method: "PUT",
         headers: {
@@ -59,7 +49,6 @@ export default function SettingsPage() {
         throw new Error("Failed to update email");
       }
 
-      // Update session with new email
       if (session) {
         await updateSession({
           ...session,
@@ -96,7 +85,6 @@ export default function SettingsPage() {
     );
   }
 
-  // Get display name and initials
   const displayName = user.name || user.id;
   const userInitials = getInitials(user.name || "", user.id);
 
@@ -195,7 +183,6 @@ export default function SettingsPage() {
         <EEGZoomSettings />
       </div>
 
-      {/* Always show floating button at the bottom */}
       <div className="fixed bottom-6 right-6 z-50">
         <SaveSettingsButton floating />
       </div>

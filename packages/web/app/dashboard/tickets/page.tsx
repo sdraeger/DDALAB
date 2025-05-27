@@ -1,13 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw } from "lucide-react";
-
-import { useToast } from "shared/hooks/use-toast";
-import { useAppDispatch, useAppSelector } from "shared";
-import { fetchTickets } from "shared/src/store/slices/ticketsSlice";
+import { useApiQuery } from "shared/lib/hooks/query";
 import { ProtectedRoute } from "shared/components/higher-order/ProtectedRoute";
 import { Button } from "shared/components/ui/button";
 import {
@@ -37,179 +33,19 @@ interface Ticket {
   assignedTo?: string;
 }
 
-interface RootState {
-  tickets: {
-    tickets: Ticket[];
-    loading: boolean;
-    error: string | null;
-    currentTicket: Ticket | null;
-  };
-}
-
-const formatDate = (dateString: string): string => {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
-
-const TicketCard = ({ ticket }: { ticket: Ticket }) => (
-  <Card className="mb-4">
-    <CardHeader className="pb-2">
-      <div className="flex justify-between items-start">
-        <div>
-          <CardTitle className="text-lg">{ticket.title}</CardTitle>
-          <CardDescription className="mt-1">
-            Created by {ticket.createdBy} • {formatDate(ticket.createdAt)}
-          </CardDescription>
-        </div>
-        <Badge variant={ticket.status === "resolved" ? "success" : "default"}>
-          {ticket.status}
-        </Badge>
-      </div>
-    </CardHeader>
-    <CardContent>
-      <p className="text-sm text-muted-foreground">{ticket.description}</p>
-      <div className="mt-3 flex justify-between items-center">
-        <Badge variant="outline" className="capitalize">
-          {ticket.priority} priority
-        </Badge>
-        {ticket.assignedTo && (
-          <span className="text-xs text-muted-foreground">
-            Assigned to: {ticket.assignedTo}
-          </span>
-        )}
-      </div>
-    </CardContent>
-  </Card>
-);
-
-const TicketsPage = () => {
-  const { data: session, status } = useSession();
-  const router = useRouter();
-  const { toast } = useToast();
-  const dispatch = useAppDispatch();
-
-  // Use the RootState type with useAppSelector
-  const { tickets, loading, error } = useAppSelector(
-    (state: RootState) => state.tickets
-  );
-
-  // Filter tickets
-  const openTickets = tickets.filter(
-    (ticket: Ticket) =>
-      ticket.status === "open" || ticket.status === "in-progress"
-  );
-
-  const resolvedTickets = tickets.filter(
-    (ticket: Ticket) =>
-      ticket.status === "resolved" || ticket.status === "closed"
-  );
-
-  useEffect(() => {
-    if (status === "unauthenticated") {
-      router.push("/login");
-    } else if (status === "authenticated") {
-      dispatch(fetchTickets());
-    }
-  }, [status, router, dispatch]);
-
-  const handleRefresh = () => {
-    dispatch(fetchTickets());
-    toast({
-      title: "Refreshing tickets...",
-      description: "Fetching the latest ticket data.",
-    });
-  };
-
-  if (status === "loading" || loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-4">
-        <div className="text-red-500">Error loading tickets: {error}</div>
-        <Button onClick={handleRefresh} variant="outline" className="mt-4">
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Try Again
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="container mx-auto p-4">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Support Tickets</h1>
-        <div className="flex space-x-2">
-          <Button onClick={handleRefresh} variant="outline">
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
-          <Button>New Ticket</Button>
-        </div>
-      </div>
-
-      <Tabs defaultValue="open" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="open">Open ({openTickets.length})</TabsTrigger>
-          <TabsTrigger value="resolved">
-            Resolved ({resolvedTickets.length})
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="open" className="space-y-4">
-          {openTickets.length === 0 ? (
-            <Card>
-              <CardContent className="pt-6 text-center text-muted-foreground">
-                No open tickets found.
-              </CardContent>
-            </Card>
-          ) : (
-            openTickets.map((ticket: Ticket) => (
-              <TicketCard key={ticket.id} ticket={ticket} />
-            ))
-          )}
-        </TabsContent>
-
-        <TabsContent value="resolved" className="space-y-4">
-          {resolvedTickets.length === 0 ? (
-            <Card>
-              <CardContent className="pt-6 text-center text-muted-foreground">
-                No resolved tickets found.
-              </CardContent>
-            </Card>
-          ) : (
-            resolvedTickets.map((ticket: Ticket) => (
-              <TicketCard key={ticket.id} ticket={ticket} />
-            ))
-          )}
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-};
-
 const TicketsPageComponent = () => {
-  const { data: session, status } = useSession();
+  const { status, data: session } = useSession();
   const router = useRouter();
-  const dispatch = useAppDispatch();
 
-  // Use the RootState type with useAppSelector
-  const { tickets, loading, error } = useAppSelector(
-    (state: RootState) => state.tickets
-  );
+  const { data, loading, error, refetch } = useApiQuery<Ticket[]>({
+    url: "/api/tickets",
+    method: "GET",
+    enabled: status === "authenticated",
+    token: session?.accessToken,
+  });
 
-  // Filter tickets with proper typing
+  const tickets = data || [];
+
   const openTickets = tickets.filter(
     (ticket: Ticket) =>
       ticket.status === "open" || ticket.status === "in-progress"
@@ -220,15 +56,8 @@ const TicketsPageComponent = () => {
       ticket.status === "resolved" || ticket.status === "closed"
   );
 
-  // Fetch tickets when component mounts
-  useEffect(() => {
-    if (status === "authenticated") {
-      dispatch(fetchTickets());
-    }
-  }, [dispatch, status]);
-
   const handleRefresh = () => {
-    dispatch(fetchTickets());
+    refetch();
   };
 
   const handleTicketClick = (ticketId: string) => {
@@ -281,7 +110,7 @@ const TicketsPageComponent = () => {
             <CardContent className="py-6">
               <div className="text-center text-destructive">
                 <p>Failed to load tickets. Please try again.</p>
-                <p className="text-sm">{error}</p>
+                <p className="text-sm">{error.message}</p>
               </div>
             </CardContent>
           </Card>
@@ -377,21 +206,6 @@ const TicketsPageComponent = () => {
       </div>
     </ProtectedRoute>
   );
-};
-
-const getStatusBadge = (status: string) => {
-  switch (status) {
-    case "open":
-      return <Badge variant="default">Open</Badge>;
-    case "in-progress":
-      return <Badge variant="secondary">In Progress</Badge>;
-    case "resolved":
-      return <Badge variant="success">Resolved</Badge>;
-    case "closed":
-      return <Badge variant="outline">Closed</Badge>;
-    default:
-      return <Badge>{status}</Badge>;
-  }
 };
 
 export default TicketsPageComponent;

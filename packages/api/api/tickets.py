@@ -8,9 +8,10 @@ from ..core.auth import (
     get_admin_user,
     get_current_user,
 )
-from ..core.database import Ticket, User
-from ..core.repository import TicketRepository, get_repository
-from ..schemas.tickets import TicketCreate, TicketResponse, TicketUpdate
+from ..core.database import User
+from ..core.dependencies import get_service
+from ..core.services import TicketService
+from ..schemas.tickets import Ticket, TicketCreate, TicketResponse, TicketUpdate
 
 router = APIRouter(prefix="")
 
@@ -35,12 +36,12 @@ def parse_date(date_str):
 async def create_ticket(
     ticket_data: TicketCreate,
     current_user: User = Depends(get_current_user),
-    ticket_repo: TicketRepository = Depends(get_repository(TicketRepository)),
+    ticket_service: TicketService = Depends(get_service(TicketService)),
 ):
     """Create a help ticket."""
 
     # Set created date as now
-    created_at = datetime.now()
+    created_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Create the ticket
     ticket = Ticket(
@@ -48,32 +49,33 @@ async def create_ticket(
         description=ticket_data.description,
         status="open",
         user_id=current_user.id,
+        created_at=created_at,
+        updated_at=created_at,
     )
 
     # Add the ticket to the database
-    await ticket_repo.add(ticket)
+    created_ticket = await ticket_service.create_ticket(ticket)
 
     # Return the created ticket
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
     return TicketResponse(
-        id=ticket.id,
+        id=created_ticket.id,
         user_id=str(current_user.id),
-        title=ticket.title,
-        description=ticket.description,
-        status=ticket.status,
-        created_at=created_at,
-        updated_at=now,
+        title=created_ticket.title,
+        description=created_ticket.description,
+        status=created_ticket.status,
+        created_at=created_ticket.created_at,
+        updated_at=created_ticket.updated_at,
     )
 
 
 @router.get("", response_model=list[TicketResponse])
 async def get_tickets(
     current_user: User = Depends(get_current_user),
-    ticket_repo: TicketRepository = Depends(get_repository(TicketRepository)),
+    ticket_service: TicketService = Depends(get_service(TicketService)),
 ):
     """Get all tickets for the current user."""
 
-    tickets_data = await ticket_repo.get_by_user_id(current_user.id)
+    tickets_data = await ticket_service.get_tickets_by_user_id(current_user.id)
 
     if tickets_data is None:
         raise HTTPException(
@@ -101,14 +103,14 @@ async def get_tickets(
 @router.get("/{ticket_id}")
 async def get_ticket(
     ticket_id: str,
-    ticket_repo: TicketRepository = Depends(get_repository(TicketRepository)),
+    ticket_service: TicketService = Depends(get_service(TicketService)),
     _: User = Depends(get_current_user),
 ):
     """Get ticket by ID."""
 
     try:
         # Get ticket by ID
-        ticket = await ticket_repo.get_by_id(ticket_id)
+        ticket = await ticket_service.get_ticket(ticket_id)
         return ticket
     except Exception as e:
         raise HTTPException(
@@ -120,13 +122,13 @@ async def get_ticket(
 async def update_ticket(
     ticket_id: str,
     ticket_update: TicketUpdate,
-    ticket_repo: TicketRepository = Depends(get_repository(TicketRepository)),
+    ticket_service: TicketService = Depends(get_service(TicketService)),
     _: User = Depends(get_admin_user),
 ):
     """Update ticket."""
 
     try:
-        ticket = await ticket_repo.update(ticket_id, ticket_update)
+        ticket = await ticket_service.update_ticket(ticket_id, ticket_update)
         return ticket
     except Exception as e:
         raise HTTPException(
@@ -137,13 +139,13 @@ async def update_ticket(
 @router.delete("/{ticket_id}")
 async def delete_ticket(
     ticket_id: str,
-    ticket_repo: TicketRepository = Depends(get_repository(TicketRepository)),
+    ticket_service: TicketService = Depends(get_service(TicketService)),
     _: User = Depends(get_admin_user),
 ):
     """Delete ticket."""
 
     try:
-        await ticket_repo.delete(ticket_id)
+        await ticket_service.delete_ticket(ticket_id)
         return {"ticket_id": ticket_id, "deleted": True}
     except Exception as e:
         raise HTTPException(

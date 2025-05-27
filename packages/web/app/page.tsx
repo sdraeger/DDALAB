@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "shared/components/ui/button";
@@ -13,16 +12,13 @@ export default function Home() {
   const isLoggedIn = !!session;
   const loading = status === "loading";
 
-  useEffect(() => {
-    if (!loading && isLoggedIn) {
-      router.push("/dashboard");
-    }
-  }, [isLoggedIn, loading, router]);
-
-  // If loading, you could show a loading state or return null
   if (loading) return null;
 
-  // Only render the landing page if not logged in
+  if (isLoggedIn) {
+    router.push("/dashboard");
+    return null;
+  }
+
   return (
     <main className="flex min-h-[calc(100vh-3.5rem)] flex-col items-center justify-center p-4 md:p-8">
       <div className="container flex flex-col items-center justify-center gap-6 text-center max-w-3xl">
