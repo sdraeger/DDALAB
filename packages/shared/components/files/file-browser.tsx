@@ -61,7 +61,6 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
   const [isUploading, setIsUploading] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
-  // Remove local state and use context instead
   const {
     setSelectedFilePath,
     setPlotDialogOpen,
@@ -80,10 +79,18 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
     method: "GET",
     responseType: "json",
     enabled: true,
+    token: session?.accessToken,
   });
 
   useEffect(() => {
-    if (configData && currentPath === "") {
+    console.log("configData", configData);
+    console.log("currentPath", currentPath);
+    if (
+      configData &&
+      currentPath === "" &&
+      configData.allowedDirs &&
+      configData.allowedDirs.length > 0
+    ) {
       const newPath = configData.allowedDirs[0];
       setCurrentPath(newPath);
     }

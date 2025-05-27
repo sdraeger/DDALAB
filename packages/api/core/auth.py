@@ -294,3 +294,9 @@ async def get_admin_user(
         )
 
     return current_user
+
+
+def is_user_logged_in(request: Request) -> bool:
+    """Check if the user is logged in."""
+    token = getattr(request.state, "token", None)
+    return token is not None

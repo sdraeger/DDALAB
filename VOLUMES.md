@@ -13,6 +13,7 @@ DDALAB_ALLOWED_DIRS=source1:target1:mode1,source2:target2:mode2,...
 ```
 
 Where:
+
 - `source`: Host machine path
 - `target`: Container path
 - `mode`: Access mode (`rw` for read-write, `ro` for read-only)
@@ -20,11 +21,13 @@ Where:
 ### Examples
 
 **Single directory with read-write access:**
+
 ```bash
 DDALAB_ALLOWED_DIRS=/Users/simon/Desktop:/app/data/Desktop:rw
 ```
 
 **Multiple directories with different permissions:**
+
 ```bash
 DDALAB_ALLOWED_DIRS=/Users/simon/Desktop:/app/data/Desktop:rw,/shared/readonly:/app/shared:ro,./data:/app/data:rw
 ```
@@ -32,16 +35,19 @@ DDALAB_ALLOWED_DIRS=/Users/simon/Desktop:/app/data/Desktop:rw,/shared/readonly:/
 ## Usage
 
 ### Method 1: Automatic Generation and Start
+
 ```bash
 ./scripts/start-with-volumes.sh
 ```
 
 This script will:
+
 1. Read `DDALAB_ALLOWED_DIRS` from `.env`
 2. Generate `docker-compose.volumes.yml`
 3. Start all services with the generated volume configuration
 
 ### Method 2: Manual Generation
+
 ```bash
 # Generate volume configuration
 ./scripts/generate-volumes.sh
@@ -60,13 +66,16 @@ docker-compose -f docker-compose.yml -f docker-compose.volumes.yml up -d
 ## Troubleshooting
 
 **"Read-only file system" errors:**
+
 - Ensure paths in `DDALAB_ALLOWED_DIRS` use `:rw` mode for directories that need write access
 - Regenerate volume configuration after changing `.env`
 
 **"No such file or directory" errors:**
+
 - Verify host paths exist on your machine
 - Check path spelling in `DDALAB_ALLOWED_DIRS`
 
 **Permission denied errors:**
+
 - Ensure your user has read/write access to the host directories
 - On macOS/Linux, you may need to adjust file permissions
