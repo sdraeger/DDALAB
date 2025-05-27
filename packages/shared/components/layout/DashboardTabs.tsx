@@ -19,7 +19,6 @@ export function DashboardTabs() {
 
   const handleFileSelect = async (filePath: string) => {
     setSelectedFilePath(filePath);
-    // Collapse the file browser when a file is selected
     setFileBrowserCollapsed(true);
 
     const token = session?.accessToken;

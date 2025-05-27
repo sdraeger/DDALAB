@@ -316,7 +316,6 @@ const AppContent: React.FC = () => {
           );
         }
 
-        // Now proceed to next site
         goToNextSite();
       } else {
         alert(result.message || "Failed to clone repository.");
