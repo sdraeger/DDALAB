@@ -2,7 +2,7 @@ from typing import List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import Ticket
+from ...schemas.tickets import Ticket
 from ..dependencies import register_service
 from ..repository import TicketRepository
 
@@ -25,8 +25,14 @@ class TicketService:
     ) -> List[Ticket]:
         return await self.ticket_repo.get_all(skip, limit)
 
+    async def get_tickets_by_user_id(self, user_id: int) -> List[Ticket]:
+        return await self.ticket_repo.get_by_user_id(user_id)
+
     async def create_ticket(self, ticket: Ticket) -> Ticket:
         return await self.ticket_repo.create(ticket)
 
     async def update_ticket(self, ticket: Ticket) -> Ticket:
         return await self.ticket_repo.update(ticket)
+
+    async def delete_ticket(self, ticket_id: int) -> None:
+        return await self.ticket_repo.delete(ticket_id)

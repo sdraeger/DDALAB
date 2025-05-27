@@ -52,30 +52,11 @@ export function HelpButton() {
         method: "POST",
         body: { title, description },
         contentType: "application/json",
-        token,
+        token: token,
         responseType: "json",
       });
 
-      // Try to parse the response even if it's not OK, to get error details
-      let data;
-      try {
-        const textResponse = await response.text();
-        data = textResponse ? JSON.parse(textResponse) : {};
-      } catch (parseError) {
-        console.error("Failed to parse response:", parseError);
-        data = { error: "Failed to parse server response" };
-      }
-
-      // Check if response is OK
-      if (!response.ok) {
-        throw new Error(
-          data.detail ||
-            data.error ||
-            `Server responded with status ${response.status}`
-        );
-      }
-
-      console.log("Ticket created successfully:", data);
+      console.log("Ticket created successfully:", response);
 
       toast({
         title: "Ticket submitted",
