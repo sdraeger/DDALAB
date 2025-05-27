@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { LoginForm } from "shared/components/form/login-form";
 import { Loader2 } from "lucide-react";
@@ -13,13 +12,6 @@ export default function LoginPage() {
   const loading = status === "loading";
   const isLoggedIn = !!session;
 
-  useEffect(() => {
-    // Only redirect if we're not already on the dashboard and the session check is complete
-    if (!loading && isLoggedIn && pathname !== "/dashboard") {
-      router.replace("/dashboard");
-    }
-  }, [isLoggedIn, loading, router, pathname]);
-
   if (loading) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
@@ -29,7 +21,8 @@ export default function LoginPage() {
     );
   }
 
-  if (isLoggedIn) {
+  if (isLoggedIn && pathname !== "/dashboard") {
+    router.replace("/dashboard");
     return null;
   }
 

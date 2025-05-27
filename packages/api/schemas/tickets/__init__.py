@@ -1,3 +1,3 @@
-from .tickets import TicketCreate, TicketResponse, TicketUpdate
+from .tickets import Ticket, TicketCreate, TicketResponse, TicketUpdate
 
-__all__ = ["TicketCreate", "TicketResponse", "TicketUpdate"]
+__all__ = ["Ticket", "TicketCreate", "TicketResponse", "TicketUpdate"]
