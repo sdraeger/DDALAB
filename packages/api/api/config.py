@@ -24,8 +24,11 @@ async def get_config():
     """
     Endpoint: Get global (public-facing) server configuration
     """
-    config_data = settings.model_dump(include={"institution_name", "allowed_dirs"})
+
+    include = {"institution_name", "allowed_dirs"}
+    config_data = settings.model_dump(include=include)
     logger.info(f"[Config API] Returning config: {config_data}")
+
     return config_data
 
 

@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from fastapi import HTTPException
-from server.core.config import get_server_settings
+
+from ..config import get_server_settings
 
 settings = get_server_settings()
 
