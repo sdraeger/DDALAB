@@ -1,6 +1,10 @@
 import React, { useState } from "react";
-import type { UserSelections, ParsedEnvEntry, ElectronAPI } from "../utils";
-import { getFormattedCommentsHtml } from "../utils";
+import type {
+  UserSelections,
+  ParsedEnvEntry,
+  ElectronAPI,
+} from "../utils/electron";
+import { getFormattedCommentsHtml } from "../utils/electron";
 
 interface ManualConfigSiteProps {
   userSelections: UserSelections;
@@ -12,7 +16,7 @@ interface ManualConfigSiteProps {
   onManualSetupCompleted?: (installPath: string) => void;
 }
 
-const ManualConfigSite: React.FC<ManualConfigSiteProps> = ({
+export const ManualConfigSite: React.FC<ManualConfigSiteProps> = ({
   userSelections,
   onEnvVariableChange,
   onUpdateSelections,
@@ -211,5 +215,3 @@ const ManualConfigSite: React.FC<ManualConfigSiteProps> = ({
     </>
   );
 };
-
-export default ManualConfigSite;

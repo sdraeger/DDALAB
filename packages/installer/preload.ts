@@ -42,7 +42,10 @@ export interface ElectronAPI {
     envPath: string,
     envData: Record<string, string>
   ) => Promise<void>;
-  runInitialSetup: (allowedDirsValue: string) => Promise<{
+  runInitialSetup: (
+    dataLocation: string,
+    cloneLocation: string
+  ) => Promise<{
     success: boolean;
     message: string;
     setupPath?: string;
@@ -50,6 +53,8 @@ export interface ElectronAPI {
   getInstallerState: () => Promise<{
     setupComplete: boolean;
     setupPath: string | null;
+    dataLocation?: string;
+    cloneLocation?: string;
     error?: boolean;
   }>;
   onSetupProgress: (
@@ -140,8 +145,8 @@ const exposedAPI: ElectronAPI = {
     ipcRenderer.invoke("get-env-details", envPath),
   saveEnvFile: (envPath: string, envData: Record<string, string>) =>
     ipcRenderer.invoke("save-env-file", envPath, envData),
-  runInitialSetup: (allowedDirsValue: string) =>
-    ipcRenderer.invoke("run-initial-setup", allowedDirsValue),
+  runInitialSetup: (dataLocation: string, cloneLocation: string) =>
+    ipcRenderer.invoke("run-initial-setup", dataLocation, cloneLocation),
   getInstallerState: () => ipcRenderer.invoke("get-installer-state"),
   onSetupProgress: (callback) => {
     const handler = (

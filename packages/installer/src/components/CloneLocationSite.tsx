@@ -1,15 +1,15 @@
 import React from "react";
 import { UserSelections, ElectronAPI } from "../utils/electron";
 
-interface DataLocationSiteProps {
+interface CloneLocationSiteProps {
   userSelections: UserSelections;
-  onDataLocationChange: (path: string) => void;
+  onCloneLocationChange: (path: string) => void;
   electronAPI: ElectronAPI | undefined;
 }
 
-export const DataLocationSite: React.FC<DataLocationSiteProps> = ({
+export const CloneLocationSite: React.FC<CloneLocationSiteProps> = ({
   userSelections,
-  onDataLocationChange,
+  onCloneLocationChange,
   electronAPI,
 }) => {
   const handleSelectDirectory = async () => {
@@ -17,7 +17,7 @@ export const DataLocationSite: React.FC<DataLocationSiteProps> = ({
       try {
         const path = await electronAPI.selectDirectory();
         if (path) {
-          onDataLocationChange(path);
+          onCloneLocationChange(path);
         }
       } catch (error) {
         console.error("Error selecting directory:", error);
@@ -31,10 +31,18 @@ export const DataLocationSite: React.FC<DataLocationSiteProps> = ({
 
   return (
     <>
-      <h2>Data Location</h2>
+      <h2>Clone Location</h2>
       <p>
-        Please select the directory where the application data will be stored.
+        Please select the directory where the DDALAB setup repository will be
+        cloned. This directory should be empty and will contain the Docker
+        Compose files and configuration.
       </p>
+      <div className="alert alert-info">
+        <strong>Note:</strong> This is different from your data location. The
+        clone location contains the setup files (docker-compose.yml, etc.),
+        while your data location ({userSelections.dataLocation}) is where your
+        application data will be stored.
+      </div>
       <button
         type="button"
         className="btn btn-secondary mb-2"
@@ -44,8 +52,8 @@ export const DataLocationSite: React.FC<DataLocationSiteProps> = ({
       </button>
       <p className="mt-2">
         Selected:{" "}
-        <strong id="data-path-display">
-          {userSelections.dataLocation || "Not selected"}
+        <strong id="clone-path-display">
+          {userSelections.cloneLocation || "Not selected"}
         </strong>
       </p>
     </>

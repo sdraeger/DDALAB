@@ -1,5 +1,5 @@
 import { createMachine, assign } from "xstate";
-import type { UserSelections, ParsedEnvEntry } from "../utils";
+import type { UserSelections, ParsedEnvEntry } from "../utils/electron";
 
 interface SiteNavigationContext {
   currentSite: string;
@@ -27,6 +27,7 @@ export const siteNavigationMachine = createMachine<
     userSelections: {
       setupType: "automatic",
       dataLocation: "",
+      cloneLocation: "",
       envVariables: {},
       installationLog: [],
     },
@@ -59,6 +60,12 @@ export const siteNavigationMachine = createMachine<
                     : "manual-config";
                 break;
               case "data-location":
+                nextSite =
+                  context.userSelections.setupType === "automatic"
+                    ? "clone-location"
+                    : "summary";
+                break;
+              case "clone-location":
                 nextSite = "summary";
                 break;
               case "manual-config":
@@ -85,15 +92,19 @@ export const siteNavigationMachine = createMachine<
               case "data-location":
                 previousSite = "welcome";
                 break;
+              case "clone-location":
+                previousSite = "data-location";
+                break;
               case "manual-config":
                 previousSite = "welcome";
                 break;
               case "summary":
                 // Go back based on setup type
-                previousSite =
-                  context.userSelections.setupType === "automatic"
-                    ? "data-location"
-                    : "manual-config";
+                if (context.userSelections.setupType === "automatic") {
+                  previousSite = "clone-location";
+                } else {
+                  previousSite = "manual-config";
+                }
                 break;
               case "control-panel":
                 previousSite = "summary";
