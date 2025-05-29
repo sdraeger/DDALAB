@@ -1,6 +1,6 @@
 import { useContext } from "react";
 import { SiteNavigationContext } from "../context/SiteNavigationContext";
-import type { UserSelections, ParsedEnvEntry } from "../utils";
+import type { UserSelections, ParsedEnvEntry } from "../utils/electron";
 
 export const useSiteNavigation = () => {
   const { state, send } = useContext(SiteNavigationContext);

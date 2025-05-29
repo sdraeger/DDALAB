@@ -1,12 +1,12 @@
 import React from "react";
-import type { UserSelections } from "../utils";
+import type { UserSelections } from "../utils/electron";
 
 interface WelcomeSiteProps {
   userSelections: UserSelections;
   onSetupTypeChange: (setupType: "automatic" | "manual") => void;
 }
 
-const WelcomeSite: React.FC<WelcomeSiteProps> = ({
+export const WelcomeSite: React.FC<WelcomeSiteProps> = ({
   userSelections,
   onSetupTypeChange,
 }) => {
@@ -65,5 +65,3 @@ const WelcomeSite: React.FC<WelcomeSiteProps> = ({
     </>
   );
 };
-
-export default WelcomeSite;

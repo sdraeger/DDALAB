@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { UserSelections, ParsedEnvEntry } from "../utils";
+import type { UserSelections, ParsedEnvEntry } from "../utils/electron";
 
 interface NavigationValidationState {
   isNextButtonEnabled: boolean;
@@ -35,6 +35,13 @@ export const useNavigationValidation = (
               ? "Please select a data location"
               : undefined,
           };
+        case "clone-location":
+          return {
+            enabled: !!userSelections.cloneLocation,
+            message: !userSelections.cloneLocation
+              ? "Please select a clone location"
+              : undefined,
+          };
         case "manual-config":
           // For manual config, we just need a directory to be selected
           // The actual setup completion will happen when Next is clicked
@@ -50,16 +57,18 @@ export const useNavigationValidation = (
           };
         case "summary":
           const hasSetupType = !!userSelections.setupType;
-          const hasDataLocation =
+          const hasDataLocation = !!userSelections.dataLocation;
+          const hasCloneLocation =
             userSelections.setupType === "automatic"
-              ? !!userSelections.dataLocation
+              ? !!userSelections.cloneLocation
               : true;
           const hasEnvConfig =
             userSelections.setupType === "manual"
               ? Object.keys(userSelections.envVariables).length > 0 ||
                 parsedEnvEntries.length > 0
               : true;
-          const allValid = hasSetupType && hasDataLocation && hasEnvConfig;
+          const allValid =
+            hasSetupType && hasDataLocation && hasCloneLocation && hasEnvConfig;
           return {
             enabled: allValid,
             message: !allValid

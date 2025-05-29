@@ -15,22 +15,31 @@ const rendererConfig = {
     '.tsx': 'tsx',
   },
   define: {
-    'process.env.NODE_ENV': '"development"', // Or 'production' for prod builds
-    // Add other environment variables if needed by your React code
+    'process.env.NODE_ENV': '"development"',
   },
-  // To handle CSS imports if you decide to import CSS directly into TSX/JSX
-  // plugins: [
-  //   // Add esbuild plugins here if needed, e.g., for CSS modules or SASS
-  // ],
 };
 
 const mainConfig = {
-  entryPoints: ['main.ts'],
-  bundle: false,
+  entryPoints: ['src/main.ts'],
+  bundle: true,
   outfile: 'dist/main.js',
   platform: 'node',
   format: 'cjs',
   sourcemap: true,
+  external: ['electron'],
+  loader: {
+    '.ts': 'ts',
+  },
+};
+
+const preloadConfig = {
+  entryPoints: ['preload.ts'],
+  bundle: true,
+  outfile: 'dist/preload.js',
+  platform: 'node',
+  format: 'cjs',
+  sourcemap: true,
+  external: ['electron'],
   loader: {
     '.ts': 'ts',
   },
@@ -38,12 +47,15 @@ const mainConfig = {
 
 async function build() {
   try {
-    // Build both main and renderer processes
+    // Build main, renderer, and preload processes
     await esbuild.build(mainConfig);
     console.log('Main process build successful with esbuild!');
 
     await esbuild.build(rendererConfig);
     console.log('Renderer build successful with esbuild!');
+
+    await esbuild.build(preloadConfig);
+    console.log('Preload script build successful with esbuild!');
   } catch (error) {
     console.error('esbuild failed:', error);
     process.exit(1);

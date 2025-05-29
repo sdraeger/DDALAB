@@ -1,13 +1,13 @@
 import React from "react";
-import type { UserSelections, ParsedEnvEntry } from "../utils";
-import { getFormattedCommentsHtml } from "../utils";
+import type { UserSelections, ParsedEnvEntry } from "../utils/electron";
+import { getFormattedCommentsHtml } from "../utils/electron";
 
 interface SummarySiteProps {
   userSelections: UserSelections;
   parsedEnvEntries: ParsedEnvEntry[]; // To look up comments for display
 }
 
-const SummarySite: React.FC<SummarySiteProps> = ({
+export const SummarySite: React.FC<SummarySiteProps> = ({
   userSelections,
   parsedEnvEntries,
 }) => {
@@ -30,13 +30,29 @@ const SummarySite: React.FC<SummarySiteProps> = ({
         </div>
       </div>
 
+      <div className="card mb-3">
+        <div className="card-header">Data Location</div>
+        <div className="card-body">
+          <p className="card-text">
+            <code>{userSelections.dataLocation || "Not specified"}</code>
+          </p>
+          <small className="text-muted">
+            This is where your application data will be stored.
+          </small>
+        </div>
+      </div>
+
       {userSelections.setupType === "automatic" && (
         <div className="card mb-3">
-          <div className="card-header">Data Location</div>
+          <div className="card-header">Clone Location</div>
           <div className="card-body">
             <p className="card-text">
-              <code>{userSelections.dataLocation || "Not specified"}</code>
+              <code>{userSelections.cloneLocation || "Not specified"}</code>
             </p>
+            <small className="text-muted">
+              This is where the DDALAB setup repository will be cloned (contains
+              Docker Compose files).
+            </small>
           </div>
         </div>
       )}
@@ -83,5 +99,3 @@ const SummarySite: React.FC<SummarySiteProps> = ({
     </>
   );
 };
-
-export default SummarySite;

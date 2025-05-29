@@ -42,6 +42,7 @@ export interface ParsedEnvEntry {
 export interface UserSelections {
   setupType: "" | "automatic" | "manual";
   dataLocation: string;
+  cloneLocation: string;
   envVariables: { [key: string]: string };
   // Potentially add other state installer might need, e.g. installationLog
   installationLog?: string[];
@@ -79,14 +80,19 @@ export interface ElectronAPI {
   ) => () => void;
   clearDockerLogsListener: () => void;
   onAllServicesReady: (callback: () => void) => () => void;
-  runInitialSetup: (allowedDirsValue: string) => Promise<{
+  runInitialSetup: (
+    dataLocation: string,
+    cloneLocation: string
+  ) => Promise<{
     success: boolean;
     message: string;
     setupPath?: string;
   }>;
   getInstallerState: () => Promise<{
     setupComplete: boolean;
-    setupPath: string | null;
+    setupPath: string | undefined;
+    dataLocation?: string;
+    cloneLocation?: string;
     error?: boolean;
   }>;
   onSetupProgress: (
@@ -95,7 +101,7 @@ export interface ElectronAPI {
   onSetupFinished: (
     callback: (state: {
       setupComplete: boolean;
-      setupPath: string | null;
+      setupPath: string | undefined;
     }) => void
   ) => () => void;
   // Listeners for Control Panel (matching preload.ts)
@@ -112,7 +118,7 @@ export interface ElectronAPI {
   markSetupComplete: (manualSetupDirectory?: string) => Promise<{
     success: boolean;
     message?: string;
-    finalSetupPath: string | null;
+    setupPath: string | undefined;
     needsClone?: boolean;
     targetPath?: string;
   }>;

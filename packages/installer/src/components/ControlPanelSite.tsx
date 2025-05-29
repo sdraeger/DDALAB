@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { ElectronAPI, UserSelections } from "../utils";
+import { ElectronAPI, UserSelections } from "../utils/electron";
 import { useDockerState } from "../hooks/useDockerState";
 
 interface ControlPanelSiteProps {
@@ -7,7 +7,7 @@ interface ControlPanelSiteProps {
   userSelections: UserSelections;
 }
 
-const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
+export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
   electronAPI,
   userSelections,
 }) => {
@@ -152,7 +152,7 @@ const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
       <p>
         Manage your DDALAB instance, configured at:{" "}
         <small>
-          <code>{userSelections.dataLocation || "Unknown path"}</code>
+          <code>{userSelections.cloneLocation || "Unknown path"}</code>
         </small>
       </p>
 
@@ -250,5 +250,3 @@ const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
     </div>
   );
 };
-
-export default ControlPanelSite;

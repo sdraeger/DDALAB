@@ -1,6 +1,6 @@
 import { BrowserWindow } from "electron";
 import path from "path";
-import { setMainWindow as setMainProcessMainWindow } from "../../main";
+import { setMainWindow as setMainProcessMainWindow } from "../main";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -9,13 +9,13 @@ export function createWindow(): void {
     width: 1400,
     height: 1000,
     webPreferences: {
-      preload: path.join(__dirname, "..", "..", "preload.js"),
+      preload: path.join(__dirname, "..", "dist", "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
 
-  newWindow.loadFile(path.join(__dirname, "..", "installer.html"));
+  newWindow.loadFile(path.join(__dirname, "src", "installer.html"));
 
   newWindow.on("closed", () => {
     if (mainWindow === newWindow) {

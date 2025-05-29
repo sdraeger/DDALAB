@@ -1,5 +1,5 @@
 import React from "react";
-import { UserSelections, ElectronAPI } from "../utils";
+import { UserSelections, ElectronAPI } from "../utils/electron";
 
 interface DataLocationSiteProps {
   userSelections: UserSelections;
@@ -7,7 +7,7 @@ interface DataLocationSiteProps {
   electronAPI: ElectronAPI | undefined;
 }
 
-const DataLocationSite: React.FC<DataLocationSiteProps> = ({
+export const DataLocationSite: React.FC<DataLocationSiteProps> = ({
   userSelections,
   onDataLocationChange,
   electronAPI,
@@ -51,5 +51,3 @@ const DataLocationSite: React.FC<DataLocationSiteProps> = ({
     </>
   );
 };
-
-export default DataLocationSite;
