@@ -16,7 +16,7 @@ from ..schemas.tickets import Ticket, TicketCreate, TicketResponse, TicketUpdate
 router = APIRouter(prefix="")
 
 
-def parse_date(date_str):
+def parse_date(date_str: str | None) -> datetime | None:
     """Parse a date string into a datetime object."""
     if not date_str:
         return None

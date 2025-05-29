@@ -23,7 +23,6 @@ interface PlotControlsProps {
   isLoading: boolean;
   currentChunkNumber: number;
   totalChunks: number;
-  // Props for Heatmap toggle, if it belongs here
   showHeatmap: boolean;
   onToggleHeatmap: () => void;
   isHeatmapProcessing: boolean;

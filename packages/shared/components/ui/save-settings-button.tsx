@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useSettings } from "../../contexts/settings-context";
 import { Button } from "./button";
 import { Save, Loader2, CheckCircle, Info } from "lucide-react";
-import { cn } from "../../lib/utils";
+import { cn } from "shared/lib/utils/misc";
 import {
   Tooltip,
   TooltipContent,
@@ -19,13 +19,8 @@ interface SaveSettingsButtonProps {
 export function SaveSettingsButton({
   floating = false,
 }: SaveSettingsButtonProps) {
-  const {
-    hasUnsavedChanges,
-    unsavedChangesList,
-    saveChanges,
-    pendingChanges,
-    userPreferences,
-  } = useSettings();
+  const { hasUnsavedChanges, saveChanges, pendingChanges, userPreferences } =
+    useSettings();
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
@@ -47,7 +42,6 @@ export function SaveSettingsButton({
         pendingChanges,
         pendingChangesKeys: Object.keys(pendingChanges),
         userPreferences,
-        unsavedChangesList,
       });
     }
   }, [
@@ -56,7 +50,6 @@ export function SaveSettingsButton({
     shouldEnableButton,
     pendingChanges,
     userPreferences,
-    unsavedChangesList,
   ]);
 
   // Memoize the save handler to prevent unnecessary re-renders
@@ -150,14 +143,17 @@ export function SaveSettingsButton({
               <div>
                 <p>
                   You have{" "}
-                  {unsavedChangesList.length > 0 ? "the following" : ""} unsaved
-                  changes{unsavedChangesList.length === 0 && ":"}
+                  {Object.keys(pendingChanges).length > 0
+                    ? "the following"
+                    : ""}
+                  unsaved changes
+                  {Object.keys(pendingChanges).length === 0 && ":"}
                 </p>
-                {unsavedChangesList.length > 0 ? (
+                {Object.keys(pendingChanges).length > 0 ? (
                   <ul className="list-disc pl-4 mt-1">
-                    {unsavedChangesList.map((change, index) => (
-                      <li key={index} className="text-xs">
-                        {change}
+                    {Object.entries(pendingChanges).map(([key, value]) => (
+                      <li key={key} className="text-xs">
+                        {key}: {value}
                       </li>
                     ))}
                   </ul>
@@ -209,8 +205,8 @@ export function SaveSettingsButton({
             </div>
             <div>
               <strong>Unsaved changes list:</strong>{" "}
-              {unsavedChangesList.length
-                ? unsavedChangesList.join(", ")
+              {Object.keys(pendingChanges).length > 0
+                ? Object.keys(pendingChanges).join(", ")
                 : "none"}
             </div>
             <div className="mt-2">

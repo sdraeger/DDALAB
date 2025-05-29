@@ -1,6 +1,6 @@
 "use client";
 
-import { UnsavedChangesAlert } from "shared/components/unsaved-changes-alert";
+import { UnsavedChangesAlert } from "shared/components/UnsavedChangesAlert";
 
 export default function SettingsLayout({
   children,

@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { FileBrowser } from "../files/file-browser";
-import { DDAForm } from "../form/dda-form";
+import { FileBrowser } from "../files/FileBrowser";
+import { DDAForm } from "../form/DDAForm";
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { cn } from "../../lib/utils";
+import { cn } from "../../lib/utils/misc";
 import { useSession } from "next-auth/react";
 import { apiRequest, ApiRequestOptions } from "../../lib/utils/request";
 import { EdfConfigResponse } from "../../lib/schemas/edf";
@@ -45,10 +45,8 @@ export function DashboardTabs() {
     setFileBrowserCollapsed(!fileBrowserCollapsed);
   };
 
-  // Handle keyboard shortcuts for toggling the sidebar
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      // Toggle sidebar on Ctrl+B
       if (e.ctrlKey && e.key === "b") {
         e.preventDefault();
         toggleFileBrowser();
@@ -61,7 +59,6 @@ export function DashboardTabs() {
 
   return (
     <div className="flex flex-row relative">
-      {/* File Browser Sidebar */}
       <div
         className={cn(
           "h-[calc(100vh-180px)] fixed left-0 top-[140px] bottom-0 bg-background border-r z-30 shadow-lg transition-all duration-300 ease-in-out",
@@ -73,7 +70,6 @@ export function DashboardTabs() {
         </div>
       </div>
 
-      {/* Toggle Button */}
       <div
         className={cn(
           "fixed top-[140px] z-40 transition-all duration-300",
@@ -96,14 +92,13 @@ export function DashboardTabs() {
         </Button>
       </div>
 
-      {/* Main Content Area */}
       <div
         className={cn(
           "flex-grow transition-all duration-300 ease-in-out w-full",
           fileBrowserCollapsed ? "ml-0" : "ml-[700px]"
         )}
       >
-        <div className="w-full px-4 md:px-6">
+        <div className="w-full px-4 sm:px-6 lg:px-8">
           {selectedFilePath ? (
             <DDAForm
               filePath={selectedFilePath}

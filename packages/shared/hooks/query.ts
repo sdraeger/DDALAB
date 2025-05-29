@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { apiRequest, ApiRequestOptions } from "../utils/request";
-import { snakeToCamel } from "../utils/caseConverter";
+import { apiRequest, ApiRequestOptions } from "../lib/utils/request";
+import { snakeToCamel } from "../lib/utils/caseConverter";
 
 interface UseApiQueryResult<T> {
   loading: boolean;

@@ -15,7 +15,7 @@ import {
 } from "./ui/alert-dialog";
 
 export function UnsavedChangesAlert() {
-  const { hasUnsavedChanges, unsavedChangesList, saveChanges, resetChanges } =
+  const { hasUnsavedChanges, pendingChanges, saveChanges, resetChanges } =
     useSettings();
   const router = useRouter();
   const pathname = usePathname();
@@ -99,9 +99,9 @@ export function UnsavedChangesAlert() {
           <AlertDialogDescription>
             You have unsaved changes. If you leave, these changes will be lost.
             <ul className="mt-2 list-disc pl-5">
-              {unsavedChangesList.map((change, index) => (
-                <li key={index} className="text-sm">
-                  {change}
+              {Object.entries(pendingChanges).map(([key, value]) => (
+                <li key={key} className="text-sm">
+                  {key}: {value}
                 </li>
               ))}
             </ul>

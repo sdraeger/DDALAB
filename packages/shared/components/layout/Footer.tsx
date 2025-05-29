@@ -12,7 +12,6 @@ export function Footer() {
       .then((res) => res.json())
       .then((data) => {
         setInstitutionName(data.institution_name);
-        console.log("Footer INSTITUTION_NAME:", data.institution_name);
       });
   }, []);
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@apollo/client";
 import {
   GET_ANNOTATIONS,
@@ -12,70 +12,51 @@ import logger from "../lib/utils/logger";
 
 export function useAnnotationManagement({
   filePath,
-  initialAnnotationsFromPlotState,
+  initialAnnotationsFromPlotState = [],
   onAnnotationsChangeForPlotState,
 }: UseAnnotationManagementProps) {
   const [annotations, setAnnotations] = useState<Annotation[]>(
-    initialAnnotationsFromPlotState || []
+    initialAnnotationsFromPlotState
   );
   const { toast } = useToast();
 
-  const {
-    data: annotationsData,
-    loading: annotationsLoading,
-    error: annotationsError,
-    refetch: refetchAnnotations,
-  } = useQuery(GET_ANNOTATIONS, {
+  const showErrorToast = useCallback(
+    (title: string, error: Error) => {
+      logger.error(`${title}:`, error);
+      toast({ title, description: error.message, variant: "destructive" });
+    },
+    [toast]
+  );
+
+  const { data, loading, error, refetch } = useQuery(GET_ANNOTATIONS, {
     variables: { filePath },
     skip: !filePath,
     fetchPolicy: "network-only",
-    onCompleted: (data) => {
-      logger.info("Successfully fetched annotations:", data.getAnnotations);
-      const serverAnnotations = data.getAnnotations;
-      setAnnotations(serverAnnotations);
-      onAnnotationsChangeForPlotState(serverAnnotations);
+    onCompleted: ({ getAnnotations }) => {
+      logger.info("Fetched annotations:", getAnnotations);
+      setAnnotations(getAnnotations);
+      onAnnotationsChangeForPlotState(getAnnotations);
     },
-    onError: (error) => {
-      logger.error("Error fetching annotations:", error);
-      toast({
-        title: "Error Fetching Annotations",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
+    onError: (err) => showErrorToast("Error Fetching Annotations", err),
   });
 
   useEffect(() => {
     if (filePath) {
-      logger.info("File path changed to:", filePath, "Refetching annotations.");
-      refetchAnnotations();
+      logger.info("Refetching annotations for filePath:", filePath);
+      refetch();
     }
-  }, [filePath, refetchAnnotations]);
+  }, [filePath, refetch]);
 
   useEffect(() => {
-    // This effect synchronizes the hook's internal state if the initial prop changes,
-    // for example, when the component using the hook receives new plot state from context.
-    // However, it should be careful not to overwrite fresh data from the server.
-    // We prioritize server data if available, otherwise use initialAnnotationsFromPlotState.
-    if (annotationsData?.getAnnotations) {
-      const serverAnnotations = annotationsData.getAnnotations;
-      if (JSON.stringify(annotations) !== JSON.stringify(serverAnnotations)) {
-        setAnnotations(serverAnnotations);
-        // onAnnotationsChangeForPlotState is called in useQuery's onCompleted
-      }
+    if (data?.getAnnotations) {
+      setAnnotations(data.getAnnotations);
     } else if (initialAnnotationsFromPlotState) {
-      if (
-        JSON.stringify(annotations) !==
-        JSON.stringify(initialAnnotationsFromPlotState)
-      ) {
-        setAnnotations(initialAnnotationsFromPlotState);
-      }
+      setAnnotations(initialAnnotationsFromPlotState);
     }
-  }, [initialAnnotationsFromPlotState, annotationsData, annotations]);
+  }, [data, initialAnnotationsFromPlotState]);
 
-  const [createAnnotationMutation] = useMutation(CREATE_ANNOTATION, {
-    onCompleted: (data) => {
-      const newAnnotation = data.createAnnotation;
+  const [createAnnotation] = useMutation(CREATE_ANNOTATION, {
+    onCompleted: ({ createAnnotation: newAnnotation }) => {
       logger.info("Annotation created:", newAnnotation);
       const updatedAnnotations = [...annotations, newAnnotation];
       setAnnotations(updatedAnnotations);
@@ -85,22 +66,14 @@ export function useAnnotationManagement({
         description: "Your annotation has been saved.",
       });
     },
-    onError: (error) => {
-      logger.error("Error creating annotation:", error);
-      toast({
-        title: "Error creating annotation",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
+    onError: (err) => showErrorToast("Error creating annotation", err),
   });
 
-  const [updateAnnotationMutation] = useMutation(UPDATE_ANNOTATION, {
-    onCompleted: (data) => {
-      const updatedAnnotationData = data.updateAnnotation;
-      logger.info("Annotation updated:", updatedAnnotationData);
+  const [updateAnnotation] = useMutation(UPDATE_ANNOTATION, {
+    onCompleted: ({ updateAnnotation: updatedAnnotation }) => {
+      logger.info("Annotation updated:", updatedAnnotation);
       const updatedAnnotations = annotations.map((ann) =>
-        ann.id === updatedAnnotationData.id ? updatedAnnotationData : ann
+        ann.id === updatedAnnotation.id ? updatedAnnotation : ann
       );
       setAnnotations(updatedAnnotations);
       onAnnotationsChangeForPlotState(updatedAnnotations);
@@ -109,118 +82,98 @@ export function useAnnotationManagement({
         description: "Your annotation has been updated.",
       });
     },
-    onError: (error) => {
-      logger.error("Error updating annotation:", error);
-      toast({
-        title: "Error updating annotation",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
+    onError: (err) => showErrorToast("Error updating annotation", err),
   });
 
-  const [deleteAnnotationMutation] = useMutation(DELETE_ANNOTATION, {
-    onCompleted: (data, clientOptions) => {
-      const deletedId = clientOptions?.variables?.id as number | undefined;
-      logger.info("Annotation deleted, ID:", deletedId);
-      if (deletedId !== undefined) {
-        const updatedAnnotations = annotations.filter(
-          (ann) => ann.id !== deletedId
-        );
-        setAnnotations(updatedAnnotations);
-        onAnnotationsChangeForPlotState(updatedAnnotations);
+  const [deleteAnnotation] = useMutation(DELETE_ANNOTATION, {
+    onCompleted: (_, clientOptions) => {
+      const id = clientOptions?.variables?.id as number | undefined;
+      if (id === undefined) {
+        logger.error("No ID provided for deleted annotation");
+        return;
       }
+      logger.info("Annotation deleted, ID:", id);
+      const updatedAnnotations = annotations.filter((ann) => ann.id !== id);
+      setAnnotations(updatedAnnotations);
+      onAnnotationsChangeForPlotState(updatedAnnotations);
       toast({
         title: "Annotation deleted",
         description: "Your annotation has been removed.",
       });
     },
-    onError: (error) => {
-      logger.error("Error deleting annotation:", error);
-      toast({
-        title: "Error deleting annotation",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
+    onError: (err) => showErrorToast("Error deleting annotation", err),
   });
 
-  const handleAddAnnotation = (annotationData: Partial<Annotation>) => {
-    if (!filePath) {
-      logger.warn("Cannot add annotation, filePath is missing.");
-      toast({
-        title: "Error",
-        description: "File path is missing for annotation.",
-        variant: "destructive",
-      });
-      return;
-    }
-    createAnnotationMutation({
-      variables: {
-        annotationInput: {
-          filePath: annotationData.filePath || filePath,
-          startTime: annotationData.startTime,
-          endTime:
-            annotationData.endTime !== undefined
-              ? annotationData.endTime
-              : null,
-          text: annotationData.text,
+  const handleAddAnnotation = useCallback(
+    (annotationData: Partial<Annotation>) => {
+      if (!filePath) {
+        showErrorToast(
+          "Error",
+          new Error("File path is missing for annotation.")
+        );
+        return;
+      }
+      createAnnotation({
+        variables: {
+          annotationInput: {
+            filePath: annotationData.filePath || filePath,
+            startTime: annotationData.startTime,
+            endTime: annotationData.endTime ?? null,
+            text: annotationData.text,
+          },
         },
-      },
-    });
-  };
-
-  const handleDeleteAnnotation = (id: number) => {
-    deleteAnnotationMutation({
-      variables: { id },
-    });
-  };
-
-  const handleUpdateAnnotation = (
-    id: number,
-    annotationData: Partial<Annotation>
-  ) => {
-    if (!filePath && !annotationData.filePath) {
-      logger.warn("Cannot update annotation, filePath is missing.");
-      toast({
-        title: "Error",
-        description: "File path is missing for annotation update.",
-        variant: "destructive",
       });
-      return;
-    }
-    updateAnnotationMutation({
-      variables: {
-        id,
-        annotationInput: {
-          filePath: annotationData.filePath || filePath,
-          startTime: annotationData.startTime || 0,
-          endTime:
-            annotationData.endTime !== undefined
-              ? annotationData.endTime
-              : null,
-          text: annotationData.text || "",
-        },
-      },
-    });
-  };
+    },
+    [filePath, createAnnotation, showErrorToast]
+  );
 
-  // This function allows external components like AnnotationEditor to directly set the list,
-  // e.g., for local-only changes before a save, or if it manages its own full list.
-  // It also ensures the plot state context is updated.
-  const setAnnotationsAndPropagate = (newAnnotations: Annotation[]) => {
-    setAnnotations(newAnnotations);
-    onAnnotationsChangeForPlotState(newAnnotations);
-  };
+  const handleUpdateAnnotation = useCallback(
+    (id: number, annotationData: Partial<Annotation>) => {
+      if (!filePath && !annotationData.filePath) {
+        showErrorToast(
+          "Error",
+          new Error("File path is missing for annotation update.")
+        );
+        return;
+      }
+      updateAnnotation({
+        variables: {
+          id,
+          annotationInput: {
+            filePath: annotationData.filePath || filePath,
+            startTime: annotationData.startTime ?? 0,
+            endTime: annotationData.endTime ?? null,
+            text: annotationData.text ?? "",
+          },
+        },
+      });
+    },
+    [filePath, updateAnnotation, showErrorToast]
+  );
+
+  const handleDeleteAnnotation = useCallback(
+    (id: number) => {
+      deleteAnnotation({ variables: { id } });
+    },
+    [deleteAnnotation]
+  );
+
+  const setAnnotationsAndPropagate = useCallback(
+    (newAnnotations: Annotation[]) => {
+      setAnnotations(newAnnotations);
+      onAnnotationsChangeForPlotState(newAnnotations);
+    },
+    [onAnnotationsChangeForPlotState]
+  );
 
   return {
     annotations,
-    setAnnotations: setAnnotationsAndPropagate, // Renamed for clarity
+    setAnnotations: setAnnotationsAndPropagate,
     addAnnotation: handleAddAnnotation,
     updateAnnotation: handleUpdateAnnotation,
     deleteAnnotation: handleDeleteAnnotation,
-    loadingAnnotations: annotationsLoading,
-    errorAnnotations: annotationsError,
-    refetchAnnotations,
+    loadingAnnotations: loading,
+    errorAnnotations: error,
+    refetchAnnotations: refetch,
   };
 }

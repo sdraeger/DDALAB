@@ -2,7 +2,7 @@ import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
 import { apiRequest, ApiRequestOptions } from "../../lib/utils/request";
 import { EdfFileInfo } from "../../lib/schemas/edf";
 import { Annotation } from "../../types/annotation";
-import { EEGData } from "../../types/eeg";
+import { EEGData } from "../../types/EEGData";
 import logger from "../../lib/utils/logger";
 
 interface PlotMetadata extends EdfFileInfo {
