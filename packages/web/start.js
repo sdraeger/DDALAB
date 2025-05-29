@@ -11,7 +11,6 @@ const envPath = join(__dirname, '.env');
 if (fs.existsSync(envPath)) {
   dotenv.config({ path: envPath, override: true });
   console.log('Loaded .env from:', envPath);
-  console.log('INSTITUTION_NAME:', process.env.INSTITUTION_NAME);
 } else {
   console.warn('.env not found at:', envPath);
 }

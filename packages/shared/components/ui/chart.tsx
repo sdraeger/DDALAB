@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import * as RechartsPrimitive from "recharts";
-import { cn } from "shared/lib/utils";
+import { cn } from "shared/lib/utils/misc";
 
 interface ChartProps
   extends React.ComponentProps<typeof RechartsPrimitive.ResponsiveContainer> {}

@@ -23,12 +23,10 @@ import {
   DropdownMenuTrigger,
 } from "shared/components/ui/dropdown-menu";
 import { ArrowDown, ArrowUp, GripVertical, PlusCircle, X } from "lucide-react";
-import { FormValues } from "../form/dda-form"; // Assuming FormValues is exported from dda-form.tsx
+import { FormValues } from "../form/DDAForm";
 
-// Define available preprocessing steps (can also be passed as prop if needed elsewhere)
 const availablePreprocessingSteps = [
-  { id: "resample1000hz", label: "Resample to 1000Hz" },
-  { id: "resample500hz", label: "Resample to 500Hz" },
+  { id: "resample", label: "Resample" },
   { id: "lowpassFilter", label: "Low-pass Filter" },
   { id: "highpassFilter", label: "High-pass Filter" },
   { id: "notchFilter", label: "Notch Filter" },
@@ -36,11 +34,11 @@ const availablePreprocessingSteps = [
 ];
 
 interface PreprocessingOptionsUIProps {
-  form: UseFormReturn<FormValues>; // Pass the entire form hook result
+  form: UseFormReturn<FormValues>;
 }
 
 export function PreprocessingOptionsUI({ form }: PreprocessingOptionsUIProps) {
-  const { control, getValues, setValue, watch } = form;
+  const { control, getValues, setValue } = form;
 
   const addPreprocessingStep = (step: { id: string; label: string }) => {
     const currentSteps = getValues("preprocessingSteps");
@@ -101,7 +99,6 @@ export function PreprocessingOptionsUI({ form }: PreprocessingOptionsUIProps) {
                     >
                       <div className="flex items-center gap-2">
                         <GripVertical className="h-5 w-5 text-muted-foreground cursor-grab" />{" "}
-                        {/* Placeholder for DnD */}
                         <span className="font-medium">{step.label}</span>
                       </div>
                       <div className="flex items-center gap-1">
@@ -183,7 +180,6 @@ export function PreprocessingOptionsUI({ form }: PreprocessingOptionsUIProps) {
               </p>
             )}
           </div>
-          {/* Ensure FormMessage is shown if there are errors specific to this field */}
         </FormItem>
       )}
     />
