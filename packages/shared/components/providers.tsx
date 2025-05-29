@@ -7,7 +7,7 @@ import { Header } from "./layout/Header";
 import { Toaster } from "./ui/toaster";
 import { SettingsProvider } from "../contexts/settings-context";
 import { SessionProvider } from "next-auth/react";
-import { ReduxProvider } from "./providers/ReduxProvider";
+import { ReduxProvider } from "../providers/ReduxProvider";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
