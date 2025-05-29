@@ -30,7 +30,6 @@ interface FileItem {
 
 interface FileBrowserProps {
   onFileSelect: (filePath: string) => void;
-  initialPath?: string;
 }
 
 interface FileListResponse {
@@ -38,7 +37,6 @@ interface FileListResponse {
 }
 
 interface ConfigResponse {
-  institutionName: string;
   allowedDirs: string[];
 }
 
@@ -55,46 +53,21 @@ interface FileUploadResponse {
 }
 
 export function FileBrowser({ onFileSelect }: FileBrowserProps) {
-  const [currentPath, setCurrentPath] = useState<string>("");
+  const [currentPath, setCurrentPath] = useState("");
   const [pathHistory, setPathHistory] = useState<string[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
-
-  const {
-    setSelectedFilePath,
-    setPlotDialogOpen,
-    plotDialogOpen,
-    selectedFilePath,
-  } = useEDFPlot();
-
+  const { setPlotDialogOpen, plotDialogOpen, selectedFilePath } = useEDFPlot();
   const { data: session } = useSession();
 
-  const {
-    loading: configLoading,
-    error: configError,
-    data: configData,
-  } = useApiQuery<ConfigResponse>({
+  const { data: configData } = useApiQuery<ConfigResponse>({
     url: "/api/config",
     method: "GET",
     responseType: "json",
     enabled: true,
     token: session?.accessToken,
   });
-
-  useEffect(() => {
-    console.log("configData", configData);
-    console.log("currentPath", currentPath);
-    if (
-      configData &&
-      currentPath === "" &&
-      configData.allowedDirs &&
-      configData.allowedDirs.length > 0
-    ) {
-      const newPath = configData.allowedDirs[0];
-      setCurrentPath(newPath);
-    }
-  }, [configData, currentPath]);
 
   const { loading, error, data, refetch, updateData } =
     useApiQuery<FileListResponse>({
@@ -107,45 +80,42 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
       enabled: !!currentPath,
     });
 
-  // Format file size
+  useEffect(() => {
+    if (configData?.allowedDirs?.length && !currentPath) {
+      setCurrentPath(configData.allowedDirs[0]);
+    }
+  }, [configData, currentPath]);
+
+  useEffect(() => {
+    if (currentPath) refetch();
+  }, [currentPath, refetch]);
+
   const formatFileSize = (bytes?: number) => {
-    if (!bytes || bytes === 0) return "Unknown";
+    if (!bytes) return "Unknown";
     const k = 1024;
     const sizes = ["Bytes", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return (
-      Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
-    );
+    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
   };
 
-  // Format date
   const formatDate = (dateString?: string) => {
     if (!dateString) return "Unknown";
     const date = new Date(dateString);
-    return date.toLocaleDateString() + " " + date.toLocaleTimeString();
+    return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
   };
 
-  // Refresh file list
-  const refreshFiles = () => {
-    refetch();
-  };
-
-  // Navigate to a directory
   const navigateToDirectory = (dirPath: string) => {
-    setPathHistory([...pathHistory, currentPath]);
+    setPathHistory((prev) => [...prev, currentPath]);
     setCurrentPath(dirPath);
   };
 
-  // Navigate back
   const navigateBack = () => {
-    if (pathHistory.length > 0) {
-      const previousPath = pathHistory[pathHistory.length - 1];
-      setPathHistory(pathHistory.slice(0, -1));
-      setCurrentPath(previousPath);
+    if (pathHistory.length) {
+      setPathHistory((prev) => prev.slice(0, -1));
+      setCurrentPath(pathHistory[pathHistory.length - 1] || "");
     }
   };
 
-  // Handle file selection
   const handleFileSelect = (file: FileItem) => {
     if (file.isDirectory) {
       navigateToDirectory(file.path);
@@ -154,7 +124,6 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
     }
   };
 
-  // Handle star/favorite button click
   const handleStarClick = async (e: React.MouseEvent, file: FileItem) => {
     e.stopPropagation();
     try {
@@ -165,9 +134,8 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
         responseType: "json",
       });
 
-      // Update data.files immutably
       updateData((prevData) => {
-        if (!prevData) return prevData;
+        if (!prevData) return null;
         return {
           ...prevData,
           files: prevData.files.map((f) =>
@@ -178,36 +146,28 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
         };
       });
     } catch (error) {
-      console.error("Error toggling favorite:", error);
       toast({
         title: "Error",
         description: "Failed to update favorite status",
         variant: "destructive",
       });
-      refetch(); // Sync with backend on error
+      refetch();
     }
   };
 
-  // Validate file type for drag and drop
-  const isValidFileType = (file: File): boolean => {
+  const isValidFileType = (file: File) => {
     const allowedExtensions = [".edf", ".ascii"];
-    const fileName = file.name.toLowerCase();
-    return allowedExtensions.some((ext) => fileName.endsWith(ext));
+    return allowedExtensions.some((ext) =>
+      file.name.toLowerCase().endsWith(ext)
+    );
   };
 
-  // Handle file upload
-  const uploadFile = async (file: File): Promise<void> => {
+  const uploadFile = async (file: File) => {
+    setIsUploading(true);
     try {
-      setIsUploading(true);
-
       const formData = new FormData();
       formData.append("file", file);
       formData.append("target_path", currentPath);
-
-      // Debug logging
-      console.log("Uploading file:", file.name, "to path:", currentPath);
-      console.log("FormData file:", formData.get("file"));
-      console.log("FormData target_path:", formData.get("target_path"));
 
       const response = await apiRequest<FileUploadResponse>({
         url: "/api/files/upload",
@@ -217,20 +177,16 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
         responseType: "json",
       });
 
-      console.log("Upload response:", response);
-
       if (response.success) {
         toast({
           title: "Upload Successful",
           description: `File "${file.name}" uploaded successfully`,
         });
-        // Refresh the file list
-        refreshFiles();
+        refetch();
       } else {
         throw new Error(response.message);
       }
     } catch (error: any) {
-      console.error("Error uploading file:", error);
       toast({
         title: "Upload Failed",
         description: error.message || `Failed to upload "${file.name}"`,
@@ -241,28 +197,13 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
     }
   };
 
-  // Handle drag over
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-    if (!isDragOver) {
-      setIsDragOver(true);
-    }
-  };
-
-  // Handle drag enter
-  const handleDragEnter = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
     setIsDragOver(true);
   };
 
-  // Handle drag leave
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-
-    // Only set isDragOver to false if we're leaving the drop zone entirely
     if (
       dropZoneRef.current &&
       !dropZoneRef.current.contains(e.relatedTarget as Node)
@@ -271,79 +212,57 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
     }
   };
 
-  // Handle drop
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
     setIsDragOver(false);
 
     const files = Array.from(e.dataTransfer.files);
-
-    if (files.length === 0) {
-      return;
-    }
-
-    // Filter valid files
     const validFiles = files.filter(isValidFileType);
     const invalidFiles = files.filter((file) => !isValidFileType(file));
 
-    if (invalidFiles.length > 0) {
+    if (invalidFiles.length) {
       toast({
         title: "Invalid File Types",
-        description: `Only .edf and .ascii files are allowed. ${invalidFiles.length} file(s) were ignored.`,
+        description: `Only .edf and .ascii files are allowed. ${invalidFiles.length} file(s) ignored.`,
         variant: "destructive",
       });
     }
 
-    if (validFiles.length === 0) {
-      return;
-    }
-
-    // Upload valid files
     for (const file of validFiles) {
       await uploadFile(file);
     }
   };
 
-  useEffect(() => {
-    refreshFiles();
-  }, [currentPath]);
-
   return (
     <Card className="w-full">
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>File Browser</CardTitle>
-        <div className="flex items-center gap-2">
+        <div className="flex gap-2">
           <Button
             variant="outline"
             size="sm"
             onClick={navigateBack}
-            disabled={pathHistory.length === 0}
+            disabled={!pathHistory.length}
           >
-            <ArrowLeft className="h-4 w-4 mr-1" />
-            Back
+            <ArrowLeft className="h-4 w-4 mr-1" /> Back
           </Button>
-          <Button variant="outline" size="sm" onClick={refreshFiles}>
+          <Button variant="outline" size="sm" onClick={refetch}>
             Refresh
           </Button>
         </div>
       </CardHeader>
       <CardContent>
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-sm text-muted-foreground">
-            Current path: {currentPath || "/"}
-          </div>
-          <div className="text-xs text-muted-foreground flex items-center gap-1">
-            <Upload className="h-3 w-3" />
-            Drag & drop .edf/.ascii files
+        <div className="flex justify-between mb-4 text-sm text-muted-foreground">
+          <span>Current path: {currentPath || "/"}</span>
+          <div className="flex items-center gap-1 text-xs">
+            <Upload className="h-3 w-3" /> Drag & drop .edf/.ascii files
           </div>
         </div>
 
-        {/* Drag and Drop Zone */}
         <div
           ref={dropZoneRef}
           onDragOver={handleDragOver}
-          onDragEnter={handleDragEnter}
+          onDragEnter={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           className={`relative ${
@@ -366,7 +285,7 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
           {isUploading && (
             <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 rounded-md">
               <div className="text-center p-4">
-                <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full mx-auto mb-2"></div>
+                <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full mx-auto mb-2" />
                 <p className="text-sm text-muted-foreground">
                   Uploading files...
                 </p>
@@ -384,9 +303,7 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
               ))}
             </div>
           ) : error ? (
-            <div className="text-destructive">
-              Error loading files: {error.message}
-            </div>
+            <div className="text-destructive">Error: {error.message}</div>
           ) : (
             <div className="border rounded-md overflow-hidden">
               <div className="max-h-[900px] overflow-auto">
@@ -404,17 +321,17 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {data?.files?.length === 0 ? (
+                    {!data?.files?.length ? (
                       <tr>
                         <td
                           colSpan={4}
                           className="p-4 text-center text-muted-foreground"
                         >
-                          No files found in this directory
+                          No files found
                         </td>
                       </tr>
                     ) : (
-                      data?.files?.map((file: FileItem) => (
+                      data.files.map((file) => (
                         <tr
                           key={file.path}
                           className="border-b hover:bg-muted/50 cursor-pointer"
@@ -472,7 +389,6 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
           )}
         </div>
       </CardContent>
-
       <EDFPlotDialog
         open={plotDialogOpen}
         onOpenChange={setPlotDialogOpen}
