@@ -2,8 +2,8 @@
 export * from "./components/ui/button";
 export * from "./components/ui/input";
 export * from "./components/ui/avatar";
-export * from "./components/form/login-form";
-export * from "./components/unsaved-changes-alert";
+export * from "./components/form/LoginForm";
+export * from "./components/UnsavedChangesAlert";
 
 // Store
 export { default as store } from "./store/store";
@@ -19,10 +19,10 @@ export { useAppDispatch, useAppSelector } from "./store/store";
 export * from "./src/providers/ReduxProvider";
 
 // Utilities
-export * from "./lib/utils";
+export * from "./lib/utils/misc";
 
 // Types
 export * from "./types/auth";
-export * from "./types/eeg";
+export * from "./types/EEGData";
 export * from "./types/annotation";
 export * from "./types/form-props";

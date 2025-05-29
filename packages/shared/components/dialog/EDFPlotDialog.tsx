@@ -16,7 +16,7 @@ import { Checkbox } from "../ui/checkbox";
 import { Spinner } from "../ui/spinner";
 import { Alert, AlertDescription } from "../ui/alert";
 import { ScrollArea } from "../ui/scroll-area";
-import { EEGChart } from "../plot/eeg-chart";
+import { EEGChart } from "../plot/EEGChart";
 import { AnnotationEditor } from "../ui/annotation-editor";
 import { Annotation } from "../../types/annotation";
 import {
@@ -26,8 +26,8 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import type { EEGData } from "../../types/eeg";
-import { cn } from "../../lib/utils";
+import type { EEGData } from "../../types/EEGData";
+import { cn } from "../../lib/utils/misc";
 import { useEDFPlot } from "../../contexts/edf-plot-context";
 import { toast } from "../ui/use-toast";
 import { Slider } from "../ui/slider";

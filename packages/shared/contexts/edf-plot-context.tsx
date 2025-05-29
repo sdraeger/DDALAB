@@ -9,7 +9,7 @@ import {
 } from "react";
 
 // Define the types for the EDF plot state
-interface EDFPlotState {
+export interface EDFPlotState {
   chunkSizeSeconds: number;
   selectedChannels: string[];
   showPlot: boolean;
@@ -29,7 +29,7 @@ interface EDFPlotState {
 }
 
 // Create a context for the EDF plot state
-interface EDFPlotContextType {
+export interface EDFPlotContext {
   // Map to store state by filePath
   plotStates: Map<string, EDFPlotState>;
   // Function to get state for a specific file
@@ -69,7 +69,9 @@ const defaultPlotState: EDFPlotState = {
 };
 
 // Create the context with undefined default value
-const EDFPlotContext = createContext<EDFPlotContextType | undefined>(undefined);
+export const EDFPlotContext = createContext<EDFPlotContext | undefined>(
+  undefined
+);
 
 // Provider component
 export function EDFPlotProvider({ children }: { children: ReactNode }) {

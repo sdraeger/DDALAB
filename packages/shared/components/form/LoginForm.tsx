@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
+import { z } from "zod";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -18,7 +18,6 @@ import { Alert, AlertDescription } from "../ui/alert";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
-// Form validation schema
 const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
   password: z.string().min(1, "Password is required"),
@@ -29,42 +28,34 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 export function LoginForm() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
-
-  const handleLogin = async (data: LoginFormValues) => {
-    const res = await signIn("credentials", {
-      username: data.username,
-      password: data.password,
-      redirect: false,
-    });
-    console.log("SignIn result:", res);
-    if (res?.error) {
-      setError(res.error);
-    } else {
-      router.push("/dashboard");
-    }
-  };
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const {
     register,
     handleSubmit,
     formState: { errors },
   } = useForm<LoginFormValues>({
-    resolver: zodResolver(loginSchema as z.ZodTypeAny),
-    defaultValues: {
-      username: "",
-      password: "",
-    },
+    resolver: zodResolver(loginSchema),
   });
 
   const onSubmit = async (data: LoginFormValues) => {
-    try {
-      setError(null);
-      await handleLogin(data);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "An unknown error occurred"
-      );
+    setError(null);
+    setIsSubmitting(true);
+
+    const res = await signIn("credentials", {
+      username: data.username,
+      password: data.password,
+      redirect: false,
+    });
+
+    setIsSubmitting(false);
+
+    if (res?.error) {
+      setError(res.error);
+      return;
     }
+
+    router.push("/dashboard");
   };
 
   return (
@@ -72,7 +63,7 @@ export function LoginForm() {
       <CardHeader>
         <CardTitle>Login to DDALAB</CardTitle>
         <CardDescription>
-          Enter your credentials to access the EEG visualization dashboard
+          Enter your credentials to access DDALAB
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -86,7 +77,7 @@ export function LoginForm() {
             />
             {errors.username && (
               <p className="text-sm text-destructive">
-                {errors.username.message?.toString()}
+                {errors.username.message}
               </p>
             )}
           </div>
@@ -101,7 +92,7 @@ export function LoginForm() {
             />
             {errors.password && (
               <p className="text-sm text-destructive">
-                {errors.password.message?.toString()}
+                {errors.password.message}
               </p>
             )}
           </div>
@@ -112,16 +103,8 @@ export function LoginForm() {
             </Alert>
           )}
 
-          <Button type="submit" className="w-full" /* disabled={loading} */>
-            {/*{loading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Logging in...
-              </>
-            ) : (
-              "Login"
-            )}*/}
-            Login
+          <Button type="submit" className="w-full" disabled={isSubmitting}>
+            {isSubmitting ? "Logging in..." : "Login"}
           </Button>
         </form>
       </CardContent>

@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { LogOut, User, BrainCircuit, Ticket, Settings } from "lucide-react";
-import { ModeToggle } from "../mode-toggle";
+import { ModeToggle } from "../ModeToggle";
 import { HelpButton } from "../ui/help-button";
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
@@ -32,7 +32,6 @@ export function Header() {
       .then((res) => res.json())
       .then((data) => {
         setInstitutionName(data.institution_name);
-        console.log("Header INSTITUTION_NAME:", data.institution_name);
       });
   }, []);
 

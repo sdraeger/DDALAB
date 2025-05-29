@@ -55,11 +55,14 @@ export const TOGGLE_FAVORITE_FILE = gql`
 // Define the input type for preprocessing options
 export const PREPROCESSING_OPTIONS_INPUT = gql`
   input PreprocessingOptionsInput {
-    resample1000hz: Boolean
-    resample500hz: Boolean
-    lowpassFilter: Boolean
-    highpassFilter: Boolean
-    notchFilter: Boolean
+    resample: Int
+    lowpassFilter: Int
+    highpassFilter: Int
+    notchFilter: Int
     detrend: Boolean
+    removeOutliers: Boolean
+    smoothing: Boolean
+    smoothingWindow: Int
+    normalization: String
   }
 `;

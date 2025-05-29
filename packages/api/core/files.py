@@ -48,7 +48,6 @@ async def list_directory(path: str = "") -> List[FileInfo]:
             return []
 
         logger.info(f"Listing directory: {target_dir}")
-        print(f"target_dir: {list(target_dir.iterdir())}")
 
         items = []
         for item in target_dir.iterdir():

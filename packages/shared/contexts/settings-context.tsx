@@ -1,16 +1,8 @@
 "use client";
 
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-  ReactNode,
-} from "react";
+import { createContext, useContext, useState, ReactNode } from "react";
 import { useSession } from "next-auth/react";
-import { usePathname } from "next/navigation";
-import { apiRequest } from "shared/lib/utils/request";
+import { apiRequest } from "../lib/utils/request";
 import { UserPreferences } from "../types/auth";
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
@@ -19,7 +11,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
 };
 
 type SettingsContextType = {
-  userPreferences: UserPreferences | undefined;
+  userPreferences: UserPreferences;
   pendingChanges: Partial<UserPreferences>;
   hasUnsavedChanges: boolean;
   updatePreference: <K extends keyof UserPreferences>(
@@ -28,7 +20,7 @@ type SettingsContextType = {
   ) => void;
   saveChanges: () => Promise<boolean>;
   resetChanges: () => void;
-  unsavedChangesList: string[];
+  loadPreferences: () => Promise<void>;
 };
 
 const SettingsContext = createContext<SettingsContextType | undefined>(
@@ -39,155 +31,82 @@ interface SettingsProviderProps {
   children: ReactNode;
 }
 
-export interface LoginCredentials {
-  username: string;
-  password: string;
-}
-
-export interface RegisterCredentials {
-  username: string;
-  password: string;
-  email: string;
-  firstName?: string;
-  lastName?: string;
-  inviteCode: string;
-}
-
-interface UserPreferencesResponse {
-  theme: string;
-  eegZoomFactor: number;
-}
-
 export function SettingsProvider({ children }: SettingsProviderProps) {
   const { data: session } = useSession();
-  const pathname = usePathname();
-
-  // State for tracking changes
   const [userPreferences, setUserPreferences] = useState<UserPreferences>(
     DEFAULT_USER_PREFERENCES
   );
   const [pendingChanges, setPendingChanges] = useState<
     Partial<UserPreferences>
   >({});
-  const [unsavedChangesList, setUnsavedChangesList] = useState<string[]>([]);
 
-  // Fetch preferences and force sync
-  const fetchPreferences = useCallback(async () => {
+  const loadPreferences = async () => {
     if (!session?.accessToken) return;
 
     try {
-      const res: UserPreferencesResponse =
-        await apiRequest<UserPreferencesResponse>({
-          url: `/api/user-preferences`,
-          method: "GET",
-          token: session.accessToken,
-          contentType: "application/json",
-          responseType: "json",
-        });
-
-      const newPrefs: UserPreferences = {
-        theme: res.theme as "light" | "dark" | "system",
-        eegZoomFactor: res.eegZoomFactor,
-      };
-
-      console.log("Fetched preferences (SettingsProvider):", newPrefs);
-
-      setUserPreferences(newPrefs);
-      setPendingChanges({}); // Clear pending changes after fetch
-    } catch (error) {
-      console.error("Error fetching preferences:", error);
+      const res = await apiRequest<UserPreferences>({
+        url: `/api/user-preferences`,
+        method: "GET",
+        token: session.accessToken,
+        contentType: "application/json",
+        responseType: "json",
+      });
+      setUserPreferences(res);
+      setPendingChanges({});
+    } catch {
       setUserPreferences(DEFAULT_USER_PREFERENCES);
       setPendingChanges({});
     }
-  }, [session?.accessToken]);
+  };
 
-  useEffect(() => {
-    if (session?.accessToken) fetchPreferences();
-  }, [session?.accessToken, fetchPreferences]);
-
-  const updatePreference = useCallback(
-    <K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
+  const updatePreference = <K extends keyof UserPreferences>(
+    key: K,
+    value: UserPreferences[K]
+  ) => {
+    if (userPreferences[key] === value) {
       setPendingChanges((prev) => {
-        const newChanges = { ...prev };
-        if (userPreferences?.[key] === value) {
-          delete newChanges[key];
-        } else {
-          newChanges[key] = value;
-        }
-        console.log("Updated pendingChanges:", newChanges);
-        setUnsavedChangesList(Object.keys(newChanges));
-        return newChanges;
+        const { [key]: _, ...rest } = prev;
+        return rest;
       });
-    },
-    [userPreferences]
-  );
-
-  // Save all pending changes
-  const saveChanges = useCallback(async () => {
-    if (Object.keys(pendingChanges).length === 0) {
-      console.log("No pending changes to save");
-      return true;
+    } else {
+      setPendingChanges((prev) => ({ ...prev, [key]: value }));
     }
+  };
+
+  const saveChanges = async () => {
+    if (!Object.keys(pendingChanges).length) return true;
+    if (!session?.accessToken) return false;
 
     try {
-      const payload = {
-        theme: pendingChanges.theme,
-        eeg_zoom_factor: pendingChanges.eegZoomFactor,
-      };
-      const res = await apiRequest({
+      await apiRequest({
         url: `/api/user-preferences`,
         method: "PUT",
-        token: session?.accessToken,
+        token: session.accessToken,
         contentType: "application/json",
-        body: payload,
+        body: {
+          theme: pendingChanges.theme,
+          eeg_zoom_factor: pendingChanges.eegZoomFactor,
+        },
         responseType: "json",
       });
-
-      if (!res.ok) throw new Error(`Failed to save preferences: ${res.status}`);
-
-      // Update local preferences immediately
       setUserPreferences((prev) => ({ ...prev, ...pendingChanges }));
-      await fetchPreferences(); // Sync with backend
       setPendingChanges({});
-      setUnsavedChangesList([]);
       return true;
-    } catch (error) {
-      console.error("Error saving preferences:", error);
+    } catch {
       return false;
     }
-  }, [pendingChanges, session?.accessToken, fetchPreferences]);
+  };
 
-  // Reset changes to last saved state
-  const resetChanges = useCallback(() => {
-    setPendingChanges({});
-    setUnsavedChangesList([]);
-  }, []);
+  const resetChanges = () => setPendingChanges({});
 
-  // Alert when navigating away with unsaved changes
-  useEffect(() => {
-    if (!pathname?.includes("/dashboard/settings")) return;
-
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (unsavedChangesList.length > 0) {
-        e.preventDefault();
-        e.returnValue =
-          "You have unsaved changes. Are you sure you want to leave?";
-        return e.returnValue;
-      }
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [unsavedChangesList, pathname]);
-
-  const value = {
+  const value: SettingsContextType = {
     userPreferences,
     pendingChanges,
-    hasUnsavedChanges: unsavedChangesList.length > 0,
+    hasUnsavedChanges: !!Object.keys(pendingChanges).length,
     updatePreference,
     saveChanges,
     resetChanges,
-    unsavedChangesList,
+    loadPreferences,
   };
 
   return (
@@ -199,10 +118,8 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
 
 export function useSettings() {
   const context = useContext(SettingsContext);
-
-  if (context === undefined) {
+  if (!context) {
     throw new Error("useSettings must be used within a SettingsProvider");
   }
-
   return context;
 }

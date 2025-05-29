@@ -7,7 +7,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { DEFAULT_USER_PREFERENCES } from "shared/contexts/settings-context";
 import { getEnvVar } from "shared/lib/utils/env";
 import { apiRequest } from "shared/lib/utils/request";
-import { TokenResponse, UserPreferences } from "shared/types/user";
+import { TokenResponse, UserPreferences } from "shared/types/auth";
 
 const API_URL = getEnvVar("NEXT_PUBLIC_API_URL");
 const SESSION_EXPIRATION = parseInt(getEnvVar("SESSION_EXPIRATION"));

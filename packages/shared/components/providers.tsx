@@ -1,6 +1,6 @@
 "use client";
 
-import { ThemeProvider } from "./theme/theme-provider";
+import { ThemeProvider } from "next-themes";
 import { EDFPlotProvider } from "../contexts/edf-plot-context";
 import { ApolloWrapper } from "./higher-order/ApolloWrapper";
 import { Header } from "./layout/Header";

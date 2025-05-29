@@ -50,6 +50,7 @@ const nextConfig = {
       shared: path.resolve(__dirname, "../shared"),
       "@": path.resolve(__dirname, "./app"),
     };
+    config.optimization.minimize = false;
     return config;
   },
 };

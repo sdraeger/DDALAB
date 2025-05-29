@@ -1,4 +1,4 @@
-import { EEGData } from "./eeg";
+import { EEGData } from "./EEGData";
 
 export interface ResultsFormProps {
   edfData: EEGData;

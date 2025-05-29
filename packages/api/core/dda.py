@@ -39,12 +39,10 @@ def preprocess_data(
     processed_data = data.copy()
 
     # Resampling
-    if options.get("resample1000hz") and sampling_rate != 1000:
-        new_length = int(len(data) * 1000 / sampling_rate)
+    if new_sampling_rate := options.get("resample"):
+        new_length = int(len(data) * new_sampling_rate / sampling_rate)
         processed_data = signal.resample(processed_data, new_length)
-    elif options.get("resample500hz") and sampling_rate != 500:
-        new_length = int(len(data) * 500 / sampling_rate)
-        processed_data = signal.resample(processed_data, new_length)
+        sampling_rate = new_sampling_rate
 
     # Filtering
     nyquist = sampling_rate / 2
@@ -56,10 +54,9 @@ def preprocess_data(
         b, a = signal.butter(4, 0.5 / nyquist, btype="high")
         processed_data = signal.filtfilt(b, a, processed_data)
 
-    if options.get("notchFilter"):
-        for freq in [50, 60]:  # Both 50Hz and 60Hz
-            b, a = signal.iirnotch(freq, 30, sampling_rate)
-            processed_data = signal.filtfilt(b, a, processed_data)
+    if freq := options.get("notchFilter"):
+        b, a = signal.iirnotch(freq, 30, sampling_rate)
+        processed_data = signal.filtfilt(b, a, processed_data)
 
     if options.get("detrend"):
         processed_data = signal.detrend(processed_data)
@@ -71,7 +68,6 @@ async def run_dda(
     file_path: Path = None,
     channel_list: list[int] = None,
     preprocessing_options: dict[str, bool | int | float | str] = None,
-    detrend_heatmap_axis: Optional[int] = None,
 ) -> DDAResponse:
     """Run DDA on a file.
 
@@ -79,7 +75,6 @@ async def run_dda(
         file_path: Path to the file
         channel_list: List of channels to analyze
         preprocessing_options: Preprocessing options
-        detrend_heatmap_axis: Axis to detrend Q_transposed along
 
     Returns:
         DDAResult object

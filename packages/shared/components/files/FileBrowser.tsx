@@ -12,11 +12,11 @@ import {
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Skeleton } from "../ui/skeleton";
-import { EDFPlotDialog } from "../dialog/edf-plot-dialog";
+import { EDFPlotDialog } from "../dialog/EDFPlotDialog";
 import { useEDFPlot } from "../../contexts/edf-plot-context";
 import { toast } from "../ui/use-toast";
 import { apiRequest } from "../../lib/utils/request";
-import { useApiQuery } from "../../lib/hooks/query";
+import { useApiQuery } from "../../hooks/query";
 import { useSession } from "next-auth/react";
 
 interface FileItem {

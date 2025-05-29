@@ -7,11 +7,10 @@ import strawberry
 class PreprocessingOptionsInput:
     """Preprocessing options input type."""
 
-    resample1000hz: bool = False
-    resample500hz: bool = False
-    lowpassFilter: bool = False
-    highpassFilter: bool = False
-    notchFilter: bool = False
+    resample: int | None = None
+    lowpassFilter: int | None = None
+    highpassFilter: int | None = None
+    notchFilter: int | None = None
     detrend: bool = False
     removeOutliers: bool = False
     smoothing: bool = False

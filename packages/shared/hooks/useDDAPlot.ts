@@ -1,0 +1,733 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useQuery } from "@apollo/client";
+import { useToast } from "./use-toast";
+import { useSession } from "next-auth/react";
+import { GET_EDF_DATA } from "../lib/graphql/queries";
+import { useEDFPlot } from "../contexts/edf-plot-context";
+import { useAnnotationManagement } from "../hooks/use-annotation-management";
+import { apiRequest } from "../lib/utils/request";
+import logger from "../lib/utils/logger";
+import type { EEGData } from "../types/EEGData";
+import type { Annotation } from "../types/annotation";
+import type { HeatmapPoint } from "../components/plot/DDAHeatmap";
+import type { DDAPlotProps } from "../types/DDAPlotProps";
+import type { EdfFileInfo } from "../lib/schemas/edf";
+
+const hasActivePreprocessing = (options: any): boolean => {
+  if (!options) return false;
+  const isActive =
+    options.removeOutliers ||
+    options.smoothing ||
+    (options.normalization && options.normalization !== "none");
+  logger.info("Preprocessing options active check:", options, isActive);
+  return isActive;
+};
+
+export const useDDAPlot = ({
+  filePath,
+  Q,
+  onChunkLoaded,
+  preprocessingOptions: externalPreprocessingOptions,
+  selectedChannels,
+  setSelectedChannels,
+  onChannelSelectionChange,
+  onAvailableChannelsChange,
+}: DDAPlotProps) => {
+  const { getPlotState, updatePlotState, initPlotState } = useEDFPlot();
+  const { toast } = useToast();
+  const { data: session } = useSession();
+  const token = session?.accessToken;
+  const chartAreaRef = useRef<HTMLDivElement>(null);
+  const plotState = getPlotState(filePath) || {
+    chunkSizeSeconds: 100,
+    selectedChannels: [],
+    showPlot: false,
+    timeWindow: [0, 100] as [number, number],
+    absoluteTimeWindow: [0, 100] as [number, number],
+    zoomLevel: 1,
+    chunkStart: 0,
+    totalSamples: 0,
+    totalDuration: 0,
+    currentChunkNumber: 1,
+    totalChunks: 1,
+    edfData: null,
+    annotations: null,
+    lastFetchTime: null,
+    preprocessingOptions: null,
+    sampleRate: 256,
+  };
+
+  const [currentSample, setCurrentSample] = useState(0);
+  const [availableChannels, setAvailableChannels] = useState<string[]>([]);
+  const [shouldLoadChunk, setShouldLoadChunk] = useState(false);
+  const [showZoomSettings, setShowZoomSettings] = useState(false);
+  const [manualErrorMessage, setManualErrorMessage] = useState<string | null>(
+    null
+  );
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [editMode, setEditMode] = useState(false);
+  const [targetAnnotationAfterLoad, setTargetAnnotationAfterLoad] =
+    useState<Annotation | null>(null);
+  const [ddaHeatmapData, setDdaHeatmapData] = useState<HeatmapPoint[]>([]);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [isHeatmapProcessing, setIsHeatmapProcessing] = useState(false);
+  const [chunkStart, setChunkStart] = useState(plotState.chunkStart || 0);
+  const [chunkSize, setChunkSize] = useState(
+    plotState.sampleRate ? Math.round(10 * plotState.sampleRate) : 2560
+  );
+  const [totalSamples, setTotalSamples] = useState(plotState.totalSamples || 0);
+  const [sampleRate, setSampleRate] = useState(plotState.sampleRate || 256);
+  const [timeWindow, setTimeWindow] = useState<[number, number]>(
+    plotState.timeWindow || [0, 10]
+  );
+  const [absoluteTimeWindow, setAbsoluteTimeWindow] = useState<
+    [number, number] | undefined
+  >(plotState.absoluteTimeWindow);
+  const [zoomLevel, setZoomLevel] = useState(plotState.zoomLevel || 1);
+  const [preprocessingOptions, setPreprocessingOptions] = useState<any>(
+    externalPreprocessingOptions ||
+      plotState.preprocessingOptions || {
+        removeOutliers: false,
+        smoothing: false,
+        smoothingWindow: 3,
+        normalization: "none",
+      }
+  );
+  const [shouldUpdateViewContext, setShouldUpdateViewContext] = useState(false);
+  const timeWindowUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const {
+    annotations,
+    setAnnotations,
+    addAnnotation,
+    updateAnnotation,
+    deleteAnnotation,
+  } = useAnnotationManagement({
+    filePath,
+    initialAnnotationsFromPlotState: plotState.annotations || [],
+    onAnnotationsChangeForPlotState: (updatedAnnotations: Annotation[]) => {
+      if (filePath)
+        updatePlotState(filePath, { annotations: updatedAnnotations });
+    },
+  });
+
+  const { loading, error, data, refetch, networkStatus } = useQuery(
+    GET_EDF_DATA,
+    {
+      variables: {
+        filename: filePath,
+        chunkStart,
+        chunkSize,
+        includeNavigationInfo: true,
+        ...(hasActivePreprocessing(preprocessingOptions)
+          ? { preprocessingOptions }
+          : {}),
+      },
+      skip:
+        !filePath ||
+        filePath === "" ||
+        (!shouldLoadChunk && plotState.edfData !== null) ||
+        (plotState.edfData !== null &&
+          chunkStart === plotState.chunkStart &&
+          chunkSize === plotState.chunkSizeSeconds * plotState.sampleRate &&
+          hasActivePreprocessing(preprocessingOptions) ===
+            hasActivePreprocessing(plotState.preprocessingOptions) &&
+          JSON.stringify(preprocessingOptions) ===
+            JSON.stringify(plotState.preprocessingOptions)),
+      notifyOnNetworkStatusChange: true,
+      fetchPolicy: shouldLoadChunk ? "network-only" : "cache-first",
+      context: {
+        fetchOptions: {
+          onDownloadProgress: (progressEvent: {
+            loaded: number;
+            total: number;
+            lengthComputable: boolean;
+          }) => {
+            if (progressEvent.lengthComputable) {
+              setDownloadProgress(
+                Math.round((progressEvent.loaded / progressEvent.total) * 100)
+              );
+            } else {
+              setDownloadProgress(Math.min(downloadProgress + 5, 95));
+            }
+          },
+        },
+      },
+    }
+  );
+
+  const convertToEEGData = useCallback(
+    (
+      edfNumericData: number[][] | undefined,
+      channelNames: string[] | undefined,
+      selectedChannels: string[],
+      sampleRate: number
+    ): EEGData | null => {
+      if (
+        !edfNumericData ||
+        !channelNames ||
+        !sampleRate ||
+        channelNames.length === 0 ||
+        edfNumericData.length === 0 ||
+        edfNumericData.length !== channelNames.length
+      ) {
+        logger.warn("convertToEEGData: Invalid input data", {
+          edfNumericData,
+          channelNames,
+          sampleRate,
+        });
+        return null;
+      }
+      try {
+        const samplesPerChannel = edfNumericData[0]?.length || 0;
+        return {
+          channels: channelNames,
+          samplesPerChannel,
+          sampleRate,
+          data: edfNumericData,
+          startTime: new Date(),
+          duration: samplesPerChannel / sampleRate,
+          absoluteStartTime: 0,
+          annotations: [],
+        };
+      } catch (error) {
+        logger.error("Error converting EEG data:", error);
+        setManualErrorMessage(
+          `Error converting data: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
+        return null;
+      }
+    },
+    [setManualErrorMessage]
+  );
+
+  const processMatrixForHeatmap = (matrix: any[][]): HeatmapPoint[] => {
+    if (!matrix || !Array.isArray(matrix) || matrix.length === 0) {
+      logger.warn("Invalid matrix data for heatmap processing");
+      return [];
+    }
+    const heatmapData: HeatmapPoint[] = [];
+    for (let i = 0; i < matrix.length; i++) {
+      for (let j = 0; j < matrix[i].length; j++) {
+        if (matrix[i][j] !== null) {
+          heatmapData.push({ x: i, y: j, value: matrix[i][j] });
+        }
+      }
+    }
+    return heatmapData;
+  };
+
+  useEffect(() => {
+    const initializePlotStateAndMetadata = async () => {
+      if (filePath && token) {
+        initPlotState(filePath);
+        try {
+          const fileInfoResponse = await apiRequest<EdfFileInfo>({
+            url: `/api/edf/info?file_path=${encodeURIComponent(filePath)}`,
+            method: "GET",
+            token,
+            responseType: "json",
+            contentType: "application/json",
+          });
+          if (fileInfoResponse) {
+            updatePlotState(filePath, {
+              totalChunks: fileInfoResponse.num_chunks,
+              totalSamples: fileInfoResponse.total_samples,
+              sampleRate: fileInfoResponse.sampling_rate,
+              totalDuration: fileInfoResponse.total_duration,
+            });
+            setShouldLoadChunk(
+              !getPlotState(filePath)?.edfData ||
+                getPlotState(filePath)?.chunkStart !== 0
+            );
+          }
+        } catch (error) {
+          logger.error("Error fetching file info:", error);
+          toast({
+            title: "Error Fetching File Info",
+            description:
+              error instanceof Error
+                ? error.message
+                : "Could not load file metadata.",
+            variant: "destructive",
+          });
+          setShouldLoadChunk(false);
+        }
+      }
+    };
+    if (filePath && token) initializePlotStateAndMetadata();
+  }, [filePath, token, initPlotState, updatePlotState, toast]);
+
+  useEffect(() => {
+    if (externalPreprocessingOptions) {
+      setPreprocessingOptions(externalPreprocessingOptions);
+      if (
+        JSON.stringify(externalPreprocessingOptions) !==
+        JSON.stringify(preprocessingOptions)
+      ) {
+        setShouldLoadChunk(true);
+      }
+    }
+  }, [externalPreprocessingOptions, preprocessingOptions]);
+
+  useEffect(() => {
+    if (
+      preprocessingOptions &&
+      !hasActivePreprocessing(preprocessingOptions) &&
+      filePath
+    ) {
+      updatePlotState(filePath, { preprocessingOptions: null });
+    }
+  }, [preprocessingOptions, filePath, updatePlotState]);
+
+  useEffect(() => {
+    if (data?.getEdfData) {
+      const {
+        data: edfNumericData,
+        samplingFrequency,
+        totalSamples,
+        channelLabels,
+        annotations,
+        chunkStart,
+        chunkSize,
+        totalDurationSeconds,
+      } = data.getEdfData;
+      setTotalSamples(totalSamples);
+      setSampleRate(samplingFrequency);
+      setChunkSize(Math.round(10 * samplingFrequency));
+      setAvailableChannels(channelLabels);
+      onAvailableChannelsChange?.(channelLabels);
+      if (selectedChannels.length === 0) {
+        setSelectedChannels(
+          channelLabels.slice(0, Math.min(5, channelLabels.length))
+        );
+      }
+      const convertedData = convertToEEGData(
+        edfNumericData,
+        channelLabels,
+        selectedChannels,
+        samplingFrequency
+      );
+      if (convertedData) {
+        updatePlotState(filePath, {
+          edfData: convertedData,
+          annotations: annotations || plotState.annotations,
+          totalSamples,
+          totalDuration: totalDurationSeconds || plotState.totalDuration,
+          sampleRate: samplingFrequency,
+          showPlot: true,
+          lastFetchTime: Date.now(),
+          preprocessingOptions: hasActivePreprocessing(preprocessingOptions)
+            ? preprocessingOptions
+            : null,
+        });
+        onChunkLoaded?.(convertedData);
+        setDownloadProgress(100);
+        setShouldLoadChunk(false);
+      } else {
+        setManualErrorMessage(
+          "Data received but could not be processed for plotting."
+        );
+      }
+    }
+  }, [
+    data,
+    filePath,
+    updatePlotState,
+    selectedChannels,
+    preprocessingOptions,
+    onChunkLoaded,
+    onAvailableChannelsChange,
+    plotState,
+    convertToEEGData,
+  ]);
+
+  useEffect(() => {
+    if (Q && Array.isArray(Q) && Q.length > 0) {
+      setIsHeatmapProcessing(true);
+      try {
+        const heatmapData = processMatrixForHeatmap(Q);
+        setDdaHeatmapData(heatmapData);
+        setShowHeatmap(true);
+      } catch (err) {
+        logger.error("Error processing Q matrix for heatmap:", err);
+        toast({
+          title: "Heatmap Error",
+          description: "Could not process data for the DDA heatmap.",
+          variant: "destructive",
+        });
+        setShowHeatmap(false);
+      } finally {
+        setIsHeatmapProcessing(false);
+      }
+    } else {
+      setShowHeatmap(false);
+      setDdaHeatmapData([]);
+    }
+  }, [Q, toast]);
+
+  useEffect(() => {
+    if (data && targetAnnotationAfterLoad && !loading) {
+      const annotationSample = targetAnnotationAfterLoad.startTime;
+      if (
+        annotationSample >= chunkStart &&
+        annotationSample <= chunkStart + chunkSize
+      ) {
+        const annotationTimeInChunk =
+          (annotationSample - chunkStart) / sampleRate;
+        const halfWindowSize = (timeWindow[1] - timeWindow[0]) / 2;
+        const newLocalWindow: [number, number] = [
+          Math.max(0, annotationTimeInChunk - halfWindowSize),
+          Math.min(
+            chunkSize / sampleRate,
+            annotationTimeInChunk + halfWindowSize
+          ),
+        ];
+        setTimeWindow(newLocalWindow);
+        setCurrentSample(annotationSample);
+        setAbsoluteTimeWindow([
+          chunkStart / sampleRate + newLocalWindow[0],
+          chunkStart / sampleRate + newLocalWindow[1],
+        ]);
+        setTimeout(() => setShouldUpdateViewContext(true), 300);
+        setTargetAnnotationAfterLoad(null);
+      }
+    }
+  }, [
+    data,
+    loading,
+    targetAnnotationAfterLoad,
+    chunkStart,
+    chunkSize,
+    sampleRate,
+    timeWindow,
+  ]);
+
+  const handlePrevChunk = () => {
+    const newChunkStart = Math.max(0, chunkStart - chunkSize);
+    setChunkStart(newChunkStart);
+    setShouldLoadChunk(true);
+    setDownloadProgress(0);
+    resetTimeWindow(newChunkStart);
+    updatePlotState(filePath, {
+      chunkStart: newChunkStart,
+      currentChunkNumber: newChunkStart / chunkSize + 1,
+    });
+  };
+
+  const handleNextChunk = () => {
+    if (chunkStart + chunkSize < totalSamples) {
+      const newChunkStart = chunkStart + chunkSize;
+      setChunkStart(newChunkStart);
+      setShouldLoadChunk(true);
+      setDownloadProgress(0);
+      resetTimeWindow(newChunkStart);
+      updatePlotState(filePath, {
+        chunkStart: newChunkStart,
+        currentChunkNumber: newChunkStart / chunkSize + 1,
+      });
+    }
+  };
+
+  const resetTimeWindow = (start: number) => {
+    const absStart = start / sampleRate;
+    const actualDuration = data?.getEdfData?.chunkSize
+      ? data.getEdfData.chunkSize / sampleRate
+      : chunkSize / sampleRate || 10;
+    setTimeWindow([0, actualDuration]);
+    setAbsoluteTimeWindow([absStart, absStart + actualDuration]);
+  };
+
+  const handleZoomIn = () => {
+    if (zoomLevel < 10 && data) {
+      const newZoom = zoomLevel * 1.5;
+      const center = (timeWindow[0] + timeWindow[1]) / 2;
+      const newDuration = (timeWindow[1] - timeWindow[0]) / 1.5;
+      const newLocalWindow: [number, number] = [
+        Math.max(0, center - newDuration / 2),
+        Math.min(data.getEdfData.duration, center + newDuration / 2),
+      ];
+      setZoomLevel(newZoom);
+      setTimeWindow(newLocalWindow);
+      setAbsoluteTimeWindow([
+        chunkStart / sampleRate + newLocalWindow[0],
+        chunkStart / sampleRate + newLocalWindow[1],
+      ]);
+      setTimeout(() => setShouldUpdateViewContext(true), 300);
+    }
+  };
+
+  const handleZoomOut = () => {
+    if (zoomLevel > 0.1 && data) {
+      const newZoom = zoomLevel / 1.5;
+      const center = (timeWindow[0] + timeWindow[1]) / 2;
+      const newDuration = (timeWindow[1] - timeWindow[0]) * 1.5;
+      const newLocalWindow: [number, number] = [
+        Math.max(0, center - newDuration / 2),
+        Math.min(data.getEdfData.duration, center + newDuration / 2),
+      ];
+      setZoomLevel(newZoom);
+      setTimeWindow(newLocalWindow);
+      setAbsoluteTimeWindow([
+        chunkStart / sampleRate + newLocalWindow[0],
+        chunkStart / sampleRate + newLocalWindow[1],
+      ]);
+      setTimeout(() => setShouldUpdateViewContext(true), 300);
+    }
+  };
+
+  const handleReset = () => {
+    if (data) {
+      setZoomLevel(1);
+      setTimeWindow([0, data.getEdfData.duration]);
+      setAbsoluteTimeWindow([
+        chunkStart / sampleRate,
+        chunkStart / sampleRate + data.getEdfData.duration,
+      ]);
+      setTimeout(() => setShouldUpdateViewContext(true), 300);
+    }
+  };
+
+  const handleChunkSizeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseInt(e.target.value);
+    if (!isNaN(value) && value > 0) {
+      setChunkSize(value);
+    }
+  };
+
+  const handleLoadChunk = () => {
+    setShouldLoadChunk(true);
+    setDownloadProgress(0);
+    updatePlotState(filePath, {
+      chunkStart,
+      chunkSizeSeconds: chunkSize / sampleRate,
+    });
+  };
+
+  const toggleChannel = (channel: string) => {
+    onChannelSelectionChange(
+      selectedChannels.includes(channel)
+        ? selectedChannels.filter((ch) => ch !== channel)
+        : [...selectedChannels, channel]
+    );
+  };
+
+  const handleChartClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!chartAreaRef.current || !data) return;
+    const rect = chartAreaRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const relativeX = x / rect.width;
+    const timeOffset =
+      timeWindow[0] + relativeX * (timeWindow[1] - timeWindow[0]);
+    setCurrentSample(chunkStart + Math.floor(timeOffset * sampleRate));
+  };
+
+  const handleAnnotationSelect = (annotation: Annotation) => {
+    const annotationSample = annotation.startTime;
+    if (
+      annotationSample >= chunkStart &&
+      annotationSample <= chunkStart + chunkSize
+    ) {
+      const annotationTimeInChunk =
+        (annotationSample - chunkStart) / sampleRate;
+      const halfWindowSize = (timeWindow[1] - timeWindow[0]) / 2;
+      const newLocalWindow: [number, number] = [
+        Math.max(0, annotationTimeInChunk - halfWindowSize),
+        Math.min(
+          chunkSize / sampleRate,
+          annotationTimeInChunk + halfWindowSize
+        ),
+      ];
+      setTimeWindow(newLocalWindow);
+      setCurrentSample(annotationSample);
+      setAbsoluteTimeWindow([
+        chunkStart / sampleRate + newLocalWindow[0],
+        chunkStart / sampleRate + newLocalWindow[1],
+      ]);
+      setTimeout(() => setShouldUpdateViewContext(true), 300);
+    } else {
+      const newChunkStart = Math.max(
+        0,
+        annotationSample - Math.floor(chunkSize / 2)
+      );
+      setChunkStart(newChunkStart);
+      setCurrentSample(annotationSample);
+      const chunkDurationSec = chunkSize / sampleRate;
+      setTimeWindow([0, Math.min(10, chunkDurationSec)]);
+      setAbsoluteTimeWindow([
+        newChunkStart / sampleRate,
+        newChunkStart / sampleRate + Math.min(10, chunkDurationSec),
+      ]);
+      setShouldLoadChunk(true);
+      setTargetAnnotationAfterLoad(annotation);
+    }
+  };
+
+  const toggleHeatmap = () => {
+    if (!showHeatmap && Q) {
+      setIsHeatmapProcessing(true);
+      try {
+        const processed = processMatrixForHeatmap(Q);
+        setDdaHeatmapData(processed);
+        setShowHeatmap(true);
+      } catch (err) {
+        logger.error("Error processing heatmap data:", err);
+        toast({
+          title: "Heatmap Error",
+          description: "Could not process data for the heatmap.",
+          variant: "destructive",
+        });
+        setShowHeatmap(false);
+      } finally {
+        setIsHeatmapProcessing(false);
+      }
+    } else {
+      setShowHeatmap(!showHeatmap);
+    }
+  };
+
+  const handleSelectAllChannels = () =>
+    onChannelSelectionChange(availableChannels);
+  const handleClearAllChannels = () => onChannelSelectionChange([]);
+
+  useEffect(() => {
+    if (filePath && shouldLoadChunk) {
+      updatePlotState(filePath, { chunkSizeSeconds: chunkSize / sampleRate });
+    }
+  }, [filePath, updatePlotState, chunkSize, sampleRate, shouldLoadChunk]);
+
+  useEffect(() => {
+    if (filePath && shouldUpdateViewContext) {
+      updatePlotState(filePath, {
+        timeWindow,
+        absoluteTimeWindow: absoluteTimeWindow || [0, 10],
+        zoomLevel,
+      });
+      setShouldUpdateViewContext(false);
+    }
+  }, [
+    filePath,
+    updatePlotState,
+    timeWindow,
+    absoluteTimeWindow,
+    zoomLevel,
+    shouldUpdateViewContext,
+  ]);
+
+  useEffect(() => {
+    if (filePath) {
+      updatePlotState(filePath, {
+        chunkStart,
+        totalSamples,
+        preprocessingOptions: hasActivePreprocessing(preprocessingOptions)
+          ? preprocessingOptions
+          : null,
+      });
+    }
+  }, [
+    filePath,
+    updatePlotState,
+    chunkStart,
+    totalSamples,
+    preprocessingOptions,
+  ]);
+
+  useEffect(() => {
+    if (loading) {
+      setDownloadProgress(5);
+      const interval = setInterval(
+        () => setDownloadProgress((prev) => Math.min(prev + 2, 95)),
+        200
+      );
+      return () => clearInterval(interval);
+    } else if (!loading && downloadProgress > 0) {
+      setDownloadProgress(100);
+      const timeout = setTimeout(() => setDownloadProgress(0), 500);
+      return () => clearTimeout(timeout);
+    }
+  }, [loading, downloadProgress]);
+
+  useEffect(() => {
+    if (filePath) {
+      refetch({
+        filename: filePath,
+        chunkStart,
+        chunkSize,
+        ...(hasActivePreprocessing(preprocessingOptions)
+          ? { preprocessingOptions }
+          : {}),
+      });
+      setShouldLoadChunk(true);
+    }
+  }, [filePath, refetch, chunkStart, chunkSize, preprocessingOptions]);
+
+  const handleTimeWindowChange = (newWindow: [number, number]) => {
+    if (!data?.getEdfData) return; // Skip if no data is loaded
+
+    const chunkDuration = data.getEdfData.chunkSize
+      ? data.getEdfData.chunkSize / sampleRate
+      : chunkSize / sampleRate || 10;
+
+    // Validate and clamp the new window to the chunk's duration
+    const validatedWindow: [number, number] = [
+      Math.max(0, newWindow[0]),
+      Math.min(chunkDuration, newWindow[1]),
+    ];
+
+    setTimeWindow(validatedWindow);
+
+    // Calculate absolute time window in seconds
+    const absoluteChunkStart = chunkStart / sampleRate;
+    setAbsoluteTimeWindow([
+      absoluteChunkStart + validatedWindow[0],
+      absoluteChunkStart + validatedWindow[1],
+    ]);
+
+    // Debounce context update
+    if (timeWindowUpdateTimeoutRef.current) {
+      clearTimeout(timeWindowUpdateTimeoutRef.current);
+    }
+    timeWindowUpdateTimeoutRef.current = setTimeout(() => {
+      setShouldUpdateViewContext(true);
+    }, 300);
+  };
+
+  return {
+    plotState,
+    loading,
+    error,
+    manualErrorMessage,
+    downloadProgress,
+    showHeatmap,
+    ddaHeatmapData,
+    isHeatmapProcessing,
+    showZoomSettings,
+    chartAreaRef,
+    availableChannels,
+    currentSample,
+    timeWindow,
+    zoomLevel,
+    editMode,
+    annotations,
+    handlePrevChunk,
+    handleNextChunk,
+    handleZoomIn,
+    handleZoomOut,
+    handleReset,
+    handleChunkSizeChange,
+    handleLoadChunk,
+    toggleChannel,
+    handleChartClick,
+    handleAnnotationSelect,
+    toggleHeatmap,
+    handleSelectAllChannels,
+    handleClearAllChannels,
+    setShowZoomSettings,
+    addAnnotation,
+    updateAnnotation,
+    setAnnotations,
+    handleTimeWindowChange,
+  };
+};

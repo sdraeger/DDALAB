@@ -1,6 +1,6 @@
 "use client";
 
-import { ThemeInitializer } from "shared/components/theme-initializer";
+import { ThemeInitializer } from "shared/components/theme/ThemeInitializer";
 
 export default function DashboardLayout({
   children,

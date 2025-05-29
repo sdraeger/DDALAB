@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { EEGChart } from "../plot/eeg-chart";
+import { EEGChart } from "../plot/EEGChart";
 import { ResultsFormProps } from "../../types/form-props";
-import { DDAPlot } from "../plot/dda-plot";
+import { DDAPlot } from "../plot/DDAPlot";
 
 const ResultsForm: React.FC<ResultsFormProps> = ({
   edfData,
