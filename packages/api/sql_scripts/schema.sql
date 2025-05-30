@@ -375,6 +375,26 @@ CREATE TABLE public.edf_config_channels (
 
 ALTER TABLE public.edf_config_channels OWNER TO admin;
 
+CREATE TABLE public.artifacts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255),
+    file_path VARCHAR(255) NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES public.users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE public.artifacts OWNER TO admin;
+
+CREATE TABLE public.artifact_shares (
+    id SERIAL PRIMARY KEY,
+    artifact_id UUID NOT NULL REFERENCES public.artifacts(id),
+    user_id INTEGER NOT NULL REFERENCES public.users(id),
+    shared_with_user_id INTEGER NOT NULL REFERENCES public.users(id),
+    UNIQUE (artifact_id, shared_with_user_id)
+);
+
+ALTER TABLE public.artifact_shares OWNER TO admin;
+
 --
 -- Name: users_id_seq; Type: SEQUENCE; Schema: public; Owner: admin
 --

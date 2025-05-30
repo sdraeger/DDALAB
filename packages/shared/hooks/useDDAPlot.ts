@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@apollo/client";
-import { useToast } from "./use-toast";
+import { useToast } from "./useToast";
 import { useSession } from "next-auth/react";
 import { GET_EDF_DATA } from "../lib/graphql/queries";
-import { useEDFPlot } from "../contexts/edf-plot-context";
-import { useAnnotationManagement } from "../hooks/use-annotation-management";
+import { useEDFPlot } from "../contexts/EDFPlotContext";
+import { useAnnotationManagement } from "./useAnnotationManagement";
 import { apiRequest } from "../lib/utils/request";
 import logger from "../lib/utils/logger";
 import type { EEGData } from "../types/EEGData";

@@ -1,8 +1,8 @@
 from contextlib import asynccontextmanager
 from typing import Callable, Type, TypeVar
 
-from fastapi import Depends
-from loguru import logger
+from fastapi import Depends, HTTPException
+from minio import Minio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from .config import get_server_settings
@@ -75,12 +75,43 @@ def get_service(service_class: Type[T]) -> Callable[[AsyncSession], T]:
     """Dependency injector for services"""
 
     def factory(db: AsyncSession = Depends(get_db_session)) -> T:
-        logger.debug(f"Factory called for service {service_class.__name__}")
-        logger.debug(f"Service registry: {_service_registry}")
-        logger.debug(f"{db = }")
         if service_class not in _service_registry:
             raise ValueError(f"Service {service_class.__name__} not registered")
-        logger.debug(f"{_service_registry[service_class] = }")
         return _service_registry[service_class](db)
 
     return factory
+
+
+def get_minio_client():
+    """
+    Initialize and yield a MinIO client instance.
+    """
+    endpoint = settings.minio_host
+    access_key = settings.minio_access_key
+    secret_key = settings.minio_secret_key
+    secure = False
+
+    if not access_key or not secret_key:
+        raise HTTPException(
+            status_code=500,
+            detail="MinIO credentials not configured",
+        )
+
+    client = Minio(
+        endpoint,
+        access_key=access_key,
+        secret_key=secret_key,
+        secure=secure,
+    )
+
+    # Ensure the bucket exists
+    try:
+        if not client.bucket_exists(settings.minio_bucket_name):
+            client.make_bucket(settings.minio_bucket_name)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to initialize MinIO bucket: {str(e)}",
+        )
+
+    yield client

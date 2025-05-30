@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useSettings } from "../../contexts/settings-context";
+import { useSettings } from "../../contexts/SettingsContext";
 import {
   Card,
   CardContent,

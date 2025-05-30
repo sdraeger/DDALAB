@@ -1,5 +1,6 @@
 """Main server application."""
 
+import json
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -34,7 +35,6 @@ async def lifespan(app: FastAPI):
     This context manager handles startup and shutdown events for the application.
     It's called when the application starts up and shuts down.
     """
-
     # Startup
     logger.info("Initializing server configuration...")
     initialize_config()
@@ -60,8 +60,27 @@ async def lifespan(app: FastAPI):
         if not minio_client.bucket_exists(settings.minio_bucket_name):
             minio_client.make_bucket(settings.minio_bucket_name)
             logger.info(f"Bucket '{settings.minio_bucket_name}' created.")
+            # Set bucket policy to private (default behavior, but explicitly ensure)
+            policy = {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Deny",
+                        "Principal": "*",
+                        "Action": ["s3:*"],
+                        "Resource": [f"arn:aws:s3:::{settings.minio_bucket_name}/*"],
+                    }
+                ],
+            }
+            minio_client.set_bucket_policy(
+                settings.minio_bucket_name, json.dumps(policy)
+            )
+            logger.info(
+                f"Set private policy for bucket '{settings.minio_bucket_name}'."
+            )
     except S3Error as e:
-        logger.error(f"Error creating bucket: {e}")
+        logger.error(f"Error creating or configuring bucket: {e}")
+        raise
 
     yield  # Server is running
 
@@ -105,16 +124,6 @@ try:
     logger.info(f"OTLP tracing configured for {settings.otlp_host}:4318")
 except Exception as e:
     logger.warning(f"Failed to configure OTLP tracing: {e}. Tracing will be disabled.")
-    # Continue without tracing if OTLP endpoint is not available
-
-
-# Instrument FastAPI app (this enables automatic tracing)
-# Temporarily disabled to isolate file upload issues
-# FastAPIInstrumentor.instrument_app(
-#     app,
-#     server_request_hook=request_hook,
-#     client_response_hook=response_hook,
-# )
 
 # Add database session middleware
 app.add_middleware(DBSessionMiddleware)
@@ -135,18 +144,18 @@ app.add_middleware(
         "https://localhost:8001",
         "http://localhost",
         "https://localhost",
-        "file://",  # Allow Electron app
-        "*",  # Allow all origins during development
+        "file://",
+        "*",
     ],
-    allow_credentials=False,  # Set to False for wildcard origins
-    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allow all headers (Authorization, etc.)
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
     expose_headers=[
         "Content-Type",
         "Content-Disposition",
         "Content-Length",
-    ],  # Expose headers for downloads
-    max_age=3600,  # Cache preflight requests for 1 hour
+    ],
+    max_age=3600,
 )
 
 # Include GraphQL router
