@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Skeleton } from "../ui/skeleton";
 import { EDFPlotDialog } from "../dialog/EDFPlotDialog";
 import { useEDFPlot } from "../../contexts/edf-plot-context";
-import { toast } from "../ui/use-toast";
+import { toast } from "../../hooks/use-toast";
 import { apiRequest } from "../../lib/utils/request";
 import { useApiQuery } from "../../hooks/query";
 import { useSession } from "next-auth/react";
