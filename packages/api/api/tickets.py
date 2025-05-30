@@ -13,7 +13,7 @@ from ..core.dependencies import get_service
 from ..core.services import TicketService
 from ..schemas.tickets import Ticket, TicketCreate, TicketResponse, TicketUpdate
 
-router = APIRouter(prefix="")
+router = APIRouter()
 
 
 def parse_date(date_str: str | None) -> datetime | None:

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw } from "lucide-react";
-import { useApiQuery } from "shared/hooks/query";
+import { useApiQuery } from "shared/hooks/useApiQuery";
 import { DashboardLayout } from "../DashboardLayout";
 import { Button } from "shared/components/ui/button";
 import {
@@ -22,7 +22,7 @@ import {
 } from "shared/components/ui/tabs";
 import { Badge } from "shared/components/ui/badge";
 import { TicketDialog } from "shared/components/dialog/TicketDialog";
-import { useToast } from "shared/hooks/use-toast";
+import { useToast } from "shared/hooks/useToast";
 
 interface Ticket {
   id: string;

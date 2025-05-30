@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTheme } from "next-themes";
-import { useSettings } from "../../contexts/settings-context";
+import { useSettings } from "../../contexts/SettingsContext";
 import { useSession } from "next-auth/react";
 import {
   Card,

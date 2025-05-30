@@ -1,3 +1,4 @@
+from .artifact_service import ArtifactService
 from .edf_config_service import EdfConfigService
 from .favorite_files_service import FavoriteFilesService
 from .ticket_service import TicketService
@@ -10,4 +11,5 @@ __all__ = [
     "UserPreferencesService",
     "TicketService",
     "FavoriteFilesService",
+    "ArtifactService",
 ]
