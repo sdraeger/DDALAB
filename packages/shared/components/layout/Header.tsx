@@ -10,7 +10,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import { LogOut, User, BrainCircuit, Ticket, Settings } from "lucide-react";
+import {
+  LogOut,
+  User,
+  BrainCircuit,
+  Ticket,
+  Settings,
+  FileIcon,
+} from "lucide-react";
 import { ModeToggle } from "../ModeToggle";
 import { HelpButton } from "../ui/help-button";
 import { useState, useEffect } from "react";
@@ -63,6 +70,15 @@ export function Header() {
                   <span className="flex items-center">
                     <Ticket className="h-4 w-4 mr-1" />
                     My Tickets
+                  </span>
+                </Link>
+                <Link
+                  href="/dashboard/artifacts"
+                  className="text-sm font-medium transition-colors hover:text-primary mr-6"
+                >
+                  <span className="flex items-center">
+                    <FileIcon className="h-4 w-4 mr-1" />
+                    Artifacts
                   </span>
                 </Link>
               </>

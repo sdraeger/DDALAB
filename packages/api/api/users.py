@@ -3,14 +3,17 @@
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from loguru import logger
 
 from ..core.auth import (
     create_access_token,
     get_admin_user,
+    get_current_user,
 )
 from ..core.config import get_server_settings
 from ..core.database import User as UserDB
-from ..core.repository import UserRepository, get_repository
+from ..core.dependencies import get_service
+from ..core.services import UserService
 from ..schemas.auth import Token
 from ..schemas.user import User, UserCreate, UserUpdate
 
@@ -21,8 +24,8 @@ settings = get_server_settings()
 @router.post("", response_model=Token)
 async def create_user(
     user_data: UserCreate,
-    _: UserDB = Depends(get_admin_user, use_cache=False),
-    user_repo: UserRepository = Depends(get_repository(UserRepository)),
+    user_service: UserService = Depends(get_service(UserService)),
+    _: UserDB = Depends(get_current_user),
 ):
     """Create a new user (requires admin privileges)."""
 
@@ -34,7 +37,7 @@ async def create_user(
 
     # Create the new user
     try:
-        user = await user_repo.create(user_data)
+        user = await user_service.create(user_data)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -49,14 +52,15 @@ async def create_user(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.get("/", response_model=list[User])
+@router.get("", response_model=list[User])
 async def get_users(
-    _: UserDB = Depends(get_admin_user),
-    user_repo: UserRepository = Depends(get_repository(UserRepository)),
+    user_service: UserService = Depends(get_service(UserService)),
+    _: UserDB = Depends(get_current_user),
 ):
     """Get all users (requires admin privileges)."""
 
-    users = await user_repo.get_all()
+    users = await user_service.get_all_users()
+    logger.debug(f"Users: {users}")
     return users
 
 
@@ -64,22 +68,22 @@ async def get_users(
 async def update_user(
     user_id: int,
     user_data: UserUpdate,
+    user_service: UserService = Depends(get_service(UserService)),
     _: UserDB = Depends(get_admin_user),
-    user_repo: UserRepository = Depends(get_repository(UserRepository)),
 ):
     """Update a user (requires admin privileges)."""
 
-    user = await user_repo.update(user_id, user_data)
+    user = await user_service.update(user_id, user_data)
     return user
 
 
 @router.delete("/{user_id}", response_model=User)
 async def delete_user(
     user_id: int,
+    user_service: UserService = Depends(get_service(UserService)),
     _: UserDB = Depends(get_admin_user),
-    user_repo: UserRepository = Depends(get_repository(UserRepository)),
 ):
     """Delete a user (requires admin privileges)."""
 
-    user = await user_repo.delete(user_id)
+    user = await user_service.delete(user_id)
     return user

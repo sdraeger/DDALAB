@@ -14,7 +14,7 @@ import {
   CardTitle,
 } from "shared/components/ui/card";
 import { Form } from "shared/components/ui/form";
-import { toast } from "shared/hooks/use-toast";
+import { toast } from "shared/hooks/useToast";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "next-auth/react";

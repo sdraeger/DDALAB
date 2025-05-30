@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useSettings } from "../../contexts/settings-context";
+import { useSettings } from "../../contexts/SettingsContext";
 import { Button } from "./button";
 import { Save, Loader2, CheckCircle, Info } from "lucide-react";
 import { cn } from "shared/lib/utils/misc";

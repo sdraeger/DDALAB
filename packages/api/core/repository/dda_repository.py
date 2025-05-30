@@ -12,7 +12,7 @@ class DDARepository(BaseRepository[DDA]):
         super().__init__(DDA, db)
 
     async def get_by_user_id(
-        self, user_id: int, skip: int = 0, limit: int = 100
+        self, user_id: int, skip: int = 0, limit: int | None = None
     ) -> List[DDA]:
         stmt = select(DDA).filter(DDA.user_id == user_id).offset(skip)
         if limit is not None:

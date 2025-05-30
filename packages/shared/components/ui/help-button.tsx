@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useToast } from "../../hooks/use-toast";
+import { useToast } from "../../hooks/useToast";
 import { useSession } from "next-auth/react";
 import { apiRequest } from "../../lib/utils/request";
 import { TicketDialog } from "../dialog/TicketDialog";

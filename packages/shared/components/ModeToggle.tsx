@@ -2,7 +2,7 @@
 
 import { useTheme } from "next-themes";
 import { useToast } from "./ui/use-toast";
-import { useSettings } from "../contexts/settings-context";
+import { useSettings } from "../contexts/SettingsContext";
 import { Button } from "./ui/button";
 import { Moon, Sun, MonitorSmartphone } from "lucide-react";
 import {

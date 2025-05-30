@@ -1,8 +1,10 @@
 """Database configuration and models."""
 
+import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    UUID,
     Boolean,
     Column,
     DateTime,
@@ -53,6 +55,21 @@ class User(Base):
     )
     edf_configs = relationship(
         "EdfConfig", back_populates="user", cascade="all, delete-orphan"
+    )
+    artifacts = relationship(
+        "Artifact", back_populates="owner", cascade="all, delete-orphan"
+    )
+    artifact_shares = relationship(
+        "ArtifactShare",
+        back_populates="user",
+        foreign_keys="ArtifactShare.user_id",
+        cascade="all, delete-orphan",
+    )
+    shared_artifacts = relationship(
+        "ArtifactShare",
+        back_populates="shared_with_user",
+        foreign_keys="ArtifactShare.shared_with_user_id",
+        cascade="all, delete-orphan",
     )
 
 
@@ -192,4 +209,33 @@ class Ticket(Base):
         DateTime,
         default=datetime.now(timezone.utc).replace(tzinfo=None),
         onupdate=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+
+
+class Artifact(Base):
+    __tablename__ = "artifacts"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, nullable=True)
+    file_path = Column(String, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(
+        DateTime,
+        default=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    owner = relationship("User", back_populates="artifacts")
+    shares = relationship("ArtifactShare", back_populates="artifact")
+
+
+class ArtifactShare(Base):
+    __tablename__ = "artifact_shares"
+    id = Column(Integer, primary_key=True, index=True)
+    artifact_id = Column(UUID(as_uuid=True), ForeignKey("artifacts.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    shared_with_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    artifact = relationship("Artifact", back_populates="shares")
+    user = relationship(
+        "User", back_populates="artifact_shares", foreign_keys=[user_id]
+    )
+    shared_with_user = relationship(
+        "User", back_populates="shared_artifacts", foreign_keys=[shared_with_user_id]
     )

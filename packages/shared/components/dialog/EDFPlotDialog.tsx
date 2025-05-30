@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import type { EEGData } from "../../types/EEGData";
 import { cn } from "../../lib/utils/misc";
-import { useEDFPlot } from "../../contexts/edf-plot-context";
+import { useEDFPlot } from "../../contexts/EDFPlotContext";
 import { toast } from "../ui/use-toast";
 import { Slider } from "../ui/slider";
 import { Progress } from "../ui/progress";

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { useSettings } from "../contexts/settings-context";
+import { useSettings } from "../contexts/SettingsContext";
 import {
   AlertDialog,
   AlertDialogAction,

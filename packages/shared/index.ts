@@ -6,14 +6,14 @@ export * from "./components/form/LoginForm";
 export * from "./components/UnsavedChangesAlert";
 
 // Store
-export { default as store } from "./store/store";
+export { default as store } from "./store";
 export * from "./store/slices/authSlice";
 export * from "./store/slices/ticketsSlice";
 
 // Store types and hooks
 export type { RootState } from "./store/rootReducer";
-export type { AppDispatch } from "./store/store";
-export { useAppDispatch, useAppSelector } from "./store/store";
+export type { AppDispatch } from "./store";
+export { useAppDispatch, useAppSelector } from "./store";
 
 // Providers
 export * from "./providers/ReduxProvider";

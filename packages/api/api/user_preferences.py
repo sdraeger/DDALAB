@@ -9,7 +9,7 @@ from ..schemas.user import User
 from ..schemas.user_preferences import UserPreferences
 
 # Create router with explicit prefix
-router = APIRouter(prefix="")
+router = APIRouter()
 
 
 @router.get("", response_model=UserPreferences)

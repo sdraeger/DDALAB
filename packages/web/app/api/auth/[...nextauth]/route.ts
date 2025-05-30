@@ -4,7 +4,7 @@ import NextAuth, {
   DefaultUser,
 } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { DEFAULT_USER_PREFERENCES } from "shared/contexts/settings-context";
+import { DEFAULT_USER_PREFERENCES } from "shared/contexts/SettingsContext";
 import { getEnvVar } from "shared/lib/utils/env";
 import { apiRequest } from "shared/lib/utils/request";
 import { TokenResponse, UserPreferences } from "shared/types/auth";
