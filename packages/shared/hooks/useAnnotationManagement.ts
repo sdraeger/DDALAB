@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@apollo/client";
 import {
   GET_ANNOTATIONS,
@@ -19,6 +19,7 @@ export function useAnnotationManagement({
     initialAnnotationsFromPlotState
   );
   const { toast } = useToast();
+  const initializedFromPlotStateRef = useRef(false);
 
   const showErrorToast = useCallback(
     (title: string, error: Error) => {
@@ -50,10 +51,18 @@ export function useAnnotationManagement({
   useEffect(() => {
     if (data?.getAnnotations) {
       setAnnotations(data.getAnnotations);
-    } else if (initialAnnotationsFromPlotState) {
+      onAnnotationsChangeForPlotState(data.getAnnotations);
+      initializedFromPlotStateRef.current = true;
+    } else if (initialAnnotationsFromPlotState.length > 0 && !initializedFromPlotStateRef.current) {
       setAnnotations(initialAnnotationsFromPlotState);
+      initializedFromPlotStateRef.current = true;
     }
-  }, [data, initialAnnotationsFromPlotState]);
+  }, [data, onAnnotationsChangeForPlotState]);
+
+  // Reset initialization flag when filePath changes
+  useEffect(() => {
+    initializedFromPlotStateRef.current = false;
+  }, [filePath]);
 
   const [createAnnotation] = useMutation(CREATE_ANNOTATION, {
     onCompleted: ({ createAnnotation: newAnnotation }) => {
