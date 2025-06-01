@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import { useToast } from "./ui/use-toast";
 import { useSettings } from "../contexts/SettingsContext";
@@ -29,6 +30,12 @@ export function ModeToggle() {
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
   const { updatePreference, saveChanges } = useSettings();
+  const [mounted, setMounted] = useState(false);
+
+  // Prevent hydration mismatch by tracking mounted state
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleThemeChange = async (newTheme: Theme) => {
     if (newTheme === theme) return;
@@ -54,6 +61,16 @@ export function ModeToggle() {
       setTheme(theme || "system");
     }
   };
+
+  // Prevent hydration mismatch by not rendering theme-dependent content until mounted
+  if (!mounted) {
+    return (
+      <Button variant="ghost" size="icon" aria-label="Select theme">
+        <MonitorSmartphone className="h-[1.2rem] w-[1.2rem]" />
+        <span className="sr-only">Toggle theme</span>
+      </Button>
+    );
+  }
 
   const ThemeIcon = getThemeIcon(theme);
 

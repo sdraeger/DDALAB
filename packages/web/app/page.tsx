@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "shared/components/ui/button";
 import { BrainCircuit } from "lucide-react";
 import { useSession } from "next-auth/react";
+import { useEffect } from "react";
 
 export default function Home() {
   const { data: session, status } = useSession();
@@ -12,10 +13,15 @@ export default function Home() {
   const isLoggedIn = !!session;
   const loading = status === "loading";
 
+  useEffect(() => {
+    if (isLoggedIn) {
+      router.push("/dashboard");
+    }
+  }, [isLoggedIn, router]);
+
   if (loading) return null;
 
   if (isLoggedIn) {
-    router.push("/dashboard");
     return null;
   }
 

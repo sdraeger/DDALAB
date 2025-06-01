@@ -4,6 +4,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { LoginForm } from "shared/components/form/LoginForm";
 import { Loader2 } from "lucide-react";
 import { useSession } from "next-auth/react";
+import { useEffect } from "react";
 
 export default function LoginPage() {
   const { data: session, status } = useSession();
@@ -11,6 +12,12 @@ export default function LoginPage() {
   const pathname = usePathname();
   const loading = status === "loading";
   const isLoggedIn = !!session;
+
+  useEffect(() => {
+    if (isLoggedIn && pathname !== "/dashboard") {
+      router.replace("/dashboard");
+    }
+  }, [isLoggedIn, pathname, router]);
 
   if (loading) {
     return (
@@ -22,8 +29,12 @@ export default function LoginPage() {
   }
 
   if (isLoggedIn && pathname !== "/dashboard") {
-    router.replace("/dashboard");
-    return null;
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2">Redirecting...</span>
+      </div>
+    );
   }
 
   return (

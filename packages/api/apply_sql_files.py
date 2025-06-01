@@ -24,15 +24,17 @@ def connect_to_db():
     """Establish a connection to the PostgreSQL database."""
     try:
         connection = psycopg2.connect(**DB_PARAMS)
+        connection.autocommit = False  # Ensure explicit transaction control
         logger.info("Successfully connected to the database")
         return connection
     except Error as e:
-        logger.warning(f"Error connecting to PostgreSQL: {e}")
+        logger.error(f"Error connecting to PostgreSQL: {e}")
         return None
 
 
 def execute_sql_file(connection, file_path, params=None):
     """Execute a single .sql file on the database."""
+    cursor = None
     try:
         with open(file_path, "r") as file:
             sql_content = file.read()
@@ -45,37 +47,45 @@ def execute_sql_file(connection, file_path, params=None):
         connection.commit()
 
         logger.info(f"Successfully executed {file_path}")
+        return True
     except Error as e:
-        logger.warning(f"Error executing {file_path}: {e}")
+        logger.error(f"Error executing {file_path}: {e}")
         connection.rollback()
+        return False
     finally:
-        cursor.close()
+        if cursor:
+            cursor.close()
 
 
-def apply_schema(db):
-    """Apply all .sql files in the specified directory."""
+def apply_schema(db, owner):
+    """Apply all .sql files in the specified directory with the specified owner."""
     if not db:
         logger.error("Failed to connect to the database")
-        return
+        return False
 
     # Ensure the SQL directory exists
     if not SQL_DIR.exists():
         logger.error(f"Directory {SQL_DIR} not found")
-        return
+        return False
 
-    execute_sql_file(db, SQL_DIR / "schema.sql")
+    success = execute_sql_file(db, SQL_DIR / "schema.sql", {"owner": owner})
+    if not success:
+        logger.error("Failed to apply schema")
+        return False
+    db.commit()  # Ensure schema changes are committed
+    return True
 
 
 def insert_admin_user(db, username, password, email, first_name, last_name):
     if not db:
         logger.error("Failed to connect to the database")
-        return
+        return False
 
     password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode(
         "utf-8"
     )
 
-    execute_sql_file(
+    success = execute_sql_file(
         db,
         SQL_DIR / "insert_admin_user.sql",
         {
@@ -86,36 +96,54 @@ def insert_admin_user(db, username, password, email, first_name, last_name):
             "last_name": last_name,
         },
     )
+    if not success:
+        logger.error("Failed to insert admin user")
+        return False
+    db.commit()  # Ensure admin user insertion is committed
+    return True
 
 
 def check_users_exist(db):
-    cur = db.cursor()
+    if not db:
+        logger.error("Failed to connect to the database")
+        return False
 
+    cursor = None
     try:
-        cur.execute("SELECT COUNT(*) FROM users;")
-        count = cur.fetchone()[0]
+        cursor = db.cursor()
+        cursor.execute("SELECT COUNT(*) FROM public.users;")
+        count = cursor.fetchone()[0]
         return count > 0
-    except Exception as e:
+    except Error as e:
         logger.warning(f"Error checking users exist: {e}")
         db.rollback()
         return False
+    finally:
+        if cursor:
+            cursor.close()
 
 
 def check_tables_exist(db):
-    cur = db.cursor()
+    if not db:
+        logger.error("Failed to connect to the database")
+        return False
 
+    cursor = None
     try:
-        cur.execute(
+        cursor = db.cursor()
+        cursor.execute(
             """SELECT table_name FROM information_schema.tables
-       WHERE table_schema = 'public'"""
+               WHERE table_schema = 'public'"""
         )
-
-        tables = cur.fetchall()
+        tables = cursor.fetchall()
         return len(tables) > 0
-    except Exception as e:
+    except Error as e:
         logger.warning(f"Error checking tables exist: {e}")
         db.rollback()
         return False
+    finally:
+        if cursor:
+            cursor.close()
 
 
 @click.command()
@@ -127,22 +155,27 @@ def check_tables_exist(db):
 def main(username, password, email, first_name, last_name):
     logger.info(f"DB_PARAMS: {DB_PARAMS}")
 
+    db = None
     try:
         db = connect_to_db()
+        if not db:
+            return
 
         tables_exist = check_tables_exist(db)
-        print(f"Tables exist: {tables_exist}")
+        logger.info(f"Tables exist: {tables_exist}")
         if not tables_exist:
             logger.info("Applying schema")
-            apply_schema(db)
+            if not apply_schema(db, username):
+                return
 
         users_exist = check_users_exist(db)
-        print(f"Users exist: {users_exist}")
+        logger.info(f"Users exist: {users_exist}")
         if not users_exist:
             logger.info("Inserting admin user")
-            insert_admin_user(db, username, password, email, first_name, last_name)
+            if not insert_admin_user(db, username, password, email, first_name, last_name):
+                return
     except Exception as e:
-        logger.warning(f"An unexpected error occurred: {e}")
+        logger.error(f"An unexpected error occurred: {e}")
     finally:
         if db:
             db.close()

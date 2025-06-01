@@ -1,10 +1,4 @@
 -- Insert an admin user with a secure bcrypt hashed password
--- Default admin credentials:
--- Username: admin
--- Email: admin@example.com
--- Password: AdminPassword123
--- (You should change these after first login)
-
 INSERT INTO public.users (
     username,
     password_hash,
@@ -28,6 +22,6 @@ INSERT INTO public.user_preferences (
     user_id,
     theme
 ) VALUES (
-    (SELECT id FROM public.users WHERE username = 'admin'),
+    (SELECT id FROM public.users WHERE username = '{username}'),
     'light'
 );

@@ -6,8 +6,8 @@ import httpProxy from "http-proxy";
 import type { ServerOptions } from "http-proxy";
 import { spawn, ChildProcess } from "child_process";
 import { IncomingMessage, ServerResponse } from "http";
-import { getEnvVar } from "../shared/lib/utils/env";
-import logger from "../shared/lib/utils/logger";
+import { getEnvVar } from "shared/lib/utils/env";
+import logger from "shared/lib/utils/logger";
 import { Writable } from "stream";
 
 // --- Configuration ---

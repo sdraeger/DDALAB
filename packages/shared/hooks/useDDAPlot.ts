@@ -96,19 +96,24 @@ export const useDDAPlot = ({
   const [shouldUpdateViewContext, setShouldUpdateViewContext] = useState(false);
   const timeWindowUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const onAnnotationsChangeForPlotState = useCallback(
+    (updatedAnnotations: Annotation[]) => {
+      if (filePath) {
+        updatePlotState(filePath, { annotations: updatedAnnotations });
+      }
+    },
+    [filePath, updatePlotState]
+  );
+
   const {
     annotations,
     setAnnotations,
     addAnnotation,
     updateAnnotation,
-    deleteAnnotation,
   } = useAnnotationManagement({
     filePath,
     initialAnnotationsFromPlotState: plotState.annotations || [],
-    onAnnotationsChangeForPlotState: (updatedAnnotations: Annotation[]) => {
-      if (filePath)
-        updatePlotState(filePath, { annotations: updatedAnnotations });
-    },
+    onAnnotationsChangeForPlotState,
   });
 
   const { loading, error, data, refetch, networkStatus } = useQuery(
