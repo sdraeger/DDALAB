@@ -1,5 +1,4 @@
-"""Core configuration settings for the server."""
-
+import os
 import json
 from functools import lru_cache
 from pathlib import Path
@@ -27,7 +26,7 @@ class Settings(BaseSettings):
 
     # Data directory settings
     data_dir: str
-    anonymize_edf: bool = False  # Whether to anonymize EDF files by default
+    anonymize_edf: bool = False
 
     # DDA binary settings
     dda_binary_path: str
@@ -71,9 +70,34 @@ class Settings(BaseSettings):
         """
         logger.info(f"[Config] Parsing allowed_dirs from value: {value}")
 
+        # Check reload from environment directly to avoid instantiating Settings
+        reload_value = os.getenv("DDALAB_RELOAD", False)
+
+        if reload_value:
+            if isinstance(value, str):
+                # In development mode, split comma-separated paths into a list
+                if value.strip():
+                    parsed_dirs = [path.strip() for path in value.split(",")]
+                    logger.info(
+                        f"[Config] Development mode: parsed allowed_dirs as list: {parsed_dirs}"
+                    )
+                    return parsed_dirs
+                return []  # Return empty list for empty string
+            elif isinstance(value, list):
+                logger.info(
+                    f"[Config] Development mode: using allowed_dirs as list: {value}"
+                )
+                return value
+            elif value is None:
+                return []
+            else:
+                raise ValueError(
+                    f"Invalid ALLOWED_DIRS type in development mode: {type(value)}"
+                )
+
         if isinstance(value, str):
             try:
-                # Parse the comma-separated string with colon-separated parts
+                # In production mode, parse <host>:<container>:<access> format
                 parsed_dirs = {pair.split(":")[1] for pair in value.split(",")}
                 logger.info(f"[Config] Parsed allowed_dirs result: {parsed_dirs}")
                 return parsed_dirs
@@ -81,13 +105,13 @@ class Settings(BaseSettings):
                 logger.error(f"Failed to parse allowed_dirs: {e}")
                 raise ValueError(f"Invalid ALLOWED_DIRS format: {value}")
         elif value is None:
-            return []  # Default to empty list if not provided
+            return []
 
-        return value  # Return as-is if already a list
+        return value
 
     class Config:
         env_prefix = "DDALAB_"
-        env_file = ".env"
+        env_file = str(os.getenv("DDALAB_ENV_FILE", ".env"))
         env_file_encoding = "utf-8"
         extra = "allow"
 
@@ -143,14 +167,11 @@ class ConfigManager:
         with open(config_path) as f:
             data = json.load(f)
 
-            # Handle case where keys may have env prefix
             if config_class == Settings:
                 prefix = "ddalab_"
-                # Create a new dict with prefixes removed
                 processed_data = {}
                 for key, value in data.items():
                     if key.lower().startswith(prefix):
-                        # Strip the prefix
                         clean_key = key[len(prefix) :]
                         processed_data[clean_key] = value
                     else:
@@ -172,11 +193,8 @@ class ConfigManager:
         Returns:
             Updated configuration object
         """
-        # Create a new config with updates
         updated_data = {**config.model_dump(), **updates}
         updated_config = config.__class__(**updated_data)
-
-        # Save the updated config
         self.save_config(updated_config, config_name)
         return updated_config
 
@@ -188,14 +206,12 @@ class ConfigManager:
         """
         configs = {}
 
-        # Initialize server settings
         server_settings = self.load_config(Settings, "server")
         if server_settings is None:
             server_settings = Settings()
             self.save_config(server_settings, "server")
         configs["server"] = server_settings
 
-        # Initialize data settings
         data_settings = self.load_config(Settings, "data")
         if data_settings is None:
             data_settings = Settings()
@@ -205,7 +221,6 @@ class ConfigManager:
         return configs
 
 
-# Global config manager instance
 config_manager = ConfigManager()
 
 
@@ -245,13 +260,12 @@ def update_settings(setting_type: str, updates: Dict[str, Any]) -> BaseModel:
         setting_type: Type of settings to update ("server" or "data")
         updates: Dictionary of updates to apply
 
-    Returns:
-        Updated settings object
+        Returns:
+            Updated settings object
 
-    Raises:
-        ValueError: If setting_type is invalid
+        Rais:
+            ValueError: If setting_type is invalid
     """
-    # Clear the cache for the updated settings
     if setting_type == "server":
         get_server_settings.cache_clear()
         current = get_server_settings()

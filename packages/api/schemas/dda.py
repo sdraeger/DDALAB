@@ -9,7 +9,7 @@ from pydantic import BaseModel
 class SnakeToCamelModel(BaseModel):
     class Config:
         alias_generator = camelize
-        allow_population_by_field_name = True
+        validate_by_name = True
 
 
 class DDARequest(BaseModel):

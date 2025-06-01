@@ -1,0 +1,116 @@
+http:
+  routers:
+    # HTTP Routes
+    web:
+      rule: "Host(`localhost`)"
+      entryPoints:
+        - web
+      service: web
+    web-auth:
+      rule: "Host(`localhost`) && PathPrefix(`/api/auth/`)"
+      entryPoints:
+        - web
+      service: web
+    web-api:
+      rule: "Host(`localhost`) && Path(`/api`)"
+      entryPoints:
+        - web
+      service: web
+    web-debug:
+      rule: "Host(`localhost`) && PathPrefix(`/api/debug`)"
+      entryPoints:
+        - web
+      service: web
+    api:
+      rule: "Host(`localhost`) && PathPrefix(`/api/`)"
+      entryPoints:
+        - web
+      service: api
+    api-tickets:
+      rule: "Host(`localhost`) && PathPrefix(`/api/tickets`)"
+      entryPoints:
+        - web
+      service: api
+    api-graphql:
+      rule: "Host(`localhost`) && PathPrefix(`/graphql`)"
+      entryPoints:
+        - web
+      service: api
+    traefik:
+      rule: "Host(`localhost`) && PathPrefix(`/dashboard`)"
+      entryPoints:
+        - web
+      service: web
+
+    # HTTPS Routes
+    web-secure:
+      rule: "Host(`localhost`)"
+      entryPoints:
+        - websecure
+      service: web
+      tls:
+        options: default
+    web-auth-secure:
+      rule: "Host(`localhost`) && PathPrefix(`/api/auth/`)"
+      entryPoints:
+        - websecure
+      service: web
+      tls:
+        options: default
+    web-api-secure:
+      rule: "Host(`localhost`) && Path(`/api`)"
+      entryPoints:
+        - websecure
+      service: web
+      tls:
+        options: default
+    web-debug-secure:
+      rule: "Host(`localhost`) && PathPrefix(`/api/debug`)"
+      entryPoints:
+        - websecure
+      service: web
+      tls:
+        options: default
+    api-secure:
+      rule: "Host(`localhost`) && PathPrefix(`/api/`)"
+      entryPoints:
+        - websecure
+      service: api
+      tls:
+        options: default
+    api-tickets-secure:
+      rule: "Host(`localhost`) && PathPrefix(`/api/tickets`)"
+      entryPoints:
+        - websecure
+      service: api
+      tls:
+        options: default
+    api-graphql-secure:
+      rule: "Host(`localhost`) && PathPrefix(`/graphql`)"
+      entryPoints:
+        - websecure
+      service: api
+      tls:
+        options: default
+    traefik-secure:
+      rule: "Host(`localhost`) && PathPrefix(`/dashboard`)"
+      entryPoints:
+        - websecure
+      service: web
+      tls:
+        options: default
+
+  services:
+    web:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:3000" # Web service (e.g., Next.js)
+    api:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8001" # API service (uvicorn)
+
+  middlewares:
+    auth:
+      basicAuth:
+        users: "admin:$apr1$example$hashedpassword" # Replace with dev password hash

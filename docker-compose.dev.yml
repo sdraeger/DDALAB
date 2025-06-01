@@ -1,0 +1,104 @@
+services:
+  minio:
+    image: minio/minio:RELEASE.2025-03-12T18-04-18Z
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - internal
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${DDALAB_DB_USER}
+      POSTGRES_PASSWORD: ${DDALAB_DB_PASSWORD}
+      POSTGRES_DB: ${DDALAB_DB_NAME}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "pg_isready",
+          "-U",
+          "${DDALAB_DB_USER}",
+          "-d",
+          "${DDALAB_DB_NAME}",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    network_mode: host
+
+  traefik:
+    image: traefik:v3.3.5
+    environment:
+      - TRAEFIK_PASSWORD_HASH=admin:$$apr1$$example$$hashedpassword
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - ./certs:/etc/traefik/certs:ro
+      - ./traefik.dev.yml:/etc/traefik/traefik.yml:ro
+      - ./dynamic:/etc/traefik/dynamic:ro
+      - ./traefik-logs:/traefik.log
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - type: bind
+        source: ./acme.json
+        target: /acme.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/jaeger:2.0.0
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    network_mode: host
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    restart: unless-stopped
+    network_mode: host
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    network_mode: host
+
+volumes:
+  prometheus_data:
+  prometheus_metrics:
+  grafana_data:
+  postgres-data:
+  minio-data:
+
+networks:
+  internal:
+    driver: bridge

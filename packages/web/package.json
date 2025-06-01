@@ -1,6 +1,7 @@
 {
   "name": "ddalab-webapp",
   "version": "0.1.0",
+  "type": "module",
   "private": true,
   "exports": {
     ".": {
@@ -9,8 +10,8 @@
     }
   },
   "scripts": {
-    "dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 ts-node --project tsconfig.node.json server.ts",
-    "build": "next build",
+    "dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 dotenv -e ../../.env.dev -- next dev --port 3000",
+    "build": "dotenv -e ../../.env -- next build",
     "start": "next start",
     "lint": "next lint",
     "knip": "knip"
@@ -98,6 +99,7 @@
     "@types/http-proxy": "^1.17.16",
     "@types/node": "^22.15.19",
     "axios": "^1.6.7",
+    "dotenv-cli": "^8.0.0",
     "eslint": "^9.23.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-import": "^2.31.0",
@@ -111,6 +113,7 @@
     "prettier": "^3.5.3",
     "tailwindcss": "^3.4.17",
     "ts-node": "^10.9.2",
+    "tsx": "^4.19.4",
     "typescript": "^5.8.2"
   }
 }

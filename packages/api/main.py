@@ -94,7 +94,6 @@ app = FastAPI(
     description="GraphQL API for DDALAB data analysis and visualization",
     version="0.1.0",
     lifespan=lifespan,
-    # Configure trailing slash behavior
     redirect_slashes=False,
 )
 app_metrics = FastAPI(

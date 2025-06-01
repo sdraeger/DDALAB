@@ -1,8 +1,23 @@
 {
   "name": "shared",
   "version": "1.0.0",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./lib/utils/env": {
+      "import": "./dist/lib/utils/env.js",
+      "types": "./dist/lib/utils/env.d.ts"
+    },
+    "./lib/utils/logger": {
+      "import": "./dist/lib/utils/logger.js",
+      "types": "./dist/lib/utils/logger.d.ts"
+    }
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch"
@@ -49,7 +64,7 @@
     "d3": "^7.9.0",
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
-    "lucide-react": "^0.344.0",
+    "lucide-react": "^0.454.0",
     "next-auth": "^4.24.11",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
