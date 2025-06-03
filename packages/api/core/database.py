@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     String,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 
@@ -70,6 +71,9 @@ class User(Base):
         back_populates="shared_with_user",
         foreign_keys="ArtifactShare.shared_with_user_id",
         cascade="all, delete-orphan",
+    )
+    layouts = relationship(
+        "UserLayout", back_populates="user", cascade="all, delete-orphan"
     )
 
 
@@ -239,3 +243,14 @@ class ArtifactShare(Base):
     shared_with_user = relationship(
         "User", back_populates="shared_artifacts", foreign_keys=[shared_with_user_id]
     )
+
+
+class UserLayout(Base):
+    __tablename__ = "user_layouts"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    layout_data = Column(JSONB, nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.now(timezone.utc).replace(tzinfo=None)
+    )
+    user = relationship("User", back_populates="layouts")

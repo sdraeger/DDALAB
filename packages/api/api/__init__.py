@@ -13,6 +13,7 @@ from .metrics import router as metrics_router
 from .tickets import router as tickets_router
 from .user_preferences import router as user_preferences_router
 from .users import router as users_router
+from .layouts import router as layouts_router
 
 # Create router with trailing slash config
 router = APIRouter()
@@ -36,3 +37,4 @@ router.include_router(
 )
 router.include_router(edf_router, prefix="/edf", tags=["edf"])
 router_metrics.include_router(metrics_router, prefix="/metrics", tags=["metrics"])
+router.include_router(layouts_router, prefix="/layouts", tags=["layouts"])
