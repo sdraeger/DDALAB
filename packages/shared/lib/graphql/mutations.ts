@@ -42,6 +42,8 @@ export const SUBMIT_DDA_TASK = gql`
       filePath
       Q
       metadata
+      error
+      error_message
     }
   }
 `;

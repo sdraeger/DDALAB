@@ -45,6 +45,18 @@ async def run_dda(
         preprocessing_options=request.preprocessing_options,
     )
 
+    # Check if there was a validation error
+    if result.get("error"):
+        logger.warning(f"DDA validation error: {result.get('error_message')}")
+        return DDAResponse(
+            file_path=result["file_path"],
+            Q=result["Q"],
+            metadata=result.get("metadata"),
+            preprocessing_options=result.get("preprocessing_options"),
+            error=result.get("error"),
+            error_message=result.get("error_message"),
+        )
+
     # Generate unique artifact ID
     artifact_id = str(uuid4())
     object_name = f"dda_results/{user.id}/{artifact_id}/result.json"
