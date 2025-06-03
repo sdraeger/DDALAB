@@ -9,11 +9,11 @@ from .edf import router as edf_router
 from .favorite_files import router as favorite_files_router
 from .files import router as files_router
 from .health import router as health_router
+from .layouts import router as layouts_router
 from .metrics import router as metrics_router
 from .tickets import router as tickets_router
 from .user_preferences import router as user_preferences_router
 from .users import router as users_router
-from .layouts import router as layouts_router
 
 # Create router with trailing slash config
 router = APIRouter()

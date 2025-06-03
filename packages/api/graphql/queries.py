@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -12,7 +13,7 @@ from sqlalchemy import select
 from ..core.auth import get_current_user_from_request
 from ..core.config import get_server_settings
 from ..core.database import Annotation, FavoriteFile
-from ..core.edf import get_edf_navigator, read_edf_chunk
+from ..core.edf import get_edf_navigator, read_edf_chunk_cached
 from ..core.files import list_directory, validate_file_path
 from ..schemas.preprocessing import VisualizationPreprocessingOptionsInput
 from .context import Context
@@ -252,28 +253,37 @@ class Query:
             # Create a navigator instance to get additional information
             navigation_info = None
             chunk_info = None
-            if includeNavigationInfo:
-                loop = asyncio.get_event_loop()
-                navigator = await loop.run_in_executor(
-                    None,
-                    get_edf_navigator,
-                    full_path,
-                )
-                nav_info = navigator.get_navigation_info()
-                chunk_ranges = navigator.get_chunk_ranges(chunkSize)
 
-                # Convert snake_case to camelCase if needed
-                if "total_samples" in nav_info:
+            if includeNavigationInfo:
+                # Use cached metadata through the cache manager
+                try:
+                    from api.core.edf.edf_cache import get_cache_manager
+
+                    cache_manager = get_cache_manager()
+                    cached_metadata = cache_manager.get_file_metadata(full_path)
+
+                    # Create navigation info from cached metadata
+                    navigator = get_edf_navigator(full_path)
                     nav_info = {
-                        "totalSamples": nav_info.get("total_samples", 0),
-                        "fileDurationSeconds": nav_info.get("file_duration_seconds", 0),
-                        "numSignals": nav_info.get("num_signals", 0),
-                        "signalLabels": nav_info.get("signal_labels", []),
-                        "samplingFrequencies": nav_info.get("sampling_frequencies", []),
+                        "totalSamples": cached_metadata["total_samples"],
+                        "fileDurationSeconds": cached_metadata["file_duration_seconds"],
+                        "numSignals": cached_metadata["num_signals"],
+                        "signalLabels": cached_metadata["signal_labels"],
+                        "samplingFrequencies": cached_metadata["sampling_frequencies"],
                     }
 
-                # Convert snake_case to camelCase in chunks if needed
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to use cached metadata, falling back to navigator: {e}"
+                    )
+                    # Fallback to regular navigator
+                    navigator = get_edf_navigator(full_path)
+                    nav_info = navigator.get_navigation_info()
+
+                # Convert chunk ranges
+                chunk_ranges = navigator.get_chunk_ranges(chunkSize)
                 converted_chunks = []
+
                 for chunk in chunk_ranges:
                     if "time_seconds" in chunk:
                         converted_chunks.append(
@@ -339,11 +349,11 @@ class Query:
                     chunks=chunks,
                 )
 
-            # Read the data chunk
+            # Read the data chunk using cached reading
             loop = asyncio.get_event_loop()
             edf_file, total_samples = await loop.run_in_executor(
                 None,
-                read_edf_chunk,
+                read_edf_chunk_cached,  # Use the cached version
                 full_path,
                 chunkStart,
                 chunkSize,
@@ -405,6 +415,47 @@ class Query:
             raise ValueError(f"Failed to process EDF file: {str(e)}")
 
     @strawberry.field
+    async def get_cache_stats(self) -> str:
+        """Get EDF cache statistics for monitoring and debugging."""
+        try:
+            from api.core.edf.edf_cache import get_cache_manager
+
+            cache_manager = get_cache_manager()
+            stats = cache_manager.get_cache_stats()
+
+            return (
+                f"EDF Cache Statistics:\n"
+                f"Metadata Cache: {stats['metadata_cache']['size']}/{stats['metadata_cache']['max_size']} files\n"
+                f"Chunk Cache: {stats['chunk_cache']['chunks']}/{stats['chunk_cache']['max_chunks']} chunks "
+                f"({stats['chunk_cache']['size_mb']:.1f}/{stats['chunk_cache']['max_size_mb']} MB)\n"
+                f"File Handles: {stats['file_handles']['open_handles']}/{stats['file_handles']['max_handles']} open\n"
+            )
+        except Exception as e:
+            logger.error(f"Error getting cache stats: {e}")
+            return f"Error getting cache stats: {str(e)}"
+
+    @strawberry.field
+    async def clear_edf_cache(self, file_path: Optional[str] = None) -> str:
+        """Clear EDF cache for a specific file or all files."""
+        try:
+            from api.core.edf.edf_cache import clear_global_cache, get_cache_manager
+
+            if file_path:
+                # Clear cache for specific file
+                full_path = os.path.join(settings.data_dir, file_path)
+                cache_manager = get_cache_manager()
+                cache_manager.clear_file_cache(full_path)
+                return f"Cleared cache for file: {file_path}"
+            else:
+                # Clear all caches
+                clear_global_cache()
+                return "Cleared all EDF caches"
+
+        except Exception as e:
+            logger.error(f"Error clearing cache: {e}")
+            return f"Error clearing cache: {str(e)}"
+
+    @strawberry.field
     async def get_annotations(
         self, file_path: str, info: strawberry.Info[Context, None]
     ) -> list[AnnotationType]:
@@ -433,3 +484,53 @@ class Query:
             )
             for annotation in annotations.scalars().all()
         ]
+
+    @strawberry.field
+    async def get_edf_default_channels(
+        self,
+        filename: str,
+        maxChannels: int = 5,
+    ) -> list[str]:
+        """Get intelligent default channel selection for an EDF file.
+
+        This automatically filters out event/annotation channels and selects
+        channels that contain actual EEG data based on signal variance.
+
+        Args:
+            filename: Path to the EDF file
+            maxChannels: Maximum number of channels to return
+
+        Returns:
+            List of channel names that likely contain EEG data
+        """
+        logger.info(f"Getting intelligent default channels for {filename}")
+
+        try:
+            # Validate filename
+            filename = filename.replace("\\", "/").lstrip("/")
+            base_path = Path(settings.data_dir)
+            file_path = base_path / filename
+
+            # Check if file exists
+            if not file_path.exists():
+                logger.error(f"EDF file not found: {file_path}")
+                raise ValueError(f"EDF file not found: {filename}")
+
+            # Get cache manager and intelligent default channels
+            from packages.api.core.edf.edf_cache import get_cache_manager
+
+            cache_manager = get_cache_manager()
+
+            default_channels = cache_manager.get_intelligent_default_channels(
+                str(file_path), max_channels=maxChannels
+            )
+
+            logger.info(
+                f"Selected {len(default_channels)} intelligent default channels: {default_channels}"
+            )
+            return default_channels
+
+        except Exception as e:
+            logger.error(f"Error getting intelligent default channels: {str(e)}")
+            # Fallback: return empty list, let frontend handle
+            return []

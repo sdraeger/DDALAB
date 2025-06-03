@@ -23,5 +23,5 @@ INSERT INTO public.user_preferences (
     theme
 ) VALUES (
     (SELECT id FROM public.users WHERE username = '{username}'),
-    'light'
+    'system'
 );

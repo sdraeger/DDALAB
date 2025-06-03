@@ -57,14 +57,14 @@ const initialPlotState: PlotState = {
   isHeatmapProcessing: false,
   error: null,
   metadata: null,
-  chunkSizeSeconds: 100, // Default, can be updated from metadata or settings
+  chunkSizeSeconds: 10, // Changed from 100 to 10 to match context default
   currentChunkNumber: 1,
   totalChunks: 1,
   chunkStart: 0,
   edfData: null,
   selectedChannels: [],
-  timeWindow: [0, 100],
-  absoluteTimeWindow: [0, 100],
+  timeWindow: [0, 10], // Changed from [0, 100] to [0, 10] to match context default
+  absoluteTimeWindow: [0, 10], // Changed from [0, 100] to [0, 10] to match context default
   zoomLevel: 1,
   showHeatmap: false,
   ddaHeatmapData: null,
@@ -429,8 +429,9 @@ const plotsSlice = createSlice({
         // Reset relevant fields based on new metadata
         plot.currentChunkNumber = 1;
         plot.chunkStart = 0;
-        plot.timeWindow = [0, plot.chunkSizeSeconds];
-        plot.absoluteTimeWindow = [0, plot.chunkSizeSeconds];
+        // Set timeWindow to a safe default that will be updated when actual data loads
+        plot.timeWindow = [0, Math.min(plot.chunkSizeSeconds, 10)];
+        plot.absoluteTimeWindow = [0, Math.min(plot.chunkSizeSeconds, 10)];
         // selectedChannels will be populated by the first loadChunk
         plot.selectedChannels = [];
       })
@@ -481,11 +482,19 @@ const plotsSlice = createSlice({
             );
           }
 
-          // Adjust time windows if necessary
-          plot.timeWindow = [0, plot.chunkSizeSeconds];
+          // Calculate actual chunk duration from the loaded data
+          const actualChunkDuration = eegData.duration || plot.chunkSizeSeconds;
+
+          // Update chunkSizeSeconds to match actual data if this is the first load
+          if (chunkNumber === 1 && eegData.duration) {
+            plot.chunkSizeSeconds = eegData.duration;
+          }
+
+          // Adjust time windows based on actual chunk duration
+          plot.timeWindow = [0, actualChunkDuration];
           plot.absoluteTimeWindow = [
             chunkStart,
-            chunkStart + plot.chunkSizeSeconds,
+            chunkStart + actualChunkDuration,
           ];
         }
       })

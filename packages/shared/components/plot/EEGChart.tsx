@@ -6,6 +6,7 @@ import React, {
   useLayoutEffect,
   MutableRefObject,
   useState,
+  useEffect,
 } from "react";
 import { useTheme } from "next-themes";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -92,7 +93,6 @@ export function EEGChart({
   const { toast } = useToast();
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState(0);
-  const [zoomSpeedMultiplier, setZoomSpeedMultiplier] = useState(1.0);
   const [annotationDialogOpen, setAnnotationDialogOpen] = useState(false);
   const [annotationText, setAnnotationText] = useState("");
   const [clickedTime, setClickedTime] = useState<number | null>(null);
@@ -103,6 +103,10 @@ export function EEGChart({
     x: number;
     y: number;
   } | null>(null);
+
+  // Add state to show zoom activity
+  const [isZooming, setIsZooming] = useState(false);
+  const zoomTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const effectiveZoomFactor =
     session?.user?.preferences?.eegZoomFactor ?? customZoomFactor;
@@ -178,7 +182,9 @@ export function EEGChart({
     height: number,
     gridColor: string
   ) => {
-    const channelHeight = height / selectedChannels.length;
+    // Ensure minimum spacing between channels
+    const channelHeight = Math.max(40, height / selectedChannels.length);
+    const channelSpacing = channelHeight * 0.9; // 90% for drawing, 10% for spacing
 
     selectedChannels.forEach((channelName, channelIndex) => {
       const channelIdx = eegData.channels.indexOf(channelName);
@@ -190,7 +196,9 @@ export function EEGChart({
       ctx.textAlign = "left";
       ctx.fillText(channelName, 5, yOffset - channelHeight / 2 + 15);
 
+      // Draw horizontal separator line for each channel
       ctx.strokeStyle = gridColor;
+      ctx.lineWidth = 0.5;
       ctx.beginPath();
       ctx.moveTo(0, yOffset + channelHeight / 2);
       ctx.lineTo(width, yOffset + channelHeight / 2);
@@ -207,7 +215,12 @@ export function EEGChart({
         channelData.length,
         Math.ceil(timeWindow[1] * eegData.sampleRate)
       );
+
+      if (endSample <= startSample) return;
+
       const visibleData = channelData.slice(startSample, endSample);
+      if (visibleData.length === 0) return;
+
       const dataMin = Math.min(...visibleData);
       const dataMax = Math.max(...visibleData);
       const dataRange = dataMax - dataMin || 1;
@@ -223,9 +236,10 @@ export function EEGChart({
           ((sampleTime - timeWindow[0]) / (timeWindow[1] - timeWindow[0])) *
           width;
         const amplitude = channelData[i] ?? 0;
+
+        // Use channelSpacing instead of channelHeight * 0.8 for better separation
         const y =
-          yOffset -
-          ((amplitude - dataMin) / dataRange - 0.5) * channelHeight * 0.8;
+          yOffset - ((amplitude - dataMin) / dataRange - 0.5) * channelSpacing;
 
         firstPoint ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
         firstPoint = false;
@@ -294,9 +308,33 @@ export function EEGChart({
     return true;
   }, [eegData, selectedChannels, drawEEGData]);
 
+  // Add effect to redraw when timeWindow changes
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !eegData || !selectedChannels.length) return;
+
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      drawEEGData(ctx, canvas.width, canvas.height);
+    }
+  }, [timeWindow, drawEEGData, eegData, selectedChannels]);
+
   const handleWheel = useCallback(
     (e: WheelEvent) => {
-      if (!e.metaKey && !e.ctrlKey) return;
+      // Show that we received a wheel event (always)
+      setIsZooming(true);
+      if (zoomTimeoutRef.current) {
+        clearTimeout(zoomTimeoutRef.current);
+      }
+      zoomTimeoutRef.current = setTimeout(() => {
+        setIsZooming(false);
+      }, 200);
+
+      // Only allow zoom when meta key (Cmd on Mac) or ctrl key (Ctrl on Windows/Linux) is pressed
+      if (!e.metaKey && !e.ctrlKey) {
+        return; // Just return without toast spam
+      }
+
       e.preventDefault();
 
       const canvas = canvasRef.current;
@@ -306,7 +344,7 @@ export function EEGChart({
       const x = e.clientX - rect.left;
       const currentRange = timeWindow[1] - timeWindow[0];
       const focusPoint = timeWindow[0] + (x / canvas.width) * currentRange;
-      const zoomIntensity = 0.1 * effectiveZoomFactor * zoomSpeedMultiplier;
+      const zoomIntensity = 0.1 * effectiveZoomFactor;
 
       let newStartTime =
         focusPoint -
@@ -333,13 +371,7 @@ export function EEGChart({
         onTimeWindowChange([newStartTime, newEndTime]);
       }
     },
-    [
-      timeWindow,
-      eegData.duration,
-      effectiveZoomFactor,
-      zoomSpeedMultiplier,
-      onTimeWindowChange,
-    ]
+    [timeWindow, eegData.duration, effectiveZoomFactor, onTimeWindowChange]
   );
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -504,9 +536,19 @@ export function EEGChart({
         resizeObserverRef.current.observe(node);
         updateCanvasDimensions();
 
-        const wheelListener = (event: WheelEvent) => handleWheel(event);
+        // Create wheel listener with proper typing and options
+        const wheelListener = (event: WheelEvent) => {
+          // Call handleWheel and stop propagation to prevent conflicts
+          handleWheel(event);
+          // Don't call stopPropagation here as preventDefault in handleWheel should be sufficient
+        };
+
         wheelListenerRef.current = wheelListener;
-        node.addEventListener("wheel", wheelListener, { passive: false });
+        // Use passive: false to ensure preventDefault works
+        node.addEventListener("wheel", wheelListener, {
+          passive: false,
+          capture: false,
+        });
       }
     },
     [handleWheel, updateCanvasDimensions]
@@ -540,6 +582,13 @@ export function EEGChart({
         onClick={handleChartClick}
       />
       <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-50 hover:opacity-100 transition-opacity p-2 bg-background/50 rounded-md">
+        {/* Zoom activity indicator */}
+        {isZooming && (
+          <div className="bg-green-500 text-white px-2 py-1 rounded text-xs font-medium">
+            Wheel Event Detected
+          </div>
+        )}
+
         <div className="flex gap-1">
           <Button
             variant="outline"
@@ -558,20 +607,9 @@ export function EEGChart({
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
-        <div className="flex flex-col gap-1 items-center">
-          <Label htmlFor="zoomSpeedSlider" className="text-xs">
-            Zoom Speed: {zoomSpeedMultiplier.toFixed(1)}x
-          </Label>
-          <Slider
-            id="zoomSpeedSlider"
-            min={0.1}
-            max={5.0}
-            step={0.1}
-            defaultValue={[1.0]}
-            value={[zoomSpeedMultiplier]}
-            onValueChange={(value) => setZoomSpeedMultiplier(value[0])}
-            className="w-24"
-          />
+
+        <div className="text-xs text-muted-foreground text-center">
+          Hold Cmd/Ctrl + Scroll to Zoom
         </div>
       </div>
       {editMode && annotationDialogOpen && (
