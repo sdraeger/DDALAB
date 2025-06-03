@@ -176,3 +176,9 @@ export const DELETE_ANNOTATION = gql`
     deleteAnnotation(id: $id)
   }
 `;
+
+export const GET_EDF_DEFAULT_CHANNELS = gql`
+  query GetEDFDefaultChannels($filename: String!, $maxChannels: Int) {
+    getEdfDefaultChannels(filename: $filename, maxChannels: $maxChannels)
+  }
+`;

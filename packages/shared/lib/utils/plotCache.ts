@@ -34,13 +34,108 @@ class PlotCacheManager {
   private readonly MAX_CACHE_SIZE_BYTES = this.MAX_CACHE_SIZE_MB * 1024 * 1024;
   private readonly CLEANUP_THRESHOLD = 0.8; // Clean up when cache is 80% full
 
-  private constructor() {}
+  // In-memory cache for hot data (reduces localStorage I/O)
+  private memoryCache = new Map<
+    string,
+    { entry: CacheEntry<any>; expiry: number }
+  >();
+  private readonly MEMORY_CACHE_SIZE_LIMIT = 50; // Max items in memory cache
+  private readonly MEMORY_CACHE_TTL = 2 * 60 * 1000; // 2 minutes in memory
+
+  // Track last cleanup time to prevent excessive cleanup operations
+  private lastCleanupTime = 0;
+  private readonly CLEANUP_INTERVAL = 30 * 1000; // 30 seconds minimum between cleanups
+
+  private constructor() {
+    // Set up periodic memory cache cleanup
+    setInterval(() => {
+      this.cleanupMemoryCache();
+    }, 60 * 1000); // Every minute
+  }
 
   static getInstance(): PlotCacheManager {
     if (!PlotCacheManager.instance) {
       PlotCacheManager.instance = new PlotCacheManager();
     }
     return PlotCacheManager.instance;
+  }
+
+  /**
+   * Clean up expired entries from memory cache
+   */
+  private cleanupMemoryCache(): void {
+    const now = Date.now();
+    const keysToDelete: string[] = [];
+
+    for (const [key, { expiry }] of this.memoryCache.entries()) {
+      if (now > expiry) {
+        keysToDelete.push(key);
+      }
+    }
+
+    keysToDelete.forEach((key) => this.memoryCache.delete(key));
+
+    // If memory cache is too large, remove oldest entries
+    if (this.memoryCache.size > this.MEMORY_CACHE_SIZE_LIMIT) {
+      const entries = Array.from(this.memoryCache.entries()).sort(
+        (a, b) => a[1].entry.lastAccessed - b[1].entry.lastAccessed
+      );
+
+      const entriesToRemove = entries.slice(
+        0,
+        this.memoryCache.size - this.MEMORY_CACHE_SIZE_LIMIT
+      );
+      entriesToRemove.forEach(([key]) => this.memoryCache.delete(key));
+    }
+  }
+
+  /**
+   * Get entry from memory cache or localStorage
+   */
+  private getCacheEntry(cacheKey: string, ttl: number): CacheEntry<any> | null {
+    // Check memory cache first
+    const memoryEntry = this.memoryCache.get(cacheKey);
+    if (memoryEntry && Date.now() < memoryEntry.expiry) {
+      // Update last accessed time
+      memoryEntry.entry.lastAccessed = Date.now();
+      return memoryEntry.entry;
+    }
+
+    // Check localStorage
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const entry: CacheEntry<any> = JSON.parse(cached);
+        if (this.isEntryValid(entry, ttl)) {
+          // Update last accessed time
+          entry.lastAccessed = Date.now();
+
+          // Store in memory cache for faster access
+          this.memoryCache.set(cacheKey, {
+            entry,
+            expiry: Date.now() + this.MEMORY_CACHE_TTL,
+          });
+
+          // Update localStorage less frequently to reduce I/O
+          if (Date.now() - entry.timestamp > 30000) {
+            // Only update every 30 seconds
+            localStorage.setItem(cacheKey, JSON.stringify(entry));
+          }
+
+          return entry;
+        } else {
+          // Remove expired entry
+          localStorage.removeItem(cacheKey);
+          this.memoryCache.delete(cacheKey);
+        }
+      }
+    } catch (error) {
+      logger.error("Error reading cache entry:", error);
+      // Clean up potentially corrupted entry
+      this.memoryCache.delete(cacheKey);
+    }
+
+    return null;
   }
 
   /**
@@ -113,6 +208,13 @@ class PlotCacheManager {
    * Clean up cache using LRU strategy when size exceeds threshold
    */
   private cleanupCacheIfNeeded(): void {
+    const now = Date.now();
+
+    // Prevent excessive cleanup operations
+    if (now - this.lastCleanupTime < this.CLEANUP_INTERVAL) {
+      return;
+    }
+
     try {
       const currentSize = this.getCurrentCacheSize();
 
@@ -151,6 +253,7 @@ class PlotCacheManager {
           } catch {
             // Invalid entry, add to removal list
             localStorage.removeItem(key);
+            this.memoryCache.delete(key);
           }
         });
 
@@ -164,8 +267,9 @@ class PlotCacheManager {
           if (currentSize - removedSize <= targetSize) break;
 
           localStorage.removeItem(entry.key);
+          this.memoryCache.delete(entry.key);
           removedSize += entry.size;
-          logger.info(
+          logger.debug(
             `Removed cache entry: ${entry.key} (${(entry.size / 1024).toFixed(
               2
             )}KB)`
@@ -179,6 +283,8 @@ class PlotCacheManager {
             1024
           ).toFixed(2)}MB`
         );
+
+        this.lastCleanupTime = now;
       }
     } catch (error) {
       logger.error("Error during cache cleanup:", error);
@@ -256,21 +362,11 @@ class PlotCacheManager {
   getCachedPlotData(key: PlotCacheKey): any | null {
     try {
       const cacheKey = this.generatePlotCacheKey(key);
-      const cached = localStorage.getItem(cacheKey);
+      const cached = this.getCacheEntry(cacheKey, this.DEFAULT_TTL);
 
       if (cached) {
-        const entry: CacheEntry<any> = JSON.parse(cached);
-        if (this.isEntryValid(entry, this.DEFAULT_TTL)) {
-          // Update last accessed time
-          entry.lastAccessed = Date.now();
-          localStorage.setItem(cacheKey, JSON.stringify(entry));
-
-          logger.info(`Cache hit for plot data: ${cacheKey}`);
-          return entry.data;
-        } else {
-          logger.info(`Cache expired for plot data: ${cacheKey}`);
-          localStorage.removeItem(cacheKey);
-        }
+        logger.info(`Cache hit for plot data: ${cacheKey}`);
+        return cached.data;
       }
 
       // Also check Apollo cache
@@ -320,6 +416,12 @@ class PlotCacheManager {
         size: dataSize,
       };
 
+      // Store in memory cache immediately
+      this.memoryCache.set(cacheKey, {
+        entry,
+        expiry: Date.now() + this.MEMORY_CACHE_TTL,
+      });
+
       const entryString = JSON.stringify(entry);
 
       try {
@@ -353,21 +455,11 @@ class PlotCacheManager {
   getCachedHeatmapData(key: HeatmapCacheKey): any | null {
     try {
       const cacheKey = this.generateHeatmapCacheKey(key);
-      const cached = localStorage.getItem(cacheKey);
+      const cached = this.getCacheEntry(cacheKey, this.HEATMAP_TTL);
 
       if (cached) {
-        const entry: CacheEntry<any> = JSON.parse(cached);
-        if (this.isEntryValid(entry, this.HEATMAP_TTL)) {
-          // Update last accessed time
-          entry.lastAccessed = Date.now();
-          localStorage.setItem(cacheKey, JSON.stringify(entry));
-
-          logger.info(`Cache hit for heatmap data: ${cacheKey}`);
-          return entry.data;
-        } else {
-          logger.info(`Cache expired for heatmap data: ${cacheKey}`);
-          localStorage.removeItem(cacheKey);
-        }
+        logger.info(`Cache hit for heatmap data: ${cacheKey}`);
+        return cached.data;
       }
 
       return null;
@@ -406,6 +498,12 @@ class PlotCacheManager {
         size: dataSize,
       };
 
+      // Store in memory cache immediately
+      this.memoryCache.set(cacheKey, {
+        entry,
+        expiry: Date.now() + this.MEMORY_CACHE_TTL,
+      });
+
       const entryString = JSON.stringify(entry);
 
       try {
@@ -439,21 +537,11 @@ class PlotCacheManager {
   getCachedAnnotations(filePath: string): any | null {
     try {
       const cacheKey = this.generateAnnotationCacheKey(filePath);
-      const cached = localStorage.getItem(cacheKey);
+      const cached = this.getCacheEntry(cacheKey, this.ANNOTATION_TTL);
 
       if (cached) {
-        const entry: CacheEntry<any> = JSON.parse(cached);
-        if (this.isEntryValid(entry, this.ANNOTATION_TTL)) {
-          // Update last accessed time
-          entry.lastAccessed = Date.now();
-          localStorage.setItem(cacheKey, JSON.stringify(entry));
-
-          logger.info(`Cache hit for annotations: ${cacheKey}`);
-          return entry.data;
-        } else {
-          logger.info(`Cache expired for annotations: ${cacheKey}`);
-          localStorage.removeItem(cacheKey);
-        }
+        logger.info(`Cache hit for annotations: ${cacheKey}`);
+        return cached.data;
       }
 
       return null;
@@ -481,6 +569,12 @@ class PlotCacheManager {
         key: cacheKey,
         size: dataSize,
       };
+
+      // Store in memory cache immediately
+      this.memoryCache.set(cacheKey, {
+        entry,
+        expiry: Date.now() + this.MEMORY_CACHE_TTL,
+      });
 
       const entryString = JSON.stringify(entry);
 
@@ -541,8 +635,16 @@ class PlotCacheManager {
 
       fileKeys.forEach((key) => {
         localStorage.removeItem(key);
-        logger.info(`Cleared cache key: ${key}`);
+        this.memoryCache.delete(key);
+        logger.debug(`Cleared cache key: ${key}`);
       });
+
+      // Also clear memory cache entries for this file
+      for (const [key] of this.memoryCache.entries()) {
+        if (key.includes(filePath)) {
+          this.memoryCache.delete(key);
+        }
+      }
     } catch (error) {
       logger.error("Error clearing file cache:", error);
     }
@@ -561,6 +663,7 @@ class PlotCacheManager {
           key.startsWith("annotations:")
       );
 
+      let cleanedCount = 0;
       cacheKeys.forEach((key) => {
         try {
           const cached = localStorage.getItem(key);
@@ -574,15 +677,24 @@ class PlotCacheManager {
 
             if (!this.isEntryValid(entry, ttl)) {
               localStorage.removeItem(key);
-              logger.info(`Cleared expired cache key: ${key}`);
+              this.memoryCache.delete(key);
+              cleanedCount++;
             }
           }
-        } catch (error) {
-          // Invalid cache entry, remove it
+        } catch {
+          // Invalid entry, remove it
           localStorage.removeItem(key);
-          logger.warn(`Removed invalid cache key: ${key}`);
+          this.memoryCache.delete(key);
+          cleanedCount++;
         }
       });
+
+      // Also clean memory cache
+      this.cleanupMemoryCache();
+
+      if (cleanedCount > 0) {
+        logger.info(`Cleared ${cleanedCount} expired cache entries`);
+      }
     } catch (error) {
       logger.error("Error clearing expired cache:", error);
     }

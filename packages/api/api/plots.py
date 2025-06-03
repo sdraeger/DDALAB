@@ -2,13 +2,13 @@ import json
 from typing import List
 
 from fastapi import APIRouter, Depends
+from minio import Minio
 
 from ..core.auth import get_current_user
 from ..core.database import User
-from ..schemas.plots import PlotResponse
 from ..core.dependencies import get_minio_client, get_service
 from ..core.services.artifact_service import ArtifactService
-from minio import Minio
+from ..schemas.plots import PlotResponse
 
 router = APIRouter()
 

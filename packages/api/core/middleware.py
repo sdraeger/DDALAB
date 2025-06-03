@@ -69,8 +69,6 @@ class DBSessionMiddleware(BaseHTTPMiddleware):
 
 class PrometheusMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> StarletteResponse:
-        logger.info("Prometheus middleware")
-
         # Record start time
         start_time = time.time()
 
