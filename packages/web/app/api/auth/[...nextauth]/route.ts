@@ -194,7 +194,10 @@ export const authOptions: NextAuthOptions = {
 async function refreshAccessToken(token: any) {
   try {
     const url = `${API_URL}/api/auth/refresh-token`;
-    const response = await apiRequest({
+    const refreshedTokens = await apiRequest<{
+      access_token: string;
+      expires_in: number;
+    }>({
       url,
       method: "POST",
       body: { refresh_token: token.refreshToken },
@@ -202,17 +205,15 @@ async function refreshAccessToken(token: any) {
       responseType: "json",
     });
 
-    const refreshedTokens = await response.json();
-
-    if (!response.ok) {
-      throw refreshedTokens;
+    if (!refreshedTokens || !refreshedTokens.access_token) {
+      throw new Error("Invalid refresh token response");
     }
 
     return {
       ...token,
       accessToken: refreshedTokens.access_token,
-      accessTokenExpires: Date.now() + refreshedTokens.expires_in * 1000, // Convert to milliseconds
-      refreshToken: token.refreshToken, // Keep the same refresh token
+      accessTokenExpires: Date.now() + refreshedTokens.expires_in * 1000,
+      refreshToken: token.refreshToken,
     };
   } catch (error) {
     console.error("Error refreshing access token:", error);

@@ -3,6 +3,7 @@ import {
   ApolloLink,
   InMemoryCache,
   createHttpLink,
+  from,
 } from "@apollo/client";
 import { setContext } from "@apollo/client/link/context";
 import { getSession } from "next-auth/react";
@@ -24,12 +25,52 @@ const authLink = setContext(async (_, { headers }) => {
   };
 });
 
+// Enhanced cache configuration for plot data
+const cache = new InMemoryCache({
+  typePolicies: {
+    Query: {
+      fields: {
+        // Cache EDF data with smart key generation
+        getEdfData: {
+          keyArgs: ["filename", "chunkStart", "chunkSize", "preprocessingOptions"],
+        },
+        // Cache annotations separately
+        getAnnotations: {
+          keyArgs: ["filePath"],
+        },
+        // Cache heatmap data
+        getDdaHeatmapData: {
+          keyArgs: ["filePath", "taskId"],
+        },
+      },
+    },
+    // Define cache behavior for EDF data type
+    EdfData: {
+      keyFields: ["filename", "chunkStart", "chunkSize"],
+    },
+  },
+  // Enable result caching for better performance
+  resultCaching: true,
+});
+
 export const apolloClient = new ApolloClient({
-  link: ApolloLink.from([authLink, httpLink]),
-  cache: new InMemoryCache(),
+  link: from([authLink, httpLink]),
+  cache,
   defaultOptions: {
-    watchQuery: { fetchPolicy: "no-cache", errorPolicy: "all" },
-    query: { fetchPolicy: "no-cache", errorPolicy: "all" },
-    mutate: { errorPolicy: "all" },
+    // Enable caching by default, but allow overrides
+    watchQuery: { 
+      fetchPolicy: "cache-first", 
+      errorPolicy: "all" 
+    },
+    query: { 
+      fetchPolicy: "cache-first", 
+      errorPolicy: "all" 
+    },
+    mutate: { 
+      errorPolicy: "all" 
+    },
   },
 });
+
+// Export cache instance for direct manipulation if needed
+export { cache as apolloCache };

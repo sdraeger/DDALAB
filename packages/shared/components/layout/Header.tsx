@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { ModeToggle } from "../ModeToggle";
 import { HelpButton } from "../ui/help-button";
+import { OpenPlotsIndicator } from "../ui/open-plots-indicator";
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { signOut } from "next-auth/react";
@@ -86,7 +87,12 @@ export function Header() {
           </nav>
 
           <div className="flex items-center gap-2">
-            {isLoggedIn && <HelpButton />}
+            {isLoggedIn && (
+              <>
+                <OpenPlotsIndicator />
+                <HelpButton />
+              </>
+            )}
             <ModeToggle />
 
             {isLoggedIn ? (

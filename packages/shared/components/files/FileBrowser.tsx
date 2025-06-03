@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Folder,
   File,
@@ -8,10 +8,22 @@ import {
   ArrowLeft,
   Star,
   Upload,
+  Search,
+  SortAsc,
+  SortDesc,
+  X,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Skeleton } from "../ui/skeleton";
+import { Input } from "../ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import { EDFPlotDialog } from "../dialog/EDFPlotDialog";
 import { useEDFPlot } from "../../contexts/EDFPlotContext";
 import { toast } from "../../hooks/useToast";
@@ -60,6 +72,9 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const { setPlotDialogOpen, plotDialogOpen, selectedFilePath } = useEDFPlot();
   const { data: session } = useSession();
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortOptions, setSortOptions] = useState("name");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   const { data: configData } = useApiQuery<ConfigResponse>({
     url: "/api/config",
@@ -233,6 +248,40 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
     }
   };
 
+  const filteredFiles = useMemo(() => {
+    if (!data?.files) return [];
+    return data.files.filter((file) =>
+      file.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [data?.files, searchTerm]);
+
+  const sortedFiles = useMemo(() => {
+    if (!filteredFiles) return [];
+    return [...filteredFiles].sort((a, b) => {
+      // Always sort directories first
+      if (a.isDirectory !== b.isDirectory) {
+        return a.isDirectory ? -1 : 1;
+      }
+
+      let result = 0;
+      if (sortOptions === "name") {
+        result = a.name.localeCompare(b.name);
+      } else if (sortOptions === "size") {
+        result = (a.size || 0) - (b.size || 0);
+      } else if (sortOptions === "lastModified") {
+        const dateA = new Date(a.lastModified || "").getTime();
+        const dateB = new Date(b.lastModified || "").getTime();
+        result = dateA - dateB;
+      }
+
+      return sortOrder === "asc" ? result : -result;
+    });
+  }, [filteredFiles, sortOptions, sortOrder]);
+
+  const clearSearch = () => {
+    setSearchTerm("");
+  };
+
   return (
     <Card className="w-full">
       <CardHeader className="flex flex-row items-center justify-between">
@@ -258,6 +307,65 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
             <Upload className="h-3 w-3" /> Drag & drop .edf/.ascii files
           </div>
         </div>
+
+        {/* Search and Sort Controls */}
+        <div className="flex flex-col sm:flex-row gap-2 mb-4">
+          <div className="flex-1 relative">
+            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search files and folders..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-8 pr-8"
+            />
+            {searchTerm && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearSearch}
+                className="absolute right-1 top-1 h-6 w-6 p-0 hover:bg-muted"
+                title="Clear search"
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Select value={sortOptions} onValueChange={setSortOptions}>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="name">Name</SelectItem>
+                <SelectItem value="size">Size</SelectItem>
+                <SelectItem value="lastModified">Last Modified</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
+              title={`Sort ${sortOrder === "asc" ? "descending" : "ascending"}`}
+            >
+              {sortOrder === "asc" ? (
+                <SortAsc className="h-4 w-4" />
+              ) : (
+                <SortDesc className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </div>
+
+        {/* Search Results Info */}
+        {searchTerm && (
+          <div className="text-sm text-muted-foreground mb-2">
+            {sortedFiles.length === 0
+              ? "No files match your search"
+              : `${sortedFiles.length} file${
+                  sortedFiles.length === 1 ? "" : "s"
+                } found`}
+          </div>
+        )}
 
         <div
           ref={dropZoneRef}
@@ -321,17 +429,19 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {!data?.files?.length ? (
+                    {!sortedFiles?.length ? (
                       <tr>
                         <td
                           colSpan={4}
                           className="p-4 text-center text-muted-foreground"
                         >
-                          No files found
+                          {searchTerm
+                            ? "No files match your search"
+                            : "No files found"}
                         </td>
                       </tr>
                     ) : (
-                      data.files.map((file) => (
+                      sortedFiles.map((file) => (
                         <tr
                           key={file.path}
                           className="border-b hover:bg-muted/50 cursor-pointer"

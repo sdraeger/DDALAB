@@ -7,6 +7,7 @@ import { useEDFPlot } from "../contexts/EDFPlotContext";
 import { useAnnotationManagement } from "./useAnnotationManagement";
 import { apiRequest } from "../lib/utils/request";
 import logger from "../lib/utils/logger";
+import { plotCacheManager } from "../lib/utils/plotCache";
 import type { EEGData } from "../types/EEGData";
 import type { Annotation } from "../types/annotation";
 import type { HeatmapPoint } from "../components/plot/DDAHeatmap";
@@ -96,6 +97,62 @@ export const useDDAPlot = ({
   const [shouldUpdateViewContext, setShouldUpdateViewContext] = useState(false);
   const timeWindowUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Check cache before making API requests
+  const [cacheChecked, setCacheChecked] = useState(false);
+  const [useCachedData, setUseCachedData] = useState(false);
+
+  // Enhanced cache checking function
+  const checkCache = useCallback(() => {
+    if (!filePath || cacheChecked) return;
+
+    const cacheKey = {
+      filePath,
+      chunkStart,
+      chunkSize,
+      preprocessingOptions,
+    };
+
+    const cachedData = plotCacheManager.getCachedPlotData(cacheKey);
+    if (cachedData) {
+      logger.info("Using cached plot data for", filePath);
+      setUseCachedData(true);
+      
+      // Update plot state with cached data
+      updatePlotState(filePath, {
+        edfData: cachedData,
+        lastFetchTime: Date.now(),
+        showPlot: true,
+      });
+      
+      onChunkLoaded?.(cachedData);
+    }
+
+    // Check cached annotations
+    const cachedAnnotations = plotCacheManager.getCachedAnnotations(filePath);
+    if (cachedAnnotations) {
+      logger.info("Using cached annotations for", filePath);
+      updatePlotState(filePath, { annotations: cachedAnnotations });
+    }
+
+    // Check cached heatmap data if Q is provided
+    if (Q) {
+      const heatmapCacheKey = { filePath, Q };
+      const cachedHeatmap = plotCacheManager.getCachedHeatmapData(heatmapCacheKey);
+      if (cachedHeatmap) {
+        logger.info("Using cached heatmap data for", filePath);
+        setDdaHeatmapData(cachedHeatmap);
+        setShowHeatmap(true);
+      }
+    }
+
+    setCacheChecked(true);
+  }, [filePath, chunkStart, chunkSize, preprocessingOptions, Q, cacheChecked, updatePlotState, onChunkLoaded]);
+
+  // Check cache on mount and when key parameters change
+  useEffect(() => {
+    checkCache();
+  }, [checkCache]);
+
   const onAnnotationsChangeForPlotState = useCallback(
     (updatedAnnotations: Annotation[]) => {
       if (filePath) {
@@ -131,6 +188,7 @@ export const useDDAPlot = ({
       skip:
         !filePath ||
         filePath === "" ||
+        useCachedData || // Skip if we're using cached data
         (!shouldLoadChunk && plotState.edfData !== null) ||
         (plotState.edfData !== null &&
           chunkStart === plotState.chunkStart &&
@@ -140,7 +198,7 @@ export const useDDAPlot = ({
           JSON.stringify(preprocessingOptions) ===
             JSON.stringify(plotState.preprocessingOptions)),
       notifyOnNetworkStatusChange: true,
-      fetchPolicy: shouldLoadChunk ? "network-only" : "cache-first",
+      fetchPolicy: useCachedData ? "cache-only" : (shouldLoadChunk ? "network-only" : "cache-first"),
       context: {
         fetchOptions: {
           onDownloadProgress: (progressEvent: {
@@ -221,6 +279,13 @@ export const useDDAPlot = ({
         }
       }
     }
+
+    // Cache the processed heatmap data
+    if (filePath && Q) {
+      const heatmapCacheKey = { filePath, Q };
+      plotCacheManager.cacheHeatmapData(heatmapCacheKey, heatmapData);
+    }
+
     return heatmapData;
   };
 
@@ -299,23 +364,38 @@ export const useDDAPlot = ({
         chunkSize,
         totalDurationSeconds,
       } = data.getEdfData;
+      
       setTotalSamples(totalSamples);
       setSampleRate(samplingFrequency);
       setChunkSize(Math.round(10 * samplingFrequency));
       setAvailableChannels(channelLabels);
       onAvailableChannelsChange?.(channelLabels);
+      
       if (selectedChannels.length === 0) {
         setSelectedChannels(
           channelLabels.slice(0, Math.min(5, channelLabels.length))
         );
       }
+      
       const convertedData = convertToEEGData(
         edfNumericData,
         channelLabels,
         selectedChannels,
         samplingFrequency
       );
+      
       if (convertedData) {
+        // Cache the new data
+        const cacheKey = {
+          filePath,
+          chunkStart,
+          chunkSize,
+          preprocessingOptions: hasActivePreprocessing(preprocessingOptions)
+            ? preprocessingOptions
+            : null,
+        };
+        plotCacheManager.cachePlotData(cacheKey, convertedData);
+
         updatePlotState(filePath, {
           edfData: convertedData,
           annotations: annotations || plotState.annotations,
@@ -328,9 +408,16 @@ export const useDDAPlot = ({
             ? preprocessingOptions
             : null,
         });
+        
         onChunkLoaded?.(convertedData);
         setDownloadProgress(100);
         setShouldLoadChunk(false);
+        setUseCachedData(false); // Reset for next potential fetch
+
+        // Cache annotations if present
+        if (annotations && filePath) {
+          plotCacheManager.cacheAnnotations(filePath, annotations);
+        }
       } else {
         setManualErrorMessage(
           "Data received but could not be processed for plotting."
@@ -698,6 +785,15 @@ export const useDDAPlot = ({
       setShouldUpdateViewContext(true);
     }, 300);
   };
+
+  // Clean up expired cache entries periodically
+  useEffect(() => {
+    const interval = setInterval(() => {
+      plotCacheManager.clearExpiredCache();
+    }, 60000); // Clean up every minute
+
+    return () => clearInterval(interval);
+  }, []);
 
   return {
     plotState,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@apollo/client";
 import { GET_EDF_DATA } from "../../lib/graphql/queries";
 import {
@@ -37,6 +37,8 @@ import {
   DELETE_ANNOTATION,
   UPDATE_ANNOTATION,
 } from "../../lib/graphql/queries";
+import { plotCacheManager } from "../../lib/utils/plotCache";
+import logger from "../../lib/utils/logger";
 
 interface EDFPlotDialogProps {
   open: boolean;
@@ -68,6 +70,10 @@ export function EDFPlotDialog({
 
   // Add edit mode state
   const [editMode, setEditMode] = useState(false);
+
+  // Add cache checking state
+  const [cacheChecked, setCacheChecked] = useState(false);
+  const [useCachedData, setUseCachedData] = useState(false);
 
   // Initialize state for new files
   useEffect(() => {
@@ -192,24 +198,78 @@ export function EDFPlotDialog({
   // Calculate derived values
   const chunkSizeSamples = chunkSizeSeconds * sampleRate;
 
+  // Check cache before making API requests
+  const checkCache = useCallback(() => {
+    if (!filePath || !open || cacheChecked) return;
+
+    const cacheKey = {
+      filePath,
+      chunkStart,
+      chunkSize: Math.round(chunkSizeSeconds * sampleRate),
+      preprocessingOptions,
+    };
+
+    const cachedData = plotCacheManager.getCachedPlotData(cacheKey);
+    if (cachedData) {
+      logger.info("EDFPlotDialog: Using cached plot data for", filePath);
+      setUseCachedData(true);
+
+      // Update plot state with cached data
+      updatePlotState(filePath, {
+        edfData: cachedData,
+        lastFetchTime: Date.now(),
+      });
+    }
+
+    // Check cached annotations
+    const cachedAnnotations = plotCacheManager.getCachedAnnotations(filePath);
+    if (cachedAnnotations) {
+      logger.info("EDFPlotDialog: Using cached annotations for", filePath);
+      setAnnotations(cachedAnnotations);
+    }
+
+    setCacheChecked(true);
+  }, [
+    filePath,
+    open,
+    chunkStart,
+    chunkSizeSeconds,
+    sampleRate,
+    preprocessingOptions,
+    cacheChecked,
+    updatePlotState,
+  ]);
+
+  // Check cache when dialog opens or key parameters change
+  useEffect(() => {
+    if (open) {
+      checkCache();
+    } else {
+      // Reset cache check when dialog closes
+      setCacheChecked(false);
+      setUseCachedData(false);
+    }
+  }, [open, checkCache]);
+
   // Query for EDF data
   const { loading, error, data, refetch } = useQuery(GET_EDF_DATA, {
     variables: {
       filename: filePath,
       chunkStart: chunkStart,
-      chunkSize: Math.round(chunkSizeSeconds * sampleRate), // Calculate based on actual sample rate
+      chunkSize: Math.round(chunkSizeSeconds * sampleRate),
       preprocessingOptions: preprocessingOptions,
       includeNavigationInfo: true,
     },
     skip:
       !open ||
       !filePath ||
+      useCachedData || // Skip if we're using cached data
       (plotState.edfData !== null &&
         chunkStart === plotState.chunkStart &&
         JSON.stringify(preprocessingOptions) ===
           JSON.stringify(plotState.preprocessingOptions)),
-    fetchPolicy: "network-only",
-    errorPolicy: "all", // Handle errors in the component
+    fetchPolicy: useCachedData ? "cache-only" : "network-only",
+    errorPolicy: "all",
     onError: (err) => {
       // Check if this is a "file already opened" error
       if (
@@ -247,7 +307,6 @@ export function EDFPlotDialog({
             );
             setDownloadProgress(percentComplete);
           } else {
-            // If length isn't computable, use a simulated progress
             const simulatedProgress = Math.min(downloadProgress + 5, 95);
             setDownloadProgress(simulatedProgress);
           }
@@ -259,42 +318,46 @@ export function EDFPlotDialog({
   // Store data in cache when it's loaded
   useEffect(() => {
     if (data?.getEdfData && filePath) {
+      const edfData = data.getEdfData;
+
+      // Cache the new data
+      const cacheKey = {
+        filePath,
+        chunkStart,
+        chunkSize: Math.round(chunkSizeSeconds * sampleRate),
+        preprocessingOptions,
+      };
+      plotCacheManager.cachePlotData(cacheKey, edfData);
+
       updatePlotState(filePath, {
-        edfData: data.getEdfData,
+        edfData: edfData,
         lastFetchTime: Date.now(),
       });
-    }
-  }, [data, filePath, updatePlotState]);
 
-  // Update total samples, sample rate, and available channels when data is loaded
-  useEffect(() => {
-    if (data?.getEdfData) {
-      setTotalSamples(data.getEdfData.totalSamples);
+      setUseCachedData(false); // Reset for next potential fetch
 
-      // Update sampleRate in plotState from actual data
-      const actualSampleRate = data.getEdfData.samplingFrequency;
+      // Update total samples, sample rate, and available channels
+      setTotalSamples(edfData.totalSamples);
+      const actualSampleRate = edfData.samplingFrequency;
       updatePlotState(filePath, { sampleRate: actualSampleRate });
 
       // Calculate and set total chunks
       if (actualSampleRate > 0 && chunkSizeSeconds > 0) {
         const calculatedChunkSizeSamples = chunkSizeSeconds * actualSampleRate;
         const newTotalChunks = Math.ceil(
-          data.getEdfData.totalSamples / calculatedChunkSizeSamples
+          edfData.totalSamples / calculatedChunkSizeSamples
         );
         setTotalChunks(newTotalChunks);
       }
 
-      if (data.getEdfData.channelLabels.length > 0) {
-        setAvailableChannels(data.getEdfData.channelLabels);
+      if (edfData.channelLabels.length > 0) {
+        setAvailableChannels(edfData.channelLabels);
 
         // Select first few channels by default (or all if fewer)
         if (selectedChannels.length === 0) {
-          const defaultChannelCount = Math.min(
-            5,
-            data.getEdfData.channelLabels.length
-          );
+          const defaultChannelCount = Math.min(5, edfData.channelLabels.length);
           setSelectedChannels(
-            data.getEdfData.channelLabels.slice(0, defaultChannelCount)
+            edfData.channelLabels.slice(0, defaultChannelCount)
           );
         }
       }
@@ -303,13 +366,16 @@ export function EDFPlotDialog({
       if (timeWindow[0] === 0 && timeWindow[1] === 10) {
         resetTimeWindow(chunkStart);
       }
-
-      // Update plot state in context
-      // updatePlotState(filePath, {}); // This call might be redundant now or can be merged.
-      // Let's ensure all necessary state updates are batched if possible or called once.
-      // The individual setters like setTotalSamples, setTotalChunks, etc., already call updatePlotState.
     }
-  }, [data]);
+  }, [
+    data,
+    filePath,
+    updatePlotState,
+    chunkStart,
+    chunkSizeSeconds,
+    sampleRate,
+    preprocessingOptions,
+  ]);
 
   // Reset time window based on chunk start
   const resetTimeWindow = (newChunkStart: number) => {

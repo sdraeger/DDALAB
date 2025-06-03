@@ -20,182 +20,141 @@ import { useState } from "react";
 import { EEGZoomSettings } from "shared/components/settings/EEGZoomSettings";
 import { ThemeSettings } from "shared/components/settings/ThemeSettings";
 import { SaveSettingsButton } from "shared/components/ui/save-settings-button";
+import { CacheStatus } from "shared/components/ui/cache-status";
+import { DashboardStateManager } from "shared/components/ui/dashboard-state-manager";
 import { useSession } from "next-auth/react";
 import { useToast } from "shared/components/ui/use-toast";
 import { DashboardLayout } from "../DashboardLayout";
 import SettingsLayout from "./layout";
 
 export default function SettingsPage() {
-  const { data: session, update: updateSession } = useSession();
+  const { data: session } = useSession();
   const { toast } = useToast();
-  const [email, setEmail] = useState("");
-  const [isEditingEmail, setIsEditingEmail] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const user = session?.user;
+  const [displayName, setDisplayName] = useState(session?.user?.name || "User");
 
-  const handleSaveEmail = async () => {
-    if (!user) return;
-
-    setIsSaving(true);
-    try {
-      const response = await fetch(`/api/users/${user.id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.accessToken}`,
-        },
-        body: JSON.stringify({ email }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to update email");
-      }
-
-      if (session) {
-        await updateSession({
-          ...session,
-          user: {
-            ...session.user,
-            email: email,
-          },
-        });
-      }
-
-      setIsEditingEmail(false);
-      toast({
-        title: "Email Updated",
-        description: "Your email has been updated successfully.",
-      });
-    } catch (error) {
-      console.error("Error updating email:", error);
-      toast({
-        title: "Update Failed",
-        description: "Could not update your email. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  if (!user) {
+  if (!session) {
     return (
       <DashboardLayout>
         <SettingsLayout>
-          <div className="w-full px-4 sm:px-6 lg:px-8">
-            <h1 className="text-3xl font-bold mb-6">User Settings</h1>
-            <p>Please log in to view your settings.</p>
+          <div className="flex items-center justify-center h-64">
+            <p className="text-muted-foreground">
+              Please sign in to access settings.
+            </p>
           </div>
         </SettingsLayout>
       </DashboardLayout>
     );
   }
 
-  const displayName = user.name || user.id;
-  const userInitials = getInitials(user.name || "", user.id);
-
   return (
     <DashboardLayout>
       <SettingsLayout>
-        <div className="w-full px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-3xl font-bold">User Settings</h1>
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold">Settings</h1>
+              <p className="text-muted-foreground">
+                Manage your account and application preferences
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <CacheStatus />
+              <SaveSettingsButton floating />
+            </div>
           </div>
 
-          <div className="grid gap-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center gap-4 pb-2">
+          {/* Profile Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Profile</CardTitle>
+              <CardDescription>
+                Update your profile information and preferences
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center space-x-4">
                 <Avatar className="h-16 w-16">
                   <AvatarImage
-                    src={`https://avatar.vercel.sh/${user.id}`}
-                    alt={displayName}
+                    src={session.user?.image || ""}
+                    alt={session.user?.name || "User"}
                   />
-                  <AvatarFallback>{userInitials}</AvatarFallback>
+                  <AvatarFallback className="text-lg">
+                    {getInitials(session.user?.name || "User")}
+                  </AvatarFallback>
                 </Avatar>
-                <div>
-                  <CardTitle>
-                    {user.firstName} {user.lastName}
-                  </CardTitle>
-                  <CardDescription>Profile Information</CardDescription>
+                <div className="space-y-1">
+                  <h3 className="text-lg font-medium">
+                    {session.user?.name || "User"}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {session.user?.email}
+                  </p>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-2">
-                  <Label className="text-sm font-medium text-muted-foreground">
-                    Username
-                  </Label>
-                  <div className="text-lg">{user.name}</div>
-                </div>
-                <div className="grid gap-2">
-                  <Label className="text-sm font-medium text-muted-foreground">
-                    User ID
-                  </Label>
-                  <div className="text-lg">{user.id}</div>
-                </div>
-                <div className="grid gap-2">
-                  <Label className="text-sm font-medium text-muted-foreground">
-                    Email
-                  </Label>
-                  {isEditingEmail ? (
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="email"
-                        value={email}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                          setEmail(e.target.value)
-                        }
-                        className="text-base"
-                      />
-                      <Button
-                        onClick={handleSaveEmail}
-                        disabled={isSaving}
-                        size="sm"
-                      >
-                        {isSaving ? "Saving..." : "Save"}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setEmail(user.email || "");
-                          setIsEditingEmail(false);
-                        }}
-                        size="sm"
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <div className="text-lg">
-                        {user.email || "Not provided"}
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setIsEditingEmail(true)}
-                      >
-                        Edit
-                      </Button>
-                    </div>
-                  )}
-                </div>
-                <div className="grid gap-2">
-                  <Label className="text-sm font-medium text-muted-foreground">
-                    Role
-                  </Label>
-                  <div className="text-lg">User</div>
-                </div>
-              </CardContent>
-            </Card>
+              </div>
 
-            <ThemeSettings />
+              <div className="space-y-2">
+                <Label htmlFor="displayName">Display Name</Label>
+                <Input
+                  id="displayName"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Enter your display name"
+                />
+              </div>
+            </CardContent>
+          </Card>
 
-            <EEGZoomSettings />
-          </div>
+          {/* Dashboard State Management */}
+          <DashboardStateManager />
 
-          <div className="fixed bottom-6 right-6 z-50">
-            <SaveSettingsButton floating />
-          </div>
+          {/* EEG Plot Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle>EEG Plot Settings</CardTitle>
+              <CardDescription>
+                Configure how EEG plots behave and respond to interactions
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <EEGZoomSettings />
+            </CardContent>
+          </Card>
+
+          {/* Theme Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Appearance</CardTitle>
+              <CardDescription>
+                Customize the look and feel of the application
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ThemeSettings />
+            </CardContent>
+          </Card>
+
+          {/* Performance Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Performance</CardTitle>
+              <CardDescription>
+                Monitor and manage application performance settings
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Plot Data Cache</Label>
+                <p className="text-sm text-muted-foreground">
+                  Plot data is automatically cached to improve performance when
+                  navigating between plots and settings. Cache entries expire
+                  automatically to ensure data freshness.
+                </p>
+                <div className="pt-2">
+                  <CacheStatus />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </SettingsLayout>
     </DashboardLayout>

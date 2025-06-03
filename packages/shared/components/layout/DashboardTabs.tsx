@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { FileBrowser } from "../files/FileBrowser";
 import { DDAForm } from "../form/DDAForm";
 import { Card, CardContent } from "../ui/card";
@@ -10,41 +10,56 @@ import { cn } from "../../lib/utils/misc";
 import { useSession } from "next-auth/react";
 import { apiRequest, ApiRequestOptions } from "../../lib/utils/request";
 import { EdfConfigResponse } from "../../lib/schemas/edf";
+import { useDashboardState } from "../../contexts/DashboardStateContext";
+import logger from "../../lib/utils/logger";
 
 export function DashboardTabs() {
   const { data: session } = useSession();
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
-  const [fileBrowserCollapsed, setFileBrowserCollapsed] = useState(false);
-  const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
+  const {
+    selectedFilePath,
+    fileBrowserCollapsed,
+    selectedChannels,
+    setSelectedChannels,
+    toggleFileBrowser,
+    handleFileSelect: handleFileSelectFromContext,
+  } = useDashboardState();
 
   const handleFileSelect = async (filePath: string) => {
-    setSelectedFilePath(filePath);
-    setFileBrowserCollapsed(true);
+    // Use the context's file select handler first
+    handleFileSelectFromContext(filePath);
 
     const token = session?.accessToken;
-    if (!token) throw new Error("No token found in session");
+    if (!token) {
+      logger.error("No token found in session");
+      return;
+    }
 
-    const configRequestOptions: ApiRequestOptions & { responseType: "json" } = {
-      url: `/api/config/edf?file_path=${encodeURIComponent(filePath)}`,
-      method: "GET",
-      token,
-      responseType: "json",
-      contentType: "application/json",
-    };
+    try {
+      const configRequestOptions: ApiRequestOptions & { responseType: "json" } =
+        {
+          url: `/api/config/edf?file_path=${encodeURIComponent(filePath)}`,
+          method: "GET",
+          token,
+          responseType: "json",
+          contentType: "application/json",
+        };
 
-    const fileCfgResponse = await apiRequest<EdfConfigResponse>(
-      configRequestOptions
-    );
+      const fileCfgResponse = await apiRequest<EdfConfigResponse>(
+        configRequestOptions
+      );
 
-    console.log("File config:", fileCfgResponse);
+      logger.info("File config loaded:", fileCfgResponse);
 
-    setSelectedChannels(fileCfgResponse?.channels || []);
+      // Update selected channels from the file config
+      setSelectedChannels(fileCfgResponse?.channels || []);
+    } catch (error) {
+      logger.error("Error loading file config:", error);
+      // Still update the selected file path even if config fails
+      setSelectedChannels([]);
+    }
   };
 
-  const toggleFileBrowser = () => {
-    setFileBrowserCollapsed(!fileBrowserCollapsed);
-  };
-
+  // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === "b") {
@@ -55,7 +70,52 @@ export function DashboardTabs() {
 
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [fileBrowserCollapsed]);
+  }, [toggleFileBrowser]);
+
+  // Load file configuration if we have a selected file path on mount
+  // This handles the case where the component mounts with a persisted file selection
+  useEffect(() => {
+    if (
+      selectedFilePath &&
+      session?.accessToken &&
+      selectedChannels.length === 0
+    ) {
+      const loadFileConfig = async () => {
+        try {
+          const configRequestOptions: ApiRequestOptions & {
+            responseType: "json";
+          } = {
+            url: `/api/config/edf?file_path=${encodeURIComponent(
+              selectedFilePath
+            )}`,
+            method: "GET",
+            token: session.accessToken!,
+            responseType: "json",
+            contentType: "application/json",
+          };
+
+          const fileCfgResponse = await apiRequest<EdfConfigResponse>(
+            configRequestOptions
+          );
+
+          logger.info(
+            "File config restored for persisted file:",
+            fileCfgResponse
+          );
+          setSelectedChannels(fileCfgResponse?.channels || []);
+        } catch (error) {
+          logger.error("Error loading config for persisted file:", error);
+        }
+      };
+
+      loadFileConfig();
+    }
+  }, [
+    selectedFilePath,
+    session?.accessToken,
+    selectedChannels.length,
+    setSelectedChannels,
+  ]);
 
   return (
     <div className="flex flex-row relative">
