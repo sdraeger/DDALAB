@@ -6,6 +6,10 @@ import psycopg2
 from core.config import get_server_settings
 from loguru import logger
 from psycopg2 import Error
+from sql_scripts.table_config import (
+    TABLE_FILE_MAP,
+    get_execution_order_for_tables,
+)
 
 settings = get_server_settings()
 
@@ -24,7 +28,7 @@ def connect_to_db():
     """Establish a connection to the PostgreSQL database."""
     try:
         connection = psycopg2.connect(**DB_PARAMS)
-        connection.autocommit = False  # Ensure explicit transaction control
+        connection.autocommit = True
         logger.info("Successfully connected to the database")
         return connection
     except Error as e:
@@ -44,36 +48,15 @@ def execute_sql_file(connection, file_path, params=None):
 
         cursor = connection.cursor()
         cursor.execute(sql_content)
-        connection.commit()
 
         logger.info(f"Successfully executed {file_path}")
         return True
     except Error as e:
         logger.error(f"Error executing {file_path}: {e}")
-        connection.rollback()
         return False
     finally:
         if cursor:
             cursor.close()
-
-
-def apply_schema(db, owner):
-    """Apply all .sql files in the specified directory with the specified owner."""
-    if not db:
-        logger.error("Failed to connect to the database")
-        return False
-
-    # Ensure the SQL directory exists
-    if not SQL_DIR.exists():
-        logger.error(f"Directory {SQL_DIR} not found")
-        return False
-
-    success = execute_sql_file(db, SQL_DIR / "schema.sql", {"owner": owner})
-    if not success:
-        logger.error("Failed to apply schema")
-        return False
-    db.commit()  # Ensure schema changes are committed
-    return True
 
 
 def insert_admin_user(db, username, password, email, first_name, last_name):
@@ -99,7 +82,6 @@ def insert_admin_user(db, username, password, email, first_name, last_name):
     if not success:
         logger.error("Failed to insert admin user")
         return False
-    db.commit()  # Ensure admin user insertion is committed
     return True
 
 
@@ -116,7 +98,6 @@ def check_users_exist(db):
         return count > 0
     except Error as e:
         logger.warning(f"Error checking users exist: {e}")
-        db.rollback()
         return False
     finally:
         if cursor:
@@ -124,9 +105,13 @@ def check_users_exist(db):
 
 
 def check_tables_exist(db):
+    """Check if all required tables exist in the database."""
     if not db:
         logger.error("Failed to connect to the database")
         return False
+
+    # Get all required tables from our configuration
+    required_tables = set(TABLE_FILE_MAP.keys())
 
     cursor = None
     try:
@@ -135,11 +120,95 @@ def check_tables_exist(db):
             """SELECT table_name FROM information_schema.tables
                WHERE table_schema = 'public'"""
         )
-        tables = cursor.fetchall()
-        return len(tables) > 0
+        existing_tables = {row[0] for row in cursor.fetchall()}
+
+        missing_tables = required_tables - existing_tables
+
+        if missing_tables:
+            logger.warning(f"Missing tables: {sorted(missing_tables)}")
+            return False
+
+        logger.info(f"All {len(required_tables)} required tables exist")
+        return True
     except Error as e:
         logger.warning(f"Error checking tables exist: {e}")
-        db.rollback()
+        return False
+    finally:
+        if cursor:
+            cursor.close()
+
+
+def get_missing_tables(db):
+    """Get the set of missing tables."""
+    if not db:
+        return set()
+
+    required_tables = set(TABLE_FILE_MAP.keys())
+
+    cursor = None
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """SELECT table_name FROM information_schema.tables
+               WHERE table_schema = 'public'"""
+        )
+        existing_tables = {row[0] for row in cursor.fetchall()}
+        return required_tables - existing_tables
+    except Error as e:
+        logger.warning(f"Error getting missing tables: {e}")
+        return required_tables
+    finally:
+        if cursor:
+            cursor.close()
+
+
+def create_tables_from_decomposed_files(db, tables_to_create, owner):
+    """Create tables by reading from individual SQL files in dependency order."""
+    if not db or not tables_to_create:
+        return True
+
+    num_tables = len(tables_to_create)
+    if num_tables == len(TABLE_FILE_MAP):
+        logger.info(f"Creating all {num_tables} tables from decomposed files")
+    else:
+        logger.info(f"Creating {num_tables} missing tables: {sorted(tables_to_create)}")
+
+    # Get the execution order for the tables to create
+    ordered_files = get_execution_order_for_tables(tables_to_create)
+
+    # Also need to include the update function if user_preferences is being created
+    if "user_preferences" in tables_to_create:
+        # Add the function file if not already included
+        function_file = "functions/update_updated_at_column.sql"
+        if function_file not in ordered_files:
+            ordered_files.insert(0, function_file)
+
+    cursor = None
+    try:
+        cursor = db.cursor()
+
+        for relative_file_path in ordered_files:
+            file_path = SQL_DIR / relative_file_path
+
+            if not file_path.exists():
+                logger.error(f"SQL file not found: {file_path}")
+                return False
+
+            logger.info(f"Executing SQL file: {relative_file_path}")
+
+            # Read and execute the SQL file
+            with open(file_path, "r") as file:
+                sql_content = file.read()
+
+            # Replace the owner placeholder
+            sql_content = sql_content.format(owner=owner)
+
+            cursor.execute(sql_content)
+            logger.info(f"Successfully executed: {relative_file_path}")
+
+        return True
+    except Error as e:
+        logger.error(f"Error creating tables from decomposed files: {e}")
         return False
     finally:
         if cursor:
@@ -162,17 +231,23 @@ def main(username, password, email, first_name, last_name):
             return
 
         tables_exist = check_tables_exist(db)
-        logger.info(f"Tables exist: {tables_exist}")
+        logger.info(f"All tables exist: {tables_exist}")
+
         if not tables_exist:
-            logger.info("Applying schema")
-            if not apply_schema(db, username):
+            missing_tables = get_missing_tables(db)
+
+            # Always use the decomposed files approach
+            logger.info("Using decomposed SQL files to create tables")
+            if not create_tables_from_decomposed_files(db, missing_tables, username):
                 return
 
         users_exist = check_users_exist(db)
         logger.info(f"Users exist: {users_exist}")
         if not users_exist:
             logger.info("Inserting admin user")
-            if not insert_admin_user(db, username, password, email, first_name, last_name):
+            if not insert_admin_user(
+                db, username, password, email, first_name, last_name
+            ):
                 return
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")

@@ -15,6 +15,11 @@ import {
   CardHeader,
   CardTitle,
 } from "shared/components/ui/card";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "shared/components/ui/alert";
 import { DDAResults } from "shared/components/DDAResults";
 import { SUBMIT_DDA_TASK } from "shared/lib/graphql/mutations";
 import { useToast } from "shared/components/ui/use-toast";
@@ -25,11 +30,16 @@ export default function DDAPage() {
   const { toast } = useToast();
   const [filePath, setFilePath] = useState("");
   const [channelList, setChannelList] = useState("");
+  const [serverConfigError, setServerConfigError] = useState<string | null>(
+    null
+  );
   const [runDda, { loading, error, data }] = useMutation(SUBMIT_DDA_TASK);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!session?.accessToken) return;
+
+    setServerConfigError(null);
 
     try {
       const channels = channelList
@@ -48,6 +58,22 @@ export default function DDAPage() {
           },
         },
       });
+
+      // Check for server configuration errors
+      if (result.data?.runDda?.error === "DDA_BINARY_INVALID") {
+        setServerConfigError(
+          result.data.runDda.error_message ||
+            "DDA binary is not properly configured on the server"
+        );
+        toast({
+          title: "Server Configuration Error",
+          description:
+            "The DDA binary is not properly configured. Please contact your administrator.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       toast({
         title: "Success",
         description: "DDA task completed successfully",
@@ -81,6 +107,17 @@ export default function DDAPage() {
           <h1 className="text-3xl font-bold">Run DDA</h1>
           <p className="text-muted-foreground">Submit a DDA analysis task</p>
         </div>
+        {serverConfigError && (
+          <Alert variant="destructive">
+            <AlertTitle>Server Configuration Error</AlertTitle>
+            <AlertDescription>
+              The DDA binary is not properly configured on the server.
+              {serverConfigError && ` Details: ${serverConfigError}`}
+              <br />
+              Please contact your administrator to resolve this issue.
+            </AlertDescription>
+          </Alert>
+        )}
         <Card>
           <CardHeader>
             <CardTitle>DDA Task</CardTitle>
@@ -124,7 +161,7 @@ export default function DDAPage() {
             </CardContent>
           </Card>
         )}
-        {data?.runDda && (
+        {data?.runDda && !data.runDda.error && (
           <DDAResults
             result={{
               artifact_id: data.runDda.artifactId || "temp-id", // Backend should return artifact_id

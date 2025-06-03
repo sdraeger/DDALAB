@@ -32,3 +32,5 @@ class DDAResponse(BaseModel):
     metadata: Optional[dict[str, str]] = None
     preprocessing_options: Optional[dict[str, bool | int | float | str]] = None
     artifact_id: Optional[str] = None
+    error: Optional[str] = None
+    error_message: Optional[str] = None

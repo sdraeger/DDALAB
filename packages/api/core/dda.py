@@ -1,5 +1,6 @@
 """Core DDA functionality."""
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -17,7 +18,60 @@ from ..schemas.dda import DDAResponse
 
 settings = get_server_settings()
 
-dda_py.init(settings.dda_binary_path)
+# Global variable to track DDA binary status
+_dda_binary_valid = None
+_dda_binary_error = None
+
+
+def validate_dda_binary() -> tuple[bool, Optional[str]]:
+    """Validate that the DDA binary exists and is executable.
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    global _dda_binary_valid, _dda_binary_error
+
+    # Return cached result if already validated
+    if _dda_binary_valid is not None:
+        return _dda_binary_valid, _dda_binary_error
+
+    try:
+        binary_path = Path(settings.dda_binary_path)
+
+        # Check if file exists
+        if not binary_path.exists():
+            _dda_binary_valid = False
+            _dda_binary_error = (
+                f"DDA binary not found at path: {settings.dda_binary_path}"
+            )
+            return _dda_binary_valid, _dda_binary_error
+
+        # Check if file is executable
+        if not os.access(binary_path, os.X_OK):
+            _dda_binary_valid = False
+            _dda_binary_error = (
+                f"DDA binary is not executable: {settings.dda_binary_path}"
+            )
+            return _dda_binary_valid, _dda_binary_error
+
+        # Try to initialize dda_py
+        dda_py.init(settings.dda_binary_path)
+        _dda_binary_valid = True
+        _dda_binary_error = None
+        logger.info(f"DDA binary validated successfully: {settings.dda_binary_path}")
+        return _dda_binary_valid, _dda_binary_error
+
+    except Exception as e:
+        _dda_binary_valid = False
+        _dda_binary_error = f"DDA binary initialization failed: {str(e)}"
+        logger.error(f"DDA binary validation failed: {_dda_binary_error}")
+        return _dda_binary_valid, _dda_binary_error
+
+
+# Perform initial validation
+_is_valid, _error = validate_dda_binary()
+if not _is_valid:
+    logger.warning(f"DDA binary validation failed during module import: {_error}")
 
 
 def preprocess_data(
@@ -79,6 +133,17 @@ async def run_dda(
     Returns:
         DDAResult object
     """
+    # Check DDA binary validity first
+    is_valid, error_message = validate_dda_binary()
+    if not is_valid:
+        logger.warning(f"DDA binary validation failed: {error_message}")
+        return DDAResponse(
+            file_path=str(file_path) if file_path else "",
+            Q=[],
+            preprocessing_options=preprocessing_options,
+            error="DDA_BINARY_INVALID",
+            error_message=error_message,
+        ).model_dump()
 
     file_path = str(Path(settings.data_dir) / file_path)
     logger.info(f"Running DDA on file: {file_path}")

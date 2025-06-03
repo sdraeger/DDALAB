@@ -82,6 +82,8 @@ class DDAResult:
     file_path: str
     Q: list[list[float | None]]
     metadata: Optional[str] = None
+    error: Optional[str] = None
+    error_message: Optional[str] = None
 
 
 @strawberry.type
