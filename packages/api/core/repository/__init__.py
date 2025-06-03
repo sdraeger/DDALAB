@@ -7,6 +7,7 @@ from .base_repository import BaseRepository
 from .edf_config_channel_repository import EdfConfigChannelRepository
 from .edf_config_repository import EdfConfigRepository
 from .favorite_files_repository import FavoriteFilesRepository
+from .layout_repository import LayoutRepository
 from .ticket_repository import TicketRepository
 from .user_preferences_repository import UserPreferencesRepository
 from .user_repository import UserRepository
@@ -18,6 +19,7 @@ __all__ = [
     "EdfConfigChannelRepository",
     "EdfConfigRepository",
     "FavoriteFilesRepository",
+    "LayoutRepository",
     "TicketRepository",
     "UserPreferencesRepository",
 ]

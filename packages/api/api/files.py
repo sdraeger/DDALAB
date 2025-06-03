@@ -90,8 +90,6 @@ async def list_directory(
         file_info.is_favorite = is_favorite
         file_info_list.append(file_info)
 
-    logger.debug(f"File info list: {file_info_list}")
-
     return FileListResponse(files=file_info_list)
 
 
