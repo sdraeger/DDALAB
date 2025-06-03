@@ -26,6 +26,7 @@ import {
 } from "../ui/select";
 import { EDFPlotDialog } from "../dialog/EDFPlotDialog";
 import { useEDFPlot } from "../../contexts/EDFPlotContext";
+import { useDashboardState } from "../../contexts/DashboardStateContext";
 import { toast } from "../../hooks/useToast";
 import { apiRequest } from "../../lib/utils/request";
 import { useApiQuery } from "../../hooks/useApiQuery";
@@ -70,7 +71,9 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  const fileListScrollRef = useRef<HTMLDivElement>(null);
   const { setPlotDialogOpen, plotDialogOpen, selectedFilePath } = useEDFPlot();
+  const { selectedFilePath: dashboardSelectedFilePath } = useDashboardState();
   const { data: session } = useSession();
   const [searchTerm, setSearchTerm] = useState("");
   const [sortOptions, setSortOptions] = useState("name");
@@ -282,6 +285,40 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
     setSearchTerm("");
   };
 
+  // Scroll to selected file when the file list changes or selected file changes
+  useEffect(() => {
+    if (
+      !dashboardSelectedFilePath ||
+      !sortedFiles?.length ||
+      !fileListScrollRef.current
+    ) {
+      return;
+    }
+
+    // Find the selected file in the current sorted files list
+    const selectedFileIndex = sortedFiles.findIndex(
+      (file) => file.path === dashboardSelectedFilePath
+    );
+
+    if (selectedFileIndex === -1) {
+      return; // Selected file not in current directory/search results
+    }
+
+    // Use setTimeout to ensure the DOM has been updated after data changes
+    setTimeout(() => {
+      const tableRows = fileListScrollRef.current?.querySelectorAll("tbody tr");
+      const selectedRow = tableRows?.[selectedFileIndex];
+
+      if (selectedRow) {
+        selectedRow.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+          inline: "nearest",
+        });
+      }
+    }, 100);
+  }, [dashboardSelectedFilePath, sortedFiles, loading]);
+
   return (
     <Card className="w-full">
       <CardHeader className="flex flex-row items-center justify-between">
@@ -414,7 +451,10 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
             <div className="text-destructive">Error: {error.message}</div>
           ) : (
             <div className="border rounded-md overflow-hidden">
-              <div className="max-h-[900px] overflow-auto">
+              <div
+                ref={fileListScrollRef}
+                className="max-h-[900px] overflow-auto"
+              >
                 <table className="w-full">
                   <thead className="sticky top-0 bg-background z-10">
                     <tr className="border-b bg-muted/50">
@@ -441,56 +481,74 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
                         </td>
                       </tr>
                     ) : (
-                      sortedFiles.map((file) => (
-                        <tr
-                          key={file.path}
-                          className="border-b hover:bg-muted/50 cursor-pointer"
-                          onClick={() => handleFileSelect(file)}
-                        >
-                          <td className="p-2 flex items-center gap-2">
-                            {file.isDirectory ? (
-                              <>
-                                <Folder className="h-4 w-4 text-blue-500" />
-                                <span>{file.name}</span>
-                                <ChevronRight className="h-4 w-4 text-muted-foreground ml-auto" />
-                              </>
-                            ) : (
-                              <>
-                                <File className="h-4 w-4 text-gray-500" />
-                                <span>{file.name}</span>
-                              </>
-                            )}
-                          </td>
-                          <td className="p-2 hidden md:table-cell">
-                            {file.isDirectory
-                              ? "--"
-                              : formatFileSize(file.size)}
-                          </td>
-                          <td className="p-2 hidden md:table-cell">
-                            {formatDate(file.lastModified)}
-                          </td>
-                          <td className="p-2 text-right">
-                            {!file.isDirectory && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={(e) => handleStarClick(e, file)}
-                                title={
-                                  file.isFavorite ? "Unstar file" : "Star file"
-                                }
-                              >
-                                <Star
-                                  className={`h-4 w-4 ${
+                      sortedFiles.map((file) => {
+                        const isSelected =
+                          file.path === dashboardSelectedFilePath;
+                        return (
+                          <tr
+                            key={file.path}
+                            className={`border-b cursor-pointer transition-colors ${
+                              isSelected
+                                ? "bg-primary/10 hover:bg-primary/15 border-primary/20"
+                                : "hover:bg-muted/50"
+                            }`}
+                            onClick={() => handleFileSelect(file)}
+                          >
+                            <td className="p-2 flex items-center gap-2">
+                              {file.isDirectory ? (
+                                <>
+                                  <Folder className="h-4 w-4 text-blue-500" />
+                                  <span
+                                    className={isSelected ? "font-medium" : ""}
+                                  >
+                                    {file.name}
+                                  </span>
+                                  <ChevronRight className="h-4 w-4 text-muted-foreground ml-auto" />
+                                </>
+                              ) : (
+                                <>
+                                  <File className="h-4 w-4 text-gray-500" />
+                                  <span
+                                    className={isSelected ? "font-medium" : ""}
+                                  >
+                                    {file.name}
+                                  </span>
+                                </>
+                              )}
+                            </td>
+                            <td className="p-2 hidden md:table-cell">
+                              {file.isDirectory
+                                ? "--"
+                                : formatFileSize(file.size)}
+                            </td>
+                            <td className="p-2 hidden md:table-cell">
+                              {formatDate(file.lastModified)}
+                            </td>
+                            <td className="p-2 text-right">
+                              {!file.isDirectory && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={(e) => handleStarClick(e, file)}
+                                  title={
                                     file.isFavorite
-                                      ? "fill-yellow-400 text-yellow-400"
-                                      : ""
-                                  }`}
-                                />
-                              </Button>
-                            )}
-                          </td>
-                        </tr>
-                      ))
+                                      ? "Unstar file"
+                                      : "Star file"
+                                  }
+                                >
+                                  <Star
+                                    className={`h-4 w-4 ${
+                                      file.isFavorite
+                                        ? "fill-yellow-400 text-yellow-400"
+                                        : ""
+                                    }`}
+                                  />
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>

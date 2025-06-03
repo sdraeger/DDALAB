@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery } from "@apollo/client";
 import { useToast } from "./useToast";
 import { useSession } from "next-auth/react";
-import { GET_EDF_DATA } from "../lib/graphql/queries";
+import { GET_EDF_DATA, GET_EDF_DEFAULT_CHANNELS } from "../lib/graphql/queries";
 import { useEDFPlot } from "../contexts/EDFPlotContext";
 import { useAnnotationManagement } from "./useAnnotationManagement";
 import { apiRequest } from "../lib/utils/request";
@@ -14,14 +14,26 @@ import type { HeatmapPoint } from "../components/plot/DDAHeatmap";
 import type { DDAPlotProps } from "../types/DDAPlotProps";
 import type { EdfFileInfo } from "../lib/schemas/edf";
 
+// Memoized function to check if preprocessing is active (reduces logging)
 const hasActivePreprocessing = (options: any): boolean => {
   if (!options) return false;
-  const isActive =
+  return (
     options.removeOutliers ||
     options.smoothing ||
-    (options.normalization && options.normalization !== "none");
-  logger.info("Preprocessing options active check:", options, isActive);
-  return isActive;
+    (options.normalization && options.normalization !== "none")
+  );
+};
+
+// Helper to generate a stable cache key
+const generateCacheKey = (
+  filePath: string,
+  chunkStart: number,
+  chunkSize: number,
+  preprocessingOptions: any
+) => {
+  return `${filePath}:${chunkStart}:${chunkSize}:${JSON.stringify(
+    preprocessingOptions || {}
+  )}`;
 };
 
 export const useDDAPlot = ({
@@ -39,12 +51,14 @@ export const useDDAPlot = ({
   const { data: session } = useSession();
   const token = session?.accessToken;
   const chartAreaRef = useRef<HTMLDivElement>(null);
+
+  // Get plot state with more defensive defaults
   const plotState = getPlotState(filePath) || {
-    chunkSizeSeconds: 100,
+    chunkSizeSeconds: 10,
     selectedChannels: [],
     showPlot: false,
-    timeWindow: [0, 100] as [number, number],
-    absoluteTimeWindow: [0, 100] as [number, number],
+    timeWindow: [0, 10] as [number, number],
+    absoluteTimeWindow: [0, 10] as [number, number],
     zoomLevel: 1,
     chunkStart: 0,
     totalSamples: 0,
@@ -97,13 +111,43 @@ export const useDDAPlot = ({
   const [shouldUpdateViewContext, setShouldUpdateViewContext] = useState(false);
   const timeWindowUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Check cache before making API requests
-  const [cacheChecked, setCacheChecked] = useState(false);
-  const [useCachedData, setUseCachedData] = useState(false);
+  // Optimize cache management with stable references
+  const [cacheState, setCacheState] = useState({
+    checked: false,
+    useCachedData: false,
+    lastCacheKey: "",
+  });
 
-  // Enhanced cache checking function
+  // Memoize preprocessing check to prevent excessive logging
+  const hasActivePreprocessingMemo = useMemo(() => {
+    const isActive = hasActivePreprocessing(preprocessingOptions);
+    // Only log when the value actually changes
+    if (process.env.NODE_ENV === "development") {
+      logger.debug("Preprocessing active:", isActive);
+    }
+    return isActive;
+  }, [preprocessingOptions]);
+
+  // Memoize current cache key
+  const currentCacheKey = useMemo(() => {
+    if (!filePath) return "";
+    return generateCacheKey(
+      filePath,
+      chunkStart,
+      chunkSize,
+      preprocessingOptions
+    );
+  }, [filePath, chunkStart, chunkSize, preprocessingOptions]);
+
+  // Enhanced cache checking function with optimization
   const checkCache = useCallback(() => {
-    if (!filePath || cacheChecked) return;
+    if (
+      !filePath ||
+      !currentCacheKey ||
+      cacheState.lastCacheKey === currentCacheKey
+    ) {
+      return;
+    }
 
     const cacheKey = {
       filePath,
@@ -112,46 +156,67 @@ export const useDDAPlot = ({
       preprocessingOptions,
     };
 
+    let cacheHit = false;
+
+    // Check cached plot data
     const cachedData = plotCacheManager.getCachedPlotData(cacheKey);
     if (cachedData) {
-      logger.info("Using cached plot data for", filePath);
-      setUseCachedData(true);
-      
+      logger.info("Cache hit for plot data:", filePath);
+      cacheHit = true;
+
       // Update plot state with cached data
       updatePlotState(filePath, {
         edfData: cachedData,
         lastFetchTime: Date.now(),
         showPlot: true,
       });
-      
+
       onChunkLoaded?.(cachedData);
     }
 
     // Check cached annotations
     const cachedAnnotations = plotCacheManager.getCachedAnnotations(filePath);
     if (cachedAnnotations) {
-      logger.info("Using cached annotations for", filePath);
+      logger.info("Cache hit for annotations:", filePath);
       updatePlotState(filePath, { annotations: cachedAnnotations });
     }
 
     // Check cached heatmap data if Q is provided
     if (Q) {
       const heatmapCacheKey = { filePath, Q };
-      const cachedHeatmap = plotCacheManager.getCachedHeatmapData(heatmapCacheKey);
+      const cachedHeatmap =
+        plotCacheManager.getCachedHeatmapData(heatmapCacheKey);
       if (cachedHeatmap) {
-        logger.info("Using cached heatmap data for", filePath);
+        logger.info("Cache hit for heatmap data:", filePath);
         setDdaHeatmapData(cachedHeatmap);
         setShowHeatmap(true);
       }
     }
 
-    setCacheChecked(true);
-  }, [filePath, chunkStart, chunkSize, preprocessingOptions, Q, cacheChecked, updatePlotState, onChunkLoaded]);
+    // Update cache state
+    setCacheState({
+      checked: true,
+      useCachedData: cacheHit,
+      lastCacheKey: currentCacheKey,
+    });
+  }, [
+    filePath,
+    chunkStart,
+    chunkSize,
+    preprocessingOptions,
+    Q,
+    currentCacheKey,
+    cacheState.lastCacheKey,
+    updatePlotState,
+    onChunkLoaded,
+  ]);
 
-  // Check cache on mount and when key parameters change
+  // Check cache only when cache key changes
   useEffect(() => {
-    checkCache();
-  }, [checkCache]);
+    if (currentCacheKey && currentCacheKey !== cacheState.lastCacheKey) {
+      checkCache();
+    }
+  }, [currentCacheKey, checkCache, cacheState.lastCacheKey]);
 
   const onAnnotationsChangeForPlotState = useCallback(
     (updatedAnnotations: Annotation[]) => {
@@ -162,43 +227,77 @@ export const useDDAPlot = ({
     [filePath, updatePlotState]
   );
 
-  const {
-    annotations,
-    setAnnotations,
-    addAnnotation,
-    updateAnnotation,
-  } = useAnnotationManagement({
+  const { annotations, setAnnotations, addAnnotation, updateAnnotation } =
+    useAnnotationManagement({
+      filePath,
+      initialAnnotationsFromPlotState: plotState.annotations || [],
+      onAnnotationsChangeForPlotState,
+    });
+
+  // Memoize GraphQL variables to prevent unnecessary re-renders
+  const graphqlVariables = useMemo(
+    () => ({
+      filename: filePath,
+      chunkStart,
+      chunkSize,
+      includeNavigationInfo: true,
+      ...(hasActivePreprocessingMemo ? { preprocessingOptions } : {}),
+    }),
+    [
+      filePath,
+      chunkStart,
+      chunkSize,
+      hasActivePreprocessingMemo,
+      preprocessingOptions,
+    ]
+  );
+
+  // Optimize GraphQL query skip condition
+  const shouldSkipQuery = useMemo(() => {
+    if (!filePath || filePath === "") return true;
+    if (cacheState.useCachedData) return true;
+    if (!shouldLoadChunk && plotState.edfData !== null) return true;
+
+    // Only skip if we have data and parameters haven't changed
+    if (
+      plotState.edfData !== null &&
+      chunkStart === plotState.chunkStart &&
+      chunkSize === plotState.chunkSizeSeconds * plotState.sampleRate &&
+      hasActivePreprocessingMemo ===
+        hasActivePreprocessing(plotState.preprocessingOptions) &&
+      JSON.stringify(preprocessingOptions) ===
+        JSON.stringify(plotState.preprocessingOptions)
+    ) {
+      return true;
+    }
+
+    return false;
+  }, [
     filePath,
-    initialAnnotationsFromPlotState: plotState.annotations || [],
-    onAnnotationsChangeForPlotState,
-  });
+    cacheState.useCachedData,
+    shouldLoadChunk,
+    plotState.edfData,
+    plotState.chunkStart,
+    plotState.chunkSizeSeconds,
+    plotState.sampleRate,
+    plotState.preprocessingOptions,
+    chunkStart,
+    chunkSize,
+    hasActivePreprocessingMemo,
+    preprocessingOptions,
+  ]);
 
   const { loading, error, data, refetch, networkStatus } = useQuery(
     GET_EDF_DATA,
     {
-      variables: {
-        filename: filePath,
-        chunkStart,
-        chunkSize,
-        includeNavigationInfo: true,
-        ...(hasActivePreprocessing(preprocessingOptions)
-          ? { preprocessingOptions }
-          : {}),
-      },
-      skip:
-        !filePath ||
-        filePath === "" ||
-        useCachedData || // Skip if we're using cached data
-        (!shouldLoadChunk && plotState.edfData !== null) ||
-        (plotState.edfData !== null &&
-          chunkStart === plotState.chunkStart &&
-          chunkSize === plotState.chunkSizeSeconds * plotState.sampleRate &&
-          hasActivePreprocessing(preprocessingOptions) ===
-            hasActivePreprocessing(plotState.preprocessingOptions) &&
-          JSON.stringify(preprocessingOptions) ===
-            JSON.stringify(plotState.preprocessingOptions)),
+      variables: graphqlVariables,
+      skip: shouldSkipQuery,
       notifyOnNetworkStatusChange: true,
-      fetchPolicy: useCachedData ? "cache-only" : (shouldLoadChunk ? "network-only" : "cache-first"),
+      fetchPolicy: cacheState.useCachedData
+        ? "cache-only"
+        : shouldLoadChunk
+        ? "network-only"
+        : "cache-first",
       context: {
         fetchOptions: {
           onDownloadProgress: (progressEvent: {
@@ -218,6 +317,20 @@ export const useDDAPlot = ({
       },
     }
   );
+
+  // Add query for intelligent default channels
+  const {
+    data: defaultChannelsData,
+    loading: defaultChannelsLoading,
+    error: defaultChannelsError,
+  } = useQuery(GET_EDF_DEFAULT_CHANNELS, {
+    variables: {
+      filename: filePath,
+      maxChannels: 5,
+    },
+    skip: !filePath || selectedChannels.length > 0, // Only fetch if no channels selected
+    fetchPolicy: "cache-first", // Cache the result for this file
+  });
 
   const convertToEEGData = useCallback(
     (
@@ -364,26 +477,42 @@ export const useDDAPlot = ({
         chunkSize,
         totalDurationSeconds,
       } = data.getEdfData;
-      
+
       setTotalSamples(totalSamples);
       setSampleRate(samplingFrequency);
       setChunkSize(Math.round(10 * samplingFrequency));
       setAvailableChannels(channelLabels);
       onAvailableChannelsChange?.(channelLabels);
-      
+
+      // Use intelligent default channels if available and no channels are selected
       if (selectedChannels.length === 0) {
-        setSelectedChannels(
-          channelLabels.slice(0, Math.min(5, channelLabels.length))
-        );
+        if (defaultChannelsData?.getEdfDefaultChannels?.length > 0) {
+          logger.info(
+            "Using intelligent default channels:",
+            defaultChannelsData.getEdfDefaultChannels
+          );
+          setSelectedChannels(defaultChannelsData.getEdfDefaultChannels);
+        } else {
+          // Fallback: skip first channel (often Event) and select next few
+          const fallbackChannels =
+            channelLabels.length > 1
+              ? channelLabels.slice(1, Math.min(6, channelLabels.length)) // Skip index 0, take next 5
+              : channelLabels.slice(0, Math.min(5, channelLabels.length)); // Take first 5 if only 1 channel
+          logger.info(
+            "Using fallback channel selection (skipping first channel):",
+            fallbackChannels
+          );
+          setSelectedChannels(fallbackChannels);
+        }
       }
-      
+
       const convertedData = convertToEEGData(
         edfNumericData,
         channelLabels,
         selectedChannels,
         samplingFrequency
       );
-      
+
       if (convertedData) {
         // Cache the new data
         const cacheKey = {
@@ -408,11 +537,15 @@ export const useDDAPlot = ({
             ? preprocessingOptions
             : null,
         });
-        
+
         onChunkLoaded?.(convertedData);
         setDownloadProgress(100);
         setShouldLoadChunk(false);
-        setUseCachedData(false); // Reset for next potential fetch
+        setCacheState({
+          checked: true,
+          useCachedData: false,
+          lastCacheKey: currentCacheKey,
+        });
 
         // Cache annotations if present
         if (annotations && filePath) {
@@ -426,6 +559,7 @@ export const useDDAPlot = ({
     }
   }, [
     data,
+    defaultChannelsData,
     filePath,
     updatePlotState,
     selectedChannels,
@@ -434,6 +568,8 @@ export const useDDAPlot = ({
     onAvailableChannelsChange,
     plotState,
     convertToEEGData,
+    currentCacheKey,
+    cacheState,
   ]);
 
   useEffect(() => {
@@ -756,11 +892,14 @@ export const useDDAPlot = ({
   }, [filePath, refetch, chunkStart, chunkSize, preprocessingOptions]);
 
   const handleTimeWindowChange = (newWindow: [number, number]) => {
-    if (!data?.getEdfData) return; // Skip if no data is loaded
+    // Use plotState.edfData instead of data?.getEdfData since the plot might be loaded from cache
+    if (!plotState.edfData) {
+      return; // Skip if no plot data is loaded
+    }
 
-    const chunkDuration = data.getEdfData.chunkSize
-      ? data.getEdfData.chunkSize / sampleRate
-      : chunkSize / sampleRate || 10;
+    // Calculate chunk duration from plotState
+    const chunkDuration =
+      plotState.edfData.duration || chunkSize / sampleRate || 10;
 
     // Validate and clamp the new window to the chunk's duration
     const validatedWindow: [number, number] = [

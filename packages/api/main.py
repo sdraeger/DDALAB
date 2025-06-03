@@ -49,6 +49,24 @@ async def lifespan(app: FastAPI):
         server_settings.auth_enabled,
     )
 
+    # Initialize EDF cache system
+    try:
+        from .core.edf.edf_cache import get_cache_manager
+
+        cache_manager = get_cache_manager()
+        logger.info("EDF cache system initialized successfully")
+
+        # Log initial cache configuration
+        stats = cache_manager.get_cache_stats()
+        logger.info(
+            f"EDF Cache configured: "
+            f"Metadata cache: {stats['metadata_cache']['max_size']} files, "
+            f"Chunk cache: {stats['chunk_cache']['max_size_mb']}MB, "
+            f"File handles: {stats['file_handles']['max_handles']} max"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to initialize EDF cache system: {e}")
+
     minio_client = Minio(
         settings.minio_host,
         access_key=settings.minio_access_key,
@@ -86,6 +104,15 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Server shutting down...")
+
+    # Clean up cache system
+    try:
+        from .core.edf.edf_cache import clear_global_cache
+
+        clear_global_cache()
+        logger.info("EDF cache system cleaned up")
+    except Exception as e:
+        logger.warning(f"Error during cache cleanup: {e}")
 
 
 # Create FastAPI application

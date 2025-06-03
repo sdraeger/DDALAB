@@ -177,6 +177,43 @@ def get_edf_navigator(file_path: str) -> EDFNavigator:
     return EDFNavigator(file_path)
 
 
+def read_edf_chunk_cached(
+    file_path: str,
+    chunk_start: int = 0,
+    chunk_size: int = 25_600,
+    preprocessing_options: Optional[Dict] = None,
+) -> Tuple[EDFFile, int]:
+    """Read a chunk of data from an EDF file with caching optimization.
+
+    This is the new optimized version that uses server-side caching.
+
+    Args:
+        file_path: Path to the EDF file
+        chunk_start: Start position in samples
+        chunk_size: Size of the chunk to read
+        preprocessing_options: Optional preprocessing options
+
+    Returns:
+        Tuple of (EDFFile object, total_samples)
+    """
+    try:
+        from .edf_cache import get_cache_manager
+
+        cache_manager = get_cache_manager()
+        return cache_manager.read_chunk_optimized(
+            file_path, chunk_start, chunk_size, preprocessing_options
+        )
+    except ImportError:
+        # Fallback to non-cached version if cache module is not available
+        logger.warning(
+            "EDF cache module not available, falling back to non-cached reading"
+        )
+        return read_edf_chunk(file_path, chunk_start, chunk_size, preprocessing_options)
+    except Exception as e:
+        logger.error(f"Cached reading failed, falling back to non-cached: {e}")
+        return read_edf_chunk(file_path, chunk_start, chunk_size, preprocessing_options)
+
+
 def read_edf_chunk(
     file_path: str,
     chunk_start: int = 0,
@@ -184,6 +221,8 @@ def read_edf_chunk(
     preprocessing_options: Optional[Dict] = None,
 ) -> Tuple[EDFFile, int]:
     """Read a chunk of data from an EDF file.
+
+    This is the original non-cached version, kept for compatibility and fallback.
 
     Args:
         file_path: Path to the EDF file

@@ -19,6 +19,7 @@ import {
 } from "../ui/dialog";
 import { EEGZoomSettings } from "../settings/EEGZoomSettings";
 import { useDDAPlot } from "../../hooks/useDDAPlot";
+import { useSession } from "next-auth/react";
 import type { DDAPlotProps } from "../../types/DDAPlotProps";
 
 export function DDAPlot(props: DDAPlotProps) {
@@ -31,6 +32,8 @@ export function DDAPlot(props: DDAPlotProps) {
     onChannelSelectionChange,
     onAvailableChannelsChange,
   } = props;
+
+  const { data: session } = useSession();
 
   const {
     plotState,
@@ -155,6 +158,9 @@ export function DDAPlot(props: DDAPlotProps) {
                 absoluteTimeWindow={plotState.absoluteTimeWindow}
                 editMode={editMode}
                 onAnnotationAdd={addAnnotation}
+                customZoomFactor={
+                  session?.user?.preferences?.eegZoomFactor || 0.05
+                }
               />
             ) : (
               <div className="text-muted-foreground text-center w-full flex items-center justify-center h-full">

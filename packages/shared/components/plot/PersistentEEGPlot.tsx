@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useQuery, useMutation } from "@apollo/client";
-import { GET_EDF_DATA } from "../../lib/graphql/queries";
+import { useQuery } from "@apollo/client";
+import {
+  GET_EDF_DATA,
+  GET_EDF_DEFAULT_CHANNELS,
+} from "../../lib/graphql/queries";
 import { Button } from "../ui/button";
 import { Label } from "../ui/label";
 import { Checkbox } from "../ui/checkbox";
@@ -10,8 +13,6 @@ import { Spinner } from "../ui/spinner";
 import { Alert, AlertDescription } from "../ui/alert";
 import { ScrollArea } from "../ui/scroll-area";
 import { EEGChart } from "./EEGChart";
-import { AnnotationEditor } from "../ui/annotation-editor";
-import { Annotation } from "../../types/annotation";
 import {
   ZoomIn,
   ZoomOut,
@@ -22,14 +23,7 @@ import {
 import type { EEGData } from "../../types/EEGData";
 import { cn } from "../../lib/utils/misc";
 import { useEDFPlot } from "../../contexts/EDFPlotContext";
-import { toast } from "../ui/use-toast";
-import { Slider } from "../ui/slider";
 import { Progress } from "../ui/progress";
-import {
-  CREATE_ANNOTATION,
-  DELETE_ANNOTATION,
-  UPDATE_ANNOTATION,
-} from "../../lib/graphql/queries";
 import { plotCacheManager } from "../../lib/utils/plotCache";
 import logger from "../../lib/utils/logger";
 
@@ -180,6 +174,20 @@ export function PersistentEEGPlot({
     checkCache();
   }, [checkCache]);
 
+  // Add query for intelligent default channels
+  const {
+    data: defaultChannelsData,
+    loading: defaultChannelsLoading,
+    error: defaultChannelsError,
+  } = useQuery(GET_EDF_DEFAULT_CHANNELS, {
+    variables: {
+      filename: filePath,
+      maxChannels: 5,
+    },
+    skip: !filePath || selectedChannels.length > 0, // Only fetch if no channels selected
+    fetchPolicy: "cache-first", // Cache the result for this file
+  });
+
   // Query for EDF data
   const { loading, error, data, refetch } = useQuery(GET_EDF_DATA, {
     variables: {
@@ -224,23 +232,67 @@ export function PersistentEEGPlot({
       if (edfData.channelLabels.length > 0) {
         setAvailableChannels(edfData.channelLabels);
 
-        // Select first few channels by default (or all if fewer)
+        // Use intelligent default channels if available and no channels are selected
         if (selectedChannels.length === 0) {
-          const defaultChannelCount = Math.min(5, edfData.channelLabels.length);
-          setSelectedChannels(
-            edfData.channelLabels.slice(0, defaultChannelCount)
+          if (defaultChannelsData?.getEdfDefaultChannels?.length > 0) {
+            console.log(
+              "Using intelligent default channels:",
+              defaultChannelsData.getEdfDefaultChannels
+            );
+            setSelectedChannels(defaultChannelsData.getEdfDefaultChannels);
+          } else {
+            // Fallback: skip first channel (often Event) and select next few
+            const fallbackChannels =
+              edfData.channelLabels.length > 1
+                ? edfData.channelLabels.slice(
+                    1,
+                    Math.min(6, edfData.channelLabels.length)
+                  ) // Skip index 0, take next 5
+                : edfData.channelLabels.slice(
+                    0,
+                    Math.min(5, edfData.channelLabels.length)
+                  ); // Take first 5 if only 1 channel
+            console.log(
+              "Using fallback channel selection (skipping first channel):",
+              fallbackChannels
+            );
+            setSelectedChannels(fallbackChannels);
+          }
+        }
+      }
+
+      // Update time window based on actual chunk duration if this appears to be initial load
+      if (edfData.chunkSize && edfData.samplingFrequency) {
+        const actualChunkDuration =
+          edfData.chunkSize / edfData.samplingFrequency;
+        // Only reset the time window if it appears to be using a default that's much larger than actual data
+        if (timeWindow[1] > actualChunkDuration * 2) {
+          console.log(
+            `Adjusting time window from [${timeWindow[0]}, ${timeWindow[1]}] to [0, ${actualChunkDuration}] based on actual chunk duration`
           );
+          setTimeWindow([0, actualChunkDuration]);
+          const absoluteStartSec = chunkStart / edfData.samplingFrequency;
+          setAbsoluteTimeWindow([
+            absoluteStartSec,
+            absoluteStartSec + actualChunkDuration,
+          ]);
         }
       }
     }
   }, [
     data,
+    defaultChannelsData, // Add dependency on intelligent channels
     filePath,
     updatePlotState,
     chunkStart,
     chunkSizeSeconds,
     sampleRate,
     preprocessingOptions,
+    selectedChannels, // Add this dependency
+    setSelectedChannels, // Add this dependency
+    timeWindow, // Add timeWindow as dependency
+    setTimeWindow, // Add setTimeWindow as dependency
+    setAbsoluteTimeWindow, // Add setAbsoluteTimeWindow as dependency
   ]);
 
   // Convert to EEGData format

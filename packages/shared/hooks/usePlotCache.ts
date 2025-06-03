@@ -16,30 +16,42 @@ export function usePlotCache() {
     // Check cache size and clean up if needed
     const stats = plotCacheManager.getCacheStats();
     logger.info(
-      `Initial cache stats: ${stats.plotCount} plots, ${stats.heatmapCount} heatmaps, ${stats.annotationCount} annotations (${stats.totalSizeMB}MB)`
+      `Initial cache stats: ${stats.plotCount} plots, ${
+        stats.heatmapCount
+      } heatmaps, ${
+        stats.annotationCount
+      } annotations (${stats.totalSizeMB.toFixed(2)}MB)`
     );
 
-    // Set up periodic cleanup - every 2 minutes
+    // Set up periodic cleanup - increased to 5 minutes to reduce overhead
     const cleanupInterval = setInterval(() => {
       // Clear expired entries first
       plotCacheManager.clearExpiredCache();
 
-      // Log current cache status
+      // Log current cache status less frequently and only when needed
       const currentStats = plotCacheManager.getCacheStats();
-      logger.info(`Cache status: ${currentStats.totalSizeMB}MB used`);
+
+      // Only log if cache size is significant or there's an issue
+      if (currentStats.totalSizeMB > 1) {
+        logger.debug(
+          `Cache status: ${currentStats.totalSizeMB.toFixed(2)}MB used`
+        );
+      }
 
       // If cache is getting large, log a warning
       if (currentStats.totalSizeMB > 3) {
         logger.warn(
-          `Cache size is getting large: ${currentStats.totalSizeMB}MB`
+          `Cache size is getting large: ${currentStats.totalSizeMB.toFixed(
+            2
+          )}MB`
         );
       }
-    }, 120000); // Clean up every 2 minutes
+    }, 300000); // Clean up every 5 minutes instead of 2 minutes
 
     // Clean up on unmount
     return () => {
       clearInterval(cleanupInterval);
-      logger.info("Plot cache management cleanup");
+      logger.debug("Plot cache management cleanup");
     };
   }, []);
 

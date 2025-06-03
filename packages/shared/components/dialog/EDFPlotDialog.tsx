@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@apollo/client";
 import { GET_EDF_DATA } from "../../lib/graphql/queries";
 import {
@@ -120,54 +120,82 @@ export function EDFPlotDialog({
     sampleRate = DEFAULT_SAMPLE_RATE,
   } = plotState;
 
-  // State for preprocessing options
+  // Memoize preprocessing options initialization to prevent unnecessary updates
+  const initialPreprocessingOptions = useMemo(
+    () =>
+      contextPreprocessingOptions || {
+        removeOutliers: false,
+        smoothing: false,
+        smoothingWindow: 3,
+        normalization: "none",
+      },
+    [contextPreprocessingOptions]
+  );
+
+  // State for preprocessing options with stable reference
   const [preprocessingOptions, setPreprocessingOptions] = useState<any>(
-    contextPreprocessingOptions || {
-      removeOutliers: false,
-      smoothing: false,
-      smoothingWindow: 3,
-      normalization: "none",
-    }
+    initialPreprocessingOptions
   );
 
   // Local state for selected channels
   const [selectedChannels, setSelectedChannelsLocal] = useState<string[]>([]);
   const [availableChannels, setAvailableChannels] = useState<string[]>([]);
 
-  // Keep local state in sync with context
+  // Keep local state in sync with context only when necessary
   useEffect(() => {
-    if (contextSelectedChannels.length > 0) {
+    if (
+      contextSelectedChannels.length > 0 &&
+      JSON.stringify(contextSelectedChannels) !==
+        JSON.stringify(selectedChannels)
+    ) {
       setSelectedChannelsLocal(contextSelectedChannels);
     }
   }, [contextSelectedChannels]);
 
-  // Update preprocessing options in context
-  const setPreprocessingOptionsWithUpdate = (newOptions: any) => {
-    setPreprocessingOptions(newOptions);
-    updatePlotState(filePath, {
-      preprocessingOptions: newOptions,
-      // Clear cached data when preprocessing options change
-      edfData: null,
-    });
-  };
+  // Sync preprocessing options with context only when context changes
+  useEffect(() => {
+    if (
+      contextPreprocessingOptions &&
+      JSON.stringify(contextPreprocessingOptions) !==
+        JSON.stringify(preprocessingOptions)
+    ) {
+      setPreprocessingOptions(contextPreprocessingOptions);
+    }
+  }, [contextPreprocessingOptions]);
 
-  // Handle preprocessing form submission
-  const handlePreprocessingSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Force refetch with new preprocessing options
-    refetch({
-      filename: filePath,
-      chunkStart: chunkStart,
-      chunkSize: Math.round(chunkSizeSeconds * sampleRate),
-      preprocessingOptions: preprocessingOptions,
-    });
+  // Memoized preprocessing options updater to prevent unnecessary re-renders
+  const setPreprocessingOptionsWithUpdate = useCallback(
+    (newOptions: any) => {
+      // Only update if options actually changed
+      if (JSON.stringify(newOptions) !== JSON.stringify(preprocessingOptions)) {
+        setPreprocessingOptions(newOptions);
+        updatePlotState(filePath, {
+          preprocessingOptions: newOptions,
+          // Clear cached data when preprocessing options change
+          edfData: null,
+        });
+      }
+    },
+    [filePath, preprocessingOptions, updatePlotState]
+  );
 
-    toast({
-      title: "Preprocessing applied",
-      description:
-        "The data has been updated with your preprocessing settings.",
-    });
-  };
+  // Optimized event handlers with useCallback
+  const handlePreprocessingChange = useCallback(
+    (field: string, value: any) => {
+      setPreprocessingOptions((prevOptions: any) => {
+        const newOptions = { ...prevOptions, [field]: value };
+        // Debounce context updates to reduce re-renders
+        setTimeout(() => {
+          updatePlotState(filePath, {
+            preprocessingOptions: newOptions,
+            edfData: null,
+          });
+        }, 100);
+        return newOptions;
+      });
+    },
+    [filePath, updatePlotState]
+  );
 
   // Helper functions to update specific parts of state
   const setChunkSizeSeconds = (value: number) =>
@@ -315,6 +343,35 @@ export function EDFPlotDialog({
     },
   });
 
+  // Handle preprocessing form submission (moved after refetch is defined)
+  const handlePreprocessingSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      // Force refetch with new preprocessing options
+      refetch({
+        filename: filePath,
+        chunkStart: chunkStart,
+        chunkSize: Math.round(chunkSizeSeconds * sampleRate),
+        preprocessingOptions: preprocessingOptions,
+      });
+
+      toast({
+        title: "Preprocessing applied",
+        description:
+          "The data has been updated with your preprocessing settings.",
+      });
+    },
+    [
+      filePath,
+      chunkStart,
+      chunkSizeSeconds,
+      sampleRate,
+      preprocessingOptions,
+      refetch,
+      toast,
+    ]
+  );
+
   // Store data in cache when it's loaded
   useEffect(() => {
     if (data?.getEdfData && filePath) {
@@ -380,8 +437,14 @@ export function EDFPlotDialog({
   // Reset time window based on chunk start
   const resetTimeWindow = (newChunkStart: number) => {
     const startSec = 0;
+    // Use actual chunk duration from loaded data if available, otherwise fall back to chunkSizeSeconds
+    const actualChunkDuration =
+      data?.getEdfData?.chunkSize && data?.getEdfData?.samplingFrequency
+        ? data.getEdfData.chunkSize / data.getEdfData.samplingFrequency
+        : chunkSizeSeconds;
+
     const endSec = Math.min(
-      chunkSizeSeconds,
+      actualChunkDuration,
       totalSamples / sampleRate - newChunkStart / sampleRate
     );
     setTimeWindow([startSec, endSec]);
@@ -1120,10 +1183,10 @@ export function EDFPlotDialog({
                             id="removeOutliers"
                             checked={preprocessingOptions.removeOutliers}
                             onCheckedChange={(checked) =>
-                              setPreprocessingOptions({
-                                ...preprocessingOptions,
-                                removeOutliers: checked,
-                              })
+                              handlePreprocessingChange(
+                                "removeOutliers",
+                                checked
+                              )
                             }
                           />
                           <Label htmlFor="removeOutliers">
@@ -1136,10 +1199,7 @@ export function EDFPlotDialog({
                             id="smoothing"
                             checked={preprocessingOptions.smoothing}
                             onCheckedChange={(checked) =>
-                              setPreprocessingOptions({
-                                ...preprocessingOptions,
-                                smoothing: checked,
-                              })
+                              handlePreprocessingChange("smoothing", checked)
                             }
                           />
                           <Label htmlFor="smoothing">Apply smoothing</Label>
@@ -1158,10 +1218,10 @@ export function EDFPlotDialog({
                               step={2}
                               value={[preprocessingOptions.smoothingWindow]}
                               onValueChange={(values) =>
-                                setPreprocessingOptions({
-                                  ...preprocessingOptions,
-                                  smoothingWindow: values[0],
-                                })
+                                handlePreprocessingChange(
+                                  "smoothingWindow",
+                                  values[0]
+                                )
                               }
                             />
                           </div>
@@ -1174,10 +1234,10 @@ export function EDFPlotDialog({
                             className="w-full rounded-md border border-input bg-background px-3 py-2"
                             value={preprocessingOptions.normalization}
                             onChange={(e) =>
-                              setPreprocessingOptions({
-                                ...preprocessingOptions,
-                                normalization: e.target.value,
-                              })
+                              handlePreprocessingChange(
+                                "normalization",
+                                e.target.value
+                              )
                             }
                           >
                             <option value="none">None</option>
