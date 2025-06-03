@@ -49,6 +49,8 @@ class Mutation:
             file_path=file_path,
             Q=result["Q"],
             metadata=result.get("metadata"),
+            error=result.get("error"),
+            error_message=result.get("error_message"),
         )
 
     @strawberry.mutation

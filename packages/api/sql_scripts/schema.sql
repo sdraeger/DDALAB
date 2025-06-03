@@ -372,7 +372,7 @@ ALTER TABLE public.edf_configs OWNER TO {owner};
 
 CREATE TABLE public.artifacts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name INTEGER NOT NULL,
+    name VARCHAR(255) NOT NULL,
     file_path VARCHAR(255) NOT NULL,
     user_id INTEGER NOT NULL REFERENCES public.users(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -389,7 +389,7 @@ CREATE TABLE public.artifact_shares (
     artifact_id UUID NOT NULL REFERENCES public.artifacts(id),
     user_id INTEGER NOT NULL REFERENCES public.users(id),
     shared_with_user_id INTEGER NOT NULL REFERENCES public.users(id),
-    UNIQUE (artifact_id, shared_with_user_id
+    UNIQUE (artifact_id, shared_with_user_id)
 );
 
 ALTER TABLE public.artifact_shares OWNER TO {owner};
@@ -462,7 +462,7 @@ ALTER TABLE ONLY public.annotations
 -- Name: favorite_files favorite_files_pkey; Type: CONSTRAINT; Schema: public; Owner: {owner}
 --
 
-ALTER TABLE ONLY public Structures.favorite_files
+ALTER TABLE ONLY public.favorite_files
     ADD CONSTRAINT favorite_files_pkey PRIMARY KEY (id);
 
 --
@@ -470,7 +470,7 @@ ALTER TABLE ONLY public Structures.favorite_files
 --
 
 ALTER TABLE ONLY public.favorite_files
-    ADD CONSTRAINT favorite_files_user_id_file_path_key UNIQUED (user_id, file_path);
+    ADD CONSTRAINT favorite_files_user_id_file_path_key UNIQUE (user_id, file_path);
 
 --
 -- Name: help_tickets help_tickets_pkey; Type: CONSTRAINT; Schema: public; Owner: {owner}
@@ -490,18 +490,18 @@ ALTER TABLE ONLY public.help_tickets
 -- Name: invite_codes invite_codes_code_key; Type: CONSTRAINT; Schema: public; Owner: {owner}
 --
 
-CREATE TABLE ONLY public.invite_codes
+ALTER TABLE ONLY public.invite_codes
     ADD CONSTRAINT invite_codes_code_key UNIQUE (code);
 
 --
--- Name: invite_codes invite_codes_pkey; Type: CONSTRAINT; Schema: INVITE; Schema: public; Owner: {owner}
+-- Name: invite_codes invite_codes_pkey; Type: CONSTRAINT; Schema: public; Owner: {owner}
 --
 
-CREATE TABLE ONLY public.invite_codes
-    ADD CONSTRAINT INVITE_codes_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.invite_codes
+    ADD CONSTRAINT invite_codes_pkey PRIMARY KEY (id);
 
 --
--- Name: password_reset_tokens password_reset_tokens_pkey; Type: CONSTRAINT; Schema: public; public; Owner: {owner}
+-- Name: password_reset_tokens password_reset_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: {owner}
 --
 
 ALTER TABLE ONLY public.password_reset_tokens
@@ -525,7 +525,7 @@ ALTER TABLE ONLY public.signup_requests
 -- Name: user_preferences user_preferences_pkey; Type: CONSTRAINT; Schema: public; Owner: {owner}
 --
 
-CREATE TABLE ONLY public.user_preferences
+ALTER TABLE ONLY public.user_preferences
     ADD CONSTRAINT user_preferences_pkey PRIMARY KEY (user_id);
 
 --
@@ -535,7 +535,7 @@ CREATE TABLE ONLY public.user_preferences
 CREATE INDEX favorite_files_file_path_idx ON public.favorite_files USING btree (file_path);
 
 --
--- Name: idx_annotations_file_path; Type: INDEX; Schema: INDEX; Schema: public; Owner: {owner}
+-- Name: idx_annotations_file_path; Type: INDEX; Schema: public; Owner: {owner}
 --
 
 CREATE INDEX idx_annotations_file_path ON public.annotations USING btree (file_path);

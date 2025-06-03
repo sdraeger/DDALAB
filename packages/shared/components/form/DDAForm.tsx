@@ -23,6 +23,11 @@ import { apiRequest } from "../../lib/utils/request";
 import { EdfConfigResponse } from "shared/lib/schemas/edf";
 import { PreprocessingOptionsUI } from "../ui/PreprocessingOptionsUI";
 import { VisualizationOptionsUI } from "../ui/VisualizationOptionsUI";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "shared/components/ui/alert";
 
 const formSchema = z
   .object({
@@ -49,6 +54,8 @@ interface DDAResponse {
   Q: number[][];
   file_path: string;
   metadata: Record<string, string> | null;
+  error?: string;
+  error_message?: string;
 }
 
 export function DDAForm({
@@ -60,6 +67,9 @@ export function DDAForm({
   const [Q, setQ] = useState<number[][] | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [availableChannels, setAvailableChannels] = useState<string[]>([]);
+  const [serverConfigError, setServerConfigError] = useState<string | null>(
+    null
+  );
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -81,6 +91,7 @@ export function DDAForm({
   const submitDDA = async (data: FormValues) => {
     setIsSubmitting(true);
     setQ(null);
+    setServerConfigError(null);
 
     try {
       const channelIndices = getChannelIndices(selectedChannels);
@@ -115,6 +126,21 @@ export function DDAForm({
         },
         responseType: "json",
       });
+
+      // Check for server configuration errors
+      if (response.error === "DDA_BINARY_INVALID") {
+        setServerConfigError(
+          response.error_message ||
+            "DDA binary is not properly configured on the server"
+        );
+        toast({
+          title: "Server Configuration Error",
+          description:
+            "The DDA binary is not properly configured. Please contact your administrator.",
+          variant: "destructive",
+        });
+        return;
+      }
 
       setQ(response.Q);
       toast({
@@ -155,6 +181,17 @@ export function DDAForm({
 
   return (
     <div className="space-y-6">
+      {serverConfigError && (
+        <Alert variant="destructive">
+          <AlertTitle>Server Configuration Error</AlertTitle>
+          <AlertDescription>
+            The DDA binary is not properly configured on the server.
+            {serverConfigError && ` Details: ${serverConfigError}`}
+            <br />
+            Please contact your administrator to resolve this issue.
+          </AlertDescription>
+        </Alert>
+      )}
       <Card>
         <CardHeader>
           <CardTitle>DDA</CardTitle>
