@@ -21,13 +21,13 @@ export function setMainWindow(win: BrowserWindow) {
     }
   });
 
-  SetupService.getInstallerState()
+  SetupService.getConfigManagerState()
     .then((state) => {
-      mainWindow?.webContents.send("installer-state-loaded", state);
+      mainWindow?.webContents.send("configmanager-state-loaded", state);
     })
     .catch((err) => {
       logger.error(`Error sending initial state to renderer:`, err);
-      mainWindow?.webContents.send("installer-state-loaded", {
+      mainWindow?.webContents.send("configmanager-state-loaded", {
         setupComplete: false,
         setupPath: null,
         error: true,

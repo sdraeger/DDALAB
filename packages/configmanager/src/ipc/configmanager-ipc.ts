@@ -1,9 +1,9 @@
 import { ipcMain, dialog, app } from "electron";
 import { getMainWindow } from "../utils/window-manager";
 
-export function registerInstallerIpcHandlers(): void {
+export function registerConfigManagerIpcHandlers(): void {
   ipcMain.handle(
-    "installer:select-directory",
+    "configmanager:select-directory",
     async (): Promise<string | undefined> => {
       const mainWindow = getMainWindow();
       if (!mainWindow) return undefined;
@@ -13,12 +13,12 @@ export function registerInstallerIpcHandlers(): void {
       if (canceled || filePaths.length === 0) {
         return undefined;
       }
-      console.log(`[installer-ipc] Selected directory: ${filePaths[0]}`);
+      console.log(`[configmanager-ipc] Selected directory: ${filePaths[0]}`);
       return filePaths[0];
     }
   );
 
-  ipcMain.on("installer:quit-app", () => {
+  ipcMain.on("configmanager:quit-app", () => {
     app.quit();
   });
 }

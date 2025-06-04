@@ -65,7 +65,7 @@ async function build() {
 // Copy static assets
 async function copyStaticAssets() {
   try {
-    await cpx.copy("src/installer.html", "dist/src");
+    await cpx.copy("src/configmanager.html", "dist/src");
     await cpx.copy("src/style.css", "dist/src");
     await cpx.copy(".env.example", "dist"); // Copy .env.example to dist/
     console.log("Static assets copied successfully.");

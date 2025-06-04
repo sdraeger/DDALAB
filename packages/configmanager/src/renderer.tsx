@@ -13,7 +13,7 @@ if (rootElement) {
   );
 } else {
   console.error(
-    "CRITICAL: site-content element not found in installer.html. Installer UI cannot be rendered."
+    "CRITICAL: site-content element not found in configmanager.html. ConfigManager UI cannot be rendered."
   );
   // Fallback: Display a prominent error message if the crucial div is missing.
   const errorDiv = document.createElement("div");
@@ -21,6 +21,6 @@ if (rootElement) {
   errorDiv.style.textAlign = "center";
   errorDiv.style.color = "red";
   errorDiv.innerHTML =
-    "<h1>Application Error</h1><p>Installer UI components could not be loaded. The required 'site-content' element is missing from the HTML structure. Please check the installer.html file and ensure the application is correctly built.</p>";
+    "<h1>Application Error</h1><p>ConfigManager UI components could not be loaded. The required 'site-content' element is missing from the HTML structure. Please check the configmanager.html file and ensure the application is correctly built.</p>";
   document.body.appendChild(errorDiv);
 }

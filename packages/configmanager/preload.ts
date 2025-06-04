@@ -50,7 +50,7 @@ export interface ElectronAPI {
     message: string;
     setupPath?: string;
   }>;
-  getInstallerState: () => Promise<{
+  getConfigManagerState: () => Promise<{
     setupComplete: boolean;
     setupPath: string | null;
     dataLocation?: string;
@@ -109,12 +109,12 @@ const exposedAPI: ElectronAPI = {
     ipcRenderer.invoke("dialog:saveFile", defaultPath),
   saveFile: (filePath, content) =>
     ipcRenderer.invoke("fs:writeFile", filePath, content),
-  selectDirectory: () => ipcRenderer.invoke("installer:select-directory"),
+  selectDirectory: () => ipcRenderer.invoke("configmanager:select-directory"),
   loadEnvVars: (dataDir?: string) =>
-    ipcRenderer.invoke("installer:load-env-vars", dataDir),
+    ipcRenderer.invoke("configmanager:load-env-vars", dataDir),
   saveEnvConfig: (targetDir: string | null, content: string) =>
-    ipcRenderer.send("installer:save-env-config", targetDir, content),
-  quitApp: () => ipcRenderer.send("installer:quit-app"),
+    ipcRenderer.send("configmanager:save-env-config", targetDir, content),
+  quitApp: () => ipcRenderer.send("configmanager:quit-app"),
   startDockerCompose: () => ipcRenderer.invoke("start-docker-compose"),
   stopDockerCompose: (deleteVolumes?: boolean) => {
     console.log("[preload.ts] stopDockerCompose called with:", deleteVolumes);
@@ -147,7 +147,7 @@ const exposedAPI: ElectronAPI = {
     ipcRenderer.invoke("save-env-file", envPath, envData),
   runInitialSetup: (dataLocation: string, cloneLocation: string) =>
     ipcRenderer.invoke("run-initial-setup", dataLocation, cloneLocation),
-  getInstallerState: () => ipcRenderer.invoke("get-installer-state"),
+  getConfigManagerState: () => ipcRenderer.invoke("get-configmanager-state"),
   onSetupProgress: (callback) => {
     const handler = (
       _event: any,
