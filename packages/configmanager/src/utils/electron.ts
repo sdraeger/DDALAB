@@ -88,7 +88,7 @@ export interface ElectronAPI {
     message: string;
     setupPath?: string;
   }>;
-  getInstallerState: () => Promise<{
+  getConfigManagerState: () => Promise<{
     setupComplete: boolean;
     setupPath: string | undefined;
     dataLocation?: string;

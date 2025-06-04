@@ -277,12 +277,12 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     const initializeApp = async () => {
-      if (!electronAPI?.getInstallerState) {
+      if (!electronAPI?.getConfigManagerState) {
         goToSite("welcome");
         return;
       }
       try {
-        const state = await electronAPI.getInstallerState();
+        const state = await electronAPI.getConfigManagerState();
         if (state.setupComplete) {
           goToSite("control-panel");
           updateSelections({

@@ -1,5 +1,5 @@
 {
-  "name": "@ddalab/installer",
+  "name": "@ddalab/configmanager",
   "version": "1.0.0",
   "private": true,
   "description": "An application to help configure .env files.",
@@ -44,8 +44,8 @@
     "typescript": "^5.3.3"
   },
   "build": {
-    "appId": "com.ddalab.installer",
-    "productName": "DDALAB Installer",
+    "appId": "com.ddalab.configmanager",
+    "productName": "DDALAB ConfigManager",
     "directories": {
       "output": "release"
     },

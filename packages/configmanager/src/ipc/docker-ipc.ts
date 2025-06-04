@@ -16,7 +16,7 @@ export function registerDockerIpcHandlers() {
       return false;
     }
 
-    const state = await SetupService.getInstallerState();
+    const state = await SetupService.getConfigManagerState();
     if (!state.setupComplete || !state.setupPath) {
       logger.error(
         "Cannot start Docker Compose: setup not complete or path missing."
@@ -43,7 +43,7 @@ export function registerDockerIpcHandlers() {
         return false;
       }
 
-      const state = await SetupService.getInstallerState();
+      const state = await SetupService.getConfigManagerState();
       if (!state.setupComplete || !state.setupPath) {
         logger.error(
           "Cannot stop Docker Compose: setup not complete or path missing."
@@ -62,7 +62,7 @@ export function registerDockerIpcHandlers() {
   ipcMain.handle("get-docker-status", async (): Promise<boolean> => {
     logger.info('IPC event "get-docker-status" received.');
     try {
-      const state = await SetupService.getInstallerState();
+      const state = await SetupService.getConfigManagerState();
       if (!state.setupComplete || !state.setupPath) {
         logger.info("Docker status: Setup not complete or no path");
         return false;
@@ -112,7 +112,7 @@ export function registerDockerIpcHandlers() {
 
   ipcMain.handle("fetch-current-docker-logs", async (): Promise<string> => {
     logger.info('IPC event "fetch-current-docker-logs" received.');
-    const state = await SetupService.getInstallerState();
+    const state = await SetupService.getConfigManagerState();
     return DockerService.fetchCurrentDockerLogs(state);
   });
 

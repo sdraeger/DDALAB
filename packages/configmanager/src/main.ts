@@ -2,7 +2,7 @@ import { app } from "electron";
 import { initializeAppLifecycle } from "./utils/app-lifecycle";
 import { registerFileSystemIpcHandlers } from "./ipc/file-system-ipc";
 import { registerDialogIpcHandlers } from "./ipc/dialog-ipc";
-import { registerInstallerIpcHandlers } from "./ipc/installer-ipc";
+import { registerConfigManagerIpcHandlers } from "./ipc/configmanager-ipc";
 import { registerEnvIpcHandlers } from "./ipc/env-ipc";
 import { registerDockerIpcHandlers } from "./ipc/docker-ipc";
 import { registerSetupIpcHandlers } from "./ipc/setup-ipc";
@@ -19,7 +19,7 @@ logger.info("Initializing Paths:", {
 initializeAppLifecycle();
 registerFileSystemIpcHandlers();
 registerDialogIpcHandlers();
-registerInstallerIpcHandlers();
+registerConfigManagerIpcHandlers();
 registerEnvIpcHandlers();
 registerDockerIpcHandlers();
 registerSetupIpcHandlers();
