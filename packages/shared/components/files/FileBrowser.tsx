@@ -24,8 +24,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
-import { EDFPlotDialog } from "../dialog/EDFPlotDialog";
-import { useEDFPlot } from "../../contexts/EDFPlotContext";
 import { useDashboardState } from "../../contexts/DashboardStateContext";
 import { toast } from "../../hooks/useToast";
 import { apiRequest } from "../../lib/utils/request";
@@ -72,7 +70,6 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
   const [isUploading, setIsUploading] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const fileListScrollRef = useRef<HTMLDivElement>(null);
-  const { setPlotDialogOpen, plotDialogOpen, selectedFilePath } = useEDFPlot();
   const { selectedFilePath: dashboardSelectedFilePath } = useDashboardState();
   const { data: session } = useSession();
   const [searchTerm, setSearchTerm] = useState("");
@@ -138,6 +135,7 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
     if (file.isDirectory) {
       navigateToDirectory(file.path);
     } else {
+      // Call the dashboard onFileSelect callback
       onFileSelect(file.path);
     }
   };
@@ -557,11 +555,6 @@ export function FileBrowser({ onFileSelect }: FileBrowserProps) {
           )}
         </div>
       </CardContent>
-      <EDFPlotDialog
-        open={plotDialogOpen}
-        onOpenChange={setPlotDialogOpen}
-        filePath={selectedFilePath}
-      />
     </Card>
   );
 }

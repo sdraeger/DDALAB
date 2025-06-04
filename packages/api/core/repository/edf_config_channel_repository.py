@@ -1,10 +1,10 @@
 from typing import List
 
+from core.database import EdfConfig, EdfConfigChannel
+from schemas.config import EdfConfigChannelCreate
 from sqlalchemy import delete, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...schemas.config import EdfConfigChannelCreate
-from ..database import EdfConfig, EdfConfigChannel
 from .base_repository import BaseRepository
 
 

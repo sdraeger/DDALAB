@@ -1,15 +1,16 @@
+"""Configuration endpoints."""
+
 from pathlib import Path
 
+from core.auth import get_current_user
+from core.config import get_server_settings
+from core.database import User as UserDB
+from core.dependencies import get_service
+from core.services import EdfConfigService
+from core.utils.utils import calculate_str_hash
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
-
-from ..core.auth import get_current_user
-from ..core.config import get_server_settings
-from ..core.database import User as UserDB
-from ..core.dependencies import get_service
-from ..core.services import EdfConfigService
-from ..core.utils.utils import calculate_str_hash
-from ..schemas.config import (
+from schemas.config import (
     EdfConfigCreate,
     EdfConfigCreateOrUpdateRequest,
     EdfConfigResponse,

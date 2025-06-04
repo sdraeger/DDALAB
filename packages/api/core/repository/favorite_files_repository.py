@@ -1,10 +1,10 @@
 from typing import List
 
+from core.database import FavoriteFile as FavoriteFileDB
+from schemas.favorite_files import FavoriteFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...schemas.favorite_files import FavoriteFile
-from ..database import FavoriteFile as FavoriteFileDB
 from .base_repository import BaseRepository
 
 

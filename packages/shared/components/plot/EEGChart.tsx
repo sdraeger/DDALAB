@@ -9,10 +9,8 @@ import React, {
   useEffect,
 } from "react";
 import { useTheme } from "next-themes";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { Button } from "../ui/button";
-import { Slider } from "../ui/slider";
-import { Label } from "../ui/label";
 import { cn } from "../../lib/utils/misc";
 import { EEGData } from "../../types/EEGData";
 import { Annotation } from "../../types/annotation";
@@ -24,6 +22,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "../ui/context-menu";
 import { useToast } from "../ui/use-toast";
 import { useSession } from "next-auth/react";
 
@@ -103,6 +107,9 @@ export function EEGChart({
     x: number;
     y: number;
   } | null>(null);
+
+  // Context menu state
+  const lastMousePositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Add state to show zoom activity
   const [isZooming, setIsZooming] = useState(false);
@@ -383,8 +390,14 @@ export function EEGChart({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    // Track mouse position for context menu
+    const rect = canvas.getBoundingClientRect();
+    lastMousePositionRef.current = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    };
+
     if (editMode && onAnnotationAdd) {
-      const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const foundAnnotation = annotations.find((anno) => {
         const annoX =
@@ -411,17 +424,16 @@ export function EEGChart({
     onTimeWindowChange(newWindow);
   };
 
-  const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!editMode || !onAnnotationAdd) return;
-    e.preventDefault();
+  const handleAddAnnotationFromContext = (e?: React.MouseEvent) => {
+    // Use tracked mouse position for time calculation
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (canvas) {
+      const x = lastMousePositionRef.current.x;
+      const timeAtClick =
+        timeWindow[0] + (x / canvas.width) * (timeWindow[1] - timeWindow[0]);
+      setClickedTime(timeAtClick);
+    }
 
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const timeAtClick =
-      timeWindow[0] + (x / canvas.width) * (timeWindow[1] - timeWindow[0]);
-    setClickedTime(timeAtClick);
     setAnnotationText("");
     setAnnotationDialogOpen(true);
   };
@@ -447,8 +459,6 @@ export function EEGChart({
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       onChartClick?.(e);
 
-      if (!editMode || !onAnnotationAdd) return;
-
       const canvas = canvasRef.current;
       if (!canvas) return;
 
@@ -457,6 +467,7 @@ export function EEGChart({
       const timeAtClick =
         timeWindow[0] + (x / canvas.width) * (timeWindow[1] - timeWindow[0]);
 
+      // Always allow annotation selection, even without edit mode
       if (annotations && onAnnotationSelect) {
         const clickedAnnotation = annotations.find((anno) => {
           const annoX =
@@ -476,9 +487,12 @@ export function EEGChart({
         }
       }
 
-      setClickedTime(timeAtClick);
-      setAnnotationText("");
-      setAnnotationDialogOpen(true);
+      // Only allow creating annotations via click in edit mode
+      if (editMode && onAnnotationAdd) {
+        setClickedTime(timeAtClick);
+        setAnnotationText("");
+        setAnnotationDialogOpen(true);
+      }
     },
     [
       editMode,
@@ -487,14 +501,27 @@ export function EEGChart({
       annotations,
       timeWindow,
       toast,
+      onChartClick,
     ]
   );
 
   const handleAnnotationSave = () => {
-    if (!onAnnotationAdd || clickedTime === null || !filePath) {
+    if (
+      !onAnnotationAdd ||
+      clickedTime === null ||
+      !filePath ||
+      !filePath.trim()
+    ) {
+      let missingItems = [];
+      if (!onAnnotationAdd) missingItems.push("annotation handler");
+      if (clickedTime === null) missingItems.push("click time");
+      if (!filePath || !filePath.trim()) missingItems.push("valid file path");
+
       toast({
         title: "Error",
-        description: "Could not save annotation. Missing data.",
+        description: `Could not save annotation. Missing: ${missingItems.join(
+          ", "
+        )}.`,
         variant: "destructive",
       });
       return;
@@ -503,6 +530,7 @@ export function EEGChart({
     const annotationStartTimeSamples = Math.round(
       clickedTime * eegData.sampleRate
     );
+
     onAnnotationAdd({
       filePath,
       startTime: annotationStartTimeSamples,
@@ -559,60 +587,64 @@ export function EEGChart({
   }, [height, className, updateCanvasDimensions]);
 
   return (
-    <div
-      ref={handleContainerRef}
-      className={cn(
-        "relative w-full bg-background overflow-hidden select-none",
-        className
-      )}
-      style={{ height }}
-      onMouseDown={handleMouseDown}
-      onMouseUp={() => setIsDragging(false)}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={() => {
-        setIsDragging(false);
-        setHoveredAnnotation(null);
-        setHoveredPosition(null);
-      }}
-      onContextMenu={handleContextMenu}
-    >
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full"
-        onClick={handleChartClick}
-      />
-      <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-50 hover:opacity-100 transition-opacity p-2 bg-background/50 rounded-md">
-        {/* Zoom activity indicator */}
-        {isZooming && (
-          <div className="bg-green-500 text-white px-2 py-1 rounded text-xs font-medium">
-            Wheel Event Detected
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div
+          ref={handleContainerRef}
+          className={cn(
+            "relative w-full bg-background overflow-hidden select-none",
+            className
+          )}
+          style={{ height }}
+          onMouseDown={handleMouseDown}
+          onMouseUp={() => setIsDragging(false)}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={() => {
+            setIsDragging(false);
+            setHoveredAnnotation(null);
+            setHoveredPosition(null);
+          }}
+        >
+          <canvas
+            ref={canvasRef}
+            className="w-full h-full"
+            onClick={handleChartClick}
+          />
+          <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-50 hover:opacity-100 transition-opacity p-2 bg-background/50 rounded-md">
+            <div className="flex gap-1">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={moveLeft}
+                title="Pan Left"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={moveRight}
+                title="Pan Right"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="text-xs text-muted-foreground text-center">
+              Hold Cmd/Ctrl + Scroll to Zoom
+            </div>
           </div>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-48">
+        {onAnnotationAdd && filePath && filePath.trim() && (
+          <ContextMenuItem onClick={handleAddAnnotationFromContext}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Annotation
+          </ContextMenuItem>
         )}
-
-        <div className="flex gap-1">
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={moveLeft}
-            title="Pan Left"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={moveRight}
-            title="Pan Right"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <div className="text-xs text-muted-foreground text-center">
-          Hold Cmd/Ctrl + Scroll to Zoom
-        </div>
-      </div>
-      {editMode && annotationDialogOpen && (
+      </ContextMenuContent>
+      {annotationDialogOpen && (
         <Dialog
           open={annotationDialogOpen}
           onOpenChange={setAnnotationDialogOpen}
@@ -657,6 +689,6 @@ export function EEGChart({
           {annotations.find((ann) => ann.id === hoveredAnnotation)?.text}
         </div>
       )}
-    </div>
+    </ContextMenu>
   );
 }

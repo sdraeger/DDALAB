@@ -1,13 +1,12 @@
 from typing import List
 
+from core.auth import get_current_user
+from core.database import User
+from core.dependencies import get_service
+from core.services import LayoutService
 from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
-
-from ..core.auth import get_current_user
-from ..core.database import User
-from ..core.dependencies import get_service
-from ..core.services import LayoutService
-from ..schemas.layout import Layout, LayoutRequest, LayoutResponse
+from schemas.layout import Layout, LayoutRequest, LayoutResponse
 
 router = APIRouter()
 

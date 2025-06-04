@@ -1,9 +1,9 @@
 from typing import List
 
+from core.database import Annotation
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import Annotation
 from .base_repository import BaseRepository
 
 

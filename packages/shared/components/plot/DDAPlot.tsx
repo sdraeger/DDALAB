@@ -23,15 +23,7 @@ import { useSession } from "next-auth/react";
 import type { DDAPlotProps } from "../../types/DDAPlotProps";
 
 export function DDAPlot(props: DDAPlotProps) {
-  const {
-    filePath,
-    Q,
-    onChunkLoaded,
-    selectedChannels,
-    setSelectedChannels,
-    onChannelSelectionChange,
-    onAvailableChannelsChange,
-  } = props;
+  const { filePath, Q, selectedChannels } = props;
 
   const { data: session } = useSession();
 
@@ -40,7 +32,6 @@ export function DDAPlot(props: DDAPlotProps) {
     loading,
     error,
     manualErrorMessage,
-    downloadProgress,
     showHeatmap,
     ddaHeatmapData,
     isHeatmapProcessing,
@@ -66,6 +57,7 @@ export function DDAPlot(props: DDAPlotProps) {
     setShowZoomSettings,
     addAnnotation,
     updateAnnotation,
+    deleteAnnotation,
     setAnnotations,
     handleTimeWindowChange,
   } = useDDAPlot(props);
@@ -158,6 +150,8 @@ export function DDAPlot(props: DDAPlotProps) {
                 absoluteTimeWindow={plotState.absoluteTimeWindow}
                 editMode={editMode}
                 onAnnotationAdd={addAnnotation}
+                onAnnotationDelete={deleteAnnotation}
+                filePath={filePath}
                 customZoomFactor={
                   session?.user?.preferences?.eegZoomFactor || 0.05
                 }

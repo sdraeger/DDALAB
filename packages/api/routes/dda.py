@@ -1,23 +1,22 @@
 """DDA endpoints."""
 
 import json
+import uuid
 from datetime import datetime, timezone
 from io import BytesIO
-from uuid import uuid4
 
+from core.auth import get_current_user
+from core.config import get_server_settings
+from core.database import User
+from core.dda import run_dda as run_dda_core
+from core.dependencies import get_minio_client, get_service
+from core.services import ArtifactService
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from minio import Minio
 from minio.error import S3Error
-
-from ..core.auth import get_current_user
-from ..core.config import get_server_settings
-from ..core.database import User
-from ..core.dda import run_dda as run_dda_core
-from ..core.dependencies import get_minio_client, get_service
-from ..core.services import ArtifactService
-from ..schemas.artifacts import ArtifactCreate
-from ..schemas.dda import DDARequest, DDAResponse
+from schemas.artifacts import ArtifactCreate
+from schemas.dda import DDARequest, DDAResponse
 
 router = APIRouter()
 settings = get_server_settings()
@@ -58,7 +57,7 @@ async def run_dda(
         )
 
     # Generate unique artifact ID
-    artifact_id = str(uuid4())
+    artifact_id = str(uuid.uuid4())
     object_name = f"dda_results/{user.id}/{artifact_id}/result.json"
 
     # Prepare result data with metadata

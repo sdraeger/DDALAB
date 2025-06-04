@@ -3,9 +3,10 @@ from typing import Optional
 
 from fastapi import HTTPException
 from jose import jwt
+from jose.exceptions import ExpiredSignatureError, JWTError
 from passlib.context import CryptContext
 
-from ..core.config import get_server_settings
+from .config import get_server_settings
 
 settings = get_server_settings()
 
@@ -80,9 +81,9 @@ def decode_jwt_token(
             token, secret_key, algorithms=[algorithm], options={"leeway": leeway}
         )
         return payload
-    except jwt.ExpiredSignatureError:
+    except ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token has expired")
-    except jwt.InvalidTokenError as e:
+    except JWTError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
 
 

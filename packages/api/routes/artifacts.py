@@ -1,13 +1,12 @@
 import uuid
 from typing import List
 
+from core.auth import get_current_user
+from core.database import User
+from core.dependencies import get_service
+from core.services import ArtifactService
 from fastapi import APIRouter, Depends, HTTPException, status
-
-from ..core.auth import get_current_user
-from ..core.database import User
-from ..core.dependencies import get_service
-from ..core.services import ArtifactService
-from ..schemas.artifacts import (
+from schemas.artifacts import (
     ArtifactRenameRequest,
     ArtifactResponse,
     ArtifactShareRequest,

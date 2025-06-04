@@ -2,19 +2,18 @@
 
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.security import OAuth2PasswordRequestForm
-from jose import jwt
-
-from ..core.auth import authenticate_user
-from ..core.config import get_server_settings
-from ..core.dependencies import get_service
-from ..core.security import (
+from core.auth import authenticate_user
+from core.config import get_server_settings
+from core.dependencies import get_service
+from core.security import (
     create_jwt_token,
     verify_refresh_token,
 )
-from ..core.services import UserService
-from ..schemas.auth import RefreshTokenRequest
+from core.services import UserService
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import OAuth2PasswordRequestForm
+from jose import jwt
+from schemas.auth import RefreshTokenRequest
 
 router = APIRouter()
 settings = get_server_settings()

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@apollo/client";
-import { GET_EDF_DATA } from "../../lib/graphql/queries";
+import { GET_EDF_DATA, GET_ANNOTATIONS } from "../../lib/graphql/queries";
 import {
   Dialog,
   DialogContent,
@@ -343,6 +343,33 @@ export function EDFPlotDialog({
     },
   });
 
+  // Query for annotations
+  const {
+    loading: annotationsLoading,
+    error: annotationsError,
+    data: annotationsData,
+    refetch: refetchAnnotations,
+  } = useQuery(GET_ANNOTATIONS, {
+    variables: {
+      filePath: filePath,
+    },
+    skip: !open || !filePath,
+    fetchPolicy: "network-only",
+    errorPolicy: "all",
+    onCompleted: (data) => {
+      if (data?.getAnnotations) {
+        setAnnotations(data.getAnnotations);
+        updatePlotState(filePath, { annotations: data.getAnnotations });
+        // Cache the annotations
+        plotCacheManager.cacheAnnotations(filePath, data.getAnnotations);
+      }
+    },
+    onError: (err) => {
+      console.warn("Error loading annotations:", err.message);
+      // Don't show error toast for annotations as it's not critical
+    },
+  });
+
   // Handle preprocessing form submission (moved after refetch is defined)
   const handlePreprocessingSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -407,7 +434,7 @@ export function EDFPlotDialog({
         setTotalChunks(newTotalChunks);
       }
 
-      if (edfData.channelLabels.length > 0) {
+      if (edfData.channelLabels?.length > 0) {
         setAvailableChannels(edfData.channelLabels);
 
         // Select first few channels by default (or all if fewer)
@@ -762,7 +789,7 @@ export function EDFPlotDialog({
   };
 
   // Handle chart click to update current sample
-  const handleChartClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleChartClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!chartAreaRef.current || !eegData) return;
 
     const rect = chartAreaRef.current.getBoundingClientRect();
@@ -785,10 +812,16 @@ export function EDFPlotDialog({
       setAnnotations(updatedAnnotations);
       updatePlotState(filePath, { annotations: updatedAnnotations });
 
+      // Cache the updated annotations
+      plotCacheManager.cacheAnnotations(filePath, updatedAnnotations);
+
       toast({
         title: "Annotation added",
         description: "Your annotation has been saved.",
       });
+
+      // Refetch annotations to ensure consistency
+      refetchAnnotations();
     },
     onError: (error) => {
       toast({
@@ -812,10 +845,16 @@ export function EDFPlotDialog({
       setAnnotations(updatedAnnotations);
       updatePlotState(filePath, { annotations: updatedAnnotations });
 
+      // Cache the updated annotations
+      plotCacheManager.cacheAnnotations(filePath, updatedAnnotations);
+
       toast({
         title: "Annotation updated",
         description: "Your annotation has been updated.",
       });
+
+      // Refetch annotations to ensure consistency
+      refetchAnnotations();
     },
     onError: (error) => {
       toast({
@@ -828,6 +867,9 @@ export function EDFPlotDialog({
 
   const [deleteAnnotation] = useMutation(DELETE_ANNOTATION, {
     onCompleted: () => {
+      // Refetch annotations to ensure consistency
+      refetchAnnotations();
+
       toast({
         title: "Annotation deleted",
         description: "Your annotation has been removed.",
@@ -886,7 +928,7 @@ export function EDFPlotDialog({
             <div className="flex items-center gap-4 text-sm">
               <div>
                 <span className="font-medium">Channels:</span>{" "}
-                {eegData.channels.length}
+                {eegData.channels?.length || 0}
               </div>
               <div>
                 <span className="font-medium">Sample Rate:</span>{" "}
@@ -1010,7 +1052,6 @@ export function EDFPlotDialog({
               <div
                 className="flex-1 overflow-hidden relative"
                 ref={chartAreaRef}
-                onClick={handleChartClick}
               >
                 {editMode && (
                   <div className="absolute top-2 left-0 right-0 mx-auto w-fit z-30 bg-blue-600 text-white px-4 py-2 rounded-md shadow-lg text-center">
@@ -1062,20 +1103,27 @@ export function EDFPlotDialog({
                     )}
                   </div>
                 ) : (
-                  <EEGChart
-                    eegData={eegData}
-                    selectedChannels={selectedChannels}
-                    timeWindow={timeWindow}
-                    absoluteTimeWindow={absoluteTimeWindow}
-                    zoomLevel={zoomLevel}
-                    onTimeWindowChange={handleTimeWindowChange}
-                    className="w-full h-full"
-                    height="100%"
-                    editMode={editMode}
-                    onAnnotationAdd={handleAddAnnotation}
-                    onAnnotationDelete={handleDeleteAnnotation}
-                    filePath={filePath}
-                  />
+                  (() => {
+                    return (
+                      <EEGChart
+                        eegData={eegData}
+                        selectedChannels={selectedChannels}
+                        timeWindow={timeWindow}
+                        absoluteTimeWindow={absoluteTimeWindow}
+                        zoomLevel={zoomLevel}
+                        onTimeWindowChange={handleTimeWindowChange}
+                        className="w-full h-full"
+                        height="100%"
+                        editMode={editMode}
+                        onAnnotationAdd={handleAddAnnotation}
+                        onAnnotationDelete={handleDeleteAnnotation}
+                        filePath={filePath}
+                        annotations={annotations}
+                        onAnnotationSelect={handleAnnotationSelect}
+                        onChartClick={handleChartClick}
+                      />
+                    );
+                  })()
                 )}
               </div>
 

@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+"""Favorite files management endpoints."""
 
-from ..core.auth import get_current_user
-from ..core.dependencies import get_service
-from ..core.files import validate_file_path
-from ..core.services import FavoriteFilesService
-from ..schemas.favorite_files import ToggleFavoriteResponse
-from ..schemas.user import User
+from core.auth import get_current_user
+from core.dependencies import get_service
+from core.files import validate_file_path
+from core.services import FavoriteFilesService
+from fastapi import APIRouter, Depends, HTTPException
+from schemas.favorite_files import ToggleFavoriteResponse
+from schemas.user import User
 
 router = APIRouter()
 

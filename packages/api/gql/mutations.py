@@ -4,13 +4,13 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import strawberry
+from core.auth import get_current_user_from_request
+from core.database import Annotation
+from core.dda import run_dda as run_dda_core
+from core.files import validate_file_path
+from schemas.preprocessing import PreprocessingOptionsInput
 from sqlalchemy import select
 
-from ..core.auth import get_current_user_from_request
-from ..core.database import Annotation
-from ..core.dda import run_dda as run_dda_core
-from ..core.files import validate_file_path
-from ..schemas.preprocessing import PreprocessingOptionsInput
 from .context import Context
 from .types import AnnotationInput, AnnotationType, DDAResult
 
@@ -65,7 +65,7 @@ class Mutation:
             raise Exception("Not authenticated")
 
         await validate_file_path(annotation_input.file_path)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
 
         annotation = Annotation(
             user_id=current_user.id,
@@ -122,7 +122,7 @@ class Mutation:
         annotation.start_time = annotation_input.start_time
         annotation.end_time = annotation_input.end_time
         annotation.text = annotation_input.text
-        annotation.updated_at = datetime.now(timezone.utc)
+        annotation.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
         await info.context.session.commit()
         await info.context.session.refresh(annotation)

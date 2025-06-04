@@ -1,8 +1,9 @@
+"""File utility functions."""
+
 from pathlib import Path
 
+from core.config import get_server_settings
 from fastapi import HTTPException
-
-from ..config import get_server_settings
 
 settings = get_server_settings()
 

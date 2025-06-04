@@ -1,0 +1,36 @@
+# Core testing framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
+
+# HTTP testing
+httpx>=0.24.0
+requests-mock>=1.11.0
+
+# Database testing
+aiosqlite>=0.19.0
+
+# FastAPI testing
+fastapi[testing]>=0.100.0
+
+# Test data generation
+faker>=19.0.0
+factory-boy>=3.3.0
+
+# Mocking and fixtures
+responses>=0.23.0
+
+# Code quality
+ruff>=0.0.280
+
+# Additional utilities
+coverage>=7.2.0
+pytest-xdist>=3.3.0  # For parallel test execution
+
+# For JWT testing
+python-jose[cryptography]>=3.3.0
+
+# For async testing
+asyncio-mqtt>=0.14.0
+aiofiles>=23.2.1

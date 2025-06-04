@@ -237,17 +237,6 @@ export function AnnotationEditor({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h3 className="text-lg font-medium">Annotations</h3>
-        <Button
-          size="sm"
-          onClick={handleAddAnnotation}
-          disabled={!effectiveFilePath}
-        >
-          <Plus className="w-4 h-4 mr-1" /> Add Annotation
-        </Button>
-      </div>
-
       {loading && (
         <div className="flex justify-center p-4">
           <Spinner />

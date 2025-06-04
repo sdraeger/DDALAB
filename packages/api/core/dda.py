@@ -1,4 +1,4 @@
-"""Core DDA functionality."""
+"""DDA (Dynamic Analysis) processing functionality."""
 
 import os
 from pathlib import Path
@@ -12,9 +12,8 @@ from scipy import signal
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
-from ..core.config import get_server_settings
-from ..schemas.dda import DDAResponse
+from core.config import get_server_settings
+from schemas.dda import DDAResponse
 
 settings = get_server_settings()
 

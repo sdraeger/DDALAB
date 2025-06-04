@@ -1,9 +1,9 @@
 from typing import List, Optional
 
+from core.database import UserLayout
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import UserLayout
 from .base_repository import BaseRepository
 
 

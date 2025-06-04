@@ -7,7 +7,7 @@ export interface HeatmapPoint {
   x: number;
   y: number;
   value: number;
-  isFillValue?: boolean; // Added to mark null/fill values
+  isFillValue?: boolean;
 }
 
 interface DDAHeatmapProps {

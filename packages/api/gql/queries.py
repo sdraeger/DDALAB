@@ -7,15 +7,16 @@ from typing import Optional
 
 import numpy as np
 import strawberry
+from core.auth import get_current_user_from_request
+from core.config import get_server_settings
+from core.database import Annotation, FavoriteFile
+from core.edf import get_edf_navigator, read_edf_chunk_cached
+from core.edf.edf_cache import get_cache_manager
+from core.files import list_directory, validate_file_path
 from loguru import logger
+from schemas.preprocessing import VisualizationPreprocessingOptionsInput
 from sqlalchemy import select
 
-from ..core.auth import get_current_user_from_request
-from ..core.config import get_server_settings
-from ..core.database import Annotation, FavoriteFile
-from ..core.edf import get_edf_navigator, read_edf_chunk_cached
-from ..core.files import list_directory, validate_file_path
-from ..schemas.preprocessing import VisualizationPreprocessingOptionsInput
 from .context import Context
 from .types import (
     AnnotationType,
@@ -257,8 +258,6 @@ class Query:
             if includeNavigationInfo:
                 # Use cached metadata through the cache manager
                 try:
-                    from api.core.edf.edf_cache import get_cache_manager
-
                     cache_manager = get_cache_manager()
                     cached_metadata = cache_manager.get_file_metadata(full_path)
 
@@ -418,8 +417,6 @@ class Query:
     async def get_cache_stats(self) -> str:
         """Get EDF cache statistics for monitoring and debugging."""
         try:
-            from api.core.edf.edf_cache import get_cache_manager
-
             cache_manager = get_cache_manager()
             stats = cache_manager.get_cache_stats()
 
@@ -515,9 +512,6 @@ class Query:
             if not file_path.exists():
                 logger.error(f"EDF file not found: {file_path}")
                 raise ValueError(f"EDF file not found: {filename}")
-
-            # Get cache manager and intelligent default channels
-            from packages.api.core.edf.edf_cache import get_cache_manager
 
             cache_manager = get_cache_manager()
 

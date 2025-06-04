@@ -1,6 +1,5 @@
+from core.files import validate_file_path
 from pydantic import BaseModel, field_validator
-
-from ..core.files import validate_file_path
 
 
 class ToggleFavoriteRequest(BaseModel):

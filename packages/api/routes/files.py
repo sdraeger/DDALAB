@@ -3,18 +3,17 @@
 import shutil
 from pathlib import Path
 
+from core.auth import get_current_user
+from core.config import get_data_settings
+from core.dependencies import get_service
+from core.files import list_directory as list_directory_core
+from core.files import validate_file_path
+from core.services import FavoriteFilesService
+from core.utils import calculate_file_hash, is_path_allowed
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from loguru import logger
-
-from ..core.auth import get_current_user
-from ..core.config import get_data_settings
-from ..core.dependencies import get_service
-from ..core.files import list_directory as list_directory_core
-from ..core.files import validate_file_path
-from ..core.services import FavoriteFilesService
-from ..core.utils import calculate_file_hash, is_path_allowed
-from ..schemas.files import FileListResponse, FileUploadResponse
-from ..schemas.user import User
+from schemas.files import FileListResponse, FileUploadResponse
+from schemas.user import User
 
 router = APIRouter()
 settings = get_data_settings()
