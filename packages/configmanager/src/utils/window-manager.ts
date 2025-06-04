@@ -15,7 +15,7 @@ export function createWindow(): void {
     },
   });
 
-  newWindow.loadFile(path.join(__dirname, "src", "installer.html"));
+  newWindow.loadFile(path.join(__dirname, "src", "configmanager.html"));
 
   newWindow.on("closed", () => {
     if (mainWindow === newWindow) {

@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs/promises";
 import { logger } from "../utils/logger";
 import { getMainWindow } from "../utils/main-window";
-import { SetupService, InstallerState } from "./setup-service";
+import { SetupService, ConfigManagerState } from "./setup-service";
 
 export class DockerService {
   private static logProcess: ChildProcess | null = null;
@@ -90,7 +90,7 @@ services:
   }
 
   static async getDockerProjectName(): Promise<string> {
-    const state = await SetupService.getInstallerState();
+    const state = await SetupService.getConfigManagerState();
     if (!state.setupComplete || !state.setupPath) {
       logger.error(
         "Attempted to get Docker project name before setup is complete or setupPath is invalid."
@@ -106,7 +106,7 @@ services:
   static async getTraefikContainerId(
     projectName: string
   ): Promise<string | null> {
-    const state = await SetupService.getInstallerState();
+    const state = await SetupService.getConfigManagerState();
     if (!state.setupComplete || !state.setupPath) {
       logger.error(
         "getTraefikContainerId called before setup or without valid path."
@@ -284,7 +284,7 @@ services:
     );
   }
 
-  static streamDockerLogs(state: InstallerState) {
+  static streamDockerLogs(state: ConfigManagerState) {
     const mainWindow = getMainWindow();
     if (!mainWindow || !state.setupPath) {
       logger.error(
@@ -340,7 +340,9 @@ services:
     }
   }
 
-  static async fetchCurrentDockerLogs(state: InstallerState): Promise<string> {
+  static async fetchCurrentDockerLogs(
+    state: ConfigManagerState
+  ): Promise<string> {
     if (!state.setupPath) {
       logger.error("Cannot fetch Docker logs: setupPath not available.");
       return "Error fetching logs: Setup path not found.";
@@ -371,7 +373,7 @@ services:
     return this.isDockerRunning;
   }
 
-  static async startDockerCompose(state: InstallerState): Promise<boolean> {
+  static async startDockerCompose(state: ConfigManagerState): Promise<boolean> {
     const mainWindow = getMainWindow();
     if (!mainWindow || !state.setupPath) {
       logger.error(
@@ -463,7 +465,7 @@ services:
   }
 
   static async stopDockerCompose(
-    state: InstallerState,
+    state: ConfigManagerState,
     deleteVolumes?: boolean
   ): Promise<boolean> {
     const mainWindow = getMainWindow();

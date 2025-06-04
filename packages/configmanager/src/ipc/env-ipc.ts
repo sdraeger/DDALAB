@@ -8,7 +8,7 @@ import {
 
 export function registerEnvIpcHandlers(): void {
   ipcMain.handle(
-    "installer:load-env-vars",
+    "configmanager:load-env-vars",
     async (
       event: IpcMainInvokeEvent,
       dataDir?: string
@@ -18,7 +18,7 @@ export function registerEnvIpcHandlers(): void {
   );
 
   ipcMain.on(
-    "installer:save-env-config",
+    "configmanager:save-env-config",
     (event, targetDirOrSignal: string | null, content: string): void => {
       saveEnvConfig(targetDirOrSignal, content);
     }

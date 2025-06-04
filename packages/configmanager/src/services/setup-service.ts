@@ -7,9 +7,9 @@ import { getMainWindow } from "../utils/main-window";
 
 const DDALAB_SETUP_REPO_URL = "https://github.com/sdraeger/DDALAB-setup.git";
 const DDALAB_SETUP_DIR_NAME = "ddalab-setup-data";
-const INSTALLER_STATE_FILE_NAME = "installer-state.json";
+const CONFIG_MANAGER_STATE_FILE_NAME = "configmanager-state.json";
 
-export interface InstallerState {
+export interface ConfigManagerState {
   setupComplete: boolean;
   setupPath: string | null;
   dataLocation?: string;
@@ -29,13 +29,13 @@ export class SetupService {
     return path.join(app.getPath("userData"), DDALAB_SETUP_DIR_NAME);
   }
 
-  static getInstallerStateFilePath(): string {
-    return path.join(app.getPath("userData"), INSTALLER_STATE_FILE_NAME);
+  static getConfigManagerStateFilePath(): string {
+    return path.join(app.getPath("userData"), CONFIG_MANAGER_STATE_FILE_NAME);
   }
 
-  static async getInstallerState(): Promise<InstallerState> {
-    const stateFilePath = this.getInstallerStateFilePath();
-    logger.info(`Reading installer state from: ${stateFilePath}`);
+  static async getConfigManagerState(): Promise<ConfigManagerState> {
+    const stateFilePath = this.getConfigManagerStateFilePath();
+    logger.info(`Reading configmanager state from: ${stateFilePath}`);
     try {
       const data = await fs.readFile(stateFilePath, "utf-8");
       const state = JSON.parse(data);
@@ -43,22 +43,22 @@ export class SetupService {
         typeof state.setupComplete === "boolean" &&
         (state.setupPath === null || typeof state.setupPath === "string")
       ) {
-        logger.info(`Successfully parsed installer state:`, state);
+        logger.info(`Successfully parsed configmanager state:`, state);
         return state;
       }
       logger.warn(
-        `Installer state file format is invalid. Resetting. State was:`,
+        `ConfigManager state file format is invalid. Resetting. State was:`,
         state
       );
       return { setupComplete: false, setupPath: null };
     } catch (error: any) {
       if (error.code === "ENOENT") {
         logger.info(
-          `Installer state file not found at ${stateFilePath}. Assuming first run.`
+          `ConfigManager state file not found at ${stateFilePath}. Assuming first run.`
         );
       } else {
         logger.error(
-          `Error reading installer state file ${stateFilePath}:`,
+          `Error reading configmanager state file ${stateFilePath}:`,
           error
         );
       }
@@ -66,13 +66,13 @@ export class SetupService {
     }
   }
 
-  static async saveInstallerState(
+  static async saveConfigManagerState(
     setupPathOrDataLocation: string | null,
     cloneLocation?: string
   ): Promise<void> {
-    const stateFilePath = this.getInstallerStateFilePath();
+    const stateFilePath = this.getConfigManagerStateFilePath();
 
-    let state: InstallerState;
+    let state: ConfigManagerState;
     if (cloneLocation !== undefined) {
       // New format with separate locations
       state = {
@@ -96,11 +96,16 @@ export class SetupService {
         JSON.stringify(state, null, 2),
         "utf-8"
       );
-      logger.info(`Installer state saved successfully to: ${stateFilePath}`);
+      logger.info(
+        `ConfigManager state saved successfully to: ${stateFilePath}`
+      );
     } catch (error: any) {
-      logger.error(`Error saving installer state to ${stateFilePath}:`, error);
-      getMainWindow()?.webContents.send("installer-state-save-error", {
-        message: `Failed to save installer state: ${error.message}`,
+      logger.error(
+        `Error saving configmanager state to ${stateFilePath}:`,
+        error
+      );
+      getMainWindow()?.webContents.send("configmanager-state-save-error", {
+        message: `Failed to save configmanager state: ${error.message}`,
       });
     }
   }

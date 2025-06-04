@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import { logger } from "../utils/logger";
 import {
   SetupService,
-  InstallerState,
+  ConfigManagerState,
   SetupResult,
 } from "../services/setup-service";
 import { getMainWindow } from "../utils/main-window";
@@ -12,10 +12,13 @@ import { getMainWindow } from "../utils/main-window";
 export function registerSetupIpcHandlers() {
   logger.info("Registering setup IPC handlers...");
 
-  ipcMain.handle("get-installer-state", async (): Promise<InstallerState> => {
-    logger.info('IPC event "get-installer-state" received.');
-    return SetupService.getInstallerState();
-  });
+  ipcMain.handle(
+    "get-configmanager-state",
+    async (): Promise<ConfigManagerState> => {
+      logger.info('IPC event "get-configmanager-state" received.');
+      return SetupService.getConfigManagerState();
+    }
+  );
 
   ipcMain.handle(
     "mark-setup-complete",
@@ -31,7 +34,7 @@ export function registerSetupIpcHandlers() {
           logger.info(
             `docker-compose.yml found in manual path: ${manualSetupDirectory}`
           );
-          await SetupService.saveInstallerState(
+          await SetupService.saveConfigManagerState(
             manualSetupDirectory,
             manualSetupDirectory
           );
@@ -54,8 +57,8 @@ export function registerSetupIpcHandlers() {
           };
         }
       } else {
-        const currentState = await SetupService.getInstallerState();
-        await SetupService.saveInstallerState(currentState.setupPath);
+        const currentState = await SetupService.getConfigManagerState();
+        await SetupService.saveConfigManagerState(currentState.setupPath);
         return {
           success: true,
           message: "Setup complete!",
@@ -99,7 +102,10 @@ export function registerSetupIpcHandlers() {
           allowedDirsValue
         );
         if (result.success) {
-          await SetupService.saveInstallerState(dataLocation, cloneLocation);
+          await SetupService.saveConfigManagerState(
+            dataLocation,
+            cloneLocation
+          );
           mainWindow.webContents.send("setup-progress", {
             message:
               "Setup complete! Application will now prepare the main interface.",
@@ -107,7 +113,7 @@ export function registerSetupIpcHandlers() {
           });
           mainWindow.webContents.send(
             "setup-finished",
-            await SetupService.getInstallerState()
+            await SetupService.getConfigManagerState()
           );
         }
         return result;
@@ -139,7 +145,10 @@ export function registerSetupIpcHandlers() {
       );
       if (result.success) {
         // For manual setup clone, both data and clone location are the same directory
-        await SetupService.saveInstallerState(targetDirectory, targetDirectory);
+        await SetupService.saveConfigManagerState(
+          targetDirectory,
+          targetDirectory
+        );
         getMainWindow()?.webContents.send("setup-progress", {
           message: "Repository setup complete!",
           type: "success",
