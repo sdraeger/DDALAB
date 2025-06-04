@@ -1,9 +1,9 @@
 from typing import List
 
+from core.database import Ticket
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import Ticket
 from .base_repository import BaseRepository
 
 

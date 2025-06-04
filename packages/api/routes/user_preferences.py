@@ -1,12 +1,13 @@
+"""User preferences management endpoints."""
+
+from core.auth import get_current_user
+from core.database import UserPreferences as UserPreferencesDB
+from core.dependencies import get_service
+from core.services import UserPreferencesService
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
-
-from ..core.auth import get_current_user
-from ..core.database import UserPreferences as UserPreferencesDB
-from ..core.dependencies import get_service
-from ..core.services import UserPreferencesService
-from ..schemas.user import User
-from ..schemas.user_preferences import UserPreferences
+from schemas.user import User
+from schemas.user_preferences import UserPreferences
 
 # Create router with explicit prefix
 router = APIRouter()

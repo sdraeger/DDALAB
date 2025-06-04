@@ -1,10 +1,9 @@
 from typing import List
 
+from core.dependencies import register_service
+from core.repository.user_repository import UserRepository
+from schemas.user import User, UserCreate, UserUpdate
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from ...schemas.user import User, UserCreate, UserUpdate
-from ..dependencies import register_service
-from ..repository import UserRepository
 
 
 @register_service

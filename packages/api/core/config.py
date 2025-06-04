@@ -71,7 +71,8 @@ class Settings(BaseSettings):
         logger.info(f"[Config] Parsing allowed_dirs from value: {value}")
 
         # Check reload from environment directly to avoid instantiating Settings
-        reload_value = os.getenv("DDALAB_RELOAD", False)
+        reload_env = os.getenv("DDALAB_RELOAD", "False")
+        reload_value = reload_env.lower() in ("true", "1", "yes", "on")
 
         if reload_value:
             if isinstance(value, str):
@@ -96,16 +97,37 @@ class Settings(BaseSettings):
                 )
 
         if isinstance(value, str):
+            if not value.strip():
+                # Handle empty string case
+                logger.info(
+                    "[Config] Production mode: empty string, returning empty set"
+                )
+                return set()
+
             try:
                 # In production mode, parse <host>:<container>:<access> format
-                parsed_dirs = {pair.split(":")[1] for pair in value.split(",")}
-                logger.info(f"[Config] Parsed allowed_dirs result: {parsed_dirs}")
-                return parsed_dirs
+                # But also handle simple comma-separated paths as fallback
+                if ":" in value:
+                    # Production format: host1:/container1:rw,host2:/container2:ro
+                    parsed_dirs = {pair.split(":")[1] for pair in value.split(",")}
+                    logger.info(
+                        f"[Config] Production mode: parsed container paths: {parsed_dirs}"
+                    )
+                    return parsed_dirs
+                else:
+                    # Fallback: simple comma-separated paths like /tmp,/data
+                    parsed_dirs = {
+                        path.strip() for path in value.split(",") if path.strip()
+                    }
+                    logger.info(
+                        f"[Config] Production mode: parsed simple paths: {parsed_dirs}"
+                    )
+                    return parsed_dirs
             except (IndexError, ValueError) as e:
                 logger.error(f"Failed to parse allowed_dirs: {e}")
                 raise ValueError(f"Invalid ALLOWED_DIRS format: {value}")
         elif value is None:
-            return []
+            return set()  # Return empty set for None in production mode
 
         return value
 

@@ -3,11 +3,10 @@
 import datetime
 from typing import List
 
+from core.config import get_data_settings
+from core.utils import is_path_allowed
 from loguru import logger
-
-from ..core.config import get_data_settings
-from ..core.utils import is_path_allowed
-from ..schemas.files import FileInfo
+from schemas.files import FileInfo
 
 settings = get_data_settings()
 

@@ -1,23 +1,24 @@
-from typing import List
-from uuid import UUID
+"""Artifact service for handling file artifact operations."""
 
+import uuid
+from typing import List
+
+from core.config import get_server_settings
+from core.database import Artifact as ArtifactDB
+from core.database import User
+from core.dependencies import register_service
+from core.repository.artifact_repository import ArtifactRepository
+from core.repository.artifact_share_repository import ArtifactShareRepository
 from fastapi import HTTPException, status
 from loguru import logger
 from minio import Minio
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from ...core.config import get_server_settings
-from ...core.dependencies import register_service
-from ...schemas.artifacts import (
+from schemas.artifacts import (
     ArtifactCreate,
     ArtifactRenameRequest,
     ArtifactResponse,
     ArtifactShareRequest,
 )
-from ..database import Artifact as ArtifactDB
-from ..database import User
-from ..repository.artifact_repository import ArtifactRepository
-from ..repository.artifact_share_repository import ArtifactShareRepository
+from sqlalchemy.ext.asyncio import AsyncSession
 
 settings = get_server_settings()
 
@@ -83,13 +84,13 @@ class ArtifactService:
 
         return response
 
-    async def get_artifact(self, artifact_id: UUID) -> ArtifactDB:
+    async def get_artifact(self, artifact_id: uuid.UUID) -> ArtifactDB:
         """
         Get an artifact by its ID.
         """
         return await self.artifact_repository.get_by_id(artifact_id)
 
-    async def delete_artifact(self, artifact_id: UUID, current_user: User) -> None:
+    async def delete_artifact(self, artifact_id: uuid.UUID, current_user: User) -> None:
         """
         Delete an artifact from MinIO and the database.
         """
@@ -127,7 +128,7 @@ class ArtifactService:
 
     async def rename_artifact(
         self,
-        artifact_id: UUID,
+        artifact_id: uuid.UUID,
         rename_request: ArtifactRenameRequest,
         current_user: User,
     ) -> ArtifactResponse:
@@ -164,7 +165,7 @@ class ArtifactService:
         Share an artifact with other users.
         """
         try:
-            artifact_id = UUID(share_request.artifact_id)
+            artifact_id = uuid.UUID(share_request.artifact_id)
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

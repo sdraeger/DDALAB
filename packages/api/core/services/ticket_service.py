@@ -1,10 +1,9 @@
 from typing import List
 
+from core.dependencies import register_service
+from core.repository.ticket_repository import TicketRepository
+from schemas.tickets import Ticket
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from ...schemas.tickets import Ticket
-from ..dependencies import register_service
-from ..repository import TicketRepository
 
 
 @register_service

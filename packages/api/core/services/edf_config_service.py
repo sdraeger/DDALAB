@@ -1,13 +1,17 @@
 from typing import List, Optional
 
+from core.database import EdfConfig, EdfConfigChannel
+from core.dependencies import register_service
+from core.repository.edf_config_channel_repository import EdfConfigChannelRepository
+from core.repository.edf_config_repository import EdfConfigRepository
 from loguru import logger
+from schemas.config import (
+    EdfConfigChannelCreate,
+    EdfConfigCreate,
+    EdfConfigUpdate,
+)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from ...core.database import EdfConfig, EdfConfigChannel
-from ...schemas.config import EdfConfigChannelCreate, EdfConfigCreate, EdfConfigUpdate
-from ..dependencies import register_service
-from ..repository import EdfConfigChannelRepository, EdfConfigRepository
 
 
 @register_service

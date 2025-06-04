@@ -1,12 +1,13 @@
+"""EDF file management endpoints."""
+
 from pathlib import Path
 
+from core.auth import get_current_user
+from core.config import get_server_settings
+from core.edf.edf_reader import get_edf_navigator
 from fastapi import APIRouter, Depends, HTTPException
-
-from ..core.auth import get_current_user
-from ..core.config import get_server_settings
-from ..core.edf.edf_reader import get_edf_navigator
-from ..schemas.edf import EdfFileInfo
-from ..schemas.user import User
+from schemas.edf import EdfFileInfo
+from schemas.user import User
 
 router = APIRouter()
 
@@ -44,7 +45,7 @@ async def get_edf_info(
 async def get_cache_stats(_: User = Depends(get_current_user)):
     """Get EDF cache statistics."""
     try:
-        from ..core.edf.edf_cache import get_cache_manager
+        from core.edf.edf_cache import get_cache_manager
 
         cache_manager = get_cache_manager()
         return cache_manager.get_cache_stats()
@@ -58,7 +59,7 @@ async def get_cache_stats(_: User = Depends(get_current_user)):
 async def clear_cache(file_path: str = None, _: User = Depends(get_current_user)):
     """Clear EDF cache for a specific file or all files."""
     try:
-        from ..core.edf.edf_cache import clear_global_cache, get_cache_manager
+        from core.edf.edf_cache import clear_global_cache, get_cache_manager
 
         if file_path:
             # Clear cache for specific file
@@ -79,7 +80,7 @@ async def clear_cache(file_path: str = None, _: User = Depends(get_current_user)
 async def warmup_cache(file_path: str, _: User = Depends(get_current_user)):
     """Warm up cache for a specific file by preloading metadata."""
     try:
-        from ..core.edf.edf_cache import get_cache_manager
+        from core.edf.edf_cache import get_cache_manager
 
         full_path = Path(settings.data_dir) / file_path
         if not full_path.exists():

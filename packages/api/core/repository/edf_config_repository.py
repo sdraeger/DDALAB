@@ -1,11 +1,11 @@
 from typing import List, Optional
 
+from core.database import EdfConfig
+from schemas.config import EdfConfigCreate
 from sqlalchemy import insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...schemas.config import EdfConfigCreate
-from ..database import EdfConfig
 from .base_repository import BaseRepository
 
 

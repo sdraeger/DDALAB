@@ -2,16 +2,15 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
-
-from ..core.auth import (
+from core.auth import (
     get_admin_user,
     get_current_user,
 )
-from ..core.database import User
-from ..core.dependencies import get_service
-from ..core.services import TicketService
-from ..schemas.tickets import Ticket, TicketCreate, TicketResponse, TicketUpdate
+from core.database import User
+from core.dependencies import get_service
+from core.services import TicketService
+from fastapi import APIRouter, Depends, HTTPException, status
+from schemas.tickets import Ticket, TicketCreate, TicketResponse, TicketUpdate
 
 router = APIRouter()
 

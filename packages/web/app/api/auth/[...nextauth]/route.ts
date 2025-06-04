@@ -9,7 +9,14 @@ import { getEnvVar } from "shared/lib/utils/env";
 import { apiRequest } from "shared/lib/utils/request";
 import { TokenResponse, UserPreferences } from "shared/types/auth";
 
-const API_URL = getEnvVar("NEXT_PUBLIC_API_URL");
+// Fix for development environment - use localhost instead of Docker hostname
+const rawApiUrl = getEnvVar("NEXT_PUBLIC_API_URL");
+const API_URL =
+  process.env.NODE_ENV === "development" && rawApiUrl.includes("api:8001")
+    ? "http://localhost:8001"
+    : rawApiUrl;
+
+console.log("API_URL configured as:", API_URL);
 const SESSION_EXPIRATION = parseInt(getEnvVar("SESSION_EXPIRATION"));
 
 declare module "next-auth" {
