@@ -2,20 +2,19 @@
 
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from loguru import logger
-
-from ..core.auth import (
+from core.auth import (
     create_access_token,
     get_admin_user,
     get_current_user,
 )
-from ..core.config import get_server_settings
-from ..core.database import User as UserDB
-from ..core.dependencies import get_service
-from ..core.services import UserService
-from ..schemas.auth import Token
-from ..schemas.user import User, UserCreate, UserUpdate
+from core.config import get_server_settings
+from core.database import User as UserDB
+from core.dependencies import get_service
+from core.services import UserService
+from fastapi import APIRouter, Depends, HTTPException, status
+from loguru import logger
+from schemas.auth import Token
+from schemas.user import User, UserCreate, UserUpdate
 
 router = APIRouter()
 settings = get_server_settings()

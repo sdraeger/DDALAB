@@ -227,12 +227,17 @@ export const useDDAPlot = ({
     [filePath, updatePlotState]
   );
 
-  const { annotations, setAnnotations, addAnnotation, updateAnnotation } =
-    useAnnotationManagement({
-      filePath,
-      initialAnnotationsFromPlotState: plotState.annotations || [],
-      onAnnotationsChangeForPlotState,
-    });
+  const {
+    annotations,
+    setAnnotations,
+    addAnnotation,
+    updateAnnotation,
+    deleteAnnotation,
+  } = useAnnotationManagement({
+    filePath,
+    initialAnnotationsFromPlotState: plotState.annotations || [],
+    onAnnotationsChangeForPlotState,
+  });
 
   // Memoize GraphQL variables to prevent unnecessary re-renders
   const graphqlVariables = useMemo(
@@ -967,6 +972,7 @@ export const useDDAPlot = ({
     setShowZoomSettings,
     addAnnotation,
     updateAnnotation,
+    deleteAnnotation,
     setAnnotations,
     handleTimeWindowChange,
   };

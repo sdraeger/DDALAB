@@ -1,8 +1,8 @@
+from core.database import UserPreferences
+from core.utils.utils import camel_to_snake
 from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import UserPreferences
-from ..utils.utils import camel_to_snake
 from .base_repository import BaseRepository
 
 

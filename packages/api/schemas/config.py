@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List
 
 from pydantic import BaseModel
@@ -21,7 +22,13 @@ class EdfConfigResponse(BaseModel):
     id: int
     file_hash: str
     user_id: int
+    created_at: datetime
     channels: List[str]
+    num_chunks: int | None = None
+    total_samples: int | None = None
+    sampling_rate: int | None = None
+    chunk_size: int | None = None
+    total_duration: float | None = None
 
     class Config:
         from_attributes = True

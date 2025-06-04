@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    JSON,
     UUID,
     Boolean,
     Column,
@@ -13,9 +14,7 @@ from sqlalchemy import (
     Integer,
     String,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy.sql import func
 
 # Create base class for models
 Base = declarative_base()
@@ -36,13 +35,24 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     created_at = Column(
         DateTime,
-        default=datetime.now(timezone.utc).replace(tzinfo=None),
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
     updated_at = Column(
         DateTime,
-        default=datetime.now(timezone.utc).replace(tzinfo=None),
-        onupdate=datetime.now(timezone.utc).replace(tzinfo=None),
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.is_active is None:
+            self.is_active = True
+        if self.is_admin is None:
+            self.is_admin = False
+        if self.created_at is None:
+            self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        if self.updated_at is None:
+            self.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Relationships
     favorite_files = relationship(
@@ -87,9 +97,18 @@ class UserPreferences(Base):
     eeg_zoom_factor = Column(Float, default=0.05)
     updated_at = Column(
         DateTime,
-        default=datetime.now(timezone.utc).replace(tzinfo=None),
-        onupdate=datetime.now(timezone.utc).replace(tzinfo=None),
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.theme is None:
+            self.theme = "system"
+        if self.eeg_zoom_factor is None:
+            self.eeg_zoom_factor = 0.05
+        if self.updated_at is None:
+            self.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Relationships
     user = relationship("User", back_populates="preferences")
@@ -101,7 +120,14 @@ class EdfConfig(Base):
     id = Column(Integer, primary_key=True, index=True)
     file_hash = Column(String(255), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
+    )
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.created_at is None:
+            self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     user = relationship("User", back_populates="edf_configs")
     channels = relationship("EdfConfigChannel", back_populates="config")
@@ -130,13 +156,20 @@ class Annotation(Base):
     text = Column(String)  # Annotation text
     created_at = Column(
         DateTime,
-        default=datetime.now(timezone.utc).replace(tzinfo=None),
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
     updated_at = Column(
         DateTime,
-        default=datetime.now(timezone.utc).replace(tzinfo=None),
-        onupdate=datetime.now(timezone.utc).replace(tzinfo=None),
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.created_at is None:
+            self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        if self.updated_at is None:
+            self.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Relationships
     user = relationship("User", backref="annotations")
@@ -154,6 +187,11 @@ class FavoriteFile(Base):
         DateTime,
         default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.created_at is None:
+            self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     user = relationship("User", back_populates="favorite_files")
 
@@ -182,8 +220,8 @@ class InviteCode(Base):
     email = Column(String)
     created_at = Column(
         DateTime,
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
     expires_at = Column(DateTime)
     used_at = Column(DateTime, nullable=True)
@@ -207,25 +245,40 @@ class Ticket(Base):
     status = Column(String)
     created_at = Column(
         DateTime,
-        default=datetime.now(timezone.utc).replace(tzinfo=None),
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
     updated_at = Column(
         DateTime,
-        default=datetime.now(timezone.utc).replace(tzinfo=None),
-        onupdate=datetime.now(timezone.utc).replace(tzinfo=None),
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.created_at is None:
+            self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        if self.updated_at is None:
+            self.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class Artifact(Base):
     __tablename__ = "artifacts"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=lambda: uuid.uuid4())
     name = Column(String, nullable=True)
     file_path = Column(String, nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(
         DateTime,
-        default=datetime.now(timezone.utc).replace(tzinfo=None),
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.id is None:
+            self.id = uuid.uuid4()
+        if self.created_at is None:
+            self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
     owner = relationship("User", back_populates="artifacts")
     shares = relationship("ArtifactShare", back_populates="artifact")
 
@@ -249,8 +302,14 @@ class UserLayout(Base):
     __tablename__ = "user_layouts"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    layout_data = Column(JSONB, nullable=False)
+    layout_data = Column(JSON, nullable=False)
     created_at = Column(
-        DateTime, default=datetime.now(timezone.utc).replace(tzinfo=None)
+        DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
     )
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.created_at is None:
+            self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
     user = relationship("User", back_populates="layouts")
