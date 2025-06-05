@@ -9,6 +9,7 @@ import { DDAHeatmap } from "./DDAHeatmap";
 import { PlotControls } from "./PlotControls";
 import { ChannelSelectorUI } from "../ui/ChannelSelectorUI";
 import { AnnotationEditor } from "../ui/annotation-editor";
+import { ResizableEEGPlot } from "../ui/ResizableEEGPlot";
 import {
   Dialog,
   DialogContent,
@@ -131,12 +132,10 @@ export function DDAPlot(props: DDAPlotProps) {
         <div
           className={`w-full flex flex-col md:flex-row items-stretch justify-center relative gap-4`}
         >
-          <div
-            className={
-              showHeatmap && Q
-                ? "md:w-1/2 w-full h-[400px]"
-                : "w-full h-[400px]"
-            }
+          <ResizableEEGPlot
+            filePath={filePath}
+            variant="default"
+            className={showHeatmap && Q ? "md:w-1/2 w-full" : "w-full"}
           >
             {plotState.edfData?.channels?.length ? (
               <EEGChart
@@ -153,6 +152,7 @@ export function DDAPlot(props: DDAPlotProps) {
                 onAnnotationAdd={addAnnotation}
                 onAnnotationDelete={deleteAnnotation}
                 filePath={filePath}
+                height="100%"
                 customZoomFactor={
                   session?.user?.preferences?.eegZoomFactor || 0.05
                 }
@@ -165,7 +165,7 @@ export function DDAPlot(props: DDAPlotProps) {
                     "No data to display or plot not loaded."}
               </div>
             )}
-          </div>
+          </ResizableEEGPlot>
 
           {showHeatmap && Q && (
             <div className="md:w-1/2 w-full flex flex-col items-center justify-center relative border-l md:border-l border-t md:border-t-0 border-border">
