@@ -26,6 +26,7 @@ import { useEDFPlot } from "../../contexts/EDFPlotContext";
 import { Progress } from "../ui/progress";
 import { plotCacheManager } from "../../lib/utils/plotCache";
 import logger from "../../lib/utils/logger";
+import { ResizableContainer } from "../ui/ResizableContainer";
 
 interface PersistentEEGPlotProps {
   filePath: string;
@@ -519,7 +520,13 @@ export function PersistentEEGPlot({
         </div>
 
         {/* EEG Chart */}
-        <div className="h-full" ref={chartAreaRef}>
+        <ResizableContainer
+          className="h-full"
+          storageKey={`persistent-eeg-plot-height-${filePath}`}
+          defaultHeight={500}
+          minHeight={250}
+          maxHeight={1000}
+        >
           <EEGChart
             eegData={eegData}
             selectedChannels={selectedChannels}
@@ -539,7 +546,7 @@ export function PersistentEEGPlot({
             editMode={editMode}
             filePath={filePath}
           />
-        </div>
+        </ResizableContainer>
       </div>
 
       {/* Controls sidebar */}

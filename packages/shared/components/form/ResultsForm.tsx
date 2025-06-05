@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { EEGChart } from "../plot/EEGChart";
 import { ResultsFormProps } from "../../types/form-props";
 import { DDAPlot } from "../plot/DDAPlot";
+import { ResizableContainer } from "../ui/ResizableContainer";
 
 const ResultsForm: React.FC<ResultsFormProps> = ({
   edfData,
@@ -52,14 +53,12 @@ const ResultsForm: React.FC<ResultsFormProps> = ({
     }
 
     return (
-      <div
-        style={{
-          height: "400px",
-          border: "1px solid #ccc",
-          borderRadius: "4px",
-          marginBottom: "20px",
-          position: "relative",
-        }}
+      <ResizableContainer
+        defaultHeight={400}
+        minHeight={200}
+        maxHeight={800}
+        storageKey={`results-eeg-plot-height-${filePath}`}
+        className="border border-gray-300 rounded-md mb-5 relative"
       >
         <EEGChart
           eegData={edfData}
@@ -69,9 +68,10 @@ const ResultsForm: React.FC<ResultsFormProps> = ({
           zoomLevel={1}
           editMode={false}
           className="w-full h-full"
+          height="100%"
           filePath={filePath}
         />
-      </div>
+      </ResizableContainer>
     );
   };
 
