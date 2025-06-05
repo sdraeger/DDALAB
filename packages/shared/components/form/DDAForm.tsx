@@ -2,7 +2,7 @@
 
 // Structure: DDAForm.tsx contains a <DDAPlot> component that contains an <EEGChart> component.
 
-import { useForm } from "react-hook-form";
+import { useForm, FormProvider } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Button } from "shared/components/ui/button";
@@ -21,8 +21,7 @@ import { useSession } from "next-auth/react";
 import { DDAPlot } from "../plot/DDAPlot";
 import { apiRequest } from "../../lib/utils/request";
 import { EdfConfigResponse } from "shared/lib/schemas/edf";
-import { PreprocessingOptionsUI } from "../ui/PreprocessingOptionsUI";
-import { VisualizationOptionsUI } from "../ui/VisualizationOptionsUI";
+import { PreprocessingDialog } from "../dialog/PreprocessingDialog";
 import {
   Alert,
   AlertDescription,
@@ -70,6 +69,7 @@ export function DDAForm({
   const [serverConfigError, setServerConfigError] = useState<string | null>(
     null
   );
+  const [showPreprocessingDialog, setShowPreprocessingDialog] = useState(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -88,10 +88,16 @@ export function DDAForm({
       .map((label) => availableChannels.indexOf(label) + 1)
       .filter((index) => index !== -1);
 
-  const submitDDA = async (data: FormValues) => {
+  const handleRunDDAClick = () => {
+    setShowPreprocessingDialog(true);
+  };
+
+  const submitDDA = async () => {
+    const data = form.getValues();
     setIsSubmitting(true);
     setQ(null);
     setServerConfigError(null);
+    setShowPreprocessingDialog(false);
 
     try {
       const channelIndices = getChannelIndices(selectedChannels);
@@ -199,7 +205,7 @@ export function DDAForm({
         </CardHeader>
         <CardContent>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(submitDDA)} className="space-y-6">
+            <div className="space-y-6">
               <div className="space-y-4">
                 <div>
                   <h3 className="text-sm font-medium mb-2">Selected File</h3>
@@ -207,42 +213,62 @@ export function DDAForm({
                     {filePath}
                   </p>
                 </div>
+
                 <div>
-                  <h3 className="text-sm font-medium mb-2">Configuration</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div>
-                      <h4 className="text-sm font-medium mb-3 text-muted-foreground">
-                        Preprocessing
-                      </h4>
-                      <PreprocessingOptionsUI form={form} />
+                  <h3 className="text-sm font-medium mb-2">
+                    Selected Channels
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm text-muted-foreground">
+                      {selectedChannels.length === 0 ? (
+                        <span className="text-destructive">
+                          No channels selected
+                        </span>
+                      ) : (
+                        <span>
+                          {selectedChannels.length} channel
+                          {selectedChannels.length !== 1 ? "s" : ""} selected
+                        </span>
+                      )}
                     </div>
-                    <div>
-                      <h4 className="text-sm font-medium mb-3 text-muted-foreground">
-                        Visualization
-                      </h4>
-                      <VisualizationOptionsUI form={form} />
-                    </div>
+                    {selectedChannels.length > 0 && (
+                      <div className="text-xs text-muted-foreground">
+                        Ready for DDA analysis
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
+
               <Button
-                type="submit"
-                disabled={isSubmitting || selectedChannels.length === 0}
+                type="button"
+                onClick={handleRunDDAClick}
+                disabled={selectedChannels.length === 0}
                 className="w-full md:w-auto"
+                size="lg"
               >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Submitting...
-                  </>
-                ) : (
-                  "Run DDA"
-                )}
+                {selectedChannels.length === 0
+                  ? "Select channels to run DDA"
+                  : "Configure & Run DDA"}
               </Button>
-            </form>
+            </div>
           </Form>
         </CardContent>
       </Card>
+
+      {/* Preprocessing Dialog */}
+      <FormProvider {...form}>
+        <PreprocessingDialog
+          open={showPreprocessingDialog}
+          onOpenChange={setShowPreprocessingDialog}
+          form={form}
+          onSubmit={submitDDA}
+          isSubmitting={isSubmitting}
+          selectedChannelsCount={selectedChannels.length}
+          fileName={filePath.split("/").pop() || filePath}
+        />
+      </FormProvider>
+
       <DDAPlot
         filePath={filePath}
         Q={Q}
