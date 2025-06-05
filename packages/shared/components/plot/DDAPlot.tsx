@@ -54,6 +54,7 @@ export function DDAPlot(props: DDAPlotProps) {
     toggleHeatmap,
     handleSelectAllChannels,
     handleClearAllChannels,
+    handleSelectChannels,
     setShowZoomSettings,
     addAnnotation,
     updateAnnotation,
@@ -203,6 +204,7 @@ export function DDAPlot(props: DDAPlotProps) {
             onToggleChannel={toggleChannel}
             onSelectAllChannels={handleSelectAllChannels}
             onClearAllChannels={handleClearAllChannels}
+            onSelectChannels={handleSelectChannels}
             isLoading={loading && availableChannels.length === 0}
             error={error && availableChannels.length === 0 ? error : null}
           />

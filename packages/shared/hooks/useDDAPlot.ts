@@ -824,6 +824,8 @@ export const useDDAPlot = ({
   const handleSelectAllChannels = () =>
     onChannelSelectionChange(availableChannels);
   const handleClearAllChannels = () => onChannelSelectionChange([]);
+  const handleSelectChannels = (channels: string[]) =>
+    onChannelSelectionChange(channels);
 
   useEffect(() => {
     if (filePath && shouldLoadChunk) {
@@ -969,6 +971,7 @@ export const useDDAPlot = ({
     toggleHeatmap,
     handleSelectAllChannels,
     handleClearAllChannels,
+    handleSelectChannels,
     setShowZoomSettings,
     addAnnotation,
     updateAnnotation,
