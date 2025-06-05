@@ -37,7 +37,6 @@ export const DDAResults = ({ result }: DDAResultsProps) => {
         <CardContent>
           <p>File: {result.file_path}</p>
           <p>Metadata: {result.metadata || "None"}</p>
-          {/* Add visualization of Q matrix or other result details */}
         </CardContent>
       </Card>
       <ShareArtifactDialog

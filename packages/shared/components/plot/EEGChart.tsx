@@ -417,11 +417,30 @@ export function EEGChart({
     const dx = e.clientX - dragStart;
     setDragStart(e.clientX);
     const timePerPixel = (timeWindow[1] - timeWindow[0]) / canvas.width;
-    const newWindow: [number, number] = [
+    const proposedWindow: [number, number] = [
       timeWindow[0] - dx * timePerPixel,
       timeWindow[1] - dx * timePerPixel,
     ];
-    onTimeWindowChange(newWindow);
+
+    // Check boundaries and prevent movement if it would exceed them
+    const windowDuration = timeWindow[1] - timeWindow[0];
+    let newWindow: [number, number] = proposedWindow;
+
+    // Check if proposed window would go below 0 (left boundary)
+    if (proposedWindow[0] < 0) {
+      // Stop at the left boundary
+      newWindow = [0, windowDuration];
+    }
+    // Check if proposed window would exceed data duration (right boundary)
+    else if (proposedWindow[1] > eegData.duration) {
+      // Stop at the right boundary
+      newWindow = [eegData.duration - windowDuration, eegData.duration];
+    }
+
+    // Only update if the window actually changed (this prevents unnecessary re-renders)
+    if (newWindow[0] !== timeWindow[0] || newWindow[1] !== timeWindow[1]) {
+      onTimeWindowChange(newWindow);
+    }
   };
 
   const handleAddAnnotationFromContext = (e?: React.MouseEvent) => {
@@ -440,18 +459,18 @@ export function EEGChart({
 
   const moveLeft = () => {
     const step = (timeWindow[1] - timeWindow[0]) * 0.1;
+    const windowDuration = timeWindow[1] - timeWindow[0];
     const newStartTime = Math.max(0, timeWindow[0] - step);
-    const newEndTime = Math.max(step, timeWindow[1] - step);
+    const newEndTime = newStartTime + windowDuration;
     onTimeWindowChange([newStartTime, newEndTime]);
   };
 
   const moveRight = () => {
     const step = (timeWindow[1] - timeWindow[0]) * 0.1;
-    const newStartTime = Math.min(
-      eegData.duration - (timeWindow[1] - timeWindow[0]),
-      timeWindow[0] + step
-    );
-    const newEndTime = Math.min(eegData.duration, timeWindow[1] + step);
+    const windowDuration = timeWindow[1] - timeWindow[0];
+    const maxStartTime = Math.max(0, eegData.duration - windowDuration);
+    const newStartTime = Math.min(maxStartTime, timeWindow[0] + step);
+    const newEndTime = newStartTime + windowDuration;
     onTimeWindowChange([newStartTime, newEndTime]);
   };
 
