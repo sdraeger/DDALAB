@@ -18,6 +18,7 @@ import { Alert, AlertDescription } from "../ui/alert";
 import { ScrollArea } from "../ui/scroll-area";
 import { EEGChart } from "../plot/EEGChart";
 import { AnnotationEditor } from "../ui/annotation-editor";
+import { ResizableContainer } from "../ui/ResizableContainer";
 import { Annotation } from "../../types/annotation";
 import {
   ZoomIn,
@@ -1049,9 +1050,12 @@ export function EDFPlotDialog({
               )}
 
               {/* EEG Chart */}
-              <div
+              <ResizableContainer
                 className="flex-1 overflow-hidden relative"
-                ref={chartAreaRef}
+                storageKey={`edf-dialog-plot-height-${filePath}`}
+                defaultHeight={600}
+                minHeight={300}
+                maxHeight={1200}
               >
                 {editMode && (
                   <div className="absolute top-2 left-0 right-0 mx-auto w-fit z-30 bg-blue-600 text-white px-4 py-2 rounded-md shadow-lg text-center">
@@ -1125,7 +1129,7 @@ export function EDFPlotDialog({
                     );
                   })()
                 )}
-              </div>
+              </ResizableContainer>
 
               {/* Zoom controls */}
               <div className="absolute top-4 right-4 flex flex-col space-y-2">
