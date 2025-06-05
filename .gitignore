@@ -29,7 +29,7 @@ prometheus_data/
 grafana_data/
 
 packages/api/bin/
-packages/installer/release/
+packages/configmanager/release/
 
 .cursorrules
 project_config.md

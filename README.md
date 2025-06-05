@@ -17,7 +17,7 @@ traffic within the virtualized network is encrypted via SSL.
 2. **For Windows**:
 
    - Download [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop)
-   - Run the installer and follow the prompts
+   - Run the ConfigManager and follow the prompts
    - Start Docker Desktop from the Start menu
 
 3. **For Linux (Ubuntu/Debian)**:
