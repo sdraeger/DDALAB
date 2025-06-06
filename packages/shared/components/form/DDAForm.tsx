@@ -232,8 +232,8 @@ export function DDAForm({
                       )}
                     </div>
                     {selectedChannels.length > 0 && (
-                      <div className="text-xs text-muted-foreground">
-                        Ready for DDA analysis
+                      <div className="text-xs text-muted-foreground bg-green-500/10 rounded-md px-2 py-1">
+                        Ready!
                       </div>
                     )}
                   </div>

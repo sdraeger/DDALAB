@@ -36,7 +36,7 @@ async def create_user(
 
     # Create the new user
     try:
-        user = await user_service.create(user_data)
+        user = await user_service.create_user(user_data)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

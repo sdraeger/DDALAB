@@ -9,7 +9,7 @@ from core.auth import get_current_user
 from core.config import get_server_settings
 from core.database import User
 from core.dda import run_dda as run_dda_core
-from core.dependencies import get_minio_client, get_service
+from core.dependencies import get_artifact_service, get_minio_client
 from core.services import ArtifactService
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
@@ -27,7 +27,7 @@ async def run_dda(
     request: DDARequest,
     user: User = Depends(get_current_user),
     minio_client: Minio = Depends(get_minio_client),
-    artifact_service: ArtifactService = Depends(get_service(ArtifactService)),
+    artifact_service: ArtifactService = Depends(get_artifact_service()),
 ) -> DDAResponse:
     """Submit a DDA task and save results as a private artifact in MinIO.
 

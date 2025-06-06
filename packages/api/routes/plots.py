@@ -3,7 +3,7 @@ from typing import List
 
 from core.auth import get_current_user
 from core.database import User
-from core.dependencies import get_minio_client, get_service
+from core.dependencies import get_artifact_service, get_minio_client
 from core.services.artifact_service import ArtifactService
 from fastapi import APIRouter, Depends
 from minio import Minio
@@ -16,7 +16,7 @@ router = APIRouter()
 async def list_plots(
     current_user: User = Depends(get_current_user),
     minio_client: Minio = Depends(get_minio_client),
-    artifact_service: ArtifactService = Depends(get_service(ArtifactService)),
+    artifact_service: ArtifactService = Depends(get_artifact_service()),
 ):
     """
     Get plots for artifacts owned or shared with the current user.

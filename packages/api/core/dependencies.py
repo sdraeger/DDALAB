@@ -82,6 +82,19 @@ def get_service(service_class: Type[T]) -> Callable[[AsyncSession], T]:
     return factory
 
 
+def get_artifact_service():
+    """Custom dependency for ArtifactService that injects both DB and MinIO client"""
+    from core.services.artifact_service import ArtifactService
+
+    def factory(
+        db: AsyncSession = Depends(get_db_session),
+        minio_client: Minio = Depends(get_minio_client),
+    ) -> ArtifactService:
+        return ArtifactService(db, minio_client)
+
+    return factory
+
+
 def get_minio_client():
     """
     Initialize and yield a MinIO client instance.

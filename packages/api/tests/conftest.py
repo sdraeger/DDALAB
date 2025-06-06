@@ -160,7 +160,7 @@ def mock_minio_client():
 
 
 @pytest.fixture
-def override_dependencies(test_session, mock_minio_client):
+def override_dependencies(test_session, mock_minio_client, test_settings):
     """Override FastAPI dependencies for testing."""
 
     def get_test_db():
@@ -172,7 +172,14 @@ def override_dependencies(test_session, mock_minio_client):
     app.dependency_overrides[get_db_session] = get_test_db
     app.dependency_overrides[get_minio_client] = get_test_minio
 
-    yield
+    # Override settings functions to use test settings
+    from unittest.mock import patch
+
+    with (
+        patch("core.config.get_server_settings", return_value=test_settings),
+        patch("core.auth.settings", test_settings),
+    ):
+        yield
 
     # Clean up
     app.dependency_overrides = {}

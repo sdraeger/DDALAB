@@ -2,20 +2,25 @@ from pydantic import BaseModel, Field
 
 
 class User(BaseModel):
-    """User schema with validation."""
+    """User response schema."""
 
     id: int = Field(..., description="User ID")
     username: str = Field(..., description="Username")
-    password_hash: str = Field(..., description="Password hash")
+    email: str = Field(..., description="Email")
+    first_name: str | None = Field(None, description="First name")
+    last_name: str | None = Field(None, description="Last name")
     is_active: bool = Field(..., description="Active status")
     is_admin: bool = Field(..., description="Admin status")
 
     class Config:
+        from_attributes = True
         json_schema_extra = {
             "example": {
                 "id": 1,
                 "username": "user",
-                "password_hash": "password",
+                "email": "user@example.com",
+                "first_name": "First",
+                "last_name": "Last",
                 "is_active": True,
                 "is_admin": False,
             }
