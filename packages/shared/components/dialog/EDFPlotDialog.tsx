@@ -19,6 +19,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { EEGChart } from "../plot/EEGChart";
 import { AnnotationEditor } from "../ui/annotation-editor";
 import { ResizableContainer } from "../ui/ResizableContainer";
+import { ChunkSelector } from "../ui/ChunkSelector";
 import { Annotation } from "../../types/annotation";
 import {
   ZoomIn,
@@ -527,6 +528,21 @@ export function EDFPlotDialog({
   const handleNextChunk = () => {
     if (chunkStart + chunkSizeSamples < totalSamples) {
       const newStart = chunkStart + chunkSizeSamples;
+      setChunkStart(newStart);
+      setLoadingNewChunk(true);
+      setDownloadProgress(0);
+      resetTimeWindow(newStart);
+      updatePlotState(filePath, {});
+    }
+  };
+
+  // Jump to specific chunk
+  const handleChunkSelect = (chunkNumber: number) => {
+    // Convert chunk number (1-based) to chunk start (0-based sample position)
+    const newStart = (chunkNumber - 1) * chunkSizeSamples;
+
+    // Ensure we don't exceed the total samples
+    if (newStart >= 0 && newStart < totalSamples) {
       setChunkStart(newStart);
       setLoadingNewChunk(true);
       setDownloadProgress(0);
@@ -1335,23 +1351,34 @@ export function EDFPlotDialog({
         </div>
 
         <DialogFooter className="space-x-2">
-          <div className="flex-1 flex items-center justify-start gap-2">
-            <Button
-              variant="outline"
-              onClick={handlePrevChunk}
-              disabled={chunkStart === 0 || loading}
-            >
-              <ChevronLeft className="h-4 w-4 mr-1" /> Previous
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleNextChunk}
-              disabled={
-                chunkStart + chunkSizeSamples >= totalSamples || loading
-              }
-            >
-              Next <ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
+          <div className="flex-1 flex items-center justify-start gap-4">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={handlePrevChunk}
+                disabled={chunkStart === 0 || loading}
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleNextChunk}
+                disabled={
+                  chunkStart + chunkSizeSamples >= totalSamples || loading
+                }
+              >
+                Next <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+
+            {totalSamples > 0 && (
+              <ChunkSelector
+                currentChunk={Math.floor(chunkStart / chunkSizeSamples) + 1}
+                totalChunks={Math.ceil(totalSamples / chunkSizeSamples)}
+                onChunkSelect={handleChunkSelect}
+                variant="compact"
+              />
+            )}
           </div>
 
           <Button variant="outline" onClick={() => onOpenChange(false)}>

@@ -27,6 +27,7 @@ import { Progress } from "../ui/progress";
 import { plotCacheManager } from "../../lib/utils/plotCache";
 import logger from "../../lib/utils/logger";
 import { ResizableContainer } from "../ui/ResizableContainer";
+import { ChunkSelector } from "../ui/ChunkSelector";
 
 interface PersistentEEGPlotProps {
   filePath: string;
@@ -353,6 +354,19 @@ export function PersistentEEGPlot({
     }
   };
 
+  // Jump to specific chunk
+  const handleChunkSelect = (chunkNumber: number) => {
+    // Convert chunk number (1-based) to chunk start (0-based sample position)
+    const newStart = (chunkNumber - 1) * chunkSizeSamples;
+
+    // Ensure we don't exceed the total samples
+    if (newStart >= 0 && newStart < totalSamples) {
+      setChunkStart(newStart);
+      setLoadingNewChunk(true);
+      setDownloadProgress(0);
+    }
+  };
+
   // Zoom functions
   const handleZoomIn = () => {
     if (zoomLevel < 10 && eegData) {
@@ -481,23 +495,36 @@ export function PersistentEEGPlot({
       {/* Chart area */}
       <div className="flex-1 relative">
         {/* Navigation controls */}
-        <div className="absolute top-2 left-2 z-10 flex gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handlePrevChunk}
-            disabled={chunkStart === 0 || loading}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleNextChunk}
-            disabled={chunkStart + chunkSizeSamples >= totalSamples || loading}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+        <div className="absolute top-2 left-2 z-10 flex gap-2">
+          <div className="flex gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePrevChunk}
+              disabled={chunkStart === 0 || loading}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNextChunk}
+              disabled={
+                chunkStart + chunkSizeSamples >= totalSamples || loading
+              }
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {totalSamples > 0 && (
+            <ChunkSelector
+              currentChunk={Math.floor(chunkStart / chunkSizeSamples) + 1}
+              totalChunks={Math.ceil(totalSamples / chunkSizeSamples)}
+              onChunkSelect={handleChunkSelect}
+              variant="compact"
+            />
+          )}
         </div>
 
         {/* Zoom controls */}
