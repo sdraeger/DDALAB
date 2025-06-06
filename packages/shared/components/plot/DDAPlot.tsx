@@ -138,25 +138,40 @@ export function DDAPlot(props: DDAPlotProps) {
             className={showHeatmap && Q ? "md:w-1/2 w-full" : "w-full"}
           >
             {plotState.edfData?.channels?.length ? (
-              <EEGChart
-                eegData={plotState.edfData}
-                timeWindow={timeWindow}
-                selectedChannels={selectedChannels}
-                annotations={annotations}
-                onAnnotationSelect={handleAnnotationSelect}
-                onChartClick={handleChartClick}
-                zoomLevel={zoomLevel}
-                onTimeWindowChange={handleTimeWindowChange}
-                absoluteTimeWindow={plotState.absoluteTimeWindow}
-                editMode={editMode}
-                onAnnotationAdd={addAnnotation}
-                onAnnotationDelete={deleteAnnotation}
-                filePath={filePath}
-                height="100%"
-                customZoomFactor={
-                  session?.user?.preferences?.eegZoomFactor || 0.05
-                }
-              />
+              (() => {
+                // Filter annotations to only include those within the current chunk
+                const chunkStart = plotState.chunkStart || 0;
+                const chunkSize = plotState.edfData?.samplesPerChannel || 0;
+                const chunkEndSample = chunkStart + chunkSize;
+
+                const chunkAnnotations = annotations.filter(
+                  (annotation) =>
+                    annotation.startTime >= chunkStart &&
+                    annotation.startTime < chunkEndSample
+                );
+
+                return (
+                  <EEGChart
+                    eegData={plotState.edfData}
+                    timeWindow={timeWindow}
+                    selectedChannels={selectedChannels}
+                    annotations={chunkAnnotations}
+                    onAnnotationSelect={handleAnnotationSelect}
+                    onChartClick={handleChartClick}
+                    zoomLevel={zoomLevel}
+                    onTimeWindowChange={handleTimeWindowChange}
+                    absoluteTimeWindow={plotState.absoluteTimeWindow}
+                    editMode={editMode}
+                    onAnnotationAdd={addAnnotation}
+                    onAnnotationDelete={deleteAnnotation}
+                    filePath={filePath}
+                    height="100%"
+                    customZoomFactor={
+                      session?.user?.preferences?.eegZoomFactor || 0.05
+                    }
+                  />
+                );
+              })()
             ) : (
               <div className="text-muted-foreground text-center w-full flex items-center justify-center h-full">
                 {loading
