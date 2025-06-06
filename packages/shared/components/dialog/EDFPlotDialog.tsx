@@ -681,6 +681,14 @@ export function EDFPlotDialog({
       // Calculate absolute time position in the file
       const absoluteStartSec = chunkStart / edfDataToUse.samplingFrequency;
 
+      // Filter annotations to only include those within the current chunk
+      const chunkEndSample = chunkStart + edfDataToUse.chunkSize;
+      const chunkAnnotations = (plotState.annotations || []).filter(
+        (annotation) =>
+          annotation.startTime >= chunkStart &&
+          annotation.startTime < chunkEndSample
+      );
+
       return {
         channels: edfDataToUse.channelLabels,
         samplesPerChannel: edfDataToUse.chunkSize,
@@ -689,7 +697,7 @@ export function EDFPlotDialog({
         startTime: new Date(edfDataToUse.startTime || Date.now()),
         duration: actualChunkDuration, // Use actual duration from the data
         absoluteStartTime: absoluteStartSec, // Add absolute start time for x-axis positioning
-        annotations: plotState.annotations || [],
+        annotations: chunkAnnotations,
       };
     } catch (err) {
       console.error("Error converting EDF data:", err);

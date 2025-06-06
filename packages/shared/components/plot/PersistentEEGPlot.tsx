@@ -310,6 +310,14 @@ export function PersistentEEGPlot({
         edfDataToUse.chunkSize / edfDataToUse.samplingFrequency;
       const absoluteStartSec = chunkStart / edfDataToUse.samplingFrequency;
 
+      // Filter annotations to only include those within the current chunk
+      const chunkEndSample = chunkStart + edfDataToUse.chunkSize;
+      const chunkAnnotations = (plotState.annotations || []).filter(
+        (annotation) =>
+          annotation.startTime >= chunkStart &&
+          annotation.startTime < chunkEndSample
+      );
+
       return {
         channels: edfDataToUse.channelLabels,
         samplesPerChannel: edfDataToUse.chunkSize,
@@ -318,7 +326,7 @@ export function PersistentEEGPlot({
         startTime: new Date(edfDataToUse.startTime || Date.now()),
         duration: actualChunkDuration,
         absoluteStartTime: absoluteStartSec,
-        annotations: plotState.annotations || [],
+        annotations: chunkAnnotations,
       };
     } catch (err) {
       console.error("Error converting EDF data:", err);
