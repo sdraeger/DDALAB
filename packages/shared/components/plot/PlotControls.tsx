@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "../ui/button";
+import { ChunkSelector } from "../ui/ChunkSelector";
 import {
   ChevronLeft,
   ChevronRight,
@@ -26,6 +27,7 @@ interface PlotControlsProps {
   showHeatmap: boolean;
   onToggleHeatmap: () => void;
   isHeatmapProcessing: boolean;
+  onChunkSelect?: (chunkNumber: number) => void;
 }
 
 export function PlotControls({
@@ -43,6 +45,7 @@ export function PlotControls({
   showHeatmap,
   onToggleHeatmap,
   isHeatmapProcessing,
+  onChunkSelect,
 }: PlotControlsProps) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 p-2 border-b bg-card sticky top-0 z-10">
@@ -56,9 +59,18 @@ export function PlotControls({
         >
           <ChevronLeft className="h-5 w-5" />
         </Button>
-        <span className="text-sm text-muted-foreground whitespace-nowrap">
-          Chunk {currentChunkNumber} / {totalChunks}
-        </span>
+        {onChunkSelect ? (
+          <ChunkSelector
+            currentChunk={currentChunkNumber}
+            totalChunks={totalChunks}
+            onChunkSelect={onChunkSelect}
+            variant="compact"
+          />
+        ) : (
+          <span className="text-sm text-muted-foreground whitespace-nowrap">
+            Chunk {currentChunkNumber} / {totalChunks}
+          </span>
+        )}
         <Button
           variant="outline"
           size="icon"

@@ -46,6 +46,7 @@ export function DDAPlot(props: DDAPlotProps) {
     annotations,
     handlePrevChunk,
     handleNextChunk,
+    handleChunkSelect,
     handleZoomIn,
     handleZoomOut,
     handleReset,
@@ -92,6 +93,7 @@ export function DDAPlot(props: DDAPlotProps) {
         showHeatmap={showHeatmap}
         onToggleHeatmap={toggleHeatmap}
         isHeatmapProcessing={isHeatmapProcessing}
+        onChunkSelect={handleChunkSelect}
       />
 
       {showZoomSettings && (

@@ -664,6 +664,23 @@ export const useDDAPlot = ({
     }
   };
 
+  const handleChunkSelect = (chunkNumber: number) => {
+    // Convert chunk number (1-based) to chunk start (0-based sample position)
+    const newChunkStart = (chunkNumber - 1) * chunkSize;
+
+    // Ensure we don't exceed the total samples
+    if (newChunkStart >= 0 && newChunkStart < totalSamples) {
+      setChunkStart(newChunkStart);
+      setShouldLoadChunk(true);
+      setDownloadProgress(0);
+      resetTimeWindow(newChunkStart);
+      updatePlotState(filePath, {
+        chunkStart: newChunkStart,
+        currentChunkNumber: chunkNumber,
+      });
+    }
+  };
+
   const resetTimeWindow = (start: number) => {
     const absStart = start / sampleRate;
     const actualDuration = data?.getEdfData?.chunkSize
@@ -960,6 +977,7 @@ export const useDDAPlot = ({
     annotations,
     handlePrevChunk,
     handleNextChunk,
+    handleChunkSelect,
     handleZoomIn,
     handleZoomOut,
     handleReset,
