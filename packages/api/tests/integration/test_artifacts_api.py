@@ -32,7 +32,7 @@ class TestArtifactsAPI:
         data = response.json()
         assert data["name"] == artifact_data["name"]
         assert data["file_path"] == artifact_data["file_path"]
-        assert "id" in data
+        assert "artifact_id" in data
         assert data["user_id"] is not None
 
     @pytest.mark.asyncio
@@ -108,14 +108,14 @@ class TestArtifactsAPI:
 
         # Now get the artifact by ID
         get_response = await async_client.get(
-            f"/api/artifacts/{created_artifact['id']}",
+            f"/api/artifacts/{created_artifact['artifact_id']}",
             headers=auth_headers_user,
         )
 
         assert get_response.status_code == status.HTTP_200_OK
 
         data = get_response.json()
-        assert data["id"] == created_artifact["id"]
+        assert data["artifact_id"] == created_artifact["artifact_id"]
         assert data["name"] == artifact_data["name"]
 
     @pytest.mark.asyncio
@@ -155,7 +155,7 @@ class TestArtifactsAPI:
         }
 
         update_response = await async_client.put(
-            f"/api/artifacts/{created_artifact['id']}",
+            f"/api/artifacts/{created_artifact['artifact_id']}",
             headers=auth_headers_user,
             json=update_data,
         )
@@ -203,7 +203,7 @@ class TestArtifactsAPI:
 
         # Delete the artifact
         delete_response = await async_client.delete(
-            f"/api/artifacts/{created_artifact['id']}",
+            f"/api/artifacts/{created_artifact['artifact_id']}",
             headers=auth_headers_user,
         )
 
@@ -211,7 +211,7 @@ class TestArtifactsAPI:
 
         # Verify the artifact is deleted
         get_response = await async_client.get(
-            f"/api/artifacts/{created_artifact['id']}",
+            f"/api/artifacts/{created_artifact['artifact_id']}",
             headers=auth_headers_user,
         )
 
@@ -255,11 +255,12 @@ class TestArtifactsAPI:
         # Get admin user info (assuming we have a way to get user by username)
         # For this test, we'll use a mock user ID
         share_data = {
-            "shared_with_user_id": 2,  # Admin user ID
+            "artifact_id": created_artifact["artifact_id"],
+            "share_with_user_ids": [2],  # Admin user ID
         }
 
         share_response = await async_client.post(
-            f"/api/artifacts/{created_artifact['id']}/share",
+            "/api/artifacts/share",
             headers=auth_headers_user,
             json=share_data,
         )
@@ -303,7 +304,7 @@ class TestArtifactsAPI:
 
         # User should be able to access their own artifact
         user_access_response = await async_client.get(
-            f"/api/artifacts/{user_artifact['id']}",
+            f"/api/artifacts/{user_artifact['artifact_id']}",
             headers=auth_headers_user,
         )
 
@@ -311,7 +312,7 @@ class TestArtifactsAPI:
 
         # User should NOT be able to access admin's artifact
         admin_access_response = await async_client.get(
-            f"/api/artifacts/{admin_artifact['id']}",
+            f"/api/artifacts/{admin_artifact['artifact_id']}",
             headers=auth_headers_user,
         )
 
@@ -349,7 +350,7 @@ class TestArtifactsAPI:
 
             # Test file download
             download_response = await async_client.get(
-                f"/api/artifacts/{uploaded_artifact['id']}/download",
+                f"/api/artifacts/{uploaded_artifact['artifact_id']}/download",
                 headers=auth_headers_user,
             )
 
@@ -387,7 +388,7 @@ class TestArtifactsAPI:
 
         # Delete the artifact
         delete_response = await async_client.delete(
-            f"/api/artifacts/{created_artifact['id']}",
+            f"/api/artifacts/{created_artifact['artifact_id']}",
             headers=auth_headers_user,
         )
 
@@ -418,7 +419,7 @@ class TestArtifactsAPI:
 
         # 2. Read artifact
         read_response = await async_client.get(
-            f"/api/artifacts/{created_artifact['id']}",
+            f"/api/artifacts/{created_artifact['artifact_id']}",
             headers=auth_headers_user,
         )
 
@@ -432,7 +433,7 @@ class TestArtifactsAPI:
         }
 
         update_response = await async_client.put(
-            f"/api/artifacts/{created_artifact['id']}",
+            f"/api/artifacts/{created_artifact['artifact_id']}",
             headers=auth_headers_user,
             json=update_data,
         )
@@ -443,7 +444,7 @@ class TestArtifactsAPI:
 
         # 4. Delete artifact
         delete_response = await async_client.delete(
-            f"/api/artifacts/{created_artifact['id']}",
+            f"/api/artifacts/{created_artifact['artifact_id']}",
             headers=auth_headers_user,
         )
 
@@ -451,7 +452,7 @@ class TestArtifactsAPI:
 
         # 5. Verify deletion
         final_read_response = await async_client.get(
-            f"/api/artifacts/{created_artifact['id']}",
+            f"/api/artifacts/{created_artifact['artifact_id']}",
             headers=auth_headers_user,
         )
 

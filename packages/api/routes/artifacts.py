@@ -3,10 +3,12 @@ from typing import List
 
 from core.auth import get_current_user
 from core.database import User
-from core.dependencies import get_service
+from core.dependencies import get_artifact_service
 from core.services import ArtifactService
 from fastapi import APIRouter, Depends, HTTPException, status
 from schemas.artifacts import (
+    ArtifactCreate,
+    ArtifactCreateRequest,
     ArtifactRenameRequest,
     ArtifactResponse,
     ArtifactShareRequest,
@@ -15,9 +17,37 @@ from schemas.artifacts import (
 router = APIRouter()
 
 
+@router.post("", response_model=ArtifactResponse, status_code=status.HTTP_201_CREATED)
+async def create_artifact(
+    artifact_request: ArtifactCreateRequest,
+    artifact_service: ArtifactService = Depends(get_artifact_service()),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Create a new artifact.
+    """
+    # Create ArtifactCreate with user_id from authenticated user
+    artifact_data = ArtifactCreate(
+        name=artifact_request.name,
+        file_path=artifact_request.file_path,
+        user_id=current_user.id,
+    )
+
+    artifact = await artifact_service.create_artifact(artifact_data)
+
+    return ArtifactResponse(
+        artifact_id=str(artifact.id),
+        name=artifact.name,
+        file_path=artifact.file_path,
+        created_at=artifact.created_at,
+        user_id=artifact.user_id,
+        shared_by_user_id=None,
+    )
+
+
 @router.get("", response_model=List[ArtifactResponse])
 async def list_artifacts(
-    artifact_service: ArtifactService = Depends(get_service(ArtifactService)),
+    artifact_service: ArtifactService = Depends(get_artifact_service()),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -28,10 +58,93 @@ async def list_artifacts(
     return artifacts
 
 
+@router.get("/{artifact_id}", response_model=ArtifactResponse)
+async def get_artifact(
+    artifact_id: str,
+    artifact_service: ArtifactService = Depends(get_artifact_service()),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get a specific artifact by ID.
+    """
+    try:
+        artifact_uuid = uuid.UUID(artifact_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid artifact ID format",
+        )
+
+    artifact = await artifact_service.get_artifact(artifact_uuid)
+
+    if not artifact:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Artifact not found",
+        )
+
+    # Check permissions - user must own the artifact or have it shared with them
+    if artifact.user_id != current_user.id:
+        # Check if artifact is shared with the user
+        shared_artifacts = await artifact_service.list_artifacts(current_user)
+        artifact_ids = [a.artifact_id for a in shared_artifacts]
+        if str(artifact_uuid) not in artifact_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this artifact",
+            )
+
+    return ArtifactResponse(
+        artifact_id=str(artifact.id),
+        name=artifact.name,
+        file_path=artifact.file_path,
+        created_at=artifact.created_at,
+        user_id=artifact.user_id,
+        shared_by_user_id=None,
+    )
+
+
+@router.put("/{artifact_id}", response_model=ArtifactResponse)
+async def update_artifact(
+    artifact_id: str,
+    update_data: ArtifactRenameRequest,
+    artifact_service: ArtifactService = Depends(get_artifact_service()),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Update an artifact.
+    """
+    try:
+        artifact_uuid = uuid.UUID(artifact_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid artifact ID format",
+        )
+
+    artifact = await artifact_service.get_artifact(artifact_uuid)
+
+    if not artifact:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Artifact not found",
+        )
+
+    if artifact.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this artifact",
+        )
+
+    return await artifact_service.rename_artifact(
+        artifact_uuid, update_data, current_user
+    )
+
+
 @router.delete("/{artifact_id}", status_code=status.HTTP_200_OK)
 async def delete_artifact(
     artifact_id: str,
-    artifact_service: ArtifactService = Depends(get_service(ArtifactService)),
+    artifact_service: ArtifactService = Depends(get_artifact_service()),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -54,7 +167,7 @@ async def delete_artifact(
 async def rename_artifact(
     artifact_id: str,
     rename_request: ArtifactRenameRequest,
-    artifact_service: ArtifactService = Depends(get_service(ArtifactService)),
+    artifact_service: ArtifactService = Depends(get_artifact_service()),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -85,7 +198,7 @@ async def rename_artifact(
 @router.post("/share", status_code=status.HTTP_201_CREATED)
 async def share_artifact(
     share_request: ArtifactShareRequest,
-    artifact_service: ArtifactService = Depends(get_service(ArtifactService)),
+    artifact_service: ArtifactService = Depends(get_artifact_service()),
     current_user: User = Depends(get_current_user),
 ):
     """
