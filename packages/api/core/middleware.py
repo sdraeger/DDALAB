@@ -2,7 +2,8 @@
 
 import time
 
-from fastapi import HTTPException, Request
+from fastapi import Request
+from fastapi.responses import JSONResponse
 from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
@@ -43,7 +44,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         auth_header = request.headers.get("Authorization")
         if not auth_header:
             logger.error("No Authorization header provided")
-            raise HTTPException(status_code=401, detail="Authentication required")
+            return JSONResponse(
+                status_code=401, content={"detail": "Authentication required"}
+            )
 
         # Split "Bearer <token>" to get the token
         try:
@@ -52,7 +55,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 raise ValueError
         except ValueError:
             logger.error("Invalid Authorization header format")
-            raise HTTPException(status_code=401, detail="Invalid authentication scheme")
+            return JSONResponse(
+                status_code=401, content={"detail": "Invalid authentication scheme"}
+            )
 
         # Add token to request state for use in dependencies
         request.state.token = token
