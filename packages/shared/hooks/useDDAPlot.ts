@@ -1,20 +1,17 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery } from "@apollo/client";
-import { useToast } from "./useToast";
-import { useSession } from "next-auth/react";
 import { GET_EDF_DATA, GET_EDF_DEFAULT_CHANNELS } from "../lib/graphql/queries";
 import { useEDFPlot } from "../contexts/EDFPlotContext";
 import { useAnnotationManagement } from "./useAnnotationManagement";
-import { apiRequest } from "../lib/utils/request";
+import { useChunkNavigation } from "./useChunkNavigation";
+import { useTimeWindow } from "./useTimeWindow";
+import { useHeatmapData } from "./useHeatmapData";
 import logger from "../lib/utils/logger";
-import { plotCacheManager } from "../lib/utils/plotCache";
-import type { EEGData } from "../types/EEGData";
+import { plotCacheManager } from "../lib/utils/cache";
 import type { Annotation } from "../types/annotation";
-import type { HeatmapPoint } from "../components/plot/DDAHeatmap";
 import type { DDAPlotProps } from "../types/DDAPlotProps";
-import type { EdfFileInfo } from "../lib/schemas/edf";
 
-// Memoized function to check if preprocessing is active (reduces logging)
+// Helper functions moved to top level for better organization
 const hasActivePreprocessing = (options: any): boolean => {
   if (!options) return false;
   return (
@@ -24,7 +21,6 @@ const hasActivePreprocessing = (options: any): boolean => {
   );
 };
 
-// Helper to generate a stable cache key
 const generateCacheKey = (
   filePath: string,
   chunkStart: number,
@@ -46,13 +42,10 @@ export const useDDAPlot = ({
   onChannelSelectionChange,
   onAvailableChannelsChange,
 }: DDAPlotProps) => {
-  const { getPlotState, updatePlotState, initPlotState } = useEDFPlot();
-  const { toast } = useToast();
-  const { data: session } = useSession();
-  const token = session?.accessToken;
+  const { getPlotState, updatePlotState } = useEDFPlot();
   const chartAreaRef = useRef<HTMLDivElement>(null);
 
-  // Get plot state with more defensive defaults
+  // Get plot state with defensive defaults
   const plotState = getPlotState(filePath) || {
     chunkSizeSeconds: 10,
     selectedChannels: [],
@@ -72,10 +65,10 @@ export const useDDAPlot = ({
     sampleRate: 256,
   };
 
+  // Basic state management
   const [currentSample, setCurrentSample] = useState(0);
   const [availableChannels, setAvailableChannels] = useState<string[]>([]);
   const [shouldLoadChunk, setShouldLoadChunk] = useState(false);
-  const [showZoomSettings, setShowZoomSettings] = useState(false);
   const [manualErrorMessage, setManualErrorMessage] = useState<string | null>(
     null
   );
@@ -83,22 +76,8 @@ export const useDDAPlot = ({
   const [editMode, setEditMode] = useState(false);
   const [targetAnnotationAfterLoad, setTargetAnnotationAfterLoad] =
     useState<Annotation | null>(null);
-  const [ddaHeatmapData, setDdaHeatmapData] = useState<HeatmapPoint[]>([]);
-  const [showHeatmap, setShowHeatmap] = useState(false);
-  const [isHeatmapProcessing, setIsHeatmapProcessing] = useState(false);
-  const [chunkStart, setChunkStart] = useState(plotState.chunkStart || 0);
-  const [chunkSize, setChunkSize] = useState(
-    plotState.sampleRate ? Math.round(10 * plotState.sampleRate) : 2560
-  );
   const [totalSamples, setTotalSamples] = useState(plotState.totalSamples || 0);
   const [sampleRate, setSampleRate] = useState(plotState.sampleRate || 256);
-  const [timeWindow, setTimeWindow] = useState<[number, number]>(
-    plotState.timeWindow || [0, 10]
-  );
-  const [absoluteTimeWindow, setAbsoluteTimeWindow] = useState<
-    [number, number] | undefined
-  >(plotState.absoluteTimeWindow);
-  const [zoomLevel, setZoomLevel] = useState(plotState.zoomLevel || 1);
   const [preprocessingOptions, setPreprocessingOptions] = useState<any>(
     externalPreprocessingOptions ||
       plotState.preprocessingOptions || {
@@ -108,38 +87,60 @@ export const useDDAPlot = ({
         normalization: "none",
       }
   );
-  const [shouldUpdateViewContext, setShouldUpdateViewContext] = useState(false);
-  const timeWindowUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Optimize cache management with stable references
+  // Use modular hooks for specific functionality
+  const chunkNavigation = useChunkNavigation({
+    filePath,
+    sampleRate,
+    totalSamples,
+  });
+
+  const timeWindowManager = useTimeWindow({
+    filePath,
+    sampleRate,
+    chunkStart: chunkNavigation.chunkStart,
+    chunkSize: chunkNavigation.chunkSize,
+    plotData: plotState.edfData,
+  });
+
+  const heatmapManager = useHeatmapData({
+    filePath,
+    Q,
+  });
+
+  // Cache management
   const [cacheState, setCacheState] = useState({
     checked: false,
     useCachedData: false,
     lastCacheKey: "",
   });
 
-  // Memoize preprocessing check to prevent excessive logging
+  // Memoized preprocessing check
   const hasActivePreprocessingMemo = useMemo(() => {
     const isActive = hasActivePreprocessing(preprocessingOptions);
-    // Only log when the value actually changes
     if (process.env.NODE_ENV === "development") {
       logger.debug("Preprocessing active:", isActive);
     }
     return isActive;
   }, [preprocessingOptions]);
 
-  // Memoize current cache key
+  // Memoized cache key
   const currentCacheKey = useMemo(() => {
     if (!filePath) return "";
     return generateCacheKey(
       filePath,
-      chunkStart,
-      chunkSize,
+      chunkNavigation.chunkStart,
+      chunkNavigation.chunkSize,
       preprocessingOptions
     );
-  }, [filePath, chunkStart, chunkSize, preprocessingOptions]);
+  }, [
+    filePath,
+    chunkNavigation.chunkStart,
+    chunkNavigation.chunkSize,
+    preprocessingOptions,
+  ]);
 
-  // Enhanced cache checking function with optimization
+  // Cache checking functionality
   const checkCache = useCallback(() => {
     if (
       !filePath ||
@@ -151,8 +152,8 @@ export const useDDAPlot = ({
 
     const cacheKey = {
       filePath,
-      chunkStart,
-      chunkSize,
+      chunkStart: chunkNavigation.chunkStart,
+      chunkSize: chunkNavigation.chunkSize,
       preprocessingOptions,
     };
 
@@ -163,14 +164,11 @@ export const useDDAPlot = ({
     if (cachedData) {
       logger.info("Cache hit for plot data:", filePath);
       cacheHit = true;
-
-      // Update plot state with cached data
       updatePlotState(filePath, {
         edfData: cachedData,
         lastFetchTime: Date.now(),
         showPlot: true,
       });
-
       onChunkLoaded?.(cachedData);
     }
 
@@ -181,18 +179,6 @@ export const useDDAPlot = ({
       updatePlotState(filePath, { annotations: cachedAnnotations });
     }
 
-    // Check cached heatmap data if Q is provided
-    if (Q) {
-      const heatmapCacheKey = { filePath, Q };
-      const cachedHeatmap =
-        plotCacheManager.getCachedHeatmapData(heatmapCacheKey);
-      if (cachedHeatmap) {
-        logger.info("Cache hit for heatmap data:", filePath);
-        setDdaHeatmapData(cachedHeatmap);
-        setShowHeatmap(true);
-      }
-    }
-
     // Update cache state
     setCacheState({
       checked: true,
@@ -201,23 +187,23 @@ export const useDDAPlot = ({
     });
   }, [
     filePath,
-    chunkStart,
-    chunkSize,
+    chunkNavigation.chunkStart,
+    chunkNavigation.chunkSize,
     preprocessingOptions,
-    Q,
     currentCacheKey,
     cacheState.lastCacheKey,
     updatePlotState,
     onChunkLoaded,
   ]);
 
-  // Check cache only when cache key changes
+  // Check cache when cache key changes
   useEffect(() => {
     if (currentCacheKey && currentCacheKey !== cacheState.lastCacheKey) {
       checkCache();
     }
   }, [currentCacheKey, checkCache, cacheState.lastCacheKey]);
 
+  // Annotation management
   const onAnnotationsChangeForPlotState = useCallback(
     (updatedAnnotations: Annotation[]) => {
       if (filePath) {
@@ -239,653 +225,253 @@ export const useDDAPlot = ({
     onAnnotationsChangeForPlotState,
   });
 
-  // Memoize GraphQL variables to prevent unnecessary re-renders
-  const graphqlVariables = useMemo(
-    () => ({
+  // GraphQL query variables
+  const graphqlVariables = useMemo(() => {
+    const variables = {
       filename: filePath,
-      chunkStart,
-      chunkSize,
+      chunkStart: chunkNavigation.chunkStart || 0,
+      chunkSize:
+        chunkNavigation.chunkSize || Math.round(10 * sampleRate) || 2560,
       includeNavigationInfo: true,
       ...(hasActivePreprocessingMemo ? { preprocessingOptions } : {}),
-    }),
-    [
-      filePath,
-      chunkStart,
-      chunkSize,
-      hasActivePreprocessingMemo,
-      preprocessingOptions,
-    ]
-  );
+    };
 
-  // Optimize GraphQL query skip condition
-  const shouldSkipQuery = useMemo(() => {
-    if (!filePath || filePath === "") return true;
-    if (cacheState.useCachedData) return true;
-    if (!shouldLoadChunk && plotState.edfData !== null) return true;
-
-    // Only skip if we have data and parameters haven't changed
-    if (
-      plotState.edfData !== null &&
-      chunkStart === plotState.chunkStart &&
-      chunkSize === plotState.chunkSizeSeconds * plotState.sampleRate &&
-      hasActivePreprocessingMemo ===
-        hasActivePreprocessing(plotState.preprocessingOptions) &&
-      JSON.stringify(preprocessingOptions) ===
-        JSON.stringify(plotState.preprocessingOptions)
-    ) {
-      return true;
+    // Debug logging
+    if (process.env.NODE_ENV === "development") {
+      console.log("GraphQL Variables for GET_EDF_DATA:", variables);
     }
 
-    return false;
+    return variables;
   }, [
     filePath,
-    cacheState.useCachedData,
-    shouldLoadChunk,
-    plotState.edfData,
-    plotState.chunkStart,
-    plotState.chunkSizeSeconds,
-    plotState.sampleRate,
-    plotState.preprocessingOptions,
-    chunkStart,
-    chunkSize,
+    chunkNavigation.chunkStart,
+    chunkNavigation.chunkSize,
+    sampleRate,
     hasActivePreprocessingMemo,
     preprocessingOptions,
   ]);
 
-  const { loading, error, data, refetch, networkStatus } = useQuery(
-    GET_EDF_DATA,
-    {
-      variables: graphqlVariables,
-      skip: shouldSkipQuery,
-      notifyOnNetworkStatusChange: true,
-      fetchPolicy: cacheState.useCachedData
-        ? "cache-only"
-        : shouldLoadChunk
-        ? "network-only"
-        : "cache-first",
-      context: {
-        fetchOptions: {
-          onDownloadProgress: (progressEvent: {
-            loaded: number;
-            total: number;
-            lengthComputable: boolean;
-          }) => {
-            if (progressEvent.lengthComputable) {
-              setDownloadProgress(
-                Math.round((progressEvent.loaded / progressEvent.total) * 100)
-              );
-            } else {
-              setDownloadProgress(Math.min(downloadProgress + 5, 95));
-            }
-          },
-        },
-      },
-    }
-  );
+  // Query skip condition - also check for valid chunkSize
+  const shouldSkipQuery = useMemo(() => {
+    let skipReason = null;
 
-  // Add query for intelligent default channels
-  const {
-    data: defaultChannelsData,
-    loading: defaultChannelsLoading,
-    error: defaultChannelsError,
-  } = useQuery(GET_EDF_DEFAULT_CHANNELS, {
-    variables: {
-      filename: filePath,
-      maxChannels: 5,
-    },
-    skip: !filePath || selectedChannels.length > 0, // Only fetch if no channels selected
-    fetchPolicy: "cache-first", // Cache the result for this file
+    if (!filePath || filePath === "") {
+      skipReason = "No filePath provided";
+    } else if (!chunkNavigation.chunkSize || chunkNavigation.chunkSize <= 0) {
+      skipReason = `Invalid chunkSize: ${chunkNavigation.chunkSize}`;
+    } else if (cacheState.useCachedData) {
+      skipReason = "Using cached data";
+    } else if (!shouldLoadChunk && plotState.edfData !== null) {
+      skipReason = "Not loading chunk and plot data exists";
+    }
+
+    const shouldSkip = !!skipReason;
+
+    // Debug logging
+    if (process.env.NODE_ENV === "development") {
+      if (shouldSkip) {
+        console.log("Skipping GET_EDF_DATA query:", skipReason);
+      } else {
+        console.log("Executing GET_EDF_DATA query");
+      }
+    }
+
+    return shouldSkip;
+  }, [
+    filePath,
+    chunkNavigation.chunkSize,
+    cacheState.useCachedData,
+    shouldLoadChunk,
+    plotState.edfData,
+  ]);
+
+  // GraphQL queries
+  const { data, loading, error, refetch } = useQuery(GET_EDF_DATA, {
+    variables: graphqlVariables,
+    skip: shouldSkipQuery,
+    fetchPolicy: "cache-and-network",
+    notifyOnNetworkStatusChange: true,
   });
 
-  const convertToEEGData = useCallback(
-    (
-      edfNumericData: number[][] | undefined,
-      channelNames: string[] | undefined,
-      selectedChannels: string[],
-      sampleRate: number
-    ): EEGData | null => {
-      if (
-        !edfNumericData ||
-        !channelNames ||
-        !sampleRate ||
-        channelNames.length === 0 ||
-        edfNumericData.length === 0 ||
-        edfNumericData.length !== channelNames.length
-      ) {
-        logger.warn("convertToEEGData: Invalid input data", {
-          edfNumericData,
-          channelNames,
-          sampleRate,
-        });
-        return null;
+  const { data: channelsData } = useQuery(GET_EDF_DEFAULT_CHANNELS, {
+    variables: { filename: filePath },
+    skip: !filePath,
+  });
+
+  // Initialize plot state and metadata
+  const initializePlotStateAndMetadata = useCallback(async () => {
+    if (!filePath || !data?.getEdfData) return;
+
+    const rawEdfData = data.getEdfData;
+    const navigationInfo = rawEdfData.navigationInfo;
+
+    // Debug logging
+    if (process.env.NODE_ENV === "development") {
+      console.log("Raw EDF Data structure:", rawEdfData);
+      console.log("Channel labels:", rawEdfData.channelLabels);
+      console.log("Data array length:", rawEdfData.data?.length);
+      console.log("Navigation info:", navigationInfo);
+    }
+
+    if (navigationInfo) {
+      const {
+        totalSamples: navTotalSamples,
+        samplingFrequency: navSampleRate,
+      } = rawEdfData;
+      setTotalSamples(navTotalSamples);
+      setSampleRate(navSampleRate);
+      chunkNavigation.setChunkSize(Math.round(10 * navSampleRate));
+    }
+
+    // Transform the raw GraphQL data to match the EEGData interface
+    const transformedEdfData = {
+      channels: rawEdfData.channelLabels || [], // Map channelLabels to channels
+      sampleRate: rawEdfData.samplingFrequency || 256, // Map samplingFrequency to sampleRate
+      data: rawEdfData.data || [],
+      startTime: new Date(), // Create a start time (could be enhanced with actual timestamp)
+      duration: rawEdfData.totalSamples
+        ? rawEdfData.totalSamples / rawEdfData.samplingFrequency
+        : 0,
+      samplesPerChannel: rawEdfData.data?.[0]?.length || 0,
+      totalSamples: rawEdfData.totalSamples || 0,
+      chunkSize: rawEdfData.chunkSize || chunkNavigation.chunkSize,
+      chunkStart: chunkNavigation.chunkStart || 0,
+      absoluteStartTime: 0, // Could be enhanced with actual file start time
+      annotations: [], // Initialize empty annotations array
+    };
+
+    // Extract and set available channels from EDF data
+    if (rawEdfData.channelLabels && rawEdfData.channelLabels.length > 0) {
+      setAvailableChannels(rawEdfData.channelLabels);
+      onAvailableChannelsChange?.(rawEdfData.channelLabels);
+
+      // If no channels are selected yet, select the first 5
+      if (selectedChannels.length === 0) {
+        const defaultChannels = rawEdfData.channelLabels.slice(0, 5);
+        onChannelSelectionChange(defaultChannels);
       }
-      try {
-        const samplesPerChannel = edfNumericData[0]?.length || 0;
-        return {
-          channels: channelNames,
-          samplesPerChannel,
-          sampleRate,
-          data: edfNumericData,
-          startTime: new Date(),
-          duration: samplesPerChannel / sampleRate,
-          absoluteStartTime: 0,
-          annotations: [],
-        };
-      } catch (error) {
-        logger.error("Error converting EEG data:", error);
-        setManualErrorMessage(
-          `Error converting data: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`
-        );
-        return null;
-      }
+    }
+
+    // Update plot state with the transformed EDF data
+    updatePlotState(filePath, {
+      edfData: transformedEdfData,
+      totalSamples: rawEdfData.totalSamples || 0,
+      sampleRate: rawEdfData.samplingFrequency || 256,
+      lastFetchTime: Date.now(),
+      showPlot: true,
+      chunkStart: chunkNavigation.chunkStart || 0,
+      timeWindow: [0, Math.min(10, transformedEdfData.duration)], // Show first 10 seconds or full duration
+      absoluteTimeWindow: [0, Math.min(10, transformedEdfData.duration)],
+    });
+
+    // Cache the transformed data using plotCacheManager
+    const cacheKey = {
+      filePath,
+      chunkStart: chunkNavigation.chunkStart,
+      chunkSize: chunkNavigation.chunkSize,
+      preprocessingOptions: hasActivePreprocessing(preprocessingOptions)
+        ? preprocessingOptions
+        : undefined,
+    };
+    plotCacheManager.cachePlotData(cacheKey, transformedEdfData);
+    setShouldLoadChunk(false);
+
+    // Debug logging for transformed data
+    if (process.env.NODE_ENV === "development") {
+      console.log("Transformed EDF Data:", transformedEdfData);
+    }
+  }, [
+    filePath,
+    data,
+    chunkNavigation,
+    onAvailableChannelsChange,
+    onChannelSelectionChange,
+    updatePlotState,
+    setShouldLoadChunk,
+  ]);
+
+  // Effect to initialize plot state
+  useEffect(() => {
+    if (data?.getEdfData && !loading) {
+      initializePlotStateAndMetadata();
+    }
+  }, [data, loading, initializePlotStateAndMetadata]);
+
+  // Channel selection handlers
+  const handleSelectAllChannels = useCallback(() => {
+    onChannelSelectionChange(availableChannels);
+  }, [onChannelSelectionChange, availableChannels]);
+
+  const handleClearAllChannels = useCallback(() => {
+    onChannelSelectionChange([]);
+  }, [onChannelSelectionChange]);
+
+  const handleSelectChannels = useCallback(
+    (channels: string[]) => {
+      onChannelSelectionChange(channels);
     },
-    [setManualErrorMessage]
+    [onChannelSelectionChange]
   );
 
-  const processMatrixForHeatmap = (matrix: any[][]): HeatmapPoint[] => {
-    if (!matrix || !Array.isArray(matrix) || matrix.length === 0) {
-      logger.warn("Invalid matrix data for heatmap processing");
-      return [];
-    }
-    const heatmapData: HeatmapPoint[] = [];
-    for (let i = 0; i < matrix.length; i++) {
-      for (let j = 0; j < matrix[i].length; j++) {
-        if (matrix[i][j] !== null) {
-          heatmapData.push({ x: i, y: j, value: matrix[i][j] });
-        }
-      }
-    }
+  // Other handlers
+  const toggleChannel = useCallback(
+    (channel: string) => {
+      const newChannels = selectedChannels.includes(channel)
+        ? selectedChannels.filter((c) => c !== channel)
+        : [...selectedChannels, channel];
+      onChannelSelectionChange(newChannels);
+    },
+    [selectedChannels, onChannelSelectionChange]
+  );
 
-    // Cache the processed heatmap data
-    if (filePath && Q) {
-      const heatmapCacheKey = { filePath, Q };
-      plotCacheManager.cacheHeatmapData(heatmapCacheKey, heatmapData);
-    }
+  const handleChartClick = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      // Chart click handling logic would go here
+      console.log("Chart clicked", e);
+    },
+    []
+  );
 
-    return heatmapData;
-  };
+  const handleAnnotationSelect = useCallback(
+    (annotation: Annotation) => {
+      if (!filePath) return;
 
-  useEffect(() => {
-    const initializePlotStateAndMetadata = async () => {
-      if (filePath && token) {
-        initPlotState(filePath);
-        try {
-          const fileInfoResponse = await apiRequest<EdfFileInfo>({
-            url: `/api/edf/info?file_path=${encodeURIComponent(filePath)}`,
-            method: "GET",
-            token,
-            responseType: "json",
-            contentType: "application/json",
-          });
-          if (fileInfoResponse) {
-            updatePlotState(filePath, {
-              totalChunks: fileInfoResponse.num_chunks,
-              totalSamples: fileInfoResponse.total_samples,
-              sampleRate: fileInfoResponse.sampling_rate,
-              totalDuration: fileInfoResponse.total_duration,
-            });
-            setShouldLoadChunk(
-              !getPlotState(filePath)?.edfData ||
-                getPlotState(filePath)?.chunkStart !== 0
-            );
-          }
-        } catch (error) {
-          logger.error("Error fetching file info:", error);
-          toast({
-            title: "Error Fetching File Info",
-            description:
-              error instanceof Error
-                ? error.message
-                : "Could not load file metadata.",
-            variant: "destructive",
-          });
-          setShouldLoadChunk(false);
-        }
-      }
-    };
-    if (filePath && token) initializePlotStateAndMetadata();
-  }, [filePath, token, initPlotState, updatePlotState, toast]);
-
-  useEffect(() => {
-    if (externalPreprocessingOptions) {
-      setPreprocessingOptions(externalPreprocessingOptions);
-      if (
-        JSON.stringify(externalPreprocessingOptions) !==
-        JSON.stringify(preprocessingOptions)
-      ) {
-        setShouldLoadChunk(true);
-      }
-    }
-  }, [externalPreprocessingOptions, preprocessingOptions]);
-
-  useEffect(() => {
-    if (
-      preprocessingOptions &&
-      !hasActivePreprocessing(preprocessingOptions) &&
-      filePath
-    ) {
-      updatePlotState(filePath, { preprocessingOptions: null });
-    }
-  }, [preprocessingOptions, filePath, updatePlotState]);
-
-  useEffect(() => {
-    if (data?.getEdfData) {
-      const {
-        data: edfNumericData,
-        samplingFrequency,
-        totalSamples,
-        channelLabels,
-        annotations,
-        chunkStart,
-        chunkSize,
-        totalDurationSeconds,
-      } = data.getEdfData;
-
-      setTotalSamples(totalSamples);
-      setSampleRate(samplingFrequency);
-      setChunkSize(Math.round(10 * samplingFrequency));
-      setAvailableChannels(channelLabels);
-      onAvailableChannelsChange?.(channelLabels);
-
-      // Use intelligent default channels if available and no channels are selected
-      if (selectedChannels.length === 0) {
-        if (defaultChannelsData?.getEdfDefaultChannels?.length > 0) {
-          logger.info(
-            "Using intelligent default channels:",
-            defaultChannelsData.getEdfDefaultChannels
-          );
-          setSelectedChannels(defaultChannelsData.getEdfDefaultChannels);
-        } else {
-          // Fallback: skip first channel (often Event) and select next few
-          const fallbackChannels =
-            channelLabels.length > 1
-              ? channelLabels.slice(1, Math.min(6, channelLabels.length)) // Skip index 0, take next 5
-              : channelLabels.slice(0, Math.min(5, channelLabels.length)); // Take first 5 if only 1 channel
-          logger.info(
-            "Using fallback channel selection (skipping first channel):",
-            fallbackChannels
-          );
-          setSelectedChannels(fallbackChannels);
-        }
-      }
-
-      const convertedData = convertToEEGData(
-        edfNumericData,
-        channelLabels,
-        selectedChannels,
-        samplingFrequency
-      );
-
-      if (convertedData) {
-        // Cache the new data
-        const cacheKey = {
-          filePath,
-          chunkStart,
-          chunkSize,
-          preprocessingOptions: hasActivePreprocessing(preprocessingOptions)
-            ? preprocessingOptions
-            : null,
-        };
-        plotCacheManager.cachePlotData(cacheKey, convertedData);
-
-        updatePlotState(filePath, {
-          edfData: convertedData,
-          annotations: annotations || plotState.annotations,
-          totalSamples,
-          totalDuration: totalDurationSeconds || plotState.totalDuration,
-          sampleRate: samplingFrequency,
-          showPlot: true,
-          lastFetchTime: Date.now(),
-          preprocessingOptions: hasActivePreprocessing(preprocessingOptions)
-            ? preprocessingOptions
-            : null,
-        });
-
-        onChunkLoaded?.(convertedData);
-        setDownloadProgress(100);
-        setShouldLoadChunk(false);
-        setCacheState({
-          checked: true,
-          useCachedData: false,
-          lastCacheKey: currentCacheKey,
-        });
-
-        // Cache annotations if present
-        if (annotations && filePath) {
-          plotCacheManager.cacheAnnotations(filePath, annotations);
-        }
-      } else {
-        setManualErrorMessage(
-          "Data received but could not be processed for plotting."
-        );
-      }
-    }
-  }, [
-    data,
-    defaultChannelsData,
-    filePath,
-    updatePlotState,
-    selectedChannels,
-    preprocessingOptions,
-    onChunkLoaded,
-    onAvailableChannelsChange,
-    plotState,
-    convertToEEGData,
-    currentCacheKey,
-    cacheState,
-  ]);
-
-  useEffect(() => {
-    if (Q && Array.isArray(Q) && Q.length > 0) {
-      setIsHeatmapProcessing(true);
-      try {
-        const heatmapData = processMatrixForHeatmap(Q);
-        setDdaHeatmapData(heatmapData);
-        setShowHeatmap(true);
-      } catch (err) {
-        logger.error("Error processing Q matrix for heatmap:", err);
-        toast({
-          title: "Heatmap Error",
-          description: "Could not process data for the DDA heatmap.",
-          variant: "destructive",
-        });
-        setShowHeatmap(false);
-      } finally {
-        setIsHeatmapProcessing(false);
-      }
-    } else {
-      setShowHeatmap(false);
-      setDdaHeatmapData([]);
-    }
-  }, [Q, toast]);
-
-  useEffect(() => {
-    if (data && targetAnnotationAfterLoad && !loading) {
-      const annotationSample = targetAnnotationAfterLoad.startTime;
-      if (
-        annotationSample >= chunkStart &&
-        annotationSample <= chunkStart + chunkSize
-      ) {
-        const annotationTimeInChunk =
-          (annotationSample - chunkStart) / sampleRate;
-        const halfWindowSize = (timeWindow[1] - timeWindow[0]) / 2;
-        const newLocalWindow: [number, number] = [
-          Math.max(0, annotationTimeInChunk - halfWindowSize),
-          Math.min(
-            chunkSize / sampleRate,
-            annotationTimeInChunk + halfWindowSize
-          ),
-        ];
-        setTimeWindow(newLocalWindow);
-        setCurrentSample(annotationSample);
-        setAbsoluteTimeWindow([
-          chunkStart / sampleRate + newLocalWindow[0],
-          chunkStart / sampleRate + newLocalWindow[1],
-        ]);
-        setTimeout(() => setShouldUpdateViewContext(true), 300);
-        setTargetAnnotationAfterLoad(null);
-      }
-    }
-  }, [
-    data,
-    loading,
-    targetAnnotationAfterLoad,
-    chunkStart,
-    chunkSize,
-    sampleRate,
-    timeWindow,
-  ]);
-
-  const handlePrevChunk = () => {
-    const newChunkStart = Math.max(0, chunkStart - chunkSize);
-    setChunkStart(newChunkStart);
-    setShouldLoadChunk(true);
-    setDownloadProgress(0);
-    resetTimeWindow(newChunkStart);
-    updatePlotState(filePath, {
-      chunkStart: newChunkStart,
-      currentChunkNumber: newChunkStart / chunkSize + 1,
-    });
-  };
-
-  const handleNextChunk = () => {
-    if (chunkStart + chunkSize < totalSamples) {
-      const newChunkStart = chunkStart + chunkSize;
-      setChunkStart(newChunkStart);
-      setShouldLoadChunk(true);
-      setDownloadProgress(0);
-      resetTimeWindow(newChunkStart);
-      updatePlotState(filePath, {
-        chunkStart: newChunkStart,
-        currentChunkNumber: newChunkStart / chunkSize + 1,
-      });
-    }
-  };
-
-  const handleChunkSelect = (chunkNumber: number) => {
-    // Convert chunk number (1-based) to chunk start (0-based sample position)
-    const newChunkStart = (chunkNumber - 1) * chunkSize;
-
-    // Ensure we don't exceed the total samples
-    if (newChunkStart >= 0 && newChunkStart < totalSamples) {
-      setChunkStart(newChunkStart);
-      setShouldLoadChunk(true);
-      setDownloadProgress(0);
-      resetTimeWindow(newChunkStart);
-      updatePlotState(filePath, {
-        chunkStart: newChunkStart,
-        currentChunkNumber: chunkNumber,
-      });
-    }
-  };
-
-  const resetTimeWindow = (start: number) => {
-    const absStart = start / sampleRate;
-    const actualDuration = data?.getEdfData?.chunkSize
-      ? data.getEdfData.chunkSize / sampleRate
-      : chunkSize / sampleRate || 10;
-    setTimeWindow([0, actualDuration]);
-    setAbsoluteTimeWindow([absStart, absStart + actualDuration]);
-  };
-
-  const handleZoomIn = () => {
-    if (zoomLevel < 10 && data) {
-      const newZoom = zoomLevel * 1.5;
-      const center = (timeWindow[0] + timeWindow[1]) / 2;
-      const newDuration = (timeWindow[1] - timeWindow[0]) / 1.5;
-      const newLocalWindow: [number, number] = [
-        Math.max(0, center - newDuration / 2),
-        Math.min(data.getEdfData.duration, center + newDuration / 2),
-      ];
-      setZoomLevel(newZoom);
-      setTimeWindow(newLocalWindow);
-      setAbsoluteTimeWindow([
-        chunkStart / sampleRate + newLocalWindow[0],
-        chunkStart / sampleRate + newLocalWindow[1],
-      ]);
-      setTimeout(() => setShouldUpdateViewContext(true), 300);
-    }
-  };
-
-  const handleZoomOut = () => {
-    if (zoomLevel > 0.1 && data) {
-      const newZoom = zoomLevel / 1.5;
-      const center = (timeWindow[0] + timeWindow[1]) / 2;
-      const newDuration = (timeWindow[1] - timeWindow[0]) * 1.5;
-      const newLocalWindow: [number, number] = [
-        Math.max(0, center - newDuration / 2),
-        Math.min(data.getEdfData.duration, center + newDuration / 2),
-      ];
-      setZoomLevel(newZoom);
-      setTimeWindow(newLocalWindow);
-      setAbsoluteTimeWindow([
-        chunkStart / sampleRate + newLocalWindow[0],
-        chunkStart / sampleRate + newLocalWindow[1],
-      ]);
-      setTimeout(() => setShouldUpdateViewContext(true), 300);
-    }
-  };
-
-  const handleReset = () => {
-    if (data) {
-      setZoomLevel(1);
-      setTimeWindow([0, data.getEdfData.duration]);
-      setAbsoluteTimeWindow([
-        chunkStart / sampleRate,
-        chunkStart / sampleRate + data.getEdfData.duration,
-      ]);
-      setTimeout(() => setShouldUpdateViewContext(true), 300);
-    }
-  };
-
-  const handleChunkSizeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseInt(e.target.value);
-    if (!isNaN(value) && value > 0) {
-      setChunkSize(value);
-    }
-  };
-
-  const handleLoadChunk = () => {
-    setShouldLoadChunk(true);
-    setDownloadProgress(0);
-    updatePlotState(filePath, {
-      chunkStart,
-      chunkSizeSeconds: chunkSize / sampleRate,
-    });
-  };
-
-  const toggleChannel = (channel: string) => {
-    onChannelSelectionChange(
-      selectedChannels.includes(channel)
-        ? selectedChannels.filter((ch) => ch !== channel)
-        : [...selectedChannels, channel]
-    );
-  };
-
-  const handleChartClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!chartAreaRef.current || !data) return;
-    const rect = chartAreaRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const relativeX = x / rect.width;
-    const timeOffset =
-      timeWindow[0] + relativeX * (timeWindow[1] - timeWindow[0]);
-    setCurrentSample(chunkStart + Math.floor(timeOffset * sampleRate));
-  };
-
-  const handleAnnotationSelect = (annotation: Annotation) => {
-    const annotationSample = annotation.startTime;
-    if (
-      annotationSample >= chunkStart &&
-      annotationSample <= chunkStart + chunkSize
-    ) {
-      const annotationTimeInChunk =
-        (annotationSample - chunkStart) / sampleRate;
-      const halfWindowSize = (timeWindow[1] - timeWindow[0]) / 2;
-      const newLocalWindow: [number, number] = [
-        Math.max(0, annotationTimeInChunk - halfWindowSize),
-        Math.min(
-          chunkSize / sampleRate,
-          annotationTimeInChunk + halfWindowSize
-        ),
-      ];
-      setTimeWindow(newLocalWindow);
-      setCurrentSample(annotationSample);
-      setAbsoluteTimeWindow([
-        chunkStart / sampleRate + newLocalWindow[0],
-        chunkStart / sampleRate + newLocalWindow[1],
-      ]);
-      setTimeout(() => setShouldUpdateViewContext(true), 300);
-    } else {
+      const annotationSample = annotation.startTime * sampleRate;
       const newChunkStart = Math.max(
         0,
-        annotationSample - Math.floor(chunkSize / 2)
+        annotationSample - Math.floor(chunkNavigation.chunkSize / 2)
       );
-      setChunkStart(newChunkStart);
+
+      chunkNavigation.setChunkStart(newChunkStart);
       setCurrentSample(annotationSample);
-      const chunkDurationSec = chunkSize / sampleRate;
-      setTimeWindow([0, Math.min(10, chunkDurationSec)]);
-      setAbsoluteTimeWindow([
+
+      const chunkDurationSec = chunkNavigation.chunkSize / sampleRate;
+      timeWindowManager.setTimeWindow([0, Math.min(10, chunkDurationSec)]);
+      timeWindowManager.setAbsoluteTimeWindow([
         newChunkStart / sampleRate,
         newChunkStart / sampleRate + Math.min(10, chunkDurationSec),
       ]);
+
       setShouldLoadChunk(true);
       setTargetAnnotationAfterLoad(annotation);
-    }
-  };
+    },
+    [filePath, sampleRate, chunkNavigation, timeWindowManager]
+  );
 
-  const toggleHeatmap = () => {
-    if (!showHeatmap && Q) {
-      setIsHeatmapProcessing(true);
-      try {
-        const processed = processMatrixForHeatmap(Q);
-        setDdaHeatmapData(processed);
-        setShowHeatmap(true);
-      } catch (err) {
-        logger.error("Error processing heatmap data:", err);
-        toast({
-          title: "Heatmap Error",
-          description: "Could not process data for the heatmap.",
-          variant: "destructive",
-        });
-        setShowHeatmap(false);
-      } finally {
-        setIsHeatmapProcessing(false);
-      }
-    } else {
-      setShowHeatmap(!showHeatmap);
-    }
-  };
+  const handleLoadChunk = useCallback(() => {
+    setShouldLoadChunk(true);
+  }, []);
 
-  const handleSelectAllChannels = () =>
-    onChannelSelectionChange(availableChannels);
-  const handleClearAllChannels = () => onChannelSelectionChange([]);
-  const handleSelectChannels = (channels: string[]) =>
-    onChannelSelectionChange(channels);
-
+  // Set up available channels
   useEffect(() => {
-    if (filePath && shouldLoadChunk) {
-      updatePlotState(filePath, { chunkSizeSeconds: chunkSize / sampleRate });
+    if (channelsData?.getEdfDefaultChannels) {
+      const channels = channelsData.getEdfDefaultChannels;
+      setAvailableChannels(channels);
+      onAvailableChannelsChange?.(channels);
     }
-  }, [filePath, updatePlotState, chunkSize, sampleRate, shouldLoadChunk]);
+  }, [channelsData, onAvailableChannelsChange]);
 
-  useEffect(() => {
-    if (filePath && shouldUpdateViewContext) {
-      updatePlotState(filePath, {
-        timeWindow,
-        absoluteTimeWindow: absoluteTimeWindow || [0, 10],
-        zoomLevel,
-      });
-      setShouldUpdateViewContext(false);
-    }
-  }, [
-    filePath,
-    updatePlotState,
-    timeWindow,
-    absoluteTimeWindow,
-    zoomLevel,
-    shouldUpdateViewContext,
-  ]);
-
-  useEffect(() => {
-    if (filePath) {
-      updatePlotState(filePath, {
-        chunkStart,
-        totalSamples,
-        preprocessingOptions: hasActivePreprocessing(preprocessingOptions)
-          ? preprocessingOptions
-          : null,
-      });
-    }
-  }, [
-    filePath,
-    updatePlotState,
-    chunkStart,
-    totalSamples,
-    preprocessingOptions,
-  ]);
-
+  // Download progress management
   useEffect(() => {
     if (loading) {
       setDownloadProgress(5);
@@ -901,100 +487,76 @@ export const useDDAPlot = ({
     }
   }, [loading, downloadProgress]);
 
+  // Refetch when parameters change
   useEffect(() => {
-    if (filePath) {
+    if (
+      filePath &&
+      chunkNavigation.chunkSize &&
+      chunkNavigation.chunkSize > 0
+    ) {
       refetch({
         filename: filePath,
-        chunkStart,
-        chunkSize,
+        chunkStart: chunkNavigation.chunkStart || 0,
+        chunkSize: chunkNavigation.chunkSize,
         ...(hasActivePreprocessing(preprocessingOptions)
           ? { preprocessingOptions }
           : {}),
       });
       setShouldLoadChunk(true);
     }
-  }, [filePath, refetch, chunkStart, chunkSize, preprocessingOptions]);
+  }, [
+    filePath,
+    refetch,
+    chunkNavigation.chunkStart,
+    chunkNavigation.chunkSize,
+    preprocessingOptions,
+  ]);
 
-  const handleTimeWindowChange = (newWindow: [number, number]) => {
-    // Use plotState.edfData instead of data?.getEdfData since the plot might be loaded from cache
-    if (!plotState.edfData) {
-      return; // Skip if no plot data is loaded
-    }
-
-    // Calculate chunk duration from plotState
-    const chunkDuration =
-      plotState.edfData.duration || chunkSize / sampleRate || 10;
-
-    // Validate and clamp the new window to the chunk's duration
-    const validatedWindow: [number, number] = [
-      Math.max(0, newWindow[0]),
-      Math.min(chunkDuration, newWindow[1]),
-    ];
-
-    setTimeWindow(validatedWindow);
-
-    // Calculate absolute time window in seconds
-    const absoluteChunkStart = chunkStart / sampleRate;
-    setAbsoluteTimeWindow([
-      absoluteChunkStart + validatedWindow[0],
-      absoluteChunkStart + validatedWindow[1],
-    ]);
-
-    // Debounce context update
-    if (timeWindowUpdateTimeoutRef.current) {
-      clearTimeout(timeWindowUpdateTimeoutRef.current);
-    }
-    timeWindowUpdateTimeoutRef.current = setTimeout(() => {
-      setShouldUpdateViewContext(true);
-    }, 300);
-  };
-
-  // Clean up expired cache entries periodically
+  // Periodic cache cleanup
   useEffect(() => {
     const interval = setInterval(() => {
       plotCacheManager.clearExpiredCache();
-    }, 60000); // Clean up every minute
-
+    }, 60000);
     return () => clearInterval(interval);
   }, []);
 
   return {
+    // Plot state
     plotState,
     loading,
     error,
     manualErrorMessage,
     downloadProgress,
-    showHeatmap,
-    ddaHeatmapData,
-    isHeatmapProcessing,
-    showZoomSettings,
     chartAreaRef,
     availableChannels,
     currentSample,
-    timeWindow,
-    zoomLevel,
     editMode,
+
+    // Chunk navigation
+    ...chunkNavigation,
+
+    // Time window management
+    ...timeWindowManager,
+
+    // Heatmap management
+    ...heatmapManager,
+
+    // Annotation management
     annotations,
-    handlePrevChunk,
-    handleNextChunk,
-    handleChunkSelect,
-    handleZoomIn,
-    handleZoomOut,
-    handleReset,
-    handleChunkSizeChange,
-    handleLoadChunk,
-    toggleChannel,
-    handleChartClick,
-    handleAnnotationSelect,
-    toggleHeatmap,
-    handleSelectAllChannels,
-    handleClearAllChannels,
-    handleSelectChannels,
-    setShowZoomSettings,
     addAnnotation,
     updateAnnotation,
     deleteAnnotation,
     setAnnotations,
-    handleTimeWindowChange,
+    handleAnnotationSelect,
+
+    // Channel management
+    toggleChannel,
+    handleSelectAllChannels,
+    handleClearAllChannels,
+    handleSelectChannels,
+
+    // Other handlers
+    handleChartClick,
+    handleLoadChunk,
   };
 };
