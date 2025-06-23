@@ -62,6 +62,8 @@ PGPASSWORD="$DDALAB_DB_PASSWORD" psql -h localhost -p 5432 -U "$DDALAB_DB_USER" 
 PGPASSWORD="$DDALAB_DB_PASSWORD" psql -h localhost -p 5432 -U "$DDALAB_DB_USER" -d postgres -t -c "SELECT 1 FROM pg_database WHERE datname = 'ddalab'" | grep -q 1 || \
 PGPASSWORD="$DDALAB_DB_PASSWORD" psql -h localhost -p 5432 -U "$DDALAB_DB_USER" -d postgres -c "CREATE DATABASE ddalab WITH OWNER = \"$DDALAB_DB_USER\" ENCODING = 'UTF8' LC_COLLATE = 'C' LC_CTYPE = 'C';"
 
+echo "Applying SQL files..."
+
 # Apply SQL files
 python api/apply_sql_files.py \
   --username "$DDALAB_DB_USER" \

@@ -54,6 +54,7 @@ workflow_state.md
 bin/
 
 packages/electron/release/
+packages/web/cookies.txt
 
 # Auto-generated Docker Compose files
 docker-compose.volumes.yml
