@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { Badge } from "../ui/badge";
 
-interface PlotControlsProps {
+export interface PlotControlsProps {
   onPrevChunk: () => void;
   onNextChunk: () => void;
   canGoPrev: boolean;
