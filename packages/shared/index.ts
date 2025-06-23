@@ -4,6 +4,7 @@ export * from "./components/ui/input";
 export * from "./components/ui/avatar";
 export * from "./components/form/LoginForm";
 export * from "./components/UnsavedChangesAlert";
+export * from "./components/ui/ArtifactIdentifier";
 
 // Store
 export { default as store } from "./store";
@@ -26,6 +27,7 @@ export * from "./lib/utils/cache";
 export * from "./hooks/useChunkNavigation";
 export * from "./hooks/useTimeWindow";
 export * from "./hooks/useHeatmapData";
+export * from "./hooks/useArtifactInfo";
 
 // Canvas utilities
 export * from "./components/plot/canvas/eegDrawingUtils";

@@ -5,10 +5,9 @@ import {
   usePersistentPlots,
   type PersistentPlot,
 } from "../../contexts/PersistentPlotsContext";
-import { EDFPlotDialog } from "../dialog/EDFPlotDialog";
 import { DDAPlot } from "./DDAPlot";
 import { Button } from "../ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { Card, CardContent } from "../ui/card";
 import { Badge } from "../ui/badge";
 import {
   X,
@@ -16,11 +15,11 @@ import {
   Maximize2,
   Eye,
   EyeOff,
-  Move,
   BarChart3,
 } from "lucide-react";
 import { cn } from "../../lib/utils/misc";
 import { PersistentEEGPlot } from "./PersistentEEGPlot";
+import { useArtifactFromFilePath } from "../../hooks/useArtifactInfo";
 
 interface FloatingPlotWindowProps {
   plot: PersistentPlot;
@@ -42,6 +41,9 @@ function FloatingPlotWindow({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isResizing, setIsResizing] = useState(false);
+
+  // Fetch artifact information for this file path
+  const { artifactInfo } = useArtifactFromFilePath(plot.filePath);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -173,8 +175,9 @@ function FloatingPlotWindow({
             <DDAPlot
               filePath={plot.filePath}
               selectedChannels={[]}
-              setSelectedChannels={() => {}}
-              onChannelSelectionChange={() => {}}
+              setSelectedChannels={() => { }}
+              onChannelSelectionChange={() => { }}
+              artifactInfo={artifactInfo || undefined}
             />
           </div>
         )}

@@ -1,4 +1,5 @@
 import type { EEGData } from "./EEGData";
+import type { ArtifactInfo } from "../components/ui/ArtifactIdentifier";
 
 export interface DDAPlotProps {
   filePath: string;
@@ -10,4 +11,5 @@ export interface DDAPlotProps {
   setSelectedChannels: (channels: string[]) => void;
   onChannelSelectionChange: (channels: string[]) => void;
   onAvailableChannelsChange?: (channels: string[]) => void;
+  artifactInfo?: ArtifactInfo;
 }

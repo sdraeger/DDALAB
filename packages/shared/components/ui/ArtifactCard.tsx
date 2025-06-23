@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./card";
 import { Button } from "./button";
-import { Trash2, Pencil, Share2 } from "lucide-react";
+import { Trash2, Pencil, Share2, BarChart3 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useArtifacts } from "../../hooks/useArtifacts";
 import { ShareArtifactDialog } from "../dialog/ShareArtifactDialog";
+import { usePersistentPlotActions } from "../../hooks/usePersistentPlotActions";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +25,7 @@ interface ArtifactCardProps {
 export const ArtifactCard = ({ artifact }: ArtifactCardProps) => {
   const { data: session } = useSession();
   const { deleteArtifact, renameArtifact } = useArtifacts();
+  const { openDDAPlot } = usePersistentPlotActions();
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
@@ -51,6 +53,11 @@ export const ArtifactCard = ({ artifact }: ArtifactCardProps) => {
     } finally {
       setIsRenaming(false);
     }
+  };
+
+  const handleViewPlot = () => {
+    // Open DDA plot using the artifact file path
+    openDDAPlot(artifact.file_path, artifact.name || `Artifact ${artifact.artifact_id.slice(0, 8)}`);
   };
 
   return (
@@ -99,17 +106,35 @@ export const ArtifactCard = ({ artifact }: ArtifactCardProps) => {
           </div>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">
-            File: {artifact.file_path}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Created: {new Date(artifact.created_at).toLocaleDateString()}
-          </p>
-          {artifact.shared_by_user_id && (
+          <div className="space-y-2">
             <p className="text-sm text-muted-foreground">
-              Shared by: User #{artifact.shared_by_user_id}
+              File: {artifact.file_path}
             </p>
-          )}
+            <p className="text-sm text-muted-foreground">
+              Created: {new Date(artifact.created_at).toLocaleDateString()}
+            </p>
+            {artifact.shared_by_user_id && (
+              <p className="text-sm text-muted-foreground">
+                Shared by: User #{artifact.shared_by_user_id}
+              </p>
+            )}
+
+            {/* View Plot Button */}
+            <div className="pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleViewPlot();
+                }}
+                className="w-full"
+              >
+                <BarChart3 className="mr-2 h-4 w-4" />
+                View Plot
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
