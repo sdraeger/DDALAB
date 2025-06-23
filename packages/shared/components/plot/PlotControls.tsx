@@ -10,7 +10,10 @@ import {
   RotateCcw,
   Settings as SettingsIcon,
   Loader2,
+  Zap,
+  ZapOff,
 } from "lucide-react";
+import { Badge } from "../ui/badge";
 
 interface PlotControlsProps {
   onPrevChunk: () => void;
@@ -28,6 +31,7 @@ interface PlotControlsProps {
   onToggleHeatmap: () => void;
   isHeatmapProcessing: boolean;
   onChunkSelect?: (chunkNumber: number) => void;
+  hasHeatmapData?: boolean;
 }
 
 export function PlotControls({
@@ -46,6 +50,7 @@ export function PlotControls({
   onToggleHeatmap,
   isHeatmapProcessing,
   onChunkSelect,
+  hasHeatmapData = false,
 }: PlotControlsProps) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 p-2 border-b bg-card sticky top-0 z-10">
@@ -113,17 +118,30 @@ export function PlotControls({
       </div>
 
       <div className="flex items-center gap-2">
-        <Button
-          variant="outline"
-          onClick={onToggleHeatmap}
-          disabled={isHeatmapProcessing || isLoading}
-          size="sm"
-        >
-          {isHeatmapProcessing ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : null}
-          {showHeatmap ? "Hide DDA Heatmap" : "Show DDA Heatmap"}
-        </Button>
+        {hasHeatmapData && (
+          <Badge
+            variant={showHeatmap ? "default" : "secondary"}
+            className="flex items-center gap-1 cursor-pointer transition-colors hover:bg-primary/80"
+            onClick={onToggleHeatmap}
+          >
+            {isHeatmapProcessing ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : showHeatmap ? (
+              <Zap className="h-3 w-3" />
+            ) : (
+              <ZapOff className="h-3 w-3" />
+            )}
+            <span className="text-xs">
+              {isHeatmapProcessing
+                ? "Processing..."
+                : showHeatmap
+                  ? "DDA Active"
+                  : "DDA Available"
+              }
+            </span>
+          </Badge>
+        )}
+
         <Button
           variant="outline"
           size="icon"
