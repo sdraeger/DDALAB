@@ -63,7 +63,7 @@ export default function DDAPage() {
       if (result.data?.runDda?.error === "DDA_BINARY_INVALID") {
         setServerConfigError(
           result.data.runDda.error_message ||
-            "DDA binary is not properly configured on the server"
+          "DDA binary is not properly configured on the server"
         );
         toast({
           title: "Server Configuration Error",
@@ -105,7 +105,7 @@ export default function DDAPage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold">Run DDA</h1>
-          <p className="text-muted-foreground">Submit a DDA analysis task</p>
+          <p className="text-muted-foreground">Submit a DDA task</p>
         </div>
         {serverConfigError && (
           <Alert variant="destructive">

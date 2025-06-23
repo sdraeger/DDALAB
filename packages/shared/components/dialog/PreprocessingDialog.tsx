@@ -74,7 +74,7 @@ export function PreprocessingDialog({
                 Configure DDA Preprocessing
               </DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">
-                Set up signal preprocessing options before running DDA analysis
+                Set up signal preprocessing options before running DDA
                 on your EEG data.
               </DialogDescription>
             </div>

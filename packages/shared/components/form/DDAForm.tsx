@@ -27,6 +27,7 @@ import {
   AlertDescription,
   AlertTitle,
 } from "shared/components/ui/alert";
+import { useArtifactFromFilePath, useArtifactInfo } from "../../hooks/useArtifactInfo";
 
 const formSchema = z
   .object({
@@ -55,6 +56,7 @@ interface DDAResponse {
   metadata: Record<string, string> | null;
   error?: string;
   error_message?: string;
+  artifact_id?: string;
 }
 
 export function DDAForm({
@@ -70,6 +72,14 @@ export function DDAForm({
     null
   );
   const [showPreprocessingDialog, setShowPreprocessingDialog] = useState(false);
+  const [createdArtifactId, setCreatedArtifactId] = useState<string | null>(null);
+
+  // Fetch artifact information - first try the created artifact ID, then fall back to file path
+  const { artifactInfo: filePathArtifactInfo } = useArtifactFromFilePath(filePath);
+  const { artifactInfo: createdArtifactInfo } = useArtifactInfo(createdArtifactId || undefined);
+
+  // Use created artifact info if available, otherwise use file path artifact info
+  const artifactInfo = createdArtifactInfo || filePathArtifactInfo;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -149,10 +159,20 @@ export function DDAForm({
       }
 
       setQ(response.Q);
-      toast({
-        title: "DDA Complete",
-        description: "Results received successfully",
-      });
+
+      // If an artifact was created, save the ID and show a helpful message
+      if (response.artifact_id) {
+        setCreatedArtifactId(response.artifact_id);
+        toast({
+          title: "DDA Complete",
+          description: `Results saved as artifact ${response.artifact_id}`,
+        });
+      } else {
+        toast({
+          title: "DDA Complete",
+          description: "Results received successfully",
+        });
+      }
     } catch (error) {
       toast({
         title: "Error Submitting DDA Task",
@@ -275,6 +295,20 @@ export function DDAForm({
         />
       </FormProvider>
 
+      {/* Show artifact creation status */}
+      {createdArtifactId && Q && (
+        <Card className="border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950">
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 text-green-700 dark:text-green-300">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <span className="text-sm font-medium">
+                DDA complete - artifact {createdArtifactId} created and is now being displayed below
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <DDAPlot
         filePath={filePath}
         Q={Q}
@@ -288,6 +322,7 @@ export function DDAForm({
           smoothingWindow: form.watch("smoothingWindow"),
           normalization: form.watch("normalization"),
         }}
+        artifactInfo={artifactInfo || undefined}
       />
     </div>
   );

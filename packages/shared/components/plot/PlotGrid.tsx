@@ -5,16 +5,27 @@ import { useSession } from "next-auth/react";
 import { useApiQuery } from "../../hooks/useApiQuery";
 import { useToast } from "../ui/use-toast";
 import { Button } from "../ui/button";
+import { ArtifactIdentifier } from "../ui/ArtifactIdentifier";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
+
+interface ArtifactInfo {
+  artifact_id: string;
+  name: string;
+  file_path: string;
+  created_at: string;
+  user_id: number;
+  shared_by_user_id?: number;
+}
 
 interface Plot {
   id: string;
   artifactId: string;
   title: string;
   data: { labels: string[]; datasets: { label: string; data: number[] }[] };
+  artifactInfo?: ArtifactInfo;
 }
 
 interface Layout {
@@ -101,8 +112,17 @@ export const PlotGrid = () => {
         draggableHandle=".drag-handle"
       >
         {plots.map((plot) => (
-          <div key={plot.id} className="bg-white border rounded p-2">
-            <div className="drag-handle bg-gray-200 p-2 cursor-move">
+          <div key={plot.id} className="bg-white dark:bg-gray-800 border rounded p-2 space-y-2">
+            {/* Artifact Identification */}
+            {plot.artifactInfo && (
+              <ArtifactIdentifier
+                artifact={plot.artifactInfo}
+                variant="compact"
+                className="bg-gray-50 dark:bg-gray-700 rounded p-2"
+              />
+            )}
+
+            <div className="drag-handle bg-gray-200 dark:bg-gray-600 p-2 cursor-move rounded">
               {plot.title}
             </div>
             <Bar

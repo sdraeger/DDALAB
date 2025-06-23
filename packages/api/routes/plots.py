@@ -32,12 +32,21 @@ async def list_plots(
             plot = {
                 "id": str(artifact.id),
                 "artifactId": str(artifact.id),
-                "title": artifact.name,
+                "title": artifact.name or f"Artifact {str(artifact.id)[:8]}",
+                "artifactInfo": {
+                    "artifact_id": str(artifact.id),
+                    "name": artifact.name,
+                    "file_path": artifact.file_path,
+                    "created_at": artifact.created_at.isoformat(),
+                    "user_id": artifact.user_id,
+                    "shared_by_user_id": None,  # TODO: Add shared_by_user_id logic
+                },
                 "data": {
                     "labels": data.get("labels", ["A", "B", "C"]),
                     "datasets": [
                         {
-                            "label": artifact.name,
+                            "label": artifact.name
+                            or f"Artifact {str(artifact.id)[:8]}",
                             "data": data.get("values", [10, 20, 30]),
                         }
                     ],
