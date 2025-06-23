@@ -20,6 +20,15 @@ export * from "./providers/ReduxProvider";
 
 // Utilities
 export * from "./lib/utils/misc";
+export * from "./lib/utils/cache";
+
+// Hooks
+export * from "./hooks/useChunkNavigation";
+export * from "./hooks/useTimeWindow";
+export * from "./hooks/useHeatmapData";
+
+// Canvas utilities
+export * from "./components/plot/canvas/eegDrawingUtils";
 
 // Types
 export * from "./types/auth";
