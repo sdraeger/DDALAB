@@ -3,6 +3,7 @@ import { EEGChart } from "../plot/EEGChart";
 import { ResultsFormProps } from "../../types/form-props";
 import { DDAPlot } from "../plot/DDAPlot";
 import { ResizableContainer } from "../ui/ResizableContainer";
+import { useArtifactFromFilePath } from "../../hooks/useArtifactInfo";
 
 const ResultsForm: React.FC<ResultsFormProps> = ({
   edfData,
@@ -18,6 +19,9 @@ const ResultsForm: React.FC<ResultsFormProps> = ({
     0,
     edfData?.duration || 10,
   ]);
+
+  // Fetch artifact information for this file path
+  const { artifactInfo } = useArtifactFromFilePath(filePath);
 
   // Update timeWindow state if edfData changes
   React.useEffect(() => {
@@ -91,8 +95,9 @@ const ResultsForm: React.FC<ResultsFormProps> = ({
             taskId={taskId}
             preprocessingOptions={preprocessingOptions}
             selectedChannels={channelsToDisplay}
-            setSelectedChannels={() => {}}
-            onChannelSelectionChange={() => {}}
+            setSelectedChannels={() => { }}
+            onChannelSelectionChange={() => { }}
+            artifactInfo={artifactInfo || undefined}
           />
         ) : (
           <div

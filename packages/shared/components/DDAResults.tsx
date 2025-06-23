@@ -5,6 +5,7 @@ import { Button } from "./ui/button";
 import { Share2 } from "lucide-react";
 import { ShareArtifactDialog } from "./dialog/ShareArtifactDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { ArtifactIdentifier, type ArtifactInfo } from "./ui/ArtifactIdentifier";
 
 interface DDAResultsProps {
   result: {
@@ -13,14 +14,20 @@ interface DDAResultsProps {
     Q: number[][];
     metadata?: string;
   };
+  artifactInfo?: ArtifactInfo;
 }
 
-export const DDAResults = ({ result }: DDAResultsProps) => {
+export const DDAResults = ({ result, artifactInfo }: DDAResultsProps) => {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
   return (
     <>
       <Card>
+        {/* Artifact Identification Header */}
+        {artifactInfo && (
+          <ArtifactIdentifier artifact={artifactInfo} variant="header" />
+        )}
+
         <CardHeader>
           <div className="flex justify-between items-center">
             <CardTitle>DDA Results</CardTitle>

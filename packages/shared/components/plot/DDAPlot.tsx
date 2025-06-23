@@ -25,7 +25,7 @@ import type { DDAPlotProps } from "../../types/DDAPlotProps";
 import { Loader2 } from "lucide-react";
 
 export function DDAPlot(props: DDAPlotProps) {
-  const { filePath, Q, selectedChannels } = props;
+  const { filePath, Q, selectedChannels, artifactInfo } = props;
 
   const { data: session } = useSession();
 
@@ -147,6 +147,7 @@ export function DDAPlot(props: DDAPlotProps) {
         isHeatmapProcessing={isHeatmapProcessing}
         onChunkSelect={handleChunkSelect}
         hasHeatmapData={Q && Array.isArray(Q) && Q.length > 0}
+        artifactInfo={artifactInfo}
       />
 
       {showZoomSettings && (
