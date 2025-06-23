@@ -5,17 +5,17 @@ from pathlib import Path
 from typing import Optional
 
 import dda_py
-import matplotlib
 import numpy as np
+from core.config import get_server_settings
+from core.dda_ape_patch import patch_dda_py
 from loguru import logger
+from schemas.dda import DDAResponse
 from scipy import signal
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from core.config import get_server_settings
-from schemas.dda import DDAResponse
-
 settings = get_server_settings()
+
+# Apply APE compatibility patch for dda_py
+patch_dda_py()
 
 # Global variable to track DDA binary status
 _dda_binary_valid = None
@@ -158,29 +158,7 @@ async def run_dda(
             raise_on_error=False,
         )
 
-        try:
-            Q_for_plotting = np.array(
-                Q,
-                dtype=float,
-            )
-
-            fig, ax = plt.subplots()
-            im = ax.imshow(
-                Q_for_plotting.T,
-                aspect="auto",
-                cmap="viridis",
-                interpolation="nearest",
-            )
-            fig.colorbar(im, ax=ax)
-            debug_image_path = Path(settings.data_dir).absolute() / "heatmap_debug.pdf"
-
-            plt.savefig(debug_image_path)
-            plt.close(fig)
-
-            logger.info(f"Saved heatmap debug image to: {debug_image_path}")
-        except Exception as e:
-            logger.error(f"Could not save heatmap debug image: {e}")
-
+        Q = Q.T
         Q = np.where(np.isnan(Q), None, Q).tolist()
 
         result = DDAResponse(
