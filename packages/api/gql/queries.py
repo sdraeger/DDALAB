@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -120,7 +119,7 @@ class Query:
     async def get_edf_navigation(
         self,
         filename: str,
-        chunkSize: int = 51_200,  # Default to 10 seconds at 512 Hz
+        chunkSize: Optional[int] = 51_200,  # Default to 10 seconds at 512 Hz
     ) -> EDFNavigationInfo:
         """Get navigation information for an EDF file.
 
@@ -132,11 +131,16 @@ class Query:
             EDFNavigationInfo object with navigation data
         """
         try:
-            # Validate file path
-            if not await validate_file_path(filename):
-                raise ValueError(f"Invalid file path: {filename}")
+            # Handle None value for optional parameter
+            if chunkSize is None:
+                chunkSize = 51_200
 
+            # Construct full path first
             full_path = os.path.join(settings.data_dir, filename)
+
+            # Validate the full path
+            if not await validate_file_path(full_path):
+                raise ValueError(f"Invalid file path: {filename}")
             logger.info(f"Getting EDF navigation info: {full_path}")
 
             # Use the navigator to get file metadata without loading the entire file
@@ -216,8 +220,10 @@ class Query:
     async def get_edf_data(
         self,
         filename: str,
-        chunkStart: int = 0,
-        chunkSize: int = 51_200,  # Default to 10 seconds at 512 Hz for higher resolution files
+        chunkStart: Optional[int] = 0,
+        chunkSize: Optional[
+            int
+        ] = 51_200,  # Default to 10 seconds at 512 Hz for higher resolution files
         preprocessingOptions: Optional[VisualizationPreprocessingOptionsInput] = None,
         includeNavigationInfo: bool = False,  # Whether to include navigation info
     ) -> EDFData:
@@ -234,11 +240,18 @@ class Query:
             EDFData containing the raw data and metadata
         """
         try:
-            # Validate file path
-            if not await validate_file_path(filename):
-                raise ValueError(f"Invalid file path: {filename}")
+            # Handle None values for optional parameters
+            if chunkStart is None:
+                chunkStart = 0
+            if chunkSize is None:
+                chunkSize = 51_200
 
+            # Construct full path first
             full_path = os.path.join(settings.data_dir, filename)
+
+            # Validate the full path
+            if not await validate_file_path(full_path):
+                raise ValueError(f"Invalid file path: {filename}")
             logger.info(f"Reading EDF file chunk: {full_path}")
 
             # Convert preprocessing options to dict if present
@@ -503,20 +516,17 @@ class Query:
         logger.info(f"Getting intelligent default channels for {filename}")
 
         try:
-            # Validate filename
-            filename = filename.replace("\\", "/").lstrip("/")
-            base_path = Path(settings.data_dir)
-            file_path = base_path / filename
+            # Construct full path first (similar to get_edf_data)
+            full_path = os.path.join(settings.data_dir, filename)
 
-            # Check if file exists
-            if not file_path.exists():
-                logger.error(f"EDF file not found: {file_path}")
-                raise ValueError(f"EDF file not found: {filename}")
+            # Validate the full path
+            if not await validate_file_path(full_path):
+                raise ValueError(f"Invalid file path: {filename}")
 
             cache_manager = get_cache_manager()
 
             default_channels = cache_manager.get_intelligent_default_channels(
-                str(file_path), max_channels=maxChannels
+                full_path, max_channels=maxChannels
             )
 
             logger.info(

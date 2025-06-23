@@ -75,14 +75,28 @@ class Settings(BaseSettings):
         reload_value = reload_env.lower() in ("true", "1", "yes", "on")
 
         if reload_value:
+            # Development mode: use simple paths or Docker host paths
             if isinstance(value, str):
-                # In development mode, split comma-separated paths into a list
                 if value.strip():
-                    parsed_dirs = [path.strip() for path in value.split(",")]
-                    logger.info(
-                        f"[Config] Development mode: parsed allowed_dirs as list: {parsed_dirs}"
-                    )
-                    return parsed_dirs
+                    # Check if it's Docker format (host:container:access)
+                    if ":" in value and len(value.split(":")) >= 3:
+                        # Extract host paths from Docker format for development
+                        host_paths = []
+                        for pair in value.split(","):
+                            parts = pair.strip().split(":")
+                            if len(parts) >= 2:
+                                host_paths.append(parts[0])  # Use host path
+                        logger.info(
+                            f"[Config] Development mode: extracted host paths from Docker format: {host_paths}"
+                        )
+                        return host_paths
+                    else:
+                        # Simple comma-separated paths
+                        parsed_dirs = [path.strip() for path in value.split(",")]
+                        logger.info(
+                            f"[Config] Development mode: parsed allowed_dirs as list: {parsed_dirs}"
+                        )
+                        return parsed_dirs
                 return []  # Return empty list for empty string
             elif isinstance(value, list):
                 logger.info(
@@ -96,29 +110,34 @@ class Settings(BaseSettings):
                     f"Invalid ALLOWED_DIRS type in development mode: {type(value)}"
                 )
 
+        # Production mode: use container paths from Docker format
         if isinstance(value, str):
             if not value.strip():
                 # Handle empty string case
                 logger.info(
-                    "[Config] Production mode: empty string, returning empty set"
+                    "[Config] Production mode: empty string, returning empty list"
                 )
-                return set()
+                return []
 
             try:
                 # In production mode, parse <host>:<container>:<access> format
                 # But also handle simple comma-separated paths as fallback
-                if ":" in value:
+                if ":" in value and len(value.split(":")) >= 3:
                     # Production format: host1:/container1:rw,host2:/container2:ro
-                    parsed_dirs = {pair.split(":")[1] for pair in value.split(",")}
+                    container_paths = []
+                    for pair in value.split(","):
+                        parts = pair.strip().split(":")
+                        if len(parts) >= 2:
+                            container_paths.append(parts[1])  # Use container path
                     logger.info(
-                        f"[Config] Production mode: parsed container paths: {parsed_dirs}"
+                        f"[Config] Production mode: parsed container paths: {container_paths}"
                     )
-                    return parsed_dirs
+                    return container_paths
                 else:
                     # Fallback: simple comma-separated paths like /tmp,/data
-                    parsed_dirs = {
+                    parsed_dirs = [
                         path.strip() for path in value.split(",") if path.strip()
-                    }
+                    ]
                     logger.info(
                         f"[Config] Production mode: parsed simple paths: {parsed_dirs}"
                     )
@@ -127,7 +146,7 @@ class Settings(BaseSettings):
                 logger.error(f"Failed to parse allowed_dirs: {e}")
                 raise ValueError(f"Invalid ALLOWED_DIRS format: {value}")
         elif value is None:
-            return set()  # Return empty set for None in production mode
+            return []  # Return empty list for None in production mode
 
         return value
 
