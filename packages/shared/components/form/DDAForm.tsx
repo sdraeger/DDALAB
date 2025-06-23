@@ -137,7 +137,7 @@ export function DDAForm({
       if (response.error === "DDA_BINARY_INVALID") {
         setServerConfigError(
           response.error_message ||
-            "DDA binary is not properly configured on the server"
+          "DDA binary is not properly configured on the server"
         );
         toast({
           title: "Server Configuration Error",
@@ -220,7 +220,11 @@ export function DDAForm({
                   </h3>
                   <div className="flex items-center gap-2">
                     <div className="text-sm text-muted-foreground">
-                      {selectedChannels.length === 0 ? (
+                      {selectedChannels.length === 0 && availableChannels.length === 0 ? (
+                        <span className="text-muted-foreground">
+                          Loading channels...
+                        </span>
+                      ) : selectedChannels.length === 0 ? (
                         <span className="text-destructive">
                           No channels selected
                         </span>
@@ -243,13 +247,15 @@ export function DDAForm({
               <Button
                 type="button"
                 onClick={handleRunDDAClick}
-                disabled={selectedChannels.length === 0}
+                disabled={selectedChannels.length === 0 && availableChannels.length > 0}
                 className="w-full md:w-auto"
                 size="lg"
               >
-                {selectedChannels.length === 0
-                  ? "Select channels to run DDA"
-                  : "Configure & Run DDA"}
+                {selectedChannels.length === 0 && availableChannels.length === 0
+                  ? "Loading channels..."
+                  : selectedChannels.length === 0
+                    ? "Select channels to run DDA"
+                    : "Configure & Run DDA"}
               </Button>
             </div>
           </Form>
@@ -272,11 +278,7 @@ export function DDAForm({
       <DDAPlot
         filePath={filePath}
         Q={Q}
-        selectedChannels={
-          selectedChannels.length
-            ? selectedChannels
-            : availableChannels.slice(0, 5)
-        }
+        selectedChannels={selectedChannels}
         setSelectedChannels={setSelectedChannels}
         onChannelSelectionChange={updateChannelSelection}
         onAvailableChannelsChange={setAvailableChannels}
