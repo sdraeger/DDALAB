@@ -651,6 +651,19 @@ class PlotCacheManager {
   }
 
   /**
+   * Clear all memory cache entries
+   */
+  clearMemoryCache(): void {
+    try {
+      const memorySize = this.memoryCache.size;
+      this.memoryCache.clear();
+      logger.info(`Cleared ${memorySize} memory cache entries`);
+    } catch (error) {
+      logger.error("Error clearing memory cache:", error);
+    }
+  }
+
+  /**
    * Clear expired cache entries
    */
   clearExpiredCache(): void {
@@ -709,28 +722,89 @@ class PlotCacheManager {
     annotationCount: number;
     totalSizeMB: number;
     totalSizeBytes: number;
+    memoryPlotCount: number;
+    memoryHeatmapCount: number;
+    memoryAnnotationCount: number;
+    memorySizeMB: number;
   } {
     try {
+      // Check if localStorage is available
+      if (typeof localStorage === "undefined") {
+        console.warn("localStorage is not available");
+        return {
+          plotCount: 0,
+          heatmapCount: 0,
+          annotationCount: 0,
+          totalSizeMB: 0,
+          totalSizeBytes: 0,
+          memoryPlotCount: 0,
+          memoryHeatmapCount: 0,
+          memoryAnnotationCount: 0,
+          memorySizeMB: 0,
+        };
+      }
+
+      // Count localStorage entries
       const keys = Object.keys(localStorage);
-      const plotCount = keys.filter((key) => key.startsWith("plot:")).length;
-      const heatmapCount = keys.filter((key) =>
-        key.startsWith("heatmap:")
-      ).length;
-      const annotationCount = keys.filter((key) =>
+      const plotKeys = keys.filter((key) => key.startsWith("plot:"));
+      const heatmapKeys = keys.filter((key) => key.startsWith("heatmap:"));
+      const annotationKeys = keys.filter((key) =>
         key.startsWith("annotations:")
-      ).length;
+      );
 
-      const totalSizeBytes = this.getCurrentCacheSize();
+      // Count memory cache entries
+      const memoryKeys = Array.from(this.memoryCache.keys());
+      const memoryPlotKeys = memoryKeys.filter((key) =>
+        key.startsWith("plot:")
+      );
+      const memoryHeatmapKeys = memoryKeys.filter((key) =>
+        key.startsWith("heatmap:")
+      );
+      const memoryAnnotationKeys = memoryKeys.filter((key) =>
+        key.startsWith("annotations:")
+      );
+
+      // Calculate memory cache size
+      let memorySizeBytes = 0;
+      for (const [key, { entry }] of this.memoryCache.entries()) {
+        memorySizeBytes += entry.size || this.estimateDataSize(entry.data);
+      }
+
+      const localStorageSizeBytes = this.getCurrentCacheSize();
+      const totalSizeBytes = localStorageSizeBytes + memorySizeBytes;
       const totalSizeMB = totalSizeBytes / 1024 / 1024;
+      const memorySizeMB = memorySizeBytes / 1024 / 1024;
 
-      return {
-        plotCount,
-        heatmapCount,
-        annotationCount,
+      // Combine localStorage and memory cache counts
+      const result = {
+        plotCount: plotKeys.length + memoryPlotKeys.length,
+        heatmapCount: heatmapKeys.length + memoryHeatmapKeys.length,
+        annotationCount: annotationKeys.length + memoryAnnotationKeys.length,
         totalSizeMB: parseFloat(totalSizeMB.toFixed(2)),
         totalSizeBytes,
+        memoryPlotCount: memoryPlotKeys.length,
+        memoryHeatmapCount: memoryHeatmapKeys.length,
+        memoryAnnotationCount: memoryAnnotationKeys.length,
+        memorySizeMB: parseFloat(memorySizeMB.toFixed(2)),
       };
+
+      console.log("getCacheStats called - debugging");
+      console.log(
+        "localStorage available:",
+        typeof localStorage !== "undefined"
+      );
+      console.log("memoryCache size:", this.memoryCache.size);
+      console.log("Memory cache keys:", {
+        memoryPlotKeys,
+        memoryHeatmapKeys,
+        memoryAnnotationKeys,
+        memorySizeMB: result.memorySizeMB,
+      });
+      console.log("Final cache stats result:", result);
+
+      return result;
     } catch (error) {
+      console.error("Error getting cache stats:", error);
       logger.error("Error getting cache stats:", error);
       return {
         plotCount: 0,
@@ -738,6 +812,10 @@ class PlotCacheManager {
         annotationCount: 0,
         totalSizeMB: 0,
         totalSizeBytes: 0,
+        memoryPlotCount: 0,
+        memoryHeatmapCount: 0,
+        memoryAnnotationCount: 0,
+        memorySizeMB: 0,
       };
     }
   }
