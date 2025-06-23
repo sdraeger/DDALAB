@@ -22,12 +22,14 @@ import { EEGZoomSettings } from "../settings/EEGZoomSettings";
 import { useDDAPlot } from "../../hooks/useDDAPlot";
 import { useSession } from "next-auth/react";
 import type { DDAPlotProps } from "../../types/DDAPlotProps";
+import { Loader2 } from "lucide-react";
 
 export function DDAPlot(props: DDAPlotProps) {
   const { filePath, Q, selectedChannels } = props;
 
   const { data: session } = useSession();
 
+  // DDA Plot hook - automatically shows heatmap when Q matrix is provided
   const {
     plotState,
     loading,
@@ -44,6 +46,8 @@ export function DDAPlot(props: DDAPlotProps) {
     zoomLevel,
     editMode,
     annotations,
+    currentChunkNumber,
+    totalChunks,
     handlePrevChunk,
     handleNextChunk,
     handleChunkSelect,
@@ -76,24 +80,73 @@ export function DDAPlot(props: DDAPlotProps) {
     </div>
   );
 
+  // Elegant loading animation component
+  const HeatmapLoadingAnimation = ({ Q }: { Q?: any[][] }) => {
+    const matrixRows = Array.isArray(Q) ? Q.length : 0;
+    const matrixCols = Array.isArray(Q) && Q[0] ? Q[0].length : 0;
+
+    return (
+      <div
+        className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm"
+        style={{ backgroundColor: 'rgba(255, 255, 255, 0.95)' }} // Fallback
+      >
+        <div className="flex flex-col items-center space-y-6 p-8">
+          {/* Main spinner - simplified for reliability */}
+          <div className="relative">
+            <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+            <div className="absolute inset-0 w-16 h-16 border-4 border-blue-100 rounded-full opacity-20"></div>
+          </div>
+
+          {/* Processing text */}
+          <div className="text-center space-y-3">
+            <h3 className="text-xl font-semibold text-blue-600">
+              Processing DDA Heatmap
+            </h3>
+            <p className="text-sm text-gray-600 max-w-md">
+              Analyzing {matrixRows} × {matrixCols} matrix for differential drive analysis
+            </p>
+          </div>
+
+          {/* Simple progress bar */}
+          <div className="w-64 space-y-2">
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>Computing correlations</span>
+              <span>Please wait...</span>
+            </div>
+            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-full bg-blue-500 rounded-full animate-pulse"></div>
+            </div>
+          </div>
+
+          {/* Status indicator */}
+          <div className="flex items-center space-x-2 text-xs text-gray-500">
+            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+            <span>Processing matrix data...</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <Card className="h-full flex flex-col relative">
       <PlotControls
         onPrevChunk={handlePrevChunk}
         onNextChunk={handleNextChunk}
-        canGoPrev={plotState.currentChunkNumber > 1}
-        canGoNext={plotState.currentChunkNumber < plotState.totalChunks}
+        canGoPrev={currentChunkNumber > 1}
+        canGoNext={currentChunkNumber < totalChunks}
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
         onResetView={handleReset}
         onShowSettings={() => setShowZoomSettings(true)}
         isLoading={loading}
-        currentChunkNumber={plotState.currentChunkNumber}
-        totalChunks={plotState.totalChunks}
+        currentChunkNumber={currentChunkNumber}
+        totalChunks={totalChunks}
         showHeatmap={showHeatmap}
         onToggleHeatmap={toggleHeatmap}
         isHeatmapProcessing={isHeatmapProcessing}
         onChunkSelect={handleChunkSelect}
+        hasHeatmapData={Q && Array.isArray(Q) && Q.length > 0}
       />
 
       {showZoomSettings && (
@@ -132,18 +185,18 @@ export function DDAPlot(props: DDAPlotProps) {
         )}
 
         <div
-          className={`w-full flex flex-col md:flex-row items-stretch justify-center relative gap-4`}
+          className={`w-full flex flex-row items-stretch justify-center relative gap-4`}
         >
           <ResizableEEGPlot
             filePath={filePath}
             variant="default"
-            className={showHeatmap && Q ? "md:w-1/2 w-full" : "w-full"}
+            className={(showHeatmap || isHeatmapProcessing) && Q ? "w-1/2" : "w-full"}
           >
-            {plotState.edfData?.channels?.length ? (
+            {plotState.edfData?.data?.length ? (
               (() => {
                 // Filter annotations to only include those within the current chunk
                 const chunkStart = plotState.chunkStart || 0;
-                const chunkSize = plotState.edfData?.samplesPerChannel || 0;
+                const chunkSize = plotState.edfData?.chunkSize || 0;
                 const chunkEndSample = chunkStart + chunkSize;
 
                 const chunkAnnotations = annotations.filter(
@@ -179,26 +232,42 @@ export function DDAPlot(props: DDAPlotProps) {
                 {loading
                   ? "Loading EEG data..."
                   : manualErrorMessage ||
-                    "No data to display or plot not loaded."}
+                  "No data to display or plot not loaded."}
               </div>
             )}
           </ResizableEEGPlot>
 
-          {showHeatmap && Q && (
-            <div className="md:w-1/2 w-full flex flex-col items-center justify-center relative border-l md:border-l border-t md:border-t-0 border-border">
-              <div className="w-full flex justify-end p-2">
+          {(showHeatmap || isHeatmapProcessing) && Q && (
+            <div className="w-1/2 flex flex-col relative border-l border-border">
+              {/* Header with optional close button */}
+              <div className="w-full flex justify-between items-center p-3 border-b bg-muted/30">
+                <h3 className="text-sm font-medium">DDA Heatmap</h3>
                 <Button
                   size="sm"
-                  variant="outline"
+                  variant="ghost"
                   onClick={() => toggleHeatmap()}
+                  className="h-6 w-6 p-0"
                 >
-                  Close Heatmap
+                  ×
                 </Button>
               </div>
-              <DDAHeatmap
-                data={ddaHeatmapData}
-                onClose={() => toggleHeatmap()}
-              />
+
+              {/* Loading overlay */}
+              {isHeatmapProcessing && (
+                <HeatmapLoadingAnimation Q={Q} />
+              )}
+
+              {/* Heatmap content */}
+              <div className="flex-1 relative">
+                {showHeatmap && !isHeatmapProcessing && (
+                  <div className="animate-in fade-in-50 duration-500">
+                    <DDAHeatmap
+                      data={ddaHeatmapData}
+                      onClose={() => toggleHeatmap()}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
