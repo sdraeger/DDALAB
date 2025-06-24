@@ -7,6 +7,8 @@ import {
   removeArtifact,
   setLoading,
   setError,
+  clearArtifacts,
+  setAutoFetch,
 } from "../store/slices/artifactsSlice";
 import { useToast } from "../components/ui/use-toast";
 import { Artifact } from "../store/slices/artifactsSlice";
@@ -14,7 +16,7 @@ import { Artifact } from "../store/slices/artifactsSlice";
 export const useArtifacts = () => {
   const dispatch = useAppDispatch();
   const { toast } = useToast();
-  const { artifacts, loading, error } = useAppSelector(
+  const { artifacts, loading, error, autoFetch } = useAppSelector(
     (state) => state.artifacts
   );
 
@@ -128,13 +130,32 @@ export const useArtifacts = () => {
     [dispatch, toast]
   );
 
+  const clearArtifactsData = useCallback(() => {
+    dispatch(clearArtifacts());
+    toast({
+      title: "Success",
+      description: "Artifacts cleared from memory. Auto-loading disabled.",
+    });
+  }, [dispatch, toast]);
+
+  const enableAutoFetch = useCallback(() => {
+    dispatch(setAutoFetch(true));
+    toast({
+      title: "Success",
+      description: "Auto-loading re-enabled",
+    });
+  }, [dispatch, toast]);
+
   return {
     artifacts,
     loading,
     error,
+    autoFetch,
     fetchArtifacts,
     shareArtifact,
     deleteArtifact,
     renameArtifact,
+    clearArtifacts: clearArtifactsData,
+    enableAutoFetch,
   };
 };
