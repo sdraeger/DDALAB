@@ -36,13 +36,13 @@ export function DashboardTabs() {
 
     try {
       const configRequestOptions: ApiRequestOptions & { responseType: "json" } =
-        {
-          url: `/api/config/edf?file_path=${encodeURIComponent(filePath)}`,
-          method: "GET",
-          token,
-          responseType: "json",
-          contentType: "application/json",
-        };
+      {
+        url: `/api/config/edf?file_path=${encodeURIComponent(filePath)}`,
+        method: "GET",
+        token,
+        responseType: "json",
+        contentType: "application/json",
+      };
 
       const fileCfgResponse = await apiRequest<EdfConfigResponse>(
         configRequestOptions
@@ -118,62 +118,60 @@ export function DashboardTabs() {
   ]);
 
   return (
-    <div className="flex flex-row relative">
+    <div className="flex flex-row relative w-full h-full">
       <div
         className={cn(
-          "h-[calc(100vh-180px)] fixed left-0 top-[140px] bottom-0 bg-background border-r z-30 shadow-lg transition-all duration-300 ease-in-out",
-          fileBrowserCollapsed ? "w-0 -ml-4 opacity-0" : "w-[700px] opacity-100"
+          "h-full bg-background border-r z-30 shadow-lg transition-all duration-300 ease-in-out flex-shrink-0",
+          fileBrowserCollapsed ? "w-0 opacity-0 overflow-hidden" : "w-80 lg:w-96 opacity-100"
         )}
       >
-        <div className="p-4 h-full">
+        <div className="p-6 h-full overflow-auto">
           <FileBrowser onFileSelect={handleFileSelect} />
         </div>
       </div>
 
-      <div
-        className={cn(
-          "fixed top-[140px] z-40 transition-all duration-300",
-          fileBrowserCollapsed ? "left-0" : "left-[700px]"
-        )}
-      >
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={toggleFileBrowser}
-          className="h-8 rounded-l-none border-l-0 shadow-md"
-        >
-          {fileBrowserCollapsed ? (
-            <>
-              <ChevronRight className="h-4 w-4 mr-1" /> Files
-            </>
-          ) : (
-            <ChevronLeft className="h-4 w-4" />
-          )}
-        </Button>
-      </div>
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-shrink-0 p-2 border-b bg-background/50">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={toggleFileBrowser}
+            className="h-8 shadow-sm"
+          >
+            {fileBrowserCollapsed ? (
+              <>
+                <ChevronRight className="h-4 w-4 mr-1" /> Show Files
+              </>
+            ) : (
+              <>
+                <ChevronLeft className="h-4 w-4 mr-1" /> Hide Files
+              </>
+            )}
+          </Button>
+        </div>
 
-      <div
-        className={cn(
-          "flex-grow transition-all duration-300 ease-in-out w-full",
-          fileBrowserCollapsed ? "ml-0" : "ml-[700px]"
-        )}
-      >
-        <div className="w-full px-4 sm:px-6 lg:px-8">
-          {selectedFilePath ? (
-            <DDAForm
-              filePath={selectedFilePath}
-              selectedChannels={selectedChannels}
-              setSelectedChannels={setSelectedChannels}
-            />
-          ) : (
-            <Card>
-              <CardContent className="pt-6">
-                <p className="text-center text-muted-foreground">
-                  Please select a file from the sidebar to analyze data.
-                </p>
-              </CardContent>
-            </Card>
-          )}
+        <div className="flex-1 overflow-auto">
+          <div className="p-6 sm:p-8 lg:p-12 xl:p-16 2xl:p-20">
+            {selectedFilePath ? (
+              <div className="space-y-6">
+                <DDAForm
+                  filePath={selectedFilePath}
+                  selectedChannels={selectedChannels}
+                  setSelectedChannels={setSelectedChannels}
+                />
+              </div>
+            ) : (
+              <div className="flex items-center justify-center min-h-[400px]">
+                <Card className="mx-auto max-w-2xl">
+                  <CardContent className="pt-12 pb-12 px-8">
+                    <p className="text-center text-muted-foreground text-lg leading-relaxed">
+                      Please select a file from the sidebar to analyze data.
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
