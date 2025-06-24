@@ -48,6 +48,9 @@ export function DDAPlot(props: DDAPlotProps) {
     annotations,
     currentChunkNumber,
     totalChunks,
+    isDDArtifact,
+    ddaQMatrix,
+    actualEDFFilePath,
     handlePrevChunk,
     handleNextChunk,
     handleChunkSelect,
@@ -68,6 +71,9 @@ export function DDAPlot(props: DDAPlotProps) {
     setAnnotations,
     handleTimeWindowChange,
   } = useDDAPlot(props);
+
+  // Use Q matrix from artifact if available, otherwise fall back to props
+  const effectiveQ = ddaQMatrix || Q;
 
   const QuickZoomSettings = ({ onClose }: { onClose: () => void }) => (
     <div className="p-4">
@@ -146,7 +152,7 @@ export function DDAPlot(props: DDAPlotProps) {
         onToggleHeatmap={toggleHeatmap}
         isHeatmapProcessing={isHeatmapProcessing}
         onChunkSelect={handleChunkSelect}
-        hasHeatmapData={Q && Array.isArray(Q) && Q.length > 0}
+        hasHeatmapData={effectiveQ && Array.isArray(effectiveQ) && effectiveQ.length > 0}
         artifactInfo={artifactInfo}
       />
 
@@ -189,9 +195,9 @@ export function DDAPlot(props: DDAPlotProps) {
           className={`w-full flex flex-row items-stretch justify-center relative gap-4`}
         >
           <ResizableEEGPlot
-            filePath={filePath}
+            filePath={actualEDFFilePath || filePath}
             variant="default"
-            className={(showHeatmap || isHeatmapProcessing) && Q ? "w-1/2" : "w-full"}
+            className={(showHeatmap || isHeatmapProcessing) && effectiveQ ? "w-1/2" : "w-full"}
           >
             {plotState.edfData?.data?.length ? (
               (() => {
@@ -238,7 +244,7 @@ export function DDAPlot(props: DDAPlotProps) {
             )}
           </ResizableEEGPlot>
 
-          {(showHeatmap || isHeatmapProcessing) && Q && (
+          {(showHeatmap || isHeatmapProcessing) && effectiveQ && (
             <div className="w-1/2 flex flex-col relative border-l border-border">
               {/* Header with optional close button */}
               <div className="w-full flex justify-between items-center p-3 border-b bg-muted/30">
@@ -255,7 +261,7 @@ export function DDAPlot(props: DDAPlotProps) {
 
               {/* Loading overlay */}
               {isHeatmapProcessing && (
-                <HeatmapLoadingAnimation Q={Q} />
+                <HeatmapLoadingAnimation Q={effectiveQ} />
               )}
 
               {/* Heatmap content */}
@@ -275,7 +281,7 @@ export function DDAPlot(props: DDAPlotProps) {
       </CardContent>
 
       <AnnotationEditor
-        filePath={filePath}
+        filePath={actualEDFFilePath || filePath}
         currentSample={currentSample}
         sampleRate={plotState.sampleRate}
         initialAnnotations={annotations}
