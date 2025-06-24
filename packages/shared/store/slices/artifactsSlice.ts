@@ -13,12 +13,14 @@ export interface ArtifactsState {
   artifacts: Artifact[];
   loading: boolean;
   error: string | null;
+  autoFetch: boolean;
 }
 
 const initialState: ArtifactsState = {
   artifacts: [],
   loading: false,
   error: null,
+  autoFetch: true,
 };
 
 const artifactsSlice = createSlice({
@@ -53,6 +55,15 @@ const artifactsSlice = createSlice({
       state.error = action.payload;
       state.loading = false;
     },
+    clearArtifacts: (state) => {
+      state.artifacts = [];
+      state.loading = false;
+      state.error = null;
+      state.autoFetch = false;
+    },
+    setAutoFetch: (state, action: PayloadAction<boolean>) => {
+      state.autoFetch = action.payload;
+    },
   },
 });
 
@@ -63,5 +74,7 @@ export const {
   removeArtifact,
   setLoading,
   setError,
+  clearArtifacts,
+  setAutoFetch,
 } = artifactsSlice.actions;
 export default artifactsSlice.reducer;

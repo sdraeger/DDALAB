@@ -182,3 +182,16 @@ export const GET_EDF_DEFAULT_CHANNELS = gql`
     getEdfDefaultChannels(filename: $filename, maxChannels: $maxChannels)
   }
 `;
+
+// Add new query for DDA artifact data
+export const GET_DDA_ARTIFACT_DATA = gql`
+  query GetDDAArtifactData($artifactPath: String!) {
+    getDdaArtifactData(artifactPath: $artifactPath) {
+      originalFilePath
+      Q
+      metadata
+      userId
+      createdAt
+    }
+  }
+`;
