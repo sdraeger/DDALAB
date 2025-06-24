@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useApiQuery } from "shared/hooks/useApiQuery";
-import { DashboardLayout } from "../DashboardLayout";
+// DashboardLayout is now handled at the layout level
 import { Button } from "shared/components/ui/button";
 import {
   Card,
@@ -95,7 +95,7 @@ const TicketsPageComponent = () => {
   }
 
   return (
-    <DashboardLayout>
+    <>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Tickets</h1>
@@ -226,7 +226,7 @@ const TicketsPageComponent = () => {
           </TabsContent>
         </Tabs>
       )}
-    </DashboardLayout>
+    </>
   );
 };
 

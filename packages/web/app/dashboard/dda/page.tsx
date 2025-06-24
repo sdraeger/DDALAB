@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@apollo/client";
 import { Loader2 } from "lucide-react";
-import { DashboardLayout } from "../DashboardLayout";
+// DashboardLayout is now handled at the layout level
 import { Button } from "shared/components/ui/button";
 import { Input } from "shared/components/ui/input";
 import { Label } from "shared/components/ui/label";
@@ -101,77 +101,75 @@ export default function DDAPage() {
   }
 
   return (
-    <DashboardLayout>
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">Run DDA</h1>
-          <p className="text-muted-foreground">Submit a DDA task</p>
-        </div>
-        {serverConfigError && (
-          <Alert variant="destructive">
-            <AlertTitle>Server Configuration Error</AlertTitle>
-            <AlertDescription>
-              The DDA binary is not properly configured on the server.
-              {serverConfigError && ` Details: ${serverConfigError}`}
-              <br />
-              Please contact your administrator to resolve this issue.
-            </AlertDescription>
-          </Alert>
-        )}
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Run DDA</h1>
+        <p className="text-muted-foreground">Submit a DDA task</p>
+      </div>
+      {serverConfigError && (
+        <Alert variant="destructive">
+          <AlertTitle>Server Configuration Error</AlertTitle>
+          <AlertDescription>
+            The DDA binary is not properly configured on the server.
+            {serverConfigError && ` Details: ${serverConfigError}`}
+            <br />
+            Please contact your administrator to resolve this issue.
+          </AlertDescription>
+        </Alert>
+      )}
+      <Card>
+        <CardHeader>
+          <CardTitle>DDA Task</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="filePath">File Path</Label>
+              <Input
+                id="filePath"
+                value={filePath}
+                onChange={(e) => setFilePath(e.target.value)}
+                placeholder="Enter file path"
+              />
+            </div>
+            <div>
+              <Label htmlFor="channelList">
+                Channel List (comma-separated)
+              </Label>
+              <Input
+                id="channelList"
+                value={channelList}
+                onChange={(e) => setChannelList(e.target.value)}
+                placeholder="e.g., 1,2,3"
+              />
+            </div>
+            <Button type="submit" disabled={loading}>
+              {loading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                "Run DDA"
+              )}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+      {error && (
         <Card>
-          <CardHeader>
-            <CardTitle>DDA Task</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <Label htmlFor="filePath">File Path</Label>
-                <Input
-                  id="filePath"
-                  value={filePath}
-                  onChange={(e) => setFilePath(e.target.value)}
-                  placeholder="Enter file path"
-                />
-              </div>
-              <div>
-                <Label htmlFor="channelList">
-                  Channel List (comma-separated)
-                </Label>
-                <Input
-                  id="channelList"
-                  value={channelList}
-                  onChange={(e) => setChannelList(e.target.value)}
-                  placeholder="e.g., 1,2,3"
-                />
-              </div>
-              <Button type="submit" disabled={loading}>
-                {loading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  "Run DDA"
-                )}
-              </Button>
-            </form>
+          <CardContent className="py-6 text-destructive">
+            <p>Failed to run DDA task: {error.message}</p>
           </CardContent>
         </Card>
-        {error && (
-          <Card>
-            <CardContent className="py-6 text-destructive">
-              <p>Failed to run DDA task: {error.message}</p>
-            </CardContent>
-          </Card>
-        )}
-        {data?.runDda && !data.runDda.error && (
-          <DDAResults
-            result={{
-              artifact_id: data.runDda.artifactId || "temp-id", // Backend should return artifact_id
-              file_path: data.runDda.filePath,
-              Q: data.runDda.Q,
-              metadata: data.runDda.metadata,
-            }}
-          />
-        )}
-      </div>
-    </DashboardLayout>
+      )}
+      {data?.runDda && !data.runDda.error && (
+        <DDAResults
+          result={{
+            artifact_id: data.runDda.artifactId || "temp-id", // Backend should return artifact_id
+            file_path: data.runDda.filePath,
+            Q: data.runDda.Q,
+            metadata: data.runDda.metadata,
+          }}
+        />
+      )}
+    </div>
   );
 }
