@@ -148,7 +148,7 @@ export function EDFPlotDialog({
     if (
       contextSelectedChannels.length > 0 &&
       JSON.stringify(contextSelectedChannels) !==
-        JSON.stringify(selectedChannels)
+      JSON.stringify(selectedChannels)
     ) {
       setSelectedChannelsLocal(contextSelectedChannels);
     }
@@ -159,7 +159,7 @@ export function EDFPlotDialog({
     if (
       contextPreprocessingOptions &&
       JSON.stringify(contextPreprocessingOptions) !==
-        JSON.stringify(preprocessingOptions)
+      JSON.stringify(preprocessingOptions)
     ) {
       setPreprocessingOptions(contextPreprocessingOptions);
     }
@@ -297,7 +297,7 @@ export function EDFPlotDialog({
       (plotState.edfData !== null &&
         chunkStart === plotState.chunkStart &&
         JSON.stringify(preprocessingOptions) ===
-          JSON.stringify(plotState.preprocessingOptions)),
+        JSON.stringify(plotState.preprocessingOptions)),
     fetchPolicy: useCachedData ? "cache-only" : "network-only",
     errorPolicy: "all",
     onError: (err) => {
@@ -541,13 +541,21 @@ export function EDFPlotDialog({
     // Convert chunk number (1-based) to chunk start (0-based sample position)
     const newStart = (chunkNumber - 1) * chunkSizeSamples;
 
-    // Ensure we don't exceed the total samples
-    if (newStart >= 0 && newStart < totalSamples) {
+    // Ensure the entire chunk fits within the total samples
+    if (newStart >= 0 && newStart + chunkSizeSamples <= totalSamples) {
       setChunkStart(newStart);
       setLoadingNewChunk(true);
       setDownloadProgress(0);
       resetTimeWindow(newStart);
       updatePlotState(filePath, {});
+    } else {
+      console.log('CHUNK SELECT (EDFPlotDialog): Invalid chunk selection attempted', {
+        chunkNumber,
+        newStart,
+        chunkSizeSamples,
+        totalSamples,
+        wouldExceed: newStart + chunkSizeSamples > totalSamples
+      });
     }
   };
 
@@ -577,16 +585,47 @@ export function EDFPlotDialog({
 
   // Handle time window changes from the chart
   const handleTimeWindowChange = (newWindow: [number, number]) => {
-    setTimeWindow(newWindow);
+    if (!data?.getEdfData) {
+      return; // Skip if no data is loaded
+    }
+
+    // Calculate chunk duration from the loaded data
+    const chunkDuration = data.getEdfData.chunkSize / data.getEdfData.samplingFrequency;
+
+    // Calculate the proposed window duration
+    const windowDuration = newWindow[1] - newWindow[0];
+
+    // Ensure the window duration doesn't exceed the available data duration
+    const maxAllowedDuration = Math.min(windowDuration, chunkDuration);
+
+    // Validate and clamp the new window with proper bounds checking
+    let validatedWindow: [number, number];
+
+    // Check if the proposed window would go below 0 (left boundary)
+    if (newWindow[0] < 0) {
+      validatedWindow = [0, maxAllowedDuration];
+    }
+    // Check if the proposed window would exceed chunk duration (right boundary)
+    else if (newWindow[1] > chunkDuration) {
+      const maxStartTime = Math.max(0, chunkDuration - maxAllowedDuration);
+      validatedWindow = [maxStartTime, maxStartTime + maxAllowedDuration];
+    }
+    // Otherwise use the proposed window but ensure it's within bounds
+    else {
+      validatedWindow = [
+        Math.max(0, newWindow[0]),
+        Math.min(chunkDuration, newWindow[1]),
+      ];
+    }
+
+    setTimeWindow(validatedWindow);
 
     // Update absolute time window
-    if (data?.getEdfData) {
-      const absoluteStartSec = chunkStart / sampleRate;
-      setAbsoluteTimeWindow([
-        absoluteStartSec + newWindow[0],
-        absoluteStartSec + newWindow[1],
-      ]);
-    }
+    const absoluteStartSec = chunkStart / sampleRate;
+    setAbsoluteTimeWindow([
+      absoluteStartSec + validatedWindow[0],
+      absoluteStartSec + validatedWindow[1],
+    ]);
 
     updatePlotState(filePath, {});
   };
@@ -718,8 +757,7 @@ export function EDFPlotDialog({
     } catch (err) {
       console.error("Error converting EDF data:", err);
       setManualErrorMessage(
-        `Error converting data: ${
-          err instanceof Error ? err.message : "Unknown error"
+        `Error converting data: ${err instanceof Error ? err.message : "Unknown error"
         }`
       );
       return null;
