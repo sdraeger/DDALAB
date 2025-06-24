@@ -19,6 +19,7 @@ from sqlalchemy import select
 from .context import Context
 from .types import (
     AnnotationType,
+    DDAArtifactData,
     EDFChunkInfo,
     EDFData,
     EDFNavigationInfo,
@@ -538,3 +539,63 @@ class Query:
             logger.error(f"Error getting intelligent default channels: {str(e)}")
             # Fallback: return empty list, let frontend handle
             return []
+
+    @strawberry.field
+    async def get_dda_artifact_data(
+        self,
+        artifact_path: str,
+        info: strawberry.Info[Context, None],
+    ) -> DDAArtifactData:
+        """Get DDA artifact data from the artifact file path.
+
+        Args:
+            artifact_path: Path to the DDA result JSON file (MinIO object key)
+
+        Returns:
+            DDAArtifactData containing the original file path and DDA results
+        """
+        logger.info(f"Getting DDA artifact data for: {artifact_path}")
+
+        try:
+            import json
+
+            # Get MinIO client from the GraphQL context
+            minio_client = info.context.minio_client
+
+            # Read the JSON file from MinIO
+            response = minio_client.get_object(
+                settings.minio_bucket_name, artifact_path
+            )
+            artifact_data = json.loads(response.read().decode("utf-8"))
+
+            # Extract the data
+            original_file_path = artifact_data.get("file_path", "")
+            Q = artifact_data.get("Q", [])
+            metadata = artifact_data.get("metadata")
+            user_id = artifact_data.get("user_id", 0)
+            created_at = artifact_data.get("created_at", "")
+
+            # Convert metadata to string if it's a dict
+            metadata_str = (
+                json.dumps(metadata)
+                if isinstance(metadata, dict)
+                else str(metadata)
+                if metadata
+                else None
+            )
+
+            logger.info(
+                f"Successfully loaded DDA artifact. Original file: {original_file_path}"
+            )
+
+            return DDAArtifactData(
+                originalFilePath=original_file_path,
+                Q=Q,
+                metadata=metadata_str,
+                userId=user_id,
+                createdAt=created_at,
+            )
+
+        except Exception as e:
+            logger.error(f"Error loading DDA artifact data: {str(e)}")
+            raise ValueError(f"Failed to load DDA artifact data: {str(e)}")

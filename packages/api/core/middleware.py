@@ -5,8 +5,11 @@ import time
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from loguru import logger
+from minio import Minio
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
+
+from .config import get_server_settings
 
 # Conditional import for metrics
 try:
@@ -20,6 +23,8 @@ except ImportError:
     logger.warning("Using mock metrics - prometheus metrics not available")
 
 from .dependencies import get_db
+
+settings = get_server_settings()
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -82,6 +87,35 @@ class DBSessionMiddleware(BaseHTTPMiddleware):
             except Exception:
                 await db.rollback()
                 raise
+
+
+class MinIOMiddleware(BaseHTTPMiddleware):
+    """Middleware to inject MinIO client into request state."""
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.minio_client = None
+
+    def _create_minio_client(self) -> Minio:
+        """Create a MinIO client instance."""
+        if not self.minio_client:
+            self.minio_client = Minio(
+                settings.minio_host,
+                access_key=settings.minio_access_key,
+                secret_key=settings.minio_secret_key,
+                secure=False,
+            )
+        return self.minio_client
+
+    async def dispatch(self, request: Request, call_next):
+        """Inject MinIO client into request state."""
+        request.state.minio_client = self._create_minio_client()
+
+        try:
+            response = await call_next(request)
+            return response
+        except Exception:
+            raise
 
 
 class PrometheusMiddleware(BaseHTTPMiddleware):

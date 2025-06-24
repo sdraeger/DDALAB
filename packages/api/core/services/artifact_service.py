@@ -3,6 +3,7 @@
 import uuid
 from typing import List
 
+from core.config import get_server_settings
 from core.database import Artifact as ArtifactDB
 from core.database import User
 from core.dependencies import register_service
@@ -110,7 +111,10 @@ class ArtifactService:
 
         # Delete from MinIO
         try:
-            self.minio_client.remove_object("artifacts", artifact.file_path)
+            settings = get_server_settings()
+            self.minio_client.remove_object(
+                settings.minio_bucket_name, artifact.file_path
+            )
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

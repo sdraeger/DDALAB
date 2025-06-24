@@ -98,6 +98,19 @@ class DDAStatus:
 
 
 @strawberry.type
+class DDAArtifactData:
+    """DDA artifact data type."""
+
+    originalFilePath: str = strawberry.field(
+        description="Original EDF file path that was analyzed"
+    )
+    Q: list[list[float | None]] = strawberry.field(description="DDA Q matrix results")
+    metadata: Optional[str] = strawberry.field(description="Additional metadata")
+    userId: int = strawberry.field(description="User ID who created the artifact")
+    createdAt: str = strawberry.field(description="Creation timestamp")
+
+
+@strawberry.type
 class AnnotationType:
     """Annotation type for GraphQL."""
 
