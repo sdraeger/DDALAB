@@ -57,32 +57,12 @@ export function Header() {
         <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">
           <nav className="flex items-center">
             {isLoggedIn && (
-              <>
-                <Link
-                  href="/dashboard"
-                  className="text-sm font-medium transition-colors hover:text-primary mr-6"
-                >
-                  Dashboard
-                </Link>
-                <Link
-                  href="/dashboard/tickets"
-                  className="text-sm font-medium transition-colors hover:text-primary mr-6"
-                >
-                  <span className="flex items-center">
-                    <Ticket className="h-4 w-4 mr-1" />
-                    My Tickets
-                  </span>
-                </Link>
-                <Link
-                  href="/dashboard/artifacts"
-                  className="text-sm font-medium transition-colors hover:text-primary mr-6"
-                >
-                  <span className="flex items-center">
-                    <FileIcon className="h-4 w-4 mr-1" />
-                    Artifacts
-                  </span>
-                </Link>
-              </>
+              <Link
+                href="/dashboard"
+                className="text-sm font-medium transition-colors hover:text-primary mr-6"
+              >
+                Dashboard
+              </Link>
             )}
           </nav>
 
