@@ -56,10 +56,24 @@ export const useChunkNavigation = ({
   }, [chunkStart, chunkSize, filePath, updatePlotState]);
 
   const handleNextChunk = useCallback(() => {
-    const newChunkStart = Math.min(
-      totalSamples - chunkSize,
-      chunkStart + chunkSize
-    );
+    // Calculate the proposed new chunk start
+    const proposedChunkStart = chunkStart + chunkSize;
+
+    // Don't allow moving beyond the last valid chunk
+    if (proposedChunkStart >= totalSamples) {
+      console.log("CHUNK NAVIGATION: Already at or beyond the last chunk", {
+        currentChunkStart: chunkStart,
+        proposedChunkStart,
+        totalSamples,
+        chunkSize,
+      });
+      return; // Don't move if we're already at or beyond the last chunk
+    }
+
+    // Ensure the new chunk doesn't exceed totalSamples
+    const maxAllowedChunkStart = Math.max(0, totalSamples - chunkSize);
+    const newChunkStart = Math.min(proposedChunkStart, maxAllowedChunkStart);
+
     setChunkStart(newChunkStart);
     updatePlotState(filePath, { chunkStart: newChunkStart });
   }, [chunkStart, chunkSize, filePath, totalSamples, updatePlotState]);

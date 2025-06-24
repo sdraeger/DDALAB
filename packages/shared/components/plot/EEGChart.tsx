@@ -356,11 +356,11 @@ export function EEGChart({
       let newStartTime =
         focusPoint -
         (focusPoint - timeWindow[0]) *
-          (e.deltaY < 0 ? 1 - zoomIntensity : 1 + zoomIntensity);
+        (e.deltaY < 0 ? 1 - zoomIntensity : 1 + zoomIntensity);
       let newEndTime =
         focusPoint +
         (timeWindow[1] - focusPoint) *
-          (e.deltaY < 0 ? 1 - zoomIntensity : 1 + zoomIntensity);
+        (e.deltaY < 0 ? 1 - zoomIntensity : 1 + zoomIntensity);
 
       newStartTime = Math.max(0, newStartTime);
       newEndTime = Math.min(eegData.duration, newEndTime);
@@ -422,24 +422,58 @@ export function EEGChart({
       timeWindow[1] - dx * timePerPixel,
     ];
 
-    // Check boundaries and prevent movement if it would exceed them
-    const windowDuration = timeWindow[1] - timeWindow[0];
-    let newWindow: [number, number] = proposedWindow;
-
-    // Check if proposed window would go below 0 (left boundary)
-    if (proposedWindow[0] < 0) {
-      // Stop at the left boundary
-      newWindow = [0, windowDuration];
+    // Apply robust bounds checking for mouse dragging
+    if (!eegData || !eegData.duration) {
+      return; // Can't apply bounds checking without data
     }
-    // Check if proposed window would exceed data duration (right boundary)
+
+    const windowDuration = timeWindow[1] - timeWindow[0];
+    let finalWindow: [number, number] = proposedWindow;
+
+    // Check left boundary
+    if (proposedWindow[0] < 0) {
+      finalWindow = [0, windowDuration];
+    }
+    // Check right boundary
     else if (proposedWindow[1] > eegData.duration) {
-      // Stop at the right boundary
-      newWindow = [eegData.duration - windowDuration, eegData.duration];
+      // Clamp to the right edge - ensure the end aligns with data end
+      finalWindow = [
+        Math.max(0, eegData.duration - windowDuration),
+        eegData.duration
+      ];
+    }
+    // Ensure both start and end stay within bounds
+    else {
+      finalWindow = [
+        Math.max(0, Math.min(proposedWindow[0], eegData.duration - windowDuration)),
+        Math.min(eegData.duration, Math.max(windowDuration, proposedWindow[1]))
+      ];
+    }
+
+    // Check if we've hit the boundaries
+    const hitRightBoundary = proposedWindow[1] > eegData.duration;
+    const hitLeftBoundary = proposedWindow[0] < 0;
+
+    if (hitRightBoundary) {
+      console.log('DRAG RIGHT BOUNDARY HIT:', {
+        proposedWindow,
+        eegDataDuration: eegData.duration,
+        finalWindow
+      });
+    }
+
+    if (hitLeftBoundary) {
+      console.log('DRAG LEFT BOUNDARY HIT:', {
+        proposedWindow,
+        finalWindow
+      });
     }
 
     // Only update if the window actually changed (this prevents unnecessary re-renders)
-    if (newWindow[0] !== timeWindow[0] || newWindow[1] !== timeWindow[1]) {
-      onTimeWindowChange(newWindow);
+    if (finalWindow[0] !== timeWindow[0] || finalWindow[1] !== timeWindow[1]) {
+      onTimeWindowChange(finalWindow);
+    } else if (hitRightBoundary || hitLeftBoundary) {
+      console.log('DRAG BOUNDARY: Already at boundary position, no movement');
     }
   };
 
@@ -458,20 +492,89 @@ export function EEGChart({
   };
 
   const moveLeft = () => {
+    if (!eegData || !eegData.duration) {
+      console.warn('moveLeft: No eegData or duration available');
+      return;
+    }
+
     const step = (timeWindow[1] - timeWindow[0]) * 0.1;
     const windowDuration = timeWindow[1] - timeWindow[0];
-    const newStartTime = Math.max(0, timeWindow[0] - step);
-    const newEndTime = newStartTime + windowDuration;
-    onTimeWindowChange([newStartTime, newEndTime]);
+
+    // Calculate the proposed new start time
+    const proposedStartTime = timeWindow[0] - step;
+    const proposedEndTime = proposedStartTime + windowDuration;
+
+    // Apply bounds checking - prevent going below 0
+    let finalStartTime: number;
+    let finalEndTime: number;
+
+    if (proposedStartTime < 0) {
+      // Hit the left boundary - clamp to the start
+      finalStartTime = 0;
+      finalEndTime = Math.min(eegData.duration, windowDuration);
+    } else {
+      // Normal movement within bounds
+      finalStartTime = proposedStartTime;
+      finalEndTime = proposedEndTime;
+    }
+
+    // Ensure we don't exceed data duration
+    finalStartTime = Math.max(0, finalStartTime);
+    finalEndTime = Math.min(eegData.duration, finalEndTime);
+
+    // Only move if we're not already at the leftmost position
+    if (finalStartTime !== timeWindow[0] || finalEndTime !== timeWindow[1]) {
+      onTimeWindowChange([finalStartTime, finalEndTime]);
+    }
   };
 
   const moveRight = () => {
+    if (!eegData || !eegData.duration) {
+      console.warn('moveRight: No eegData or duration available');
+      return;
+    }
+
     const step = (timeWindow[1] - timeWindow[0]) * 0.1;
     const windowDuration = timeWindow[1] - timeWindow[0];
-    const maxStartTime = Math.max(0, eegData.duration - windowDuration);
-    const newStartTime = Math.min(maxStartTime, timeWindow[0] + step);
-    const newEndTime = newStartTime + windowDuration;
-    onTimeWindowChange([newStartTime, newEndTime]);
+
+    // Calculate the proposed new start time
+    const proposedStartTime = timeWindow[0] + step;
+    const proposedEndTime = proposedStartTime + windowDuration;
+
+    // Apply bounds checking - prevent going beyond the data duration
+    let finalStartTime: number;
+    let finalEndTime: number;
+
+    if (proposedEndTime > eegData.duration) {
+      // Hit the right boundary - clamp to the end
+      finalEndTime = eegData.duration;
+      finalStartTime = Math.max(0, finalEndTime - windowDuration);
+    } else {
+      // Normal movement within bounds
+      finalStartTime = proposedStartTime;
+      finalEndTime = proposedEndTime;
+    }
+
+    // Ensure we don't have negative start time or exceed duration
+    finalStartTime = Math.max(0, finalStartTime);
+    finalEndTime = Math.min(eegData.duration, finalEndTime);
+
+    // Check if we've hit the right boundary
+    const hitRightBoundary = proposedEndTime > eegData.duration;
+    if (hitRightBoundary) {
+      console.log('RIGHT BOUNDARY HIT:', {
+        proposedEndTime,
+        eegDataDuration: eegData.duration,
+        finalWindow: [finalStartTime, finalEndTime]
+      });
+    }
+
+    // Only move if we're not already at the rightmost position
+    if (finalStartTime !== timeWindow[0] || finalEndTime !== timeWindow[1]) {
+      onTimeWindowChange([finalStartTime, finalEndTime]);
+    } else if (hitRightBoundary) {
+      console.log('RIGHT BOUNDARY: Already at rightmost position, no movement');
+    }
   };
 
   const handleChartClick = useCallback(

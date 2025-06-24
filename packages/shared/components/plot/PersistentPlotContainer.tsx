@@ -41,6 +41,11 @@ function FloatingPlotWindow({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isResizing, setIsResizing] = useState(false);
+  const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 });
+
+  // State for DDA plot
+  const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
+  const [availableChannels, setAvailableChannels] = useState<string[]>([]);
 
   // Fetch artifact information for this file path
   const { artifactInfo } = useArtifactFromFilePath(plot.filePath);
@@ -81,14 +86,50 @@ function FloatingPlotWindow({
           ),
         };
         onUpdatePosition(newPosition);
+      } else if (isResizing) {
+        const deltaX = e.clientX - resizeStart.x;
+        const deltaY = e.clientY - resizeStart.y;
+
+        const newWidth = Math.max(300, resizeStart.width + deltaX);
+        const newHeight = Math.max(200, resizeStart.height + deltaY);
+
+        // Make sure the window doesn't go outside the viewport
+        const maxWidth = window.innerWidth - plot.position.x;
+        const maxHeight = window.innerHeight - plot.position.y;
+
+        const finalWidth = Math.min(newWidth, maxWidth);
+        const finalHeight = Math.min(newHeight, maxHeight);
+
+        onUpdateSize({ width: finalWidth, height: finalHeight });
       }
     },
-    [isDragging, dragStart, plot.size, onUpdatePosition]
+    [isDragging, isResizing, dragStart, resizeStart, plot.size, plot.position, onUpdatePosition, onUpdateSize]
   );
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
     setIsResizing(false);
+  }, []);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+    setResizeStart({
+      x: e.clientX,
+      y: e.clientY,
+      width: plot.size.width,
+      height: plot.size.height,
+    });
+  }, [plot.size]);
+
+  // Channel selection handlers for DDA plot
+  const handleChannelSelectionChange = useCallback((channels: string[]) => {
+    setSelectedChannels(channels);
+  }, []);
+
+  const handleAvailableChannelsChange = useCallback((channels: string[]) => {
+    setAvailableChannels(channels);
   }, []);
 
   useEffect(() => {
@@ -108,7 +149,8 @@ function FloatingPlotWindow({
     <div
       className={cn(
         "fixed bg-background border border-border rounded-lg shadow-2xl z-50 overflow-hidden",
-        isDragging && "cursor-move"
+        isDragging && "cursor-move",
+        isResizing && "cursor-se-resize"
       )}
       style={{
         left: plot.position.x,
@@ -174,9 +216,10 @@ function FloatingPlotWindow({
           <div className="h-full p-2">
             <DDAPlot
               filePath={plot.filePath}
-              selectedChannels={[]}
-              setSelectedChannels={() => { }}
-              onChannelSelectionChange={() => { }}
+              selectedChannels={selectedChannels}
+              setSelectedChannels={setSelectedChannels}
+              onChannelSelectionChange={handleChannelSelectionChange}
+              onAvailableChannelsChange={handleAvailableChannelsChange}
               artifactInfo={artifactInfo || undefined}
             />
           </div>
@@ -186,10 +229,7 @@ function FloatingPlotWindow({
       {/* Resize Handle */}
       <div
         className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize bg-muted/50 hover:bg-muted"
-        onMouseDown={(e) => {
-          e.preventDefault();
-          setIsResizing(true);
-        }}
+        onMouseDown={handleResizeStart}
       >
         <div className="absolute bottom-1 right-1 w-2 h-2 border-r border-b border-border" />
       </div>

@@ -683,8 +683,8 @@ export const useDDAPlot = ({
     // Convert chunk number (1-based) to chunk start (0-based sample position)
     const newChunkStart = (chunkNumber - 1) * chunkSize;
 
-    // Ensure we don't exceed the total samples
-    if (newChunkStart >= 0 && newChunkStart < totalSamples) {
+    // Ensure the entire chunk fits within the total samples
+    if (newChunkStart >= 0 && newChunkStart + chunkSize <= totalSamples) {
       setChunkStart(newChunkStart);
       setShouldLoadChunk(true);
       setDownloadProgress(0);
@@ -693,6 +693,17 @@ export const useDDAPlot = ({
         chunkStart: newChunkStart,
         currentChunkNumber: chunkNumber,
       });
+    } else {
+      console.log(
+        "CHUNK SELECT (useDDAPlot.old): Invalid chunk selection attempted",
+        {
+          chunkNumber,
+          newChunkStart,
+          chunkSize,
+          totalSamples,
+          wouldExceed: newChunkStart + chunkSize > totalSamples,
+        }
+      );
     }
   };
 
@@ -940,11 +951,31 @@ export const useDDAPlot = ({
     const chunkDuration =
       plotState.edfData.duration || chunkSize / sampleRate || 10;
 
-    // Validate and clamp the new window to the chunk's duration
-    const validatedWindow: [number, number] = [
-      Math.max(0, newWindow[0]),
-      Math.min(chunkDuration, newWindow[1]),
-    ];
+    // Calculate the proposed window duration
+    const windowDuration = newWindow[1] - newWindow[0];
+
+    // Ensure the window duration doesn't exceed the available data duration
+    const maxAllowedDuration = Math.min(windowDuration, chunkDuration);
+
+    // Validate and clamp the new window with proper bounds checking
+    let validatedWindow: [number, number];
+
+    // Check if the proposed window would go below 0 (left boundary)
+    if (newWindow[0] < 0) {
+      validatedWindow = [0, maxAllowedDuration];
+    }
+    // Check if the proposed window would exceed chunk duration (right boundary)
+    else if (newWindow[1] > chunkDuration) {
+      const maxStartTime = Math.max(0, chunkDuration - maxAllowedDuration);
+      validatedWindow = [maxStartTime, maxStartTime + maxAllowedDuration];
+    }
+    // Otherwise use the proposed window but ensure it's within bounds
+    else {
+      validatedWindow = [
+        Math.max(0, newWindow[0]),
+        Math.min(chunkDuration, newWindow[1]),
+      ];
+    }
 
     setTimeWindow(validatedWindow);
 
