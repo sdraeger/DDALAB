@@ -2,6 +2,7 @@ import json
 from typing import List
 
 from core.auth import get_current_user
+from core.config import get_server_settings
 from core.database import User
 from core.dependencies import get_artifact_service, get_minio_client
 from core.services.artifact_service import ArtifactService
@@ -26,7 +27,10 @@ async def list_plots(
     for artifact in artifacts:
         try:
             # Fetch artifact data from MinIO (e.g., CSV or JSON)
-            response = minio_client.get_object("artifacts", artifact.file_path)
+            settings = get_server_settings()
+            response = minio_client.get_object(
+                settings.minio_bucket_name, artifact.file_path
+            )
             data = json.loads(response.read().decode("utf-8"))
             # Transform data into plot format (example for bar chart)
             plot = {

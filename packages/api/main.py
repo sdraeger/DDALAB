@@ -7,6 +7,7 @@ from core.config import get_server_settings, initialize_config
 from core.middleware import (
     AuthMiddleware,
     DBSessionMiddleware,
+    MinIOMiddleware,
     PrometheusMiddleware,
 )
 from fastapi import FastAPI
@@ -175,6 +176,9 @@ except Exception as e:
 
 # Add database session middleware
 app.add_middleware(DBSessionMiddleware)
+
+# Add MinIO middleware
+app.add_middleware(MinIOMiddleware)
 
 # Add Prometheus middleware
 app.add_middleware(PrometheusMiddleware)
