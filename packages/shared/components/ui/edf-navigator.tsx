@@ -151,8 +151,8 @@ export function EDFNavigator({
     return `${hours.toString().padStart(2, "0")}:${minutes
       .toString()
       .padStart(2, "0")}:${secs.toString().padStart(2, "0")}.${ms
-      .toString()
-      .padStart(3, "0")}`;
+        .toString()
+        .padStart(3, "0")}`;
   };
 
   // Format samples for display
@@ -298,7 +298,13 @@ export function EDFNavigator({
     if (!navigationInfo) return;
 
     const lastChunk = navigationInfo.chunks[navigationInfo.chunks.length - 1];
-    onChunkSelect(lastChunk.start, lastChunk.size);
+
+    // Ensure we don't go beyond the total samples and that the chunk aligns with the right edge
+    const maxChunkStart = Math.max(0, navigationInfo.totalSamples - chunkSize);
+    const adjustedChunkStart = Math.min(lastChunk.start, maxChunkStart);
+    const adjustedChunkSize = Math.min(chunkSize, navigationInfo.totalSamples - adjustedChunkStart);
+
+    onChunkSelect(adjustedChunkStart, adjustedChunkSize);
   };
 
   if (loading && !navigationInfo) {
@@ -384,7 +390,7 @@ export function EDFNavigator({
                   <span>
                     {selectedPreset
                       ? timePresets.find((p) => p.value === selectedPreset)
-                          ?.label
+                        ?.label
                       : "Jump to..."}
                   </span>
                 </SelectTrigger>

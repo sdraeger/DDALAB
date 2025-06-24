@@ -68,7 +68,39 @@ const ResultsForm: React.FC<ResultsFormProps> = ({
           eegData={edfData}
           selectedChannels={channelsToDisplay}
           timeWindow={edfTimeWindow}
-          onTimeWindowChange={setEdfTimeWindow}
+          onTimeWindowChange={(newWindow) => {
+            if (!edfData) {
+              return; // Skip if no data is loaded
+            }
+
+            // Calculate the proposed window duration
+            const windowDuration = newWindow[1] - newWindow[0];
+
+            // Ensure the window duration doesn't exceed the available data duration
+            const maxAllowedDuration = Math.min(windowDuration, edfData.duration);
+
+            // Validate and clamp the new window with proper bounds checking
+            let validatedWindow: [number, number];
+
+            // Check if the proposed window would go below 0 (left boundary)
+            if (newWindow[0] < 0) {
+              validatedWindow = [0, maxAllowedDuration];
+            }
+            // Check if the proposed window would exceed data duration (right boundary)
+            else if (newWindow[1] > edfData.duration) {
+              const maxStartTime = Math.max(0, edfData.duration - maxAllowedDuration);
+              validatedWindow = [maxStartTime, maxStartTime + maxAllowedDuration];
+            }
+            // Otherwise use the proposed window but ensure it's within bounds
+            else {
+              validatedWindow = [
+                Math.max(0, newWindow[0]),
+                Math.min(edfData.duration, newWindow[1]),
+              ];
+            }
+
+            setEdfTimeWindow(validatedWindow);
+          }}
           zoomLevel={1}
           editMode={false}
           className="w-full h-full"
