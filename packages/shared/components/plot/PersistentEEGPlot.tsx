@@ -205,7 +205,7 @@ export function PersistentEEGPlot({
       (plotState.edfData !== null &&
         chunkStart === plotState.chunkStart &&
         JSON.stringify(preprocessingOptions) ===
-          JSON.stringify(plotState.preprocessingOptions)),
+        JSON.stringify(plotState.preprocessingOptions)),
     fetchPolicy: useCachedData ? "cache-only" : "network-only",
     errorPolicy: "all",
   });
@@ -247,13 +247,13 @@ export function PersistentEEGPlot({
             const fallbackChannels =
               edfData.channelLabels.length > 1
                 ? edfData.channelLabels.slice(
-                    1,
-                    Math.min(6, edfData.channelLabels.length)
-                  ) // Skip index 0, take next 5
+                  1,
+                  Math.min(6, edfData.channelLabels.length)
+                ) // Skip index 0, take next 5
                 : edfData.channelLabels.slice(
-                    0,
-                    Math.min(5, edfData.channelLabels.length)
-                  ); // Take first 5 if only 1 channel
+                  0,
+                  Math.min(5, edfData.channelLabels.length)
+                ); // Take first 5 if only 1 channel
             console.log(
               "Using fallback channel selection (skipping first channel):",
               fallbackChannels
@@ -359,11 +359,19 @@ export function PersistentEEGPlot({
     // Convert chunk number (1-based) to chunk start (0-based sample position)
     const newStart = (chunkNumber - 1) * chunkSizeSamples;
 
-    // Ensure we don't exceed the total samples
-    if (newStart >= 0 && newStart < totalSamples) {
+    // Ensure the entire chunk fits within the total samples
+    if (newStart >= 0 && newStart + chunkSizeSamples <= totalSamples) {
       setChunkStart(newStart);
       setLoadingNewChunk(true);
       setDownloadProgress(0);
+    } else {
+      console.log('CHUNK SELECT: Invalid chunk selection attempted', {
+        chunkNumber,
+        newStart,
+        chunkSizeSamples,
+        totalSamples,
+        wouldExceed: newStart + chunkSizeSamples > totalSamples
+      });
     }
   };
 
@@ -508,7 +516,15 @@ export function PersistentEEGPlot({
             <Button
               variant="outline"
               size="sm"
-              onClick={handleNextChunk}
+              onClick={() => {
+                console.log('NEXT CHUNK BUTTON CLICKED:', {
+                  chunkStart,
+                  chunkSizeSamples,
+                  totalSamples,
+                  isAtEnd: chunkStart + chunkSizeSamples >= totalSamples
+                });
+                handleNextChunk();
+              }}
               disabled={
                 chunkStart + chunkSizeSamples >= totalSamples || loading
               }
@@ -569,11 +585,41 @@ export function PersistentEEGPlot({
             absoluteTimeWindow={absoluteTimeWindow}
             zoomLevel={zoomLevel}
             onTimeWindowChange={(newWindow) => {
-              setTimeWindow(newWindow);
+              if (!eegData) {
+                return; // Skip if no data is loaded
+              }
+
+              // Calculate the proposed window duration
+              const windowDuration = newWindow[1] - newWindow[0];
+
+              // Ensure the window duration doesn't exceed the available data duration
+              const maxAllowedDuration = Math.min(windowDuration, eegData.duration);
+
+              // Validate and clamp the new window with proper bounds checking
+              let validatedWindow: [number, number];
+
+              // Check if the proposed window would go below 0 (left boundary)
+              if (newWindow[0] < 0) {
+                validatedWindow = [0, maxAllowedDuration];
+              }
+              // Check if the proposed window would exceed data duration (right boundary)
+              else if (newWindow[1] > eegData.duration) {
+                const maxStartTime = Math.max(0, eegData.duration - maxAllowedDuration);
+                validatedWindow = [maxStartTime, maxStartTime + maxAllowedDuration];
+              }
+              // Otherwise use the proposed window but ensure it's within bounds
+              else {
+                validatedWindow = [
+                  Math.max(0, newWindow[0]),
+                  Math.min(eegData.duration, newWindow[1]),
+                ];
+              }
+
+              setTimeWindow(validatedWindow);
               const absoluteStartSec = chunkStart / sampleRate;
               setAbsoluteTimeWindow([
-                absoluteStartSec + newWindow[0],
-                absoluteStartSec + newWindow[1],
+                absoluteStartSec + validatedWindow[0],
+                absoluteStartSec + validatedWindow[1],
               ]);
             }}
             className="w-full h-full"

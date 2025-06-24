@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery } from "@apollo/client";
-import { GET_EDF_DATA, GET_EDF_DEFAULT_CHANNELS } from "../lib/graphql/queries";
+import {
+  GET_EDF_DATA,
+  GET_EDF_DEFAULT_CHANNELS,
+  GET_DDA_ARTIFACT_DATA,
+} from "../lib/graphql/queries";
 import { useEDFPlot } from "../contexts/EDFPlotContext";
 import { useAnnotationManagement } from "./useAnnotationManagement";
 import { useChunkNavigation } from "./useChunkNavigation";
@@ -44,6 +48,21 @@ export const useDDAPlot = ({
 }: DDAPlotProps) => {
   const { getPlotState, updatePlotState } = useEDFPlot();
   const chartAreaRef = useRef<HTMLDivElement>(null);
+
+  // Check if the file path is a DDA artifact (JSON file)
+  const isDDArtifact = useMemo(() => {
+    return (
+      filePath &&
+      filePath.includes("dda_results/") &&
+      filePath.endsWith(".json")
+    );
+  }, [filePath]);
+
+  // State to track the actual EDF file path (extracted from artifact if needed)
+  const [actualEDFFilePath, setActualEDFFilePath] = useState<string | null>(
+    null
+  );
+  const [ddaQMatrix, setDdaQMatrix] = useState<any>(Q);
 
   // Get plot state with defensive defaults
   const plotState = getPlotState(filePath) || {
@@ -90,13 +109,13 @@ export const useDDAPlot = ({
 
   // Use modular hooks for specific functionality
   const chunkNavigation = useChunkNavigation({
-    filePath,
+    filePath: actualEDFFilePath || filePath,
     sampleRate,
     totalSamples,
   });
 
   const timeWindowManager = useTimeWindow({
-    filePath,
+    filePath: actualEDFFilePath || filePath,
     sampleRate,
     chunkStart: chunkNavigation.chunkStart,
     chunkSize: chunkNavigation.chunkSize,
@@ -104,8 +123,8 @@ export const useDDAPlot = ({
   });
 
   const heatmapManager = useHeatmapData({
-    filePath,
-    Q,
+    filePath: actualEDFFilePath || filePath,
+    Q: ddaQMatrix || Q,
   });
 
   // Cache management
@@ -203,7 +222,7 @@ export const useDDAPlot = ({
     }
   }, [currentCacheKey, checkCache, cacheState.lastCacheKey]);
 
-  // Annotation management
+  // Annotation management - use original filePath for plot state key but actual EDF path for queries
   const onAnnotationsChangeForPlotState = useCallback(
     (updatedAnnotations: Annotation[]) => {
       if (filePath) {
@@ -220,15 +239,43 @@ export const useDDAPlot = ({
     updateAnnotation,
     deleteAnnotation,
   } = useAnnotationManagement({
-    filePath,
+    filePath: actualEDFFilePath || filePath,
     initialAnnotationsFromPlotState: plotState.annotations || [],
     onAnnotationsChangeForPlotState,
   });
 
-  // GraphQL query variables
-  const graphqlVariables = useMemo(() => {
+  // Query for DDA artifact data (if it's an artifact file)
+  const {
+    data: artifactData,
+    loading: artifactLoading,
+    error: artifactError,
+  } = useQuery(GET_DDA_ARTIFACT_DATA, {
+    variables: { artifactPath: filePath },
+    skip: !isDDArtifact || !filePath,
+    fetchPolicy: "cache-and-network",
+    onCompleted: (data) => {
+      if (data?.getDdaArtifactData) {
+        const { originalFilePath, Q: artifactQ } = data.getDdaArtifactData;
+        logger.info(`DDA artifact loaded. Original file: ${originalFilePath}`);
+        setActualEDFFilePath(originalFilePath);
+        setDdaQMatrix(artifactQ);
+      }
+    },
+    onError: (err) => {
+      logger.error("Error loading DDA artifact:", err);
+      setManualErrorMessage("Failed to load DDA artifact data");
+    },
+  });
+
+  // Use the actual EDF file path for EDF data queries, or the original file path if not an artifact
+  const edfFilePath = actualEDFFilePath || (!isDDArtifact ? filePath : null);
+
+  // Update GraphQL variables to use the actual EDF file path
+  const edfGraphqlVariables = useMemo(() => {
+    if (!edfFilePath) return null;
+
     const variables = {
-      filename: filePath,
+      filename: edfFilePath,
       chunkStart: chunkNavigation.chunkStart || 0,
       chunkSize:
         chunkNavigation.chunkSize || Math.round(10 * sampleRate) || 2560,
@@ -238,12 +285,15 @@ export const useDDAPlot = ({
 
     // Debug logging
     if (process.env.NODE_ENV === "development") {
-      console.log("GraphQL Variables for GET_EDF_DATA:", variables);
+      console.log(
+        "GraphQL Variables for GET_EDF_DATA (using actual EDF path):",
+        variables
+      );
     }
 
     return variables;
   }, [
-    filePath,
+    edfFilePath,
     chunkNavigation.chunkStart,
     chunkNavigation.chunkSize,
     sampleRate,
@@ -251,18 +301,21 @@ export const useDDAPlot = ({
     preprocessingOptions,
   ]);
 
-  // Query skip condition - also check for valid chunkSize
-  const shouldSkipQuery = useMemo(() => {
+  // Update skip condition to use actual EDF file path
+  const shouldSkipEDFQuery = useMemo(() => {
     let skipReason = null;
 
-    if (!filePath || filePath === "") {
-      skipReason = "No filePath provided";
+    if (!edfFilePath || edfFilePath === "") {
+      skipReason = "No EDF filePath available";
     } else if (!chunkNavigation.chunkSize || chunkNavigation.chunkSize <= 0) {
       skipReason = `Invalid chunkSize: ${chunkNavigation.chunkSize}`;
     } else if (cacheState.useCachedData) {
       skipReason = "Using cached data";
     } else if (!shouldLoadChunk && plotState.edfData !== null) {
       skipReason = "Not loading chunk and plot data exists";
+    } else if (isDDArtifact && !actualEDFFilePath) {
+      skipReason =
+        "DDA artifact detected but original file path not yet loaded";
     }
 
     const shouldSkip = !!skipReason;
@@ -271,14 +324,25 @@ export const useDDAPlot = ({
     if (process.env.NODE_ENV === "development") {
       if (shouldSkip) {
         console.log("Skipping GET_EDF_DATA query:", skipReason);
+        console.log("Query skip state:", {
+          isDDArtifact,
+          edfFilePath: !!edfFilePath,
+          actualEDFFilePath: !!actualEDFFilePath,
+          chunkSize: chunkNavigation.chunkSize,
+          useCachedData: cacheState.useCachedData,
+          shouldLoadChunk,
+          hasExistingData: plotState.edfData !== null,
+        });
       } else {
-        console.log("Executing GET_EDF_DATA query");
+        console.log("Executing GET_EDF_DATA query for EDF file:", edfFilePath);
       }
     }
 
     return shouldSkip;
   }, [
-    filePath,
+    edfFilePath,
+    actualEDFFilePath,
+    isDDArtifact,
     chunkNavigation.chunkSize,
     cacheState.useCachedData,
     shouldLoadChunk,
@@ -287,15 +351,15 @@ export const useDDAPlot = ({
 
   // GraphQL queries
   const { data, loading, error, refetch } = useQuery(GET_EDF_DATA, {
-    variables: graphqlVariables,
-    skip: shouldSkipQuery,
+    variables: edfGraphqlVariables || {},
+    skip: shouldSkipEDFQuery || !edfGraphqlVariables,
     fetchPolicy: "cache-and-network",
     notifyOnNetworkStatusChange: true,
   });
 
   const { data: channelsData } = useQuery(GET_EDF_DEFAULT_CHANNELS, {
-    variables: { filename: filePath },
-    skip: !filePath,
+    variables: { filename: edfFilePath || filePath },
+    skip: !edfFilePath && !filePath,
   });
 
   // Initialize plot state and metadata
@@ -487,15 +551,42 @@ export const useDDAPlot = ({
     }
   }, [loading, downloadProgress]);
 
+  // Initialize data loading for new plots
+  useEffect(() => {
+    // For DDA artifacts, wait until we have the actual EDF file path
+    // For regular EDF files, proceed immediately
+    const shouldInitialize =
+      filePath &&
+      !plotState.edfData &&
+      !loading &&
+      !cacheState.useCachedData &&
+      (!isDDArtifact || (isDDArtifact && actualEDFFilePath));
+
+    if (shouldInitialize) {
+      const pathToUse = isDDArtifact ? actualEDFFilePath : filePath;
+      logger.info("Initializing data load for new plot:", pathToUse);
+      setShouldLoadChunk(true);
+    }
+  }, [
+    filePath,
+    actualEDFFilePath,
+    isDDArtifact,
+    plotState.edfData,
+    loading,
+    cacheState.useCachedData,
+  ]);
+
   // Refetch when parameters change
   useEffect(() => {
+    const pathForRefetch = edfFilePath || filePath;
     if (
-      filePath &&
+      pathForRefetch &&
       chunkNavigation.chunkSize &&
-      chunkNavigation.chunkSize > 0
+      chunkNavigation.chunkSize > 0 &&
+      (!isDDArtifact || actualEDFFilePath) // Wait for artifact processing if needed
     ) {
       refetch({
-        filename: filePath,
+        filename: pathForRefetch,
         chunkStart: chunkNavigation.chunkStart || 0,
         chunkSize: chunkNavigation.chunkSize,
         ...(hasActivePreprocessing(preprocessingOptions)
@@ -505,7 +596,10 @@ export const useDDAPlot = ({
       setShouldLoadChunk(true);
     }
   }, [
+    edfFilePath,
     filePath,
+    actualEDFFilePath,
+    isDDArtifact,
     refetch,
     chunkNavigation.chunkStart,
     chunkNavigation.chunkSize,
@@ -523,14 +617,19 @@ export const useDDAPlot = ({
   return {
     // Plot state
     plotState,
-    loading,
-    error,
+    loading: loading || artifactLoading,
+    error: error || artifactError,
     manualErrorMessage,
     downloadProgress,
     chartAreaRef,
     availableChannels,
     currentSample,
     editMode,
+
+    // DDA artifact data
+    isDDArtifact,
+    ddaQMatrix,
+    actualEDFFilePath,
 
     // Chunk navigation
     ...chunkNavigation,
