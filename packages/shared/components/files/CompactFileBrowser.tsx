@@ -29,6 +29,7 @@ import { cn } from "../../lib/utils/misc";
 import { useApiQuery } from "../../hooks/useApiQuery";
 import { apiRequest } from "../../lib/utils/request";
 import { toast } from "../../hooks/useToast";
+import { HorizontalResizableContainer } from "../ui/HorizontalResizableContainer";
 
 interface FileItem {
 	name: string;
@@ -58,6 +59,10 @@ interface CompactFileBrowserProps {
 	selectedFile?: string;
 	className?: string;
 	maxHeight?: string;
+	defaultWidth?: number;
+	minWidth?: number;
+	maxWidth?: number;
+	enableHorizontalResize?: boolean;
 }
 
 export function CompactFileBrowser({
@@ -65,6 +70,10 @@ export function CompactFileBrowser({
 	selectedFile,
 	className,
 	maxHeight = "500px",
+	defaultWidth = 350,
+	minWidth = 250,
+	maxWidth = 600,
+	enableHorizontalResize = true,
 }: CompactFileBrowserProps) {
 	const { data: session } = useSession();
 	const [currentPath, setCurrentPath] = useState("");
@@ -212,224 +221,248 @@ export function CompactFileBrowser({
 
 	if (loading && !data) {
 		return (
-			<Card className={className}>
-				<CardHeader className="pb-3">
-					<CardTitle className="text-base">File Browser</CardTitle>
-				</CardHeader>
-				<CardContent>
-					<div className="space-y-2">
-						{[...Array(5)].map((_, i) => (
-							<div key={i} className="flex items-center gap-2">
-								<Skeleton className="h-4 w-4" />
-								<Skeleton className="h-4 w-full" />
-							</div>
-						))}
-					</div>
-				</CardContent>
-			</Card>
+			<HorizontalResizableContainer
+				storageKey="compact-file-browser-width"
+				defaultWidth={defaultWidth}
+				minWidth={minWidth}
+				maxWidth={maxWidth}
+				enabled={enableHorizontalResize}
+			>
+				<Card className={className}>
+					<CardHeader className="pb-3">
+						<CardTitle className="text-base">File Browser</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<div className="space-y-2">
+							{[...Array(5)].map((_, i) => (
+								<div key={i} className="flex items-center gap-2">
+									<Skeleton className="h-4 w-4" />
+									<Skeleton className="h-4 w-full" />
+								</div>
+							))}
+						</div>
+					</CardContent>
+				</Card>
+			</HorizontalResizableContainer>
 		);
 	}
 
 	if (error) {
 		return (
-			<Card className={className}>
-				<CardHeader className="pb-3">
-					<CardTitle className="text-base">File Browser</CardTitle>
-				</CardHeader>
-				<CardContent>
-					<div className="text-center py-4">
-						<p className="text-sm text-destructive">
-							{typeof error === 'string' ? error : 'Failed to load files'}
-						</p>
-						<Button variant="outline" size="sm" onClick={refetch} className="mt-2">
-							Retry
-						</Button>
-					</div>
-				</CardContent>
-			</Card>
+			<HorizontalResizableContainer
+				storageKey="compact-file-browser-width"
+				defaultWidth={defaultWidth}
+				minWidth={minWidth}
+				maxWidth={maxWidth}
+				enabled={enableHorizontalResize}
+			>
+				<Card className={className}>
+					<CardHeader className="pb-3">
+						<CardTitle className="text-base">File Browser</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<div className="text-center py-4">
+							<p className="text-sm text-destructive">
+								{typeof error === 'string' ? error : 'Failed to load files'}
+							</p>
+							<Button variant="outline" size="sm" onClick={refetch} className="mt-2">
+								Retry
+							</Button>
+						</div>
+					</CardContent>
+				</Card>
+			</HorizontalResizableContainer>
 		);
 	}
 
 	return (
-		<Card className={className}>
-			<CardHeader className="pb-3">
-				<CardTitle className="text-base flex items-center justify-between">
-					<span className="flex items-center gap-2">
-						<Folder className="h-4 w-4" />
-						{currentDirName}
-					</span>
-					<div className="flex gap-2">
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={navigateBack}
-							disabled={!pathHistory.length}
-							title="Go back"
-						>
-							<ArrowLeft className="h-4 w-4" />
-						</Button>
-						<Button variant="outline" size="sm" onClick={refetch} title="Refresh">
-							Refresh
-						</Button>
-					</div>
-				</CardTitle>
-			</CardHeader>
-			<CardContent className="space-y-4">
-				{/* Search and Sort Controls */}
-				<div className="flex flex-col gap-2">
-					<div className="relative">
-						<Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-						<Input
-							placeholder="Search files..."
-							value={searchTerm}
-							onChange={(e) => setSearchTerm(e.target.value)}
-							className="pl-8 pr-8"
-						/>
-						{searchTerm && (
+		<HorizontalResizableContainer
+			storageKey="compact-file-browser-width"
+			defaultWidth={defaultWidth}
+			minWidth={minWidth}
+			maxWidth={maxWidth}
+			enabled={enableHorizontalResize}
+		>
+			<Card className={className}>
+				<CardHeader className="pb-3">
+					<CardTitle className="text-base flex items-center justify-between">
+						<span className="flex items-center gap-2">
+							<Folder className="h-4 w-4" />
+							{currentDirName}
+						</span>
+						<div className="flex gap-2">
 							<Button
-								variant="ghost"
+								variant="outline"
 								size="sm"
-								onClick={clearSearch}
-								className="absolute right-1 top-1 h-6 w-6 p-0 hover:bg-muted"
-								title="Clear search"
+								onClick={navigateBack}
+								disabled={!pathHistory.length}
+								title="Go back"
 							>
-								<X className="h-3 w-3" />
+								<ArrowLeft className="h-4 w-4" />
 							</Button>
-						)}
-					</div>
-					<div className="flex gap-2">
-						<Select value={sortOptions} onValueChange={setSortOptions}>
-							<SelectTrigger className="w-[120px]">
-								<SelectValue placeholder="Sort by" />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="name">Name</SelectItem>
-								<SelectItem value="size">Size</SelectItem>
-								<SelectItem value="lastModified">Modified</SelectItem>
-							</SelectContent>
-						</Select>
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
-							title={`Sort ${sortOrder === "asc" ? "descending" : "ascending"}`}
-						>
-							{sortOrder === "asc" ? (
-								<SortAsc className="h-4 w-4" />
-							) : (
-								<SortDesc className="h-4 w-4" />
+							<Button variant="outline" size="sm" onClick={refetch} title="Refresh">
+								Refresh
+							</Button>
+						</div>
+					</CardTitle>
+				</CardHeader>
+				<CardContent className="space-y-4">
+					{/* Search and Sort Controls */}
+					<div className="flex flex-col gap-2">
+						<div className="relative">
+							<Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+							<Input
+								placeholder="Search files..."
+								value={searchTerm}
+								onChange={(e) => setSearchTerm(e.target.value)}
+								className="pl-8 pr-8"
+							/>
+							{searchTerm && (
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={clearSearch}
+									className="absolute right-1 top-1 h-6 w-6 p-0 hover:bg-muted"
+									title="Clear search"
+								>
+									<X className="h-3 w-3" />
+								</Button>
 							)}
-						</Button>
-					</div>
-				</div>
-
-				{/* Search Results Info */}
-				{searchTerm && (
-					<div className="text-sm text-muted-foreground">
-						{sortedFiles.length === 0
-							? "No files match your search"
-							: `${sortedFiles.length} file${sortedFiles.length === 1 ? "" : "s"
-							} found`}
-					</div>
-				)}
-
-				{/* File List */}
-				<div className="border rounded-md overflow-hidden">
-					<ScrollArea style={{ height: maxHeight }}>
-						<table className="w-full">
-							<thead className="sticky top-0 bg-background z-10">
-								<tr className="border-b bg-muted/50">
-									<th className="text-left p-2">Name</th>
-									<th className="text-left p-2 w-20">Size</th>
-									<th className="text-right p-2 w-12">⭐</th>
-								</tr>
-							</thead>
-							<tbody>
-								{!sortedFiles?.length ? (
-									<tr>
-										<td
-											colSpan={3}
-											className="p-4 text-center text-muted-foreground"
-										>
-											{searchTerm
-												? "No files match your search"
-												: "No files found"}
-										</td>
-									</tr>
+						</div>
+						<div className="flex gap-2">
+							<Select value={sortOptions} onValueChange={setSortOptions}>
+								<SelectTrigger className="w-[120px]">
+									<SelectValue placeholder="Sort by" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="name">Name</SelectItem>
+									<SelectItem value="size">Size</SelectItem>
+									<SelectItem value="lastModified">Modified</SelectItem>
+								</SelectContent>
+							</Select>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
+								title={`Sort ${sortOrder === "asc" ? "descending" : "ascending"}`}
+							>
+								{sortOrder === "asc" ? (
+									<SortAsc className="h-4 w-4" />
 								) : (
-									sortedFiles.map((file) => {
-										const isSelected = file.path === selectedFile;
-										return (
-											<tr
-												key={file.path}
-												className={cn(
-													"border-b cursor-pointer transition-colors",
-													isSelected
-														? "bg-primary/10 hover:bg-primary/15 border-primary/20"
-														: "hover:bg-muted/50"
-												)}
-												onClick={() => handleFileClick(file)}
-											>
-												<td className="p-2 flex items-center gap-2">
-													{file.isDirectory ? (
-														<>
-															<Folder className="h-4 w-4 text-blue-500" />
-															<span
-																className={isSelected ? "font-medium" : ""}
-															>
-																{file.name}
-															</span>
-															<ChevronRight className="h-4 w-4 text-muted-foreground ml-auto" />
-														</>
-													) : (
-														<>
-															<File className="h-4 w-4 text-gray-500" />
-															<span
-																className={isSelected ? "font-medium" : ""}
-															>
-																{file.name}
-															</span>
-														</>
-													)}
-												</td>
-												<td className="p-2 text-sm text-muted-foreground">
-													{file.isDirectory
-														? "--"
-														: formatFileSize(file.size)}
-												</td>
-												<td className="p-2 text-right">
-													{!file.isDirectory && (
-														<Button
-															variant="ghost"
-															size="icon"
-															className="w-6 h-6"
-															onClick={(e) => handleStarClick(e, file)}
-															title={
-																file.isFavorite
-																	? "Unstar file"
-																	: "Star file"
-															}
-														>
-															<Star
-																className={cn(
-																	"h-3 w-3",
-																	file.isFavorite
-																		? "fill-yellow-400 text-yellow-400"
-																		: "text-muted-foreground"
-																)}
-															/>
-														</Button>
-													)}
-												</td>
-											</tr>
-										);
-									})
+									<SortDesc className="h-4 w-4" />
 								)}
-							</tbody>
-						</table>
-					</ScrollArea>
-				</div>
-			</CardContent>
-		</Card>
+							</Button>
+						</div>
+					</div>
+
+					{/* Search Results Info */}
+					{searchTerm && (
+						<div className="text-sm text-muted-foreground">
+							{sortedFiles.length === 0
+								? "No files match your search"
+								: `${sortedFiles.length} file${sortedFiles.length === 1 ? "" : "s"
+								} found`}
+						</div>
+					)}
+
+					{/* File List */}
+					<div className="border rounded-md overflow-hidden">
+						<ScrollArea style={{ height: maxHeight }}>
+							<table className="w-full">
+								<thead className="sticky top-0 bg-background z-10">
+									<tr className="border-b bg-muted/50">
+										<th className="text-left p-2">Name</th>
+										<th className="text-left p-2 w-20">Size</th>
+										<th className="text-right p-2 w-12">⭐</th>
+									</tr>
+								</thead>
+								<tbody>
+									{!sortedFiles?.length ? (
+										<tr>
+											<td
+												colSpan={3}
+												className="p-4 text-center text-muted-foreground"
+											>
+												{searchTerm
+													? "No files match your search"
+													: "No files found"}
+											</td>
+										</tr>
+									) : (
+										sortedFiles.map((file) => {
+											const isSelected = file.path === selectedFile;
+											return (
+												<tr
+													key={file.path}
+													className={cn(
+														"border-b cursor-pointer transition-colors",
+														isSelected
+															? "bg-primary/10 hover:bg-primary/15 border-primary/20"
+															: "hover:bg-muted/50"
+													)}
+													onClick={() => handleFileClick(file)}
+												>
+													<td className="p-2 flex items-center gap-2">
+														{file.isDirectory ? (
+															<>
+																<Folder className="h-4 w-4 text-blue-500" />
+																<span
+																	className={isSelected ? "font-medium" : ""}
+																>
+																	{file.name}
+																</span>
+																<ChevronRight className="h-4 w-4 text-muted-foreground ml-auto" />
+															</>
+														) : (
+															<>
+																<File className="h-4 w-4 text-gray-500" />
+																<span
+																	className={isSelected ? "font-medium" : ""}
+																>
+																	{file.name}
+																</span>
+															</>
+														)}
+													</td>
+													<td className="p-2 text-sm text-muted-foreground">
+														{file.isDirectory
+															? "--"
+															: formatFileSize(file.size)}
+													</td>
+													<td className="p-2 text-right">
+														{!file.isDirectory && (
+															<Button
+																variant="ghost"
+																size="icon"
+																className="w-6 h-6"
+																onClick={(e) => handleStarClick(e, file)}
+																title={
+																	file.isFavorite
+																		? "Unstar file"
+																		: "Star file"
+																}
+															>
+																<Star
+																	className={cn(
+																		"h-3 w-3",
+																		file.isFavorite
+																			? "fill-yellow-400 text-yellow-400"
+																			: "text-muted-foreground"
+																	)}
+																/>
+															</Button>
+														)}
+													</td>
+												</tr>
+											);
+										})
+									)}
+								</tbody>
+							</table>
+						</ScrollArea>
+					</div>
+				</CardContent>
+			</Card>
+		</HorizontalResizableContainer>
 	);
 }
