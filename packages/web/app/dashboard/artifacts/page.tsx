@@ -4,25 +4,22 @@ import { useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw } from "lucide-react";
-import { DashboardLayout } from "../DashboardLayout";
 import { Button } from "shared/components/ui/button";
 import { Card, CardContent } from "shared/components/ui/card";
 import { ArtifactCard } from "shared/components/ui/ArtifactCard";
 import { useArtifacts } from "shared/hooks/useArtifacts";
-import { useToast } from "shared/components/ui/use-toast";
 import { Artifact } from "shared/store/slices/artifactsSlice";
 
 export default function ArtifactsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const { toast } = useToast();
-  const { artifacts, loading, error, fetchArtifacts } = useArtifacts();
+  const { artifacts, loading, error, autoFetch, fetchArtifacts, clearArtifacts, enableAutoFetch } = useArtifacts();
 
   useEffect(() => {
-    if (status === "authenticated" && session?.accessToken) {
+    if (status === "authenticated" && session?.accessToken && autoFetch) {
       fetchArtifacts(session.accessToken);
     }
-  }, [status, session, fetchArtifacts]);
+  }, [status, session, autoFetch, fetchArtifacts]);
 
   const handleRefresh = () => {
     if (session?.accessToken) {
@@ -44,26 +41,47 @@ export default function ArtifactsPage() {
   }
 
   return (
-    <DashboardLayout>
+    <>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold">Artifacts</h1>
           <p className="text-muted-foreground">
             View and manage your DDA result artifacts
+            {!autoFetch && <span className="text-orange-500 font-medium"> (Auto-load disabled)</span>}
           </p>
         </div>
-        <Button
-          onClick={handleRefresh}
-          disabled={loading}
-          aria-label="Refresh artifacts"
-        >
-          {loading ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="mr-2 h-4 w-4" />
+        <div className="flex gap-2">
+          {!autoFetch && (
+            <Button
+              onClick={enableAutoFetch}
+              variant="default"
+              disabled={loading}
+              aria-label="Re-enable auto-loading of artifacts"
+            >
+              Enable Auto-Load
+            </Button>
           )}
-          Refresh
-        </Button>
+          <Button
+            onClick={clearArtifacts}
+            variant="outline"
+            disabled={loading}
+            aria-label="Clear artifacts from memory"
+          >
+            Clear
+          </Button>
+          <Button
+            onClick={handleRefresh}
+            disabled={loading}
+            aria-label="Refresh artifacts"
+          >
+            {loading ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {loading && artifacts.length === 0 ? (
@@ -92,6 +110,6 @@ export default function ArtifactsPage() {
           ))}
         </div>
       )}
-    </DashboardLayout>
+    </>
   );
 }
