@@ -28,6 +28,8 @@ import { plotCacheManager } from "../../lib/utils/plotCache";
 import logger from "../../lib/utils/logger";
 import { ResizableContainer } from "../ui/ResizableContainer";
 import { ChunkSelector } from "../ui/ChunkSelector";
+import { useLoadingManager } from "../../hooks/useLoadingManager";
+import { LoadingOverlay } from "../ui/loading-overlay";
 
 interface PersistentEEGPlotProps {
   filePath: string;
@@ -66,6 +68,9 @@ export function PersistentEEGPlot({
       initPlotState(filePath);
     }
   }, [filePath, initPlotState]);
+
+  // Initialize loading manager
+  const loadingManager = useLoadingManager();
 
   // Get state from context
   const plotState = getPlotState(filePath) || {
@@ -190,6 +195,9 @@ export function PersistentEEGPlot({
     fetchPolicy: "cache-first", // Cache the result for this file
   });
 
+  // Generate unique loading ID for this plot
+  const loadingId = `eeg-plot-${filePath}-${chunkStart}`;
+
   // Query for EDF data
   const { loading, error, data, refetch } = useQuery(GET_EDF_DATA, {
     variables: {
@@ -208,7 +216,27 @@ export function PersistentEEGPlot({
         JSON.stringify(plotState.preprocessingOptions)),
     fetchPolicy: useCachedData ? "cache-only" : "network-only",
     errorPolicy: "all",
+    onCompleted: () => {
+      // Stop loading when query completes
+      loadingManager.stop(loadingId);
+    },
+    onError: () => {
+      // Stop loading on error
+      loadingManager.stop(loadingId);
+    }
   });
+
+  // Start loading when query begins
+  useEffect(() => {
+    if (loading && !useCachedData) {
+      const chunkNumber = Math.floor(chunkStart / Math.round(chunkSizeSeconds * sampleRate)) + 1;
+      loadingManager.startFileLoad(
+        loadingId,
+        `Loading EEG data chunk ${chunkNumber}...`,
+        false // Don't show global overlay for individual chunks
+      );
+    }
+  }, [loading, loadingId, chunkStart, chunkSizeSeconds, sampleRate, useCachedData, loadingManager]);
 
   // Store data in cache when it's loaded
   useEffect(() => {
@@ -324,7 +352,7 @@ export function PersistentEEGPlot({
         samplesPerChannel: edfDataToUse.chunkSize,
         sampleRate: edfDataToUse.samplingFrequency,
         data: edfDataToUse.data,
-        startTime: new Date(edfDataToUse.startTime || Date.now()),
+        startTime: new Date(edfDataToUse.startTime || Date.now()).toISOString(),
         duration: actualChunkDuration,
         absoluteStartTime: absoluteStartSec,
         annotations: chunkAnnotations,
@@ -343,6 +371,15 @@ export function PersistentEEGPlot({
     setChunkStart(newStart);
     setLoadingNewChunk(true);
     setDownloadProgress(0);
+
+    // Start loading with unified system
+    const newChunkNumber = Math.floor(newStart / chunkSizeSamples) + 1;
+    const newLoadingId = `eeg-plot-${filePath}-${newStart}`;
+    loadingManager.startFileLoad(
+      newLoadingId,
+      `Loading chunk ${newChunkNumber}...`,
+      false
+    );
   };
 
   const handleNextChunk = () => {
@@ -351,6 +388,15 @@ export function PersistentEEGPlot({
       setChunkStart(newStart);
       setLoadingNewChunk(true);
       setDownloadProgress(0);
+
+      // Start loading with unified system
+      const newChunkNumber = Math.floor(newStart / chunkSizeSamples) + 1;
+      const newLoadingId = `eeg-plot-${filePath}-${newStart}`;
+      loadingManager.startFileLoad(
+        newLoadingId,
+        `Loading chunk ${newChunkNumber}...`,
+        false
+      );
     }
   };
 
@@ -364,6 +410,14 @@ export function PersistentEEGPlot({
       setChunkStart(newStart);
       setLoadingNewChunk(true);
       setDownloadProgress(0);
+
+      // Start loading with unified system
+      const newLoadingId = `eeg-plot-${filePath}-${newStart}`;
+      loadingManager.startFileLoad(
+        newLoadingId,
+        `Loading chunk ${chunkNumber}...`,
+        false
+      );
     } else {
       console.log('CHUNK SELECT: Invalid chunk selection attempted', {
         chunkNumber,
@@ -423,18 +477,20 @@ export function PersistentEEGPlot({
     }
   };
 
-  if (loading) {
+  // Check if loading via the unified system
+  const isLoadingData = loading && !useCachedData;
+
+  if (isLoadingData) {
+    const chunkNumber = Math.floor(chunkStart / Math.round(chunkSizeSeconds * sampleRate)) + 1;
     return (
-      <div className={cn("flex items-center justify-center h-full", className)}>
-        <div className="text-center">
-          <Spinner size="lg" />
-          <div className="mt-4 text-sm text-muted-foreground">
-            Loading EDF data...
-          </div>
-          {downloadProgress > 0 && (
-            <Progress value={downloadProgress} className="w-48 mt-2 mx-auto" />
-          )}
-        </div>
+      <div className={cn("h-full relative", className)}>
+        <LoadingOverlay
+          show={true}
+          message={`Loading EEG data chunk ${chunkNumber}...`}
+          type="file-load"
+          variant="modal"
+          size="lg"
+        />
       </div>
     );
   }

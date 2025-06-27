@@ -366,7 +366,7 @@ export const useDDAPlot = ({
           samplesPerChannel,
           sampleRate,
           data: edfNumericData,
-          startTime: new Date(),
+          startTime: new Date().toISOString(),
           duration: samplesPerChannel / sampleRate,
           absoluteStartTime: 0,
           annotations: [],

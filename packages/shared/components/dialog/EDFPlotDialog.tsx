@@ -749,7 +749,7 @@ export function EDFPlotDialog({
         samplesPerChannel: edfDataToUse.chunkSize,
         sampleRate: edfDataToUse.samplingFrequency,
         data: edfDataToUse.data,
-        startTime: new Date(edfDataToUse.startTime || Date.now()),
+        startTime: edfDataToUse.startTime || new Date().toISOString(),
         duration: actualChunkDuration, // Use actual duration from the data
         absoluteStartTime: absoluteStartSec, // Add absolute start time for x-axis positioning
         annotations: chunkAnnotations,
