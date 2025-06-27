@@ -22,10 +22,11 @@ import { EEGZoomSettings } from "../settings/EEGZoomSettings";
 import { useDDAPlot } from "../../hooks/useDDAPlot";
 import { useSession } from "next-auth/react";
 import type { DDAPlotProps } from "../../types/DDAPlotProps";
-import { Loader2 } from "lucide-react";
+import { useLoadingManager } from "../../hooks/useLoadingManager";
+import { LoadingOverlay } from "../ui/loading-overlay";
 
 export function DDAPlot(props: DDAPlotProps) {
-  const { filePath, Q, selectedChannels, artifactInfo } = props;
+  const { filePath, Q, selectedChannels, artifactInfo, noBorder = false } = props;
 
   const { data: session } = useSession();
 
@@ -86,56 +87,11 @@ export function DDAPlot(props: DDAPlotProps) {
     </div>
   );
 
-  // Elegant loading animation component
-  const HeatmapLoadingAnimation = ({ Q }: { Q?: any[][] }) => {
-    const matrixRows = Array.isArray(Q) ? Q.length : 0;
-    const matrixCols = Array.isArray(Q) && Q[0] ? Q[0].length : 0;
+  // Initialize loading manager for heatmap processing
+  const loadingManager = useLoadingManager();
 
-    return (
-      <div
-        className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm"
-        style={{ backgroundColor: 'rgba(255, 255, 255, 0.95)' }} // Fallback
-      >
-        <div className="flex flex-col items-center space-y-6 p-8">
-          {/* Main spinner - simplified for reliability */}
-          <div className="relative">
-            <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-            <div className="absolute inset-0 w-16 h-16 border-4 border-blue-100 rounded-full opacity-20"></div>
-          </div>
-
-          {/* Processing text */}
-          <div className="text-center space-y-3">
-            <h3 className="text-xl font-semibold text-blue-600">
-              Processing DDA Heatmap
-            </h3>
-            <p className="text-sm text-gray-600 max-w-md">
-              Analyzing {matrixRows} × {matrixCols} matrix for differential drive analysis
-            </p>
-          </div>
-
-          {/* Simple progress bar */}
-          <div className="w-64 space-y-2">
-            <div className="flex justify-between text-xs text-gray-500">
-              <span>Computing correlations</span>
-              <span>Please wait...</span>
-            </div>
-            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-500 rounded-full animate-pulse"></div>
-            </div>
-          </div>
-
-          {/* Status indicator */}
-          <div className="flex items-center space-x-2 text-xs text-gray-500">
-            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-            <span>Processing matrix data...</span>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <Card className="h-full flex flex-col relative">
+  const plotContent = (
+    <>
       <PlotControls
         onPrevChunk={handlePrevChunk}
         onNextChunk={handleNextChunk}
@@ -181,10 +137,15 @@ export function DDAPlot(props: DDAPlotProps) {
         </Dialog>
       )}
 
-      <CardContent ref={chartAreaRef} className="flex-grow p-0 relative">
-        <div className="border-b px-4 py-2 bg-muted/30">
-          <h2 className="text-lg font-semibold">EEG Time Series Plot</h2>
-        </div>
+      <div
+        ref={chartAreaRef}
+        className={noBorder ? "flex-grow relative" : "flex-grow p-0 relative"}
+      >
+        {!noBorder && (
+          <div className="border-b px-4 py-2 bg-muted/30">
+            <h2 className="text-lg font-semibold">EEG Time Series Plot</h2>
+          </div>
+        )}
         {manualErrorMessage && !loading && (
           <Alert variant="destructive" className="m-4">
             <AlertDescription>{manualErrorMessage}</AlertDescription>
@@ -261,7 +222,13 @@ export function DDAPlot(props: DDAPlotProps) {
 
               {/* Loading overlay */}
               {isHeatmapProcessing && (
-                <HeatmapLoadingAnimation Q={effectiveQ} />
+                <LoadingOverlay
+                  show={true}
+                  message="Processing DDA Heatmap..."
+                  type="dda-processing"
+                  variant="modal"
+                  size="lg"
+                />
               )}
 
               {/* Heatmap content */}
@@ -278,7 +245,7 @@ export function DDAPlot(props: DDAPlotProps) {
             </div>
           )}
         </div>
-      </CardContent>
+      </div>
 
       <AnnotationEditor
         filePath={actualEDFFilePath || filePath}
@@ -289,8 +256,26 @@ export function DDAPlot(props: DDAPlotProps) {
         onAnnotationUpdate={updateAnnotation}
         onAnnotationSelect={handleAnnotationSelect}
       />
-      <Card className="mt-4">
-        <CardContent className="p-4">
+
+      {!noBorder && (
+        <Card className="mt-4">
+          <CardContent className="p-4">
+            <ChannelSelectorUI
+              availableChannels={availableChannels}
+              selectedChannels={selectedChannels}
+              onToggleChannel={toggleChannel}
+              onSelectAllChannels={handleSelectAllChannels}
+              onClearAllChannels={handleClearAllChannels}
+              onSelectChannels={handleSelectChannels}
+              isLoading={loading && availableChannels.length === 0}
+              error={error && availableChannels.length === 0 ? error : null}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {noBorder && (
+        <div className="mt-4 border rounded-lg p-4">
           <ChannelSelectorUI
             availableChannels={availableChannels}
             selectedChannels={selectedChannels}
@@ -301,8 +286,20 @@ export function DDAPlot(props: DDAPlotProps) {
             isLoading={loading && availableChannels.length === 0}
             error={error && availableChannels.length === 0 ? error : null}
           />
-        </CardContent>
-      </Card>
+        </div>
+      )}
+    </>
+  );
+
+  return noBorder ? (
+    <div className="h-full flex flex-col relative">
+      {plotContent}
+    </div>
+  ) : (
+    <Card className="h-full flex flex-col relative">
+      <CardContent className="flex-grow p-0 relative">
+        {plotContent}
+      </CardContent>
     </Card>
   );
 }

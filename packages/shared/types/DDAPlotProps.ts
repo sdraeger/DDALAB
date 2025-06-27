@@ -12,4 +12,5 @@ export interface DDAPlotProps {
   onChannelSelectionChange: (channels: string[]) => void;
   onAvailableChannelsChange?: (channels: string[]) => void;
   artifactInfo?: ArtifactInfo;
+  noBorder?: boolean;
 }
