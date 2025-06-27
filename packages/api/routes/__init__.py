@@ -38,3 +38,8 @@ router.include_router(
 router.include_router(edf_router, prefix="/edf", tags=["edf"])
 router_metrics.include_router(metrics_router, prefix="/metrics", tags=["metrics"])
 router.include_router(layouts_router, prefix="/layouts", tags=["layouts"])
+
+
+def include_routers(app):
+    """Include routers in the FastAPI app - deprecated function, routers are included directly."""
+    pass

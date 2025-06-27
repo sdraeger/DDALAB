@@ -83,9 +83,7 @@ async def get_current_user(
             logger.warning(f"Expired token for user: {username}")
             raise HTTPException(status_code=401, detail="Token expired")
 
-        logger.debug("Before get_user")
         user = await user_service.get_user(username=username)
-        logger.debug("After get_user")
 
         if not user:
             logger.error(f"User not found: {username}")
