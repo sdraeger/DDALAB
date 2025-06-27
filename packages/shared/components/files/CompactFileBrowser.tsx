@@ -63,6 +63,7 @@ interface CompactFileBrowserProps {
 	minWidth?: number;
 	maxWidth?: number;
 	enableHorizontalResize?: boolean;
+	noBorder?: boolean;
 }
 
 export function CompactFileBrowser({
@@ -74,6 +75,7 @@ export function CompactFileBrowser({
 	minWidth = 250,
 	maxWidth = 600,
 	enableHorizontalResize = true,
+	noBorder = false,
 }: CompactFileBrowserProps) {
 	const { data: session } = useSession();
 	const [currentPath, setCurrentPath] = useState("");
@@ -219,74 +221,37 @@ export function CompactFileBrowser({
 	// Show current directory path with navigation
 	const currentDirName = currentPath.split('/').pop() || 'Root';
 
-	if (loading && !data) {
-		return (
-			<HorizontalResizableContainer
-				storageKey="compact-file-browser-width"
-				defaultWidth={defaultWidth}
-				minWidth={minWidth}
-				maxWidth={maxWidth}
-				enabled={enableHorizontalResize}
-			>
-				<Card className={className}>
-					<CardHeader className="pb-3">
-						<CardTitle className="text-base">File Browser</CardTitle>
-					</CardHeader>
-					<CardContent>
-						<div className="space-y-2">
-							{[...Array(5)].map((_, i) => (
-								<div key={i} className="flex items-center gap-2">
-									<Skeleton className="h-4 w-4" />
-									<Skeleton className="h-4 w-full" />
-								</div>
-							))}
-						</div>
-					</CardContent>
-				</Card>
-			</HorizontalResizableContainer>
-		);
-	}
+	const renderContent = () => {
+		const content = (
+			<div className={noBorder ? "space-y-4" : ""}>
+				{!noBorder && (
+					<div className="pb-3">
+						<h3 className="text-base font-semibold flex items-center justify-between">
+							<span className="flex items-center gap-2">
+								<Folder className="h-4 w-4" />
+								{currentDirName}
+							</span>
+							<div className="flex gap-2">
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={navigateBack}
+									disabled={!pathHistory.length}
+									title="Go back"
+								>
+									<ArrowLeft className="h-4 w-4" />
+								</Button>
+								<Button variant="outline" size="sm" onClick={refetch} title="Refresh">
+									Refresh
+								</Button>
+							</div>
+						</h3>
+					</div>
+				)}
 
-	if (error) {
-		return (
-			<HorizontalResizableContainer
-				storageKey="compact-file-browser-width"
-				defaultWidth={defaultWidth}
-				minWidth={minWidth}
-				maxWidth={maxWidth}
-				enabled={enableHorizontalResize}
-			>
-				<Card className={className}>
-					<CardHeader className="pb-3">
-						<CardTitle className="text-base">File Browser</CardTitle>
-					</CardHeader>
-					<CardContent>
-						<div className="text-center py-4">
-							<p className="text-sm text-destructive">
-								{typeof error === 'string' ? error : 'Failed to load files'}
-							</p>
-							<Button variant="outline" size="sm" onClick={refetch} className="mt-2">
-								Retry
-							</Button>
-						</div>
-					</CardContent>
-				</Card>
-			</HorizontalResizableContainer>
-		);
-	}
-
-	return (
-		<HorizontalResizableContainer
-			storageKey="compact-file-browser-width"
-			defaultWidth={defaultWidth}
-			minWidth={minWidth}
-			maxWidth={maxWidth}
-			enabled={enableHorizontalResize}
-		>
-			<Card className={className}>
-				<CardHeader className="pb-3">
-					<CardTitle className="text-base flex items-center justify-between">
-						<span className="flex items-center gap-2">
+				{noBorder && (
+					<div className="flex items-center justify-between mb-4">
+						<span className="flex items-center gap-2 text-sm font-medium">
 							<Folder className="h-4 w-4" />
 							{currentDirName}
 						</span>
@@ -304,9 +269,10 @@ export function CompactFileBrowser({
 								Refresh
 							</Button>
 						</div>
-					</CardTitle>
-				</CardHeader>
-				<CardContent className="space-y-4">
+					</div>
+				)}
+
+				<div className="space-y-4">
 					{/* Search and Sort Controls */}
 					<div className="flex flex-col gap-2">
 						<div className="relative">
@@ -461,6 +427,142 @@ export function CompactFileBrowser({
 							</table>
 						</ScrollArea>
 					</div>
+				</div>
+			</div>
+		);
+
+		return content;
+	};
+
+	if (loading && !data) {
+		const loadingContent = (
+			<div className={noBorder ? "space-y-4" : ""}>
+				{!noBorder && (
+					<div className="pb-3">
+						<h3 className="text-base font-semibold">File Browser</h3>
+					</div>
+				)}
+				{noBorder && (
+					<h3 className="text-base font-semibold mb-4">File Browser</h3>
+				)}
+				<div className="space-y-2">
+					{[...Array(5)].map((_, i) => (
+						<div key={i} className="flex items-center gap-2">
+							<Skeleton className="h-4 w-4" />
+							<Skeleton className="h-4 w-full" />
+						</div>
+					))}
+				</div>
+			</div>
+		);
+
+		if (noBorder) {
+			return <div className={className}>{loadingContent}</div>;
+		}
+
+		return (
+			<HorizontalResizableContainer
+				storageKey="compact-file-browser-width"
+				defaultWidth={defaultWidth}
+				minWidth={minWidth}
+				maxWidth={maxWidth}
+				enabled={enableHorizontalResize}
+			>
+				<Card className={className}>
+					<CardHeader className="pb-3">
+						<CardTitle className="text-base">File Browser</CardTitle>
+					</CardHeader>
+					<CardContent>
+						{loadingContent}
+					</CardContent>
+				</Card>
+			</HorizontalResizableContainer>
+		);
+	}
+
+	if (error) {
+		const errorContent = (
+			<div className={noBorder ? "space-y-4" : ""}>
+				{!noBorder && (
+					<div className="pb-3">
+						<h3 className="text-base font-semibold">File Browser</h3>
+					</div>
+				)}
+				{noBorder && (
+					<h3 className="text-base font-semibold mb-4">File Browser</h3>
+				)}
+				<div className="text-center py-4">
+					<p className="text-sm text-destructive">
+						{typeof error === 'string' ? error : 'Failed to load files'}
+					</p>
+					<Button variant="outline" size="sm" onClick={refetch} className="mt-2">
+						Retry
+					</Button>
+				</div>
+			</div>
+		);
+
+		if (noBorder) {
+			return <div className={className}>{errorContent}</div>;
+		}
+
+		return (
+			<HorizontalResizableContainer
+				storageKey="compact-file-browser-width"
+				defaultWidth={defaultWidth}
+				minWidth={minWidth}
+				maxWidth={maxWidth}
+				enabled={enableHorizontalResize}
+			>
+				<Card className={className}>
+					<CardHeader className="pb-3">
+						<CardTitle className="text-base">File Browser</CardTitle>
+					</CardHeader>
+					<CardContent>
+						{errorContent}
+					</CardContent>
+				</Card>
+			</HorizontalResizableContainer>
+		);
+	}
+
+	if (noBorder) {
+		return <div className={className}>{renderContent()}</div>;
+	}
+
+	return (
+		<HorizontalResizableContainer
+			storageKey="compact-file-browser-width"
+			defaultWidth={defaultWidth}
+			minWidth={minWidth}
+			maxWidth={maxWidth}
+			enabled={enableHorizontalResize}
+		>
+			<Card className={className}>
+				<CardHeader className="pb-3">
+					<CardTitle className="text-base flex items-center justify-between">
+						<span className="flex items-center gap-2">
+							<Folder className="h-4 w-4" />
+							{currentDirName}
+						</span>
+						<div className="flex gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={navigateBack}
+								disabled={!pathHistory.length}
+								title="Go back"
+							>
+								<ArrowLeft className="h-4 w-4" />
+							</Button>
+							<Button variant="outline" size="sm" onClick={refetch} title="Refresh">
+								Refresh
+							</Button>
+						</div>
+					</CardTitle>
+				</CardHeader>
+				<CardContent className="space-y-4">
+					{renderContent()}
 				</CardContent>
 			</Card>
 		</HorizontalResizableContainer>

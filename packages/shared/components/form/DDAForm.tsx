@@ -48,6 +48,7 @@ interface DDAFormProps {
   filePath: string;
   selectedChannels: string[];
   setSelectedChannels: (channels: string[]) => void;
+  noBorder?: boolean;
 }
 
 interface DDAResponse {
@@ -63,6 +64,7 @@ export function DDAForm({
   filePath,
   selectedChannels,
   setSelectedChannels,
+  noBorder = false,
 }: DDAFormProps) {
   const { data: session } = useSession();
   const [Q, setQ] = useState<number[][] | null>(null);
@@ -205,6 +207,64 @@ export function DDAForm({
     }
   };
 
+  const formContent = (
+    <Form {...form}>
+      <div className="space-y-6">
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-sm font-medium mb-2">Selected File</h3>
+            <p className="text-sm text-muted-foreground break-all border p-2 rounded-md bg-muted/50">
+              {filePath}
+            </p>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-medium mb-2">
+              Selected Channels
+            </h3>
+            <div className="flex items-center gap-2">
+              <div className="text-sm text-muted-foreground">
+                {selectedChannels.length === 0 && availableChannels.length === 0 ? (
+                  <span className="text-muted-foreground">
+                    Loading channels...
+                  </span>
+                ) : selectedChannels.length === 0 ? (
+                  <span className="text-destructive">
+                    No channels selected
+                  </span>
+                ) : (
+                  <span>
+                    {selectedChannels.length} channel
+                    {selectedChannels.length !== 1 ? "s" : ""} selected
+                  </span>
+                )}
+              </div>
+              {selectedChannels.length > 0 && (
+                <div className="text-xs text-muted-foreground bg-green-500/10 rounded-md px-2 py-1">
+                  Ready!
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <Button
+          type="button"
+          onClick={handleRunDDAClick}
+          disabled={selectedChannels.length === 0 && availableChannels.length > 0}
+          className="w-full md:w-auto"
+          size="lg"
+        >
+          {selectedChannels.length === 0 && availableChannels.length === 0
+            ? "Loading channels..."
+            : selectedChannels.length === 0
+              ? "Select channels to run DDA"
+              : "Configure & Run DDA"}
+        </Button>
+      </div>
+    </Form>
+  );
+
   return (
     <div className="space-y-6">
       {serverConfigError && (
@@ -218,69 +278,26 @@ export function DDAForm({
           </AlertDescription>
         </Alert>
       )}
-      <Card>
-        <CardHeader>
-          <CardTitle>DDA</CardTitle>
-          <CardDescription>Configure and run DDA</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <div className="space-y-6">
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-sm font-medium mb-2">Selected File</h3>
-                  <p className="text-sm text-muted-foreground break-all border p-2 rounded-md bg-muted/50">
-                    {filePath}
-                  </p>
-                </div>
 
-                <div>
-                  <h3 className="text-sm font-medium mb-2">
-                    Selected Channels
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    <div className="text-sm text-muted-foreground">
-                      {selectedChannels.length === 0 && availableChannels.length === 0 ? (
-                        <span className="text-muted-foreground">
-                          Loading channels...
-                        </span>
-                      ) : selectedChannels.length === 0 ? (
-                        <span className="text-destructive">
-                          No channels selected
-                        </span>
-                      ) : (
-                        <span>
-                          {selectedChannels.length} channel
-                          {selectedChannels.length !== 1 ? "s" : ""} selected
-                        </span>
-                      )}
-                    </div>
-                    {selectedChannels.length > 0 && (
-                      <div className="text-xs text-muted-foreground bg-green-500/10 rounded-md px-2 py-1">
-                        Ready!
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <Button
-                type="button"
-                onClick={handleRunDDAClick}
-                disabled={selectedChannels.length === 0 && availableChannels.length > 0}
-                className="w-full md:w-auto"
-                size="lg"
-              >
-                {selectedChannels.length === 0 && availableChannels.length === 0
-                  ? "Loading channels..."
-                  : selectedChannels.length === 0
-                    ? "Select channels to run DDA"
-                    : "Configure & Run DDA"}
-              </Button>
-            </div>
-          </Form>
-        </CardContent>
-      </Card>
+      {noBorder ? (
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold mb-2">DDA</h2>
+            <p className="text-sm text-muted-foreground mb-4">Configure and run DDA</p>
+          </div>
+          {formContent}
+        </div>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>DDA</CardTitle>
+            <CardDescription>Configure and run DDA</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {formContent}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Preprocessing Dialog */}
       <FormProvider {...form}>
@@ -323,6 +340,7 @@ export function DDAForm({
           normalization: form.watch("normalization"),
         }}
         artifactInfo={artifactInfo || undefined}
+        noBorder={noBorder}
       />
     </div>
   );
