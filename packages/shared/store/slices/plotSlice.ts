@@ -4,6 +4,9 @@ import { EdfFileInfo } from "../../lib/schemas/edf";
 import { Annotation } from "../../types/annotation";
 import { EEGData } from "../../types/EEGData";
 import logger from "../../lib/utils/logger";
+import { apolloClient } from "../../lib/utils/apollo-client";
+import { GET_EDF_DATA } from "../../lib/graphql/queries";
+import { startLoading, stopLoading, updateProgress } from "./loadingSlice";
 
 interface PlotMetadata extends EdfFileInfo {
   availableChannels?: string[];
@@ -33,6 +36,14 @@ export interface PlotState {
   // Heatmap
   showHeatmap: boolean;
   ddaHeatmapData: any[] | null; // Define a more specific type if possible
+
+  // DDA Results
+  ddaResults: {
+    Q: number[][] | null;
+    metadata?: any;
+    artifact_id?: string;
+    file_path?: string;
+  } | null;
 
   // Annotations
   annotations: Annotation[] | null;
@@ -68,6 +79,7 @@ const initialPlotState: PlotState = {
   zoomLevel: 1,
   showHeatmap: false,
   ddaHeatmapData: null,
+  ddaResults: null,
   annotations: null,
   showSettingsDialog: false,
   showZoomSettingsDialog: false,
@@ -82,35 +94,51 @@ export const initializePlot = createAsyncThunk(
     { filePath, token }: { filePath: string; token: string | undefined },
     { rejectWithValue, dispatch }
   ) => {
-    if (!token) {
-      return rejectWithValue("No token provided for fetching plot info.");
-    }
-    logger.info(`[Thunk] Initializing plot for: ${filePath}`);
-    const infoRequestOptions: ApiRequestOptions & { responseType: "json" } = {
-      url: `/api/edf/info?file_path=${encodeURIComponent(filePath)}`,
-      method: "GET",
-      token,
-      responseType: "json",
-      contentType: "application/json",
-    };
+    const loadingId = `initialize-${filePath}`;
+
+    // Start loading
+    dispatch(
+      startLoading({
+        id: loadingId,
+        type: "file-load",
+        message: `Loading metadata for ${filePath.split("/").pop()}...`,
+        showGlobalOverlay: false,
+      })
+    );
+
     try {
+      if (!token) {
+        throw new Error("No token provided for fetching plot info.");
+      }
+
+      logger.info(`[Thunk] Initializing plot for: ${filePath}`);
+      const infoRequestOptions: ApiRequestOptions & { responseType: "json" } = {
+        url: `/api/edf/info?file_path=${encodeURIComponent(filePath)}`,
+        method: "GET",
+        token,
+        responseType: "json",
+        contentType: "application/json",
+      };
+
       const fileInfo = await apiRequest<EdfFileInfo>(infoRequestOptions);
       if (!fileInfo) {
-        return rejectWithValue(
+        throw new Error(
           "Failed to fetch file info (response was null/undefined)"
         );
       }
-      // Potentially dispatch action to load first chunk here or let component do it
-      // dispatch(loadChunk({ filePath, chunkNumber: 1, token /*, preprocessingOptions */ }));
+
       return { filePath, fileInfo };
     } catch (error: any) {
       logger.error("[Thunk] Error initializing plot:", error);
       return rejectWithValue(error.message || "Could not load file metadata.");
+    } finally {
+      // Stop loading
+      dispatch(stopLoading(loadingId));
     }
   }
 );
 
-// Thunk to load EDF data for a chunk
+// Thunk to load EDF data for a chunk using GraphQL
 export const loadChunk = createAsyncThunk(
   "plots/loadChunk",
   async (
@@ -129,10 +157,11 @@ export const loadChunk = createAsyncThunk(
       preprocessingOptions?: any;
       qValue?: any;
     },
-    { getState, rejectWithValue }
+    { getState, rejectWithValue, dispatch }
   ) => {
     const state = getState() as { plots: PlotsState };
     const plot = state.plots[filePath];
+
     if (!plot || !plot.metadata) {
       return rejectWithValue("Plot or metadata not initialized.");
     }
@@ -140,68 +169,100 @@ export const loadChunk = createAsyncThunk(
       return rejectWithValue("No token provided for fetching chunk data.");
     }
 
+    const loadingId = `load-chunk-${filePath}-${chunkNumber}`;
     const chunkStartSample =
       (chunkNumber - 1) * chunkSizeSeconds * plot.metadata.sampling_rate;
-    const chunkEndSample =
-      chunkStartSample + chunkSizeSeconds * plot.metadata.sampling_rate - 1;
+    const chunkSizeInSamples = chunkSizeSeconds * plot.metadata.sampling_rate;
 
-    logger.info(
-      `[Thunk] Loading chunk ${chunkNumber} for ${filePath}. Samples: ${chunkStartSample}-${chunkEndSample}`
+    // Start loading
+    dispatch(
+      startLoading({
+        id: loadingId,
+        type: "file-load",
+        message: `Loading chunk ${chunkNumber} of ${filePath
+          .split("/")
+          .pop()}...`,
+        showGlobalOverlay: false,
+        metadata: {
+          filePath,
+          chunkNumber,
+          chunkStartSample,
+          chunkSizeInSamples,
+        },
+      })
     );
 
     try {
-      // This is where you'd use Apollo Client if GET_EDF_DATA is a GraphQL query
-      // For simplicity, let's assume an API endpoint for now or adapt to GraphQL
-      // const response = await apolloClient.query({ ... });
-      // Or, if it's a REST API call similar to fileInfo:
-      const dataRequestOptions: ApiRequestOptions & { responseType: "json" } = {
-        // Modify this URL and body as per your actual API for fetching chunk data
-        url: `/api/edf/data`,
-        method: "POST", // Or GET, depending on your API
-        token,
-        body: {
-          file_path: filePath,
-          chunk_number: chunkNumber,
-          chunk_size_seconds: chunkSizeSeconds,
-          // preprocessing_options: preprocessingOptions, // Send if needed
-          // q_value: qValue, // Send if needed
-          start_sample: chunkStartSample,
-          end_sample: chunkEndSample,
-          selected_channels: plot.selectedChannels, // Send selected channels if backend filters by them
-        },
-        responseType: "json",
-        contentType: "application/json",
-      };
-      const eegData = await apiRequest<EEGData>(dataRequestOptions); // Adjust EEGData type as needed
+      logger.info(
+        `[Thunk] Loading chunk ${chunkNumber} for ${filePath}. Samples: ${chunkStartSample}-${
+          chunkStartSample + chunkSizeInSamples - 1
+        }`
+      );
 
-      // If using GraphQL:
-      // const { data: eegData, error, networkStatus } = await apolloClient.query({
-      //   query: GET_EDF_DATA,
-      //   variables: {
-      //     filePath,
-      //     startSample: chunkStartSample,
-      //     endSample: chunkEndSample,
-      //     // Pass other variables like selectedChannels, preprocessingOptions if your query supports them
-      //   },
-      //   fetchPolicy: 'network-only', // Ensure fresh data
-      // });
-      // if (error) throw error;
-      // if (!eegData || !eegData.getEdfData) throw new Error("No data returned from getEdfData query");
+      // Use GraphQL query to fetch EDF data
+      const { data: gqlData } = await apolloClient.query({
+        query: GET_EDF_DATA,
+        variables: {
+          filename: filePath,
+          chunkStart: chunkStartSample,
+          chunkSize: chunkSizeInSamples,
+          includeNavigationInfo: true,
+          ...(preprocessingOptions ? { preprocessingOptions } : {}),
+        },
+        fetchPolicy: "network-only", // Ensure fresh data
+      });
+
+      if (!gqlData || !gqlData.getEdfData) {
+        throw new Error("No data returned from GraphQL query");
+      }
+
+      const rawEdfData = gqlData.getEdfData;
+
+      // Update progress as we process the data
+      dispatch(
+        updateProgress({
+          id: loadingId,
+          progress: 80,
+          message: `Processing data for chunk ${chunkNumber}...`,
+        })
+      );
+
+      // Transform GraphQL response to EEGData format
+      const eegData: EEGData = {
+        channels: rawEdfData.channelLabels || [],
+        sampleRate: rawEdfData.samplingFrequency || 256,
+        data: rawEdfData.data || [],
+        startTime: new Date().toISOString(), // Convert to ISO string for Redux serialization
+        duration: rawEdfData.chunkSize
+          ? rawEdfData.chunkSize / rawEdfData.samplingFrequency
+          : chunkSizeSeconds,
+        samplesPerChannel: rawEdfData.data?.[0]?.length || 0,
+        totalSamples: rawEdfData.totalSamples || 0,
+        chunkSize: rawEdfData.chunkSize || chunkSizeInSamples,
+        chunkStart: rawEdfData.chunkStart || chunkStartSample,
+        absoluteStartTime: 0,
+        annotations: [],
+      };
+
+      logger.info(
+        `[Thunk] Successfully loaded chunk ${chunkNumber} with ${eegData.channels.length} channels`
+      );
 
       return {
         filePath,
         chunkNumber,
         chunkStart: (chunkNumber - 1) * chunkSizeSeconds,
-        eegData /*: eegData.getEdfData*/,
+        eegData,
       };
     } catch (error: any) {
       logger.error(
         `[Thunk] Error loading chunk ${chunkNumber} for ${filePath}:`,
         error
       );
-      return rejectWithValue(
-        error.message || "Could not load EDF data for chunk."
-      );
+      return rejectWithValue(error.message || "Could not load chunk data.");
+    } finally {
+      // Stop loading
+      dispatch(stopLoading(loadingId));
     }
   }
 );
@@ -380,6 +441,24 @@ const plotsSlice = createSlice({
         plot.preprocessingOptions = options;
       }
     },
+    setDDAResults: (
+      state,
+      action: PayloadAction<{
+        filePath: string;
+        results: {
+          Q: number[][];
+          metadata?: any;
+          artifact_id?: string;
+          file_path?: string;
+        };
+      }>
+    ) => {
+      const { filePath, results } = action.payload;
+      const plot = state[filePath];
+      if (plot) {
+        plot.ddaResults = results;
+      }
+    },
     // UI State Reducers
     setShowSettingsDialog: (
       state,
@@ -550,6 +629,7 @@ export const {
   updatePlotAnnotation,
   deletePlotAnnotation,
   setPlotPreprocessingOptions,
+  setDDAResults,
   setShowSettingsDialog,
   cleanupPlotState,
 } = plotsSlice.actions;
