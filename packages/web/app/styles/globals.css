@@ -1,5 +1,7 @@
 @import url("https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;700&display=swap");
 
+/* Clean dashboard styles - using custom implementation instead of problematic libraries */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

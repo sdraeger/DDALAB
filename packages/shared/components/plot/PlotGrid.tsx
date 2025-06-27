@@ -6,8 +6,6 @@ import { useApiQuery } from "../../hooks/useApiQuery";
 import { useToast } from "../ui/use-toast";
 import { Button } from "../ui/button";
 import { ArtifactIdentifier } from "../ui/ArtifactIdentifier";
-import "react-grid-layout/css/styles.css";
-import "react-resizable/css/styles.css";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
