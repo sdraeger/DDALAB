@@ -26,10 +26,16 @@ import {
 
 const navigationItems = [
 	{
-		title: "Overview",
+		title: "Workspace",
 		url: "/dashboard",
+		icon: FolderOpen,
+		description: "Flexible dashboard with draggable widgets",
+	},
+	{
+		title: "Overview",
+		url: "/dashboard/overview",
 		icon: Home,
-		description: "Dashboard home and file browser",
+		description: "Dashboard overview and quick actions",
 	},
 	{
 		title: "Data Analysis",
