@@ -3,10 +3,14 @@ export interface EEGData {
   samplesPerChannel: number;
   sampleRate: number;
   data: number[][];
-  startTime: Date;
+  startTime: string;
   duration: number;
   absoluteStartTime?: number;
   annotations?: any[];
+  // Chunk-related properties for plot state management
+  totalSamples?: number;
+  chunkSize?: number;
+  chunkStart?: number;
 }
 
 export interface EEGDataChunk extends EEGData {

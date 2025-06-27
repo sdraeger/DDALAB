@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useToast } from "./useToast";
+import { useLoadingManager } from "./useLoadingManager";
 import { plotCacheManager } from "../lib/utils/cache";
 import logger from "../lib/utils/logger";
 import type { HeatmapPoint } from "../components/plot/DDAHeatmap";
@@ -24,6 +25,7 @@ export const useHeatmapData = ({
   Q,
 }: UseHeatmapDataProps): UseHeatmapDataReturn => {
   const { toast } = useToast();
+  const loadingManager = useLoadingManager();
   const [ddaHeatmapData, setDdaHeatmapData] = useState<HeatmapPoint[]>([]);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [isHeatmapProcessing, setIsHeatmapProcessing] = useState(false);
@@ -131,6 +133,15 @@ export const useHeatmapData = ({
       // Set loading state immediately to show animation
       setIsHeatmapProcessing(true);
 
+      // Start unified loading
+      const loadingId = `heatmap-${filePath}`;
+      const matrixRows = Q.length;
+      const matrixCols = Q[0]?.length || 0;
+      loadingManager.startDDAProcessing(
+        loadingId,
+        `Processing ${matrixRows}×${matrixCols} DDA heatmap...`
+      );
+
       // Check cache first
       const heatmapCacheKey = { filePath, Q };
       const cachedHeatmap =
@@ -142,6 +153,10 @@ export const useHeatmapData = ({
         setShowHeatmap(true);
         setIsHeatmapProcessing(false);
         processingRef.current = false;
+
+        // Stop loading since we're using cached data
+        const loadingId = `heatmap-${filePath}`;
+        loadingManager.stop(loadingId);
         return;
       }
 
@@ -165,6 +180,15 @@ export const useHeatmapData = ({
           // Cache the processed data
           plotCacheManager.cacheHeatmapData(heatmapCacheKey, processedData);
           logger.info("Cached heatmap data:", filePath);
+
+          // Complete loading successfully
+          const loadingId = `heatmap-${filePath}`;
+          loadingManager.updateProgress(
+            loadingId,
+            100,
+            "Heatmap generated successfully!"
+          );
+          setTimeout(() => loadingManager.stop(loadingId), 500);
         } catch (err) {
           console.error("Error processing heatmap data:", err);
           logger.error("Error processing heatmap data:", err);
@@ -174,6 +198,10 @@ export const useHeatmapData = ({
             variant: "destructive",
           });
           setShowHeatmap(false);
+
+          // Stop loading on error
+          const loadingId = `heatmap-${filePath}`;
+          loadingManager.stop(loadingId);
         } finally {
           setIsHeatmapProcessing(false);
           processingRef.current = false;
@@ -188,7 +216,14 @@ export const useHeatmapData = ({
       setIsHeatmapProcessing(false);
       processingRef.current = false;
     }
-  }, [Q, filePath, qCacheKey, processMatrixForHeatmapAsync, toast]);
+  }, [
+    Q,
+    filePath,
+    qCacheKey,
+    processMatrixForHeatmapAsync,
+    toast,
+    loadingManager,
+  ]);
 
   const toggleHeatmap = useCallback(() => {
     if (!showHeatmap && Q && filePath) {
@@ -207,6 +242,15 @@ export const useHeatmapData = ({
       // Process asynchronously
       setIsHeatmapProcessing(true);
 
+      // Start unified loading
+      const loadingId = `heatmap-toggle-${filePath}`;
+      const matrixRows = Q.length;
+      const matrixCols = Q[0]?.length || 0;
+      loadingManager.startDDAProcessing(
+        loadingId,
+        `Processing ${matrixRows}×${matrixCols} DDA heatmap...`
+      );
+
       const processData = async () => {
         try {
           const processedData = await processMatrixForHeatmapAsync(Q);
@@ -216,6 +260,14 @@ export const useHeatmapData = ({
           // Cache the processed data
           plotCacheManager.cacheHeatmapData(heatmapCacheKey, processedData);
           logger.info("Cached heatmap data:", filePath);
+
+          // Complete loading successfully
+          loadingManager.updateProgress(
+            loadingId,
+            100,
+            "Heatmap generated successfully!"
+          );
+          setTimeout(() => loadingManager.stop(loadingId), 500);
         } catch (err) {
           logger.error("Error processing heatmap data:", err);
           toast({
@@ -224,6 +276,9 @@ export const useHeatmapData = ({
             variant: "destructive",
           });
           setShowHeatmap(false);
+
+          // Stop loading on error
+          loadingManager.stop(loadingId);
         } finally {
           setIsHeatmapProcessing(false);
         }
@@ -233,7 +288,14 @@ export const useHeatmapData = ({
     } else {
       setShowHeatmap(!showHeatmap);
     }
-  }, [showHeatmap, Q, filePath, processMatrixForHeatmapAsync, toast]);
+  }, [
+    showHeatmap,
+    Q,
+    filePath,
+    processMatrixForHeatmapAsync,
+    toast,
+    loadingManager,
+  ]);
 
   return {
     ddaHeatmapData,
