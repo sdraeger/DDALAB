@@ -36,6 +36,7 @@ export * from "./hooks/useArtifactInfo";
 export * from "./hooks/useWelcomeWidget";
 export * from "./hooks/useSimpleDashboard";
 export * from "./hooks/useLoadingManager";
+export * from "./hooks/usePersistentDashboard";
 
 // Simple Dashboard components (new clean system)
 export { SimpleDashboardGrid } from "./components/dashboard/SimpleDashboardGrid";
@@ -57,3 +58,44 @@ export * from "./types/auth";
 export * from "./types/EEGData";
 export * from "./types/annotation";
 export * from "./types/form-props";
+
+// Export components
+export * from "./components/providers";
+export * from "./components/theme/ThemeProvider";
+export * from "./components/theme/ThemeInitializer";
+export * from "./components/settings/ThemeSettings";
+export * from "./components/settings/EEGZoomSettings";
+export * from "./components/ModeToggle";
+export * from "./components/higher-order/ProtectedRoute";
+export * from "./components/higher-order/ApolloWrapper";
+export * from "./components/layout/Footer";
+export * from "./components/layout/DashboardSidebar";
+export * from "./components/layout/DashboardTabs";
+export * from "./components/layout/Header";
+export * from "./components/form/DDAForm";
+export * from "./components/form/ResultsForm";
+export * from "./components/files/FileBrowser";
+export * from "./components/files/CompactFileBrowser";
+export * from "./components/files/FileActionButton";
+export * from "./components/plot/DDAPlot";
+export * from "./components/plot/DDAHeatmap";
+export * from "./components/plot/EEGChart";
+export * from "./components/dialog/EDFPlotDialog";
+export * from "./components/dialog/PreprocessingDialog";
+export * from "./components/dialog/ShareArtifactDialog";
+export * from "./components/DDAResults";
+
+// Export hooks that exist
+export * from "./hooks/useAnnotationManagement";
+export * from "./hooks/useApiQuery";
+
+// Export contexts that exist
+export * from "./contexts/DashboardStateContext";
+export * from "./contexts/EDFPlotContext";
+export * from "./contexts/PersistentPlotsContext";
+
+// Export utilities that exist
+export * from "./lib/utils/edf-time-utils";
+
+// Export store
+export * from "./store";
