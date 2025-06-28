@@ -1,6 +1,10 @@
 import { PlotDataCacheManager, PlotCacheKey } from "./plotDataCache";
 import { HeatmapCacheManager, HeatmapCacheKey } from "./heatmapCache";
 import { AnnotationCacheManager } from "./annotationCache";
+import {
+  WidgetLayoutCacheManager,
+  WidgetLayoutData,
+} from "./widgetLayoutCache";
 
 /**
  * Unified cache manager that coordinates specialized cache managers
@@ -11,11 +15,13 @@ class UnifiedCacheManager {
   private plotCache: PlotDataCacheManager;
   private heatmapCache: HeatmapCacheManager;
   private annotationCache: AnnotationCacheManager;
+  private widgetLayoutCache: WidgetLayoutCacheManager;
 
   private constructor() {
     this.plotCache = PlotDataCacheManager.getInstance();
     this.heatmapCache = HeatmapCacheManager.getInstance();
     this.annotationCache = AnnotationCacheManager.getInstance();
+    this.widgetLayoutCache = WidgetLayoutCacheManager.getInstance();
 
     // Set up periodic cleanup for all cache managers only in browser environment
     if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
@@ -32,91 +38,122 @@ class UnifiedCacheManager {
     return UnifiedCacheManager.instance;
   }
 
-  // Plot data methods
-  getCachedPlotData(key: PlotCacheKey): any | null {
+  // Plot cache methods
+  getCachedPlotData(key: PlotCacheKey) {
     return this.plotCache.getCachedPlotData(key);
   }
 
-  cachePlotData(key: PlotCacheKey, data: any): void {
-    this.plotCache.cachePlotData(key, data);
+  cachePlotData(key: PlotCacheKey, data: any) {
+    return this.plotCache.cachePlotData(key, data);
   }
 
-  // Heatmap data methods
-  getCachedHeatmapData(key: HeatmapCacheKey): any | null {
+  clearPlotCache() {
+    return this.plotCache.clearCache();
+  }
+
+  clearPlotFileCache(filePath: string) {
+    return this.plotCache.clearFileCache(filePath);
+  }
+
+  // Heatmap cache methods
+  getCachedHeatmapData(key: HeatmapCacheKey) {
     return this.heatmapCache.getCachedHeatmapData(key);
   }
 
-  cacheHeatmapData(key: HeatmapCacheKey, data: any): void {
-    this.heatmapCache.cacheHeatmapData(key, data);
+  cacheHeatmapData(key: HeatmapCacheKey, data: any) {
+    return this.heatmapCache.cacheHeatmapData(key, data);
   }
 
-  // Annotation methods
-  getCachedAnnotations(filePath: string): any | null {
+  clearHeatmapCache() {
+    return this.heatmapCache.clearCache();
+  }
+
+  clearHeatmapFileCache(filePath: string) {
+    return this.heatmapCache.clearFileCache(filePath);
+  }
+
+  // Annotation cache methods
+  getCachedAnnotations(filePath: string) {
     return this.annotationCache.getCachedAnnotations(filePath);
   }
 
-  cacheAnnotations(filePath: string, data: any): void {
-    this.annotationCache.cacheAnnotations(filePath, data);
+  cacheAnnotations(filePath: string, data: any) {
+    return this.annotationCache.cacheAnnotations(filePath, data);
   }
 
-  // File-specific cleanup
-  clearFileCache(filePath: string): void {
-    this.plotCache.clearFileCache(filePath);
-    this.heatmapCache.clearFileCache(filePath);
-    this.annotationCache.clearFileCache(filePath);
+  clearAnnotationCache() {
+    return this.annotationCache.clearCache();
   }
 
-  // Global cleanup
-  clearExpiredCache(): void {
-    this.plotCache.clearExpiredCache();
-    this.heatmapCache.clearExpiredCache();
-    this.annotationCache.clearExpiredCache();
+  clearAnnotationFileCache(filePath: string) {
+    return this.annotationCache.clearFileCache(filePath);
   }
 
-  // Clear memory cache (if available in individual managers)
-  clearMemoryCache(): void {
-    // Individual cache managers would need to implement this
-    console.log(
-      "clearMemoryCache called on UnifiedCacheManager - not implemented"
-    );
+  // Widget layout cache methods
+  getCachedWidgetLayout(userId: string): WidgetLayoutData[] | null {
+    return this.widgetLayoutCache.getCachedLayout(userId);
   }
 
-  // Cache statistics - get stats from actual cache managers
+  cacheWidgetLayout(userId: string, widgets: WidgetLayoutData[]) {
+    return this.widgetLayoutCache.cacheLayout(userId, widgets);
+  }
+
+  clearWidgetLayoutCache() {
+    return this.widgetLayoutCache.clearCache();
+  }
+
+  clearUserWidgetLayoutCache(userId: string) {
+    return this.widgetLayoutCache.clearUserCache(userId);
+  }
+
+  // Clear specific file caches across all cache types
+  clearFileCache(filePath: string) {
+    this.clearPlotFileCache(filePath);
+    this.clearHeatmapFileCache(filePath);
+    this.clearAnnotationFileCache(filePath);
+  }
+
+  // Clear expired cache entries across all cache types
+  clearExpiredCache() {
+    try {
+      this.plotCache.clearExpiredEntries();
+      this.heatmapCache.clearExpiredEntries();
+      this.annotationCache.clearExpiredEntries();
+      this.widgetLayoutCache.clearExpiredEntries();
+    } catch (error) {
+      console.warn("Error during cache cleanup:", error);
+    }
+  }
+
+  // Clear all caches
+  clearAllCache() {
+    this.clearPlotCache();
+    this.clearHeatmapCache();
+    this.clearAnnotationCache();
+    this.clearWidgetLayoutCache();
+  }
+
+  // Get cache statistics
   getCacheStats() {
-    console.log("UnifiedCacheManager getCacheStats called");
-
-    // Get stats from PlotDataCacheManager (which now has getCacheStats method)
-    const plotStats = this.plotCache.getCacheStats();
-
-    // For heatmap and annotation counts, use CacheUtils as fallback
-    const cacheUtilsStats = require("./cacheUtils").CacheUtils.getCacheStats();
-
-    console.log("Plot cache stats:", plotStats);
-    console.log("CacheUtils stats:", cacheUtilsStats);
-
     return {
-      plotCount: plotStats.plotCount,
-      heatmapCount: cacheUtilsStats.heatmapCount,
-      annotationCount: cacheUtilsStats.annotationCount,
-      totalSizeMB:
-        plotStats.totalSizeMB +
-        (cacheUtilsStats.totalSizeMB - plotStats.totalSizeMB), // Avoid double counting
-      totalSizeBytes:
-        plotStats.totalSizeBytes +
-        (cacheUtilsStats.totalSize - plotStats.totalSizeBytes),
-      memoryPlotCount: plotStats.memoryPlotCount,
-      memoryHeatmapCount: 0, // TODO: implement in HeatmapCacheManager
-      memoryAnnotationCount: 0, // TODO: implement in AnnotationCacheManager
-      memorySizeMB: plotStats.memorySizeMB,
+      plot: this.plotCache.getCacheStats(),
+      heatmap: this.heatmapCache.getCacheStats(),
+      annotation: this.annotationCache.getCacheStats(),
+      widgetLayout: this.widgetLayoutCache.getCacheStats(),
     };
   }
 }
 
-// Export singleton instance
-export const plotCacheManager = UnifiedCacheManager.getInstance();
+// Export the unified cache manager instance
+export const cacheManager = UnifiedCacheManager.getInstance();
 
-// Export utilities
-export { CacheUtils } from "./cacheUtils";
+// Export individual cache managers for direct access if needed
+export {
+  PlotDataCacheManager,
+  HeatmapCacheManager,
+  AnnotationCacheManager,
+  WidgetLayoutCacheManager,
+};
 
-// Export types for external use
-export type { PlotCacheKey, HeatmapCacheKey };
+// Export types
+export type { PlotCacheKey, HeatmapCacheKey, WidgetLayoutData };
