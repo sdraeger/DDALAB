@@ -111,11 +111,11 @@ export class PlotDataCacheManager extends BaseCacheManager<any> {
    * Get cache statistics including memory cache
    */
   getCacheStats(): {
-    plotCount: number;
+    totalEntries: number;
+    memoryEntries: number;
     totalSizeMB: number;
-    totalSizeBytes: number;
-    memoryPlotCount: number;
     memorySizeMB: number;
+    ttlSeconds: number;
   } {
     // Get localStorage stats
     const keys = this.getAllCacheKeys();
@@ -143,19 +143,12 @@ export class PlotDataCacheManager extends BaseCacheManager<any> {
 
     const totalSizeBytes = localStorageSize + memoryStats.sizeMB * 1024 * 1024;
 
-    console.log("PlotDataCacheManager getCacheStats:", {
-      localStorageKeys: keys.length,
-      memoryKeys: memoryStats.count,
-      memoryPlotKeys: memoryPlotKeys.length,
-      memorySizeMB: memoryStats.sizeMB,
-    });
-
     return {
-      plotCount: keys.length + memoryPlotKeys.length,
+      totalEntries: keys.length + memoryPlotKeys.length,
+      memoryEntries: memoryPlotKeys.length,
       totalSizeMB: totalSizeBytes / 1024 / 1024,
-      totalSizeBytes,
-      memoryPlotCount: memoryPlotKeys.length,
       memorySizeMB: memoryStats.sizeMB,
+      ttlSeconds: this.ttl / 1000,
     };
   }
 }
