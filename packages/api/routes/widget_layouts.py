@@ -1,0 +1,110 @@
+from core.auth import get_current_user
+from core.database import User
+from core.dependencies import get_service
+from core.services import LayoutService
+from fastapi import APIRouter, Depends, HTTPException, status
+from loguru import logger
+from schemas.widget_layout import (
+    GetWidgetLayoutResponse,
+    SaveWidgetLayoutRequest,
+    WidgetLayoutData,
+    WidgetLayoutResponse,
+)
+
+router = APIRouter()
+
+
+@router.post("", response_model=WidgetLayoutResponse)
+async def save_widget_layout(
+    request: SaveWidgetLayoutRequest,
+    current_user: User = Depends(get_current_user),
+    layout_service: LayoutService = Depends(get_service(LayoutService)),
+):
+    """
+    Save user-specific widget layouts in the user_layouts table.
+    """
+    try:
+        # Convert widget layout data to dictionaries for the service layer
+        widget_dicts = [widget.model_dump() for widget in request.widgets]
+        await layout_service.save_user_layouts(current_user.id, widget_dicts)
+        logger.info(
+            f"Saved widget layout for user {current_user.id} with {len(widget_dicts)} widgets"
+        )
+        return WidgetLayoutResponse(
+            status="success",
+            message="Widget layout saved successfully",
+            widgets=request.widgets,
+        )
+
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(ve),
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to save widget layout for user {current_user.id}: {str(e)}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save widget layout: {str(e)}",
+        )
+
+
+@router.get("", response_model=GetWidgetLayoutResponse)
+async def get_widget_layout(
+    current_user: User = Depends(get_current_user),
+    layout_service: LayoutService = Depends(get_service(LayoutService)),
+):
+    """
+    Retrieve user-specific widget layouts.
+    """
+    try:
+        layout_dicts = await layout_service.get_user_layouts(current_user.id)
+        # Convert dictionaries back to Pydantic models for the response
+        widgets = [WidgetLayoutData(**widget_dict) for widget_dict in layout_dicts]
+        logger.info(
+            f"Retrieved widget layout for user {current_user.id} with {len(widgets)} widgets"
+        )
+        return GetWidgetLayoutResponse(widgets=widgets)
+
+    except Exception as e:
+        logger.error(
+            f"Failed to retrieve widget layout for user {current_user.id}: {str(e)}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve widget layout: {str(e)}",
+        )
+
+
+@router.delete("", response_model=WidgetLayoutResponse)
+async def delete_widget_layout(
+    current_user: User = Depends(get_current_user),
+    layout_service: LayoutService = Depends(get_service(LayoutService)),
+):
+    """
+    Delete user-specific widget layouts.
+    """
+    try:
+        deleted_layout = await layout_service.delete_user_layouts(current_user.id)
+        if deleted_layout:
+            logger.info(f"Deleted widget layout for user {current_user.id}")
+            return WidgetLayoutResponse(
+                status="success",
+                message="Widget layout deleted successfully",
+                widgets=[],
+            )
+        else:
+            return WidgetLayoutResponse(
+                status="success", message="No widget layout found to delete", widgets=[]
+            )
+
+    except Exception as e:
+        logger.error(
+            f"Failed to delete widget layout for user {current_user.id}: {str(e)}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete widget layout: {str(e)}",
+        )
