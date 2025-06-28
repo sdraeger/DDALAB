@@ -3,9 +3,16 @@
 import React from "react";
 import { SimpleDashboardGrid, SimpleWidget } from "shared/components/dashboard/SimpleDashboardGrid";
 import { SimpleDashboardToolbar } from "shared/components/dashboard/SimpleDashboardToolbar";
-import { useSimpleDashboard } from "shared/hooks/useSimpleDashboard";
+import { usePersistentDashboard } from "shared/hooks/usePersistentDashboard";
+import { Button } from "shared/components/ui/button";
+import { Save, RefreshCw, Trash2 } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { useToast } from "shared/components/ui/use-toast";
 
 export default function SimpleDashboard() {
+	const { data: session } = useSession();
+	const { toast } = useToast();
+
 	// Initialize with some default widgets
 	const initialWidgets: SimpleWidget[] = [
 		{
@@ -84,12 +91,105 @@ export default function SimpleDashboard() {
 		}
 	];
 
-	const { widgets, updateWidget, addWidget, removeWidget, popOutWidget, swapInWidget } = useSimpleDashboard(initialWidgets);
+	const {
+		widgets,
+		updateWidget,
+		addWidget,
+		removeWidget,
+		popOutWidget,
+		swapInWidget,
+		saveLayout,
+		loadLayout,
+		clearSavedLayout,
+		isLoading,
+		isSaving,
+		isLayoutLoaded
+	} = usePersistentDashboard(initialWidgets, {
+		autoSaveDelay: 2000, // 2 seconds auto-save delay
+		enableAutoSave: true,
+		enableCache: true,
+	});
+
+	const handleManualSave = async () => {
+		try {
+			await saveLayout();
+		} catch (error) {
+			// Error handling is done in the hook
+		}
+	};
+
+	const handleManualLoad = async () => {
+		try {
+			await loadLayout();
+			toast({
+				title: "Layout Reloaded",
+				description: "Your saved layout has been reloaded.",
+				duration: 2000,
+			});
+		} catch (error) {
+			// Error handling is done in the hook
+		}
+	};
+
+	const handleClearLayout = async () => {
+		try {
+			await clearSavedLayout();
+		} catch (error) {
+			// Error handling is done in the hook
+		}
+	};
 
 	return (
 		<div className="h-screen flex flex-col">
-			<SimpleDashboardToolbar onAddWidget={addWidget} />
-			<div className="flex-1 overflow-hidden">
+			<div className="flex items-center justify-between px-4 py-2 bg-background border-b">
+				<SimpleDashboardToolbar onAddWidget={addWidget} className="flex-1" />
+				{/* Layout controls - show if user is logged in */}
+				{session && isLayoutLoaded && (
+					<div className="flex items-center gap-2 ml-4">
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={handleManualSave}
+							disabled={isSaving || !session}
+							className="gap-1"
+						>
+							<Save className="h-3 w-3" />
+							{isSaving ? "Saving..." : "Save Layout"}
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={handleManualLoad}
+							disabled={isLoading}
+							className="gap-1"
+						>
+							<RefreshCw className="h-3 w-3" />
+							Reload
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={handleClearLayout}
+							className="gap-1 text-destructive hover:text-destructive"
+						>
+							<Trash2 className="h-3 w-3" />
+							Clear
+						</Button>
+					</div>
+				)}
+			</div>
+
+			<div className="flex-1 overflow-hidden relative">
+				{/* Loading overlay */}
+				{isLoading && (
+					<div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+						<div className="text-center">
+							<RefreshCw className="h-8 w-8 animate-spin mx-auto mb-2" />
+							<p className="text-sm text-muted-foreground">Loading your layout...</p>
+						</div>
+					</div>
+				)}
+
 				<SimpleDashboardGrid
 					widgets={widgets}
 					onWidgetUpdate={updateWidget}
@@ -101,6 +201,14 @@ export default function SimpleDashboard() {
 					enableSnapping={false}
 					enableCollisionDetection={false}
 				/>
+
+				{/* Auto-save indicator */}
+				{isSaving && (
+					<div className="absolute bottom-4 right-4 bg-primary text-primary-foreground px-3 py-1 rounded-md text-sm flex items-center gap-2">
+						<RefreshCw className="h-3 w-3 animate-spin" />
+						Auto-saving...
+					</div>
+				)}
 			</div>
 		</div>
 	);
