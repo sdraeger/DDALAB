@@ -7,7 +7,7 @@ import { useEDFPlot } from "../contexts/EDFPlotContext";
 import { useAnnotationManagement } from "./useAnnotationManagement";
 import { apiRequest } from "../lib/utils/request";
 import logger from "../lib/utils/logger";
-import { plotCacheManager } from "../lib/utils/cache";
+import { cacheManager } from "../lib/utils/cache";
 import type { EEGData } from "../types/EEGData";
 import type { Annotation } from "../types/annotation";
 import type { HeatmapPoint } from "../components/plot/DDAHeatmap";

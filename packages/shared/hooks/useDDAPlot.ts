@@ -11,7 +11,7 @@ import { useChunkNavigation } from "./useChunkNavigation";
 import { useTimeWindow } from "./useTimeWindow";
 import { useHeatmapData } from "./useHeatmapData";
 import logger from "../lib/utils/logger";
-import { plotCacheManager } from "../lib/utils/cache";
+import { cacheManager } from "../lib/utils/cache";
 import type { Annotation } from "../types/annotation";
 import type { DDAPlotProps } from "../types/DDAPlotProps";
 
@@ -179,7 +179,7 @@ export const useDDAPlot = ({
     let cacheHit = false;
 
     // Check cached plot data
-    const cachedData = plotCacheManager.getCachedPlotData(cacheKey);
+    const cachedData = cacheManager.getCachedPlotData(cacheKey);
     if (cachedData) {
       logger.info("Cache hit for plot data:", filePath);
       cacheHit = true;
@@ -192,7 +192,7 @@ export const useDDAPlot = ({
     }
 
     // Check cached annotations
-    const cachedAnnotations = plotCacheManager.getCachedAnnotations(filePath);
+    const cachedAnnotations = cacheManager.getCachedAnnotations(filePath);
     if (cachedAnnotations) {
       logger.info("Cache hit for annotations:", filePath);
       updatePlotState(filePath, { annotations: cachedAnnotations });
@@ -437,7 +437,7 @@ export const useDDAPlot = ({
         ? preprocessingOptions
         : undefined,
     };
-    plotCacheManager.cachePlotData(cacheKey, transformedEdfData);
+    cacheManager.cachePlotData(cacheKey, transformedEdfData);
     setShouldLoadChunk(false);
 
     // Debug logging for transformed data
@@ -609,7 +609,7 @@ export const useDDAPlot = ({
   // Periodic cache cleanup
   useEffect(() => {
     const interval = setInterval(() => {
-      plotCacheManager.clearExpiredCache();
+      cacheManager.clearExpiredCache();
     }, 60000);
     return () => clearInterval(interval);
   }, []);

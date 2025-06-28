@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useToast } from "./useToast";
 import { useLoadingManager } from "./useLoadingManager";
-import { plotCacheManager } from "../lib/utils/cache";
+import { cacheManager } from "../lib/utils/cache";
 import logger from "../lib/utils/logger";
 import type { HeatmapPoint } from "../components/plot/DDAHeatmap";
 
@@ -144,8 +144,7 @@ export const useHeatmapData = ({
 
       // Check cache first
       const heatmapCacheKey = { filePath, Q };
-      const cachedHeatmap =
-        plotCacheManager.getCachedHeatmapData(heatmapCacheKey);
+      const cachedHeatmap = cacheManager.getCachedHeatmapData(heatmapCacheKey);
 
       if (cachedHeatmap) {
         console.log("Using cached heatmap data");
@@ -178,7 +177,7 @@ export const useHeatmapData = ({
           setShowHeatmap(true);
 
           // Cache the processed data
-          plotCacheManager.cacheHeatmapData(heatmapCacheKey, processedData);
+          cacheManager.cacheHeatmapData(heatmapCacheKey, processedData);
           logger.info("Cached heatmap data:", filePath);
 
           // Complete loading successfully
@@ -229,8 +228,7 @@ export const useHeatmapData = ({
     if (!showHeatmap && Q && filePath) {
       // Check cache first
       const heatmapCacheKey = { filePath, Q };
-      const cachedHeatmap =
-        plotCacheManager.getCachedHeatmapData(heatmapCacheKey);
+      const cachedHeatmap = cacheManager.getCachedHeatmapData(heatmapCacheKey);
 
       if (cachedHeatmap) {
         logger.info("Using cached heatmap data:", filePath);
@@ -258,7 +256,7 @@ export const useHeatmapData = ({
           setShowHeatmap(true);
 
           // Cache the processed data
-          plotCacheManager.cacheHeatmapData(heatmapCacheKey, processedData);
+          cacheManager.cacheHeatmapData(heatmapCacheKey, processedData);
           logger.info("Cached heatmap data:", filePath);
 
           // Complete loading successfully
