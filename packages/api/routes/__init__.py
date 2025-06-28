@@ -1,6 +1,7 @@
 """API router initialization."""
 
 from fastapi import APIRouter
+from prometheus_client import generate_latest
 
 from .artifacts import router as artifacts_router
 from .config import router as config_router
@@ -14,6 +15,7 @@ from .metrics import router as metrics_router
 from .tickets import router as tickets_router
 from .user_preferences import router as user_preferences_router
 from .users import router as users_router
+from .widget_layouts import router as widget_layouts_router
 
 # Create router with trailing slash config
 router = APIRouter()
@@ -38,8 +40,17 @@ router.include_router(
 router.include_router(edf_router, prefix="/edf", tags=["edf"])
 router_metrics.include_router(metrics_router, prefix="/metrics", tags=["metrics"])
 router.include_router(layouts_router, prefix="/layouts", tags=["layouts"])
+router.include_router(
+    widget_layouts_router, prefix="/widget-layouts", tags=["widget-layouts"]
+)
 
 
 def include_routers(app):
     """Include routers in the FastAPI app - deprecated function, routers are included directly."""
     pass
+
+
+@router_metrics.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    return generate_latest().decode()
