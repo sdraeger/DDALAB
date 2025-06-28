@@ -519,4 +519,74 @@ export abstract class BaseCacheManager<T> {
       console.log(`Removed ${removedCount} expired cache entries`);
     }
   }
+
+  /**
+   * Clear all cache entries for this manager
+   */
+  clearCache(): void {
+    const keys = this.getAllCacheKeys();
+    keys.forEach((key) => {
+      this.removeCacheEntry(key);
+    });
+    this.memoryCache.clear();
+  }
+
+  /**
+   * Clear expired cache entries
+   */
+  clearExpiredEntries(): void {
+    const now = Date.now();
+
+    // Clear expired memory cache
+    for (const [key, value] of this.memoryCache.entries()) {
+      if (now > value.expiry) {
+        this.memoryCache.delete(key);
+      }
+    }
+
+    // Clear expired localStorage entries
+    if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
+      const keys = this.getAllCacheKeys();
+      keys.forEach((key) => {
+        try {
+          const cached = localStorage.getItem(key);
+          if (cached) {
+            const entry: CacheEntry<T> = JSON.parse(cached);
+            if (!this.isEntryValid(entry, this.ttl)) {
+              localStorage.removeItem(key);
+            }
+          }
+        } catch {
+          // Invalid entry, remove it
+          localStorage.removeItem(key);
+        }
+      });
+    }
+  }
+
+  /**
+   * Get cache statistics
+   */
+  getCacheStats(): {
+    totalEntries: number;
+    memoryEntries: number;
+    totalSizeMB: number;
+    memorySizeMB: number;
+    ttlSeconds: number;
+  } {
+    const memorySize = Array.from(this.memoryCache.values()).reduce(
+      (sum, value) => sum + value.entry.size,
+      0
+    );
+
+    const totalSize = this.getCurrentCacheSize();
+
+    return {
+      totalEntries: this.getAllCacheKeys().length,
+      memoryEntries: this.memoryCache.size,
+      totalSizeMB: totalSize / (1024 * 1024),
+      memorySizeMB: memorySize / (1024 * 1024),
+      ttlSeconds: this.ttl / 1000,
+    };
+  }
 }
