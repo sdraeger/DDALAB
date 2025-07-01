@@ -10,25 +10,13 @@ interface ConfigResponse {
 export function Footer() {
   const currentYear = new Date().getFullYear();
 
-  // Use the existing useApiQuery pattern for API calls
-  const { data: configData, loading: configLoading, error: configError } = useApiQuery<ConfigResponse>({
+  const { data: configData, loading: configLoading } = useApiQuery<ConfigResponse>({
     url: "/api/config",
     method: "GET",
     responseType: "json",
-    enabled: true, // Always enabled since this doesn't require auth
-    // Don't provide token since this endpoint doesn't require auth
+    enabled: true,
   });
 
-  // Debug logging for config fetch
-  if (process.env.NODE_ENV === "development") {
-    console.log("Footer config debug:", {
-      configData,
-      configLoading,
-      configError,
-    });
-  }
-
-  // Only show institution name if we have actual data (not while loading and not the default fallback)
   const institutionName = configData?.institutionName;
 
   return (
