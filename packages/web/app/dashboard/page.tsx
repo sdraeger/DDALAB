@@ -85,36 +85,21 @@ export default function Dashboard() {
 		config,
 		isLoading,
 		isSaving,
+		saveStatus,
 		addWidget,
 		removeWidget,
 		updateWidget,
 		updateLayout,
-		onBreakpointChange,
 		saveLayout,
 		loadLayout,
 		clearLayout,
+		onBreakpointChange,
 	} = useModernDashboard({
 		config: {
 			// Custom configuration can be provided here
 			autoSaveDelay: 1500, // Faster auto-save for better UX
 			margin: [12, 12], // Slightly larger margins
 			containerPadding: [16, 16], // More padding
-		},
-		events: {
-			onWidgetAdd: (widget) => {
-				toast({
-					title: 'Widget Added',
-					description: `${widget.title} has been added to your dashboard.`,
-					duration: 2000,
-				});
-			},
-			onWidgetRemove: (widgetId) => {
-				toast({
-					title: 'Widget Removed',
-					description: 'Widget has been removed from your dashboard.',
-					duration: 2000,
-				});
-			},
 		},
 		widgetCallbacks: {
 			onFileSelect: handleFileSelect,
@@ -267,14 +252,14 @@ export default function Dashboard() {
 				</div>
 
 				{/* Dashboard Content */}
-				<div className="flex-1 relative overflow-hidden">
+				<div className="flex-1 relative min-h-[400px]">
 					{/* Empty state */}
 					{widgets.length === 0 && !isLoading && (
-						<div className="absolute inset-0 flex items-center justify-center">
+						<div className="absolute inset-0 flex items-center justify-center p-6">
 							<div className="text-center max-w-md">
 								<Sparkles className="h-12 w-12 text-primary mx-auto mb-4 opacity-50" />
 								<h2 className="text-xl font-semibold mb-2">Welcome to Dashboard</h2>
-								<p className="text-muted-foreground mb-6">
+								<p className="text-muted-foreground mb-6 leading-relaxed">
 									Create your perfect workspace by adding widgets. Drag to rearrange, resize from corners,
 									and enjoy smooth interactions powered by react-grid-layout.
 								</p>
@@ -299,6 +284,7 @@ export default function Dashboard() {
 						onWidgetUpdate={updateWidget}
 						isLoading={isLoading}
 						isSaving={isSaving}
+						saveStatus={saveStatus}
 						className="h-full"
 						events={{
 							onBreakpointChange,

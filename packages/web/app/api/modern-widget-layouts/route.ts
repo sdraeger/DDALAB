@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import { promises as fs } from "fs";
-import path from "path";
 
 // CORS headers for development to allow requests from Traefik proxy
 const corsHeaders = {
@@ -11,90 +9,131 @@ const corsHeaders = {
   "Access-Control-Allow-Credentials": "true",
 };
 
-// File-based storage for development - in production, this would use a database
-const STORAGE_DIR = path.join(process.cwd(), ".next", "dev-storage");
-const LAYOUT_FILE = path.join(STORAGE_DIR, "modern-layouts.json");
+// Python API base URL - using Traefik to route to Python backend
+const PYTHON_API_BASE =
+  process.env.NODE_ENV === "development"
+    ? "https://localhost/api" // Through Traefik in development
+    : process.env.PYTHON_API_URL || "http://api:8000"; // Direct in production
 
-// Ensure storage directory exists
-async function ensureStorageDir() {
-  try {
-    await fs.access(STORAGE_DIR);
-  } catch {
-    await fs.mkdir(STORAGE_DIR, { recursive: true });
-  }
-}
+async function proxyToPythonAPI(
+  endpoint: string,
+  method: string,
+  token: string,
+  body?: any
+) {
+  const url = `${PYTHON_API_BASE}${endpoint}`;
 
-// Load layouts from file
-async function loadLayouts(): Promise<Map<string, any>> {
-  try {
-    await ensureStorageDir();
-    const data = await fs.readFile(LAYOUT_FILE, "utf8");
-    const parsed = JSON.parse(data);
-    return new Map(Object.entries(parsed));
-  } catch {
-    // File doesn't exist or is invalid, return empty map
-    return new Map();
-  }
-}
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
 
-// Save layouts to file
-async function saveLayouts(layouts: Map<string, any>): Promise<void> {
-  try {
-    await ensureStorageDir();
-    const data = Object.fromEntries(layouts);
-    await fs.writeFile(LAYOUT_FILE, JSON.stringify(data, null, 2));
-  } catch (error) {
-    console.error("Error saving layouts to file:", error);
+  const options: RequestInit = {
+    method,
+    headers,
+    // Disable SSL verification for development with self-signed certs
+    ...(process.env.NODE_ENV === "development" && {
+      // @ts-ignore - For development only
+      rejectUnauthorized: false,
+    }),
+  };
+
+  if (body && (method === "POST" || method === "PUT")) {
+    options.body = JSON.stringify(body);
   }
+
+  console.log(`Proxying ${method} request to Python API:`, url);
+
+  const response = await fetch(url, options);
+  return response;
 }
 
 export async function GET(request: NextRequest) {
   try {
-    // Debug logging for authentication troubleshooting
-    console.log("=== DEBUG: Modern Widget Layouts GET Request ===");
-    console.log("Request URL:", request.url);
-    console.log(
-      "Request headers:",
-      Object.fromEntries(request.headers.entries())
-    );
-    console.log(
-      "Request cookies:",
-      request.cookies
-        .getAll()
-        .map((c) => ({ name: c.name, value: c.value.substring(0, 20) + "..." }))
-    );
+    console.log("=== Modern Widget Layouts GET Request ===");
 
     const token = await getToken({ req: request });
-    console.log(
-      "getToken result:",
-      token ? { sub: token.sub, name: token.name, exp: token.exp } : "null"
-    );
 
-    if (!token?.sub) {
-      console.warn(
-        "Unauthorized request to load modern widget layout - no valid token"
-      );
+    if (!token?.sub || !token.accessToken) {
+      console.warn("Unauthorized request - no valid token");
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401, headers: corsHeaders }
       );
     }
 
-    const userId = token.sub;
-    const layouts = await loadLayouts();
-    const layoutData = layouts.get(`modern-layout-${userId}`);
+    // Proxy to Python API
+    const response = await proxyToPythonAPI(
+      "/widget-layouts",
+      "GET",
+      token.accessToken as string
+    );
 
-    if (!layoutData) {
-      console.info(
-        `No modern widget layout found for user ${userId} - this is normal for new users`
-      );
+    if (!response.ok) {
+      if (response.status === 404) {
+        console.info(
+          `No layout found for user ${token.sub} - this is normal for new users`
+        );
+        return NextResponse.json(
+          { error: "Layout not found" },
+          { status: 404, headers: corsHeaders }
+        );
+      }
+
+      const errorData = await response
+        .json()
+        .catch(() => ({ message: response.statusText }));
+      console.error("Python API error:", response.status, errorData);
       return NextResponse.json(
-        { error: "Layout not found" },
-        { status: 404, headers: corsHeaders }
+        { error: errorData.message || "Internal server error" },
+        { status: response.status, headers: corsHeaders }
       );
     }
 
-    console.info(`Loaded modern widget layout for user ${userId}`);
+    const data = await response.json();
+    console.info(`Loaded modern widget layout for user ${token.sub}`);
+
+    // Transform Python API response to expected format
+    const transformedWidgets = data.widgets.map((widget: any) => ({
+      id: widget.id,
+      title: widget.title,
+      type: widget.type,
+      metadata: widget.metadata || {},
+      constraints: widget.constraints || {},
+      layoutInfo: {
+        x: widget.position?.x || 0,
+        y: widget.position?.y || 0,
+        w: widget.size?.width || 4,
+        h: widget.size?.height || 3,
+        minW: widget.minSize?.width,
+        maxW: widget.maxSize?.width,
+        minH: widget.minSize?.height,
+        maxH: widget.maxSize?.height,
+      },
+    }));
+
+    const layoutData = {
+      layout: transformedWidgets.map((widget: any) => ({
+        i: widget.id,
+        x: widget.layoutInfo.x,
+        y: widget.layoutInfo.y,
+        w: widget.layoutInfo.w,
+        h: widget.layoutInfo.h,
+        minW: widget.layoutInfo.minW,
+        maxW: widget.layoutInfo.maxW,
+        minH: widget.layoutInfo.minH,
+        maxH: widget.layoutInfo.maxH,
+      })),
+      widgets: transformedWidgets,
+      version: "2.1",
+      timestamp: Date.now(),
+    };
+
+    console.log(
+      "Transformed response for frontend:",
+      JSON.stringify(layoutData, null, 2)
+    );
+
     return NextResponse.json(layoutData, { headers: corsHeaders });
   } catch (error) {
     console.error("Error loading modern widget layout:", error);
@@ -109,7 +148,7 @@ export async function POST(request: NextRequest) {
   try {
     const token = await getToken({ req: request });
 
-    if (!token?.sub) {
+    if (!token?.sub || !token.accessToken) {
       console.warn("Unauthorized request to save modern widget layout");
       return NextResponse.json(
         { error: "Unauthorized" },
@@ -117,7 +156,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const userId = token.sub;
     const body = await request.json();
 
     // Validate the request body
@@ -128,20 +166,177 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Store the layout (in production, this would save to database)
-    const layoutData = {
-      ...body,
-      userId,
-      updatedAt: new Date().toISOString(),
+    // Handle empty widgets case - delete the layout instead of saving empty
+    if (body.widgets.length === 0) {
+      console.info(
+        `Empty widgets array for user ${token.sub}, deleting layout instead`
+      );
+
+      try {
+        const deleteResponse = await proxyToPythonAPI(
+          "/widget-layouts",
+          "DELETE",
+          token.accessToken as string
+        );
+
+        if (deleteResponse.ok || deleteResponse.status === 404) {
+          console.info(
+            `Successfully handled empty layout for user ${token.sub}`
+          );
+          return NextResponse.json(
+            {
+              success: true,
+              data: { status: "success", message: "Empty layout handled" },
+            },
+            { headers: corsHeaders }
+          );
+        } else {
+          console.warn(
+            `Failed to delete empty layout for user ${token.sub}:`,
+            deleteResponse.status
+          );
+          // Even if delete fails, return success for empty layout to avoid error loops
+          return NextResponse.json(
+            {
+              success: true,
+              data: { status: "success", message: "Empty layout handled" },
+            },
+            { headers: corsHeaders }
+          );
+        }
+      } catch (error) {
+        console.warn(
+          `Error handling empty layout for user ${token.sub}:`,
+          error
+        );
+        // Return success even on error to avoid infinite error loops with empty layouts
+        return NextResponse.json(
+          {
+            success: true,
+            data: { status: "success", message: "Empty layout handled" },
+          },
+          { headers: corsHeaders }
+        );
+      }
+    }
+
+    // Transform request for Python API
+    const pythonAPIPayload = {
+      widgets: body.widgets
+        .map((widget: any) => {
+          const layoutItem =
+            widget.layoutInfo ||
+            body.layout.find((l: any) => l.i === widget.id);
+
+          if (!layoutItem) {
+            console.warn(`No layout info found for widget ${widget.id}`);
+            return null;
+          }
+
+          return {
+            id: widget.id,
+            title: widget.title,
+            type: widget.type || "unknown",
+            position: {
+              x: layoutItem.x || 0,
+              y: layoutItem.y || 0,
+            },
+            size: {
+              width: layoutItem.w || 4,
+              height: layoutItem.h || 3,
+            },
+            minSize:
+              layoutItem.minW || layoutItem.minH
+                ? {
+                    width: layoutItem.minW || 2,
+                    height: layoutItem.minH || 2,
+                  }
+                : undefined,
+            maxSize:
+              layoutItem.maxW || layoutItem.maxH
+                ? {
+                    width: layoutItem.maxW || 12,
+                    height: layoutItem.maxH || 10,
+                  }
+                : undefined,
+            isPopOut: false,
+          };
+        })
+        .filter(Boolean), // Remove null entries
     };
 
-    const layouts = await loadLayouts();
-    layouts.set(`modern-layout-${userId}`, layoutData);
-    await saveLayouts(layouts);
+    console.log(
+      "Transformed payload for Python API:",
+      JSON.stringify(pythonAPIPayload, null, 2)
+    );
 
-    console.info(`Saved modern widget layout for user ${userId}`);
+    // Double-check that we have widgets after transformation
+    if (pythonAPIPayload.widgets.length === 0) {
+      console.warn(
+        `No valid widgets after transformation for user ${token.sub}, treating as empty layout`
+      );
+
+      try {
+        const deleteResponse = await proxyToPythonAPI(
+          "/widget-layouts",
+          "DELETE",
+          token.accessToken as string
+        );
+
+        return NextResponse.json(
+          {
+            success: true,
+            data: {
+              status: "success",
+              message: "No valid widgets after transformation",
+            },
+          },
+          { headers: corsHeaders }
+        );
+      } catch (error) {
+        console.warn(
+          `Error handling empty transformed layout for user ${token.sub}:`,
+          error
+        );
+        return NextResponse.json(
+          {
+            success: true,
+            data: {
+              status: "success",
+              message: "No valid widgets after transformation",
+            },
+          },
+          { headers: corsHeaders }
+        );
+      }
+    }
+
+    // Proxy to Python API
+    const response = await proxyToPythonAPI(
+      "/widget-layouts",
+      "POST",
+      token.accessToken as string,
+      pythonAPIPayload
+    );
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ message: response.statusText }));
+      console.error("Python API error:", response.status, errorData);
+      return NextResponse.json(
+        { error: errorData.message || "Failed to save layout" },
+        { status: response.status, headers: corsHeaders }
+      );
+    }
+
+    const result = await response.json();
+    console.info(
+      `Saved modern widget layout for user ${token.sub} to database`
+    );
+
     return NextResponse.json(
-      { success: true, data: layoutData },
+      { success: true, data: result },
       { headers: corsHeaders }
     );
   } catch (error) {
@@ -157,7 +352,7 @@ export async function DELETE(request: NextRequest) {
   try {
     const token = await getToken({ req: request });
 
-    if (!token?.sub) {
+    if (!token?.sub || !token.accessToken) {
       console.warn("Unauthorized request to delete modern widget layout");
       return NextResponse.json(
         { error: "Unauthorized" },
@@ -165,22 +360,37 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const userId = token.sub;
-    const layouts = await loadLayouts();
-    const layoutExists = layouts.has(`modern-layout-${userId}`);
+    // Proxy to Python API
+    const response = await proxyToPythonAPI(
+      "/widget-layouts",
+      "DELETE",
+      token.accessToken as string
+    );
 
-    if (!layoutExists) {
-      console.info(`No modern widget layout to delete for user ${userId}`);
+    if (!response.ok) {
+      if (response.status === 404) {
+        console.info(`No layout to delete for user ${token.sub}`);
+        return NextResponse.json(
+          { error: "Layout not found" },
+          { status: 404, headers: corsHeaders }
+        );
+      }
+
+      const errorData = await response
+        .json()
+        .catch(() => ({ message: response.statusText }));
+      console.error("Python API error:", response.status, errorData);
       return NextResponse.json(
-        { error: "Layout not found" },
-        { status: 404, headers: corsHeaders }
+        { error: errorData.message || "Failed to delete layout" },
+        { status: response.status, headers: corsHeaders }
       );
     }
 
-    layouts.delete(`modern-layout-${userId}`);
-    await saveLayouts(layouts);
+    const result = await response.json();
+    console.info(
+      `Deleted modern widget layout for user ${token.sub} from database`
+    );
 
-    console.info(`Deleted modern widget layout for user ${userId}`);
     return NextResponse.json({ success: true }, { headers: corsHeaders });
   } catch (error) {
     console.error("Error deleting modern widget layout:", error);
@@ -195,16 +405,19 @@ export async function HEAD(request: NextRequest) {
   try {
     const token = await getToken({ req: request });
 
-    if (!token?.sub) {
+    if (!token?.sub || !token.accessToken) {
       return new NextResponse(null, { status: 401, headers: corsHeaders });
     }
 
-    const userId = token.sub;
-    const layouts = await loadLayouts();
-    const layoutExists = layouts.has(`modern-layout-${userId}`);
+    // Proxy to Python API
+    const response = await proxyToPythonAPI(
+      "/widget-layouts",
+      "GET",
+      token.accessToken as string
+    );
 
     return new NextResponse(null, {
-      status: layoutExists ? 200 : 404,
+      status: response.status,
       headers: corsHeaders,
     });
   } catch (error) {
@@ -213,7 +426,6 @@ export async function HEAD(request: NextRequest) {
   }
 }
 
-// Handle CORS preflight requests
 export async function OPTIONS(request: NextRequest) {
   return new NextResponse(null, {
     status: 200,
