@@ -58,3 +58,6 @@ packages/web/cookies.txt
 
 # Auto-generated Docker Compose files
 docker-compose.volumes.yml
+
+# Development storage (temporary layout files)
+packages/web/.next/dev-storage/

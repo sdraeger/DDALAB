@@ -5,15 +5,39 @@ import { useAppSelector } from "../../../store";
 import { BarChart3 } from "lucide-react";
 import { EEGChart } from "../../plot/EEGChart";
 
-export function ChartWidget() {
-	const plots = useAppSelector(state => state.plots);
+interface ChartWidgetProps {
+	// Props for popout mode - when provided, these override Redux state
+	isPopout?: boolean;
+	popoutPlotState?: {
+		edfData?: any;
+		metadata?: any;
+		selectedChannels?: string[];
+		filePath?: string;
+	};
+}
 
-	// Find the most recently loaded file
-	const latestFilePath = Object.keys(plots).find(filePath =>
-		plots[filePath]?.metadata && plots[filePath]?.edfData
-	);
+export function ChartWidget({ isPopout = false, popoutPlotState }: ChartWidgetProps = {}) {
+	const reduxPlots = useAppSelector(state => state.plots);
 
-	const plotState = latestFilePath ? plots[latestFilePath] : null;
+	// Use popout data if in popout mode, otherwise use Redux data
+	let latestFilePath: string | undefined;
+	let plotState: any;
+
+	if (isPopout && popoutPlotState) {
+		// Use the provided popout data
+		latestFilePath = popoutPlotState.filePath;
+		plotState = {
+			edfData: popoutPlotState.edfData,
+			metadata: popoutPlotState.metadata,
+			selectedChannels: popoutPlotState.selectedChannels,
+		};
+	} else {
+		// Find the most recently loaded file from Redux
+		latestFilePath = Object.keys(reduxPlots).find(filePath =>
+			reduxPlots[filePath]?.metadata && reduxPlots[filePath]?.edfData
+		);
+		plotState = latestFilePath ? reduxPlots[latestFilePath] : null;
+	}
 	const hasData = plotState?.edfData !== null;
 	const eegData = plotState?.edfData;
 	const metadata = plotState?.metadata;

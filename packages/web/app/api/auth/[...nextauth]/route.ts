@@ -16,7 +16,6 @@ const API_URL =
     ? "http://localhost:8001"
     : rawApiUrl;
 
-console.log("API_URL configured as:", API_URL);
 const SESSION_EXPIRATION = parseInt(getEnvVar("SESSION_EXPIRATION"));
 
 declare module "next-auth" {
@@ -61,9 +60,7 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        console.log("Authorizing user:", credentials);
         const url = `${API_URL}/api/auth/token`;
-        console.log("Fetching token from:", url);
 
         if (!credentials?.username || !credentials?.password) {
           throw new Error("Missing credentials");
@@ -82,8 +79,6 @@ export const authOptions: NextAuthOptions = {
             responseType: "json",
           });
 
-          console.log("authorize res:", res);
-
           if (!res.access_token) {
             throw new Error("Login failed");
           }
@@ -98,7 +93,6 @@ export const authOptions: NextAuthOptions = {
             refreshToken: res.access_token,
           };
 
-          console.log("Authorize user:", user);
           return user;
         } catch (error) {
           console.error(
@@ -112,9 +106,6 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async jwt({ token, user, trigger }) {
-      console.log("JWT - Initial token:", token);
-      console.log("JWT - User:", user);
-
       if (user) {
         token.id = user.id;
         token.name = user.name;
@@ -137,8 +128,6 @@ export const authOptions: NextAuthOptions = {
             responseType: "json",
           });
 
-          console.log("JWT - Preferences response:", res);
-
           if (!res) throw new Error("Failed to fetch preferences");
 
           token.theme = res.theme ?? DEFAULT_USER_PREFERENCES.theme;
@@ -146,12 +135,6 @@ export const authOptions: NextAuthOptions = {
             res.eegZoomFactor ?? DEFAULT_USER_PREFERENCES.eegZoomFactor;
           const sessionExpirationMs = SESSION_EXPIRATION * 60 * 1000;
           token.exp = Math.floor((Date.now() + sessionExpirationMs) / 1000);
-
-          console.log("JWT - Preferences fetched:", {
-            exp: token.exp,
-            theme: token.theme,
-            eegZoomFactor: token.eegZoomFactor,
-          });
         } catch (error) {
           console.error("JWT - Error fetching preferences:", error);
         }
@@ -159,7 +142,6 @@ export const authOptions: NextAuthOptions = {
 
       const now = Math.floor(Date.now() / 1000);
       if (token.exp && token.exp < now) {
-        console.log("JWT - Token expired:", token);
         throw new Error("Token expired");
       }
 
@@ -184,8 +166,6 @@ export const authOptions: NextAuthOptions = {
           },
         };
         session.accessToken = token.accessToken;
-
-        console.log("Session:", session);
       }
       return session;
     },
