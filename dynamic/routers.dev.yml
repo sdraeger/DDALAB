@@ -8,6 +8,7 @@ http:
       service: web
     web-auth:
       rule: "Host(`localhost`) && PathPrefix(`/api/auth/`)"
+      priority: 90
       entryPoints:
         - web
       service: web
@@ -18,21 +19,31 @@ http:
       service: web
     web-debug:
       rule: "Host(`localhost`) && PathPrefix(`/api/debug`)"
+      priority: 80
+      entryPoints:
+        - web
+      service: web
+    web-modern-widget-layouts:
+      rule: "Host(`localhost`) && PathPrefix(`/api/modern-widget-layouts`)"
+      priority: 100
       entryPoints:
         - web
       service: web
     api:
       rule: "Host(`localhost`) && PathPrefix(`/api/`)"
+      priority: 50
       entryPoints:
         - web
       service: api
     api-tickets:
       rule: "Host(`localhost`) && PathPrefix(`/api/tickets`)"
+      priority: 70
       entryPoints:
         - web
       service: api
     api-graphql:
       rule: "Host(`localhost`) && PathPrefix(`/graphql`)"
+      priority: 60
       entryPoints:
         - web
       service: api
@@ -52,6 +63,7 @@ http:
         options: default
     web-auth-secure:
       rule: "Host(`localhost`) && PathPrefix(`/api/auth/`)"
+      priority: 90
       entryPoints:
         - websecure
       service: web
@@ -66,6 +78,15 @@ http:
         options: default
     web-debug-secure:
       rule: "Host(`localhost`) && PathPrefix(`/api/debug`)"
+      priority: 80
+      entryPoints:
+        - websecure
+      service: web
+      tls:
+        options: default
+    web-modern-widget-layouts-secure:
+      rule: "Host(`localhost`) && PathPrefix(`/api/modern-widget-layouts`)"
+      priority: 100
       entryPoints:
         - websecure
       service: web
@@ -73,6 +94,7 @@ http:
         options: default
     api-secure:
       rule: "Host(`localhost`) && PathPrefix(`/api/`)"
+      priority: 50
       entryPoints:
         - websecure
       service: api
@@ -80,6 +102,7 @@ http:
         options: default
     api-tickets-secure:
       rule: "Host(`localhost`) && PathPrefix(`/api/tickets`)"
+      priority: 70
       entryPoints:
         - websecure
       service: api
@@ -87,6 +110,7 @@ http:
         options: default
     api-graphql-secure:
       rule: "Host(`localhost`) && PathPrefix(`/graphql`)"
+      priority: 60
       entryPoints:
         - websecure
       service: api
