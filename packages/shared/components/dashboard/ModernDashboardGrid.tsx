@@ -5,7 +5,7 @@ import { Responsive, WidthProvider, Layout } from 'react-grid-layout';
 import { cn } from '../../lib/utils/misc';
 import { IDashboardWidget, IDashboardConfig, IDashboardEvents } from '../../types/dashboard';
 import { ModernWidgetContainer } from './ModernWidgetContainer';
-import { X, Maximize2, Minimize2 } from 'lucide-react';
+import { X, Maximize2, Minimize2, Check, X as XIcon } from 'lucide-react';
 
 // CSS imports for react-grid-layout
 import 'react-grid-layout/css/styles.css';
@@ -24,6 +24,45 @@ interface ModernDashboardGridProps {
 	className?: string;
 	isLoading?: boolean;
 	isSaving?: boolean;
+	saveStatus?: 'idle' | 'saving' | 'success' | 'error';
+}
+
+// Save status indicator component
+interface SaveIndicatorProps {
+	status: 'idle' | 'saving' | 'success' | 'error';
+}
+
+function SaveIndicator({ status }: SaveIndicatorProps) {
+	if (status === 'idle') return null;
+
+	const getIndicatorContent = () => {
+		switch (status) {
+			case 'saving':
+				return (
+					<div className="animate-spin rounded-full h-6 w-6 border-2 border-blue-200 border-t-blue-600" />
+				);
+			case 'success':
+				return (
+					<div className="rounded-full h-6 w-6 bg-green-500 flex items-center justify-center animate-in zoom-in-75 duration-300">
+						<Check className="h-3 w-3 text-white" />
+					</div>
+				);
+			case 'error':
+				return (
+					<div className="rounded-full h-6 w-6 bg-red-500 flex items-center justify-center animate-in zoom-in-75 duration-300">
+						<XIcon className="h-3 w-3 text-white" />
+					</div>
+				);
+			default:
+				return null;
+		}
+	};
+
+	return (
+		<div className="absolute bottom-4 right-4 z-[120] bg-background/80 backdrop-blur-sm border border-border rounded-lg p-2 shadow-lg">
+			{getIndicatorContent()}
+		</div>
+	);
 }
 
 export function ModernDashboardGrid({
@@ -37,6 +76,7 @@ export function ModernDashboardGrid({
 	className,
 	isLoading = false,
 	isSaving = false,
+	saveStatus = 'idle',
 }: ModernDashboardGridProps) {
 
 	// Create layouts object for responsive grid
@@ -133,14 +173,6 @@ export function ModernDashboardGrid({
 						<div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2" />
 						<p className="text-sm text-muted-foreground">Loading layout...</p>
 					</div>
-				</div>
-			)}
-
-			{/* Saving indicator */}
-			{isSaving && (
-				<div className="absolute top-4 right-4 bg-primary text-primary-foreground px-3 py-1 rounded-md text-sm flex items-center gap-2 z-[120]">
-					<div className="animate-spin rounded-full h-3 w-3 border-b border-primary-foreground" />
-					Auto-saving...
 				</div>
 			)}
 
@@ -242,6 +274,9 @@ export function ModernDashboardGrid({
           z-index: 200 !important;
         }
       `}</style>
+
+			{/* Save indicator */}
+			<SaveIndicator status={saveStatus} />
 		</div>
 	);
 }
