@@ -13,6 +13,69 @@ export interface ApiRequestOptions {
 // Default response type if none specified
 type DefaultResponse = Response;
 
+// Helper function to get the correct base URL for API requests
+function getApiBaseUrl(url: string): string {
+  // If URL is already absolute, return as-is
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    console.log(`[API Request] URL is already absolute: ${url}`);
+    return url;
+  }
+
+  // Check if we're in a browser environment
+  if (typeof window !== "undefined") {
+    // Check if we're in development mode (multiple ways to detect this)
+    const isDevelopment =
+      process.env.NODE_ENV === "development" ||
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1" ||
+      window.location.port === "3000";
+
+    if (isDevelopment) {
+      // Routes that should go to Next.js directly (same origin) to avoid CORS
+      const nextjsRoutes = ["/api/auth/", "/api/debug"];
+
+      const isNextjsRoute = nextjsRoutes.some((route) => url.startsWith(route));
+
+      console.log(`[API Request] Route detection for ${url}:`, {
+        nextjsRoutes,
+        isNextjsRoute,
+        currentUrl: window.location.href,
+        port: window.location.port,
+      });
+
+      if (isNextjsRoute) {
+        // Force same-origin by using the Next.js dev server directly
+        const nextjsUrl = `http://localhost:3000${url}`;
+        console.log(
+          `[API Request] Browser + Development (Next.js route): ${url} -> ${nextjsUrl} (direct to Next.js)`
+        );
+        return nextjsUrl;
+      } else {
+        // For Python API routes and modern-widget-layouts, use HTTPS through Traefik to avoid redirect issues
+        const resolvedUrl = `https://localhost${url}`;
+        console.log(
+          `[API Request] Browser + Development (API route): ${url} -> ${resolvedUrl}`
+        );
+        return resolvedUrl;
+      }
+    }
+    // In production, use relative URLs (same domain)
+    console.log(`[API Request] Browser + Production: ${url} (relative)`);
+    return url;
+  }
+
+  // Server-side: use the API_URL environment variable or fallback
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL;
+  if (apiUrl && url.startsWith("/api/")) {
+    const resolvedUrl = `${apiUrl}${url}`;
+    console.log(`[API Request] Server-side: ${url} -> ${resolvedUrl}`);
+    return resolvedUrl;
+  }
+
+  console.log(`[API Request] Fallback: ${url} (unchanged)`);
+  return url;
+}
+
 export async function apiRequest<T = DefaultResponse>(
   options: ApiRequestOptions & { responseType: "json" }
 ): Promise<T>;
@@ -32,6 +95,9 @@ export async function apiRequest<T = DefaultResponse>(
     responseType = "response",
   } = options;
 
+  // Get the full URL with proper base
+  const fullUrl = getApiBaseUrl(url);
+
   // Check if body is FormData
   const isFormData = body instanceof FormData;
 
@@ -42,7 +108,7 @@ export async function apiRequest<T = DefaultResponse>(
     ...headers,
   };
 
-  console.log("Full URL:", url);
+  console.log("Full URL:", fullUrl);
 
   try {
     let data;
@@ -59,12 +125,29 @@ export async function apiRequest<T = DefaultResponse>(
       }
     }
 
-    const axiosResponse: AxiosResponse = await axios({
-      url,
+    // Configure request options
+    const requestConfig: any = {
+      url: fullUrl,
       method,
       headers: defaultHeaders,
       data,
-    });
+    };
+
+    // For cross-origin requests to Next.js routes, include credentials (cookies)
+    // Also include credentials for requests to https://localhost (Traefik proxy)
+    if (
+      (fullUrl.startsWith("http://localhost:3000") ||
+        fullUrl.startsWith("https://localhost")) &&
+      typeof window !== "undefined"
+    ) {
+      requestConfig.withCredentials = true;
+      console.log(
+        "[API Request] Adding credentials for cross-origin request to:",
+        fullUrl
+      );
+    }
+
+    const axiosResponse: AxiosResponse = await axios(requestConfig);
 
     // Return Response object if responseType is 'response'
     if (responseType === "response") {

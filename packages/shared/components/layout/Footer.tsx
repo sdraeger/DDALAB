@@ -1,19 +1,34 @@
 "use client";
 
 import { BrainCircuit, Mail, Globe, Github } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useApiQuery } from "../../hooks/useApiQuery";
+
+interface ConfigResponse {
+  institution_name: string;
+}
 
 export function Footer() {
   const currentYear = new Date().getFullYear();
-  const [institutionName, setInstitutionName] = useState("DEFAULT");
 
-  useEffect(() => {
-    fetch("/api/config")
-      .then((res) => res.json())
-      .then((data) => {
-        setInstitutionName(data.institution_name);
-      });
-  }, []);
+  // Use the existing useApiQuery pattern for API calls
+  const { data: configData, loading: configLoading, error: configError } = useApiQuery<ConfigResponse>({
+    url: "/api/config",
+    method: "GET",
+    responseType: "json",
+    enabled: true, // Always enabled since this doesn't require auth
+    // Don't provide token since this endpoint doesn't require auth
+  });
+
+  // Debug logging for config fetch
+  if (process.env.NODE_ENV === "development") {
+    console.log("Footer config debug:", {
+      configData,
+      configLoading,
+      configError,
+    });
+  }
+
+  const institutionName = configData?.institution_name || "DEFAULT";
 
   return (
     <footer className="w-full bg-background border-t shadow-sm mt-auto">

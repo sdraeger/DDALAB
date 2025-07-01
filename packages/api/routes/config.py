@@ -8,7 +8,8 @@ from core.database import User as UserDB
 from core.dependencies import get_service
 from core.services import EdfConfigService
 from core.utils.utils import calculate_str_hash
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import JSONResponse
 from loguru import logger
 from schemas.config import (
     EdfConfigCreate,
@@ -30,7 +31,26 @@ async def get_config():
     config_data = settings.model_dump(include=include)
     logger.info(f"[Config API] Returning config: {config_data}")
 
-    return config_data
+    # Create response with CORS headers
+    response = JSONResponse(content=config_data)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+
+    return response
+
+
+@router.options("")
+async def options_config():
+    """
+    Handle CORS preflight requests for config endpoint
+    """
+    response = Response()
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Max-Age"] = "86400"
+    return response
 
 
 @router.get("/edf", response_model=EdfConfigResponse)
