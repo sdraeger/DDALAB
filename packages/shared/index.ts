@@ -38,6 +38,8 @@ export * from "./hooks/useSimpleDashboard";
 export * from "./hooks/useLoadingManager";
 export * from "./hooks/usePersistentDashboard";
 export * from "./hooks/useModernDashboard";
+export * from "./hooks/useWidgetState";
+export * from "./hooks/useWidgetDataSync";
 
 // Modern Dashboard Components
 export * from "./components/dashboard/ModernDashboardGrid";
