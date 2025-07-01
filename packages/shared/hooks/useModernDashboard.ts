@@ -64,10 +64,12 @@ export function useModernDashboard(options: UseModernDashboardOptions = {}) {
     },
     isLoading: false,
     isSaving: false,
+    saveStatus: "idle",
   });
 
   // Auto-save timer
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const saveStatusTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedStateRef = useRef<string>("");
 
   // Update access token when session changes
@@ -172,12 +174,20 @@ export function useModernDashboard(options: UseModernDashboardOptions = {}) {
 
       options.events?.onWidgetRemove?.(widgetId);
 
+      // Clean up widget state from localStorage
+      const stateKey = `widget-state-${widgetId}`;
+      localStorage.removeItem(stateKey);
+
+      // Clean up any popout data
+      const popoutKey = `modern-popped-widget-${widgetId}`;
+      localStorage.removeItem(popoutKey);
+
       // Schedule auto-save
       if (config.autoSave && session?.accessToken) {
         scheduleAutoSave();
       }
 
-      logger.info(`Removed widget: ${widgetId}`);
+      logger.info(`Removed widget: ${widgetId} and cleaned up state`);
     },
     [options.events, config.autoSave, session?.accessToken]
   );
@@ -223,6 +233,12 @@ export function useModernDashboard(options: UseModernDashboardOptions = {}) {
   const scheduleAutoSave = useCallback(() => {
     if (!config.autoSave || !session?.accessToken) return;
 
+    // Don't auto-save if there are no widgets (empty layout)
+    if (state.widgets.length === 0) {
+      logger.info("Skipping auto-save for empty layout");
+      return;
+    }
+
     // Clear existing timer
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
@@ -255,13 +271,22 @@ export function useModernDashboard(options: UseModernDashboardOptions = {}) {
   ]);
 
   // Persistence functions
+  const resetSaveStatus = useCallback(() => {
+    if (saveStatusTimerRef.current) {
+      clearTimeout(saveStatusTimerRef.current);
+    }
+    saveStatusTimerRef.current = setTimeout(() => {
+      setState((prev) => ({ ...prev, saveStatus: "idle" }));
+    }, 2500); // Reset after 2.5 seconds
+  }, []);
+
   const saveLayout = useCallback(async () => {
     if (!session?.accessToken) {
       throw new Error("No authentication token available");
     }
 
     try {
-      setState((prev) => ({ ...prev, isSaving: true }));
+      setState((prev) => ({ ...prev, isSaving: true, saveStatus: "saving" }));
 
       // Debug analysis before saving (in development)
       if (process.env.NODE_ENV === "development") {
@@ -276,18 +301,12 @@ export function useModernDashboard(options: UseModernDashboardOptions = {}) {
         widgets: state.widgets.map((w) => ({ ...w, content: null })),
       });
 
-      toast({
-        title: "Layout Saved",
-        description: "Your dashboard layout has been saved successfully.",
-        duration: 2000,
-      });
+      setState((prev) => ({ ...prev, saveStatus: "success" }));
+      resetSaveStatus();
     } catch (error) {
       logger.error("Error saving layout:", error);
-      toast({
-        title: "Save Failed",
-        description: "Failed to save dashboard layout. Please try again.",
-        variant: "destructive",
-      });
+      setState((prev) => ({ ...prev, saveStatus: "error" }));
+      resetSaveStatus();
       throw error;
     } finally {
       setState((prev) => ({ ...prev, isSaving: false }));
@@ -297,7 +316,7 @@ export function useModernDashboard(options: UseModernDashboardOptions = {}) {
     state.layout,
     state.widgets,
     layoutPersistence,
-    toast,
+    resetSaveStatus,
   ]);
 
   const loadLayout = useCallback(async () => {
@@ -473,6 +492,9 @@ export function useModernDashboard(options: UseModernDashboardOptions = {}) {
       if (autoSaveTimerRef.current) {
         clearTimeout(autoSaveTimerRef.current);
       }
+      if (saveStatusTimerRef.current) {
+        clearTimeout(saveStatusTimerRef.current);
+      }
     };
   }, []);
 
@@ -484,6 +506,7 @@ export function useModernDashboard(options: UseModernDashboardOptions = {}) {
     responsive: state.responsive,
     isLoading: state.isLoading,
     isSaving: state.isSaving,
+    saveStatus: state.saveStatus,
 
     // Configuration
     config,
