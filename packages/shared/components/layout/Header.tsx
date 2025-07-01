@@ -38,26 +38,13 @@ export function Header() {
     await signOut({ callbackUrl: "/" });
   };
 
-  // Use the existing useApiQuery pattern for API calls
   const { data: configData, loading: configLoading, error: configError } = useApiQuery<ConfigResponse>({
     url: "/api/config",
     method: "GET",
     responseType: "json",
-    enabled: true, // Always enabled since this doesn't require auth
-    // Don't provide token since this endpoint doesn't require auth
+    enabled: true,
   });
 
-  // Debug logging for config fetch
-  if (process.env.NODE_ENV === "development") {
-    console.log("Header config debug:", {
-      configData,
-      configLoading,
-      configError,
-      hasSession: !!session,
-    });
-  }
-
-  // Only show institution name if we have actual data (not while loading and not the default fallback)
   const institutionName = configData?.institutionName;
 
   return (

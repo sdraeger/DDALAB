@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import { Layout } from "react-grid-layout";
 
-// Core Widget Interface (Dependency Inversion Principle)
+// Core Widget Interface
 export interface IDashboardWidget {
   id: string;
   title: string;
@@ -33,7 +33,7 @@ export interface IWidgetConstraints {
   static?: boolean;
 }
 
-// Layout Management Interface (Interface Segregation Principle)
+// Layout Management Interface
 export interface ILayoutManager {
   getLayout(): Layout[];
   updateLayout(layout: Layout[]): void;
@@ -42,7 +42,7 @@ export interface ILayoutManager {
   resetLayout(): void;
 }
 
-// Widget Factory Interface (Open/Closed Principle)
+// Widget Factory Interface
 export interface IWidgetFactory {
   createWidget(type: string, config?: any): IDashboardWidget;
   registerWidgetType(type: string, creator: WidgetCreator): void;
@@ -111,4 +111,5 @@ export interface IModernDashboardState {
   responsive: IResponsiveState;
   isLoading: boolean;
   isSaving: boolean;
+  saveStatus: "idle" | "saving" | "success" | "error";
 }
