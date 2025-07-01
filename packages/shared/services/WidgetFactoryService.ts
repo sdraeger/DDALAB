@@ -72,55 +72,66 @@ export class WidgetFactoryService implements IWidgetFactory {
     }));
 
     // DDA Analysis Form Widget
-    this.registerWidgetType("dda-form", (config) => ({
-      id: config?.id || `dda-form-${Date.now()}`,
-      title: config?.title || "DDA Analysis Form",
-      type: "dda-form",
-      content: React.createElement(DDAWidget),
-      constraints: {
-        minW: 3,
-        maxW: 8,
-        minH: 4,
-        maxH: 10,
-        isResizable: true,
-        isDraggable: true,
-      },
-      metadata: config?.metadata || {},
-      supportsPopout: true,
-      popoutPreferences: {
-        defaultSize: "large",
-        allowResize: true,
-        showKeyboardShortcuts: true,
-        optimizeForPopout: true,
-      },
-    }));
+    this.registerWidgetType("dda-form", (config) => {
+      const widgetId = config?.id || `dda-form-${Date.now()}`;
+      return {
+        id: widgetId,
+        title: config?.title || "DDA Analysis Form",
+        type: "dda-form",
+        content: React.createElement(DDAWidget as any, {
+          widgetId,
+          isPopout: config?.isPopout || false,
+        }),
+        constraints: {
+          minW: 3,
+          maxW: 8,
+          minH: 4,
+          maxH: 10,
+          isResizable: true,
+          isDraggable: true,
+        },
+        metadata: config?.metadata || {},
+        supportsPopout: true,
+        popoutPreferences: {
+          defaultSize: "large",
+          allowResize: true,
+          showKeyboardShortcuts: true,
+          optimizeForPopout: true,
+        },
+      };
+    });
 
     // Chart Widget
-    this.registerWidgetType("chart", (config) => ({
-      id: config?.id || `chart-${Date.now()}`,
-      title: config?.title || "Data Visualization",
-      type: "chart",
-      content: React.createElement(ChartWidget, {
-        isPopout: config?.isPopout || false,
-        popoutPlotState: config?.metadata?.plotState || config?.popoutPlotState,
-      } as any),
-      constraints: {
-        minW: 4,
-        maxW: 12,
-        minH: 3,
-        maxH: 8,
-        isResizable: true,
-        isDraggable: true,
-      },
-      metadata: config?.metadata || {},
-      supportsPopout: true,
-      popoutPreferences: {
-        defaultSize: "fullscreen",
-        allowResize: true,
-        showKeyboardShortcuts: true,
-        optimizeForPopout: true,
-      },
-    }));
+    this.registerWidgetType("chart", (config) => {
+      const widgetId = config?.id || `chart-${Date.now()}`;
+      return {
+        id: widgetId,
+        title: config?.title || "Data Visualization",
+        type: "chart",
+        content: React.createElement(ChartWidget as any, {
+          widgetId,
+          isPopout: config?.isPopout || false,
+          popoutPlotState:
+            config?.metadata?.plotState || config?.popoutPlotState,
+        }),
+        constraints: {
+          minW: 4,
+          maxW: 12,
+          minH: 3,
+          maxH: 8,
+          isResizable: true,
+          isDraggable: true,
+        },
+        metadata: config?.metadata || {},
+        supportsPopout: true,
+        popoutPreferences: {
+          defaultSize: "fullscreen",
+          allowResize: true,
+          showKeyboardShortcuts: true,
+          optimizeForPopout: true,
+        },
+      };
+    });
 
     // DDA Heatmap Widget
     this.registerWidgetType("dda-heatmap", (config) => ({
@@ -147,28 +158,34 @@ export class WidgetFactoryService implements IWidgetFactory {
     }));
 
     // DDA Line Plot Widget
-    this.registerWidgetType("dda-line-plot", (config) => ({
-      id: config?.id || `dda-line-plot-${Date.now()}`,
-      title: config?.title || "DDA Line Plot",
-      type: "dda-line-plot",
-      content: React.createElement(DDALinePlotWidget),
-      constraints: {
-        minW: 4,
-        maxW: 12,
-        minH: 4,
-        maxH: 8,
-        isResizable: true,
-        isDraggable: true,
-      },
-      metadata: config?.metadata || {},
-      supportsPopout: true,
-      popoutPreferences: {
-        defaultSize: "fullscreen",
-        allowResize: true,
-        showKeyboardShortcuts: true,
-        optimizeForPopout: true,
-      },
-    }));
+    this.registerWidgetType("dda-line-plot", (config) => {
+      const widgetId = config?.id || `dda-line-plot-${Date.now()}`;
+      return {
+        id: widgetId,
+        title: config?.title || "DDA Line Plot",
+        type: "dda-line-plot",
+        content: React.createElement(DDALinePlotWidget as any, {
+          widgetId,
+          isPopout: config?.isPopout || false,
+        }),
+        constraints: {
+          minW: 4,
+          maxW: 12,
+          minH: 4,
+          maxH: 8,
+          isResizable: true,
+          isDraggable: true,
+        },
+        metadata: config?.metadata || {},
+        supportsPopout: true,
+        popoutPreferences: {
+          defaultSize: "fullscreen",
+          allowResize: true,
+          showKeyboardShortcuts: true,
+          optimizeForPopout: true,
+        },
+      };
+    });
 
     // Custom Widget (fallback)
     this.registerWidgetType("custom", (config) => ({
