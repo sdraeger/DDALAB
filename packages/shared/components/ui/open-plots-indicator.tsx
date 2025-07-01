@@ -34,7 +34,7 @@ export function OpenPlotsIndicator({ className }: { className?: string }) {
   );
 
   return (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" className={cn("gap-2", className)}>
           <BarChart3 className="h-4 w-4" />
@@ -45,7 +45,29 @@ export function OpenPlotsIndicator({ className }: { className?: string }) {
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="w-80">
+      <DropdownMenuContent
+        align="end"
+        side="bottom"
+        sideOffset={8}
+        avoidCollisions={false}
+        className="w-80 z-[9999] animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+        onFocusOutside={(e) => e.preventDefault()}
+        onInteractOutside={(e) => {
+          const target = e.target as Element;
+          if (target && target.closest('[data-radix-dropdown-menu-trigger]')) {
+            e.preventDefault();
+          }
+        }}
+        style={{
+          position: 'fixed',
+          willChange: 'transform',
+          top: 'var(--radix-popper-anchor-height, 0px)',
+          left: 'var(--radix-popper-anchor-width, 0px)',
+          transformOrigin: 'top right',
+        }}
+      >
         <DropdownMenuLabel className="flex items-center justify-between">
           <span>Open Plots ({openPlots.length})</span>
           {openPlots.length > 0 && (

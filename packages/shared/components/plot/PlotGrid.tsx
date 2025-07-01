@@ -6,6 +6,7 @@ import { useApiQuery } from "../../hooks/useApiQuery";
 import { useToast } from "../ui/use-toast";
 import { Button } from "../ui/button";
 import { ArtifactIdentifier } from "../ui/ArtifactIdentifier";
+import { apiRequest } from "../../lib/utils/request";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
@@ -53,14 +54,19 @@ export const PlotGrid = () => {
   const saveLayout = async (newLayouts: Layout[]) => {
     if (!session?.accessToken) return;
     try {
-      await fetch("/api/layouts", {
+      const response = await apiRequest({
+        url: "/api/layouts",
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ layouts: newLayouts }),
+        token: session.accessToken,
+        contentType: "application/json",
+        body: { layouts: newLayouts },
+        responseType: "response",
       });
+
+      if (!response.ok) {
+        throw new Error("Failed to save layout");
+      }
+
       setLayouts(newLayouts);
       toast({ title: "Success", description: "Layout saved" });
     } catch (err) {

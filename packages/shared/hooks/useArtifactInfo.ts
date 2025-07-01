@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useApiQuery } from "./useApiQuery";
 import type { ArtifactInfo } from "../components/ui/ArtifactIdentifier";
+import { apiRequest } from "../lib/utils/request";
 
 export function useArtifactInfo(artifactId?: string) {
   const { data: session } = useSession();
@@ -22,11 +23,11 @@ export function useArtifactInfo(artifactId?: string) {
       setError(null);
 
       try {
-        const response = await fetch(`/api/artifacts/${artifactId}`, {
-          headers: {
-            Authorization: `Bearer ${session.accessToken}`,
-            "Content-Type": "application/json",
-          },
+        const response = await apiRequest({
+          url: `/api/artifacts/${artifactId}`,
+          method: "GET",
+          token: session.accessToken,
+          responseType: "response",
         });
 
         if (!response.ok) {
@@ -80,11 +81,11 @@ export function useArtifactFromFilePath(filePath?: string) {
         }
 
         // Fetch all artifacts and find the one with matching file path
-        const response = await fetch("/api/artifacts", {
-          headers: {
-            Authorization: `Bearer ${session.accessToken}`,
-            "Content-Type": "application/json",
-          },
+        const response = await apiRequest({
+          url: "/api/artifacts",
+          method: "GET",
+          token: session.accessToken,
+          responseType: "response",
         });
 
         if (!response.ok) {
