@@ -58,18 +58,44 @@ export function ModernWidgetContainer({
 				popoutPreferences: widget.popoutPreferences,
 			};
 
-			// For chart widgets, capture the current plot state data
-			if (widget.type === 'chart' && plots) {
-				// Find the most recently loaded plot state
-				const latestFilePath = Object.keys(plots).find(filePath =>
-					plots[filePath]?.metadata && plots[filePath]?.edfData
-				);
+			// Capture widget-specific state for synchronization
+			const widgetStateKeys = [
+				`widget-state-${widget.id}`,
+				`widget-state-chart-widget-default`,
+				`widget-state-dda-widget-default`,
+				`widget-state-dda-lineplot-widget-default`
+			];
 
-				if (latestFilePath && plots[latestFilePath]) {
-					const plotState = plots[latestFilePath];
-					serializableWidget.metadata = {
-						...serializableWidget.metadata,
-						plotState: {
+			const capturedStates: Record<string, any> = {};
+			widgetStateKeys.forEach(key => {
+				const storedState = localStorage.getItem(key);
+				if (storedState) {
+					try {
+						capturedStates[key] = JSON.parse(storedState);
+					} catch (error) {
+						console.warn(`Failed to capture state for ${key}:`, error);
+					}
+				}
+			});
+
+			// For widgets that depend on plots data (chart, dda-line-plot), capture the entire plots state
+			const plotDependentWidgets = ['chart', 'dda-line-plot'];
+			if (plotDependentWidgets.includes(widget.type) && plots) {
+				// Capture the entire plots state for data synchronization
+				serializableWidget.metadata = {
+					...serializableWidget.metadata,
+					initialPlotsState: plots
+				};
+
+				// Also capture specific plot state for backward compatibility (chart widgets)
+				if (widget.type === 'chart') {
+					const latestFilePath = Object.keys(plots).find(filePath =>
+						plots[filePath]?.metadata && plots[filePath]?.edfData
+					);
+
+					if (latestFilePath && plots[latestFilePath]) {
+						const plotState = plots[latestFilePath];
+						serializableWidget.metadata.plotState = {
 							edfData: plotState.edfData,
 							metadata: plotState.metadata,
 							selectedChannels: plotState.selectedChannels,
@@ -81,10 +107,16 @@ export function ModernWidgetContainer({
 							chunkStart: plotState.chunkStart,
 							currentChunkNumber: plotState.currentChunkNumber,
 							chunkSizeSeconds: plotState.chunkSizeSeconds,
-						}
-					};
+						};
+					}
 				}
 			}
+
+			// Store captured widget states for the popped-out window
+			serializableWidget.metadata = {
+				...serializableWidget.metadata,
+				capturedStates
+			};
 
 			// Store widget data in localStorage for the new tab to access
 			const storageKey = `modern-popped-widget-${widget.id}`;
@@ -138,14 +170,20 @@ export function ModernWidgetContainer({
 			{/* Widget Header */}
 			<div
 				className={cn(
-					'drag-handle flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20',
-					'cursor-move transition-all duration-200',
+					'flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20',
+					'transition-all duration-200',
 					'hover:bg-primary/10 hover:border-primary/20',
 					isHovered && 'bg-primary/5'
 				)}
 			>
-				{/* Left side - Drag handle and title */}
-				<div className="flex items-center gap-2 flex-1 min-w-0">
+				{/* Left side - Drag handle and title (DRAGGABLE AREA) */}
+				<div
+					className={cn(
+						'drag-handle flex items-center gap-2 flex-1 min-w-0 cursor-move',
+						'transition-colors duration-200',
+						isHovered && 'text-primary'
+					)}
+				>
 					<GripVertical
 						className={cn(
 							'h-4 w-4 text-muted-foreground transition-colors duration-200',
@@ -159,18 +197,31 @@ export function ModernWidgetContainer({
 					/>
 				</div>
 
-				{/* Right side - Action buttons */}
+				{/* Right side - Action buttons (NON-DRAGGABLE AREA) */}
 				<div
 					className={cn(
-						'flex items-center gap-1 transition-opacity duration-200',
+						'flex items-center gap-1 transition-opacity duration-200 cursor-auto',
+						'relative z-10', // Ensure buttons are above drag area
 						isHovered ? 'opacity-100' : 'opacity-0'
 					)}
+					onMouseDown={(e) => {
+						// Prevent any mouse events from bubbling to drag system
+						e.stopPropagation();
+					}}
+					onTouchStart={(e) => {
+						// Prevent touch events from bubbling to drag system
+						e.stopPropagation();
+					}}
 				>
 					<Button
 						variant="ghost"
 						size="sm"
 						className="h-6 w-6 p-0 hover:bg-primary/20"
 						onClick={handlePopout}
+						onMouseDown={(e) => {
+							// Double protection: stop propagation at button level too
+							e.stopPropagation();
+						}}
 						title="Pop out widget"
 					>
 						<ExternalLink className="h-3 w-3" />
@@ -181,6 +232,10 @@ export function ModernWidgetContainer({
 						size="sm"
 						className="h-6 w-6 p-0 hover:bg-primary/20"
 						onClick={handleMinimize}
+						onMouseDown={(e) => {
+							// Double protection: stop propagation at button level too
+							e.stopPropagation();
+						}}
 						title={isMinimized ? 'Expand widget' : 'Minimize widget'}
 					>
 						{isMinimized ? (
@@ -199,6 +254,10 @@ export function ModernWidgetContainer({
 								e.preventDefault();
 								e.stopPropagation();
 								onRemove();
+							}}
+							onMouseDown={(e) => {
+								// Double protection: stop propagation at button level too
+								e.stopPropagation();
 							}}
 							title="Remove widget"
 						>
@@ -244,7 +303,10 @@ function EditableTitle({ title, onTitleChange, className }: EditableTitleProps) 
 	const [editValue, setEditValue] = useState(title);
 	const inputRef = useRef<HTMLInputElement>(null);
 
-	const handleDoubleClick = useCallback(() => {
+	const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+		// Prevent drag when double-clicking to edit title
+		e.stopPropagation();
+
 		if (onTitleChange) {
 			setIsEditing(true);
 			setEditValue(title);
@@ -283,6 +345,14 @@ function EditableTitle({ title, onTitleChange, className }: EditableTitleProps) 
 				onChange={(e) => setEditValue(e.target.value)}
 				onBlur={handleSubmit}
 				onKeyDown={handleKeyDown}
+				onMouseDown={(e) => {
+					// Prevent drag when interacting with input field
+					e.stopPropagation();
+				}}
+				onFocus={(e) => {
+					// Prevent drag when focusing input field
+					e.stopPropagation();
+				}}
 				className="bg-transparent border-none outline-none text-sm font-medium w-full"
 				autoFocus
 			/>

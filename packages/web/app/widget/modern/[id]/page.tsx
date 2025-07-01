@@ -49,6 +49,33 @@ export default function ModernWidgetPopoutPage() {
 			try {
 				const parsedWidget: SerializableModernWidget = JSON.parse(storedWidget);
 
+				// Restore captured widget states to localStorage for synchronization
+				if (parsedWidget.metadata?.capturedStates) {
+					Object.entries(parsedWidget.metadata.capturedStates).forEach(([key, state]) => {
+						localStorage.setItem(key, JSON.stringify(state));
+					});
+				}
+
+				// Initialize plots data for widgets that depend on it
+				if (parsedWidget.metadata?.initialPlotsState) {
+					try {
+						// Store the initial plots state for data synchronization
+						const plotsKey = `widget-data-update-${widgetId}`;
+						const plotsMessage = {
+							type: 'DATA_UPDATE',
+							widgetId: widgetId,
+							dataType: 'plots',
+							data: parsedWidget.metadata.initialPlotsState,
+							timestamp: Date.now(),
+						};
+						localStorage.setItem(plotsKey, JSON.stringify(plotsMessage));
+
+						console.log(`Initialized plots data for popout widget: ${widgetId}`);
+					} catch (error) {
+						console.warn('Failed to initialize plots state for popout:', error);
+					}
+				}
+
 				// Recreate the widget using the factory
 				const recreatedWidget = widgetFactory.createWidget(parsedWidget.type, {
 					id: parsedWidget.id,
@@ -82,6 +109,31 @@ export default function ModernWidgetPopoutPage() {
 			if (e.key === storageKey && e.newValue) {
 				try {
 					const updatedWidget: SerializableModernWidget = JSON.parse(e.newValue);
+
+					// Restore captured widget states
+					if (updatedWidget.metadata?.capturedStates) {
+						Object.entries(updatedWidget.metadata.capturedStates).forEach(([key, state]) => {
+							localStorage.setItem(key, JSON.stringify(state));
+						});
+					}
+
+					// Update plots data if available
+					if (updatedWidget.metadata?.initialPlotsState) {
+						try {
+							const plotsKey = `widget-data-update-${widgetId}`;
+							const plotsMessage = {
+								type: 'DATA_UPDATE',
+								widgetId: widgetId,
+								dataType: 'plots',
+								data: updatedWidget.metadata.initialPlotsState,
+								timestamp: Date.now(),
+							};
+							localStorage.setItem(plotsKey, JSON.stringify(plotsMessage));
+						} catch (error) {
+							console.warn('Failed to update plots state for popout:', error);
+						}
+					}
+
 					const recreatedWidget = widgetFactory.createWidget(updatedWidget.type, {
 						id: updatedWidget.id,
 						title: updatedWidget.title,
@@ -106,6 +158,30 @@ export default function ModernWidgetPopoutPage() {
 			if (e.data.type === 'UPDATE_WIDGET_DATA' && e.data.widgetId === widgetId) {
 				// Handle real-time updates from parent dashboard
 				try {
+					// Restore captured widget states from message
+					if (e.data.widget.metadata?.capturedStates) {
+						Object.entries(e.data.widget.metadata.capturedStates).forEach(([key, state]) => {
+							localStorage.setItem(key, JSON.stringify(state));
+						});
+					}
+
+					// Update plots data from message if available
+					if (e.data.widget.metadata?.initialPlotsState) {
+						try {
+							const plotsKey = `widget-data-update-${widgetId}`;
+							const plotsMessage = {
+								type: 'DATA_UPDATE',
+								widgetId: widgetId,
+								dataType: 'plots',
+								data: e.data.widget.metadata.initialPlotsState,
+								timestamp: Date.now(),
+							};
+							localStorage.setItem(plotsKey, JSON.stringify(plotsMessage));
+						} catch (error) {
+							console.warn('Failed to update plots state from message:', error);
+						}
+					}
+
 					const updatedWidget = widgetFactory.createWidget(e.data.widget.type, {
 						...e.data.widget,
 						isPopout: true,
