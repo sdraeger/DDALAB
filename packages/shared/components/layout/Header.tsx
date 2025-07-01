@@ -26,7 +26,7 @@ import { signOut } from "next-auth/react";
 import { useApiQuery } from "../../hooks/useApiQuery";
 
 interface ConfigResponse {
-  institution_name: string;
+  institutionName: string;
 }
 
 export function Header() {
@@ -57,7 +57,8 @@ export function Header() {
     });
   }
 
-  const institutionName = configData?.institution_name || "DEFAULT";
+  // Only show institution name if we have actual data (not while loading and not the default fallback)
+  const institutionName = configData?.institutionName;
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -66,7 +67,7 @@ export function Header() {
           <BrainCircuit className="h-6 w-6 mr-2" />
           <Link href="/" className="font-bold">
             DDALAB
-            {institutionName ? ` @ ${institutionName}` : ""}
+            {institutionName && !configLoading ? ` @ ${institutionName}` : ""}
           </Link>
         </div>
 

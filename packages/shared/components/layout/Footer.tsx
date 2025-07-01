@@ -4,7 +4,7 @@ import { BrainCircuit, Mail, Globe, Github } from "lucide-react";
 import { useApiQuery } from "../../hooks/useApiQuery";
 
 interface ConfigResponse {
-  institution_name: string;
+  institutionName: string;
 }
 
 export function Footer() {
@@ -28,7 +28,8 @@ export function Footer() {
     });
   }
 
-  const institutionName = configData?.institution_name || "DEFAULT";
+  // Only show institution name if we have actual data (not while loading and not the default fallback)
+  const institutionName = configData?.institutionName;
 
   return (
     <footer className="w-full bg-background border-t shadow-sm mt-auto">
@@ -65,7 +66,7 @@ export function Footer() {
 
           <div className="text-xs text-muted-foreground">
             &copy; {currentYear} DDALAB
-            {institutionName ? ` @ ${institutionName}` : ""}. All rights
+            {institutionName && !configLoading ? ` @ ${institutionName}` : ""}. All rights
             reserved.
           </div>
         </div>
