@@ -11,6 +11,7 @@ import {
 } from "../lib/utils/cache/widgetLayoutCache";
 import logger from "../lib/utils/logger";
 import { useToast } from "../components/ui/use-toast";
+import { apiRequest } from "../lib/utils/request";
 
 // Hook configuration
 interface UsePersistentDashboardOptions {
@@ -97,13 +98,13 @@ export function usePersistentDashboard(
           JSON.stringify({ widgets: widgetData }, null, 2)
         );
 
-        const response = await fetch("/api/widget-layouts", {
+        const response = await apiRequest({
+          url: "/api/widget-layouts",
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.accessToken}`,
-          },
-          body: JSON.stringify({ widgets: widgetData }),
+          token: session.accessToken,
+          contentType: "application/json",
+          body: { widgets: widgetData },
+          responseType: "response",
         });
 
         if (!response.ok) {
@@ -178,11 +179,11 @@ export function usePersistentDashboard(
       }
 
       // Fetch from database
-      const response = await fetch("/api/widget-layouts", {
+      const response = await apiRequest({
+        url: "/api/widget-layouts",
         method: "GET",
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-        },
+        token: session.accessToken,
+        responseType: "response",
       });
 
       if (!response.ok) {
@@ -426,45 +427,57 @@ export function usePersistentDashboard(
   }, [loadLayoutFromDatabase]);
 
   /**
-   * Clear saved layout
+   * Delete layout from database
    */
-  const clearSavedLayout = useCallback(async () => {
-    if (!session?.accessToken) return;
+  const deleteLayoutFromDatabase = useCallback(async (): Promise<void> => {
+    if (!session?.accessToken) {
+      logger.warn("No authentication token available for deleting layout");
+      return;
+    }
 
     try {
-      const response = await fetch("/api/widget-layouts", {
+      setIsSaving(true);
+
+      const response = await apiRequest({
+        url: "/api/widget-layouts",
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-        },
+        token: session.accessToken,
+        responseType: "response",
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to clear layout: ${response.statusText}`);
+        throw new Error(`Failed to delete layout: ${response.statusText}`);
       }
 
       // Clear cache
-      if (cacheManager && session.user?.id) {
-        cacheManager.clearUserCache(session.user.id);
+      if (cacheManager) {
+        cacheManager.clearCache();
       }
 
+      // Reset to initial widgets
+      setWidgets(initialWidgets);
+      lastSavedLayoutRef.current = "";
+
+      logger.info("Widget layout deleted successfully");
+
       toast({
-        title: "Layout Cleared",
-        description: "Your saved layout has been cleared.",
+        title: "Layout Deleted",
+        description: "Your saved layout has been deleted.",
         duration: 2000,
       });
-
-      logger.info("Saved widget layout cleared");
     } catch (error) {
-      logger.error("Error clearing saved layout:", error);
+      logger.error("Error deleting widget layout:", error);
       toast({
-        title: "Clear Failed",
-        description: "Failed to clear saved layout.",
+        title: "Delete Failed",
+        description: "Failed to delete widget layout. Please try again.",
         variant: "destructive",
         duration: 4000,
       });
+      throw error;
+    } finally {
+      setIsSaving(false);
     }
-  }, [session, cacheManager, toast]);
+  }, [session, cacheManager, initialWidgets, toast]);
 
   // Listen for messages from popped-out windows
   useEffect(() => {
@@ -501,7 +514,7 @@ export function usePersistentDashboard(
     // Persistence functions
     saveLayout,
     loadLayout,
-    clearSavedLayout,
+    deleteLayoutFromDatabase,
     // State indicators
     isLoading,
     isSaving,

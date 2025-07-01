@@ -37,6 +37,19 @@ export * from "./hooks/useWelcomeWidget";
 export * from "./hooks/useSimpleDashboard";
 export * from "./hooks/useLoadingManager";
 export * from "./hooks/usePersistentDashboard";
+export * from "./hooks/useModernDashboard";
+
+// Modern Dashboard Components
+export * from "./components/dashboard/ModernDashboardGrid";
+export * from "./components/dashboard/ModernDashboardToolbar";
+export * from "./components/dashboard/ModernWidgetContainer";
+
+// Services
+export * from "./services/WidgetFactoryService";
+export * from "./services/LayoutPersistenceService";
+
+// Types
+export * from "./types/dashboard";
 
 // Simple Dashboard components (new clean system)
 export { SimpleDashboardGrid } from "./components/dashboard/SimpleDashboardGrid";
