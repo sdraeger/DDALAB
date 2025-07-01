@@ -10,27 +10,85 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { useLoadingManager } from "../../../hooks/useLoadingManager";
 import { LoadingOverlay } from "../../ui/loading-overlay";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { useWidgetState } from "../../../hooks/useWidgetState";
+import { useWidgetDataSync } from "../../../hooks/useWidgetDataSync";
+import { PlotState } from "../../../store/slices/plotSlice";
 
-export function DDALinePlotWidget() {
+interface DDALinePlotWidgetProps {
+	widgetId?: string;
+	isPopout?: boolean;
+}
+
+interface DDALinePlotState {
+	plotMode: "all" | "average" | "individual";
+	selectedRow: number;
+	maxDisplayRows: number;
+	isProcessing: boolean;
+	error: string | null;
+}
+
+export function DDALinePlotWidget({
+	widgetId = 'dda-lineplot-widget-default',
+	isPopout = false
+}: DDALinePlotWidgetProps = {}) {
 	const plots = useAppSelector(state => state.plots);
 	const loadingManager = useLoadingManager();
 
-	// Find the most recent plot with DDA results (Q matrix)
-	const plotWithDDA = Object.entries(plots).find(([filePath, plotState]) =>
-		plotState?.ddaResults?.Q && Array.isArray(plotState.ddaResults.Q) && plotState.ddaResults.Q.length > 0
+	// Data synchronization for cross-window communication
+	const { registerDataListener, unregisterDataListener } = useWidgetDataSync(
+		widgetId,
+		isPopout
 	);
 
-	const [filePath, plotState] = plotWithDDA || [null, null];
+	// Local state for synchronized plot data (used in popout mode)
+	const [syncedPlots, setSyncedPlots] = useState<any>(null);
+
+	// Synchronized widget state
+	const { state: widgetState, updateState: setWidgetState } = useWidgetState<DDALinePlotState>(
+		widgetId,
+		{
+			plotMode: "average",
+			selectedRow: 0,
+			maxDisplayRows: 5,
+			isProcessing: false,
+			error: null,
+		},
+		isPopout
+	);
+
+	// Extract state variables for easier access
+	const { plotMode, selectedRow, maxDisplayRows, isProcessing, error } = widgetState;
+
+	// Register listener for plot data updates in popout mode
+	useEffect(() => {
+		if (isPopout) {
+			const handlePlotDataUpdate = (plots: any) => {
+				setSyncedPlots(plots);
+			};
+
+			registerDataListener('plots', handlePlotDataUpdate);
+
+			return () => {
+				unregisterDataListener('plots');
+			};
+		}
+	}, [isPopout, registerDataListener, unregisterDataListener]);
+
+	// Determine which plots data to use
+	const effectivePlots = isPopout ? (syncedPlots || plots) : plots;
+
+	// Find the most recent plot with DDA results (Q matrix)
+	const plotWithDDA = Object.entries(effectivePlots || {}).find(([filePath, plotState]) => {
+		const state = plotState as PlotState;
+		return state && state.ddaResults && state.ddaResults.Q &&
+			Array.isArray(state.ddaResults.Q) && state.ddaResults.Q.length > 0;
+	});
+
+	const [filePath, rawPlotState] = plotWithDDA || [null, null];
+	const plotState = rawPlotState as PlotState | null;
 	const ddaResults = plotState?.ddaResults;
 	const Q = ddaResults?.Q;
 	const hasData = Q && Array.isArray(Q) && Q.length > 0;
-
-	// Local state
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const [plotMode, setPlotMode] = useState<"all" | "average" | "individual">("average");
-	const [selectedRow, setSelectedRow] = useState<number>(0);
-	const [maxDisplayRows, setMaxDisplayRows] = useState(5);
 
 	// Process Q matrix into line chart data
 	const chartData = useMemo(() => {
@@ -83,8 +141,7 @@ export function DDALinePlotWidget() {
 		if (!Q) return;
 
 		const loadingId = `lineplot-widget-${Date.now()}`;
-		setIsProcessing(true);
-		setError(null);
+		setWidgetState(prev => ({ ...prev, isProcessing: true, error: null }));
 
 		try {
 			loadingManager.startDDAProcessing(
@@ -99,9 +156,12 @@ export function DDALinePlotWidget() {
 			setTimeout(() => loadingManager.stop(loadingId), 500);
 		} catch (err) {
 			loadingManager.stop(loadingId);
-			setError(err instanceof Error ? err.message : "Failed to process line plot");
+			setWidgetState(prev => ({
+				...prev,
+				error: err instanceof Error ? err.message : "Failed to process line plot"
+			}));
 		} finally {
-			setIsProcessing(false);
+			setWidgetState(prev => ({ ...prev, isProcessing: false }));
 		}
 	};
 
@@ -119,12 +179,18 @@ export function DDALinePlotWidget() {
 
 	const increaseRows = () => {
 		if (Q) {
-			setMaxDisplayRows(prev => Math.min(prev + 1, Q.length));
+			setWidgetState(prev => ({
+				...prev,
+				maxDisplayRows: Math.min(prev.maxDisplayRows + 1, Q.length)
+			}));
 		}
 	};
 
 	const decreaseRows = () => {
-		setMaxDisplayRows(prev => Math.max(prev - 1, 1));
+		setWidgetState(prev => ({
+			...prev,
+			maxDisplayRows: Math.max(prev.maxDisplayRows - 1, 1)
+		}));
 	};
 
 	if (!hasData) {
@@ -190,7 +256,9 @@ export function DDALinePlotWidget() {
 
 				{/* Controls */}
 				<div className="flex items-center gap-2 pt-2">
-					<Select value={plotMode} onValueChange={(value: any) => setPlotMode(value)}>
+					<Select value={plotMode} onValueChange={(value: any) =>
+						setWidgetState(prev => ({ ...prev, plotMode: value }))
+					}>
 						<SelectTrigger className="w-32">
 							<SelectValue />
 						</SelectTrigger>
@@ -202,7 +270,9 @@ export function DDALinePlotWidget() {
 					</Select>
 
 					{plotMode === "individual" && Q && (
-						<Select value={selectedRow.toString()} onValueChange={(value) => setSelectedRow(parseInt(value))}>
+						<Select value={selectedRow.toString()} onValueChange={(value) =>
+							setWidgetState(prev => ({ ...prev, selectedRow: parseInt(value) }))
+						}>
 							<SelectTrigger className="w-20">
 								<SelectValue />
 							</SelectTrigger>

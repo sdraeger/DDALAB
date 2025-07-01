@@ -10,23 +10,41 @@ import { useToast } from "../../ui/use-toast";
 import { useLoadingManager } from "../../../hooks/useLoadingManager";
 import { apiRequest } from "../../../lib/utils/request";
 import { setDDAResults } from "../../../store/slices/plotSlice";
+import { useWidgetState } from "../../../hooks/useWidgetState";
 import { Loader2, Settings, Play } from "lucide-react";
 
-export function DDAWidget() {
+interface DDAWidgetProps {
+	widgetId?: string;
+	isPopout?: boolean;
+}
+
+interface DDAFormState {
+	windowSize: number;
+	stepSize: number;
+	frequencyBand: string;
+	enablePreprocessing: boolean;
+	includeMetadata: boolean;
+}
+
+export function DDAWidget({ widgetId = 'dda-widget-default', isPopout = false }: DDAWidgetProps = {}) {
 	const { data: session } = useSession();
 	const plots = useAppSelector(state => state.plots);
 	const dispatch = useAppDispatch();
 	const { toast } = useToast();
 	const loadingManager = useLoadingManager();
 
-	// Form state
-	const [formData, setFormData] = useState({
-		windowSize: 1.0,
-		stepSize: 0.5,
-		frequencyBand: "8-12",
-		enablePreprocessing: true,
-		includeMetadata: false,
-	});
+	// Synchronized form state
+	const { state: formData, updateState: setFormData } = useWidgetState<DDAFormState>(
+		widgetId,
+		{
+			windowSize: 1.0,
+			stepSize: 0.5,
+			frequencyBand: "8-12",
+			enablePreprocessing: true,
+			includeMetadata: false,
+		},
+		isPopout
+	);
 
 	const latestFilePath = Object.keys(plots).find(filePath =>
 		plots[filePath]?.metadata && plots[filePath]?.edfData
