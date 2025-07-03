@@ -58,6 +58,52 @@ async def list_artifacts(
     return artifacts
 
 
+@router.get("/by_path", response_model=ArtifactResponse)
+async def get_artifact_by_path(
+    path: str,
+    artifact_service: ArtifactService = Depends(get_artifact_service()),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get a specific artifact by file path.
+    """
+    artifact = await artifact_service.get_artifact_by_file_path(path)
+
+    if not artifact:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Artifact not found",
+        )
+
+    # Check permissions - user must own the artifact or have it shared with them
+    if artifact.user_id != current_user.id:
+        # Check if artifact is shared with the user
+        is_shared = (
+            await artifact_service.get_artifact_share(artifact.id, current_user.id)
+            is not None
+        )
+        if not is_shared:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this artifact",
+            )
+
+    shared_by_user_id = None
+    if artifact.user_id != current_user.id:
+        share = await artifact_service.get_artifact_share(artifact.id, current_user.id)
+        if share:
+            shared_by_user_id = share.user_id
+
+    return ArtifactResponse(
+        artifact_id=str(artifact.id),
+        name=artifact.name,
+        file_path=artifact.file_path,
+        created_at=artifact.created_at,
+        user_id=artifact.user_id,
+        shared_by_user_id=shared_by_user_id,
+    )
+
+
 @router.get("/{artifact_id}", response_model=ArtifactResponse)
 async def get_artifact(
     artifact_id: str,
@@ -94,13 +140,20 @@ async def get_artifact(
                 detail="Not authorized to access this artifact",
             )
 
+    shared_by_user_id = None
+    if artifact.user_id != current_user.id:
+        # It's a shared artifact, find out who shared it
+        share = await artifact_service.get_artifact_share(artifact.id, current_user.id)
+        if share:
+            shared_by_user_id = share.user_id
+
     return ArtifactResponse(
         artifact_id=str(artifact.id),
         name=artifact.name,
         file_path=artifact.file_path,
         created_at=artifact.created_at,
         user_id=artifact.user_id,
-        shared_by_user_id=None,
+        shared_by_user_id=shared_by_user_id,
     )
 
 

@@ -94,24 +94,5 @@
   }
   body {
     @apply bg-background text-foreground;
-    padding: 1rem;
-  }
-
-  @media (min-width: 640px) {
-    body {
-      padding: 1.5rem;
-    }
-  }
-
-  @media (min-width: 1024px) {
-    body {
-      padding: 2rem;
-    }
-  }
-
-  @media (min-width: 1280px) {
-    body {
-      padding: 2.5rem;
-    }
   }
 }

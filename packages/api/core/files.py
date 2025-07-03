@@ -1,30 +1,44 @@
 """Core file management functionality."""
 
 import datetime
+from pathlib import Path
 from typing import List
 
+import pyedflib
 from core.config import get_data_settings
 from core.utils import is_path_allowed
+from fastapi import HTTPException
 from loguru import logger
 from schemas.files import FileInfo
 
 settings = get_data_settings()
 
 
-async def validate_file_path(file_path: str) -> bool:
-    """Check if a file exists in an allowed directory.
+async def validate_file_path(file_path: str | Path) -> str:
+    """Validate that the file path is within the allowed directories.
 
     Args:
         file_path: Absolute path to the file
 
     Returns:
-        True if file exists, False otherwise
+        Validated file path
+
+    Raises:
+        HTTPException: If the file is not found or not allowed
     """
     try:
-        file_path_obj = is_path_allowed(file_path)
-        return file_path_obj.exists() and file_path_obj.is_file()
-    except Exception:
-        return False
+        resolved_path = is_path_allowed(file_path)
+        if not resolved_path.is_file():
+            raise HTTPException(
+                status_code=404, detail=f"File not found at path: {file_path}"
+            )
+
+        return str(resolved_path)
+    except Exception as e:
+        logger.error(f"Error validating file path '{file_path}': {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Could not validate file path: {file_path}"
+        ) from e
 
 
 async def list_directory(path: str = "") -> List[FileInfo]:
@@ -70,3 +84,34 @@ async def list_directory(path: str = "") -> List[FileInfo]:
     except Exception as e:
         logger.error(f"Error listing directory '{path}': {e}")
         return []
+
+
+def read_edf_header(file_path: str) -> dict:
+    """Reads the main header information from an EDF or BDF file.
+
+    Args:
+        file_path: The path to the EDF or BDF file.
+
+    Returns:
+        A dictionary containing key header information.
+
+    Raises:
+        HTTPException: If the file cannot be read or is not a valid EDF/BDF file.
+    """
+    try:
+        with pyedflib.EdfReader(file_path) as f:
+            # Most essential header info. n_samples is a list, but for most EDF/BDF
+            # files, the number of samples is the same for all signals.
+            header = {
+                "n_channels": f.signals_in_file,
+                "n_samples": f.getNSamples()[0],
+                "duration": f.file_duration,
+                "start_datetime": f.getStartdatetime(),
+                "sample_frequency": f.getSampleFrequency(0),
+            }
+            return header
+    except Exception as e:
+        logger.error(f"Failed to read EDF header for '{file_path}': {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Could not read header for file: {file_path}"
+        ) from e

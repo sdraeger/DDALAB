@@ -131,7 +131,7 @@ export function DDAWidget({ widgetId = 'dda-widget-default', isPopout = false }:
 			loadingManager.updateProgress(loadingId, 40, "Submitting DDA analysis...");
 
 			const response = await apiRequest<{
-				Q: number[][];
+				Q: (number | null)[][];
 				metadata?: any;
 				artifact_id?: string;
 				file_path?: string;

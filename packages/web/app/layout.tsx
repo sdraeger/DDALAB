@@ -2,8 +2,8 @@ import type React from "react";
 import type { Metadata } from "next";
 import { Source_Sans_3 } from "next/font/google";
 import { Providers } from "shared/components/providers";
-import { Footer } from "shared/components/layout/Footer";
 import "./styles/globals.css";
+import { LoadingOverlay } from "shared/components/ui/loading-overlay";
 
 const sourceSans3 = Source_Sans_3({
   subsets: ["latin"],
@@ -32,10 +32,10 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={sourceSans3.className}>
-        <div className="flex flex-col min-h-screen">
-          <Providers>{children}</Providers>
-          <Footer />
-        </div>
+        <Providers>
+          <LoadingOverlay />
+          {children}
+        </Providers>
       </body>
     </html>
   );

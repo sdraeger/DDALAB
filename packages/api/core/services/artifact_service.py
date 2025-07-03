@@ -11,7 +11,6 @@ from core.repository.artifact_repository import ArtifactRepository
 from core.repository.artifact_share_repository import ArtifactShareRepository
 from core.repository.user_repository import UserRepository
 from fastapi import HTTPException, status
-from loguru import logger
 from minio import Minio
 from schemas.artifacts import (
     ArtifactCreate,
@@ -46,25 +45,16 @@ class ArtifactService:
             user_id=current_user.id, skip=skip, limit=limit
         )
 
-        logger.debug(f"Owned artifacts: {owned_artifacts}")
-
         # Get shared artifacts
-        shared_artifacts = await self.artifact_share_repository.get_by_user_id(
+        shared_artifact_relations = await self.artifact_share_repository.get_by_user_id(
             user_id=current_user.id, skip=skip, limit=limit
         )
 
-        logger.debug(f"Shared artifacts: {shared_artifacts}")
-
         # Combine and convert to response model
-        artifacts = owned_artifacts + shared_artifacts
         response = []
-        for artifact in artifacts:
-            shared_by_user_id = None
-            if artifact.user_id != current_user.id:
-                share = await self.artifact_share_repository.get_by_artifact_and_user(
-                    artifact.id, current_user.id
-                )
-                shared_by_user_id = share.user_id if share else None
+
+        # Process owned artifacts
+        for artifact in owned_artifacts:
             response.append(
                 ArtifactResponse(
                     artifact_id=str(artifact.id),
@@ -72,9 +62,24 @@ class ArtifactService:
                     file_path=artifact.file_path,
                     created_at=artifact.created_at,
                     user_id=artifact.user_id,
-                    shared_by_user_id=shared_by_user_id,
+                    shared_by_user_id=None,  # Owned artifacts are not shared with the owner
                 )
             )
+
+        # Process shared artifacts
+        for share in shared_artifact_relations:
+            artifact = share.artifact
+            if artifact:
+                response.append(
+                    ArtifactResponse(
+                        artifact_id=str(artifact.id),
+                        name=artifact.name or str(artifact.id),
+                        file_path=artifact.file_path,
+                        created_at=artifact.created_at,
+                        user_id=artifact.user_id,
+                        shared_by_user_id=share.user_id,
+                    )
+                )
 
         return response
 
@@ -83,6 +88,12 @@ class ArtifactService:
         Get an artifact by its ID.
         """
         return await self.artifact_repository.get_by_id(artifact_id)
+
+    async def get_artifact_by_file_path(self, file_path: str) -> ArtifactDB:
+        """
+        Get an artifact by its file path.
+        """
+        return await self.artifact_repository.get_by_file_path(file_path)
 
     async def delete_artifact(self, artifact_id: uuid.UUID, current_user: User) -> None:
         """
