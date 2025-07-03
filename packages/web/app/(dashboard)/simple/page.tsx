@@ -51,7 +51,7 @@ export default function SimpleDashboard() {
 		},
 		{
 			id: "dda-form-default",
-			title: "DDA Analysis Form",
+			title: "DDA Form",
 			position: { x: 400, y: 20 },
 			size: { width: 400, height: 350 },
 			minSize: { width: 300, height: 250 },
@@ -100,7 +100,6 @@ export default function SimpleDashboard() {
 		swapInWidget,
 		saveLayout,
 		loadLayout,
-		clearSavedLayout,
 		isLoading,
 		isSaving,
 		isLayoutLoaded
@@ -133,9 +132,31 @@ export default function SimpleDashboard() {
 
 	const handleClearLayout = async () => {
 		try {
-			await clearSavedLayout();
+			// Reset to initial widgets (clear current layout)
+			initialWidgets.forEach((widget, index) => {
+				if (index < widgets.length) {
+					updateWidget(widgets[index].id, widget);
+				} else {
+					addWidget(widget);
+				}
+			});
+			// Remove any extra widgets
+			widgets.slice(initialWidgets.length).forEach(widget => {
+				removeWidget(widget.id);
+			});
+
+			toast({
+				title: "Layout Cleared",
+				description: "Layout has been reset to default.",
+				duration: 2000,
+			});
 		} catch (error) {
-			// Error handling is done in the hook
+			toast({
+				title: "Error",
+				description: "Failed to clear layout.",
+				variant: "destructive",
+				duration: 3000,
+			});
 		}
 	};
 

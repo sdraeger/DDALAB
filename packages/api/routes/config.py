@@ -33,10 +33,6 @@ async def get_config():
 
     # Create response with CORS headers
     response = JSONResponse(content=config_data)
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-
     return response
 
 
@@ -46,10 +42,6 @@ async def options_config():
     Handle CORS preflight requests for config endpoint
     """
     response = Response()
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    response.headers["Access-Control-Max-Age"] = "86400"
     return response
 
 

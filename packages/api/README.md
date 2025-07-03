@@ -35,7 +35,7 @@ Create a new user (requires superuser privileges, except for first user).
 
 ### POST `/dda/`
 
-Submit a DDA (Dynamic Decomposition Analysis) task.
+Submit a DDA task.
 
 **Parameters:**
 

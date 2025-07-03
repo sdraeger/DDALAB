@@ -63,6 +63,7 @@ export interface IDashboardConfig {
   enablePersistence?: boolean;
   autoSave?: boolean;
   autoSaveDelay?: number;
+  onBreakpointChange?: (breakpoint: string, cols: number) => void;
 }
 
 // Dockable Panel Configuration
@@ -112,4 +113,21 @@ export interface IModernDashboardState {
   isLoading: boolean;
   isSaving: boolean;
   saveStatus: "idle" | "saving" | "success" | "error";
+}
+
+export interface ModernDashboardGridProps {
+  widgets: IDashboardWidget[];
+  layout: Layout[];
+  config: IDashboardConfig;
+  onLayoutChange: (layout: Layout[]) => void;
+  onWidgetRemove: (widgetId: string) => void;
+  onWidgetUpdate: (
+    widgetId: string,
+    updates: Partial<IDashboardWidget>
+  ) => void;
+  onBreakpointChange: (breakpoint: string, cols: number) => void;
+  className?: string;
+  isLoading?: boolean;
+  isSaving?: boolean;
+  saveStatus?: "idle" | "saving" | "success" | "error";
 }

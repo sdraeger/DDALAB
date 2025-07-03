@@ -11,7 +11,7 @@ interface DDAResultsProps {
   result: {
     artifact_id: string;
     file_path: string;
-    Q: number[][];
+    Q: (number | null)[][];
     metadata?: string;
   };
   artifactInfo?: ArtifactInfo;

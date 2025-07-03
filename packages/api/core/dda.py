@@ -1,4 +1,4 @@
-"""DDA (Dynamic Analysis) processing functionality."""
+"""DDA processing functionality."""
 
 import os
 from pathlib import Path
@@ -8,6 +8,7 @@ import dda_py
 import numpy as np
 from core.config import get_server_settings
 from core.dda_ape_patch import patch_dda_py
+from core.files import read_edf_header
 from loguru import logger
 from schemas.dda import DDAResponse
 from scipy import signal
@@ -121,6 +122,7 @@ async def run_dda(
     file_path: Path = None,
     channel_list: list[int] = None,
     preprocessing_options: dict[str, bool | int | float | str] = None,
+    max_heatmap_points: int = 100000,  # Limit to 100k points for performance
 ) -> DDAResponse:
     """Run DDA on a file.
 
@@ -128,6 +130,7 @@ async def run_dda(
         file_path: Path to the file
         channel_list: List of channels to analyze
         preprocessing_options: Preprocessing options
+        max_heatmap_points: Maximum number of points for the heatmap
 
     Returns:
         DDAResult object
@@ -144,25 +147,56 @@ async def run_dda(
             error_message=error_message,
         ).model_dump()
 
-    file_path = str(Path(settings.data_dir) / file_path)
-    logger.info(f"Running DDA on file: {file_path}")
-    logger.info(f"Preprocessing options: {preprocessing_options}")
+    file_path_str = str(Path(settings.data_dir) / file_path)
+    logger.info(f"Running DDA on file: {file_path_str}")
+    logger.info(f"Original preprocessing options: {preprocessing_options}")
 
     try:
+        # Get the total number of samples to prevent out-of-bounds errors
+        header = read_edf_header(file_path_str)
+        total_samples = header["n_samples"]
+        # The DDA binary has a known bug that causes a crash if it reads to the
+        # very end of the file. A safety margin is used to prevent this.
+        safety_margin = 256
+        end_bound = max(0, total_samples - safety_margin)
+        bounds = (0, end_bound)
+        logger.info(
+            f"Setting DDA bounds to: {bounds} for file with {total_samples} samples (includes safety margin)"
+        )
+
         Q, _ = await dda_py.run_dda_async(
-            input_file=file_path,
+            input_file=file_path_str,
             output_file=None,
             channel_list=channel_list,
-            bounds=None,
+            bounds=bounds,
             cpu_time=False,
-            raise_on_error=False,
+            raise_on_error=True,
         )
 
         Q = Q.T
+
+        # In-depth debugging of the raw Q matrix
+        logger.info(f"Raw Q matrix shape: {Q.shape}, dtype: {Q.dtype}")
+        nan_count = np.isnan(Q).sum()
+        inf_count = np.isinf(Q).sum()
+        finite_count = np.isfinite(Q).sum()
+        logger.info(
+            f"Q matrix stats: NaN={nan_count}, Inf={inf_count}, Finite={finite_count}"
+        )
+        if nan_count > 0 or inf_count > 0:
+            logger.warning("Q matrix contains non-finite values.")
+            # Log a small sample of the raw data to see what it looks like
+            logger.debug(f"Raw Q sample: {Q[:2, :5]}")
+
+        # Replace NaNs with 0 before resampling to avoid poisoning the calculation
+        if nan_count > 0:
+            logger.info(f"Replacing {nan_count} NaN values with 0.")
+            np.nan_to_num(Q, copy=False, nan=0.0)
+
         Q = np.where(np.isnan(Q), None, Q).tolist()
 
         result = DDAResponse(
-            file_path=file_path,
+            file_path=file_path_str,
             Q=Q,
             preprocessing_options=preprocessing_options,
         ).model_dump()

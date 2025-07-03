@@ -26,6 +26,11 @@ class ArtifactRepository(BaseRepository[Artifact]):
         result = await self.db.execute(stmt)
         return result.scalars().all()
 
+    async def get_by_file_path(self, file_path: str) -> Artifact | None:
+        stmt = select(Artifact).filter(Artifact.file_path == file_path)
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
+
     async def get_shared_with_user(
         self, user_id: int, skip: int = 0, limit: int | None = None
     ) -> List[Artifact]:

@@ -51,6 +51,7 @@ export default function DDAPage() {
           filePath,
           channelList: channels,
           preprocessingOptions: {}, // Add options as needed
+          maxHeatmapPoints: 100000, // Downsample to 100k points
         },
         context: {
           headers: {
