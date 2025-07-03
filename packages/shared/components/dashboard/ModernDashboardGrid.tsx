@@ -21,6 +21,7 @@ interface ModernDashboardGridProps {
 	onLayoutChange?: (layout: Layout[]) => void;
 	onWidgetRemove?: (widgetId: string) => void;
 	onWidgetUpdate?: (widgetId: string, updates: Partial<IDashboardWidget>) => void;
+	onBreakpointChange?: (breakpoint: string, cols: number) => void;
 	className?: string;
 	isLoading?: boolean;
 	isSaving?: boolean;
@@ -73,6 +74,7 @@ export function ModernDashboardGrid({
 	onLayoutChange,
 	onWidgetRemove,
 	onWidgetUpdate,
+	onBreakpointChange,
 	className,
 	isLoading = false,
 	isSaving = false,
@@ -115,24 +117,21 @@ export function ModernDashboardGrid({
 	const handleLayoutChange = useCallback((currentLayout: Layout[], allLayouts: { [key: string]: Layout[] }) => {
 		// Use the layout for the current breakpoint
 		onLayoutChange?.(currentLayout);
-		events?.onLayoutChange?.(currentLayout);
-	}, [onLayoutChange, events]);
+	}, [onLayoutChange]);
 
 	// Handle breakpoint change
 	const handleBreakpointChange = useCallback((breakpoint: string, cols: number) => {
-		events?.onBreakpointChange?.(breakpoint, cols);
-	}, [events]);
+		onBreakpointChange?.(breakpoint, cols);
+	}, [onBreakpointChange]);
 
 	// Handle widget actions
 	const handleWidgetRemove = useCallback((widgetId: string) => {
 		onWidgetRemove?.(widgetId);
-		events?.onWidgetRemove?.(widgetId);
-	}, [onWidgetRemove, events]);
+	}, [onWidgetRemove]);
 
 	const handleWidgetUpdate = useCallback((widgetId: string, updates: Partial<IDashboardWidget>) => {
 		onWidgetUpdate?.(widgetId, updates);
-		events?.onWidgetUpdate?.(widgetId, updates);
-	}, [onWidgetUpdate, events]);
+	}, [onWidgetUpdate]);
 
 	// Handle drag start
 	const handleDragStart = useCallback((layout: Layout[], oldItem: Layout, newItem: Layout, placeholder: Layout, e: MouseEvent, element: HTMLElement) => {
@@ -165,19 +164,19 @@ export function ModernDashboardGrid({
 	}, []);
 
 	return (
-		<div className={cn('modern-dashboard-grid relative w-full h-full overflow-hidden', className)}>
+		<div className={cn("modern-dashboard-grid relative h-full w-full", className)}>
 			{/* Loading overlay */}
 			{isLoading && (
-				<div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-[150] flex items-center justify-center">
+				<div className="absolute inset-0 z-[150] flex items-center justify-center bg-background/80 backdrop-blur-sm">
 					<div className="text-center">
-						<div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2" />
+						<div className="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
 						<p className="text-sm text-muted-foreground">Loading layout...</p>
 					</div>
 				</div>
 			)}
 
 			<ResponsiveGridLayout
-				className="layout"
+				className="layout w-full"
 				layouts={layouts}
 				breakpoints={config.breakpoints}
 				cols={config.cols}
@@ -195,7 +194,7 @@ export function ModernDashboardGrid({
 				preventCollision={false}
 				compactType="vertical"
 				useCSSTransforms={true}
-				resizeHandles={['se']}
+				resizeHandles={["se"]}
 				draggableHandle=".drag-handle"
 			>
 				{widgets.map((widget) => (
@@ -211,69 +210,74 @@ export function ModernDashboardGrid({
 
 			{/* Custom styles for smooth animations with proper z-index management */}
 			<style jsx>{`
-        .modern-dashboard-grid :global(.react-grid-item) {
-          transition: transform 200ms ease, box-shadow 200ms ease;
-          border-radius: 8px;
-          overflow: hidden;
-          z-index: 10;
-        }
+				.modern-dashboard-grid :global(.react-grid-layout) {
+					width: 100% !important;
+					min-width: 100% !important;
+				}
 
-        .modern-dashboard-grid :global(.react-grid-item:hover) {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-          z-index: 20;
-        }
+				.modern-dashboard-grid :global(.react-grid-item) {
+					transition: transform 200ms ease, box-shadow 200ms ease;
+					border-radius: 8px;
+					overflow: hidden;
+					z-index: 10;
+				}
 
-        .modern-dashboard-grid :global(.react-grid-item.react-grid-placeholder) {
-          background: rgba(var(--primary), 0.1) !important;
-          border: 2px dashed rgba(var(--primary), 0.3) !important;
-          border-radius: 8px !important;
-          opacity: 0.8;
-          z-index: 5;
-        }
+				.modern-dashboard-grid :global(.react-grid-item:hover) {
+					transform: translateY(-1px);
+					box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+					z-index: 20;
+				}
 
-        .modern-dashboard-grid :global(.react-resizable-handle) {
-          background-image: none !important;
-          width: 20px !important;
-          height: 20px !important;
-          bottom: 3px !important;
-          right: 3px !important;
-          z-index: 30;
-        }
+				.modern-dashboard-grid :global(.react-grid-item.react-grid-placeholder) {
+					background: rgba(var(--primary), 0.1) !important;
+					border: 2px dashed rgba(var(--primary), 0.3) !important;
+					border-radius: 8px !important;
+					opacity: 0.8;
+					z-index: 5;
+				}
 
-        .modern-dashboard-grid :global(.react-resizable-handle::after) {
-          content: '';
-          position: absolute;
-          right: 3px;
-          bottom: 3px;
-          width: 5px;
-          height: 5px;
-          border-right: 2px solid rgba(var(--border));
-          border-bottom: 2px solid rgba(var(--border));
-          transition: all 200ms ease;
-        }
+				.modern-dashboard-grid :global(.react-resizable-handle) {
+					background-image: none !important;
+					width: 20px !important;
+					height: 20px !important;
+					bottom: 3px !important;
+					right: 3px !important;
+					z-index: 30;
+				}
 
-        .modern-dashboard-grid :global(.react-resizable-handle:hover::after) {
-          border-color: rgba(var(--primary));
-          transform: scale(1.2);
-        }
+				.modern-dashboard-grid :global(.react-resizable-handle::after) {
+					content: "";
+					position: absolute;
+					right: 3px;
+					bottom: 3px;
+					width: 5px;
+					height: 5px;
+					border-right: 2px solid rgba(var(--border));
+					border-bottom: 2px solid rgba(var(--border));
+					transition: all 200ms ease;
+				}
 
-        .modern-dashboard-grid :global(.react-grid-item.dragging) {
-          z-index: 110 !important;
-          transform: rotate(2deg) scale(1.02) !important;
-          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15) !important;
-        }
+				.modern-dashboard-grid :global(.react-resizable-handle:hover::after) {
+					border-color: rgba(var(--primary));
+					transform: scale(1.2);
+				}
 
-        .modern-dashboard-grid :global(.react-grid-item.resizing) {
-          z-index: 110 !important;
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1) !important;
-        }
+				.modern-dashboard-grid :global(.react-grid-item.dragging) {
+					z-index: 110 !important;
+					transform: rotate(2deg) scale(1.02) !important;
+					box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15) !important;
+				}
 
-        /* Ensure dropdowns and overlays stay above grid items */
-        .modern-dashboard-grid :global([data-radix-popper-content-wrapper]) {
-          z-index: 200 !important;
-        }
-      `}</style>
+				.modern-dashboard-grid :global(.react-grid-item.resizing) {
+					z-index: 110 !important;
+					box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1) !important;
+				}
+
+				/* Ensure dropdowns and overlays stay above grid items */
+				.modern-dashboard-grid :global([data-radix-popper-content-wrapper]) {
+					z-index: 200 !important;
+				}
+			`}</style>
 
 			{/* Save indicator */}
 			<SaveIndicator status={saveStatus} />
