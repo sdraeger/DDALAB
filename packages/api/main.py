@@ -197,9 +197,8 @@ app.add_middleware(
         "http://localhost",
         "https://localhost",
         "file://",
-        "*",
     ],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=[

@@ -11,6 +11,7 @@
     "install-deps": "npm install"
   },
   "devDependencies": {
+    "@types/lodash": "^4.17.20",
     "@types/node": "^22.13.10",
     "turbo": "^2.5.3",
     "typescript": "^5.3.3"
@@ -21,7 +22,10 @@
     "@reduxjs/toolkit": "^2.8.2",
     "@xstate/react": "^5.0.4",
     "d3": "^7.9.0",
+    "framer-motion": "^12.23.0",
     "input-otp": "^1.4.2",
+    "lodash": "^4.17.21",
+    "nanoid": "^5.1.5",
     "react-grid-layout": "^1.5.1",
     "react-redux": "^9.2.0",
     "redux": "^5.0.1",

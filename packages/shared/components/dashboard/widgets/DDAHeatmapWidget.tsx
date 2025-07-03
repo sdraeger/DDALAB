@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAppSelector } from "../../../store";
 import { Activity, Settings, RotateCcw } from "lucide-react";
 import { DDAHeatmap } from "../../plot/DDAHeatmap";
@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Badge } from "../../ui/badge";
 import { useLoadingManager } from "../../../hooks/useLoadingManager";
 import { LoadingOverlay } from "../../ui/loading-overlay";
+import logger from "../../../lib/utils/logger";
 
 export function DDAHeatmapWidget() {
 	const plots = useAppSelector(state => state.plots);
@@ -23,6 +24,10 @@ export function DDAHeatmapWidget() {
 	const ddaResults = plotState?.ddaResults;
 	const Q = ddaResults?.Q;
 	const hasData = Q && Array.isArray(Q) && Q.length > 0;
+	const hasPlottableData = useMemo(() => {
+		if (!hasData || !Q) return false;
+		return Q.some(row => row.some(val => val !== null));
+	}, [Q, hasData]);
 
 	// Local state for heatmap processing
 	const [isProcessing, setIsProcessing] = useState(false);
@@ -46,22 +51,39 @@ export function DDAHeatmapWidget() {
 			);
 
 			// Simulate processing time for visibility
-			await new Promise(resolve => setTimeout(resolve, 1000));
+			await new Promise(resolve => setTimeout(resolve, 50)); // Shorter delay
 
 			const points: any[] = [];
 			matrix.forEach((row, rowIndex) => {
 				if (Array.isArray(row)) {
 					row.forEach((value, colIndex) => {
-						if (typeof value === "number" && !isNaN(value)) {
+						// Handle cases where the value might be wrapped in an array e.g. [0.123]
+						const unwrappedValue = Array.isArray(value) ? value[0] : value;
+
+						// Skip null or undefined values explicitly
+						if (unwrappedValue === null || unwrappedValue === undefined) {
+							return;
+						}
+
+						let numericValue = unwrappedValue;
+						if (typeof numericValue === "string") {
+							numericValue = parseFloat(numericValue);
+						}
+
+						if (typeof numericValue === "number" && !isNaN(numericValue)) {
 							points.push({
 								x: colIndex,
 								y: rowIndex,
-								value: value,
+								value: numericValue,
 							});
 						}
 					});
 				}
 			});
+
+			if (points.length === 0 && matrix.length > 0) {
+				logger.warn("Heatmap data is empty after processing. Check Q matrix content.", matrix);
+			}
 
 			loadingManager.updateProgress(loadingId, 100, "Heatmap generated successfully!");
 			setTimeout(() => loadingManager.stop(loadingId), 500);
@@ -105,6 +127,26 @@ export function DDAHeatmapWidget() {
 						<Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
 						<p className="text-sm">No DDA results available</p>
 						<p className="text-xs mt-1">Run DDA analysis to see results</p>
+					</div>
+				</CardContent>
+			</Card>
+		);
+	}
+
+	if (!hasPlottableData) {
+		return (
+			<Card className="h-full flex flex-col">
+				<CardHeader className="pb-3">
+					<CardTitle className="flex items-center gap-2 text-sm">
+						<Activity className="h-4 w-4" />
+						DDA Heatmap
+					</CardTitle>
+				</CardHeader>
+				<CardContent className="flex-1 flex items-center justify-center">
+					<div className="text-center text-muted-foreground">
+						<Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
+						<p className="text-sm">No plottable DDA data</p>
+						<p className="text-xs mt-1">The analysis resulted in no valid data points.</p>
 					</div>
 				</CardContent>
 			</Card>

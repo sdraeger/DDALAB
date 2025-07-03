@@ -9,6 +9,10 @@ import { WidgetFactoryService } from "shared/services/WidgetFactoryService";
 import { IDashboardWidget } from "shared/types/dashboard";
 import { useToast } from "shared/components/ui/use-toast";
 import { cn } from "shared/lib/utils/misc";
+import { useWidgetDataSync } from "shared/hooks/useWidgetDataSync";
+import { useAppDispatch } from "shared/store";
+import { setPlotsState } from "shared/store/slices/plotSlice";
+import logger from "shared/lib/utils/logger";
 
 interface SerializableModernWidget {
 	id: string;
@@ -27,6 +31,7 @@ export default function ModernWidgetPopoutPage() {
 	const router = useRouter();
 	const { data: session } = useSession();
 	const { toast } = useToast();
+	const dispatch = useAppDispatch();
 
 	const [widget, setWidget] = useState<IDashboardWidget | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -34,14 +39,43 @@ export default function ModernWidgetPopoutPage() {
 
 	const widgetId = params?.id as string;
 	const widgetFactory = WidgetFactoryService.getInstance();
+	const { sendMessage, registerDataListener, unregisterDataListener } = useWidgetDataSync(widgetId, true);
 
+	// Effect for handling data synchronization from the main window
+	useEffect(() => {
+		if (!widgetId) return;
+
+		const handlePlotsData = (plotsData: any) => {
+			if (plotsData && Object.keys(plotsData).length > 0) {
+				logger.info(`[Popout] Received plots data for widget ${widgetId}, dispatching to Redux...`);
+				dispatch(setPlotsState(plotsData));
+			}
+		};
+
+		// Listen for the initial data response
+		registerDataListener('INITIAL_DATA_RESPONSE', handlePlotsData);
+
+		// Also listen for continuous updates
+		registerDataListener('plots', handlePlotsData);
+
+		// Request the initial data from the main window
+		logger.info(`[Popout] Requesting initial data for widget ${widgetId}...`);
+		sendMessage('INITIAL_DATA_REQUEST', {}, 'plots');
+
+		return () => {
+			unregisterDataListener('INITIAL_DATA_RESPONSE');
+			unregisterDataListener('plots');
+		};
+	}, [widgetId, dispatch, registerDataListener, unregisterDataListener, sendMessage]);
+
+
+	// Effect for initializing the widget from localStorage
 	useEffect(() => {
 		if (!widgetId) {
 			setError("Widget ID not provided");
 			return;
 		}
 
-		// Get widget data from localStorage (passed from parent window)
 		const storageKey = `modern-popped-widget-${widgetId}`;
 		const storedWidget = localStorage.getItem(storageKey);
 
@@ -49,50 +83,16 @@ export default function ModernWidgetPopoutPage() {
 			try {
 				const parsedWidget: SerializableModernWidget = JSON.parse(storedWidget);
 
-				// Restore captured widget states to localStorage for synchronization
-				if (parsedWidget.metadata?.capturedStates) {
-					Object.entries(parsedWidget.metadata.capturedStates).forEach(([key, state]) => {
-						localStorage.setItem(key, JSON.stringify(state));
-					});
-				}
-
-				// Initialize plots data for widgets that depend on it
-				if (parsedWidget.metadata?.initialPlotsState) {
-					try {
-						// Store the initial plots state for data synchronization
-						const plotsKey = `widget-data-update-${widgetId}`;
-						const plotsMessage = {
-							type: 'DATA_UPDATE',
-							widgetId: widgetId,
-							dataType: 'plots',
-							data: parsedWidget.metadata.initialPlotsState,
-							timestamp: Date.now(),
-						};
-						localStorage.setItem(plotsKey, JSON.stringify(plotsMessage));
-
-						console.log(`Initialized plots data for popout widget: ${widgetId}`);
-					} catch (error) {
-						console.warn('Failed to initialize plots state for popout:', error);
-					}
-				}
-
-				// Recreate the widget using the factory
 				const recreatedWidget = widgetFactory.createWidget(parsedWidget.type, {
 					id: parsedWidget.id,
 					title: parsedWidget.title,
 					metadata: parsedWidget.metadata,
-					// Pass popout-specific props
 					isPopout: true,
 					popoutSize: popoutSize,
-					maxHeight: 'none',
-					containerHeight: '100%',
-					// Pass any plot state data for chart widgets
-					popoutPlotState: parsedWidget.metadata?.plotState,
 				});
 
 				setWidget(recreatedWidget);
 
-				// Set initial size based on widget preferences
 				const defaultSize = parsedWidget.popoutPreferences?.defaultSize || 'large';
 				setPopoutSize(defaultSize);
 
@@ -103,111 +103,27 @@ export default function ModernWidgetPopoutPage() {
 		} else {
 			setError("Widget data not found");
 		}
-
-		// Listen for updates from parent window
-		const handleStorageChange = (e: StorageEvent) => {
-			if (e.key === storageKey && e.newValue) {
-				try {
-					const updatedWidget: SerializableModernWidget = JSON.parse(e.newValue);
-
-					// Restore captured widget states
-					if (updatedWidget.metadata?.capturedStates) {
-						Object.entries(updatedWidget.metadata.capturedStates).forEach(([key, state]) => {
-							localStorage.setItem(key, JSON.stringify(state));
-						});
-					}
-
-					// Update plots data if available
-					if (updatedWidget.metadata?.initialPlotsState) {
-						try {
-							const plotsKey = `widget-data-update-${widgetId}`;
-							const plotsMessage = {
-								type: 'DATA_UPDATE',
-								widgetId: widgetId,
-								dataType: 'plots',
-								data: updatedWidget.metadata.initialPlotsState,
-								timestamp: Date.now(),
-							};
-							localStorage.setItem(plotsKey, JSON.stringify(plotsMessage));
-						} catch (error) {
-							console.warn('Failed to update plots state for popout:', error);
-						}
-					}
-
-					const recreatedWidget = widgetFactory.createWidget(updatedWidget.type, {
-						id: updatedWidget.id,
-						title: updatedWidget.title,
-						metadata: updatedWidget.metadata,
-						isPopout: true,
-						popoutSize: popoutSize,
-						maxHeight: 'none',
-						containerHeight: '100%',
-						popoutPlotState: updatedWidget.metadata?.plotState,
-					});
-					setWidget(recreatedWidget);
-				} catch (err) {
-					console.error("Failed to parse updated widget data", err);
-				}
-			}
-		};
-
-		// Listen for messages from parent window
-		const handleMessage = (e: MessageEvent) => {
-			if (e.origin !== window.location.origin) return;
-
-			if (e.data.type === 'UPDATE_WIDGET_DATA' && e.data.widgetId === widgetId) {
-				// Handle real-time updates from parent dashboard
-				try {
-					// Restore captured widget states from message
-					if (e.data.widget.metadata?.capturedStates) {
-						Object.entries(e.data.widget.metadata.capturedStates).forEach(([key, state]) => {
-							localStorage.setItem(key, JSON.stringify(state));
-						});
-					}
-
-					// Update plots data from message if available
-					if (e.data.widget.metadata?.initialPlotsState) {
-						try {
-							const plotsKey = `widget-data-update-${widgetId}`;
-							const plotsMessage = {
-								type: 'DATA_UPDATE',
-								widgetId: widgetId,
-								dataType: 'plots',
-								data: e.data.widget.metadata.initialPlotsState,
-								timestamp: Date.now(),
-							};
-							localStorage.setItem(plotsKey, JSON.stringify(plotsMessage));
-						} catch (error) {
-							console.warn('Failed to update plots state from message:', error);
-						}
-					}
-
-					const updatedWidget = widgetFactory.createWidget(e.data.widget.type, {
-						...e.data.widget,
-						isPopout: true,
-						popoutSize: popoutSize,
-						maxHeight: 'none',
-						containerHeight: '100%',
-						popoutPlotState: e.data.widget.metadata?.plotState,
-					});
-					setWidget(updatedWidget);
-				} catch (err) {
-					console.error("Failed to update widget from message", err);
-				}
-			}
-		};
-
-		window.addEventListener("storage", handleStorageChange);
-		window.addEventListener("message", handleMessage);
-
-		return () => {
-			window.removeEventListener("storage", handleStorageChange);
-			window.removeEventListener("message", handleMessage);
-		};
 	}, [widgetId, widgetFactory, popoutSize]);
 
+
+	// Effect for handling window messages (e.g., pop-in)
+	useEffect(() => {
+		const handleMessage = (event: MessageEvent) => {
+			if (event.origin !== window.location.origin) return;
+
+			if (event.data.type === 'SWAP_IN_MODERN_WIDGET') {
+				// This message is handled by the main window, not the pop-out.
+				// The pop-out initiates the swap via handleSwapIn.
+			}
+		};
+		window.addEventListener('message', handleMessage);
+		return () => {
+			window.removeEventListener('message', handleMessage);
+		};
+	}, []);
+
+
 	const handleSwapIn = useCallback(() => {
-		// Signal to parent window to swap the widget back in
 		if (window.opener && widget) {
 			window.opener.postMessage(
 				{
@@ -216,25 +132,9 @@ export default function ModernWidgetPopoutPage() {
 				},
 				window.location.origin
 			);
-
-			toast({
-				title: "Widget Returned",
-				description: `${widget.title} has been returned to the dashboard.`,
-				duration: 2000,
-			});
-
-			// Clean up localStorage
-			localStorage.removeItem(`modern-popped-widget-${widgetId}`);
-
-			// Close the window after a short delay
-			setTimeout(() => {
-				window.close();
-			}, 500);
-		} else {
-			// Fallback: redirect to dashboard
-			router.push("/dashboard/modern");
+			window.close();
 		}
-	}, [widget, widgetId, toast, router]);
+	}, [widget]);
 
 	const handleCopyWidgetInfo = useCallback(() => {
 		if (!widget) return;
@@ -246,42 +146,32 @@ export default function ModernWidgetPopoutPage() {
 				description: "Widget information has been copied to clipboard.",
 				duration: 2000,
 			});
-		}).catch(() => {
-			toast({
-				title: "Copy Failed",
-				description: "Failed to copy widget information.",
-				variant: "destructive",
-				duration: 2000,
-			});
 		});
 	}, [widget, toast]);
+
+	const toggleSize = (size: PopoutSize) => {
+		setPopoutSize(size);
+	};
 
 	const getSizeClasses = () => {
 		switch (popoutSize) {
 			case 'normal':
-				return "max-w-4xl mx-auto";
+				return 'max-w-4xl mx-auto';
 			case 'large':
-				return "max-w-6xl mx-auto";
+				return 'max-w-7xl mx-auto';
 			case 'fullscreen':
-				return "w-full";
+				return 'w-full h-full';
 			default:
-				return "max-w-6xl mx-auto";
+				return 'max-w-7xl mx-auto';
 		}
 	};
 
-	// Handle keyboard shortcuts
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
-			// F11 for fullscreen toggle
-			if (event.key === 'F11') {
-				event.preventDefault();
-				setPopoutSize(prev => prev === 'fullscreen' ? 'large' : 'fullscreen');
-			}
-
-			// Ctrl+Shift+C to copy widget info
-			if ((event.metaKey || event.ctrlKey) && event.key === 'c' && event.shiftKey) {
-				event.preventDefault();
-				handleCopyWidgetInfo();
+			if (event.metaKey || event.ctrlKey) {
+				if (event.key === 'c') {
+					handleCopyWidgetInfo();
+				}
 			}
 		};
 
@@ -291,13 +181,13 @@ export default function ModernWidgetPopoutPage() {
 
 	if (error) {
 		return (
-			<div className="min-h-screen flex items-center justify-center bg-background">
-				<div className="text-center space-y-4">
-					<div className="text-destructive text-lg font-medium">Error</div>
-					<div className="text-muted-foreground">{error}</div>
-					<Button onClick={() => router.push("/dashboard/modern")} className="gap-2">
-						<ArrowLeft className="h-4 w-4" />
-						Return to Modern Dashboard
+			<div className="flex flex-col items-center justify-center min-h-screen bg-muted">
+				<div className="text-center p-8 bg-background rounded-lg shadow-xl">
+					<h2 className="text-2xl font-bold text-destructive mb-4">Widget Error</h2>
+					<p className="text-muted-foreground mb-6">{error}</p>
+					<Button onClick={() => router.push('/dashboard')}>
+						<ArrowLeft className="mr-2 h-4 w-4" />
+						Return to Dashboard
 					</Button>
 				</div>
 			</div>
@@ -306,110 +196,45 @@ export default function ModernWidgetPopoutPage() {
 
 	if (!widget) {
 		return (
-			<div className="min-h-screen flex items-center justify-center bg-background">
-				<div className="text-center space-y-4">
-					<div className="text-lg font-medium">Loading widget...</div>
-					<div className="text-muted-foreground">Please wait while the widget loads.</div>
+			<div className="flex items-center justify-center min-h-screen bg-muted">
+				<div className="text-center">
+					<div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
+					<p className="text-lg font-semibold">Loading Widget...</p>
+					<p className="text-muted-foreground">Please wait a moment</p>
 				</div>
 			</div>
 		);
 	}
 
 	return (
-		<div className="min-h-screen bg-gradient-to-br from-background to-muted/20 flex flex-col">
+		<div className={cn("popout-widget-page bg-background flex flex-col h-screen overflow-hidden", getSizeClasses())}>
 			{/* Header */}
-			<div className="flex items-center justify-between p-4 border-b bg-background/80 backdrop-blur-sm">
-				<div className="flex items-center gap-3">
-					<h1 className="text-lg font-semibold">{widget.title}</h1>
-					<span className="px-2 py-1 text-xs bg-muted text-muted-foreground rounded-md font-normal">
-						{widget.type}
-					</span>
-					<span className="text-xs text-muted-foreground bg-primary/10 text-primary px-2 py-1 rounded">
-						Popped Out
-					</span>
-				</div>
-
-				<div className="flex items-center gap-2">
-					{/* Size controls */}
-					<div className="flex items-center gap-1 mr-2">
-						<Button
-							variant="ghost"
-							size="sm"
-							className="h-7 w-7 p-0"
-							onClick={() => setPopoutSize('normal')}
-							title="Normal size"
-							disabled={popoutSize === 'normal'}
-						>
-							<Minimize2 className="h-3 w-3" />
-						</Button>
-						<Button
-							variant="ghost"
-							size="sm"
-							className="h-7 w-7 p-0"
-							onClick={() => setPopoutSize(popoutSize === 'fullscreen' ? 'large' : 'fullscreen')}
-							title={popoutSize === 'fullscreen' ? 'Exit fullscreen (F11)' : 'Fullscreen (F11)'}
-						>
-							<Maximize2 className="h-3 w-3" />
-						</Button>
-						<Button
-							variant="ghost"
-							size="sm"
-							className="h-7 w-7 p-0"
-							onClick={handleCopyWidgetInfo}
-							title="Copy widget info (Ctrl+Shift+C)"
-						>
-							<Copy className="h-3 w-3" />
-						</Button>
+			<header className="flex items-center justify-between p-3 border-b bg-muted/40 flex-shrink-0">
+				<div className="flex items-center gap-4">
+					<Button variant="ghost" size="icon" onClick={handleSwapIn} title="Return to Dashboard">
+						<ArrowLeft className="h-5 w-5" />
+					</Button>
+					<div>
+						<h1 className="text-lg font-semibold">{widget.title}</h1>
+						<p className="text-sm text-muted-foreground">{widget.type}</p>
 					</div>
-
-					<Button onClick={handleSwapIn} variant="outline" size="sm" className="gap-2">
-						<RotateCcw className="h-4 w-4" />
-						Return to Dashboard
-					</Button>
-					<Button
-						onClick={() => router.push("/dashboard/modern")}
-						variant="outline"
-						size="sm"
-						className="gap-2"
-					>
-						<ArrowLeft className="h-4 w-4" />
-						Modern Dashboard
+				</div>
+				<div className="flex items-center gap-2">
+					<Button variant={popoutSize === 'normal' ? 'secondary' : 'ghost'} size="sm" onClick={() => toggleSize('normal')}>Normal</Button>
+					<Button variant={popoutSize === 'large' ? 'secondary' : 'ghost'} size="sm" onClick={() => toggleSize('large')}>Large</Button>
+					<Button variant={popoutSize === 'fullscreen' ? 'secondary' : 'ghost'} size="sm" onClick={() => toggleSize('fullscreen')}>Fullscreen</Button>
+					<Button variant="ghost" size="icon" onClick={handleCopyWidgetInfo} title="Copy Widget Info (Cmd/Ctrl+C)">
+						<Copy className="h-5 w-5" />
 					</Button>
 				</div>
-			</div>
+			</header>
 
 			{/* Widget Content */}
-			<div className="flex-1 p-6">
-				<div className={cn("h-full transition-all duration-200", getSizeClasses())}>
-					<div className="h-full bg-background border border-border rounded-lg shadow-sm overflow-hidden">
-						<div className="h-full overflow-auto">
-							<div className="p-6 h-full">
-								{widget.content}
-							</div>
-						</div>
-					</div>
+			<main className="flex-1 overflow-auto p-4">
+				<div className="h-full w-full">
+					{widget.content}
 				</div>
-			</div>
-
-			{/* Footer */}
-			<div className="border-t border-border px-6 py-3 bg-muted/20">
-				<div className="flex items-center justify-between text-xs text-muted-foreground">
-					<div className="flex items-center gap-4">
-						<span>Widget ID: {widget.id}</span>
-						<span>•</span>
-						<span>Size: {popoutSize}</span>
-						<span>•</span>
-						<span>Session: {session?.user?.email || 'Guest'}</span>
-					</div>
-					<div className="flex items-center gap-4">
-						<span>F11: Fullscreen</span>
-						<span>•</span>
-						<span>Ctrl+Shift+C: Copy info</span>
-						<span>•</span>
-						<span>Return to sync with dashboard</span>
-					</div>
-				</div>
-			</div>
+			</main>
 		</div>
 	);
 }

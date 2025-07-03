@@ -25,6 +25,7 @@ class Mutation:
         file_path: str,
         channel_list: list[int],
         preprocessing_options: Optional[PreprocessingOptionsInput] = None,
+        max_heatmap_points: Optional[int] = None,
     ) -> DDAResult:
         """Run DDA synchronously.
 
@@ -32,6 +33,7 @@ class Mutation:
             file_path: Path to the file
             channel_list: List of channels to analyze
             preprocessing_options: Optional[PreprocessingOptionsInput] = None
+            max_heatmap_points: Optional maximum number of points for the heatmap
 
         Returns:
             Complete DDA results
@@ -44,6 +46,7 @@ class Mutation:
                 if preprocessing_options
                 else None
             ),
+            max_heatmap_points=max_heatmap_points,
         )
         return DDAResult(
             file_path=file_path,

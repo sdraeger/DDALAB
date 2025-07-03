@@ -39,7 +39,7 @@ export interface PlotState {
 
   // DDA Results
   ddaResults: {
-    Q: number[][] | null;
+    Q: (number | null)[][] | null;
     metadata?: any;
     artifact_id?: string;
     file_path?: string;
@@ -446,7 +446,7 @@ const plotsSlice = createSlice({
       action: PayloadAction<{
         filePath: string;
         results: {
-          Q: number[][];
+          Q: (number | null)[][];
           metadata?: any;
           artifact_id?: string;
           file_path?: string;

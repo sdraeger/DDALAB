@@ -21,7 +21,7 @@ class UserPreferencesRepository(BaseRepository[UserPreferences]):
 
         if not existing_prefs:
             existing_prefs = UserPreferences(user_id=user_id)
-            await self.db.add(existing_prefs)
+            self.db.add(existing_prefs)
 
         for key, value in preferences.items():
             setattr(existing_prefs, camel_to_snake(key), value)
@@ -46,4 +46,5 @@ class UserPreferencesRepository(BaseRepository[UserPreferences]):
             await self.db.commit()
             await self.db.refresh(existing_prefs)
             return existing_prefs
+
         return None

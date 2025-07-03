@@ -30,7 +30,7 @@ async def get_user_preferences(
         # If no preferences exist, create with defaults
         if not preferences:
             preferences = UserPreferencesDB(user_id=current_user.id)
-            await prefs_service.update_preferences(current_user.id, preferences)
+            await prefs_service.update_preferences(current_user.id, {})
 
         return UserPreferences(
             theme=preferences.theme,
@@ -52,6 +52,15 @@ async def update_user_preferences(
     """Update user preferences using repository pattern"""
     try:
         logger.debug(f"Updating preferences for user: {current_user.id}")
+        logger.debug(f"Received preferences: {preferences}")
+
+        # Validate that preferences is not None and is a dict
+        if preferences is None:
+            preferences = {}
+        elif not isinstance(preferences, dict):
+            raise HTTPException(
+                status_code=400, detail="Preferences must be a valid object"
+            )
 
         updated_prefs = await prefs_service.update_preferences(
             current_user.id, preferences
