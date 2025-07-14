@@ -1,28 +1,20 @@
-from typing import List
+"""Repository for managing annotations."""
 
-from core.database import Annotation
-from sqlalchemy import select
+from core.models import Annotation
+from core.repository.base import BaseRepository
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from .base_repository import BaseRepository
 
 
 class AnnotationRepository(BaseRepository[Annotation]):
+    """Repository for managing annotations."""
+
     def __init__(self, db: AsyncSession):
-        super().__init__(Annotation, db)
+        super().__init__(db, Annotation)
 
-    async def get_by_user_id(
-        self, user_id: int, skip: int = 0, limit: int | None = None
-    ) -> List[Annotation]:
-        stmt = select(Annotation).filter(Annotation.user_id == user_id).offset(skip)
-        if limit is not None:
-            stmt = stmt.limit(limit)
-        return (await self.db.execute(stmt)).scalars().all()
+    async def get_by_user_id(self, user_id: int):
+        """Get all annotations for a user."""
+        return await self.get_by_field("user_id", user_id)
 
-    async def get_by_file_path(
-        self, file_path: str, skip: int = 0, limit: int | None = None
-    ) -> List[Annotation]:
-        stmt = select(Annotation).filter(Annotation.file_path == file_path).offset(skip)
-        if limit is not None:
-            stmt = stmt.limit(limit)
-        return (await self.db.execute(stmt)).scalars().all()
+    async def get_by_file_id(self, file_id: str):
+        """Get all annotations for a file."""
+        return await self.get_by_field("file_id", file_id)

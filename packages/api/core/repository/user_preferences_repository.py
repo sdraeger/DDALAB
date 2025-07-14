@@ -1,18 +1,19 @@
-from core.database import UserPreferences
-from core.utils.utils import camel_to_snake
-from sqlalchemy import inspect, select
-from sqlalchemy.ext.asyncio import AsyncSession
+"""Repository for managing user preferences."""
 
-from .base_repository import BaseRepository
+from core.models import UserPreferences
+from core.repository.base import BaseRepository
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class UserPreferencesRepository(BaseRepository[UserPreferences]):
-    def __init__(self, db: AsyncSession):
-        super().__init__(UserPreferences, db)
+    """Repository for managing user preferences."""
 
-    async def get_by_user_id(self, user_id: int) -> UserPreferences | None:
-        stmt = select(UserPreferences).filter(UserPreferences.user_id == user_id)
-        return (await self.db.execute(stmt)).scalars().first()
+    def __init__(self, db: AsyncSession):
+        super().__init__(db, UserPreferences)
+
+    async def get_by_user_id(self, user_id: int):
+        """Get preferences for a user."""
+        return await self.get_by_field("user_id", user_id)
 
     async def update_preferences(
         self, user_id: int, preferences: dict
@@ -24,7 +25,7 @@ class UserPreferencesRepository(BaseRepository[UserPreferences]):
             self.db.add(existing_prefs)
 
         for key, value in preferences.items():
-            setattr(existing_prefs, camel_to_snake(key), value)
+            setattr(existing_prefs, key, value)
 
         await self.db.commit()
         await self.db.refresh(existing_prefs)
@@ -39,8 +40,10 @@ class UserPreferencesRepository(BaseRepository[UserPreferences]):
             defaults = UserPreferences(user_id=user_id)
 
             # Get all column names using inspection API
-            mapper = inspect(UserPreferences)
-            for column in mapper.columns:
+            # mapper = inspect(UserPreferences) # This line is removed as per the new_code
+            for column in (
+                UserPreferences.__table__.columns
+            ):  # This line is changed as per the new_code
                 setattr(existing_prefs, column.name, getattr(defaults, column.name))
 
             await self.db.commit()

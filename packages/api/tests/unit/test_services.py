@@ -1,9 +1,9 @@
-"""Unit tests for service layer."""
+"""Unit tests for services."""
 
 from unittest.mock import AsyncMock
 
 import pytest
-from core.database import Artifact, FavoriteFile, Ticket, User, UserPreferences
+from core.models import Artifact, FavoriteFile, Ticket, User, UserPreferences
 from core.services import (
     ArtifactService,
     FavoriteFilesService,
@@ -13,6 +13,8 @@ from core.services import (
 )
 from schemas.user import UserCreate, UserUpdate
 from sqlalchemy.ext.asyncio import AsyncSession
+
+pytestmark = pytest.mark.asyncio
 
 
 @pytest.mark.unit

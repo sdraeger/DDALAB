@@ -1,24 +1,29 @@
+"""Routes for managing widget layouts."""
+
 from core.auth import get_current_user
-from core.database import User
 from core.dependencies import get_service
-from core.services import LayoutService
+from core.models import User
+from core.services import WidgetLayoutService
 from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 from schemas.widget_layout import (
-    GetWidgetLayoutResponse,
-    SaveWidgetLayoutRequest,
+    SaveWidgetLayoutRequest as WidgetLayoutCreate,
+)
+from schemas.widget_layout import (
     WidgetLayoutData,
-    WidgetLayoutResponse,
+)
+from schemas.widget_layout import (
+    WidgetLayoutResponse as WidgetLayout,
 )
 
 router = APIRouter()
 
 
-@router.post("", response_model=WidgetLayoutResponse)
+@router.post("", response_model=WidgetLayout)
 async def save_widget_layout(
-    request: SaveWidgetLayoutRequest,
+    request: WidgetLayoutCreate,
     current_user: User = Depends(get_current_user),
-    layout_service: LayoutService = Depends(get_service(LayoutService)),
+    layout_service: WidgetLayoutService = Depends(get_service(WidgetLayoutService)),
 ):
     """
     Save user-specific widget layouts in the user_layouts table.
@@ -30,7 +35,7 @@ async def save_widget_layout(
         logger.info(
             f"Saved widget layout for user {current_user.id} with {len(widget_dicts)} widgets"
         )
-        return WidgetLayoutResponse(
+        return WidgetLayout(
             status="success",
             message="Widget layout saved successfully",
             widgets=request.widgets,
@@ -51,10 +56,10 @@ async def save_widget_layout(
         )
 
 
-@router.get("", response_model=GetWidgetLayoutResponse)
+@router.get("", response_model=WidgetLayout)
 async def get_widget_layout(
     current_user: User = Depends(get_current_user),
-    layout_service: LayoutService = Depends(get_service(LayoutService)),
+    layout_service: WidgetLayoutService = Depends(get_service(WidgetLayoutService)),
 ):
     """
     Retrieve user-specific widget layouts.
@@ -66,7 +71,11 @@ async def get_widget_layout(
         logger.info(
             f"Retrieved widget layout for user {current_user.id} with {len(widgets)} widgets"
         )
-        return GetWidgetLayoutResponse(widgets=widgets)
+        return WidgetLayout(
+            status="success",
+            message="Widget layout retrieved successfully",
+            widgets=widgets,
+        )
 
     except Exception as e:
         logger.error(
@@ -78,10 +87,10 @@ async def get_widget_layout(
         )
 
 
-@router.delete("", response_model=WidgetLayoutResponse)
+@router.delete("", response_model=WidgetLayout)
 async def delete_widget_layout(
     current_user: User = Depends(get_current_user),
-    layout_service: LayoutService = Depends(get_service(LayoutService)),
+    layout_service: WidgetLayoutService = Depends(get_service(WidgetLayoutService)),
 ):
     """
     Delete user-specific widget layouts.
@@ -90,13 +99,13 @@ async def delete_widget_layout(
         deleted_layout = await layout_service.delete_user_layouts(current_user.id)
         if deleted_layout:
             logger.info(f"Deleted widget layout for user {current_user.id}")
-            return WidgetLayoutResponse(
+            return WidgetLayout(
                 status="success",
                 message="Widget layout deleted successfully",
                 widgets=[],
             )
         else:
-            return WidgetLayoutResponse(
+            return WidgetLayout(
                 status="success", message="No widget layout found to delete", widgets=[]
             )
 

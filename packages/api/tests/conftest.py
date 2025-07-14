@@ -1,4 +1,4 @@
-"""Test configuration and shared fixtures."""
+"""Test configuration and fixtures."""
 
 import asyncio
 import tempfile
@@ -8,14 +8,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
-from core.config import Settings
-from core.database import Base, User
+from core.config import Settings, get_server_settings
 from core.dependencies import get_db_session, get_minio_client
 from core.middleware import AuthMiddleware, DBSessionMiddleware
+from core.models import Base, User
 from core.security import get_password_hash
 from faker import Faker
-
-# Create minimal test app to avoid import issues
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
@@ -23,17 +21,19 @@ from httpx import ASGITransport, AsyncClient
 from minio import Minio
 from routes.artifacts import router as artifacts_router
 from routes.auth import router as auth_router
-
-# Import individual routers that we know work
 from routes.health import router as health_router
 from routes.tickets import router as tickets_router
 from routes.users import router as users_router
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
+
+settings = get_server_settings()
+
+# Use a separate test database
+SQLALCHEMY_DATABASE_URL = (
+    f"postgresql+asyncpg://{settings.db_user}:{settings.db_password}"
+    f"@{settings.db_host}:{settings.db_port}/{settings.db_name}_test"
+)
 
 # Create test app
 test_app = FastAPI(title="Test DDALAB API", version="0.1.0")

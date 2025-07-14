@@ -2,19 +2,21 @@ from typing import List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import FavoriteFile
-from ..dependencies import register_service
+from ..models import FavoriteFile
 from ..repository import FavoriteFilesRepository
+from ..service_registry import register_service
+from .base import BaseService
 
 
 @register_service
-class FavoriteFilesService:
+class FavoriteFilesService(BaseService):
     def __init__(self, db: AsyncSession):
+        super().__init__(db)
         self.favorite_files_repo = FavoriteFilesRepository(db)
         self.db = db
 
     @classmethod
-    def create(cls, db: AsyncSession) -> "FavoriteFilesService":
+    def from_db(cls, db: AsyncSession) -> "FavoriteFilesService":
         return cls(db)
 
     async def get_favorites(
@@ -31,3 +33,12 @@ class FavoriteFilesService:
         return await self.favorite_files_repo.get_by_user_and_file_path(
             user_id, file_path
         )
+
+    async def health_check(self) -> bool:
+        """Check if the service is healthy."""
+        try:
+            # Try to execute a simple query to check database connectivity
+            await self.db.execute("SELECT 1")
+            return True
+        except Exception:
+            return False
