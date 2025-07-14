@@ -1,47 +1,78 @@
-import esbuild from 'esbuild';
-import cpx from 'cpx';
+import esbuild from "esbuild";
+import cpx from "cpx";
+import { spawn } from "child_process";
+
+let electronProcess = null;
+
+function startElectron() {
+  if (electronProcess) {
+    electronProcess.kill();
+  }
+
+  electronProcess = spawn("npx", ["electron", "."], {
+    stdio: "inherit",
+    env: { ...process.env, NODE_ENV: "development" },
+  });
+
+  electronProcess.on("close", (code) => {
+    if (code !== null && code !== 0) {
+      console.log(`Electron process exited with code ${code}`);
+    }
+  });
+}
+
+// Plugin to restart Electron when main process changes
+const electronRestartPlugin = {
+  name: "electron-restart",
+  setup(build) {
+    build.onEnd(() => {
+      console.log("Main process changed, restarting Electron...");
+      startElectron();
+    });
+  },
+};
 
 const rendererConfig = {
-  entryPoints: ['src/renderer.tsx'],
+  entryPoints: ["src/renderer.tsx"],
   bundle: true,
-  outfile: 'dist/src/renderer.bundle.js',
-  platform: 'browser',
-  format: 'iife',
+  outfile: "dist/src/renderer.bundle.js",
+  platform: "browser",
+  format: "iife",
   sourcemap: true,
-  external: ['electron'],
+  external: ["electron"],
   loader: {
-    '.js': 'jsx',
-    '.ts': 'ts',
-    '.tsx': 'tsx',
+    ".js": "jsx",
+    ".ts": "ts",
+    ".tsx": "tsx",
   },
   define: {
-    'process.env.NODE_ENV': '"development"',
+    "process.env.NODE_ENV": '"development"',
   },
 };
 
 const mainConfig = {
-  entryPoints: ['src/main.ts'],
+  entryPoints: ["src/main.ts"],
   bundle: true,
-  outfile: 'dist/main.js',
-  platform: 'node',
-  format: 'cjs',
+  outfile: "dist/main.js",
+  platform: "node",
+  format: "cjs",
   sourcemap: true,
-  external: ['electron'],
+  external: ["electron"],
   loader: {
-    '.ts': 'ts',
+    ".ts": "ts",
   },
 };
 
 const preloadConfig = {
-  entryPoints: ['preload.ts'],
+  entryPoints: ["preload.ts"],
   bundle: true,
-  outfile: 'dist/preload.js',
-  platform: 'node',
-  format: 'cjs',
+  outfile: "dist/preload.js",
+  platform: "node",
+  format: "cjs",
   sourcemap: true,
-  external: ['electron'],
+  external: ["electron"],
   loader: {
-    '.ts': 'ts',
+    ".ts": "ts",
   },
 };
 
@@ -49,15 +80,15 @@ async function build() {
   try {
     // Build main, renderer, and preload processes
     await esbuild.build(mainConfig);
-    console.log('Main process build successful with esbuild!');
+    console.log("Main process build successful with esbuild!");
 
     await esbuild.build(rendererConfig);
-    console.log('Renderer build successful with esbuild!');
+    console.log("Renderer build successful with esbuild!");
 
     await esbuild.build(preloadConfig);
-    console.log('Preload script build successful with esbuild!');
+    console.log("Preload script build successful with esbuild!");
   } catch (error) {
-    console.error('esbuild failed:', error);
+    console.error("esbuild failed:", error);
     process.exit(1);
   }
 }
@@ -67,6 +98,7 @@ async function copyStaticAssets() {
   try {
     await cpx.copy("src/configmanager.html", "dist/src");
     await cpx.copy("src/style.css", "dist/src");
+    await cpx.copy("src/vendor/**/*", "dist/src/vendor");
     await cpx.copy(".env.example", "dist"); // Copy .env.example to dist/
     console.log("Static assets copied successfully.");
   } catch (error) {
@@ -80,4 +112,63 @@ async function buildAll() {
   await copyStaticAssets();
 }
 
-buildAll();
+async function watch() {
+  try {
+    // Add restart plugin only to main config for watch mode
+    const mainConfigWithRestart = {
+      ...mainConfig,
+      plugins: [electronRestartPlugin],
+    };
+
+    // Create esbuild contexts for watch mode
+    const mainContext = await esbuild.context(mainConfigWithRestart);
+    const rendererContext = await esbuild.context(rendererConfig);
+    const preloadContext = await esbuild.context(preloadConfig);
+
+    // Initial build
+    await mainContext.rebuild();
+    console.log("Main process build successful with esbuild!");
+
+    await rendererContext.rebuild();
+    console.log("Renderer build successful with esbuild!");
+
+    await preloadContext.rebuild();
+    console.log("Preload script build successful with esbuild!");
+
+    await copyStaticAssets();
+
+    // Start watching (only call watch() once per context)
+    await mainContext.watch();
+    await rendererContext.watch();
+    await preloadContext.watch();
+
+    // Start Electron after initial build
+    startElectron();
+
+    console.log("Watching for changes...");
+
+    // Handle process termination
+    process.on("SIGINT", async () => {
+      console.log("\nShutting down...");
+      if (electronProcess) {
+        electronProcess.kill();
+      }
+      await mainContext.dispose();
+      await rendererContext.dispose();
+      await preloadContext.dispose();
+      process.exit(0);
+    });
+  } catch (error) {
+    console.error("Watch mode failed:", error);
+    process.exit(1);
+  }
+}
+
+// Check if --watch flag is passed
+const isWatchMode = process.argv.includes("--watch");
+
+if (isWatchMode) {
+  watch();
+} else {
+  buildAll();
+}

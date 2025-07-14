@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useTheme } from "next-themes";
 import { useToast } from "./ui/use-toast";
 import { useSettings } from "../contexts/SettingsContext";
@@ -27,9 +27,9 @@ const getThemeIcon = (theme: string | undefined) => {
 };
 
 export function ModeToggle() {
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, resolvedTheme } = useTheme();
   const { toast } = useToast();
-  const { updatePreference, saveChanges } = useSettings();
+  const { updatePreference, saveChanges, userPreferences } = useSettings();
   const [mounted, setMounted] = useState(false);
 
   // Prevent hydration mismatch by tracking mounted state
@@ -37,15 +37,29 @@ export function ModeToggle() {
     setMounted(true);
   }, []);
 
-  const handleThemeChange = async (newTheme: Theme) => {
+  // Sync with settings context on mount
+  useEffect(() => {
+    if (!mounted) return;
+
+    const syncTheme = async () => {
+      if (userPreferences.theme && theme !== userPreferences.theme) {
+        setTheme(userPreferences.theme);
+      }
+    };
+
+    syncTheme();
+  }, [mounted, theme, userPreferences.theme, setTheme]);
+
+  const handleThemeChange = useCallback(async (newTheme: Theme) => {
     if (newTheme === theme) return;
 
-    setTheme(newTheme);
-    updatePreference("theme", newTheme);
-
     try {
+      setTheme(newTheme);
+      updatePreference("theme", newTheme);
+
       const saved = await saveChanges();
       if (!saved) throw new Error("Save failed");
+
       toast({
         title: `Switched to ${newTheme} theme`,
         description: "Your theme preference has been saved.",
@@ -58,9 +72,8 @@ export function ModeToggle() {
         variant: "destructive",
         duration: 5000,
       });
-      setTheme(theme || "system");
     }
-  };
+  }, [theme, setTheme, updatePreference, saveChanges, toast]);
 
   // Prevent hydration mismatch by not rendering theme-dependent content until mounted
   if (!mounted) {
@@ -72,57 +85,27 @@ export function ModeToggle() {
     );
   }
 
-  const ThemeIcon = getThemeIcon(theme);
+  // Use resolvedTheme for the icon to show the actual theme being displayed
+  const ThemeIcon = getThemeIcon(resolvedTheme);
 
   return (
-    <DropdownMenu modal={false}>
+    <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" aria-label="Select theme">
           <ThemeIcon className="h-[1.2rem] w-[1.2rem]" />
           <span className="sr-only">Toggle theme</span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        side="bottom"
-        sideOffset={8}
-        avoidCollisions={false}
-        className="z-[9999] min-w-[140px] animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
-        onCloseAutoFocus={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
-        onFocusOutside={(e) => e.preventDefault()}
-        onInteractOutside={(e) => {
-          const target = e.target as Element;
-          if (target && target.closest('[data-radix-dropdown-menu-trigger]')) {
-            e.preventDefault();
-          }
-        }}
-        style={{
-          position: 'fixed',
-          willChange: 'transform',
-          top: 'var(--radix-popper-anchor-height, 0px)',
-          left: 'var(--radix-popper-anchor-width, 0px)',
-          transformOrigin: 'top right',
-        }}
-      >
-        <DropdownMenuItem
-          onSelect={() => handleThemeChange("light")}
-          className="cursor-pointer"
-        >
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={() => handleThemeChange("light")}>
           <Sun className="mr-2 h-4 w-4" />
           <span>Light</span>
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => handleThemeChange("dark")}
-          className="cursor-pointer"
-        >
+        <DropdownMenuItem onSelect={() => handleThemeChange("dark")}>
           <Moon className="mr-2 h-4 w-4" />
           <span>Dark</span>
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => handleThemeChange("system")}
-          className="cursor-pointer"
-        >
+        <DropdownMenuItem onSelect={() => handleThemeChange("system")}>
           <MonitorSmartphone className="mr-2 h-4 w-4" />
           <span>System</span>
         </DropdownMenuItem>

@@ -29,7 +29,6 @@ import {
 	LogOut,
 	User,
 	Ticket,
-	Zap,
 	ChevronUp,
 	Loader2,
 } from "lucide-react";
@@ -325,7 +324,7 @@ export function AppSidebar({ className }: AppSidebarProps) {
 										</Link>
 									</DropdownMenuItem>
 									<DropdownMenuItem asChild>
-										<Link href="/dashboard/tickets" className="cursor-pointer">
+										<Link href="/tickets" className="cursor-pointer">
 											<Ticket className="mr-2 h-4 w-4" />
 											Support Tickets
 										</Link>

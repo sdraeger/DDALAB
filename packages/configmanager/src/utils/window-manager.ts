@@ -9,7 +9,7 @@ export function createWindow(): void {
     width: 1400,
     height: 1000,
     webPreferences: {
-      preload: path.join(__dirname, "..", "dist", "preload.js"),
+      preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
     },

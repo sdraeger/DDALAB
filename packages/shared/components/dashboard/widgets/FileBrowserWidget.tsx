@@ -73,11 +73,13 @@ export function FileBrowserWidget({
 
 	// Refetch when current directory changes
 	useEffect(() => {
+		console.log("refetch: currentPath = ", currentPath);
 		if (currentPath) refetch();
 	}, [currentPath, refetch]);
 
 	// Get files from API response or fallback data
 	const files = useMemo(() => {
+		console.log("files: data = ", data);
 		if (data?.files) {
 			return data.files;
 		}

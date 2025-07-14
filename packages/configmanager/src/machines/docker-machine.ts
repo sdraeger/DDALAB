@@ -5,15 +5,17 @@ interface DockerContext {
   logs: string[];
   isTraefikHealthy: boolean;
   lastError?: string;
+  allServicesHealthy: boolean;
 }
 
 type DockerEvent =
   | { type: "START_DOCKER" }
   | { type: "STOP_DOCKER" }
-  | { type: "FETCH_LOGS" }
   | { type: "DOCKER_STARTED" }
   | { type: "DOCKER_STOPPED" }
   | { type: "SERVICES_READY" }
+  | { type: "SERVICES_UNHEALTHY" }
+  | { type: "FETCH_LOGS" }
   | { type: "STATUS_UPDATE"; statusUpdate: { type: string; message: string } }
   | {
       type: "LOG_UPDATE";
@@ -28,7 +30,7 @@ export const dockerMachine = createMachine<DockerContext, DockerEvent>({
     status: "Unknown",
     logs: [],
     isTraefikHealthy: false,
-    lastError: undefined,
+    allServicesHealthy: false,
   },
   states: {
     unknown: {
@@ -262,11 +264,13 @@ export const dockerMachine = createMachine<DockerContext, DockerEvent>({
     },
     runningHealthy: {
       entry: assign({
-        status: () => "Running (Services Healthy)",
+        status: () => "Running (All Services Healthy)",
         isTraefikHealthy: () => true,
+        allServicesHealthy: () => true,
       }),
       on: {
         STOP_DOCKER: "stopping",
+        SERVICES_UNHEALTHY: "runningUnhealthy",
         STATUS_UPDATE: {
           actions: [
             assign((context, event) => ({
@@ -278,10 +282,6 @@ export const dockerMachine = createMachine<DockerContext, DockerEvent>({
               ],
             })),
           ],
-          target: "stopped",
-          cond: (_, event) =>
-            event.statusUpdate.type === "success" &&
-            event.statusUpdate.message.toLowerCase().includes("stopped"),
         },
         ERROR: {
           target: "error",
@@ -290,6 +290,59 @@ export const dockerMachine = createMachine<DockerContext, DockerEvent>({
               status: () => "Error",
               lastError: (_, event) => event.error,
               isTraefikHealthy: () => false,
+              allServicesHealthy: () => false,
+              logs: (context, event) => [
+                ...context.logs,
+                `[ERROR] ${event.error}`,
+              ],
+            }),
+          ],
+        },
+        LOG_UPDATE: {
+          actions: [
+            assign((context, event) => {
+              let logsToAdd = `[${event.logUpdate.type.toUpperCase()}] ${
+                event.logUpdate.message
+              }`;
+              if (event.logUpdate.logs) {
+                logsToAdd += `\n--- Begin Fetched Logs ---\n${event.logUpdate.logs}\n--- End Fetched Logs ---`;
+              }
+              return {
+                logs: [...context.logs, logsToAdd],
+              };
+            }),
+          ],
+        },
+      },
+    },
+    runningUnhealthy: {
+      entry: assign({
+        status: () => "Running (Some Services Unhealthy)",
+        allServicesHealthy: () => false,
+      }),
+      on: {
+        STOP_DOCKER: "stopping",
+        SERVICES_READY: "runningHealthy",
+        STATUS_UPDATE: {
+          actions: [
+            assign((context, event) => ({
+              logs: [
+                ...context.logs,
+                `[${event.statusUpdate.type.toUpperCase()}] ${
+                  event.statusUpdate.message
+                }`,
+              ],
+            })),
+          ],
+        },
+        ERROR: {
+          target: "error",
+          actions: [
+            assign({
+              status: () => "Error",
+              lastError: (_, event) => event.error,
+              isTraefikHealthy: () => false,
+              allServicesHealthy: () => false,
               logs: (context, event) => [
                 ...context.logs,
                 `[ERROR] ${event.error}`,
