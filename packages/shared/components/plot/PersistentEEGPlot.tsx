@@ -332,12 +332,26 @@ export function PersistentEEGPlot({
         ? plotState.edfData
         : data?.getEdfData;
 
-    if (!edfDataToUse) return null;
+    if (!edfDataToUse) {
+      console.log('No EDF data available for conversion');
+      return null;
+    }
 
     try {
       const actualChunkDuration =
         edfDataToUse.chunkSize / edfDataToUse.samplingFrequency;
       const absoluteStartSec = chunkStart / edfDataToUse.samplingFrequency;
+
+      // Validate required fields
+      if (!edfDataToUse.channelLabels || !edfDataToUse.data || !edfDataToUse.chunkSize || !edfDataToUse.samplingFrequency) {
+        console.error('Missing required EDF data fields:', {
+          hasChannelLabels: !!edfDataToUse.channelLabels,
+          hasData: !!edfDataToUse.data,
+          hasChunkSize: !!edfDataToUse.chunkSize,
+          hasSamplingFrequency: !!edfDataToUse.samplingFrequency
+        });
+        return null;
+      }
 
       // Filter annotations to only include those within the current chunk
       const chunkEndSample = chunkStart + edfDataToUse.chunkSize;
@@ -634,55 +648,65 @@ export function PersistentEEGPlot({
           minHeight={250}
           maxHeight={1000}
         >
-          <EEGChart
-            eegData={eegData}
-            selectedChannels={selectedChannels}
-            timeWindow={timeWindow}
-            absoluteTimeWindow={absoluteTimeWindow}
-            zoomLevel={zoomLevel}
-            onTimeWindowChange={(newWindow) => {
-              if (!eegData) {
-                return; // Skip if no data is loaded
-              }
+          {plotState.edfData?.data?.length && eegData ? (
+            <EEGChart
+              eegData={eegData}
+              selectedChannels={selectedChannels}
+              timeWindow={timeWindow}
+              absoluteTimeWindow={absoluteTimeWindow}
+              zoomLevel={zoomLevel}
+              onTimeWindowChange={(newWindow) => {
+                if (!eegData) {
+                  console.log('Skipping time window update - no data available');
+                  return;
+                }
 
-              // Calculate the proposed window duration
-              const windowDuration = newWindow[1] - newWindow[0];
+                // Calculate the proposed window duration
+                const windowDuration = newWindow[1] - newWindow[0];
 
-              // Ensure the window duration doesn't exceed the available data duration
-              const maxAllowedDuration = Math.min(windowDuration, eegData.duration);
+                // Ensure the window duration doesn't exceed the available data duration
+                const maxAllowedDuration = Math.min(windowDuration, eegData.duration);
 
-              // Validate and clamp the new window with proper bounds checking
-              let validatedWindow: [number, number];
+                // Validate and clamp the new window with proper bounds checking
+                let validatedWindow: [number, number];
 
-              // Check if the proposed window would go below 0 (left boundary)
-              if (newWindow[0] < 0) {
-                validatedWindow = [0, maxAllowedDuration];
-              }
-              // Check if the proposed window would exceed data duration (right boundary)
-              else if (newWindow[1] > eegData.duration) {
-                const maxStartTime = Math.max(0, eegData.duration - maxAllowedDuration);
-                validatedWindow = [maxStartTime, maxStartTime + maxAllowedDuration];
-              }
-              // Otherwise use the proposed window but ensure it's within bounds
-              else {
-                validatedWindow = [
-                  Math.max(0, newWindow[0]),
-                  Math.min(eegData.duration, newWindow[1]),
-                ];
-              }
+                // Check if the proposed window would go below 0 (left boundary)
+                if (newWindow[0] < 0) {
+                  validatedWindow = [0, maxAllowedDuration];
+                }
+                // Check if the proposed window would exceed data duration (right boundary)
+                else if (newWindow[1] > eegData.duration) {
+                  const maxStartTime = Math.max(0, eegData.duration - maxAllowedDuration);
+                  validatedWindow = [maxStartTime, maxStartTime + maxAllowedDuration];
+                }
+                // Otherwise use the proposed window but ensure it's within bounds
+                else {
+                  validatedWindow = [
+                    Math.max(0, newWindow[0]),
+                    Math.min(eegData.duration, newWindow[1]),
+                  ];
+                }
 
-              setTimeWindow(validatedWindow);
-              const absoluteStartSec = chunkStart / sampleRate;
-              setAbsoluteTimeWindow([
-                absoluteStartSec + validatedWindow[0],
-                absoluteStartSec + validatedWindow[1],
-              ]);
-            }}
-            className="w-full h-full"
-            height="100%"
-            editMode={editMode}
-            filePath={filePath}
-          />
+                setTimeWindow(validatedWindow);
+                const absoluteStartSec = chunkStart / sampleRate;
+                setAbsoluteTimeWindow([
+                  absoluteStartSec + validatedWindow[0],
+                  absoluteStartSec + validatedWindow[1],
+                ]);
+              }}
+              className="w-full h-full"
+              height="100%"
+              editMode={editMode}
+              filePath={filePath}
+            />
+          ) : (
+            <div className="text-muted-foreground text-center w-full flex items-center justify-center h-full">
+              {loading
+                ? "Loading EEG data..."
+                : manualErrorMessage ||
+                "No data to display or plot not loaded."}
+            </div>
+          )}
         </ResizableContainer>
       </div>
 

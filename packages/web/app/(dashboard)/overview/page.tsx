@@ -24,10 +24,10 @@ import {
 } from "lucide-react";
 
 interface StatsResponse {
-  totalArtifacts?: number;
-  totalAnalyses?: number;
-  activeUsers?: number;
-  systemHealth?: 'excellent' | 'good' | 'fair' | 'poor';
+  totalArtifacts: number;
+  totalAnalyses: number;
+  activeUsers: number;
+  systemHealth: 'excellent' | 'good' | 'fair' | 'poor';
 }
 
 export default function OverviewPage() {
@@ -36,11 +36,12 @@ export default function OverviewPage() {
   const user = session?.user;
 
   // Fetch dashboard statistics
-  const { data: stats } = useApiQuery<StatsResponse>({
+  const { data: stats, loading, error } = useApiQuery<StatsResponse>({
     url: "/api/dashboard/stats",
     method: "GET",
     responseType: "json",
     enabled: !!session,
+    requiresAuth: true,
   });
 
   const getHealthColor = (health?: string) => {
@@ -55,7 +56,7 @@ export default function OverviewPage() {
 
   const getHealthProgress = (health?: string) => {
     switch (health) {
-      case 'excellent': return 95;
+      case 'excellent': return 100;
       case 'good': return 75;
       case 'fair': return 50;
       case 'poor': return 25;
@@ -79,7 +80,7 @@ export default function OverviewPage() {
           <div className="flex items-center gap-4">
             <Badge variant="outline" className="px-3 py-1">
               <Activity className="h-3 w-3 mr-1" />
-              System Online
+              {loading ? "Loading..." : error ? "System Error" : "System Online"}
             </Badge>
           </div>
         </div>
@@ -100,7 +101,9 @@ export default function OverviewPage() {
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.totalArtifacts || 0}</div>
+            <div className="text-2xl font-bold">
+              {loading ? "..." : error ? "Error" : stats?.totalArtifacts || 0}
+            </div>
             <p className="text-xs text-muted-foreground">
               Analysis results stored
             </p>
@@ -113,7 +116,9 @@ export default function OverviewPage() {
             <Brain className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.totalAnalyses || 0}</div>
+            <div className="text-2xl font-bold">
+              {loading ? "..." : error ? "Error" : stats?.totalAnalyses || 0}
+            </div>
             <p className="text-xs text-muted-foreground">
               DDA computations completed
             </p>
@@ -126,7 +131,9 @@ export default function OverviewPage() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.activeUsers || 1}</div>
+            <div className="text-2xl font-bold">
+              {loading ? "..." : error ? "Error" : stats?.activeUsers || 0}
+            </div>
             <p className="text-xs text-muted-foreground">
               Currently online
             </p>
@@ -140,9 +147,12 @@ export default function OverviewPage() {
           </CardHeader>
           <CardContent>
             <div className={`text-2xl font-bold ${getHealthColor(stats?.systemHealth)}`}>
-              {stats?.systemHealth || 'Unknown'}
+              {loading ? "..." : error ? "Error" : stats?.systemHealth || 'Unknown'}
             </div>
-            <Progress value={getHealthProgress(stats?.systemHealth)} className="mt-2" />
+            <Progress
+              value={getHealthProgress(stats?.systemHealth)}
+              className="mt-2"
+            />
           </CardContent>
         </Card>
       </div>
@@ -361,7 +371,7 @@ export default function OverviewPage() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => router.push('/dashboard/tickets')}
+                onClick={() => router.push('/tickets')}
               >
                 <HelpCircle className="h-4 w-4 mr-1" />
                 Help

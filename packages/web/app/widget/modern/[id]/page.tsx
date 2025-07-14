@@ -1,17 +1,17 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { Button } from "shared/components/ui/button";
-import { ArrowLeft, RotateCcw, Maximize2, Minimize2, Copy } from "lucide-react";
+import { ArrowLeft, Copy } from "lucide-react";
 import { WidgetFactoryService } from "shared/services/WidgetFactoryService";
 import { IDashboardWidget } from "shared/types/dashboard";
 import { useToast } from "shared/components/ui/use-toast";
 import { cn } from "shared/lib/utils/misc";
 import { useWidgetDataSync } from "shared/hooks/useWidgetDataSync";
 import { useAppDispatch } from "shared/store";
-import { setPlotsState } from "shared/store/slices/plotSlice";
+import { ensurePlotState } from "shared/store/slices/plotSlice";
 import logger from "shared/lib/utils/logger";
 
 interface SerializableModernWidget {
@@ -28,6 +28,7 @@ type PopoutSize = 'normal' | 'large' | 'fullscreen';
 
 export default function ModernWidgetPopoutPage() {
 	const params = useParams();
+	const searchParams = useSearchParams();
 	const router = useRouter();
 	const { data: session } = useSession();
 	const { toast } = useToast();
@@ -38,35 +39,97 @@ export default function ModernWidgetPopoutPage() {
 	const [popoutSize, setPopoutSize] = useState<PopoutSize>('large');
 
 	const widgetId = params?.id as string;
+	const storageKey = searchParams?.get('storageKey');
 	const widgetFactory = WidgetFactoryService.getInstance();
-	const { sendMessage, registerDataListener, unregisterDataListener } = useWidgetDataSync(widgetId, true);
+	const { registerDataListener, unregisterDataListener, syncData } = useWidgetDataSync(widgetId, true);
 
 	// Effect for handling data synchronization from the main window
 	useEffect(() => {
 		if (!widgetId) return;
 
 		const handlePlotsData = (plotsData: any) => {
+			logger.info(`[Popout] Received plots data:`, {
+				widgetId,
+				hasData: !!plotsData,
+				dataKeys: plotsData ? Object.keys(plotsData) : null,
+				plotStates: plotsData ? Object.entries(plotsData).map(([key, value]: [string, any]) => ({
+					key,
+					hasEdfData: !!value?.edfData,
+					hasMetadata: !!value?.metadata,
+					isLoading: value?.isLoading,
+					error: value?.error
+				})) : null
+			});
+
 			if (plotsData && Object.keys(plotsData).length > 0) {
-				logger.info(`[Popout] Received plots data for widget ${widgetId}, dispatching to Redux...`);
-				dispatch(setPlotsState(plotsData));
+				logger.info(`[Popout] Dispatching plots data to Redux...`, {
+					widgetId,
+					plotKeys: Object.keys(plotsData)
+				});
+
+				// Ensure plot state exists for each file path
+				Object.keys(plotsData).forEach(filePath => {
+					dispatch(ensurePlotState(filePath));
+				});
+
+				// Update each plot's state
+				Object.entries(plotsData).forEach(([filePath, plotState]: [string, any]) => {
+					if (!plotState) {
+						logger.warn(`[Popout] Plot state is null for ${filePath}`);
+						return;
+					}
+
+					Object.entries(plotState).forEach(([key, value]) => {
+						if (key !== 'isLoading' && key !== 'error') { // Skip transient state
+							const action = {
+								type: `plots/set${key.charAt(0).toUpperCase() + key.slice(1)}`,
+								payload: { filePath, [key]: value }
+							};
+							logger.info(`[Popout] Dispatching action:`, {
+								widgetId,
+								actionType: action.type,
+								filePath,
+								hasValue: !!value
+							});
+							dispatch(action);
+						}
+					});
+				});
+			} else {
+				logger.warn(`[Popout] No plot data received or empty data object`, {
+					widgetId,
+					timestamp: Date.now()
+				});
 			}
 		};
 
-		// Listen for the initial data response
-		registerDataListener('INITIAL_DATA_RESPONSE', handlePlotsData);
+		// Handle data request from main window
+		const handleDataRequest = () => {
+			logger.info(`[Popout] Received data request from main window`, {
+				widgetId,
+				timestamp: Date.now()
+			});
+			// We don't need to do anything here as the popout window is the data receiver
+		};
 
-		// Also listen for continuous updates
-		registerDataListener('plots', handlePlotsData);
+		// Register data listeners
+		const cleanup = registerDataListener('plots', handlePlotsData);
+		const requestCleanup = registerDataListener('REQUEST_PLOTS_DATA', handleDataRequest);
 
-		// Request the initial data from the main window
-		logger.info(`[Popout] Requesting initial data for widget ${widgetId}...`);
-		sendMessage('INITIAL_DATA_REQUEST', {}, 'plots');
+		// Request initial data from main window
+		logger.info(`[Popout] Requesting initial data...`, {
+			widgetId,
+			timestamp: Date.now()
+		});
+		syncData('plots', null);
 
 		return () => {
-			unregisterDataListener('INITIAL_DATA_RESPONSE');
+			if (cleanup) cleanup();
+			if (requestCleanup) requestCleanup();
 			unregisterDataListener('plots');
+			unregisterDataListener('REQUEST_PLOTS_DATA');
 		};
-	}, [widgetId, dispatch, registerDataListener, unregisterDataListener, sendMessage]);
+	}, [widgetId, dispatch, registerDataListener, unregisterDataListener, syncData]);
 
 
 	// Effect for initializing the widget from localStorage
@@ -76,12 +139,96 @@ export default function ModernWidgetPopoutPage() {
 			return;
 		}
 
-		const storageKey = `modern-popped-widget-${widgetId}`;
+		if (!storageKey) {
+			setError("Storage key not provided");
+			return;
+		}
+
 		const storedWidget = localStorage.getItem(storageKey);
+
+		logger.info(`[Popout] Initializing widget from localStorage:`, {
+			widgetId,
+			storageKey,
+			hasStoredData: !!storedWidget,
+			storedData: storedWidget ? JSON.parse(storedWidget) : null
+		});
 
 		if (storedWidget) {
 			try {
 				const parsedWidget: SerializableModernWidget = JSON.parse(storedWidget);
+
+				logger.info(`[Popout] Parsed widget data:`, {
+					widgetId,
+					type: parsedWidget.type,
+					hasMetadata: !!parsedWidget.metadata,
+					metadataKeys: parsedWidget.metadata ? Object.keys(parsedWidget.metadata) : null,
+					hasPopoutPlotState: !!parsedWidget.metadata?.popoutPlotState
+				});
+
+				// Initialize plot state if available
+				if (parsedWidget.metadata?.popoutPlotState) {
+					const { selectedChannels, timeWindow, zoomLevel, edfMetadata } = parsedWidget.metadata.popoutPlotState;
+					logger.info(`[Popout] Initializing plot state:`, {
+						widgetId,
+						hasEdfMetadata: !!edfMetadata,
+						hasSelectedChannels: !!selectedChannels,
+						hasTimeWindow: !!timeWindow,
+						hasZoomLevel: !!zoomLevel
+					});
+
+					// Create a placeholder plot state with metadata
+					const plotState = {
+						'popped-out-file': {
+							selectedChannels: selectedChannels || [],
+							timeWindow: timeWindow || [0, 10],
+							zoomLevel: zoomLevel || 1,
+							metadata: {
+								file_path: 'popped-out-file',
+								num_chunks: 1,
+								chunk_size: edfMetadata.sampleRate, // Use sampleRate as chunk size
+								total_samples: edfMetadata.sampleRate * edfMetadata.duration,
+								sampling_rate: edfMetadata.sampleRate,
+								total_duration: edfMetadata.duration,
+								availableChannels: edfMetadata.channels
+							},
+							isLoading: true, // Set to true until we receive the actual data
+							isMetadataLoading: false,
+							isHeatmapProcessing: false,
+							error: null,
+							chunkSizeSeconds: edfMetadata.duration,
+							currentChunkNumber: 1,
+							totalChunks: 1,
+							chunkStart: 0,
+							absoluteTimeWindow: [0, edfMetadata.duration],
+							showHeatmap: false,
+							ddaHeatmapData: null,
+							ddaResults: null,
+							annotations: null,
+							showSettingsDialog: false,
+							showZoomSettingsDialog: false,
+							preprocessingOptions: null
+						}
+					};
+
+					// Ensure plot state exists
+					dispatch(ensurePlotState('popped-out-file'));
+
+					// Update plot state
+					Object.entries(plotState['popped-out-file']).forEach(([key, value]) => {
+						if (key !== 'isLoading' && key !== 'error') { // Skip transient state
+							const action = {
+								type: `plots/set${key.charAt(0).toUpperCase() + key.slice(1)}`,
+								payload: { filePath: 'popped-out-file', [key]: value }
+							};
+							logger.info(`[Popout] Dispatching action:`, {
+								widgetId,
+								actionType: action.type,
+								hasValue: !!value
+							});
+							dispatch(action);
+						}
+					});
+				}
 
 				const recreatedWidget = widgetFactory.createWidget(parsedWidget.type, {
 					id: parsedWidget.id,
@@ -97,13 +244,27 @@ export default function ModernWidgetPopoutPage() {
 				setPopoutSize(defaultSize);
 
 			} catch (err) {
-				console.error('Error parsing widget data:', err);
+				logger.error(`[Popout] Error parsing widget data:`, {
+					widgetId,
+					error: err,
+					storedData: storedWidget
+				});
 				setError("Failed to parse widget data");
 			}
 		} else {
 			setError("Widget data not found");
 		}
-	}, [widgetId, widgetFactory, popoutSize]);
+
+		// Clean up storage when window is closed
+		const handleUnload = () => {
+			localStorage.removeItem(storageKey);
+		};
+		window.addEventListener('unload', handleUnload);
+		return () => {
+			window.removeEventListener('unload', handleUnload);
+			localStorage.removeItem(storageKey);
+		};
+	}, [widgetId, storageKey, widgetFactory, popoutSize, dispatch]);
 
 
 	// Effect for handling window messages (e.g., pop-in)

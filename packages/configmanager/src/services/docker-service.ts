@@ -8,6 +8,7 @@ import { SetupService, ConfigManagerState } from "./setup-service";
 export class DockerService {
   private static logProcess: ChildProcess | null = null;
   private static isDockerRunning: boolean = false;
+  private static healthCheckInterval: NodeJS.Timeout | null = null;
 
   static getDockerEnvironment() {
     const currentPath = process.env.PATH || "";
@@ -421,6 +422,7 @@ services:
               });
               this.isDockerRunning = false;
               this.stopLogStream();
+              this.stopPeriodicHealthCheck();
               resolve(false);
             } else {
               logger.info(
@@ -428,10 +430,11 @@ services:
               );
               mainWindow.webContents.send("docker-status-update", {
                 type: "success",
-                message: "Docker services started. Checking Traefik health...",
+                message: "Docker services started. Checking services health...",
               });
               this.isDockerRunning = true;
               this.streamDockerLogs(state);
+              this.startPeriodicHealthCheck();
               const traefikContainerId = await this.getTraefikContainerId(
                 projectName
               );
@@ -460,6 +463,7 @@ services:
       });
       this.isDockerRunning = false;
       this.stopLogStream();
+      this.stopPeriodicHealthCheck();
       return false;
     }
   }
@@ -511,10 +515,139 @@ services:
             });
             this.isDockerRunning = false;
             this.stopLogStream();
+            this.stopPeriodicHealthCheck();
             resolve(true);
           }
         }
       );
     });
+  }
+
+  static async checkAllServicesHealth(): Promise<boolean> {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) {
+      logger.error("Cannot check services health: mainWindow not set.");
+      return false;
+    }
+
+    try {
+      const projectName = await this.getDockerProjectName();
+      const command = `docker-compose ps --format json`;
+
+      return new Promise((resolve) => {
+        exec(
+          command,
+          { env: this.getDockerEnvironment() },
+          async (error, stdout, stderr) => {
+            if (error) {
+              logger.error(
+                `Error checking services health: ${error.message}. Stderr: ${stderr}`
+              );
+              mainWindow.webContents.send("docker-status-update", {
+                type: "error",
+                message: `Failed to check services health: ${
+                  stderr || error.message
+                }`,
+              });
+              resolve(false);
+              return;
+            }
+
+            try {
+              const services = JSON.parse(stdout);
+              const requiredServices = [
+                "web",
+                "api",
+                "minio",
+                "postgres",
+                "traefik",
+              ];
+              let allHealthy = true;
+              const unhealthyServices: string[] = [];
+
+              for (const service of services) {
+                if (requiredServices.includes(service.Service)) {
+                  const isHealthy =
+                    service.State === "running" &&
+                    (!service.Health ||
+                      service.Health === "healthy" ||
+                      service.Health === "starting");
+
+                  if (!isHealthy) {
+                    allHealthy = false;
+                    unhealthyServices.push(service.Service);
+                  }
+                }
+              }
+
+              if (!allHealthy) {
+                logger.warn(
+                  `Unhealthy services detected: ${unhealthyServices.join(", ")}`
+                );
+                mainWindow.webContents.send("docker-status-update", {
+                  type: "warning",
+                  message: `Services unhealthy: ${unhealthyServices.join(
+                    ", "
+                  )}`,
+                });
+              } else {
+                logger.info("All services are healthy");
+                mainWindow.webContents.send("docker-status-update", {
+                  type: "success",
+                  message: "All services are healthy",
+                });
+              }
+
+              resolve(allHealthy);
+            } catch (parseError) {
+              logger.error(`Error parsing services status: ${parseError}`);
+              mainWindow.webContents.send("docker-status-update", {
+                type: "error",
+                message: `Error checking services health: ${parseError}`,
+              });
+              resolve(false);
+            }
+          }
+        );
+      });
+    } catch (error: any) {
+      logger.error(`Error in checkAllServicesHealth: ${error.message}`);
+      mainWindow.webContents.send("docker-status-update", {
+        type: "error",
+        message: `Error checking services health: ${error.message}`,
+      });
+      return false;
+    }
+  }
+
+  static startPeriodicHealthCheck(intervalMs: number = 30000): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+    }
+
+    this.healthCheckInterval = setInterval(async () => {
+      if (this.isDockerRunning) {
+        const isHealthy = await this.checkAllServicesHealth();
+        const mainWindow = getMainWindow();
+        if (mainWindow) {
+          if (isHealthy) {
+            mainWindow.webContents.send("ddalab-services-ready");
+          } else {
+            mainWindow.webContents.send("docker-status-update", {
+              type: "warning",
+              message: "Some services are unhealthy",
+            });
+            mainWindow.webContents.send("docker-services-unhealthy");
+          }
+        }
+      }
+    }, intervalMs);
+  }
+
+  static stopPeriodicHealthCheck(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
   }
 }

@@ -76,6 +76,9 @@ export interface ElectronAPI {
       logs?: string;
     }) => void
   ) => () => void;
+  onDockerStateUpdate: (
+    callback: (stateUpdate: { type: string }) => void
+  ) => () => void;
   markSetupComplete: (manualSetupDirectory?: string) => Promise<{
     success: boolean;
     message?: string;
@@ -186,6 +189,14 @@ const exposedAPI: ElectronAPI = {
     ipcRenderer.on("docker-log-update", handler);
     return () => {
       ipcRenderer.removeListener("docker-log-update", handler);
+    };
+  },
+  onDockerStateUpdate: (callback) => {
+    const handler = (_event: any, stateUpdate: { type: string }) =>
+      callback(stateUpdate);
+    ipcRenderer.on("docker-state-update", handler);
+    return () => {
+      ipcRenderer.removeListener("docker-state-update", handler);
     };
   },
   markSetupComplete: (manualSetupDirectory?: string) =>

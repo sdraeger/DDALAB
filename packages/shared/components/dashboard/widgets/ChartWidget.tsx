@@ -1,165 +1,268 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useAppSelector } from "../../../store";
+import { useEffect, useRef, useState } from "react";
 import { BarChart3 } from "lucide-react";
+
+import { Alert, AlertDescription } from "../../ui/alert";
 import { EEGChart } from "../../plot/EEGChart";
 import { useWidgetState } from "../../../hooks/useWidgetState";
 import { useWidgetDataSync } from "../../../hooks/useWidgetDataSync";
+import { useAppSelector } from "../../../store";
+import logger from "../../../lib/utils/logger";
+import type { EEGData } from "../../../types/EEGData";
+import type { PlotState, PlotsState } from "../../../store/slices/plotSlice";
 
 interface ChartWidgetProps {
 	// Props for popout mode - when provided, these override Redux state
 	widgetId?: string;
 	isPopout?: boolean;
 	popoutPlotState?: {
-		edfData?: any;
-		metadata?: any;
+		edfData?: EEGData;
 		selectedChannels?: string[];
-		filePath?: string;
 		timeWindow?: [number, number];
 		zoomLevel?: number;
 	};
 }
 
-interface ChartState {
-	timeWindow: [number, number];
-	zoomLevel: number;
-	selectedChannels: string[];
-}
+export function ChartWidget({ widgetId = "chart-widget-default", isPopout = false, popoutPlotState }: ChartWidgetProps) {
+	// Get plot state from Redux (main window) or sync (popout)
+	const plots = useAppSelector((state) => state.plots);
+	const { registerDataListener, unregisterDataListener, syncData } = useWidgetDataSync(widgetId, isPopout);
+	const [syncedPlots, setSyncedPlots] = useState<PlotsState | null>(null);
 
-export function ChartWidget({
-	widgetId = 'chart-widget-default',
-	isPopout = false,
-	popoutPlotState
-}: ChartWidgetProps = {}) {
-	const reduxPlots = useAppSelector(state => state.plots);
+	// Widget state for UI preferences
+	const { state: chartState, updateState: setChartState } = useWidgetState(widgetId, {
+		timeWindow: [0, 10] as [number, number],
+		zoomLevel: 1,
+		selectedChannels: [] as string[],
+	}, isPopout);
 
-	// Data synchronization for cross-window communication
-	const { registerDataListener, unregisterDataListener } = useWidgetDataSync(
-		widgetId,
-		isPopout
-	);
+	// Track initialization
+	const initializationAttempted = useRef(false);
+	const dataRequestedRef = useRef(false);
 
-	// Local state for synchronized plot data (used in popout mode)
-	const [syncedPlots, setSyncedPlots] = useState<any>(null);
-
-	// Synchronized chart state
-	const { state: chartState, updateState: setChartState } = useWidgetState<ChartState>(
-		widgetId,
-		{
-			timeWindow: popoutPlotState?.timeWindow || [0, 10],
-			zoomLevel: popoutPlotState?.zoomLevel || 1,
-			selectedChannels: popoutPlotState?.selectedChannels || [],
-		},
-		isPopout
-	);
-
-	// Register listener for plot data updates in popout mode
+	// Effect for handling plot data synchronization in popout mode
 	useEffect(() => {
 		if (isPopout) {
-			const handlePlotDataUpdate = (plots: any) => {
-				setSyncedPlots(plots);
-			};
+			logger.info(`[ChartWidget] Setting up plot data sync:`, {
+				widgetId,
+				hasPopoutState: !!popoutPlotState,
+				hasInitialPlots: !!syncedPlots
+			});
 
-			registerDataListener('plots', handlePlotDataUpdate);
+			// Register data listener for plot updates
+			registerDataListener('plots', (plotsData: PlotsState) => {
+				logger.info(`[ChartWidget] Received plots data:`, {
+					widgetId,
+					hasData: !!plotsData,
+					plotKeys: Object.keys(plotsData),
+					hasEdfData: !!Object.values(plotsData)[0]?.edfData?.data
+				});
+
+				// Validate received data
+				const isValidPlotData = Object.values(plotsData).some(plot =>
+					plot?.edfData?.data &&
+					Array.isArray(plot.edfData.data) &&
+					plot.edfData.data.length > 0
+				);
+
+				if (isValidPlotData) {
+					setSyncedPlots(plotsData);
+				} else {
+					logger.warn(`[ChartWidget] Invalid plot data received:`, {
+						widgetId,
+						dataKeys: Object.keys(plotsData)
+					});
+				}
+			});
+
+			// Request initial data if not already received
+			if (!dataRequestedRef.current) {
+				logger.info(`[ChartWidget] Requesting initial plot data:`, { widgetId });
+				syncData('plots', null);
+				dataRequestedRef.current = true;
+			}
 
 			return () => {
 				unregisterDataListener('plots');
 			};
 		}
-	}, [isPopout, registerDataListener, unregisterDataListener]);
+	}, [isPopout, widgetId, registerDataListener, unregisterDataListener, syncData]);
 
-	// Determine which plots data to use
-	const effectivePlots = isPopout ? (syncedPlots || reduxPlots) : reduxPlots;
-
-	// Use popout data if in popout mode and available, otherwise use synchronized/Redux data
-	let latestFilePath: string | undefined;
-	let plotState: any;
-
-	if (isPopout && popoutPlotState && !syncedPlots) {
-		// Use the provided popout data initially
-		latestFilePath = popoutPlotState.filePath;
-		plotState = {
-			edfData: popoutPlotState.edfData,
-			metadata: popoutPlotState.metadata,
-			selectedChannels: chartState.selectedChannels.length > 0
-				? chartState.selectedChannels
-				: popoutPlotState.selectedChannels,
-		};
-	} else {
-		// Find the most recently loaded file from effective plots
-		latestFilePath = Object.keys(effectivePlots).find(filePath =>
-			effectivePlots[filePath]?.metadata && effectivePlots[filePath]?.edfData
-		);
-		plotState = latestFilePath ? effectivePlots[latestFilePath] : null;
-	}
-	const hasData = plotState?.edfData !== null;
-	const eegData = plotState?.edfData;
-	const metadata = plotState?.metadata;
-
-	// Use synchronized time window from state
-	const timeWindow = chartState.timeWindow;
-
-	// Update time window when new data is loaded
+	// Initialize chart state from popout state if provided
 	useEffect(() => {
-		if (eegData?.duration) {
-			// Show the first 10 seconds or the full duration if less than 10 seconds
-			const endTime = Math.min(10, eegData.duration);
-			setChartState(prev => ({ ...prev, timeWindow: [0, endTime] }));
+		if (isPopout && popoutPlotState && !initializationAttempted.current) {
+			logger.info(`[ChartWidget] Initializing from popout state:`, {
+				widgetId,
+				hasEdfData: !!popoutPlotState.edfData,
+				hasSelectedChannels: !!popoutPlotState.selectedChannels,
+				hasTimeWindow: !!popoutPlotState.timeWindow
+			});
+
+			// Set initial chart state
+			if (popoutPlotState.selectedChannels) {
+				setChartState({ selectedChannels: popoutPlotState.selectedChannels });
+			}
+			if (popoutPlotState.timeWindow) {
+				setChartState({ timeWindow: popoutPlotState.timeWindow });
+			}
+			if (popoutPlotState.zoomLevel) {
+				setChartState({ zoomLevel: popoutPlotState.zoomLevel });
+			}
+
+			// Request full data from main window
+			if (!dataRequestedRef.current) {
+				logger.info(`[ChartWidget] Requesting full plot data:`, { widgetId });
+				syncData('plots', null);
+				dataRequestedRef.current = true;
+			}
+
+			initializationAttempted.current = true;
 		}
-	}, [eegData?.duration, setChartState]);
+	}, [isPopout, popoutPlotState, widgetId, setChartState, syncData]);
 
-	// Get available channels - prefer selected channels if any, otherwise use all channels
-	const selectedChannels = plotState?.selectedChannels?.length
-		? plotState.selectedChannels
-		: eegData?.channels?.slice(0, 8) || []; // Limit to first 8 channels for better visibility
-
-	if (hasData && eegData && selectedChannels.length > 0) {
+	// Render loading state
+	if (isPopout && !syncedPlots && !popoutPlotState?.edfData) {
 		return (
-			<div className="h-full w-full relative">
-				<EEGChart
-					eegData={eegData}
-					selectedChannels={selectedChannels}
-					timeWindow={timeWindow}
-					zoomLevel={chartState.zoomLevel}
-					onTimeWindowChange={(newTimeWindow) =>
-						setChartState(prev => ({ ...prev, timeWindow: newTimeWindow }))
-					}
-					height="100%"
-					className="w-full h-full"
-				/>
+			<div className="flex flex-col items-center justify-center h-full p-4 space-y-4">
+				<div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+				<div className="text-lg font-medium">Loading chart data...</div>
+			</div>
+		);
+	}
 
-				{/* Info overlay */}
-				<div className="absolute top-2 left-2 bg-background/80 backdrop-blur-sm rounded-md p-2 text-xs">
-					<div className="font-medium">{latestFilePath?.split('/').pop()}</div>
-					<div className="text-muted-foreground">
-						{selectedChannels.length} channels • {eegData.sampleRate}Hz
-					</div>
+	// Render error state
+	if (isPopout && !syncedPlots?.['popped-out-file']?.edfData?.data && !popoutPlotState?.edfData?.data) {
+		return (
+			<div className="flex flex-col items-center justify-center h-full p-4 space-y-4">
+				<div className="text-lg font-medium text-destructive">No data to display</div>
+				<div className="text-sm text-muted-foreground">
+					Please ensure the data is loaded in the main window.
 				</div>
 			</div>
 		);
 	}
 
-	if (hasData && eegData && selectedChannels.length === 0) {
+	// Get the current plot state based on whether we're in popout mode
+	const currentPlots = isPopout ? syncedPlots : plots;
+	const plotState = currentPlots ? Object.values(currentPlots)[0] : null;
+
+	// Show loading state while waiting for data in popout mode
+	if (isPopout && !plotState?.edfData?.data) {
 		return (
-			<div className="flex items-center justify-center h-full">
-				<div className="text-center text-muted-foreground">
-					<BarChart3 className="h-12 w-12 mx-auto mb-2 text-primary" />
-					<p className="font-medium">No Channels Selected</p>
-					<p className="text-xs">File: {latestFilePath?.split('/').pop()}</p>
-					<p className="text-xs">Available: {eegData?.channels?.length || metadata?.availableChannels?.length || 0} channels</p>
+			<div className="flex h-full w-full items-center justify-center">
+				<div className="text-center">
+					<div className="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
+					<p className="text-sm text-muted-foreground">Loading data...</p>
 				</div>
+			</div>
+		);
+	}
+
+	// Show error state
+	if (plotState?.error) {
+		return (
+			<div className="flex h-full w-full items-center justify-center">
+				<Alert variant="destructive">
+					<AlertDescription>
+						{plotState.error || "Failed to load chart data"}
+					</AlertDescription>
+				</Alert>
+			</div>
+		);
+	}
+
+	// Ensure we have valid plot data
+	if (!plotState || !plotState.edfData || !plotState.metadata) {
+		return (
+			<div className="flex h-full w-full items-center justify-center">
+				<Alert>
+					<AlertDescription>
+						No data to display. Select a file to view charts.
+					</AlertDescription>
+				</Alert>
+			</div>
+		);
+	}
+
+	// Extract data for the chart
+	const { edfData, metadata } = plotState;
+	const { selectedChannels, timeWindow, zoomLevel } = chartState;
+
+	// Validate required data
+	if (!edfData || !metadata) {
+		logger.warn(`[ChartWidget] Missing required data:`, {
+			widgetId,
+			hasEdfData: !!edfData,
+			hasMetadata: !!metadata
+		});
+		return (
+			<div className="flex h-full w-full items-center justify-center">
+				<Alert>
+					<AlertDescription>
+						Loading chart data...
+					</AlertDescription>
+				</Alert>
+			</div>
+		);
+	}
+
+	// Validate data structure
+	if (!Array.isArray(edfData.data) || edfData.data.length === 0 || !Array.isArray(edfData.channels) || edfData.channels.length === 0) {
+		logger.error(`[ChartWidget] Invalid EEG data structure:`, {
+			widgetId,
+			hasData: Array.isArray(edfData.data),
+			dataLength: edfData.data?.length,
+			hasChannels: Array.isArray(edfData.channels),
+			channelsLength: edfData.channels?.length
+		});
+		return (
+			<div className="flex h-full w-full items-center justify-center">
+				<Alert variant="destructive">
+					<AlertDescription>
+						Invalid EEG data structure
+					</AlertDescription>
+				</Alert>
+			</div>
+		);
+	}
+
+	// Ensure we have valid time window
+	const validTimeWindow = Array.isArray(timeWindow) && timeWindow.length === 2 &&
+		typeof timeWindow[0] === 'number' && typeof timeWindow[1] === 'number' &&
+		timeWindow[0] >= 0 && timeWindow[1] > timeWindow[0];
+
+	if (!validTimeWindow) {
+		logger.warn(`[ChartWidget] Invalid time window:`, {
+			widgetId,
+			timeWindow,
+			isArray: Array.isArray(timeWindow),
+			length: timeWindow?.length
+		});
+		// Reset to default time window
+		setChartState(prev => ({ ...prev, timeWindow: [0, 10] }));
+		return (
+			<div className="flex h-full w-full items-center justify-center">
+				<Alert>
+					<AlertDescription>
+						Resetting invalid time window...
+					</AlertDescription>
+				</Alert>
 			</div>
 		);
 	}
 
 	return (
-		<div className="flex items-center justify-center h-full">
-			<div className="text-center text-muted-foreground">
-				<BarChart3 className="h-12 w-12 mx-auto mb-2" />
-				<p>No data to display</p>
-				<p className="text-xs">Select a file to view charts</p>
-			</div>
+		<div className="h-full w-full">
+			<EEGChart
+				eegData={edfData}
+				selectedChannels={selectedChannels}
+				timeWindow={timeWindow}
+				zoomLevel={zoomLevel}
+				onTimeWindowChange={(newWindow) => {
+					setChartState(prev => ({ ...prev, timeWindow: newWindow }));
+				}}
+			/>
 		</div>
 	);
 }

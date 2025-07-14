@@ -1,222 +1,161 @@
-import { useEffect, useRef, useCallback } from "react";
-import { useAppSelector } from "../store";
+"use client";
 
-export interface DataSyncMessage {
-  type: "DATA_UPDATE";
-  widgetId: string;
-  dataType: "plots" | "dda-results" | "file-selection";
-  data: any;
-  timestamp: number;
+import { useCallback, useEffect, useRef } from "react";
+import logger from "../lib/utils/logger";
+
+interface DataSyncOptions {
+  channel?: string;
+  onError?: (error: Error) => void;
 }
 
-export interface DataSyncOptions {
-  enabled?: boolean;
-  debounceMs?: number;
-}
-
-/**
- * Hook for synchronizing external data dependencies (like Redux state)
- * between main dashboard and popped-out widgets
- */
 export function useWidgetDataSync(
   widgetId: string,
   isPopout: boolean = false,
   options: DataSyncOptions = {}
 ) {
-  const { enabled = true, debounceMs = 100 } = options;
-
-  // Get relevant Redux state
-  const plots = useAppSelector((state) => state.plots);
-
-  // Refs for managing sync
-  const lastDataRef = useRef<string>("");
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const { channel = `widget-sync-${widgetId}` } = options;
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+  const dataListenersRef = useRef<Map<string, (data: any) => void>>(new Map());
 
-  // Initialize broadcast channel for cross-window communication
+  // Initialize BroadcastChannel
   useEffect(() => {
-    if (enabled && typeof BroadcastChannel !== "undefined") {
-      const channelName = `widget-data-sync-${widgetId}`;
-      broadcastChannelRef.current = new BroadcastChannel(channelName);
+    if (typeof window === "undefined" || !("BroadcastChannel" in window)) {
+      logger.warn(`[useWidgetDataSync] BroadcastChannel not supported`);
+      return;
     }
 
-    return () => {
-      if (broadcastChannelRef.current) {
-        broadcastChannelRef.current.close();
-        broadcastChannelRef.current = null;
-      }
-    };
-  }, [widgetId, enabled]);
+    try {
+      broadcastChannelRef.current = new BroadcastChannel(channel);
 
-  // Send data updates to other instances
-  const sendDataUpdate = useCallback(
-    (dataType: string, data: any) => {
-      if (!enabled) return;
-
-      const message: DataSyncMessage = {
-        type: "DATA_UPDATE",
-        widgetId,
-        dataType: dataType as any,
-        data,
-        timestamp: Date.now(),
+      broadcastChannelRef.current.onmessage = (event) => {
+        const { type, data } = event.data;
+        const listener = dataListenersRef.current.get(type);
+        if (listener) {
+          listener(data);
+        }
       };
 
-      // Send via BroadcastChannel if available
-      if (broadcastChannelRef.current) {
-        try {
-          broadcastChannelRef.current.postMessage(message);
-        } catch (error) {
-          console.warn("Failed to send data via BroadcastChannel:", error);
-        }
-      }
-
-      // Send via postMessage to child windows (if we're the main window)
-      if (!isPopout) {
-        // Try to notify any open popout windows
-        try {
-          // Store in localStorage as backup communication method
-          const storageKey = `widget-data-update-${widgetId}`;
-          localStorage.setItem(storageKey, JSON.stringify(message));
-
-          // Remove after a short delay to avoid pollution
-          setTimeout(() => {
-            localStorage.removeItem(storageKey);
-          }, 1000);
-        } catch (error) {
-          console.warn("Failed to send data via localStorage:", error);
-        }
-      }
-
-      // If we're in a popout, send to parent window
-      if (isPopout && window.opener && !window.opener.closed) {
-        try {
-          window.opener.postMessage(message, window.location.origin);
-        } catch (error) {
-          console.warn("Failed to send data to parent window:", error);
-        }
-      }
-    },
-    [widgetId, isPopout, enabled]
-  );
-
-  // Debounced data sync for plots data
-  useEffect(() => {
-    if (!enabled || isPopout) return; // Only main window sends updates
-
-    const plotsData = JSON.stringify(plots);
-
-    if (plotsData !== lastDataRef.current) {
-      lastDataRef.current = plotsData;
-
-      // Clear existing timer
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-
-      // Send update after debounce delay
-      debounceTimerRef.current = setTimeout(() => {
-        sendDataUpdate("plots", plots);
-      }, debounceMs);
+      return () => {
+        broadcastChannelRef.current?.close();
+        broadcastChannelRef.current = null;
+      };
+    } catch (error) {
+      logger.error(
+        `[useWidgetDataSync] Failed to initialize BroadcastChannel:`,
+        error
+      );
     }
+  }, [channel]);
 
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-    };
-  }, [plots, enabled, isPopout, debounceMs, sendDataUpdate]);
-
-  // Listen for incoming data updates
-  const dataUpdateListeners = useRef<Map<string, (data: any) => void>>(
-    new Map()
-  );
-
+  // Register a data listener
   const registerDataListener = useCallback(
-    (dataType: string, callback: (data: any) => void) => {
-      dataUpdateListeners.current.set(dataType, callback);
+    (type: string, callback: (data: any) => void) => {
+      dataListenersRef.current.set(type, callback);
+
+      return () => {
+        dataListenersRef.current.delete(type);
+      };
     },
     []
   );
 
-  const unregisterDataListener = useCallback((dataType: string) => {
-    dataUpdateListeners.current.delete(dataType);
+  // Unregister a data listener
+  const unregisterDataListener = useCallback((type: string) => {
+    dataListenersRef.current.delete(type);
   }, []);
 
-  // Handle incoming messages
-  useEffect(() => {
-    if (!enabled) return;
-
-    const handleBroadcastMessage = (event: MessageEvent) => {
-      if (
-        event.data?.type === "DATA_UPDATE" &&
-        event.data?.widgetId === widgetId
-      ) {
-        const { dataType, data } = event.data;
-        const listener = dataUpdateListeners.current.get(dataType);
-        if (listener) {
-          listener(data);
-        }
-      }
-    };
-
-    const handleWindowMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-
-      if (
-        event.data?.type === "DATA_UPDATE" &&
-        event.data?.widgetId === widgetId
-      ) {
-        const { dataType, data } = event.data;
-        const listener = dataUpdateListeners.current.get(dataType);
-        if (listener) {
-          listener(data);
-        }
-      }
-    };
-
-    const handleStorageChange = (event: StorageEvent) => {
-      const key = `widget-data-update-${widgetId}`;
-      if (event.key === key && event.newValue) {
-        try {
-          const message = JSON.parse(event.newValue);
-          if (message.type === "DATA_UPDATE" && message.widgetId === widgetId) {
-            const { dataType, data } = message;
-            const listener = dataUpdateListeners.current.get(dataType);
-            if (listener) {
-              listener(data);
-            }
-          }
-        } catch (error) {
-          console.warn("Failed to parse storage data update:", error);
-        }
-      }
-    };
-
-    // Set up listeners
-    if (broadcastChannelRef.current) {
-      broadcastChannelRef.current.addEventListener(
-        "message",
-        handleBroadcastMessage
+  // Sync data between windows
+  const syncData = useCallback((type: string, data: any) => {
+    if (!broadcastChannelRef.current) {
+      logger.warn(
+        `[useWidgetDataSync] BroadcastChannel not available for sync`
       );
+      return;
     }
-    window.addEventListener("message", handleWindowMessage);
-    window.addEventListener("storage", handleStorageChange);
 
-    return () => {
-      if (broadcastChannelRef.current) {
-        broadcastChannelRef.current.removeEventListener(
-          "message",
-          handleBroadcastMessage
+    try {
+      // For plot data, send the complete data to ensure chart rendering
+      if (type === "plots") {
+        // If data is null, request data from main window
+        if (!data) {
+          logger.info(
+            `[useWidgetDataSync] Requesting plot data from main window`
+          );
+          broadcastChannelRef.current.postMessage({
+            type: "REQUEST_PLOTS_DATA",
+          });
+          return;
+        }
+
+        const plotData = Object.entries(data || {}).reduce(
+          (acc: any, [filePath, plotState]: [string, any]) => {
+            if (!plotState) {
+              logger.warn(
+                `[useWidgetDataSync] Plot state is null for ${filePath}`
+              );
+              return acc;
+            }
+
+            logger.info(
+              `[useWidgetDataSync] Processing plot data for ${filePath}:`,
+              {
+                hasEdfData: !!plotState.edfData,
+                hasMetadata: !!plotState.metadata,
+                selectedChannels: plotState.selectedChannels?.length || 0,
+              }
+            );
+
+            acc[filePath] = {
+              ...plotState,
+              // Include essential data for chart rendering
+              edfData: plotState.edfData
+                ? {
+                    ...plotState.edfData,
+                    data: plotState.edfData.data, // Explicitly include the data array
+                    channels: plotState.edfData.channels,
+                    sampleRate: plotState.edfData.sampleRate,
+                    duration: plotState.edfData.duration,
+                    samplesPerChannel: plotState.edfData.samplesPerChannel,
+                    startTime: plotState.edfData.startTime,
+                    annotations: plotState.edfData.annotations,
+                  }
+                : null,
+              metadata: plotState.metadata,
+              selectedChannels: plotState.selectedChannels,
+              timeWindow: plotState.timeWindow,
+              absoluteTimeWindow: plotState.absoluteTimeWindow,
+              zoomLevel: plotState.zoomLevel,
+              annotations: plotState.annotations,
+              chunkStart: plotState.chunkStart,
+              currentChunkNumber: plotState.currentChunkNumber,
+              chunkSizeSeconds: plotState.chunkSizeSeconds,
+            };
+            return acc;
+          },
+          {}
         );
+
+        logger.info(`[useWidgetDataSync] Sending plot data:`, {
+          type,
+          plotKeys: Object.keys(plotData),
+          hasData: !!plotData && Object.keys(plotData).length > 0,
+        });
+
+        broadcastChannelRef.current.postMessage({ type, data: plotData });
+      } else {
+        broadcastChannelRef.current.postMessage({ type, data });
       }
-      window.removeEventListener("message", handleWindowMessage);
-      window.removeEventListener("storage", handleStorageChange);
-    };
-  }, [widgetId, enabled]);
+    } catch (error) {
+      logger.error(`[useWidgetDataSync] Failed to sync data:`, {
+        type,
+        error,
+      });
+    }
+  }, []);
 
   return {
-    sendDataUpdate,
     registerDataListener,
     unregisterDataListener,
+    syncData,
   };
 }

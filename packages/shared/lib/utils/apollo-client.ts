@@ -8,9 +8,17 @@ import {
 import { setContext } from "@apollo/client/link/context";
 import { getSession } from "next-auth/react";
 
-// Create the http link
+// Create the http link with the correct URL based on environment
 const httpLink = createHttpLink({
-  uri: "/graphql",
+  uri:
+    typeof window !== "undefined" &&
+    (process.env.NODE_ENV === "development" ||
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1" ||
+      window.location.port === "3000")
+      ? "https://localhost/graphql"
+      : "/graphql",
+  credentials: "include", // Include credentials for CORS
 });
 
 const authLink = setContext(async (_, { headers }) => {
@@ -32,7 +40,12 @@ const cache = new InMemoryCache({
       fields: {
         // Cache EDF data with smart key generation
         getEdfData: {
-          keyArgs: ["filename", "chunkStart", "chunkSize", "preprocessingOptions"],
+          keyArgs: [
+            "filename",
+            "chunkStart",
+            "chunkSize",
+            "preprocessingOptions",
+          ],
         },
         // Cache annotations separately
         getAnnotations: {
@@ -58,16 +71,16 @@ export const apolloClient = new ApolloClient({
   cache,
   defaultOptions: {
     // Enable caching by default, but allow overrides
-    watchQuery: { 
-      fetchPolicy: "cache-first", 
-      errorPolicy: "all" 
+    watchQuery: {
+      fetchPolicy: "cache-first",
+      errorPolicy: "all",
     },
-    query: { 
-      fetchPolicy: "cache-first", 
-      errorPolicy: "all" 
+    query: {
+      fetchPolicy: "cache-first",
+      errorPolicy: "all",
     },
-    mutate: { 
-      errorPolicy: "all" 
+    mutate: {
+      errorPolicy: "all",
     },
   },
 });

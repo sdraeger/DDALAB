@@ -121,5 +121,25 @@ export function registerDockerIpcHandlers() {
     return DockerService.getIsDockerRunning();
   });
 
+  ipcMain.on("ddalab-services-ready", () => {
+    logger.info("All services are healthy");
+    const mainWindow = getMainWindow();
+    if (mainWindow) {
+      mainWindow.webContents.send("docker-state-update", {
+        type: "SERVICES_READY",
+      });
+    }
+  });
+
+  ipcMain.on("docker-services-unhealthy", () => {
+    logger.warn("Some services are unhealthy");
+    const mainWindow = getMainWindow();
+    if (mainWindow) {
+      mainWindow.webContents.send("docker-state-update", {
+        type: "SERVICES_UNHEALTHY",
+      });
+    }
+  });
+
   logger.info("Docker IPC handlers registered");
 }

@@ -51,7 +51,7 @@ const navigationItems = [
 	},
 	{
 		title: "Support Tickets",
-		url: "/dashboard/tickets",
+		url: "/tickets",
 		icon: HelpCircle,
 		description: "Help tickets and support requests",
 	},

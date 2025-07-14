@@ -115,6 +115,9 @@ export interface ElectronAPI {
       logs?: string;
     }) => void
   ) => () => void;
+  onDockerStateUpdate: (
+    callback: (stateUpdate: { type: string }) => void
+  ) => () => void;
   markSetupComplete: (manualSetupDirectory?: string) => Promise<{
     success: boolean;
     message?: string;
