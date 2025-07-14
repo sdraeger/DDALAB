@@ -1,196 +1,210 @@
-"""Artifact service for handling file artifact operations."""
+"""Service for managing artifacts."""
 
-import uuid
 from typing import List
+from uuid import UUID
 
-from core.config import get_server_settings
-from core.database import Artifact as ArtifactDB
-from core.database import User
-from core.dependencies import register_service
+from core.models import Artifact, User
 from core.repository.artifact_repository import ArtifactRepository
 from core.repository.artifact_share_repository import ArtifactShareRepository
-from core.repository.user_repository import UserRepository
-from fastapi import HTTPException, status
-from minio import Minio
-from schemas.artifacts import (
-    ArtifactCreate,
-    ArtifactRenameRequest,
-    ArtifactResponse,
-)
+from core.service_registry import register_service
+from core.services.base import BaseService
+from core.services.errors import NotFoundError, ValidationError
+from schemas.artifacts.artifact import ArtifactCreate, ArtifactUpdate
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @register_service
-class ArtifactService:
-    def __init__(self, db: AsyncSession, minio_client: Minio = None):
-        self.artifact_repository = ArtifactRepository(db)
-        self.artifact_share_repository = ArtifactShareRepository(db)
-        self.user_repository = UserRepository(db)
-        self.minio_client = minio_client
+class ArtifactService(BaseService[Artifact]):
+    """Service for managing artifacts."""
 
-    async def create_artifact(self, artifact: ArtifactCreate) -> ArtifactDB:
-        """
-        Create a new artifact.
-        """
-        return await self.artifact_repository.create(artifact)
+    def __init__(self, db: AsyncSession):
+        super().__init__(db)
+        self.repo = ArtifactRepository(db)
+        self.share_repo = ArtifactShareRepository(db)
 
-    async def list_artifacts(
-        self, current_user: User, skip: int = 0, limit: int | None = None
-    ) -> List[ArtifactResponse]:
-        """
-        List all artifacts owned by or shared with the current user.
-        """
-        # Get owned artifacts
-        owned_artifacts = await self.artifact_repository.get_by_user_id(
-            user_id=current_user.id, skip=skip, limit=limit
-        )
+    @classmethod
+    def from_db(cls, db: AsyncSession) -> "ArtifactService":
+        return cls(db)
 
-        # Get shared artifacts
-        shared_artifact_relations = await self.artifact_share_repository.get_by_user_id(
-            user_id=current_user.id, skip=skip, limit=limit
-        )
-
-        # Combine and convert to response model
-        response = []
-
-        # Process owned artifacts
-        for artifact in owned_artifacts:
-            response.append(
-                ArtifactResponse(
-                    artifact_id=str(artifact.id),
-                    name=artifact.name or str(artifact.id),
-                    file_path=artifact.file_path,
-                    created_at=artifact.created_at,
-                    user_id=artifact.user_id,
-                    shared_by_user_id=None,  # Owned artifacts are not shared with the owner
-                )
-            )
-
-        # Process shared artifacts
-        for share in shared_artifact_relations:
-            artifact = share.artifact
-            if artifact:
-                response.append(
-                    ArtifactResponse(
-                        artifact_id=str(artifact.id),
-                        name=artifact.name or str(artifact.id),
-                        file_path=artifact.file_path,
-                        created_at=artifact.created_at,
-                        user_id=artifact.user_id,
-                        shared_by_user_id=share.user_id,
-                    )
-                )
-
-        return response
-
-    async def get_artifact(self, artifact_id: uuid.UUID) -> ArtifactDB:
-        """
-        Get an artifact by its ID.
-        """
-        return await self.artifact_repository.get_by_id(artifact_id)
-
-    async def get_artifact_by_file_path(self, file_path: str) -> ArtifactDB:
-        """
-        Get an artifact by its file path.
-        """
-        return await self.artifact_repository.get_by_file_path(file_path)
-
-    async def delete_artifact(self, artifact_id: uuid.UUID, current_user: User) -> None:
-        """
-        Delete an artifact from MinIO and the database.
-        """
-        artifact = await self.artifact_repository.get_by_id(artifact_id)
-        if not artifact:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Artifact not found"
-            )
-
-        # Check permissions
-        is_owner = artifact.user_id == current_user.id
-        is_shared = (
-            await self.artifact_share_repository.get_by_artifact_and_user(
-                artifact_id, current_user.id
-            )
-            is not None
-        )
-
-        if not (is_owner or is_shared):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not authorized to delete this artifact",
-            )
-
-        # Delete from MinIO
+    async def health_check(self) -> bool:
+        """Check if the service is healthy."""
         try:
-            settings = get_server_settings()
-            self.minio_client.remove_object(
-                settings.minio_bucket_name, artifact.file_path
-            )
+            await self.repo.get_all()
+            return True
+        except Exception:
+            return False
+
+    async def create_artifact(self, data: ArtifactCreate = None, **kwargs) -> Artifact:
+        """Create a new artifact."""
+        try:
+            # Handle both data object and keyword arguments for backward compatibility
+            if data is not None:
+                artifact_data = data.dict()
+            else:
+                # Handle keyword arguments from route
+                artifact_data = kwargs
+
+            # Create the Artifact model object
+            artifact = Artifact(**artifact_data)
+            return await self.repo.create(artifact)
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to delete artifact from storage: {str(e)}",
-            )
+            raise ValidationError(f"Failed to create artifact: {str(e)}")
 
-        # Delete shares and artifact
-        await self.artifact_share_repository.delete_by_artifact_id(artifact_id)
-        await self.artifact_repository.delete(artifact_id)
+    async def get_artifact(
+        self, artifact_id: UUID | str, user_id: int = None
+    ) -> Artifact:
+        """Get an artifact by ID, optionally with user access control."""
+        try:
+            # Convert string to UUID if needed
+            if isinstance(artifact_id, str):
+                artifact_uuid = UUID(artifact_id)
+            else:
+                artifact_uuid = artifact_id
 
-    async def rename_artifact(
-        self,
-        artifact_id: uuid.UUID,
-        rename_request: ArtifactRenameRequest,
-        current_user: User,
-    ) -> ArtifactResponse:
-        """
-        Rename an artifact in the database.
-        """
-        artifact = await self.artifact_repository.get_by_id(artifact_id)
-        if not artifact:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Artifact not found"
-            )
+            artifact = await self.repo.get_by_id(artifact_uuid)
+            if not artifact:
+                raise NotFoundError("Artifact", artifact_id)
 
-        if artifact.user_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not authorized to rename this artifact",
-            )
-        # Update the artifact name directly
-        artifact.name = rename_request.name
-        await self.artifact_repository.db.commit()
-        await self.artifact_repository.db.refresh(artifact)
-        updated_artifact = artifact
+            # If user_id is provided, verify the user has access (owns or has shared access)
+            if user_id is not None:
+                if artifact.user_id != user_id:
+                    # Check if artifact is shared with this user
+                    shared_artifacts = await self.repo.get_shared_with_user(user_id)
+                    if not any(
+                        shared.id == artifact_uuid for shared in shared_artifacts
+                    ):
+                        raise NotFoundError("Artifact", artifact_id)
 
-        return ArtifactResponse(
-            artifact_id=str(updated_artifact.id),
-            name=updated_artifact.name,
-            file_path=updated_artifact.file_path,
-            created_at=updated_artifact.created_at,
-            user_id=updated_artifact.user_id,
-            shared_by_user_id=None,
-        )
+            return artifact
+        except ValueError:
+            raise ValidationError(f"Invalid artifact ID: {artifact_id}")
 
-    async def get_user(self, user_id: int) -> User:
-        """
-        Get a user by their ID.
-        """
-        return await self.user_repository.get_by_id(user_id)
+    async def update_artifact(
+        self, artifact_id: UUID | str, data: ArtifactUpdate
+    ) -> Artifact:
+        """Update an artifact."""
+        # Get the existing artifact first
+        artifact = await self.get_artifact(artifact_id)
 
-    async def get_artifact_share(self, artifact_id: uuid.UUID, user_id: int):
-        """
-        Get an artifact share record.
-        """
-        return await self.artifact_share_repository.get_by_artifact_and_user(
-            artifact_id, user_id
-        )
+        try:
+            # Update artifact attributes with the new data
+            update_data = data.dict(exclude_unset=True)
+            for key, value in update_data.items():
+                if hasattr(artifact, key):
+                    setattr(artifact, key, value)
+
+            # Use the repository's update method which expects the model object
+            return await self.repo.update(artifact)
+        except Exception as e:
+            raise ValidationError(f"Failed to update artifact: {str(e)}")
+
+    async def delete_artifact(self, artifact_id: UUID | str) -> None:
+        """Delete an artifact."""
+        # Get the existing artifact first to verify it exists
+        artifact = await self.get_artifact(artifact_id)
+
+        try:
+            # Use the repository's delete method which expects the model object
+            await self.repo.delete(artifact)
+        except Exception as e:
+            raise ValidationError(f"Failed to delete artifact: {str(e)}")
+
+    async def get_all_artifacts(self) -> List[Artifact]:
+        """Get all artifacts."""
+        return await self.repo.get_all()
+
+    # Standard CRUD interface methods (matching AnnotationService pattern)
+    async def create(self, data: ArtifactCreate) -> Artifact:
+        """Create a new artifact."""
+        return await self.create_artifact(data)
+
+    async def get(self, artifact_id: UUID | str) -> Artifact:
+        """Get an artifact by ID."""
+        return await self.get_artifact(artifact_id)
+
+    async def update(self, artifact_id: UUID | str, data: ArtifactUpdate) -> Artifact:
+        """Update an artifact."""
+        return await self.update_artifact(artifact_id, data)
+
+    async def delete(self, artifact_id: UUID | str) -> None:
+        """Delete an artifact."""
+        await self.delete_artifact(artifact_id)
+
+    # Missing methods that routes are calling
+    async def list_artifacts(self, user: User) -> List[Artifact]:
+        """List all artifacts owned by or shared with the user."""
+        # Get artifacts owned by the user
+        owned_artifacts = await self.repo.get_by_user_id(user.id)
+
+        # Get artifacts shared with the user
+        shared_artifacts = await self.repo.get_shared_with_user(user.id)
+
+        # Combine and return unique artifacts
+        all_artifacts = owned_artifacts + shared_artifacts
+
+        # Remove duplicates based on artifact ID
+        seen_ids = set()
+        unique_artifacts = []
+        for artifact in all_artifacts:
+            if artifact.id not in seen_ids:
+                unique_artifacts.append(artifact)
+                seen_ids.add(artifact.id)
+
+        return unique_artifacts
+
+    async def get_artifact_by_path(self, file_path: str, user_id: int) -> Artifact:
+        """Get an artifact by file path for a specific user."""
+        artifacts = await self.repo.get_by_user_id(user_id)
+        for artifact in artifacts:
+            if artifact.file_path == file_path:
+                return artifact
+        return None
+
+    async def get_shared_artifact(self, artifact_id: str, user_id: int) -> Artifact:
+        """Get a shared artifact for a user."""
+        try:
+            artifact_uuid = UUID(artifact_id)
+            shared_artifacts = await self.repo.get_shared_with_user(user_id)
+            for artifact in shared_artifacts:
+                if artifact.id == artifact_uuid:
+                    return artifact
+            return None
+        except ValueError:
+            return None
 
     async def share_artifact(
-        self, artifact_id: uuid.UUID, shared_with_user_id: int, sharing_user_id: int
+        self, artifact_id: str, user_id: int, shared_with_user_id: int
     ) -> None:
-        """
-        Share an artifact with a user.
-        """
-        await self.artifact_share_repository.create(
-            artifact_id, sharing_user_id, shared_with_user_id
-        )
+        """Share an artifact with another user."""
+        try:
+            artifact_uuid = UUID(artifact_id)
+            # Verify the artifact exists and is owned by the user
+            artifact = await self.repo.get_by_id(artifact_uuid)
+            if not artifact or artifact.user_id != user_id:
+                raise NotFoundError("Artifact", artifact_id)
+
+            # Create share record
+            from core.models import ArtifactShare
+
+            share = ArtifactShare(
+                artifact_id=artifact_uuid,
+                shared_by_user_id=user_id,
+                shared_with_user_id=shared_with_user_id,
+            )
+            await self.share_repo.create(share)
+        except ValueError:
+            raise ValidationError(f"Invalid artifact ID: {artifact_id}")
+
+    async def rename_artifact(self, artifact_id: str, name: str) -> Artifact:
+        """Rename an artifact."""
+        try:
+            artifact_uuid = UUID(artifact_id)
+            artifact = await self.repo.get_by_id(artifact_uuid)
+            if not artifact:
+                raise NotFoundError("Artifact", artifact_id)
+
+            # Update the name
+            artifact.name = name
+            return await self.repo.update(artifact)
+        except ValueError:
+            raise ValidationError(f"Invalid artifact ID: {artifact_id}")

@@ -3,8 +3,8 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
-class UserPreferences(BaseModel):
-    """User preferences schema with validation."""
+class UserPreferencesBase(BaseModel):
+    """Base user preferences schema with validation."""
 
     theme: Optional[Literal["light", "dark", "system"]] = Field(
         default="system", description="UI theme preference"
@@ -23,3 +23,21 @@ class UserPreferences(BaseModel):
                 "eeg_zoom_factor": 0.05,
             }
         }
+
+
+class UserPreferences(UserPreferencesBase):
+    """User preferences schema for responses."""
+
+    pass
+
+
+class UserPreferencesCreate(UserPreferencesBase):
+    """User preferences schema for creation."""
+
+    pass
+
+
+class UserPreferencesUpdate(UserPreferencesBase):
+    """User preferences schema for updates."""
+
+    pass

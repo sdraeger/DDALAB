@@ -1,28 +1,23 @@
-from typing import List
+"""Repository for managing help tickets."""
 
-from core.database import Ticket
-from sqlalchemy import select
+from typing import List, Optional
+from uuid import UUID
+
+from core.models import Ticket
+from core.repository.base import BaseRepository
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from .base_repository import BaseRepository
 
 
 class TicketRepository(BaseRepository[Ticket]):
+    """Repository for managing help tickets."""
+
     def __init__(self, db: AsyncSession):
-        super().__init__(Ticket, db)
+        super().__init__(db, Ticket)
 
-    async def get_by_user_id(
-        self, user_id: int, skip: int = 0, limit: int = 100
-    ) -> List[Ticket]:
-        stmt = select(Ticket).filter(Ticket.user_id == user_id).offset(skip)
-        if limit is not None:
-            stmt = stmt.limit(limit)
-        return (await self.db.execute(stmt)).scalars().all()
+    async def get_by_user_id(self, user_id: int) -> List[Ticket]:
+        """Get all tickets for a user."""
+        return await self.get_by_field("user_id", user_id)
 
-    async def get_by_status(
-        self, status: str, skip: int = 0, limit: int = 100
-    ) -> List[Ticket]:
-        stmt = select(Ticket).filter(Ticket.status == status).offset(skip)
-        if limit is not None:
-            stmt = stmt.limit(limit)
-        return (await self.db.execute(stmt)).scalars().all()
+    async def get_by_id(self, ticket_id: UUID) -> Optional[Ticket]:
+        """Get a ticket by ID."""
+        return await self.get_by_field("id", ticket_id)

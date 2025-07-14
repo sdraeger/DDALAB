@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Type, TypeVar, Union
 
 from loguru import logger
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, computed_field, field_validator
 from pydantic_settings import BaseSettings
 
 T = TypeVar("T", bound=BaseModel)
@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     # Development settings
     reload: bool
+    debug: bool = False  # Default to False for security
 
     # API settings
     api_host: str
@@ -43,6 +44,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str
     auth_enabled: bool
     token_expiration_minutes: int
+    refresh_token_expire_days: int = 7  # Default to 7 days
 
     # Allowed directories
     allowed_dirs: Union[list[str], str]
@@ -56,6 +58,16 @@ class Settings(BaseSettings):
     # OpenTelemetry settings
     otlp_host: str
     otlp_port: int = 4317
+
+    @computed_field
+    @property
+    def database_url(self) -> str:
+        """Get the database URL.
+
+        Returns:
+            Database URL in the format: postgresql+asyncpg://user:password@host:port/dbname
+        """
+        return f"postgresql+asyncpg://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
 
     @field_validator("allowed_dirs", mode="before")
     @classmethod

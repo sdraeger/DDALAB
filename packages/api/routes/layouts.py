@@ -1,19 +1,21 @@
+"""Routes for managing user layouts."""
+
 from typing import List
 
 from core.auth import get_current_user
-from core.database import User
 from core.dependencies import get_service
+from core.models import User
 from core.services import LayoutService
 from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
-from schemas.layout import Layout, LayoutRequest, LayoutResponse
+from schemas.layouts import Layout, LayoutCreate
 
 router = APIRouter()
 
 
-@router.post("", response_model=LayoutResponse)
+@router.post("", response_model=Layout)
 async def save_layout(
-    request: LayoutRequest,
+    request: LayoutCreate,
     current_user: User = Depends(get_current_user),
     layout_service: LayoutService = Depends(get_service(LayoutService)),
 ):
@@ -63,7 +65,7 @@ async def get_layout(
         )
 
 
-@router.delete("", response_model=LayoutResponse)
+@router.delete("", response_model=Layout)
 async def delete_layout(
     current_user: User = Depends(get_current_user),
     layout_service: LayoutService = Depends(get_service(LayoutService)),

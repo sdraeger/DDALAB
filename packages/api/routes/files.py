@@ -6,9 +6,7 @@ from pathlib import Path
 from core.auth import get_current_user
 from core.config import get_data_settings
 from core.dependencies import get_service
-from core.files import list_directory as list_directory_core
-from core.files import validate_file_path
-from core.services import FavoriteFilesService
+from core.services import FavoriteFilesService, FileService
 from core.utils import calculate_file_hash, is_path_allowed
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from loguru import logger
@@ -20,7 +18,10 @@ settings = get_data_settings()
 
 
 @router.get("/{file_path:path}/exists")
-async def check_file_exists(file_path: str) -> bool:
+async def check_file_exists(
+    file_path: str,
+    file_service: FileService = Depends(get_service(FileService)),
+) -> bool:
     """Check if a file exists.
 
     Args:
@@ -30,17 +31,17 @@ async def check_file_exists(file_path: str) -> bool:
         True if file exists, False otherwise
     """
     try:
-        if not is_path_allowed(file_path):
-            raise HTTPException(
-                status_code=403, detail="Access to this directory is forbidden"
-            )
-        return await validate_file_path(file_path)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        await file_service.validate_file_path(file_path)
+        return True
+    except Exception:
+        return False
 
 
 @router.get("/hash/{file_path:path}")
-async def get_file_hash(file_path: str):
+async def get_file_hash(
+    file_path: str,
+    file_service: FileService = Depends(get_service(FileService)),
+):
     """Get the hash of a file without downloading it.
 
     Args:
@@ -50,16 +51,8 @@ async def get_file_hash(file_path: str):
         dict: Contains the file hash
     """
     try:
-        if not is_path_allowed(file_path):
-            raise HTTPException(
-                status_code=403, detail="Access to this directory is forbidden"
-            )
-
-        full_path = Path(settings.data_dir) / file_path
-        if not await validate_file_path(file_path):
-            raise HTTPException(status_code=404, detail="File not found")
-
-        file_hash = calculate_file_hash(full_path)
+        full_path = await file_service.validate_file_path(file_path)
+        file_hash = calculate_file_hash(Path(full_path))
         return {"hash": file_hash}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -69,27 +62,43 @@ async def get_file_hash(file_path: str):
 async def list_directory(
     path: str = "/",
     user: User = Depends(get_current_user),
+    file_service: FileService = Depends(get_service(FileService)),
     favorite_files_service: FavoriteFilesService = Depends(
         get_service(FavoriteFilesService)
     ),
 ) -> FileListResponse:
-    items = await list_directory_core(path)
-    favorite_files = []
+    """List files in a directory.
 
+    Args:
+        path: Path to list
+        user: Current user
+        file_service: File service
+        favorite_files_service: Favorite files service
+
+    Returns:
+        List of files and directories
+    """
     try:
-        favorites = await favorite_files_service.get_favorites(user.id)
-        favorite_files = [fav.file_path for fav in favorites]
+        items = await file_service.list_directory(path)
+        favorite_files = []
+
+        try:
+            favorites = await favorite_files_service.get_favorites(user.id)
+            favorite_files = [fav.file_path for fav in favorites]
+        except Exception as e:
+            logger.error(f"Error fetching favorite files: {e}")
+
+        file_info_list = []
+        for item in items:
+            is_favorite = item.path in favorite_files
+            file_info = item
+            file_info.is_favorite = is_favorite
+            file_info_list.append(file_info)
+
+        return FileListResponse(files=file_info_list)
     except Exception as e:
-        logger.error(f"Error fetching favorite files: {e}")
-
-    file_info_list = []
-    for item in items:
-        is_favorite = item.path in favorite_files
-        file_info = item
-        file_info.is_favorite = is_favorite
-        file_info_list.append(file_info)
-
-    return FileListResponse(files=file_info_list)
+        logger.error(f"Error listing directory: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/upload", response_model=FileUploadResponse)

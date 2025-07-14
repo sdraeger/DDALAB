@@ -1,62 +1,24 @@
-import json
+"""Routes for generating plots."""
+
 from typing import List
 
 from core.auth import get_current_user
-from core.config import get_server_settings
-from core.database import User
-from core.dependencies import get_artifact_service, get_minio_client
-from core.services.artifact_service import ArtifactService
+from core.dependencies import get_service
+from core.models import User
+from core.services import PlotService
 from fastapi import APIRouter, Depends
-from minio import Minio
-from schemas.plots import PlotResponse
+from schemas.plots import Plot
 
 router = APIRouter()
 
 
-@router.get("", response_model=List[PlotResponse])
+@router.get("", response_model=List[Plot])
 async def list_plots(
     current_user: User = Depends(get_current_user),
-    minio_client: Minio = Depends(get_minio_client),
-    artifact_service: ArtifactService = Depends(get_artifact_service()),
+    plot_service: PlotService = Depends(get_service(PlotService)),
 ):
     """
     Get plots for artifacts owned or shared with the current user.
     """
-    artifacts = await artifact_service.get_user_artifacts(current_user.id)
-    plots = []
-    for artifact in artifacts:
-        try:
-            # Fetch artifact data from MinIO (e.g., CSV or JSON)
-            settings = get_server_settings()
-            response = minio_client.get_object(
-                settings.minio_bucket_name, artifact.file_path
-            )
-            data = json.loads(response.read().decode("utf-8"))
-            # Transform data into plot format (example for bar chart)
-            plot = {
-                "id": str(artifact.id),
-                "artifactId": str(artifact.id),
-                "title": artifact.name or f"Artifact {str(artifact.id)[:8]}",
-                "artifactInfo": {
-                    "artifact_id": str(artifact.id),
-                    "name": artifact.name,
-                    "file_path": artifact.file_path,
-                    "created_at": artifact.created_at.isoformat(),
-                    "user_id": artifact.user_id,
-                    "shared_by_user_id": None,  # TODO: Add shared_by_user_id logic
-                },
-                "data": {
-                    "labels": data.get("labels", ["A", "B", "C"]),
-                    "datasets": [
-                        {
-                            "label": artifact.name
-                            or f"Artifact {str(artifact.id)[:8]}",
-                            "data": data.get("values", [10, 20, 30]),
-                        }
-                    ],
-                },
-            }
-            plots.append(plot)
-        except Exception as e:
-            print(f"Error processing artifact {artifact.id}: {str(e)}")
+    plots = await plot_service.get_user_plots(current_user.id)
     return plots

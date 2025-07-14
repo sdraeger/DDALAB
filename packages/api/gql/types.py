@@ -1,6 +1,6 @@
 """GraphQL type definitions."""
 
-from typing import Optional
+from typing import List, Optional
 
 import strawberry
 
@@ -43,11 +43,11 @@ class EDFNavigationInfo:
         description="Total duration of the file in seconds"
     )
     numSignals: int = strawberry.field(description="Number of signals in the file")
-    signalLabels: list[str] = strawberry.field(description="Labels of the signals")
-    samplingFrequencies: list[float] = strawberry.field(
+    signalLabels: List[str] = strawberry.field(description="Labels of the signals")
+    samplingFrequencies: List[float] = strawberry.field(
         description="Sampling frequencies for each signal"
     )
-    chunks: list[EDFChunkInfo] = strawberry.field(
+    chunks: List[EDFChunkInfo] = strawberry.field(
         description="Available chunk ranges based on the given chunk size"
     )
 
@@ -56,9 +56,9 @@ class EDFNavigationInfo:
 class EDFData:
     """EDF data type."""
 
-    data: list[list[float]]
+    data: List[List[float]]
     samplingFrequency: float = strawberry.field(description="Sampling frequency in Hz")
-    channelLabels: list[str]
+    channelLabels: List[str]
     totalSamples: int
     chunkStart: int
     chunkSize: int
@@ -80,7 +80,7 @@ class DDAResult:
     """DDA result type."""
 
     file_path: str
-    Q: list[list[float | None]]
+    Q: List[List[Optional[float]]]
     metadata: Optional[str] = None
     error: Optional[str] = None
     error_message: Optional[str] = None
@@ -104,7 +104,9 @@ class DDAArtifactData:
     originalFilePath: str = strawberry.field(
         description="Original EDF file path that was analyzed"
     )
-    Q: list[list[float | None]] = strawberry.field(description="DDA Q matrix results")
+    Q: List[List[Optional[float]]] = strawberry.field(
+        description="DDA Q matrix results"
+    )
     metadata: Optional[str] = strawberry.field(description="Additional metadata")
     userId: int = strawberry.field(description="User ID who created the artifact")
     createdAt: str = strawberry.field(description="Creation timestamp")
@@ -142,3 +144,85 @@ class AnnotationInput:
     start_time: int
     end_time: Optional[int] = None
     text: str
+
+
+@strawberry.input
+class AnnotationCreateInput:
+    """Input type for creating annotations."""
+
+    file_path: str
+    start_time: int
+    end_time: Optional[int] = None
+    text: str
+
+
+@strawberry.input
+class AnnotationUpdateInput:
+    """Input type for updating annotations."""
+
+    file_path: Optional[str] = None
+    start_time: Optional[int] = None
+    end_time: Optional[int] = None
+    text: Optional[str] = None
+
+
+@strawberry.input
+class PreprocessingOptionsInput:
+    """Input for preprocessing options."""
+
+    resample: Optional[int] = None
+    lowpass_filter: Optional[int] = None
+    highpass_filter: Optional[int] = None
+    notch_filter: Optional[int] = None
+    detrend: Optional[bool] = None
+    remove_outliers: Optional[bool] = None
+    smoothing: Optional[bool] = None
+    smoothing_window: Optional[int] = None
+    normalization: Optional[str] = None
+
+
+@strawberry.type
+class AuthResponse:
+    """Authentication response type."""
+
+    access_token: str
+    token_type: str = "bearer"
+
+
+@strawberry.type
+class UserType:
+    """User type for GraphQL."""
+
+    id: str
+    username: str
+    email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    is_active: bool = True
+    is_admin: bool = False
+
+
+@strawberry.input
+class UserInput:
+    """Input for creating/updating users."""
+
+    username: str
+    email: Optional[str] = None
+    password: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    is_active: bool = True
+    is_admin: bool = False
+
+
+@strawberry.input
+class UserCreateInput:
+    """Input type for creating users."""
+
+    username: str
+    password: str
+    email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    is_active: bool = True
+    is_admin: bool = False
