@@ -1,26 +1,23 @@
-"""Authentication and authorization utilities."""
+"""Authentication utilities."""
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from core.config import get_server_settings
-from core.database import User
 from core.dependencies import get_service
+from core.models import User
 from core.security import verify_password
-from core.services.user_service import UserService
+from core.services import UserService
 from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import (
-    OAuth2PasswordBearer,
-)
+from fastapi.security import OAuth2PasswordBearer
 from jose import jwt
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# OAuth2 configuration with password flow
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
 settings = get_server_settings()
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
 
 async def authenticate_user(

@@ -1,36 +1,37 @@
-"""DDA schemas."""
+"""DDA analysis schemas."""
 
-from typing import Optional, Union
+from typing import Dict, List, Optional, Union
 
-from humps import camelize
 from pydantic import BaseModel
 
 
-class SnakeToCamelModel(BaseModel):
-    class Config:
-        alias_generator = camelize
-        validate_by_name = True
+class PreprocessingOptions(BaseModel):
+    """Options for preprocessing EEG data before DDA analysis."""
+
+    filter_low: Optional[float] = None  # Lowpass filter cutoff frequency in Hz
+    filter_high: Optional[float] = None  # Highpass filter cutoff frequency in Hz
 
 
 class DDARequest(BaseModel):
-    """DDA request schema."""
+    """Request schema for DDA analysis."""
 
-    file_path: str
-    channel_list: list[int]
-    bounds: tuple[int, int] | None = None
-    cpu_time: bool = False
-    preprocessing_options: dict[str, Union[str, bool, int, float]] | None = (
-        None  # TODO: Check that these are the only types that need to be supported
-    )
+    file_path: str  # Path to the EDF file to analyze
+    preprocessing_options: Optional[PreprocessingOptions] = None
 
 
 class DDAResponse(BaseModel):
-    """DDA response schema."""
+    """Response schema for DDA analysis."""
 
-    file_path: str
-    Q: list[list[float | None]]
-    metadata: Optional[dict[str, str]] = None
-    preprocessing_options: Optional[dict[str, bool | int | float | str]] = None
-    artifact_id: Optional[str] = None
-    error: Optional[str] = None
-    error_message: Optional[str] = None
+    file_path: str  # Path to the analyzed file
+    Q: List[float]  # DDA analysis results (Q values)
+    metadata: Dict[
+        str, Union[str, int, float, List[str]]
+    ]  # Additional metadata about the analysis
+    preprocessing_options: Optional[PreprocessingOptions] = (
+        None  # Applied preprocessing options
+    )
+
+    class Config:
+        """Pydantic model configuration."""
+
+        arbitrary_types_allowed = True

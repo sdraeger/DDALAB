@@ -1,315 +1,90 @@
-"""Database configuration and models."""
+"""Database configuration and session management."""
 
-import uuid
-from datetime import datetime, timezone
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
-from sqlalchemy import (
-    JSON,
-    UUID,
-    Boolean,
-    Column,
-    DateTime,
-    Float,
-    ForeignKey,
-    Integer,
-    String,
+from fastapi import HTTPException
+from minio import Minio
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from .config import get_server_settings
+
+settings = get_server_settings()
+
+# Create SQLAlchemy engine for PostgreSQL
+engine = create_async_engine(
+    settings.database_url,
+    echo=settings.debug,
+    pool_size=20,
+    max_overflow=10,
+    pool_timeout=30,
+    pool_recycle=1800,
 )
-from sqlalchemy.orm import declarative_base, relationship
 
-# Create base class for models
-Base = declarative_base()
+# Create async session factory
+async_session_maker = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
 
 
-class User(Base):
-    """User model."""
+@asynccontextmanager
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """Get a database session.
 
-    __tablename__ = "users"
+    Returns:
+        AsyncSession: Database session
 
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True)
-    password_hash = Column(String)
-    email = Column(String, unique=True, index=True)
-    first_name = Column(String, nullable=True)
-    last_name = Column(String, nullable=True)
-    is_active = Column(Boolean, default=True)
-    is_admin = Column(Boolean, default=False)
-    created_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-    )
-    updated_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-        onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-    )
+    Example:
+        async with get_db() as db:
+            result = await db.execute(query)
+            await db.commit()
+    """
+    async with async_session_maker() as session:
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if self.is_active is None:
-            self.is_active = True
-        if self.is_admin is None:
-            self.is_admin = False
-        if self.created_at is None:
-            self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        if self.updated_at is None:
-            self.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
-    # Relationships
-    favorite_files = relationship(
-        "FavoriteFile", back_populates="user", cascade="all, delete-orphan"
-    )
-    preferences = relationship(
-        "UserPreferences",
-        back_populates="user",
-        uselist=False,
-        cascade="all, delete-orphan",
-    )
-    edf_configs = relationship(
-        "EdfConfig", back_populates="user", cascade="all, delete-orphan"
-    )
-    artifacts = relationship(
-        "Artifact", back_populates="owner", cascade="all, delete-orphan"
-    )
-    artifact_shares = relationship(
-        "ArtifactShare",
-        back_populates="user",
-        foreign_keys="ArtifactShare.user_id",
-        cascade="all, delete-orphan",
-    )
-    shared_artifacts = relationship(
-        "ArtifactShare",
-        back_populates="shared_with_user",
-        foreign_keys="ArtifactShare.shared_with_user_id",
-        cascade="all, delete-orphan",
-    )
-    layouts = relationship(
-        "UserLayout", back_populates="user", cascade="all, delete-orphan"
+# Alias for dependency injection
+get_db_session = get_db
+
+
+def get_minio_client():
+    """Initialize and yield a MinIO client instance."""
+    endpoint = settings.minio_host
+    access_key = settings.minio_access_key
+    secret_key = settings.minio_secret_key
+    secure = False
+
+    if not access_key or not secret_key:
+        raise HTTPException(
+            status_code=500,
+            detail="MinIO credentials not configured",
+        )
+
+    client = Minio(
+        endpoint,
+        access_key=access_key,
+        secret_key=secret_key,
+        secure=secure,
     )
 
+    # Ensure the bucket exists
+    try:
+        if not client.bucket_exists(settings.minio_bucket_name):
+            client.make_bucket(settings.minio_bucket_name)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to initialize MinIO bucket: {str(e)}",
+        )
 
-class UserPreferences(Base):
-    """User preferences model."""
-
-    __tablename__ = "user_preferences"
-
-    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True, index=True)
-    theme = Column(String, default="system")
-    eeg_zoom_factor = Column(Float, default=0.05)
-    updated_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-        onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-    )
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if self.theme is None:
-            self.theme = "system"
-        if self.eeg_zoom_factor is None:
-            self.eeg_zoom_factor = 0.05
-        if self.updated_at is None:
-            self.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-
-    # Relationships
-    user = relationship("User", back_populates="preferences")
-
-
-class EdfConfig(Base):
-    __tablename__ = "edf_configs"
-
-    id = Column(Integer, primary_key=True, index=True)
-    file_hash = Column(String(255), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
-    )
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if self.created_at is None:
-            self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
-
-    user = relationship("User", back_populates="edf_configs")
-    channels = relationship("EdfConfigChannel", back_populates="config")
-
-
-class EdfConfigChannel(Base):
-    __tablename__ = "edf_config_channels"
-
-    id = Column(Integer, primary_key=True, index=True)
-    config_id = Column(Integer, ForeignKey("edf_configs.id"), nullable=False)
-    channel = Column(String(100), nullable=False)
-
-    config = relationship("EdfConfig", back_populates="channels")
-
-
-class Annotation(Base):
-    """Annotation model for EDF data."""
-
-    __tablename__ = "annotations"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    file_path = Column(String, index=True)  # Path to the EDF file
-    start_time = Column(Integer)  # Start sample position
-    end_time = Column(Integer, nullable=True)  # End sample position (optional)
-    text = Column(String)  # Annotation text
-    created_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-    )
-    updated_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-        onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-    )
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if self.created_at is None:
-            self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        if self.updated_at is None:
-            self.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-
-    # Relationships
-    user = relationship("User", backref="annotations")
-
-
-class FavoriteFile(Base):
-    """Favorite file model for starred files."""
-
-    __tablename__ = "favorite_files"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    file_path = Column(String, index=True)
-    created_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-    )
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if self.created_at is None:
-            self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
-
-    user = relationship("User", back_populates="favorite_files")
-
-
-class PasswordResetToken(Base):
-    """Password reset token model."""
-
-    __tablename__ = "password_reset_tokens"
-
-    id = Column(Integer, primary_key=True, index=True)
-    token = Column(String, unique=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    expires_at = Column(DateTime)
-
-    # Relationships
-    user = relationship("User")
-
-
-class InviteCode(Base):
-    """Invite code model."""
-
-    __tablename__ = "invite_codes"
-
-    id = Column(Integer, primary_key=True, index=True)
-    code = Column(String, unique=True, index=True)
-    email = Column(String)
-    created_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-    )
-    expires_at = Column(DateTime)
-    used_at = Column(DateTime, nullable=True)
-
-
-class Ticket(Base):
-    """Ticket model."""
-
-    __tablename__ = "help_tickets"
-
-    id = Column(
-        Integer,
-        primary_key=True,
-        index=True,
-        autoincrement=True,
-        nullable=False,
-    )
-    user_id = Column(Integer, ForeignKey("users.id"))
-    title = Column(String)
-    description = Column(String)
-    status = Column(String)
-    created_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-    )
-    updated_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-        onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-    )
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if self.created_at is None:
-            self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        if self.updated_at is None:
-            self.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-class Artifact(Base):
-    __tablename__ = "artifacts"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=lambda: uuid.uuid4())
-    name = Column(String, nullable=True)
-    file_path = Column(String, nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-    )
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if self.id is None:
-            self.id = uuid.uuid4()
-        if self.created_at is None:
-            self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
-
-    owner = relationship("User", back_populates="artifacts")
-    shares = relationship("ArtifactShare", back_populates="artifact")
-
-
-class ArtifactShare(Base):
-    __tablename__ = "artifact_shares"
-    id = Column(Integer, primary_key=True, index=True)
-    artifact_id = Column(UUID(as_uuid=True), ForeignKey("artifacts.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    shared_with_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    artifact = relationship("Artifact", back_populates="shares")
-    user = relationship(
-        "User", back_populates="artifact_shares", foreign_keys=[user_id]
-    )
-    shared_with_user = relationship(
-        "User", back_populates="shared_artifacts", foreign_keys=[shared_with_user_id]
-    )
-
-
-class UserLayout(Base):
-    __tablename__ = "user_layouts"
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    layout_data = Column(JSON, nullable=False)
-    created_at = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
-    )
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if self.created_at is None:
-            self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
-
-    user = relationship("User", back_populates="layouts")
+    return client

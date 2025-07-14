@@ -6,11 +6,11 @@ from contextlib import asynccontextmanager
 from core.config import get_server_settings, initialize_config
 from core.middleware import (
     AuthMiddleware,
-    DBSessionMiddleware,
+    DatabaseMiddleware,
     MinIOMiddleware,
     PrometheusMiddleware,
 )
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from minio import Minio
@@ -26,27 +26,41 @@ try:
     # Try importing from the routes package structure
     from routes import router as api_router
     from routes import router_metrics as api_router_metrics
-
-    # Import auth router from routes.auth
     from routes.auth import router as auth_router
+    from routes.config import router as config_router
+    from routes.dashboard import router as dashboard_router
+    from routes.user_preferences import router as user_preferences_router
 
 except ImportError as e:
     logger.error(f"Error importing api routers: {e}")
     # Fallback: create dummy routers for test context
-    from fastapi import APIRouter
-
     api_router = APIRouter()
     api_router_metrics = APIRouter()
     auth_router = APIRouter()
+    config_router = APIRouter()
+    dashboard_router = APIRouter()
+    user_preferences_router = APIRouter()
     logger.warning("Using fallback routers - some functionality may be limited")
 
+# Import GraphQL router
 try:
     from gql.graphql import graphql_app
-except ImportError:
-    from fastapi import APIRouter
 
-    graphql_app = APIRouter()
-    logger.warning("GraphQL not available - using fallback router")
+    logger.info("GraphQL router loaded successfully")
+except ImportError as e:
+    logger.error(f"Failed to import GraphQL router: {e}")
+    # Create a dummy router that returns a 501 Not Implemented
+    graphql_router = APIRouter()
+
+    @graphql_router.get("/graphql")
+    @graphql_router.post("/graphql")
+    async def graphql_not_implemented():
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=501, detail="GraphQL endpoint not available")
+
+    graphql_app = graphql_router
+    logger.warning("Using fallback GraphQL router - endpoint will return 501")
 
 settings = get_server_settings()
 
@@ -174,8 +188,8 @@ try:
 except Exception as e:
     logger.warning(f"Failed to configure OTLP tracing: {e}. Tracing will be disabled.")
 
-# Add database session middleware
-app.add_middleware(DBSessionMiddleware)
+# Add database middleware first
+app.add_middleware(DatabaseMiddleware)
 
 # Add MinIO middleware
 app.add_middleware(MinIOMiddleware)
@@ -215,5 +229,10 @@ app.include_router(graphql_app, prefix="/graphql")
 # Include API routers
 app.include_router(api_router, prefix="/api")
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+app.include_router(config_router, prefix="/api/config", tags=["config"])
+app.include_router(dashboard_router, prefix="/api/dashboard", tags=["dashboard"])
+app.include_router(
+    user_preferences_router, prefix="/api/user-preferences", tags=["user-preferences"]
+)
 
 app_metrics.include_router(api_router_metrics)

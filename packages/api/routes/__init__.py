@@ -5,6 +5,7 @@ from prometheus_client import generate_latest
 
 from .artifacts import router as artifacts_router
 from .config import router as config_router
+from .dashboard import router as dashboard_router
 from .dda import router as dda_router
 from .edf import router as edf_router
 from .favorite_files import router as favorite_files_router
@@ -43,6 +44,7 @@ router.include_router(layouts_router, prefix="/layouts", tags=["layouts"])
 router.include_router(
     widget_layouts_router, prefix="/widget-layouts", tags=["widget-layouts"]
 )
+router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
 
 
 def include_routers(app):

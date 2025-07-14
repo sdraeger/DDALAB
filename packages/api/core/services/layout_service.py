@@ -2,18 +2,20 @@ from typing import List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import UserLayout
-from ..dependencies import register_service
+from ..models import UserLayout
 from ..repository.layout_repository import LayoutRepository
+from ..service_registry import register_service
+from .base import BaseService
 
 
 @register_service
-class LayoutService:
+class LayoutService(BaseService):
     def __init__(self, db: AsyncSession):
+        super().__init__(db)
         self.repo = LayoutRepository(db)
 
     @classmethod
-    def create(cls, db: AsyncSession) -> "LayoutService":
+    def from_db(cls, db: AsyncSession) -> "LayoutService":
         return cls(db)
 
     async def get_user_layouts(self, user_id: int) -> List[dict]:

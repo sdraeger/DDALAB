@@ -1,139 +1,144 @@
-"""Custom middleware for the FastAPI application."""
+"""FastAPI middleware."""
 
-import time
-
-from fastapi import Request
-from fastapi.responses import JSONResponse
-from loguru import logger
+from core.auth import is_user_logged_in
+from core.config import get_server_settings
+from core.database import async_session_maker
+from fastapi import Request, Response
 from minio import Minio
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response as StarletteResponse
-
-from .config import get_server_settings
-
-# Conditional import for metrics
-try:
-    from routes.metrics import REQUEST_COUNT, REQUEST_LATENCY
-except ImportError:
-    # Create mock metrics for test context
-    from unittest.mock import MagicMock
-
-    REQUEST_COUNT = MagicMock()
-    REQUEST_LATENCY = MagicMock()
-    logger.warning("Using mock metrics - prometheus metrics not available")
-
-from .dependencies import get_db
+from prometheus_client import Counter, Histogram
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.types import ASGIApp
 
 settings = get_server_settings()
 
-
-class AuthMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        # Skip authentication for specific routes
-        if request.url.path in [
-            "/login",
-            "/docs",
-            "/openapi.json",
-            "/api/health",
-            "/api/config",
-            "/api/auth/token",
-            "/api/auth/login",
-            "/api/auth/refresh-token",
-        ]:
-            logger.info(f"Skipping authentication for route: {request.url.path}")
-            return await call_next(request)
-
-        logger.info(f"Request: {request}")
-
-        # Extract token from Authorization header
-        auth_header = request.headers.get("Authorization")
-        if not auth_header:
-            logger.error("No Authorization header provided")
-            return JSONResponse(
-                status_code=401, content={"detail": "Authentication required"}
-            )
-
-        # Split "Bearer <token>" to get the token
-        try:
-            scheme, token = auth_header.split()
-            if scheme.lower() != "bearer" or not token:
-                raise ValueError
-        except ValueError:
-            logger.error("Invalid Authorization header format")
-            return JSONResponse(
-                status_code=401, content={"detail": "Invalid authentication scheme"}
-            )
-
-        # Add token to request state for use in dependencies
-        request.state.token = token
-
-        # Proceed with the request
-        response = await call_next(request)
-        return response
+# Prometheus metrics
+REQUEST_COUNT = Counter(
+    "http_requests_total",
+    "Total count of HTTP requests",
+    ["method", "endpoint", "status"],
+)
+REQUEST_LATENCY = Histogram(
+    "http_request_duration_seconds",
+    "HTTP request latency in seconds",
+    ["method", "endpoint"],
+)
 
 
-class DBSessionMiddleware(BaseHTTPMiddleware):
-    """Middleware to ensure database sessions are properly closed."""
+class DatabaseMiddleware(BaseHTTPMiddleware):
+    """Middleware to inject database session into request state."""
 
-    async def dispatch(self, request: Request, call_next):
-        """Handle database session cleanup."""
+    def __init__(self, app: ASGIApp):
+        super().__init__(app)
 
-        async with get_db() as db:
-            request.state.db = db
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        """Inject database session into request state."""
+        async with async_session_maker() as session:
+            request.state.db = session
             try:
                 response = await call_next(request)
-                await db.commit()
+                await session.commit()
                 return response
             except Exception:
-                await db.rollback()
+                await session.rollback()
                 raise
+            finally:
+                await session.close()
 
 
 class MinIOMiddleware(BaseHTTPMiddleware):
     """Middleware to inject MinIO client into request state."""
 
-    def __init__(self, app):
+    def __init__(self, app: ASGIApp):
         super().__init__(app)
-        self.minio_client = None
 
-    def _create_minio_client(self) -> Minio:
-        """Create a MinIO client instance."""
-        if not self.minio_client:
-            self.minio_client = Minio(
-                settings.minio_host,
-                access_key=settings.minio_access_key,
-                secret_key=settings.minio_secret_key,
-                secure=False,
-            )
-        return self.minio_client
-
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         """Inject MinIO client into request state."""
-        request.state.minio_client = self._create_minio_client()
+        request.state.minio_client = Minio(
+            settings.minio_host,
+            access_key=settings.minio_access_key,
+            secret_key=settings.minio_secret_key,
+            secure=False,
+        )
+        return await call_next(request)
 
-        try:
-            response = await call_next(request)
-            return response
-        except Exception:
-            raise
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Middleware to handle authentication."""
+
+    def __init__(self, app: ASGIApp):
+        super().__init__(app)
+
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        """Handle authentication."""
+        # Skip auth for certain paths
+        if not settings.auth_enabled or _should_skip_auth(request.url.path):
+            return await call_next(request)
+
+        # Extract token from Authorization header
+        auth_header = request.headers.get("authorization", "")
+        token = auth_header.replace("Bearer ", "").strip()
+
+        # Store token in request state
+        request.state.token = token
+
+        # Check if user is logged in
+        if not is_user_logged_in(request):
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        return await call_next(request)
 
 
 class PrometheusMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next) -> StarletteResponse:
-        # Record start time
+    """Middleware to collect Prometheus metrics."""
+
+    def __init__(self, app: ASGIApp):
+        super().__init__(app)
+
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        """Collect Prometheus metrics."""
+        import time
+
+        method = request.method
+        path = request.url.path
+
+        # Start timer
         start_time = time.time()
 
-        # Process the request and get the response
+        # Process request
         response = await call_next(request)
-
-        # Calculate duration
-        duration = time.time() - start_time
 
         # Record metrics
         REQUEST_COUNT.labels(
-            method=request.method, path=request.url.path, status=response.status_code
+            method=method, endpoint=path, status=response.status_code
         ).inc()
-
-        REQUEST_LATENCY.labels(path=request.url.path).observe(duration)
+        REQUEST_LATENCY.labels(method=method, endpoint=path).observe(
+            time.time() - start_time
+        )
 
         return response
+
+
+def _should_skip_auth(path: str) -> bool:
+    """Check if authentication should be skipped for the given path."""
+    skip_paths = [
+        "/api/auth/token",  # Login endpoint
+        "/api/auth/register",  # Registration endpoint
+        "/api/auth/reset-password",  # Password reset endpoint
+        "/api/auth/verify-reset-token",  # Password reset token verification
+        "/metrics",  # Prometheus metrics endpoint
+        "/docs",  # API documentation
+        "/redoc",  # API documentation
+        "/openapi.json",  # OpenAPI schema
+        "/graphql",  # GraphQL endpoint
+    ]
+    return any(path.startswith(skip_path) for skip_path in skip_paths)

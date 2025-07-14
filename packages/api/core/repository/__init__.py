@@ -1,36 +1,27 @@
-from typing import Callable, Type, TypeVar
+"""Repository package for database operations."""
 
-from fastapi import Request
-
-from .annotation_repository import AnnotationRepository
-from .base_repository import BaseRepository
-from .edf_config_channel_repository import EdfConfigChannelRepository
-from .edf_config_repository import EdfConfigRepository
-from .favorite_files_repository import FavoriteFilesRepository
-from .layout_repository import LayoutRepository
-from .ticket_repository import TicketRepository
-from .user_preferences_repository import UserPreferencesRepository
-from .user_repository import UserRepository
+from core.repository.annotation_repository import AnnotationRepository
+from core.repository.artifact_repository import ArtifactRepository
+from core.repository.artifact_share_repository import ArtifactShareRepository
+from core.repository.base import BaseRepository
+from core.repository.edf_config_channel_repository import EdfConfigChannelRepository
+from core.repository.edf_config_repository import EdfConfigRepository
+from core.repository.favorite_files_repository import FavoriteFilesRepository
+from core.repository.layout_repository import LayoutRepository
+from core.repository.ticket_repository import TicketRepository
+from core.repository.user_preferences_repository import UserPreferencesRepository
+from core.repository.user_repository import UserRepository
 
 __all__ = [
-    "UserRepository",
-    "BaseRepository",
     "AnnotationRepository",
+    "ArtifactRepository",
+    "ArtifactShareRepository",
+    "BaseRepository",
     "EdfConfigChannelRepository",
     "EdfConfigRepository",
     "FavoriteFilesRepository",
     "LayoutRepository",
     "TicketRepository",
     "UserPreferencesRepository",
+    "UserRepository",
 ]
-
-T = TypeVar("T")
-
-
-def get_repository(
-    repo_type: Type[BaseRepository[T]],
-) -> Callable[[Request], BaseRepository[T]]:
-    def _get_repo(request: Request) -> BaseRepository[T]:
-        return repo_type(request)
-
-    return _get_repo

@@ -1,13 +1,10 @@
-"""API endpoints for help tickets."""
+"""Routes for managing help tickets."""
 
 from datetime import datetime, timezone
 
-from core.auth import (
-    get_admin_user,
-    get_current_user,
-)
-from core.database import User
+from core.auth import get_admin_user, get_current_user
 from core.dependencies import get_service
+from core.models import User
 from core.services import TicketService
 from fastapi import APIRouter, Depends, HTTPException, status
 from schemas.tickets import Ticket, TicketCreate, TicketResponse, TicketUpdate

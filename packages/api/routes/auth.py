@@ -2,13 +2,12 @@
 
 from datetime import timedelta
 
-from core.auth import authenticate_user
+from core.auth import (
+    authenticate_user,
+)
 from core.config import get_server_settings
 from core.dependencies import get_service
-from core.security import (
-    create_jwt_token,
-    verify_refresh_token,
-)
+from core.security import create_jwt_token, verify_refresh_token
 from core.services import UserService
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
@@ -29,6 +28,9 @@ async def login_for_access_token(
 
     if not user:
         raise HTTPException(status_code=401, detail="Incorrect username or password")
+
+    # Update last login timestamp
+    user = await user_service.update_last_login(user)
 
     expires_in = timedelta(days=7)  # TODO: use env var
     access_token = create_jwt_token(
@@ -57,6 +59,9 @@ async def refresh_token(
         user = await user_service.get_user(username=payload["sub"])
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
+
+        # Update last login timestamp on token refresh too
+        user = await user_service.update_last_login(user)
 
         expires_in = timedelta(days=7)  # TODO: use env var
         new_access_token = create_jwt_token(
