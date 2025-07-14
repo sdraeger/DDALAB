@@ -7,6 +7,7 @@ import { Button } from '../ui/button';
 import { X, Maximize2, Minimize2, GripVertical, ExternalLink } from 'lucide-react';
 import { useToast } from '../ui/use-toast';
 import { useAppSelector } from '../../store';
+import logger from '../../lib/utils/logger';
 
 interface ModernWidgetContainerProps {
 	widget: IDashboardWidget;
@@ -47,7 +48,7 @@ export function ModernWidgetContainer({
 		e.stopPropagation();
 
 		try {
-			// Create a serializable version of the widget for the new tab
+			// Create a serializable version of the widget with minimal data
 			const serializableWidget = {
 				id: widget.id,
 				title: widget.title,
@@ -58,103 +59,75 @@ export function ModernWidgetContainer({
 				popoutPreferences: widget.popoutPreferences,
 			};
 
-			// Capture widget-specific state for synchronization
-			const widgetStateKeys = [
-				`widget-state-${widget.id}`,
-				`widget-state-chart-widget-default`,
-				`widget-state-dda-widget-default`,
-				`widget-state-dda-lineplot-widget-default`
-			];
-
-			const capturedStates: Record<string, any> = {};
-			widgetStateKeys.forEach(key => {
-				const storedState = localStorage.getItem(key);
-				if (storedState) {
-					try {
-						capturedStates[key] = JSON.parse(storedState);
-					} catch (error) {
-						console.warn(`Failed to capture state for ${key}:`, error);
-					}
-				}
-			});
-
-			// For widgets that depend on plots data (chart, dda-line-plot), capture the entire plots state
-			const plotDependentWidgets = ['chart', 'dda-line-plot'];
-			if (plotDependentWidgets.includes(widget.type) && plots) {
-				// Capture the entire plots state for data synchronization
-				serializableWidget.metadata = {
-					...serializableWidget.metadata,
-					initialPlotsState: plots
-				};
-
-				// Also capture specific plot state for backward compatibility (chart widgets)
-				if (widget.type === 'chart') {
-					const latestFilePath = Object.keys(plots).find(filePath =>
-						plots[filePath]?.metadata && plots[filePath]?.edfData
-					);
-
-					if (latestFilePath && plots[latestFilePath]) {
-						const plotState = plots[latestFilePath];
-						serializableWidget.metadata.plotState = {
-							edfData: plotState.edfData,
-							metadata: plotState.metadata,
-							selectedChannels: plotState.selectedChannels,
-							filePath: latestFilePath,
-							timeWindow: plotState.timeWindow,
-							absoluteTimeWindow: plotState.absoluteTimeWindow,
-							zoomLevel: plotState.zoomLevel,
-							annotations: plotState.annotations,
-							chunkStart: plotState.chunkStart,
-							currentChunkNumber: plotState.currentChunkNumber,
-							chunkSizeSeconds: plotState.chunkSizeSeconds,
-						};
-					}
+			// For chart widgets, include only essential metadata
+			if (widget.type === 'chart' && plots) {
+				const currentPlot = Object.values(plots).find(plot => plot?.metadata && plot?.edfData);
+				if (currentPlot && currentPlot.edfData) {
+					// Only pass essential metadata, not the full data
+					const { selectedChannels, timeWindow, zoomLevel } = currentPlot;
+					serializableWidget.metadata = {
+						...widget.metadata,
+						popoutPlotState: {
+							selectedChannels,
+							timeWindow,
+							zoomLevel,
+							edfMetadata: {
+								channels: currentPlot.edfData.channels,
+								sampleRate: currentPlot.edfData.sampleRate,
+								duration: currentPlot.edfData.duration,
+								samplesPerChannel: currentPlot.edfData.samplesPerChannel
+							}
+						}
+					};
 				}
 			}
 
-			// Store captured widget states for the popped-out window
-			serializableWidget.metadata = {
-				...serializableWidget.metadata,
-				capturedStates
-			};
-
-			// Store widget data in localStorage for the new tab to access
-			const storageKey = `modern-popped-widget-${widget.id}`;
+			// Store minimal widget state in localStorage with timestamp
+			const storageKey = `modern-popped-widget-${widget.id}-${Date.now()}`;
 			localStorage.setItem(storageKey, JSON.stringify(serializableWidget));
 
-			// Open widget in new tab
-			const popoutUrl = `/widget/modern/${widget.id}`;
-			const newWindow = window.open(popoutUrl, `widget-${widget.id}`,
-				'width=1200,height=800,scrollbars=yes,resizable=yes'
+			// Open new window with the storage key
+			const popoutWindow = window.open(
+				`/widget/modern/${widget.id}?storageKey=${encodeURIComponent(storageKey)}`,
+				`widget-${widget.id}`,
+				'width=800,height=600,menubar=no,toolbar=no,location=no,status=no'
 			);
 
-			if (newWindow) {
-				// Focus the new window
-				newWindow.focus();
+			// Mark widget as popped out and remove from layout
+			onUpdate?.({ metadata: { ...widget.metadata, isPopout: true } });
 
-				toast({
-					title: "Widget Popped Out",
-					description: `${widget.title} has been opened in a new tab.`,
-					duration: 2000,
-				});
-			} else {
-				toast({
-					title: "Pop-out Failed",
-					description: "Could not open widget in new tab. Please check your browser's pop-up settings.",
-					variant: "destructive",
-					duration: 4000,
-				});
-			}
+			// Log the operation
+			logger.info(`[ModernWidgetContainer] Widget popped out:`, {
+				widgetId: widget.id,
+				storageKey,
+				windowOpened: !!popoutWindow
+			});
+
+			// Handle window close event to restore widget
+			const handleWindowClose = () => {
+				// Check if window is closed
+				if (popoutWindow?.closed) {
+					// Remove the storage key
+					localStorage.removeItem(storageKey);
+					// Restore widget to layout
+					onUpdate?.({ metadata: { ...widget.metadata, isPopout: false } });
+					// Remove the interval
+					clearInterval(checkInterval);
+				}
+			};
+
+			// Check window status periodically
+			const checkInterval = setInterval(handleWindowClose, 500);
+
 		} catch (error) {
-			console.error('Error popping out widget:', error);
+			logger.error(`[ModernWidgetContainer] Error popping out widget:`, error);
 			toast({
-				title: "Pop-out Error",
-				description: "Failed to open widget in new tab.",
-				variant: "destructive",
-				duration: 3000,
+				title: "Error",
+				description: "Failed to pop out widget. Please try again.",
+				variant: "destructive"
 			});
 		}
-	}, [widget, toast]);
+	}, [widget, plots, onUpdate, toast]);
 
 	return (
 		<div

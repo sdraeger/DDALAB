@@ -250,20 +250,33 @@ export const useDDAPlot = ({
     loading: artifactLoading,
     error: artifactError,
   } = useQuery(GET_DDA_ARTIFACT_DATA, {
-    variables: { artifactPath: filePath },
+    variables: {
+      // Clean the path before sending to GraphQL
+      artifactPath: filePath?.replace(/^\/?(dda-results\/)+/, "dda_results/"),
+    },
     skip: !isDDArtifact || !filePath,
     fetchPolicy: "cache-and-network",
     onCompleted: (data) => {
       if (data?.getDdaArtifactData) {
         const { originalFilePath, Q: artifactQ } = data.getDdaArtifactData;
         logger.info(`DDA artifact loaded. Original file: ${originalFilePath}`);
-        setActualEDFFilePath(originalFilePath);
-        setDdaQMatrix(artifactQ);
+
+        // Only update if the data has changed
+        if (originalFilePath !== actualEDFFilePath) {
+          setActualEDFFilePath(originalFilePath);
+        }
+
+        // Deep compare Q matrices to prevent unnecessary updates
+        if (JSON.stringify(artifactQ) !== JSON.stringify(ddaQMatrix)) {
+          setDdaQMatrix(artifactQ);
+        }
       }
     },
     onError: (err) => {
       logger.error("Error loading DDA artifact:", err);
       setManualErrorMessage("Failed to load DDA artifact data");
+      // Clear the file path to prevent infinite retries
+      setActualEDFFilePath(null);
     },
   });
 

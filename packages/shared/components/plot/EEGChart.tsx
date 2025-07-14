@@ -345,7 +345,10 @@ export function EEGChart({
       e.preventDefault();
 
       const canvas = canvasRef.current;
-      if (!canvas) return;
+      if (!canvas || !eegData?.duration) {
+        console.log('Skipping zoom: No canvas or eegData duration available');
+        return;
+      }
 
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
@@ -378,7 +381,7 @@ export function EEGChart({
         onTimeWindowChange([newStartTime, newEndTime]);
       }
     },
-    [timeWindow, eegData.duration, effectiveZoomFactor, onTimeWindowChange]
+    [timeWindow, eegData?.duration, effectiveZoomFactor, onTimeWindowChange]
   );
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -412,7 +415,7 @@ export function EEGChart({
       );
     }
 
-    if (!isDragging) return;
+    if (!isDragging || !eegData?.duration) return;
 
     const dx = e.clientX - dragStart;
     setDragStart(e.clientX);
@@ -423,10 +426,6 @@ export function EEGChart({
     ];
 
     // Apply robust bounds checking for mouse dragging
-    if (!eegData || !eegData.duration) {
-      return; // Can't apply bounds checking without data
-    }
-
     const windowDuration = timeWindow[1] - timeWindow[0];
     let finalWindow: [number, number] = proposedWindow;
 
@@ -492,7 +491,7 @@ export function EEGChart({
   };
 
   const moveLeft = () => {
-    if (!eegData || !eegData.duration) {
+    if (!eegData?.duration) {
       console.warn('moveLeft: No eegData or duration available');
       return;
     }
@@ -529,7 +528,7 @@ export function EEGChart({
   };
 
   const moveRight = () => {
-    if (!eegData || !eegData.duration) {
+    if (!eegData?.duration) {
       console.warn('moveRight: No eegData or duration available');
       return;
     }

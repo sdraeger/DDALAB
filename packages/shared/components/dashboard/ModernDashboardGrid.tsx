@@ -197,7 +197,8 @@ export function ModernDashboardGrid({
 				resizeHandles={["se"]}
 				draggableHandle=".drag-handle"
 			>
-				{widgets.map((widget) => (
+				{/* Only render widgets that are not popped out */}
+				{widgets.filter(widget => !widget.metadata?.isPopout).map((widget) => (
 					<div key={widget.id} className="modern-widget-item">
 						<ModernWidgetContainer
 							widget={widget}

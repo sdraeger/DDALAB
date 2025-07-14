@@ -170,15 +170,7 @@ export default function Dashboard() {
 		<div className="flex h-full w-full flex-col bg-gradient-to-br from-background to-muted/20">
 			{/* Header */}
 			<div className="relative z-10 flex h-[72px] flex-shrink-0 items-center justify-between border-b border-border/50 bg-background/80 px-4 sm:px-6 backdrop-blur-sm">
-				<div className="flex min-w-0 flex-1 items-center gap-4">
-					<div className="flex flex-shrink-0 items-center gap-2">
-						<Sparkles className="h-5 w-5 text-primary" />
-						<h1 className="text-lg font-semibold">Dashboard</h1>
-					</div>
-					<div className="relative">
-						<ModernDashboardToolbar onAddWidget={handleAddWidget} />
-					</div>
-				</div>
+				<ModernDashboardToolbar onAddWidget={handleAddWidget} />
 
 				{/* Layout controls */}
 				{session && (
