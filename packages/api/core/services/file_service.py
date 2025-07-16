@@ -81,20 +81,20 @@ class FileService(BaseService):
         """Validate that the file path is within the allowed directories.
 
         Args:
-            file_path: Path to the file
+            file_path: Path to the file or directory
 
         Returns:
             Validated file path
 
         Raises:
             ValidationError: If the path is not allowed
-            NotFoundError: If the file does not exist
+            NotFoundError: If the path does not exist
             ServiceError: If there is an error validating the path
         """
         try:
             resolved_path = is_path_allowed(file_path)
-            if not resolved_path.is_file():
-                raise NotFoundError("File", file_path)
+            if not resolved_path.exists():
+                raise NotFoundError("Path", file_path)
 
             return str(resolved_path)
         except NotFoundError:
@@ -102,8 +102,8 @@ class FileService(BaseService):
         except ValidationError:
             raise
         except Exception as e:
-            logger.error(f"Error validating file path '{file_path}': {e}")
-            raise ServiceError(f"Could not validate file path: {str(e)}")
+            logger.error(f"Error validating path '{file_path}': {e}")
+            raise ServiceError(f"Could not validate path: {str(e)}")
 
     async def health_check(self) -> bool:
         """Check if the service is healthy."""

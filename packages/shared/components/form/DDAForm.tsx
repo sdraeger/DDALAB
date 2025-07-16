@@ -15,9 +15,7 @@ import {
 } from "shared/components/ui/card";
 import { Form } from "shared/components/ui/form";
 import { toast } from "shared/hooks/useToast";
-import { Loader2 } from "lucide-react";
 import { useState } from "react";
-import { useSession } from "next-auth/react";
 import { DDAPlot } from "../plot/DDAPlot";
 import { apiRequest } from "../../lib/utils/request";
 import { EdfConfigResponse } from "shared/lib/schemas/edf";
@@ -28,6 +26,7 @@ import {
   AlertTitle,
 } from "shared/components/ui/alert";
 import { useArtifactFromFilePath, useArtifactInfo } from "../../hooks/useArtifactInfo";
+import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
 
 const formSchema = z
   .object({
@@ -66,7 +65,7 @@ export function DDAForm({
   setSelectedChannels,
   noBorder = false,
 }: DDAFormProps) {
-  const { data: session } = useSession();
+  const { data: session } = useUnifiedSessionData();
   const [Q, setQ] = useState<number[][] | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [availableChannels, setAvailableChannels] = useState<string[]>([]);

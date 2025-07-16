@@ -3,16 +3,18 @@
 from unittest.mock import AsyncMock
 
 import pytest
-from core.models import Artifact, FavoriteFile, Ticket, User, UserPreferences
-from core.services import (
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ...core.models import Artifact, FavoriteFile, Ticket, User, UserPreferences
+from ...core.services import (
     ArtifactService,
     FavoriteFilesService,
+    LocalUserService,
     TicketService,
     UserPreferencesService,
     UserService,
 )
-from schemas.user import UserCreate, UserUpdate
-from sqlalchemy.ext.asyncio import AsyncSession
+from ...schemas.user import UserCreate, UserUpdate
 
 pytestmark = pytest.mark.asyncio
 
@@ -196,7 +198,7 @@ class TestArtifactService:
     @pytest.mark.asyncio
     async def test_create_artifact(self, artifact_service, mock_session):
         """Test creating an artifact."""
-        from schemas.artifacts import ArtifactCreate
+        from ...schemas.artifacts import ArtifactCreate
 
         artifact_data = ArtifactCreate(
             name="test_artifact.jpg", file_path="/tmp/test_artifact.jpg", user_id=1
@@ -345,6 +347,258 @@ class TestFavoriteFilesService:
         favorite_files_service.favorite_files_repo.get_by_user_and_file_path.assert_called_once_with(
             1, "/path/to/file.edf"
         )
+
+
+@pytest.mark.unit
+class TestLocalUserService:
+    """Test local user service functionality."""
+
+    @pytest.fixture
+    def mock_session(self):
+        """Create a mock database session."""
+        return AsyncMock(spec=AsyncSession)
+
+    @pytest.fixture
+    def local_user_service(self, mock_session):
+        """Create a local user service instance."""
+        return LocalUserService(mock_session)
+
+    @pytest.mark.asyncio
+    async def test_default_user_constants(self, local_user_service):
+        """Test that default user constants are properly defined."""
+        assert local_user_service.DEFAULT_USER_ID == "local-user"
+        assert local_user_service.DEFAULT_USERNAME == "local"
+        assert local_user_service.DEFAULT_EMAIL == "local@localhost"
+        assert local_user_service.DEFAULT_FIRST_NAME == "Local"
+        assert local_user_service.DEFAULT_LAST_NAME == "User"
+        assert local_user_service.DEFAULT_IS_ADMIN is True
+        assert local_user_service.DEFAULT_IS_ACTIVE is True
+
+    @pytest.mark.asyncio
+    async def test_ensure_default_user_exists_creates_new_user(
+        self, local_user_service, mock_session
+    ):
+        """Test creating a new default user when none exists."""
+        # Mock repository to return None (no existing user)
+        local_user_service.repository.get_by_username = AsyncMock(return_value=None)
+
+        # Mock the created user
+        mock_user = User(
+            username="local",
+            email="local@localhost",
+            first_name="Local",
+            last_name="User",
+            is_admin=True,
+            is_active=True,
+            password_hash="",
+        )
+        local_user_service.repository.create = AsyncMock(return_value=mock_user)
+
+        result = await local_user_service.ensure_default_user_exists()
+
+        # Verify the user was created with correct properties
+        assert result.username == "local"
+        assert result.email == "local@localhost"
+        assert result.first_name == "Local"
+        assert result.last_name == "User"
+        assert result.is_admin is True
+        assert result.is_active is True
+        assert result.password_hash == ""
+
+        # Verify repository methods were called
+        local_user_service.repository.get_by_username.assert_called_once_with("local")
+        local_user_service.repository.create.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_ensure_default_user_exists_returns_existing_user(
+        self, local_user_service, mock_session
+    ):
+        """Test returning existing default user when it already exists."""
+        # Mock existing user with correct properties
+        existing_user = User(
+            id=1,
+            username="local",
+            email="local@localhost",
+            first_name="Local",
+            last_name="User",
+            is_admin=True,
+            is_active=True,
+            password_hash="",
+        )
+        local_user_service.repository.get_by_username = AsyncMock(
+            return_value=existing_user
+        )
+
+        result = await local_user_service.ensure_default_user_exists()
+
+        # Verify the existing user was returned
+        assert result == existing_user
+        assert result.username == "local"
+        assert result.is_admin is True
+        assert result.is_active is True
+
+        # Verify repository methods were called
+        local_user_service.repository.get_by_username.assert_called_once_with("local")
+        # Create should not be called since user exists
+        local_user_service.repository.create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_ensure_default_user_exists_updates_existing_user_properties(
+        self, local_user_service, mock_session
+    ):
+        """Test updating existing user properties to match local mode requirements."""
+        # Mock existing user with incorrect properties
+        existing_user = User(
+            id=1,
+            username="local",
+            email="old@example.com",  # Wrong email
+            first_name="Old",  # Wrong first name
+            last_name="Name",  # Wrong last name
+            is_admin=False,  # Should be True
+            is_active=False,  # Should be True
+            password_hash="old_hash",
+        )
+        local_user_service.repository.get_by_username = AsyncMock(
+            return_value=existing_user
+        )
+
+        # Mock database session methods
+        mock_session.flush = AsyncMock()
+        mock_session.refresh = AsyncMock()
+
+        result = await local_user_service.ensure_default_user_exists()
+
+        # Verify the user properties were updated
+        assert result.is_admin is True
+        assert result.is_active is True
+        assert result.email == "local@localhost"
+        assert result.first_name == "Local"
+        assert result.last_name == "User"
+        assert result.updated_at is not None
+
+        # Verify database operations were called
+        mock_session.flush.assert_called_once()
+        mock_session.refresh.assert_called_once_with(existing_user)
+
+    @pytest.mark.asyncio
+    async def test_ensure_default_user_exists_no_update_when_properties_correct(
+        self, local_user_service, mock_session
+    ):
+        """Test that no update occurs when existing user has correct properties."""
+        # Mock existing user with correct properties
+        existing_user = User(
+            id=1,
+            username="local",
+            email="local@localhost",
+            first_name="Local",
+            last_name="User",
+            is_admin=True,
+            is_active=True,
+            password_hash="",
+        )
+        local_user_service.repository.get_by_username = AsyncMock(
+            return_value=existing_user
+        )
+
+        # Mock database session methods
+        mock_session.flush = AsyncMock()
+        mock_session.refresh = AsyncMock()
+
+        result = await local_user_service.ensure_default_user_exists()
+
+        # Verify the user was returned unchanged
+        assert result == existing_user
+
+        # Verify no database updates were made
+        mock_session.flush.assert_not_called()
+        mock_session.refresh.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_get_default_user_calls_ensure_default_user_exists(
+        self, local_user_service, mock_session
+    ):
+        """Test that get_default_user calls ensure_default_user_exists."""
+        mock_user = User(
+            username="local",
+            email="local@localhost",
+            first_name="Local",
+            last_name="User",
+            is_admin=True,
+            is_active=True,
+        )
+
+        # Mock ensure_default_user_exists
+        local_user_service.ensure_default_user_exists = AsyncMock(
+            return_value=mock_user
+        )
+
+        result = await local_user_service.get_default_user()
+
+        # Verify the method was called and returned the user
+        assert result == mock_user
+        local_user_service.ensure_default_user_exists.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_health_check_success(self, local_user_service, mock_session):
+        """Test successful health check."""
+        mock_user = User(username="local", email="local@localhost")
+        local_user_service.get_default_user = AsyncMock(return_value=mock_user)
+
+        result = await local_user_service.health_check()
+
+        assert result is True
+        local_user_service.get_default_user.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_health_check_failure(self, local_user_service, mock_session):
+        """Test health check failure when database operations fail."""
+        local_user_service.get_default_user = AsyncMock(
+            side_effect=Exception("Database error")
+        )
+
+        result = await local_user_service.health_check()
+
+        assert result is False
+        local_user_service.get_default_user.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_from_db_factory_method(self, mock_session):
+        """Test the from_db factory method."""
+        service = LocalUserService.from_db(mock_session)
+
+        assert isinstance(service, LocalUserService)
+        assert service.db == mock_session
+        assert service.repository is not None
+
+    @pytest.mark.asyncio
+    async def test_ensure_default_user_exists_handles_database_errors(
+        self, local_user_service, mock_session
+    ):
+        """Test error handling in ensure_default_user_exists."""
+        local_user_service.repository.get_by_username = AsyncMock(
+            side_effect=Exception("Database connection error")
+        )
+
+        with pytest.raises(Exception, match="Database connection error"):
+            await local_user_service.ensure_default_user_exists()
+
+    @pytest.mark.asyncio
+    async def test_ensure_default_user_exists_handles_creation_errors(
+        self, local_user_service, mock_session
+    ):
+        """Test error handling during user creation."""
+        # Mock no existing user
+        local_user_service.repository.get_by_username = AsyncMock(return_value=None)
+        # Mock creation failure
+        local_user_service.repository.create = AsyncMock(
+            side_effect=Exception("User creation failed")
+        )
+
+        with pytest.raises(Exception, match="User creation failed"):
+            await local_user_service.ensure_default_user_exists()
+
+        local_user_service.repository.get_by_username.assert_called_once_with("local")
+        local_user_service.repository.create.assert_called_once()
 
 
 @pytest.mark.unit

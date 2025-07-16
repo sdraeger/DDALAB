@@ -18,26 +18,24 @@ async def validate_file_path(file_path: str | Path) -> str:
     """Validate that the file path is within the allowed directories.
 
     Args:
-        file_path: Absolute path to the file
+        file_path: Absolute path to the file or directory
 
     Returns:
         Validated file path
 
     Raises:
-        HTTPException: If the file is not found or not allowed
+        HTTPException: If the path is not found or not allowed
     """
     try:
         resolved_path = is_path_allowed(file_path)
-        if not resolved_path.is_file():
-            raise HTTPException(
-                status_code=404, detail=f"File not found at path: {file_path}"
-            )
+        if not resolved_path.exists():
+            raise HTTPException(status_code=404, detail=f"Path not found: {file_path}")
 
         return str(resolved_path)
     except Exception as e:
-        logger.error(f"Error validating file path '{file_path}': {e}")
+        logger.error(f"Error validating path '{file_path}': {e}")
         raise HTTPException(
-            status_code=500, detail=f"Could not validate file path: {file_path}"
+            status_code=500, detail=f"Could not validate path: {file_path}"
         ) from e
 
 

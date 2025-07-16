@@ -4,11 +4,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "shared/components/ui/button";
 import { BrainCircuit } from "lucide-react";
-import { useSession } from "next-auth/react";
 import { useEffect } from "react";
+import { useUnifiedSessionData } from "shared/hooks";
 
 export default function Home() {
-  const { data: session, status } = useSession();
+  const { data: session, status } = useUnifiedSessionData();
   const router = useRouter();
   const isLoggedIn = !!session;
   const loading = status === "loading";

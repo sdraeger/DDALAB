@@ -133,8 +133,44 @@ export function ModernDashboardGrid({
 		onWidgetUpdate?.(widgetId, updates);
 	}, [onWidgetUpdate]);
 
+	// Cleanup effect to ensure text selection is restored if operations are interrupted
+	React.useEffect(() => {
+		const handleWindowBlur = () => {
+			// Restore text selection if window loses focus during drag/resize
+			document.body.style.userSelect = '';
+			document.body.style.webkitUserSelect = '';
+			document.body.style.cursor = '';
+		};
+
+		const handleVisibilityChange = () => {
+			// Restore text selection if page becomes hidden during drag/resize
+			if (document.hidden) {
+				document.body.style.userSelect = '';
+				document.body.style.webkitUserSelect = '';
+				document.body.style.cursor = '';
+			}
+		};
+
+		window.addEventListener('blur', handleWindowBlur);
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+
+		return () => {
+			window.removeEventListener('blur', handleWindowBlur);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			// Ensure cleanup on unmount
+			document.body.style.userSelect = '';
+			document.body.style.webkitUserSelect = '';
+			document.body.style.cursor = '';
+		};
+	}, []);
+
 	// Handle drag start
 	const handleDragStart = useCallback((layout: Layout[], oldItem: Layout, newItem: Layout, placeholder: Layout, e: MouseEvent, element: HTMLElement) => {
+		// Prevent text selection during drag
+		document.body.style.userSelect = 'none';
+		document.body.style.webkitUserSelect = 'none';
+		document.body.style.cursor = 'move';
+
 		// Add visual feedback
 		element.style.zIndex = '1000';
 		element.style.transform = 'rotate(2deg) scale(1.02)';
@@ -143,6 +179,11 @@ export function ModernDashboardGrid({
 
 	// Handle drag stop
 	const handleDragStop = useCallback((layout: Layout[], oldItem: Layout, newItem: Layout, placeholder: Layout, e: MouseEvent, element: HTMLElement) => {
+		// Restore text selection and cursor
+		document.body.style.userSelect = '';
+		document.body.style.webkitUserSelect = '';
+		document.body.style.cursor = '';
+
 		// Remove visual feedback
 		element.style.zIndex = '';
 		element.style.transform = '';
@@ -151,6 +192,11 @@ export function ModernDashboardGrid({
 
 	// Handle resize start
 	const handleResizeStart = useCallback((layout: Layout[], oldItem: Layout, newItem: Layout, placeholder: Layout, e: MouseEvent, element: HTMLElement) => {
+		// Prevent text selection during resize
+		document.body.style.userSelect = 'none';
+		document.body.style.webkitUserSelect = 'none';
+		document.body.style.cursor = 'se-resize';
+
 		// Add visual feedback
 		element.style.zIndex = '1000';
 		element.style.boxShadow = '0 10px 30px rgba(0, 0, 0, 0.1)';
@@ -158,6 +204,11 @@ export function ModernDashboardGrid({
 
 	// Handle resize stop
 	const handleResizeStop = useCallback((layout: Layout[], oldItem: Layout, newItem: Layout, placeholder: Layout, e: MouseEvent, element: HTMLElement) => {
+		// Restore text selection and cursor
+		document.body.style.userSelect = '';
+		document.body.style.webkitUserSelect = '';
+		document.body.style.cursor = '';
+
 		// Remove visual feedback
 		element.style.zIndex = '';
 		element.style.boxShadow = '';
@@ -267,11 +318,49 @@ export function ModernDashboardGrid({
 					z-index: 110 !important;
 					transform: rotate(2deg) scale(1.02) !important;
 					box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15) !important;
+					user-select: none !important;
+					-webkit-user-select: none !important;
+					-moz-user-select: none !important;
+					-ms-user-select: none !important;
 				}
 
 				.modern-dashboard-grid :global(.react-grid-item.resizing) {
 					z-index: 110 !important;
 					box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1) !important;
+					user-select: none !important;
+					-webkit-user-select: none !important;
+					-moz-user-select: none !important;
+					-ms-user-select: none !important;
+				}
+
+				/* Prevent text selection during any grid operations */
+				.modern-dashboard-grid :global(.react-grid-layout.react-draggable-dragging) {
+					user-select: none !important;
+					-webkit-user-select: none !important;
+					-moz-user-select: none !important;
+					-ms-user-select: none !important;
+				}
+
+				.modern-dashboard-grid :global(.react-grid-layout.react-resizable-resizing) {
+					user-select: none !important;
+					-webkit-user-select: none !important;
+					-moz-user-select: none !important;
+					-ms-user-select: none !important;
+				}
+
+				/* Prevent text selection on drag handles and widget headers */
+				.modern-dashboard-grid :global(.drag-handle) {
+					user-select: none !important;
+					-webkit-user-select: none !important;
+					-moz-user-select: none !important;
+					-ms-user-select: none !important;
+				}
+
+				.modern-dashboard-grid :global(.react-resizable-handle) {
+					user-select: none !important;
+					-webkit-user-select: none !important;
+					-moz-user-select: none !important;
+					-ms-user-select: none !important;
 				}
 
 				/* Ensure dropdowns and overlays stay above grid items */

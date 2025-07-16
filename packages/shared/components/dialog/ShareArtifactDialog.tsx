@@ -10,11 +10,11 @@ import {
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { useSession } from "next-auth/react";
 import { useArtifacts } from "../../hooks/useArtifacts";
 import { useToast } from "../ui/use-toast";
 import { User } from "../../types/auth";
 import { useApiQuery } from "../../hooks/useApiQuery";
+import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
 
 interface ShareArtifactDialogProps {
   open: boolean;
@@ -27,7 +27,7 @@ export const ShareArtifactDialog = ({
   setOpen,
   artifactId,
 }: ShareArtifactDialogProps) => {
-  const { data: session } = useSession();
+  const { data: session } = useUnifiedSessionData();
   const { shareArtifact } = useArtifacts();
   const { toast } = useToast();
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);

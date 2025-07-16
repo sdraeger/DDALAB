@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useApiQuery } from "shared/hooks/useApiQuery";
@@ -23,6 +22,7 @@ import {
 import { Badge } from "shared/components/ui/badge";
 import { TicketDialog } from "shared/components/dialog/TicketDialog";
 import { useToast } from "shared/hooks/useToast";
+import { useUnifiedSessionData } from "shared/hooks";
 
 interface Ticket {
   id: string;
@@ -37,7 +37,7 @@ interface Ticket {
 }
 
 const TicketsPageComponent = () => {
-  const { status, data: session } = useSession();
+  const { data: session, status } = useUnifiedSessionData();
   const router = useRouter();
   const { toast } = useToast();
   const [ticketDialogTitle, setTicketDialogTitle] = useState("");

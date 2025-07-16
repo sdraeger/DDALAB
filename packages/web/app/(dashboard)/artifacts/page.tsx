@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "shared/components/ui/button";
@@ -9,9 +8,10 @@ import { Card, CardContent } from "shared/components/ui/card";
 import { ArtifactCard } from "shared/components/ui/ArtifactCard";
 import { useArtifacts } from "shared/hooks/useArtifacts";
 import { Artifact } from "shared/store/slices/artifactsSlice";
+import { useUnifiedSessionData } from "shared/hooks/useUnifiedSession";
 
 export default function ArtifactsPage() {
-  const { data: session, status } = useSession();
+  const { data: session, status } = useUnifiedSessionData();
   const router = useRouter();
   const { artifacts, loading, error, autoFetch, fetchArtifacts, clearArtifacts, enableAutoFetch } = useArtifacts();
 

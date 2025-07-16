@@ -21,11 +21,11 @@ import { ThemeSettings } from "shared/components/settings/ThemeSettings";
 import { SaveSettingsButton } from "shared/components/ui/save-settings-button";
 import { CacheStatus } from "shared/components/ui/cache-status";
 import { DashboardStateManager } from "shared/components/ui/dashboard-state-manager";
-import { useSession } from "next-auth/react";
 import SettingsLayout from "./layout";
+import { useUnifiedSessionData } from "shared/hooks";
 
 export default function SettingsPage() {
-  const { data: session } = useSession();
+  const { data: session } = useUnifiedSessionData();
   const [displayName, setDisplayName] = useState(session?.user?.name || "User");
 
   if (!session) {

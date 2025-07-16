@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { useToast } from "../../hooks/useToast";
-import { useSession } from "next-auth/react";
 import { apiRequest } from "../../lib/utils/request";
 import { TicketDialog } from "../dialog/TicketDialog";
+import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
 
 export function HelpButton() {
-  const { data: session, status } = useSession();
+  const { data: session, status } = useUnifiedSessionData();
   const isLoggedIn = !!session;
   const [isLoading, setIsLoading] = useState(false);
   const loading = status === "loading" || isLoading;

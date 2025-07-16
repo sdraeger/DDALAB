@@ -20,15 +20,15 @@ import {
 } from "../ui/dialog";
 import { EEGZoomSettings } from "../settings/EEGZoomSettings";
 import { useDDAPlot } from "../../hooks/useDDAPlot";
-import { useSession } from "next-auth/react";
 import type { DDAPlotProps } from "../../types/DDAPlotProps";
 import { useLoadingManager } from "../../hooks/useLoadingManager";
 import { LoadingOverlay } from "../ui/loading-overlay";
+import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
 
 export function DDAPlot(props: DDAPlotProps) {
   const { filePath, Q, selectedChannels, artifactInfo, noBorder = false } = props;
 
-  const { data: session } = useSession();
+  const { data: session } = useUnifiedSessionData();
 
   // DDA Plot hook - automatically shows heatmap when Q matrix is provided
   const {

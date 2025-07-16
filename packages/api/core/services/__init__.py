@@ -16,6 +16,7 @@ from .errors import (
 from .favorite_files_service import FavoriteFilesService
 from .file_service import FileService
 from .layout_service import LayoutService
+from .local_user_service import LocalUserService
 from .stats_service import StatsService
 from .ticket_service import TicketService
 from .user_preferences_service import UserPreferencesService
@@ -36,6 +37,7 @@ __all__ = [
     "DatabaseError",
     # Service implementations
     "UserService",
+    "LocalUserService",
     "ArtifactService",
     "DDAService",
     "EdfConfigService",

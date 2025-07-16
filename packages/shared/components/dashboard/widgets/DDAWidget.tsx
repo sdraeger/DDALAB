@@ -1,7 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import { useSession } from "next-auth/react";
 import { useAppSelector, useAppDispatch } from "../../../store";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -11,7 +9,8 @@ import { useLoadingManager } from "../../../hooks/useLoadingManager";
 import { apiRequest } from "../../../lib/utils/request";
 import { setDDAResults } from "../../../store/slices/plotSlice";
 import { useWidgetState } from "../../../hooks/useWidgetState";
-import { Loader2, Settings, Play } from "lucide-react";
+import { Play } from "lucide-react";
+import { useUnifiedSessionData } from "../../../hooks/useUnifiedSession";
 
 interface DDAWidgetProps {
 	widgetId?: string;
@@ -27,7 +26,7 @@ interface DDAFormState {
 }
 
 export function DDAWidget({ widgetId = 'dda-widget-default', isPopout = false }: DDAWidgetProps = {}) {
-	const { data: session } = useSession();
+	const { data: session } = useUnifiedSessionData();
 	const plots = useAppSelector(state => state.plots);
 	const dispatch = useAppDispatch();
 	const { toast } = useToast();

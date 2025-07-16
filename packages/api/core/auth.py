@@ -52,12 +52,24 @@ async def get_current_user(
     """Get current user using JWT token and repository
 
     Args:
-        request (Request): Request object containing JWT token
+        request (Request): Request object containing JWT token or local user
         user_service (UserService, optional): UserService dependency
 
     Returns:
         User: Authenticated user
     """
+    # Check if we're in local mode and user is already injected by middleware
+    if hasattr(request.state, "is_local_mode") and request.state.is_local_mode:
+        if hasattr(request.state, "current_user") and request.state.current_user:
+            logger.debug(
+                f"Local mode: Using injected user '{request.state.current_user.username}'"
+            )
+            return request.state.current_user
+        else:
+            logger.error("Local mode detected but no user was injected by middleware")
+            raise HTTPException(status_code=500, detail="Local mode user not available")
+
+    # Multi-user mode - use JWT token authentication
     token = getattr(request.state, "token", None)
 
     if not token:
@@ -100,30 +112,30 @@ async def get_current_user(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    """Create a JWT access token.
+async def get_local_user(request: Request) -> User:
+    """Get the local mode user from request state.
 
     Args:
-        data (dict): Data to encode in the token
-        expires_delta (Optional[timedelta]): Optional timedelta for token expiration
+        request: The incoming request
 
     Returns:
-        str: JWT access token
+        User: The local mode user
+
+    Raises:
+        HTTPException: If not in local mode or user not available
     """
+    if not settings.is_local_mode:
+        raise HTTPException(
+            status_code=400,
+            detail="Local mode user only available in local authentication mode",
+        )
 
-    to_encode = data.copy()
+    if not hasattr(request.state, "current_user") or not request.state.current_user:
+        raise HTTPException(
+            status_code=500, detail="Local mode user not available in request state"
+        )
 
-    expire = datetime.now(timezone.utc) + (
-        expires_delta
-        if expires_delta
-        else timedelta(minutes=settings.token_expiration_minutes)
-    )
-
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(
-        to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
-    )
-    return encoded_jwt
+    return request.state.current_user
 
 
 async def get_current_user_from_request(request: Request) -> User:
@@ -138,6 +150,10 @@ async def get_current_user_from_request(request: Request) -> User:
     Raises:
         HTTPException: For various authentication failures
     """
+    # Handle local mode
+    if hasattr(request.state, "is_local_mode") and request.state.is_local_mode:
+        return await get_local_user(request)
+
     # Extract and validate token
     token = _extract_token_from_request(request)
     if not token:
@@ -250,22 +266,40 @@ async def _fetch_user_from_db(session: AsyncSession, username: str) -> User:
     return user
 
 
-def _log_successful_auth(user: User):
-    """Log successful authentication.
-
-    Args:
-        user (User): Authenticated user
-    """
-    logger.debug(f"User authenticated: {user.username}")
-
-
 def _log_auth_failure(message: str):
-    """Log authentication failures.
+    """Log authentication failure."""
+    logger.warning(f"Authentication failed: {message}")
+
+
+def _log_successful_auth(user: User):
+    """Log successful authentication."""
+    logger.debug(f"Successfully authenticated user: {user.username}")
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    """Create a JWT access token.
 
     Args:
-        message (str): Error message
+        data (dict): Data to encode in the token
+        expires_delta (Optional[timedelta]): Optional timedelta for token expiration
+
+    Returns:
+        str: JWT access token
     """
-    logger.error(f"Authentication failed: {message}")
+
+    to_encode = data.copy()
+
+    expire = datetime.now(timezone.utc) + (
+        expires_delta
+        if expires_delta
+        else timedelta(minutes=settings.token_expiration_minutes)
+    )
+
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(
+        to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+    )
+    return encoded_jwt
 
 
 async def get_admin_user(
@@ -294,5 +328,13 @@ async def get_admin_user(
 
 def is_user_logged_in(request: Request) -> bool:
     """Check if the user is logged in."""
+    # In local mode, always consider user as logged in since user is injected by middleware
+    if hasattr(request.state, "is_local_mode") and request.state.is_local_mode:
+        return (
+            hasattr(request.state, "current_user")
+            and request.state.current_user is not None
+        )
+
+    # In multi-user mode, check for token
     token = getattr(request.state, "token", None)
     return token is not None

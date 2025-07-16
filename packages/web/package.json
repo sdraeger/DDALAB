@@ -10,7 +10,7 @@
     }
   },
   "scripts": {
-    "dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 dotenv -e ../../.env.dev -- next dev --port 3000",
+    "dev": "NODE_ENV=development NODE_TLS_REJECT_UNAUTHORIZED=0 dotenv -e ../../.env.dev -- next dev --port 3000",
     "build": "dotenv -e ../../.env -- next build",
     "start": "next start",
     "lint": "next lint",

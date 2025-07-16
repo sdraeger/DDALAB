@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTheme } from "next-themes";
 import { useSettings } from "../../contexts/SettingsContext";
-import { useSession } from "next-auth/react";
 import {
   Card,
   CardContent,
@@ -20,6 +19,7 @@ import {
 } from "../ui/select";
 import { Button } from "../ui/button";
 import { Moon, Sun, MonitorSmartphone } from "lucide-react";
+import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
 
 type ThemeOption = "light" | "dark" | "system";
 
@@ -31,7 +31,7 @@ export function ThemeSettings() {
 
   const { theme, setTheme } = useTheme();
   const { updatePreference, userPreferences, pendingChanges } = useSettings();
-  const { data: session } = useSession();
+  const { data: session } = useUnifiedSessionData();
 
   // Local UI state
   const [localTheme, setLocalTheme] = useState<ThemeOption>("system");

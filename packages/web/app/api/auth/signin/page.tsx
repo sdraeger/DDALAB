@@ -2,12 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { LoginForm } from "shared/components/form/LoginForm";
-import { useSession } from "next-auth/react";
 import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
+import { useUnifiedSessionData } from "shared/hooks";
 
 export default function LoginPage() {
-  const { data: session, status } = useSession();
+  const { data: session, status } = useUnifiedSessionData();
   const router = useRouter();
   const isLoggedIn = !!session;
   const loading = status === "loading";

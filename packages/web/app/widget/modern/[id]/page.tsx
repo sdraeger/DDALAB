@@ -2,7 +2,6 @@
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
-import { useSession } from "next-auth/react";
 import { Button } from "shared/components/ui/button";
 import { ArrowLeft, Copy } from "lucide-react";
 import { WidgetFactoryService } from "shared/services/WidgetFactoryService";
@@ -13,6 +12,7 @@ import { useWidgetDataSync } from "shared/hooks/useWidgetDataSync";
 import { useAppDispatch } from "shared/store";
 import { ensurePlotState } from "shared/store/slices/plotSlice";
 import logger from "shared/lib/utils/logger";
+import { useUnifiedSessionData } from "shared/hooks/useUnifiedSession";
 
 interface SerializableModernWidget {
 	id: string;
@@ -30,7 +30,6 @@ export default function ModernWidgetPopoutPage() {
 	const params = useParams();
 	const searchParams = useSearchParams();
 	const router = useRouter();
-	const { data: session } = useSession();
 	const { toast } = useToast();
 	const dispatch = useAppDispatch();
 

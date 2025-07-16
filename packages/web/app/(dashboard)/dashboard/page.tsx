@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useUnifiedSession } from 'shared/hooks/useUnifiedSession';
 import { ModernDashboardGrid } from 'shared/components/dashboard/ModernDashboardGrid';
 import { ModernDashboardToolbar } from 'shared/components/dashboard/ModernDashboardToolbar';
 import { useModernDashboard } from 'shared/hooks/useModernDashboard';
@@ -10,14 +10,21 @@ import { Save, RefreshCw, Trash2, Sparkles } from 'lucide-react';
 import { useToast } from 'shared/components/ui/use-toast';
 import { useAppDispatch } from 'shared/store';
 import { initializePlot, loadChunk, ensurePlotState } from 'shared/store/slices/plotSlice';
+import { useLoadingManager } from 'shared/hooks/useLoadingManager';
+import { useDashboardRestoration } from 'shared/hooks/useDashboardRestoration';
 
 export default function Dashboard() {
-	const { data: session } = useSession();
+	const { user, status } = useUnifiedSession();
 	const { toast } = useToast();
 	const dispatch = useAppDispatch();
+	const loadingManager = useLoadingManager();
+
+	// Add dashboard restoration hook
+	useDashboardRestoration();
 
 	const handleFileSelect = async (filePath: string) => {
-		const token = session?.accessToken;
+		// In local mode, we'll use a placeholder token since the API will handle it
+		const token = user?.isLocalMode ? "local-mode-token" : (user as any)?.accessToken;
 		if (!token) {
 			toast({
 				title: "Authentication Error",
@@ -27,14 +34,30 @@ export default function Dashboard() {
 			return;
 		}
 
+		const loadingId = `file-select-${filePath}`;
+		const fileName = filePath.split('/').pop() || 'file';
+
 		try {
+			// Start loading with global overlay for file selection
+			loadingManager.startFileLoad(
+				loadingId,
+				`Loading ${fileName}...`,
+				true // Show global overlay
+			);
+
 			// Ensure plot state exists for this file
 			dispatch(ensurePlotState(filePath));
+
+			// Update loading message for metadata phase
+			loadingManager.updateProgress(loadingId, 25, `Loading metadata for ${fileName}...`);
 
 			// Initialize plot metadata
 			const initResult = await dispatch(initializePlot({ filePath, token }));
 
 			if (initResult.meta.requestStatus === 'fulfilled') {
+				// Update loading message for data phase
+				loadingManager.updateProgress(loadingId, 60, `Loading data for ${fileName}...`);
+
 				// Load the first chunk
 				const loadResult = await dispatch(loadChunk({
 					filePath,
@@ -44,12 +67,21 @@ export default function Dashboard() {
 				}));
 
 				if (loadResult.meta.requestStatus === 'fulfilled') {
+					// Complete loading
+					loadingManager.updateProgress(loadingId, 100, `Successfully loaded ${fileName}`);
+
+					// Stop loading after a brief success display
+					setTimeout(() => {
+						loadingManager.stop(loadingId);
+					}, 800);
+
 					toast({
 						title: "File Loaded",
-						description: `Successfully loaded data from ${filePath.split('/').pop()}`,
+						description: `Successfully loaded data from ${fileName}`,
 						duration: 3000,
 					});
 				} else {
+					loadingManager.stop(loadingId);
 					toast({
 						title: "Data Load Error",
 						description: "Failed to load file data chunk.",
@@ -58,6 +90,7 @@ export default function Dashboard() {
 					});
 				}
 			} else {
+				loadingManager.stop(loadingId);
 				toast({
 					title: "Metadata Error",
 					description: "Failed to load file metadata.",
@@ -67,6 +100,7 @@ export default function Dashboard() {
 			}
 		} catch (error) {
 			console.error("Error loading file:", error);
+			loadingManager.stop(loadingId);
 			toast({
 				title: "Load Error",
 				description: "Failed to load the selected file",
@@ -84,6 +118,7 @@ export default function Dashboard() {
 		isLoading,
 		isSaving,
 		saveStatus,
+		isLayoutInitialized,
 		addWidget,
 		removeWidget,
 		updateWidget,
@@ -173,13 +208,13 @@ export default function Dashboard() {
 				<ModernDashboardToolbar onAddWidget={handleAddWidget} />
 
 				{/* Layout controls */}
-				{session && (
+				{user && (
 					<div className="flex flex-shrink-0 items-center gap-2">
 						<Button
 							variant="outline"
 							size="sm"
 							onClick={handleManualSave}
-							disabled={isSaving || !session}
+							disabled={isSaving || !user}
 							className="gap-2"
 						>
 							<Save className="h-4 w-4" />
@@ -210,8 +245,21 @@ export default function Dashboard() {
 
 			{/* Main Content */}
 			<div className="relative flex-1 w-full min-w-0">
+				{/* Layout Loading State */}
+				{!isLayoutInitialized && user && (
+					<div className="absolute inset-0 flex items-center justify-center p-6 bg-background/80 backdrop-blur-sm z-50">
+						<div className="mx-auto max-w-md text-center">
+							<RefreshCw className="mx-auto mb-4 h-8 w-8 text-primary animate-spin" />
+							<h2 className="mb-2 text-lg font-semibold">Loading Your Dashboard</h2>
+							<p className="text-sm text-muted-foreground">
+								Restoring your saved layout and widgets...
+							</p>
+						</div>
+					</div>
+				)}
+
 				{/* Empty State */}
-				{widgets.length === 0 && !isLoading && (
+				{widgets.length === 0 && !isLoading && isLayoutInitialized && (
 					<div className="absolute inset-0 flex items-center justify-center p-6">
 						<div className="mx-auto max-w-md text-center">
 							<Sparkles className="mx-auto mb-4 h-12 w-12 text-primary opacity-50" />
@@ -227,6 +275,7 @@ export default function Dashboard() {
 						</div>
 					</div>
 				)}
+
 				{/* Dashboard Grid */}
 				<ModernDashboardGrid
 					widgets={widgets}

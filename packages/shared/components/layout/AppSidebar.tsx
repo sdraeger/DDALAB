@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { cn } from "../../lib/utils/misc";
 import {
 	Sidebar,
@@ -42,7 +41,8 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import { signOut } from "next-auth/react";
+import { Badge } from "../ui/badge";
+import { useUnifiedSessionData, useUnifiedLogout } from "../../hooks/useUnifiedSession";
 import { ModeToggle } from "../ModeToggle";
 import { HelpButton } from "../ui/help-button";
 import { OpenPlotsIndicator } from "../ui/open-plots-indicator";
@@ -101,14 +101,16 @@ interface AppSidebarProps {
 
 export function AppSidebar({ className }: AppSidebarProps) {
 	const pathname = usePathname();
-	const { data: session, status } = useSession();
+	const { data: session, status } = useUnifiedSessionData();
 	const { state } = useSidebar();
 	const user = session?.user;
 	const isLoggedIn = !!session;
 	const isLoading = status === "loading";
 
+	const { logout } = useUnifiedLogout();
+
 	const handleLogout = async () => {
-		await signOut({ callbackUrl: "/" });
+		await logout({ callbackUrl: "/" });
 	};
 
 	const getUserInitials = (name?: string | null) => {

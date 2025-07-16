@@ -7,14 +7,14 @@ import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "../../lib/utils/misc";
-import { useSession } from "next-auth/react";
 import { apiRequest, ApiRequestOptions } from "../../lib/utils/request";
 import { EdfConfigResponse } from "../../lib/schemas/edf";
 import { useDashboardState } from "../../contexts/DashboardStateContext";
 import logger from "../../lib/utils/logger";
+import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
 
 export function DashboardTabs() {
-  const { data: session } = useSession();
+  const { data: session } = useUnifiedSessionData();
   const {
     selectedFilePath,
     fileBrowserCollapsed,

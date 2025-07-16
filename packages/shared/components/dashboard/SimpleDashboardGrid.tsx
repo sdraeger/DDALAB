@@ -338,6 +338,7 @@ export function SimpleDashboardGrid({
 			document.addEventListener('mousemove', handleMouseMove);
 			document.addEventListener('mouseup', handleMouseUp);
 			document.body.style.userSelect = 'none';
+			document.body.style.webkitUserSelect = 'none';
 
 			if (resizing) {
 				document.body.style.cursor = 'se-resize';
@@ -350,9 +351,41 @@ export function SimpleDashboardGrid({
 				document.removeEventListener('mouseup', handleMouseUp);
 				document.body.style.cursor = '';
 				document.body.style.userSelect = '';
+				document.body.style.webkitUserSelect = '';
 			};
 		}
 	}, [dragging, resizing, handleMouseMove, handleMouseUp]);
+
+	// Cleanup effect to ensure text selection is restored if operations are interrupted
+	useEffect(() => {
+		const handleWindowBlur = () => {
+			// Restore text selection if window loses focus during drag/resize
+			document.body.style.userSelect = '';
+			document.body.style.webkitUserSelect = '';
+			document.body.style.cursor = '';
+		};
+
+		const handleVisibilityChange = () => {
+			// Restore text selection if page becomes hidden during drag/resize
+			if (document.hidden) {
+				document.body.style.userSelect = '';
+				document.body.style.webkitUserSelect = '';
+				document.body.style.cursor = '';
+			}
+		};
+
+		window.addEventListener('blur', handleWindowBlur);
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+
+		return () => {
+			window.removeEventListener('blur', handleWindowBlur);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			// Ensure cleanup on unmount
+			document.body.style.userSelect = '';
+			document.body.style.webkitUserSelect = '';
+			document.body.style.cursor = '';
+		};
+	}, []);
 
 	// Start dragging
 	const handleDragStart = useCallback((widgetId: string, e: React.MouseEvent) => {
@@ -454,10 +487,17 @@ export function SimpleDashboardGrid({
 							"flex items-center justify-between px-3 py-2 border-b border-border bg-muted/5 cursor-move",
 							"hover:bg-blue-500/10 transition-all duration-200",
 							"active:bg-blue-500/20",
+							"select-none", // Prevent text selection
 							dragging === widget.id && "bg-blue-500/15 text-blue-900"
 						)}
 						onMouseDown={(e) => handleDragStart(widget.id, e)}
 						title="Drag to move widget - snap to edges when close to other widgets"
+						style={{
+							userSelect: 'none',
+							WebkitUserSelect: 'none',
+							MozUserSelect: 'none',
+							msUserSelect: 'none'
+						}}
 					>
 						<h3 className="text-sm font-medium truncate">{widget.title}</h3>
 						<div className="flex items-center gap-1">
@@ -512,10 +552,17 @@ export function SimpleDashboardGrid({
 						className={cn(
 							"absolute bottom-0 right-0 w-5 h-5 cursor-se-resize",
 							"hover:bg-primary/20 transition-all duration-200 group rounded-tl-md",
-							"opacity-60 hover:opacity-100"
+							"opacity-60 hover:opacity-100",
+							"select-none" // Prevent text selection
 						)}
 						onMouseDown={(e) => handleResizeStart(widget.id, e)}
 						title="Drag to resize widget"
+						style={{
+							userSelect: 'none',
+							WebkitUserSelect: 'none',
+							MozUserSelect: 'none',
+							msUserSelect: 'none'
+						}}
 					>
 						<div className="absolute bottom-1 right-1 w-3 h-3 border-r-2 border-b-2 border-border opacity-80 group-hover:opacity-100 group-hover:border-primary transition-all" />
 					</div>

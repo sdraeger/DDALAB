@@ -37,6 +37,7 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "pyedflib>=0.1.0",
     "pyhumps>=3.8.0",
+    "pytest>=8.4.1",
     "python-dateutil>=2.8.2",
     "python-jose[cryptography]>=3.3.0",
     "python-multipart>=0.0.5",

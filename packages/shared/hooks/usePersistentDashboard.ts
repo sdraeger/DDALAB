@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useSession } from "next-auth/react";
 import {
   SimpleWidget,
   SerializableWidget,
@@ -12,6 +11,7 @@ import {
 import logger from "../lib/utils/logger";
 import { useToast } from "../components/ui/use-toast";
 import { apiRequest } from "../lib/utils/request";
+import { useUnifiedSessionData } from "./useUnifiedSession";
 
 // Hook configuration
 interface UsePersistentDashboardOptions {
@@ -30,7 +30,7 @@ export function usePersistentDashboard(
   initialWidgets: SimpleWidget[] = [],
   options: UsePersistentDashboardOptions = {}
 ) {
-  const { data: session } = useSession();
+  const { data: session } = useUnifiedSessionData();
   const { toast } = useToast();
   const config = { ...DEFAULT_OPTIONS, ...options };
 
@@ -273,8 +273,11 @@ export function usePersistentDashboard(
         setWidgets(loadedWidgets);
         setIsLayoutLoaded(true);
       });
+    } else if (session === null && !isLayoutLoaded) {
+      // No session (user not logged in), mark as loaded to prevent loading state
+      setIsLayoutLoaded(true);
     }
-  }, [session, loadLayoutFromDatabase, isLayoutLoaded]);
+  }, [session?.accessToken, session, loadLayoutFromDatabase, isLayoutLoaded]);
 
   /**
    * Widget management functions

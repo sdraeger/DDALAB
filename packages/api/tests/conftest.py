@@ -8,24 +8,25 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
-from core.config import Settings, get_server_settings
-from core.dependencies import get_db_session, get_minio_client
-from core.middleware import AuthMiddleware, DBSessionMiddleware
-from core.models import Base, User
-from core.security import get_password_hash
 from faker import Faker
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 from minio import Minio
-from routes.artifacts import router as artifacts_router
-from routes.auth import router as auth_router
-from routes.health import router as health_router
-from routes.tickets import router as tickets_router
-from routes.users import router as users_router
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
+
+from ..core.config import Settings, get_server_settings
+from ..core.database import get_db_session, get_minio_client
+from ..core.middleware import AuthMiddleware, DatabaseMiddleware
+from ..core.models import Base, User
+from ..core.security import get_password_hash
+from ..routes.artifacts import router as artifacts_router
+from ..routes.auth import router as auth_router
+from ..routes.health import router as health_router
+from ..routes.tickets import router as tickets_router
+from ..routes.users import router as users_router
 
 settings = get_server_settings()
 
@@ -39,7 +40,7 @@ SQLALCHEMY_DATABASE_URL = (
 test_app = FastAPI(title="Test DDALAB API", version="0.1.0")
 
 # Add minimal middleware
-test_app.add_middleware(DBSessionMiddleware)
+test_app.add_middleware(DatabaseMiddleware)
 test_app.add_middleware(AuthMiddleware)
 test_app.add_middleware(
     CORSMiddleware,
@@ -176,8 +177,8 @@ def override_dependencies(test_session, mock_minio_client, test_settings):
     from unittest.mock import patch
 
     with (
-        patch("core.config.get_server_settings", return_value=test_settings),
-        patch("core.auth.settings", test_settings),
+        patch("..core.config.get_server_settings", return_value=test_settings),
+        patch("..core.auth.settings", test_settings),
     ):
         yield
 
@@ -260,7 +261,7 @@ def auth_headers_user(test_user):
     """Create authentication headers for test user."""
     from datetime import timedelta
 
-    from core.security import create_jwt_token
+    from ..core.security import create_jwt_token
 
     token = create_jwt_token(
         subject=test_user.username,
@@ -276,7 +277,7 @@ def auth_headers_admin(test_admin_user):
     """Create authentication headers for admin user."""
     from datetime import timedelta
 
-    from core.security import create_jwt_token
+    from ..core.security import create_jwt_token
 
     token = create_jwt_token(
         subject=test_admin_user.username,

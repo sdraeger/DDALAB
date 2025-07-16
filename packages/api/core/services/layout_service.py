@@ -18,6 +18,15 @@ class LayoutService(BaseService):
     def from_db(cls, db: AsyncSession) -> "LayoutService":
         return cls(db)
 
+    async def health_check(self) -> bool:
+        """Check if the layout service is healthy."""
+        try:
+            # Check if we can access the database through the repository
+            # This is a simple test that the service dependencies are working
+            return self.repo is not None and self.db is not None
+        except Exception:
+            return False
+
     async def get_user_layouts(self, user_id: int) -> List[dict]:
         """Get layouts for a user."""
         layout = await self.repo.get_by_user_id(user_id)

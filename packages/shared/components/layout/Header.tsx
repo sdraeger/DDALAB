@@ -20,17 +20,16 @@ import {
 import { ModeToggle } from "../ModeToggle";
 import { HelpButton } from "../ui/help-button";
 import { OpenPlotsIndicator } from "../ui/open-plots-indicator";
-import { useState } from "react";
-import { useSession } from "next-auth/react";
 import { signOut } from "next-auth/react";
 import { useApiQuery } from "../../hooks/useApiQuery";
+import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
 
 interface ConfigResponse {
   institutionName: string;
 }
 
 export function Header() {
-  const { data: session } = useSession();
+  const { data: session } = useUnifiedSessionData();
   const user = session?.user;
   const isLoggedIn = !!session;
 

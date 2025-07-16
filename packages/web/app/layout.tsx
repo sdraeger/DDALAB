@@ -4,7 +4,6 @@ import { Source_Sans_3 } from "next/font/google";
 import { Providers } from "shared/components/providers";
 import "./styles/globals.css";
 import { LoadingOverlay } from "shared/components/ui/loading-overlay";
-import { ThemeInitializer } from "shared/components/theme/ThemeInitializer";
 
 const sourceSans3 = Source_Sans_3({
   subsets: ["latin"],
@@ -34,7 +33,6 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={sourceSans3.className}>
         <Providers>
-          <ThemeInitializer />
           <LoadingOverlay show={false} />
           {children}
         </Providers>
