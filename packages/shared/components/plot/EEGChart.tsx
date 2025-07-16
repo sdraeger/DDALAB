@@ -29,7 +29,7 @@ import {
   ContextMenuTrigger,
 } from "../ui/context-menu";
 import { useToast } from "../ui/use-toast";
-import { useSession } from "next-auth/react";
+import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
 
 interface EEGChartProps {
   eegData: EEGData;
@@ -93,7 +93,7 @@ export function EEGChart({
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const wheelListenerRef = useRef<((event: WheelEvent) => void) | null>(null);
   const { theme } = useTheme();
-  const { data: session } = useSession();
+  const { data: session } = useUnifiedSessionData();
   const { toast } = useToast();
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState(0);

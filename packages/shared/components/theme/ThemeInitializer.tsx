@@ -2,24 +2,26 @@
 
 import { useEffect, useRef } from "react";
 import { useTheme } from "next-themes";
-import { useSession } from "next-auth/react";
 import { useToast } from "../ui/use-toast";
 import { useSettings } from "../../contexts/SettingsContext";
+import { useAuthMode } from "../../contexts/AuthModeContext";
+import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
 
 type Theme = "light" | "dark" | "system";
 
 export function ThemeInitializer() {
   const { theme, setTheme } = useTheme();
-  const { data: session } = useSession();
+  const { isMultiUserMode } = useAuthMode();
+  const { data: session } = useUnifiedSessionData();
   const { toast } = useToast();
   const { userPreferences, updatePreference, saveChanges } = useSettings();
   const isInitialMount = useRef(true);
 
   useEffect(() => {
-    // On initial mount, sync from session preferences
+    // On initial mount, sync from session preferences (only in multi-user mode)
     if (isInitialMount.current) {
       isInitialMount.current = false;
-      if (session?.user?.preferences?.theme && theme !== session.user.preferences.theme) {
+      if (isMultiUserMode && session?.user?.preferences?.theme && theme !== session.user.preferences.theme) {
         const newTheme = session.user.preferences.theme as Theme;
         setTheme(newTheme);
         return;
@@ -33,7 +35,7 @@ export function ThemeInitializer() {
         console.error("Failed to save theme preference");
       });
     }
-  }, [session, theme, userPreferences.theme, setTheme, updatePreference, saveChanges]);
+  }, [session, theme, userPreferences.theme, setTheme, updatePreference, saveChanges, isMultiUserMode]);
 
   return null;
 }

@@ -26,6 +26,7 @@ declare module "next-auth" {
       firstName?: string | null;
       lastName?: string | null;
       preferences?: UserPreferences;
+      isLocalMode?: boolean;
     } & DefaultSession["user"];
   }
 
@@ -35,6 +36,7 @@ declare module "next-auth" {
     accessToken?: string;
     refreshToken?: string;
     preferences?: UserPreferences;
+    isLocalMode?: boolean;
   }
 }
 
@@ -48,10 +50,45 @@ declare module "next-auth/jwt" {
     firstName?: string | null;
     lastName?: string | null;
     preferences?: UserPreferences;
+    isLocalMode?: boolean;
+  }
+}
+
+// Check authentication mode from API
+async function checkAuthMode(): Promise<{
+  is_local_mode: boolean;
+  current_user?: any;
+  auth_mode: string;
+}> {
+  try {
+    const response = await apiRequest<any>({
+      url: `${API_URL}/api/auth/mode`,
+      method: "GET",
+      responseType: "json",
+    });
+    return response;
+  } catch (error) {
+    console.error("Failed to check auth mode:", error);
+    // Default to multi-user mode on error
+    return { is_local_mode: false, auth_mode: "multi-user" };
   }
 }
 
 export const authOptions: NextAuthOptions = {
+  debug: process.env.NODE_ENV === "development", // Enable debug logs in development only
+  logger: {
+    error(code, metadata) {
+      console.error(`[NextAuth Error] ${code}:`, metadata);
+    },
+    warn(code) {
+      console.warn(`[NextAuth Warning] ${code}`);
+    },
+    debug(code, metadata) {
+      if (process.env.NODE_ENV === "development") {
+        console.debug(`[NextAuth Debug] ${code}:`, metadata);
+      }
+    },
+  },
   providers: [
     CredentialsProvider({
       name: "Credentials",
@@ -60,6 +97,29 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
+        // Check if we're in local mode
+        const authMode = await checkAuthMode();
+
+        if (authMode.is_local_mode) {
+          // In local mode, auto-login with the default user
+          if (authMode.current_user) {
+            const user = authMode.current_user;
+            return {
+              id: user.id.toString(),
+              name: user.username,
+              email: user.email,
+              firstName: user.first_name,
+              lastName: user.last_name,
+              accessToken: "local-mode-token", // Placeholder token for local mode
+              refreshToken: "local-mode-token",
+              isLocalMode: true,
+            };
+          } else {
+            throw new Error("Local mode user not available");
+          }
+        }
+
+        // Multi-user mode - require credentials
         const url = `${API_URL}/api/auth/token`;
 
         if (!credentials?.username || !credentials?.password) {
@@ -91,6 +151,7 @@ export const authOptions: NextAuthOptions = {
             lastName: res.user.lastName,
             accessToken: res.access_token,
             refreshToken: res.access_token,
+            isLocalMode: false,
           };
 
           return user;
@@ -114,9 +175,20 @@ export const authOptions: NextAuthOptions = {
         token.lastName = user.lastName;
         token.accessToken = user.accessToken;
         token.refreshToken = user.refreshToken;
+        token.isLocalMode = user.isLocalMode;
       }
 
-      // Fetch preferences for token
+      // For local mode, skip preference fetching and token refresh
+      if (token.isLocalMode) {
+        // Set default preferences for local mode
+        token.theme = DEFAULT_USER_PREFERENCES.theme;
+        token.eegZoomFactor = DEFAULT_USER_PREFERENCES.eegZoomFactor;
+        // Set a far-future expiration for local mode
+        token.exp = Math.floor((Date.now() + 365 * 24 * 60 * 60 * 1000) / 1000); // 1 year
+        return token;
+      }
+
+      // Fetch preferences for token (multi-user mode only)
       if (token.accessToken && (trigger === "signIn" || trigger === "update")) {
         try {
           const url = `${API_URL}/api/user-preferences`;
@@ -149,7 +221,13 @@ export const authOptions: NextAuthOptions = {
         return token;
       }
 
-      // Refresh token
+      // Refresh token (multi-user mode only)
+      const authMode = await checkAuthMode();
+
+      if (authMode.is_local_mode) {
+        return token;
+      }
+
       return await refreshAccessToken(token);
     },
     async session({ session, token }) {
@@ -164,10 +242,21 @@ export const authOptions: NextAuthOptions = {
             theme: token.theme as "light" | "dark" | "system",
             eegZoomFactor: token.eegZoomFactor as number,
           },
+          isLocalMode: token.isLocalMode ?? false,
         };
         session.accessToken = token.accessToken;
       }
       return session;
+    },
+  },
+  events: {
+    async session({ session, token }) {
+      if (process.env.NODE_ENV === "development") {
+        console.debug("[NextAuth Event] Session accessed:", {
+          userId: session?.user?.id,
+          isLocalMode: session?.user?.isLocalMode,
+        });
+      }
     },
   },
   pages: {

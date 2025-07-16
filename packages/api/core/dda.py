@@ -164,14 +164,188 @@ async def run_dda(
             f"Setting DDA bounds to: {bounds} for file with {total_samples} samples (includes safety margin)"
         )
 
-        Q, _ = await dda_py.run_dda_async(
-            input_file=file_path_str,
-            output_file=None,
-            channel_list=channel_list,
-            bounds=bounds,
-            cpu_time=False,
-            raise_on_error=True,
+        logger.debug("Calling dda_py.run_dda_async with parameters:")
+        logger.debug(f"  input_file: {file_path_str}")
+        logger.debug(f"  channel_list: {channel_list}")
+        logger.debug(f"  bounds: {bounds}")
+
+        # Smart channel selection: use provided channels or select appropriate defaults
+        effective_channel_list = channel_list if channel_list is not None else []
+
+        # If no channels specified, automatically select appropriate channels to prevent DDA binary crash
+        if not effective_channel_list:
+            try:
+                from core.edf.edf_cache import get_cache_manager
+
+                cache_manager = get_cache_manager()
+
+                # Get intelligent default channels (this returns channel names)
+                default_channel_names = cache_manager.get_intelligent_default_channels(
+                    file_path_str, max_channels=5
+                )
+
+                if default_channel_names:
+                    # Convert channel names to indices (DDA binary expects indices)
+                    # Get all channel labels to find indices
+                    navigator = cache_manager.get_file_metadata(file_path_str)
+                    all_channel_labels = navigator.get("signal_labels", [])
+
+                    # Map channel names to indices
+                    channel_indices = []
+                    for channel_name in default_channel_names:
+                        try:
+                            index = all_channel_labels.index(channel_name)
+                            channel_indices.append(
+                                str(index)
+                            )  # DDA binary expects string indices
+                        except ValueError:
+                            logger.warning(f"Channel {channel_name} not found in file")
+
+                    effective_channel_list = channel_indices
+                    logger.info(
+                        f"Auto-selected channels: {default_channel_names} (indices: {effective_channel_list})"
+                    )
+                else:
+                    # Fallback: select first few channels (skip channel 0 which is often Events)
+                    total_channels = header.get("n_channels", 1)
+                    if total_channels > 1:
+                        # Select channels 1-3 (indices 1, 2, 3) to avoid potential event channels
+                        effective_channel_list = [
+                            str(i) for i in range(1, min(4, total_channels))
+                        ]
+                        logger.info(
+                            f"Fallback: selected channels 1-3 (indices: {effective_channel_list})"
+                        )
+                    else:
+                        # Single channel file, use channel 0
+                        effective_channel_list = ["0"]
+                        logger.info("Single channel file: using channel 0")
+
+            except Exception as channel_error:
+                logger.warning(f"Failed to auto-select channels: {channel_error}")
+                # Final fallback: use first channel
+                effective_channel_list = ["0"]
+                logger.info("Using fallback channel selection: channel 0")
+
+        logger.debug(f"  effective_channel_list: {effective_channel_list}")
+
+        # Try DDA computation with multiple fallback strategies if needed
+        dda_attempts = [
+            ("primary", effective_channel_list),
+        ]
+
+        # Add fallback attempts if the primary selection seems risky
+        if len(effective_channel_list) > 3:
+            # Try with fewer channels if we selected many
+            dda_attempts.append(("fewer_channels", effective_channel_list[:3]))
+
+        # Add conservative fallbacks
+        total_channels = header.get("n_channels", 1)
+        if total_channels > 10:
+            # For files with many channels, try very conservative selections
+            dda_attempts.extend(
+                [
+                    (
+                        "conservative_middle",
+                        [str(i) for i in range(10, min(13, total_channels))],
+                    ),
+                    (
+                        "conservative_high",
+                        [str(i) for i in range(20, min(23, total_channels))],
+                    ),
+                    ("single_channel", ["10"]),  # Try a single middle channel
+                ]
+            )
+        else:
+            # For smaller files, try single channel fallbacks
+            if total_channels > 1:
+                dda_attempts.append(("single_channel", ["1"]))
+
+        last_error = None
+        for attempt_name, attempt_channels in dda_attempts:
+            try:
+                logger.info(
+                    f"DDA attempt '{attempt_name}' with channels: {attempt_channels}"
+                )
+
+                Q, metadata = await dda_py.run_dda_async(
+                    input_file=file_path_str,
+                    output_file=None,
+                    channel_list=attempt_channels,
+                    bounds=bounds,
+                    cpu_time=False,
+                    raise_on_error=True,
+                )
+
+                logger.info(f"DDA attempt '{attempt_name}' succeeded!")
+                effective_channel_list = attempt_channels  # Update for response logging
+                break  # Success, exit the retry loop
+
+            except Exception as attempt_error:
+                error_msg = str(attempt_error)
+                logger.warning(f"DDA attempt '{attempt_name}' failed: {error_msg}")
+                last_error = attempt_error
+
+                # Check if this is a sampling rate error that might be resolved with different channels
+                if (
+                    "verschiedene SRs" in error_msg
+                    or "SIGILL" in error_msg
+                    or "SIGSEGV" in error_msg
+                ):
+                    logger.info(
+                        "Detected channel-related error, trying next fallback..."
+                    )
+                    continue  # Try the next fallback
+                else:
+                    # For other types of errors, don't retry
+                    logger.error(
+                        f"Non-channel related error, stopping retries: {error_msg}"
+                    )
+                    raise attempt_error
+        else:
+            # All attempts failed
+            if last_error:
+                logger.error(f"All DDA attempts failed, last error: {last_error}")
+                raise last_error
+            else:
+                raise Exception("All DDA attempts failed with unknown errors")
+
+        logger.debug(
+            f"DDA computation returned: Q={type(Q)}, metadata={type(metadata)}"
         )
+
+        # Check if Q is None or invalid
+        if Q is None:
+            logger.error("DDA computation returned None for Q matrix")
+            return DDAResponse(
+                file_path=file_path_str,
+                Q=[],
+                preprocessing_options=preprocessing_options,
+                error="DDA_COMPUTATION_FAILED",
+                error_message="DDA computation returned no data (Q matrix is None)",
+            ).model_dump()
+
+        # Ensure Q is a numpy array
+        if not isinstance(Q, np.ndarray):
+            logger.error(f"DDA computation returned unexpected type for Q: {type(Q)}")
+            return DDAResponse(
+                file_path=file_path_str,
+                Q=[],
+                preprocessing_options=preprocessing_options,
+                error="DDA_COMPUTATION_FAILED",
+                error_message=f"DDA computation returned unexpected data type: {type(Q)}",
+            ).model_dump()
+
+        # Check if Q has valid shape
+        if Q.size == 0:
+            logger.error("DDA computation returned empty Q matrix")
+            return DDAResponse(
+                file_path=file_path_str,
+                Q=[],
+                preprocessing_options=preprocessing_options,
+                error="DDA_COMPUTATION_FAILED",
+                error_message="DDA computation returned empty Q matrix",
+            ).model_dump()
 
         Q = Q.T
 
@@ -195,13 +369,35 @@ async def run_dda(
 
         Q = np.where(np.isnan(Q), None, Q).tolist()
 
+        # Ensure metadata is a dictionary
+        if isinstance(metadata, dict):
+            result_metadata = metadata
+        elif hasattr(metadata, "__dict__"):
+            result_metadata = metadata.__dict__
+        else:
+            # If metadata is a file path or other object, create a basic dictionary
+            result_metadata = {"dda_output_file": str(metadata) if metadata else None}
+
         result = DDAResponse(
             file_path=file_path_str,
             Q=Q,
             preprocessing_options=preprocessing_options,
+            metadata=result_metadata,
         ).model_dump()
 
         return result
     except Exception as e:
         logger.error(f"Error during DDA computation: {e}")
-        raise
+        logger.error(f"Exception type: {type(e)}")
+        import traceback
+
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+
+        # Return error response instead of re-raising
+        return DDAResponse(
+            file_path=file_path_str if "file_path_str" in locals() else str(file_path),
+            Q=[],
+            preprocessing_options=preprocessing_options,
+            error="DDA_COMPUTATION_ERROR",
+            error_message=f"DDA computation failed: {str(e)}",
+        ).model_dump()

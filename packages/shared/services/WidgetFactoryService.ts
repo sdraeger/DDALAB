@@ -81,6 +81,7 @@ export class WidgetFactoryService implements IWidgetFactory {
         content: React.createElement(DDAWidget as any, {
           widgetId,
           isPopout: config?.isPopout || false,
+          initialFormState: config?.metadata?.formState,
         }),
         constraints: {
           minW: 3,
@@ -112,7 +113,9 @@ export class WidgetFactoryService implements IWidgetFactory {
           widgetId,
           isPopout: config?.isPopout || false,
           popoutPlotState:
-            config?.metadata?.plotState || config?.popoutPlotState,
+            config?.popoutPlotState ||
+            config?.metadata?.plotState ||
+            config?.metadata?.widgetState,
         }),
         constraints: {
           minW: 4,

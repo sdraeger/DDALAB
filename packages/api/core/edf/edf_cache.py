@@ -691,7 +691,8 @@ class EDFCacheManager:
         This function:
         1. Filters out obvious event/annotation channels by name
         2. Tests signal variance to identify channels with actual EEG data
-        3. Returns a reasonable selection of active EEG channels
+        3. Validates channels for DDA binary compatibility
+        4. Returns a reasonable selection of active EEG channels
 
         Args:
             file_path: Path to EDF file
@@ -710,27 +711,119 @@ class EDFCacheManager:
             if not all_channels:
                 return []
 
+            logger.info(f"EDF file has {len(all_channels)} total channels")
+
             # Filter out obvious event/annotation channels by name patterns
-            event_patterns = ["event", "annotation", "trigger", "marker", "status"]
+            event_patterns = [
+                "event",
+                "annotation",
+                "trigger",
+                "marker",
+                "status",
+                "evt",
+            ]
+            # Also filter out non-EEG channels by name patterns
+            non_eeg_patterns = [
+                "ecg",
+                "ekg",
+                "emg",
+                "eog",
+                "pulse",
+                "sat",
+                "o2",
+                "spo2",
+                "resp",
+                "hr",
+                "temp",
+            ]
+
             eeg_candidates = []
+            filtered_out = []
 
             for channel in all_channels:
                 channel_lower = channel.lower()
                 is_event_channel = any(
                     pattern in channel_lower for pattern in event_patterns
                 )
-                if not is_event_channel:
+                is_non_eeg = any(
+                    pattern in channel_lower for pattern in non_eeg_patterns
+                )
+
+                if not is_event_channel and not is_non_eeg:
                     eeg_candidates.append(channel)
+                else:
+                    filtered_out.append(channel)
+
+            logger.info(
+                f"Filtered out {len(filtered_out)} non-EEG channels: {filtered_out[:10]}..."
+            )
+            logger.info(f"EEG candidates: {len(eeg_candidates)} channels")
+
+            # Additional validation: Check for problematic EDF files by examining metadata
+            # Some EDF files have inverted physical min/max values that can cause DDA binary issues
+            try:
+                from pyedflib import EdfReader
+
+                with EdfReader(file_path) as reader:
+                    # Check for inverted physical ranges (a sign of problematic files)
+                    problem_channels = []
+                    good_channels = []
+
+                    for i, channel_name in enumerate(all_channels):
+                        if channel_name in eeg_candidates:
+                            try:
+                                phys_min = reader.getPhysicalMinimum(i)
+                                phys_max = reader.getPhysicalMaximum(i)
+
+                                # Check for inverted ranges or unusual values
+                                if (
+                                    phys_min > phys_max
+                                    or abs(phys_min) > 10000
+                                    or abs(phys_max) > 10000
+                                ):
+                                    problem_channels.append(channel_name)
+                                else:
+                                    good_channels.append(channel_name)
+                            except Exception as e:
+                                logger.warning(
+                                    f"Could not validate channel {channel_name}: {e}"
+                                )
+                                problem_channels.append(channel_name)
+
+                    logger.info(
+                        f"Channels with problematic ranges: {len(problem_channels)}"
+                    )
+                    logger.info(f"Channels with good ranges: {len(good_channels)}")
+
+                    # If we have good channels, prefer those
+                    if good_channels:
+                        eeg_candidates = good_channels
+                        logger.info(
+                            f"Using {len(good_channels)} channels with valid physical ranges"
+                        )
+                    else:
+                        # If all channels have problems, we'll try the top EEG candidates anyway
+                        # but with a smaller selection to reduce the chance of DDA binary issues
+                        max_channels = min(max_channels, 3)
+                        logger.warning(
+                            f"All channels have problematic ranges, limiting to {max_channels} channels"
+                        )
+
+            except Exception as validation_error:
+                logger.warning(
+                    f"Could not perform detailed channel validation: {validation_error}"
+                )
 
             # If we have enough EEG candidates, use them
             if len(eeg_candidates) >= max_channels:
-                logger.debug(
-                    f"Selected {max_channels} EEG channels by name filtering: {eeg_candidates[:max_channels]}"
+                selected = eeg_candidates[:max_channels]
+                logger.info(
+                    f"Selected {len(selected)} EEG channels by name filtering: {selected}"
                 )
-                return eeg_candidates[:max_channels]
+                return selected
 
             # If not enough candidates from name filtering, test signal variance
-            logger.debug("Testing signal variance for better channel selection...")
+            logger.info("Testing signal variance for better channel selection...")
 
             # Read a test chunk to analyze variance
             try:
@@ -742,49 +835,87 @@ class EDFCacheManager:
                 channel_variances = []
                 for i, signal in enumerate(edf_file.signals):
                     if i < len(all_channels):
-                        variance = np.var(signal.data)
-                        channel_variances.append((all_channels[i], variance))
+                        try:
+                            # Check if signal data is valid
+                            if signal.data is not None and len(signal.data) > 0:
+                                # Convert to numpy array for reliable variance calculation
+                                data = np.array(signal.data)
+                                # Remove any NaN or infinite values
+                                clean_data = data[np.isfinite(data)]
+                                if len(clean_data) > 0:
+                                    variance = np.var(clean_data)
+                                    # Check if variance is reasonable (not too large, not zero)
+                                    if 0.001 < variance < 1e6:
+                                        channel_variances.append(
+                                            (all_channels[i], variance)
+                                        )
+                                    else:
+                                        logger.debug(
+                                            f"Channel {all_channels[i]} has unreasonable variance: {variance}"
+                                        )
+                                else:
+                                    logger.debug(
+                                        f"Channel {all_channels[i]} has no finite data"
+                                    )
+                            else:
+                                logger.debug(f"Channel {all_channels[i]} has no data")
+                        except Exception as var_error:
+                            logger.debug(
+                                f"Error calculating variance for channel {all_channels[i]}: {var_error}"
+                            )
 
                 # Sort by variance (highest first) and filter out zero-variance channels
-                active_channels = [
-                    (channel, var)
-                    for channel, var in channel_variances
-                    if var > 0.001  # Threshold to filter out flat channels
-                ]
-                active_channels.sort(key=lambda x: x[1], reverse=True)
+                if channel_variances:
+                    channel_variances.sort(key=lambda x: x[1], reverse=True)
 
-                # Select top channels with highest variance
-                selected_channels = [
-                    channel for channel, _ in active_channels[:max_channels]
-                ]
+                    # Select top channels with highest variance
+                    selected_channels = [
+                        channel for channel, _ in channel_variances[:max_channels]
+                    ]
 
-                logger.info(
-                    f"Selected {len(selected_channels)} channels with highest variance: {selected_channels}"
-                )
-                return selected_channels
+                    logger.info(
+                        f"Selected {len(selected_channels)} channels with highest variance: {selected_channels}"
+                    )
+                    return selected_channels
+                else:
+                    logger.warning("No channels found with valid variance data")
 
             except Exception as variance_error:
                 logger.warning(
                     f"Variance analysis failed: {variance_error}, using name-based selection"
                 )
-                return (
-                    eeg_candidates[:max_channels]
-                    if eeg_candidates
-                    else all_channels[1 : max_channels + 1]
-                )
+
+            # Final fallback: use the best EEG candidates we have
+            if eeg_candidates:
+                selected = eeg_candidates[:max_channels]
+                logger.info(f"Fallback: using top EEG candidates: {selected}")
+                return selected
+
+            # Last resort: skip first channel (often Event) and take next few
+            if len(all_channels) > 1:
+                selected = all_channels[1 : max_channels + 1]  # Skip channel 0
+                logger.info(f"Last resort: using channels 1-{max_channels}: {selected}")
+                return selected
+
+            # Very last resort: use first channels
+            selected = all_channels[:max_channels]
+            logger.info(
+                f"Very last resort: using first {max_channels} channels: {selected}"
+            )
+            return selected
 
         except Exception as e:
             logger.error(f"Failed to get intelligent default channels: {e}")
-            # Fallback: skip first channel (often Event) and take next few
+            # Final fallback: skip first channel (often Event) and take next few
             try:
                 metadata = self.get_file_metadata(file_path)
                 all_channels = metadata.get("signal_labels", [])
                 if len(all_channels) > 1:
                     return all_channels[1 : max_channels + 1]  # Skip channel 0
                 return all_channels[:max_channels]
-            except Exception as e:
+            except Exception as fallback_error:
                 logger.error(
-                    f"Failed fallback to get intelligent default channels: {e}"
+                    f"Failed fallback to get intelligent default channels: {fallback_error}"
                 )
                 return []
 

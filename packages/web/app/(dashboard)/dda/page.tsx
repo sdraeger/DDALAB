@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@apollo/client";
 import { Loader2 } from "lucide-react";
@@ -23,9 +22,10 @@ import {
 import { DDAResults } from "shared/components/DDAResults";
 import { SUBMIT_DDA_TASK } from "shared/lib/graphql/mutations";
 import { useToast } from "shared/components/ui/use-toast";
+import { useUnifiedSessionData } from "shared/hooks";
 
 export default function DDAPage() {
-  const { data: session, status } = useSession();
+  const { data: session, status } = useUnifiedSessionData();
   const router = useRouter();
   const { toast } = useToast();
   const [filePath, setFilePath] = useState("");

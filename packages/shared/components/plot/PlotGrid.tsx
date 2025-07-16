@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import { Responsive, WidthProvider } from "react-grid-layout";
 import { Bar } from "react-chartjs-2";
-import { useSession } from "next-auth/react";
 import { useApiQuery } from "../../hooks/useApiQuery";
 import { useToast } from "../ui/use-toast";
 import { Button } from "../ui/button";
 import { ArtifactIdentifier } from "../ui/ArtifactIdentifier";
 import { apiRequest } from "../../lib/utils/request";
+import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
@@ -36,7 +36,7 @@ interface Layout {
 }
 
 export const PlotGrid = () => {
-  const { data: session } = useSession();
+  const { data: session } = useUnifiedSessionData();
   const { toast } = useToast();
   const [layouts, setLayouts] = useState<Layout[]>([]);
   const [plots, setPlots] = useState<Plot[]>([]);

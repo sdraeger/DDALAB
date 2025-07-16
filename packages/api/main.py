@@ -1,6 +1,5 @@
 """Main server application."""
 
-import json
 from contextlib import asynccontextmanager
 
 from core.config import get_server_settings, initialize_config
@@ -65,91 +64,86 @@ except ImportError as e:
 settings = get_server_settings()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Handle application lifespan events.
-
-    This context manager handles startup and shutdown events for the application.
-    It's called when the application starts up and shuts down.
-    """
-    # Startup
-    logger.info("Initializing server configuration...")
-    initialize_config()
-    logger.info("Configuration loaded successfully")
-
-    # Log the current configuration
-    server_settings = get_server_settings()
-    logger.info(
-        "Server configured with host={}, port={}, auth_enabled={}",
-        server_settings.api_host,
-        server_settings.api_port,
-        server_settings.auth_enabled,
-    )
-
-    # Initialize EDF cache system
+async def _ensure_minio_bucket_exists():
+    """Ensure the MinIO bucket exists."""
     try:
-        from core.edf.edf_cache import get_cache_manager
-
-        cache_manager = get_cache_manager()
-        logger.info("EDF cache system initialized successfully")
-
-        # Log initial cache configuration
-        stats = cache_manager.get_cache_stats()
-        logger.info(
-            f"EDF Cache configured: "
-            f"Metadata cache: {stats['metadata_cache']['max_size']} files, "
-            f"Chunk cache: {stats['chunk_cache']['max_size_mb']}MB, "
-            f"File handles: {stats['file_handles']['max_handles']} max"
+        minio_client = Minio(
+            settings.minio_host,
+            access_key=settings.minio_access_key,
+            secret_key=settings.minio_secret_key,
+            secure=False,
         )
-    except Exception as e:
-        logger.warning(f"Failed to initialize EDF cache system: {e}")
 
-    minio_client = Minio(
-        settings.minio_host,
-        access_key=settings.minio_access_key,
-        secret_key=settings.minio_secret_key,
-        secure=False,
-    )
+        bucket_name = settings.minio_bucket_name
+        if not minio_client.bucket_exists(bucket_name):
+            minio_client.make_bucket(bucket_name)
+            logger.info(f"Created MinIO bucket: {bucket_name}")
+        else:
+            logger.info(f"MinIO bucket already exists: {bucket_name}")
 
-    try:
-        if not minio_client.bucket_exists(settings.minio_bucket_name):
-            minio_client.make_bucket(settings.minio_bucket_name)
-            logger.info(f"Bucket '{settings.minio_bucket_name}' created.")
-            # Set bucket policy to private (default behavior, but explicitly ensure)
-            policy = {
-                "Version": "2012-10-17",
-                "Statement": [
-                    {
-                        "Effect": "Deny",
-                        "Principal": "*",
-                        "Action": ["s3:*"],
-                        "Resource": [f"arn:aws:s3:::{settings.minio_bucket_name}/*"],
-                    }
-                ],
-            }
-            minio_client.set_bucket_policy(
-                settings.minio_bucket_name, json.dumps(policy)
-            )
-            logger.info(
-                f"Set private policy for bucket '{settings.minio_bucket_name}'."
-            )
     except S3Error as e:
-        logger.error(f"Error creating or configuring bucket: {e}")
+        logger.error(f"Failed to create/check MinIO bucket: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error with MinIO: {e}")
         raise
 
-    yield  # Server is running
 
-    # Shutdown
-    logger.info("Server shutting down...")
+async def _initialize_local_mode():
+    """Initialize local mode by ensuring the default user exists."""
+    if not settings.is_local_mode:
+        logger.debug("Not in local mode, skipping local user initialization")
+        return
 
-    # Clean up cache system
+    logger.info("Initializing local mode...")
+
     try:
-        from core.edf.edf_cache import clear_global_cache
+        from core.database import async_session_maker
+        from core.services.local_user_service import LocalUserService
 
-        clear_global_cache()
-        logger.info("EDF cache system cleaned up")
+        async with async_session_maker() as session:
+            local_user_service = LocalUserService(session)
+            default_user = await local_user_service.ensure_default_user_exists()
+            await session.commit()
+
+            logger.info(
+                f"Local mode initialized with default user: '{default_user.username}' "
+                f"(ID: {default_user.id}, Admin: {default_user.is_admin})"
+            )
     except Exception as e:
-        logger.warning(f"Error during cache cleanup: {e}")
+        logger.error(f"Failed to initialize local mode: {e}")
+        raise
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for FastAPI app."""
+    try:
+        logger.info("Starting up DDALAB API server...")
+
+        # Initialize configurations
+        configs = initialize_config()
+        logger.info(f"Initialized configurations: {list(configs.keys())}")
+        logger.info(
+            f"Auth mode: {settings.auth_mode} (auth_enabled: {settings.auth_enabled})"
+        )
+
+        # Check MinIO bucket
+        await _ensure_minio_bucket_exists()
+
+        # Initialize local mode if needed
+        await _initialize_local_mode()
+
+        logger.info("DDALAB API server startup complete!")
+
+        yield
+
+    except Exception as e:
+        logger.error(f"Failed to start DDALAB API server: {e}")
+        raise
+    finally:
+        logger.info("Shutting down DDALAB API server...")
+        logger.info("DDALAB API server shutdown complete!")
 
 
 # Create FastAPI application
@@ -188,9 +182,6 @@ try:
 except Exception as e:
     logger.warning(f"Failed to configure OTLP tracing: {e}. Tracing will be disabled.")
 
-# Add database middleware first
-app.add_middleware(DatabaseMiddleware)
-
 # Add MinIO middleware
 app.add_middleware(MinIOMiddleware)
 
@@ -199,6 +190,9 @@ app.add_middleware(PrometheusMiddleware)
 
 # Add auth middleware
 app.add_middleware(AuthMiddleware)
+
+# Add database middleware (runs before auth middleware due to reverse execution order)
+app.add_middleware(DatabaseMiddleware)
 
 # Add CORS middleware
 app.add_middleware(

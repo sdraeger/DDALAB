@@ -1,532 +1,573 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import { useSession } from "next-auth/react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import { Layout } from "react-grid-layout";
-import { useToast } from "../components/ui/use-toast";
 import {
   IDashboardWidget,
+  IWidgetFactory,
   IDashboardConfig,
-  IDashboardEvents,
-  IModernDashboardState,
-  IResponsiveState,
-  IDockConfig,
 } from "../types/dashboard";
-import { WidgetFactoryService } from "../services/WidgetFactoryService";
 import { LayoutPersistenceService } from "../services/LayoutPersistenceService";
-import { dashboardDebugger } from "../lib/utils/dashboard-debug";
+import { WidgetFactoryService } from "../services/WidgetFactoryService";
 import logger from "../lib/utils/logger";
+import { useAuthMode } from "../contexts/AuthModeContext";
+import { useUnifiedSessionData } from "./useUnifiedSession";
+import {
+  dashboardStorage,
+  widgetLayoutStorage,
+} from "../lib/utils/authModeStorage";
 
-// Default dashboard configuration
+// Default configuration for the modern dashboard
 const DEFAULT_CONFIG: IDashboardConfig = {
   cols: { lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 },
   breakpoints: { lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 },
   rowHeight: 60,
-  margin: [8, 8],
-  containerPadding: [8, 8],
-  enableDocking: true,
+  margin: [10, 10],
+  containerPadding: [10, 10],
+  enableDocking: false,
   enablePersistence: true,
   autoSave: true,
   autoSaveDelay: 2000,
 };
 
-// Hook options
 interface UseModernDashboardOptions {
   config?: Partial<IDashboardConfig>;
-  events?: IDashboardEvents;
-  initialWidgets?: IDashboardWidget[];
-  initialLayout?: Layout[];
-  // Callback providers for specific widget types
   widgetCallbacks?: {
     onFileSelect?: (filePath: string) => void;
     [key: string]: any;
   };
 }
 
-export function useModernDashboard(options: UseModernDashboardOptions = {}) {
-  const { data: session } = useSession();
-  const { toast } = useToast();
+interface UseModernDashboardResult {
+  layouts: Layout[];
+  layout: Layout[];
+  widgets: IDashboardWidget[];
+  config: IDashboardConfig;
+  isLoading: boolean;
+  isSaving: boolean;
+  saveStatus: "idle" | "saving" | "success" | "error";
+  isLayoutInitialized: boolean;
+  saveError: string | null;
+  addWidget: (
+    type: string,
+    widgetConfig?: any,
+    position?: Partial<Layout>
+  ) => Promise<IDashboardWidget>;
+  removeWidget: (widgetId: string) => void;
+  updateWidget: (widgetId: string, updates: Partial<IDashboardWidget>) => void;
+  updateLayout: (newLayouts: Layout[]) => void;
+  saveLayout: () => Promise<boolean>;
+  clearLayout: () => Promise<boolean>;
+  loadLayout: () => Promise<void>;
+  onBreakpointChange: (breakpoint: string, cols: number) => void;
+}
 
-  // Merge configuration
+export function useModernDashboard(
+  options: UseModernDashboardOptions = {}
+): UseModernDashboardResult {
+  const { isMultiUserMode } = useAuthMode();
+
+  // Always call useSession but only use in multi-user mode
+  const { data: session } = useUnifiedSessionData();
+  const authToken = isMultiUserMode ? session?.accessToken : "local-mode-token";
+
+  // Merge user config with defaults
   const config = { ...DEFAULT_CONFIG, ...options.config };
 
-  // Services
-  const widgetFactory = WidgetFactoryService.getInstance();
-  const layoutPersistence = LayoutPersistenceService.getInstance();
+  const [layouts, setLayouts] = useState<Layout[]>([]);
+  const [widgets, setWidgets] = useState<IDashboardWidget[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "saving" | "success" | "error"
+  >("idle");
+  const [isLayoutInitialized, setIsLayoutInitialized] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  // State
-  const [state, setState] = useState<IModernDashboardState>({
-    widgets: options.initialWidgets || [],
-    layout: options.initialLayout || [],
-    dockPanels: new Map<string, IDockConfig>(),
-    responsive: {
-      currentBreakpoint: "lg",
-      currentCols: config.cols.lg,
-      containerWidth: 1200,
-    },
-    isLoading: false,
-    isSaving: false,
-    saveStatus: "idle",
-  });
-
-  // Auto-save timer
-  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const saveStatusTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const lastSavedStateRef = useRef<string>("");
-
-  // Update access token when session changes
-  useEffect(() => {
-    layoutPersistence.setAccessToken(session?.accessToken || null);
-  }, [session?.accessToken]);
-
-  // Layout management functions
-  const updateLayout = useCallback(
-    (newLayout: Layout[]) => {
-      // Log size changes for debugging
-      const sizeChanges = newLayout.map((item) => ({
-        id: item.i,
-        size: `${item.w}x${item.h}`,
-        position: `(${item.x},${item.y})`,
-      }));
-
-      logger.info("Layout updated with widget sizes:", {
-        widgetCount: newLayout.length,
-        sizeInfo: sizeChanges,
-      });
-
-      setState((prev) => ({ ...prev, layout: newLayout }));
-      options.events?.onLayoutChange?.(newLayout);
-
-      // Schedule auto-save if enabled to preserve size changes
-      if (config.autoSave && session?.accessToken) {
-        scheduleAutoSave();
-      }
-    },
-    [options.events, config.autoSave, session?.accessToken]
+  const persistenceService = useRef(LayoutPersistenceService.getInstance());
+  const widgetFactory = useRef<IWidgetFactory>(
+    WidgetFactoryService.getInstance()
   );
 
-  const addWidget = useCallback(
-    (type: string, widgetConfig?: any, position?: Partial<Layout>) => {
+  const hasInitialized = useRef(false);
+
+  // Update persistence service token when auth token changes
+  useEffect(() => {
+    if (authToken) {
+      persistenceService.current.setAccessToken(authToken);
+    }
+  }, [authToken]);
+
+  // Load initial layout
+  useEffect(() => {
+    if (!hasInitialized.current) {
+      hasInitialized.current = true;
+      loadLayout();
+    }
+  }, []);
+
+  const loadLayout = useCallback(async () => {
+    // In local mode, always work with local storage
+    if (!isMultiUserMode) {
+      setIsLoading(true);
       try {
-        // Merge provided config with callbacks for specific widget types
-        let finalConfig = { ...widgetConfig };
-        if (type === "file-browser" && options.widgetCallbacks?.onFileSelect) {
-          finalConfig.onFileSelect = options.widgetCallbacks.onFileSelect;
+        const localLayouts =
+          dashboardStorage.getItem<Layout[]>("layouts") || [];
+        const localWidgets =
+          widgetLayoutStorage.getItem<any[]>("widgets") || [];
+
+        setLayouts(localLayouts);
+
+        if (localWidgets.length > 0) {
+          const restoredWidgets: IDashboardWidget[] = [];
+          for (const serializableWidget of localWidgets) {
+            try {
+              const widget = widgetFactory.current.createWidget(
+                serializableWidget.type,
+                {
+                  id: serializableWidget.id,
+                  ...serializableWidget.metadata,
+                  ...options.widgetCallbacks, // Include callbacks when restoring
+                }
+              );
+
+              if (widget && serializableWidget.title) {
+                widget.title = serializableWidget.title;
+              }
+
+              if (widget) {
+                restoredWidgets.push(widget);
+              }
+            } catch (error) {
+              logger.error(
+                `Failed to restore local widget ${serializableWidget.id}:`,
+                error
+              );
+            }
+          }
+          setWidgets(restoredWidgets);
         }
 
-        const widget = widgetFactory.createWidget(type, finalConfig);
+        logger.info("Loaded dashboard layout from local storage");
+      } catch (error) {
+        logger.error("Error loading local dashboard layout:", error);
+      } finally {
+        setIsLoading(false);
+        setIsLayoutInitialized(true);
+      }
+      return;
+    }
 
-        // Generate layout item with proper size handling
-        const layoutItem: Layout = {
-          i: widget.id,
-          x: position?.x || 0,
-          y: position?.y || 0,
-          w: position?.w || widget.constraints?.minW || 4,
-          h: position?.h || widget.constraints?.minH || 3,
-          minW: widget.constraints?.minW,
-          maxW: widget.constraints?.maxW,
-          minH: widget.constraints?.minH,
-          maxH: widget.constraints?.maxH,
-          isDraggable: widget.constraints?.isDraggable !== false,
-          isResizable: widget.constraints?.isResizable !== false,
-          static: widget.constraints?.static || false,
+    // Multi-user mode - try server then fallback to local
+    if (!authToken) {
+      logger.warn("Cannot load layout: no auth token available");
+      setIsLayoutInitialized(true);
+      return;
+    }
+
+    setIsLoading(true);
+    setSaveError(null);
+
+    try {
+      // First try to load from server
+      const layoutData = await persistenceService.current.loadLayout();
+
+      if (layoutData) {
+        logger.info("Loaded dashboard layout from server");
+        setLayouts(layoutData.layout);
+
+        // Convert serialized widget data back to full widgets
+        const restoredWidgets: IDashboardWidget[] = [];
+
+        for (const serializableWidget of layoutData.widgets) {
+          try {
+            const widget = widgetFactory.current.createWidget(
+              serializableWidget.type,
+              {
+                id: serializableWidget.id,
+                ...serializableWidget.metadata,
+                ...options.widgetCallbacks, // Include callbacks when restoring
+              }
+            );
+
+            if (widget) {
+              // Preserve the title from saved data
+              if (serializableWidget.title) {
+                widget.title = serializableWidget.title;
+              }
+
+              restoredWidgets.push(widget);
+            }
+          } catch (error) {
+            logger.error(
+              `Failed to restore widget ${serializableWidget.id}:`,
+              error
+            );
+          }
+        }
+
+        setWidgets(restoredWidgets);
+
+        // Store in auth mode storage as backup
+        dashboardStorage.setItem("layouts", layoutData.layout);
+        widgetLayoutStorage.setItem("widgets", layoutData.widgets);
+      } else {
+        logger.info("No saved layout found, checking local storage backup");
+
+        // Try to load from auth mode storage as fallback
+        const localLayouts =
+          dashboardStorage.getItem<Layout[]>("layouts") || [];
+        const localWidgets =
+          widgetLayoutStorage.getItem<any[]>("widgets") || [];
+
+        if (localLayouts.length > 0 || localWidgets.length > 0) {
+          logger.info("Loaded dashboard layout from local auth mode storage");
+          setLayouts(localLayouts);
+
+          // Convert local widget data back to full widgets
+          const restoredWidgets: IDashboardWidget[] = [];
+
+          for (const serializableWidget of localWidgets) {
+            try {
+              const widget = widgetFactory.current.createWidget(
+                serializableWidget.type,
+                {
+                  id: serializableWidget.id,
+                  ...serializableWidget.metadata,
+                  ...options.widgetCallbacks, // Include callbacks when restoring
+                }
+              );
+
+              if (widget && serializableWidget.title) {
+                widget.title = serializableWidget.title;
+              }
+
+              if (widget) {
+                restoredWidgets.push(widget);
+              }
+            } catch (error) {
+              logger.error(
+                `Failed to restore local widget ${serializableWidget.id}:`,
+                error
+              );
+            }
+          }
+
+          setWidgets(restoredWidgets);
+        } else {
+          logger.info("No saved layout found anywhere, starting fresh");
+          setLayouts([]);
+          setWidgets([]);
+        }
+      }
+    } catch (error) {
+      logger.error("Error loading dashboard layout:", error);
+      setSaveError("Failed to load dashboard layout");
+
+      // Fallback to auth mode storage
+      const localLayouts = dashboardStorage.getItem<Layout[]>("layouts") || [];
+      const localWidgets = widgetLayoutStorage.getItem<any[]>("widgets") || [];
+
+      setLayouts(localLayouts);
+      setWidgets([]); // Don't restore widgets on error to prevent issues
+    } finally {
+      setIsLoading(false);
+      setIsLayoutInitialized(true);
+    }
+  }, [authToken, isMultiUserMode]);
+
+  const updateLayout = useCallback((newLayouts: Layout[]) => {
+    setLayouts(newLayouts);
+
+    // Store in auth mode storage for backup
+    dashboardStorage.setItem("layouts", newLayouts);
+
+    logger.debug("Updated dashboard layout");
+  }, []);
+
+  const addWidget = useCallback(
+    async (
+      type: string,
+      widgetConfig?: any,
+      position?: Partial<Layout>
+    ): Promise<IDashboardWidget> => {
+      try {
+        // Merge widgetCallbacks with the provided widgetConfig
+        const configWithCallbacks = {
+          ...widgetConfig,
+          ...options.widgetCallbacks, // Include onFileSelect and other callbacks
         };
 
-        setState((prev) => ({
-          ...prev,
-          widgets: [...prev.widgets, widget],
-          layout: [...prev.layout, layoutItem],
-        }));
+        const widget = widgetFactory.current.createWidget(
+          type,
+          configWithCallbacks
+        );
 
-        options.events?.onWidgetAdd?.(widget);
-
-        // Schedule auto-save to capture the new widget size
-        if (config.autoSave && session?.accessToken) {
-          scheduleAutoSave();
+        if (!widget) {
+          throw new Error(`Failed to create widget of type: ${type}`);
         }
 
-        logger.info(
-          `Added widget: ${widget.id} (${type}) with size ${layoutItem.w}x${layoutItem.h}`
-        );
+        const newWidgets = [...widgets, widget];
+        setWidgets(newWidgets);
+
+        // Add layout entry for new widget if position provided
+        if (position) {
+          const newLayout: Layout = {
+            i: widget.id,
+            x: position.x || 0,
+            y: position.y || 0,
+            w: position.w || 4,
+            h: position.h || 3,
+            ...position,
+          };
+          setLayouts([...layouts, newLayout]);
+        }
+
+        // Store widget in auth mode storage
+        const serializableWidget = {
+          id: widget.id,
+          title: widget.title,
+          type: widget.type,
+          metadata: widget.metadata,
+          constraints: widget.constraints,
+        };
+
+        const existingWidgets =
+          widgetLayoutStorage.getItem<any[]>("widgets") || [];
+        widgetLayoutStorage.setItem("widgets", [
+          ...existingWidgets,
+          serializableWidget,
+        ]);
+
+        // Clean up widget state from auth mode storage
+        const stateKey = `widget-state-${widget.id}`;
+        dashboardStorage.removeItem(stateKey);
+
+        const popoutKey = `widget-popout-${widget.id}`;
+        dashboardStorage.removeItem(popoutKey);
+
+        logger.info(`Added widget: ${widget.title} (${widget.type})`);
+        return widget;
       } catch (error) {
         logger.error("Error adding widget:", error);
-        toast({
-          title: "Error",
-          description: "Failed to add widget",
-          variant: "destructive",
-        });
+        throw error;
       }
     },
-    [
-      widgetFactory,
-      options.events,
-      config.autoSave,
-      session?.accessToken,
-      toast,
-    ]
+    [widgets, layouts, options.widgetCallbacks]
   );
 
   const removeWidget = useCallback(
     (widgetId: string) => {
-      setState((prev) => ({
-        ...prev,
-        widgets: prev.widgets.filter((w) => w.id !== widgetId),
-        layout: prev.layout.filter((l) => l.i !== widgetId),
+      const newWidgets = widgets.filter((w) => w.id !== widgetId);
+      setWidgets(newWidgets);
+
+      // Update auth mode storage
+      const serializableWidgets = newWidgets.map((w) => ({
+        id: w.id,
+        title: w.title,
+        type: w.type,
+        metadata: w.metadata,
+        constraints: w.constraints,
       }));
+      widgetLayoutStorage.setItem("widgets", serializableWidgets);
 
-      options.events?.onWidgetRemove?.(widgetId);
-
-      // Clean up widget state from localStorage
+      // Remove widget-specific data from auth mode storage
       const stateKey = `widget-state-${widgetId}`;
-      localStorage.removeItem(stateKey);
+      dashboardStorage.removeItem(stateKey);
 
-      // Clean up any popout data
-      const popoutKey = `modern-popped-widget-${widgetId}`;
-      localStorage.removeItem(popoutKey);
+      const popoutKey = `widget-popout-${widgetId}`;
+      dashboardStorage.removeItem(popoutKey);
 
-      // Schedule auto-save
-      if (config.autoSave && session?.accessToken) {
-        scheduleAutoSave();
-      }
+      const newLayouts = layouts.filter((layout) => layout.i !== widgetId);
+      setLayouts(newLayouts);
+      dashboardStorage.setItem("layouts", newLayouts);
 
-      logger.info(`Removed widget: ${widgetId} and cleaned up state`);
+      logger.info(`Removed widget: ${widgetId}`);
     },
-    [options.events, config.autoSave, session?.accessToken]
+    [widgets, layouts]
   );
 
   const updateWidget = useCallback(
     (widgetId: string, updates: Partial<IDashboardWidget>) => {
-      setState((prev) => ({
-        ...prev,
-        widgets: prev.widgets.map((w) =>
-          w.id === widgetId ? { ...w, ...updates } : w
-        ),
+      const newWidgets = widgets.map((widget) =>
+        widget.id === widgetId ? { ...widget, ...updates } : widget
+      );
+      setWidgets(newWidgets);
+
+      // Update auth mode storage
+      const serializableWidgets = newWidgets.map((w) => ({
+        id: w.id,
+        title: w.title,
+        type: w.type,
+        metadata: w.metadata,
+        constraints: w.constraints,
       }));
+      widgetLayoutStorage.setItem("widgets", serializableWidgets);
 
-      options.events?.onWidgetUpdate?.(widgetId, updates);
-
-      // Schedule auto-save
-      if (config.autoSave && session?.accessToken) {
-        scheduleAutoSave();
-      }
+      logger.debug(`Updated widget: ${widgetId}`);
     },
-    [options.events, config.autoSave, session?.accessToken]
+    [widgets]
   );
 
-  // Responsive breakpoint handling
+  const saveLayout = useCallback(async (): Promise<boolean> => {
+    // In local mode, just save to local storage
+    if (!isMultiUserMode) {
+      dashboardStorage.setItem("layouts", layouts);
+      const serializableWidgets = widgets.map((w) => ({
+        id: w.id,
+        title: w.title,
+        type: w.type,
+        metadata: w.metadata,
+        constraints: w.constraints,
+      }));
+      widgetLayoutStorage.setItem("widgets", serializableWidgets);
+
+      setSaveStatus("success");
+      logger.info("Dashboard layout saved to local storage");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+      return true;
+    }
+
+    // Multi-user mode - save to server
+    if (!authToken) {
+      setSaveError("Cannot save layout: no authentication token");
+      return false;
+    }
+
+    if (layouts.length === 0 && widgets.length === 0) {
+      logger.info("No layout to save (empty dashboard)");
+      return true;
+    }
+
+    setIsSaving(true);
+    setSaveStatus("saving");
+    setSaveError(null);
+
+    try {
+      await persistenceService.current.saveLayout(layouts, widgets);
+
+      // Also save to auth mode storage as backup
+      dashboardStorage.setItem("layouts", layouts);
+      const serializableWidgets = widgets.map((w) => ({
+        id: w.id,
+        title: w.title,
+        type: w.type,
+        metadata: w.metadata,
+        constraints: w.constraints,
+      }));
+      widgetLayoutStorage.setItem("widgets", serializableWidgets);
+
+      setSaveStatus("success");
+      logger.info("Dashboard layout saved successfully");
+
+      // Reset to idle after showing success
+      setTimeout(() => setSaveStatus("idle"), 2000);
+
+      return true;
+    } catch (error) {
+      logger.error("Error saving dashboard layout:", error);
+      setSaveError("Failed to save dashboard layout");
+      setSaveStatus("error");
+
+      // Reset to idle after showing error
+      setTimeout(() => setSaveStatus("idle"), 3000);
+
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [authToken, layouts, widgets, isMultiUserMode]);
+
+  const clearLayout = useCallback(async (): Promise<boolean> => {
+    // In local mode, just clear local storage
+    if (!isMultiUserMode) {
+      dashboardStorage.clear();
+      widgetLayoutStorage.clear();
+      setLayouts([]);
+      setWidgets([]);
+      logger.info("Dashboard layout cleared from local storage");
+      return true;
+    }
+
+    // Multi-user mode - clear from server
+    if (!authToken) {
+      setSaveError("Cannot clear layout: no authentication token");
+      return false;
+    }
+
+    setIsLoading(true);
+    setSaveError(null);
+
+    try {
+      await persistenceService.current.clearLayout();
+
+      // Clear auth mode storage as well
+      dashboardStorage.clear();
+      widgetLayoutStorage.clear();
+
+      setLayouts([]);
+      setWidgets([]);
+
+      logger.info("Dashboard layout cleared successfully");
+      return true;
+    } catch (error) {
+      logger.error("Error clearing dashboard layout:", error);
+      setSaveError("Failed to clear dashboard layout");
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [authToken, isMultiUserMode]);
+
   const onBreakpointChange = useCallback(
     (breakpoint: string, cols: number) => {
-      setState((prev) => ({
-        ...prev,
-        responsive: {
-          ...prev.responsive,
-          currentBreakpoint: breakpoint,
-          currentCols: cols,
-        },
-      }));
-
-      options.events?.onBreakpointChange?.(breakpoint, cols);
-      logger.info(`Breakpoint changed: ${breakpoint} (${cols} columns)`);
+      logger.debug(`Breakpoint changed to ${breakpoint} with ${cols} columns`);
+      if (config.onBreakpointChange) {
+        config.onBreakpointChange(breakpoint, cols);
+      }
     },
-    [options.events]
+    [config]
   );
 
-  // Auto-save functionality
-  const scheduleAutoSave = useCallback(() => {
-    if (!config.autoSave || !session?.accessToken) return;
+  // Auto-save functionality with debouncing
+  const saveTimeoutRef = useRef<NodeJS.Timeout>();
 
-    // Don't auto-save if there are no widgets (empty layout)
-    if (state.widgets.length === 0) {
-      logger.info("Skipping auto-save for empty layout");
-      return;
-    }
-
-    // Clear existing timer
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-    }
-
-    // Check if state has changed
-    const currentStateString = JSON.stringify({
-      layout: state.layout,
-      widgets: state.widgets.map((w) => ({ ...w, content: null })), // Exclude content for comparison
-    });
-
-    if (currentStateString === lastSavedStateRef.current) {
-      return; // No changes to save
-    }
-
-    // Schedule save
-    autoSaveTimerRef.current = setTimeout(async () => {
-      try {
-        await saveLayout();
-      } catch (error) {
-        // Error is already handled in saveLayout
-      }
-    }, config.autoSaveDelay);
-  }, [
-    config.autoSave,
-    config.autoSaveDelay,
-    session?.accessToken,
-    state.layout,
-    state.widgets,
-  ]);
-
-  // Persistence functions
-  const resetSaveStatus = useCallback(() => {
-    if (saveStatusTimerRef.current) {
-      clearTimeout(saveStatusTimerRef.current);
-    }
-    saveStatusTimerRef.current = setTimeout(() => {
-      setState((prev) => ({ ...prev, saveStatus: "idle" }));
-    }, 2500); // Reset after 2.5 seconds
-  }, []);
-
-  const saveLayout = useCallback(async () => {
-    if (!session?.accessToken) {
-      throw new Error("No authentication token available");
-    }
-
-    try {
-      setState((prev) => ({ ...prev, isSaving: true, saveStatus: "saving" }));
-
-      // Debug analysis before saving (in development)
-      if (process.env.NODE_ENV === "development") {
-        dashboardDebugger.analyzeLayout(state.layout, state.widgets);
-      }
-
-      await layoutPersistence.saveLayout(state.layout, state.widgets);
-
-      // Update last saved reference
-      lastSavedStateRef.current = JSON.stringify({
-        layout: state.layout,
-        widgets: state.widgets.map((w) => ({ ...w, content: null })),
-      });
-
-      setState((prev) => ({ ...prev, saveStatus: "success" }));
-      resetSaveStatus();
-    } catch (error) {
-      logger.error("Error saving layout:", error);
-      setState((prev) => ({ ...prev, saveStatus: "error" }));
-      resetSaveStatus();
-      throw error;
-    } finally {
-      setState((prev) => ({ ...prev, isSaving: false }));
-    }
-  }, [
-    session?.accessToken,
-    state.layout,
-    state.widgets,
-    layoutPersistence,
-    resetSaveStatus,
-  ]);
-
-  const loadLayout = useCallback(async () => {
-    if (!session?.accessToken) {
-      return;
-    }
-
-    try {
-      setState((prev) => ({ ...prev, isLoading: true }));
-
-      const result = await layoutPersistence.loadLayout();
-
-      if (result) {
-        // Create a map of layout items for easy lookup
-        const layoutMap = new Map<string, Layout>();
-        result.layout.forEach((item: Layout) => {
-          layoutMap.set(item.i, item);
-        });
-
-        // Recreate widgets using factory
-        const recreatedWidgets = result.widgets
-          .map((widgetData: any) => {
-            try {
-              // Merge stored config with current callbacks
-              let widgetConfig: any = {
-                id: widgetData.id,
-                title: widgetData.title,
-                metadata: widgetData.metadata,
-              };
-
-              // Add callbacks for specific widget types
-              if (
-                widgetData.type === "file-browser" &&
-                options.widgetCallbacks?.onFileSelect
-              ) {
-                widgetConfig.onFileSelect =
-                  options.widgetCallbacks.onFileSelect;
-              }
-
-              const recreatedWidget = widgetFactory.createWidget(
-                widgetData.type,
-                widgetConfig
-              );
-
-              // Ensure the widget has the correct layout constraints from saved data
-              if (widgetData.layoutInfo) {
-                // Update constraints to match saved layout if available
-                if (recreatedWidget.constraints) {
-                  recreatedWidget.constraints = {
-                    ...recreatedWidget.constraints,
-                    // Preserve any stored constraint overrides
-                    minW:
-                      widgetData.layoutInfo.minW ??
-                      recreatedWidget.constraints.minW,
-                    maxW:
-                      widgetData.layoutInfo.maxW ??
-                      recreatedWidget.constraints.maxW,
-                    minH:
-                      widgetData.layoutInfo.minH ??
-                      recreatedWidget.constraints.minH,
-                    maxH:
-                      widgetData.layoutInfo.maxH ??
-                      recreatedWidget.constraints.maxH,
-                  };
-                }
-              }
-
-              return recreatedWidget;
-            } catch (error) {
-              logger.warn(`Failed to recreate widget ${widgetData.id}:`, error);
-              return null;
-            }
-          })
-          .filter(Boolean) as IDashboardWidget[];
-
-        // Validate that all widgets have corresponding layout items
-        const missingLayoutItems = recreatedWidgets.filter(
-          (widget) => !layoutMap.has(widget.id)
-        );
-
-        if (missingLayoutItems.length > 0) {
-          logger.warn(
-            "Some widgets are missing layout information:",
-            missingLayoutItems.map((w) => ({ id: w.id, type: w.type }))
-          );
-        }
-
-        // Log layout restoration details
-        logger.info("Widget layout restoration details:", {
-          totalWidgets: recreatedWidgets.length,
-          layoutItems: result.layout.length,
-          sizePreservation: result.layout.map((item: Layout) => ({
-            id: item.i,
-            size: `${item.w}x${item.h}`,
-            position: `(${item.x},${item.y})`,
-          })),
-        });
-
-        setState((prev) => ({
-          ...prev,
-          widgets: recreatedWidgets,
-          layout: result.layout,
-        }));
-
-        // Debug analysis after loading (in development)
-        if (process.env.NODE_ENV === "development") {
-          dashboardDebugger.analyzeLayout(result.layout, recreatedWidgets);
-        }
-
-        // Update last saved reference to prevent unnecessary auto-saves
-        lastSavedStateRef.current = JSON.stringify({
-          layout: result.layout,
-          widgets: recreatedWidgets.map((w) => ({ ...w, content: null })),
-        });
-
-        toast({
-          title: "Layout Loaded",
-          description: `Loaded ${recreatedWidgets.length} widgets with preserved sizes.`,
-          duration: 2000,
-        });
-      }
-    } catch (error) {
-      logger.error("Error loading layout:", error);
-      toast({
-        title: "Load Failed",
-        description: "Failed to load saved layout.",
-        variant: "destructive",
-      });
-    } finally {
-      setState((prev) => ({ ...prev, isLoading: false }));
-    }
-  }, [session?.accessToken, layoutPersistence, widgetFactory, toast]);
-
-  const clearLayout = useCallback(async () => {
-    if (!session?.accessToken) return;
-
-    try {
-      await layoutPersistence.clearLayout();
-
-      setState((prev) => ({
-        ...prev,
-        widgets: [],
-        layout: [],
-      }));
-
-      lastSavedStateRef.current = "";
-
-      toast({
-        title: "Layout Cleared",
-        description: "Your saved layout has been cleared.",
-        duration: 2000,
-      });
-    } catch (error) {
-      logger.error("Error clearing layout:", error);
-      toast({
-        title: "Clear Failed",
-        description: "Failed to clear saved layout.",
-        variant: "destructive",
-      });
-    }
-  }, [session?.accessToken, layoutPersistence, toast]);
-
-  // Load layout on session change
   useEffect(() => {
-    if (session?.accessToken && config.enablePersistence) {
-      loadLayout();
-    }
-  }, [session?.accessToken, config.enablePersistence]);
+    if (config.autoSave && (layouts.length > 0 || widgets.length > 0)) {
+      // Clear previous timeout
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
 
-  // Cleanup auto-save timer
-  useEffect(() => {
+      // Set new timeout for auto-save
+      saveTimeoutRef.current = setTimeout(() => {
+        logger.debug("Auto-saving dashboard layout");
+        saveLayout();
+      }, config.autoSaveDelay || 2000);
+    }
+
     return () => {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-      }
-      if (saveStatusTimerRef.current) {
-        clearTimeout(saveStatusTimerRef.current);
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, []);
+  }, [layouts, widgets, saveLayout, config.autoSave, config.autoSaveDelay]);
 
   return {
-    // State
-    widgets: state.widgets,
-    layout: state.layout,
-    dockPanels: state.dockPanels,
-    responsive: state.responsive,
-    isLoading: state.isLoading,
-    isSaving: state.isSaving,
-    saveStatus: state.saveStatus,
-
-    // Configuration
+    layouts,
+    layout: layouts, // Provide both for compatibility
+    widgets,
     config,
-
-    // Widget management
+    isLoading,
+    isSaving,
+    saveStatus,
+    isLayoutInitialized,
+    saveError,
     addWidget,
     removeWidget,
     updateWidget,
-
-    // Layout management
     updateLayout,
-    onBreakpointChange,
-
-    // Persistence
     saveLayout,
-    loadLayout,
     clearLayout,
-
-    // Services (for advanced usage)
-    widgetFactory,
-    layoutPersistence,
+    loadLayout,
+    onBreakpointChange,
   };
 }

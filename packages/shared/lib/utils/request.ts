@@ -32,7 +32,16 @@ function getApiBaseUrl(url: string): string {
 
     if (isDevelopment) {
       // Routes that should go to Next.js directly (same origin) to avoid CORS
-      const nextjsRoutes = ["/api/auth/", "/api/debug"];
+      // Only NextAuth.js specific routes, not all /api/auth/ routes
+      const nextjsRoutes = [
+        "/api/auth/signin",
+        "/api/auth/signout",
+        "/api/auth/session",
+        "/api/auth/csrf",
+        "/api/auth/providers",
+        "/api/auth/callback",
+        "/api/debug",
+      ];
 
       const isNextjsRoute = nextjsRoutes.some((route) => url.startsWith(route));
 
@@ -107,8 +116,6 @@ export async function apiRequest<T = DefaultResponse>(
     ...(body && !isFormData && { "Content-Type": contentType }),
     ...headers,
   };
-
-  console.log("Full URL:", fullUrl);
 
   try {
     let data;
