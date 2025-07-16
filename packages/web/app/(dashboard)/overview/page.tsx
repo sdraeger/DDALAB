@@ -1,6 +1,6 @@
 "use client";
 
-import { useSession } from "next-auth/react";
+import { useUnifiedSession } from "shared/hooks/useUnifiedSession";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "shared/components/ui/card";
 import { Badge } from "shared/components/ui/badge";
@@ -31,17 +31,15 @@ interface StatsResponse {
 }
 
 export default function OverviewPage() {
-  const { data: session } = useSession();
+  const { user, status } = useUnifiedSession();
   const router = useRouter();
-  const user = session?.user;
 
   // Fetch dashboard statistics
   const { data: stats, loading, error } = useApiQuery<StatsResponse>({
     url: "/api/dashboard/stats",
     method: "GET",
     responseType: "json",
-    enabled: !!session,
-    requiresAuth: true,
+    enabled: !!user,
   });
 
   const getHealthColor = (health?: string) => {
@@ -80,7 +78,7 @@ export default function OverviewPage() {
           <div className="flex items-center gap-4">
             <Badge variant="outline" className="px-3 py-1">
               <Activity className="h-3 w-3 mr-1" />
-              {loading ? "Loading..." : error ? "System Error" : "System Online"}
+              {status === 'loading' ? "Loading..." : error ? "System Error" : "System Online"}
             </Badge>
           </div>
         </div>
@@ -300,7 +298,7 @@ export default function OverviewPage() {
               <TrendingUp className="h-4 w-4 text-green-600" />
               <div>
                 <p className="font-medium">DDA</p>
-                <p className="text-sm text-muted-foreground">Dual Density Analysis for artifact detection</p>
+                <p className="text-sm text-muted-foreground">Save and share analysis results</p>
               </div>
             </div>
             <div className="flex items-center gap-3">

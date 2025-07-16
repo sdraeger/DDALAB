@@ -6,11 +6,11 @@ import { SimpleDashboardToolbar } from "shared/components/dashboard/SimpleDashbo
 import { usePersistentDashboard } from "shared/hooks/usePersistentDashboard";
 import { Button } from "shared/components/ui/button";
 import { Save, RefreshCw, Trash2 } from "lucide-react";
-import { useSession } from "next-auth/react";
 import { useToast } from "shared/components/ui/use-toast";
+import { useUnifiedSessionData } from "shared/hooks";
 
 export default function SimpleDashboard() {
-	const { data: session } = useSession();
+	const { data: session } = useUnifiedSessionData();
 	const { toast } = useToast();
 
 	// Initialize with some default widgets
@@ -202,11 +202,13 @@ export default function SimpleDashboard() {
 
 			<div className="flex-1 overflow-hidden relative">
 				{/* Loading overlay */}
-				{isLoading && (
+				{(isLoading || (!isLayoutLoaded && session)) && (
 					<div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
 						<div className="text-center">
 							<RefreshCw className="h-8 w-8 animate-spin mx-auto mb-2" />
-							<p className="text-sm text-muted-foreground">Loading your layout...</p>
+							<p className="text-sm text-muted-foreground">
+								{isLoading ? "Loading your layout..." : "Restoring your saved layout..."}
+							</p>
 						</div>
 					</div>
 				)}

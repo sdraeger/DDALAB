@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import { useSession } from "next-auth/react";
 import { Button } from "../ui/button";
 import { Plus, FileText, BarChart3, Settings, Activity, TrendingUp } from "lucide-react";
 import { SimpleWidget } from "./SimpleDashboardGrid";
@@ -14,6 +13,7 @@ import { useAppDispatch } from "../../store";
 import { initializePlot, loadChunk, ensurePlotState } from "../../store/slices/plotSlice";
 import { useToast } from "../ui/use-toast";
 import { useLoadingManager } from "../../hooks/useLoadingManager";
+import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
 
 interface SimpleDashboardToolbarProps {
 	onAddWidget: (widget: SimpleWidget) => void;
@@ -21,13 +21,15 @@ interface SimpleDashboardToolbarProps {
 }
 
 export function SimpleDashboardToolbar({ onAddWidget, className }: SimpleDashboardToolbarProps) {
-	const { data: session } = useSession();
+	const { data: session } = useUnifiedSessionData();
 	const dispatch = useAppDispatch();
 	const { toast } = useToast();
 	const loadingManager = useLoadingManager();
 
 	const handleFileSelect = async (filePath: string) => {
 		const token = session?.accessToken;
+		console.log("[handleFileSelect] in handleFileSelect");
+		console.log("[handleFileSelect] token", token);
 
 		if (!token) {
 			toast({

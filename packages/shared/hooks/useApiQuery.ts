@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useSession, signOut } from "next-auth/react";
+import { signOut } from "next-auth/react";
 import { apiRequest, ApiRequestOptions } from "../lib/utils/request";
 import { snakeToCamel } from "../lib/utils/caseConverter";
+import { useUnifiedSessionData } from "./useUnifiedSession";
 
 interface UseApiQueryResult<T> {
   loading: boolean;
@@ -31,7 +32,11 @@ export function useApiQuery<T>(
   const [loading, setLoading] = useState<boolean>(enabled);
   const [error, setError] = useState<Error | null>(null);
   const [data, setData] = useState<T | null>(null);
-  const { data: session, status, update: updateSession } = useSession();
+  const {
+    data: session,
+    status,
+    update: updateSession,
+  } = useUnifiedSessionData();
 
   const fetchData = useCallback(
     async (retryCount = 0) => {

@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./card";
 import { Button } from "./button";
 import { Trash2, Pencil, Share2, BarChart3 } from "lucide-react";
-import { useSession } from "next-auth/react";
 import { useArtifacts } from "../../hooks/useArtifacts";
 import { ShareArtifactDialog } from "../dialog/ShareArtifactDialog";
 import { usePersistentPlotActions } from "../../hooks/usePersistentPlotActions";
@@ -17,13 +16,14 @@ import {
 import { Input } from "./input";
 import { Label } from "./label";
 import { Artifact } from "../../store/slices/artifactsSlice";
+import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
 
 interface ArtifactCardProps {
   artifact: Artifact;
 }
 
 export const ArtifactCard = ({ artifact }: ArtifactCardProps) => {
-  const { data: session } = useSession();
+  const { data: session } = useUnifiedSessionData();
   const { deleteArtifact, renameArtifact } = useArtifacts();
   const { openDDAPlot } = usePersistentPlotActions();
   const [shareDialogOpen, setShareDialogOpen] = useState(false);

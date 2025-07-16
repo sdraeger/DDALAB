@@ -3,19 +3,19 @@
 import type React from "react";
 import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { Loader2 } from "lucide-react";
+import { useUnifiedSession } from "../../hooks/useUnifiedSession";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { data: session, status } = useSession();
+  const { user, status } = useUnifiedSession();
   const router = useRouter();
   const pathname = usePathname();
   const loading = status === "loading";
-  const isLoggedIn = !!session;
+  const isLoggedIn = !!user;
 
   useEffect(() => {
     // Only redirect if we're not already on the login page and the session check is complete

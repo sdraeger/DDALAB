@@ -6,12 +6,7 @@ http:
       entryPoints:
         - web
       service: web
-    web-auth:
-      rule: "Host(`localhost`) && PathPrefix(`/api/auth/`)"
-      priority: 90
-      entryPoints:
-        - web
-      service: web
+    # Removed: web-auth routing to avoid conflicts with Python API auth endpoints
     web-api:
       rule: "Host(`localhost`) && Path(`/api`)"
       entryPoints:
@@ -61,14 +56,7 @@ http:
       service: web
       tls:
         options: default
-    web-auth-secure:
-      rule: "Host(`localhost`) && PathPrefix(`/api/auth/`)"
-      priority: 90
-      entryPoints:
-        - websecure
-      service: web
-      tls:
-        options: default
+    # Removed: web-auth-secure routing to avoid conflicts with Python API auth endpoints
     web-api-secure:
       rule: "Host(`localhost`) && Path(`/api`)"
       entryPoints:

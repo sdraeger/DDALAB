@@ -1,6 +1,5 @@
 "use client";
 
-import { ThemeInitializer } from "shared/components/theme/ThemeInitializer";
 import { ProtectedRoute } from "shared/components/higher-order/ProtectedRoute";
 import { GlobalLoadingOverlay } from "shared/components/ui/global-loading-overlay";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "shared/components/ui/sidebar";
@@ -15,7 +14,6 @@ export default function DashboardLayout({
 }) {
   return (
     <ProtectedRoute>
-      <ThemeInitializer />
       <SidebarProvider defaultOpen={true}>
         <div className="flex min-h-screen w-full">
           <AppSidebar />

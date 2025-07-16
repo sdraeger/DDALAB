@@ -6,12 +6,6 @@ http:
         - websecure
       tls: true
       service: web
-    web-auth:
-      rule: "Host(`localhost`) && PathPrefix(`/api/auth/`)"
-      entryPoints:
-        - websecure
-      tls: true
-      service: web
     web-api:
       rule: "Host(`localhost`) && Path(`/api`)"
       entryPoints:

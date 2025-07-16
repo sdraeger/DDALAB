@@ -178,6 +178,12 @@ export class LayoutPersistenceService implements ILayoutPersistence {
           errorDetails,
         });
 
+        // For unauthorized or forbidden responses, return null to allow fallback to empty layout
+        if (response.status === 401 || response.status === 403) {
+          logger.warn("Unauthorized access to layout - using empty layout");
+          return null;
+        }
+
         throw new Error(`Failed to load layout: ${response.statusText}`);
       }
 

@@ -27,7 +27,7 @@ interface ChartWidgetProps {
 export function ChartWidget({ widgetId = "chart-widget-default", isPopout = false, popoutPlotState }: ChartWidgetProps) {
 	// Get plot state from Redux (main window) or sync (popout)
 	const plots = useAppSelector((state) => state.plots);
-	const { registerDataListener, unregisterDataListener, syncData } = useWidgetDataSync(widgetId, isPopout);
+	const { registerDataListener, unregisterDataListener, sendDataUpdate } = useWidgetDataSync(widgetId, isPopout);
 	const [syncedPlots, setSyncedPlots] = useState<PlotsState | null>(null);
 
 	// Widget state for UI preferences
@@ -40,6 +40,7 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 	// Track initialization
 	const initializationAttempted = useRef(false);
 	const dataRequestedRef = useRef(false);
+	const channelsInitialized = useRef(false);
 
 	// Effect for handling plot data synchronization in popout mode
 	useEffect(() => {
@@ -79,7 +80,7 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 			// Request initial data if not already received
 			if (!dataRequestedRef.current) {
 				logger.info(`[ChartWidget] Requesting initial plot data:`, { widgetId });
-				syncData('plots', null);
+				sendDataUpdate('plots', null);
 				dataRequestedRef.current = true;
 			}
 
@@ -87,7 +88,7 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 				unregisterDataListener('plots');
 			};
 		}
-	}, [isPopout, widgetId, registerDataListener, unregisterDataListener, syncData]);
+	}, [isPopout, widgetId, registerDataListener, unregisterDataListener, sendDataUpdate]);
 
 	// Initialize chart state from popout state if provided
 	useEffect(() => {
@@ -113,13 +114,50 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 			// Request full data from main window
 			if (!dataRequestedRef.current) {
 				logger.info(`[ChartWidget] Requesting full plot data:`, { widgetId });
-				syncData('plots', null);
+				sendDataUpdate('plots', null);
 				dataRequestedRef.current = true;
 			}
 
 			initializationAttempted.current = true;
 		}
-	}, [isPopout, popoutPlotState, widgetId, setChartState, syncData]);
+	}, [isPopout, popoutPlotState, widgetId, setChartState, sendDataUpdate]);
+
+	// Get the current plot state based on whether we're in popout mode
+	const currentPlots = isPopout ? syncedPlots : plots;
+	const plotState = currentPlots ? Object.values(currentPlots)[0] : null;
+
+	// Auto-select default channels when EDF data becomes available
+	useEffect(() => {
+		if (plotState?.edfData?.channels && chartState.selectedChannels.length === 0 && !channelsInitialized.current) {
+			logger.info(`[ChartWidget] Auto-selecting default channels:`, {
+				widgetId,
+				availableChannels: plotState.edfData.channels.length,
+				channels: plotState.edfData.channels.slice(0, 5)
+			});
+
+			// Select first 5 channels by default, similar to useDDAPlot
+			const defaultChannels = plotState.edfData.channels.slice(0, 5);
+
+			// Also initialize time window based on data duration
+			const dataDuration = plotState.edfData.duration || 10;
+			const initialTimeWindow: [number, number] = [0, Math.min(10, dataDuration)];
+
+			setChartState(prev => ({
+				...prev,
+				selectedChannels: defaultChannels,
+				timeWindow: initialTimeWindow
+			}));
+
+			channelsInitialized.current = true;
+		}
+	}, [plotState?.edfData?.channels, plotState?.edfData?.duration, chartState.selectedChannels.length, setChartState, widgetId]);
+
+	// Reset channel initialization flag when plot state changes
+	useEffect(() => {
+		if (!plotState?.edfData) {
+			channelsInitialized.current = false;
+		}
+	}, [plotState?.edfData]);
 
 	// Render loading state
 	if (isPopout && !syncedPlots && !popoutPlotState?.edfData) {
@@ -142,10 +180,6 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 			</div>
 		);
 	}
-
-	// Get the current plot state based on whether we're in popout mode
-	const currentPlots = isPopout ? syncedPlots : plots;
-	const plotState = currentPlots ? Object.values(currentPlots)[0] : null;
 
 	// Show loading state while waiting for data in popout mode
 	if (isPopout && !plotState?.edfData?.data) {
@@ -223,6 +257,18 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 						Invalid EEG data structure
 					</AlertDescription>
 				</Alert>
+			</div>
+		);
+	}
+
+	// Show loading state if no channels are selected yet
+	if (selectedChannels.length === 0) {
+		return (
+			<div className="flex h-full w-full items-center justify-center">
+				<div className="text-center">
+					<div className="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
+					<p className="text-sm text-muted-foreground">Selecting channels...</p>
+				</div>
 			</div>
 		);
 	}

@@ -1,11 +1,10 @@
 import { useState, useEffect } from "react";
-import { useSession } from "next-auth/react";
-import { useApiQuery } from "./useApiQuery";
 import type { ArtifactInfo } from "../components/ui/ArtifactIdentifier";
 import { apiRequest } from "../lib/utils/request";
+import { useUnifiedSessionData } from "./useUnifiedSession";
 
 export function useArtifactInfo(artifactId?: string) {
-  const { data: session } = useSession();
+  const { data: session } = useUnifiedSessionData();
   const [artifactInfo, setArtifactInfo] = useState<ArtifactInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -54,7 +53,7 @@ export function useArtifactInfo(artifactId?: string) {
 }
 
 export function useArtifactFromFilePath(filePath?: string) {
-  const { data: session } = useSession();
+  const { data: session } = useUnifiedSessionData();
   const [artifactInfo, setArtifactInfo] = useState<ArtifactInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
