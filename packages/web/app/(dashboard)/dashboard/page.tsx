@@ -12,6 +12,7 @@ import { useAppDispatch } from 'shared/store';
 import { initializePlot, loadChunk, ensurePlotState } from 'shared/store/slices/plotSlice';
 import { useLoadingManager } from 'shared/hooks/useLoadingManager';
 import { useDashboardRestoration } from 'shared/hooks/useDashboardRestoration';
+import { usePlotCaching } from 'shared/hooks/usePlotCaching';
 
 export default function Dashboard() {
 	const { user, status } = useUnifiedSession();
@@ -22,9 +23,21 @@ export default function Dashboard() {
 	// Add dashboard restoration hook
 	useDashboardRestoration();
 
+	// Add plot caching hook to automatically cache plots when they are generated
+	usePlotCaching({ enabled: true, ttl: 3600 }); // Cache for 1 hour
+
 	const handleFileSelect = async (filePath: string) => {
 		// In local mode, we'll use a placeholder token since the API will handle it
 		const token = user?.isLocalMode ? "local-mode-token" : (user as any)?.accessToken;
+
+		// Add debugging
+		console.log("[handleFileSelect] Starting file selection:", {
+			filePath,
+			hasToken: !!token,
+			isLocalMode: user?.isLocalMode,
+			user: user
+		});
+
 		if (!token) {
 			toast({
 				title: "Authentication Error",
@@ -45,26 +58,50 @@ export default function Dashboard() {
 				true // Show global overlay
 			);
 
+			// Set a timeout to prevent indefinite loading
+			const timeoutPromise = new Promise((_, reject) => {
+				setTimeout(() => {
+					reject(new Error(`File load timeout: ${fileName} took too long to load`));
+				}, 45000); // 45 second timeout
+			});
+
 			// Ensure plot state exists for this file
+			console.log("[handleFileSelect] Dispatching ensurePlotState");
 			dispatch(ensurePlotState(filePath));
 
 			// Update loading message for metadata phase
 			loadingManager.updateProgress(loadingId, 25, `Loading metadata for ${fileName}...`);
 
-			// Initialize plot metadata
-			const initResult = await dispatch(initializePlot({ filePath, token }));
+			// Initialize plot metadata with timeout protection
+			console.log("[handleFileSelect] Dispatching initializePlot");
+			const initPromise = dispatch(initializePlot({ filePath, token }));
+			const initResult = await Promise.race([initPromise, timeoutPromise]) as any;
+
+			console.log("[handleFileSelect] initializePlot result:", {
+				status: initResult.meta.requestStatus,
+				payload: initResult.payload,
+				error: initResult.error
+			});
 
 			if (initResult.meta.requestStatus === 'fulfilled') {
 				// Update loading message for data phase
 				loadingManager.updateProgress(loadingId, 60, `Loading data for ${fileName}...`);
 
-				// Load the first chunk
-				const loadResult = await dispatch(loadChunk({
+				// Load the first chunk with timeout protection
+				console.log("[handleFileSelect] Dispatching loadChunk");
+				const loadPromise = dispatch(loadChunk({
 					filePath,
 					chunkNumber: 1,
 					chunkSizeSeconds: 10,
 					token,
 				}));
+				const loadResult = await Promise.race([loadPromise, timeoutPromise]) as any;
+
+				console.log("[handleFileSelect] loadChunk result:", {
+					status: loadResult.meta.requestStatus,
+					payload: loadResult.payload,
+					error: loadResult.error
+				});
 
 				if (loadResult.meta.requestStatus === 'fulfilled') {
 					// Complete loading
@@ -81,31 +118,27 @@ export default function Dashboard() {
 						duration: 3000,
 					});
 				} else {
-					loadingManager.stop(loadingId);
-					toast({
-						title: "Data Load Error",
-						description: "Failed to load file data chunk.",
-						variant: "destructive",
-						duration: 4000,
-					});
+					console.error("[handleFileSelect] loadChunk failed:", loadResult.error);
+					throw new Error(`Failed to load data for ${fileName}: ${loadResult.error?.message || 'Unknown error'}`);
 				}
 			} else {
-				loadingManager.stop(loadingId);
-				toast({
-					title: "Metadata Error",
-					description: "Failed to load file metadata.",
-					variant: "destructive",
-					duration: 4000,
-				});
+				console.error("[handleFileSelect] initializePlot failed:", initResult.error);
+				throw new Error(`Failed to initialize ${fileName}: ${initResult.error?.message || 'Unknown error'}`);
 			}
 		} catch (error) {
-			console.error("Error loading file:", error);
+			console.error("[handleFileSelect] Error loading file:", error);
+
+			// Always stop loading on error
 			loadingManager.stop(loadingId);
+
+			// Provide user-friendly error message
+			const errorMessage = error instanceof Error ? error.message : `Failed to load ${fileName}`;
+
 			toast({
 				title: "Load Error",
-				description: "Failed to load the selected file",
+				description: errorMessage,
 				variant: "destructive",
-				duration: 4000,
+				duration: 5000,
 			});
 		}
 	};

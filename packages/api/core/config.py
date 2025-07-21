@@ -55,6 +55,14 @@ class Settings(BaseSettings):
     minio_secret_key: str
     minio_bucket_name: str
 
+    # Redis settings for plot caching
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_db: int = 0
+    redis_password: Optional[str] = None
+    redis_use_ssl: bool = False
+    plot_cache_ttl: int = 3600  # 1 hour default TTL for plot cache
+
     # OpenTelemetry settings
     otlp_host: str
     otlp_port: int = 4317

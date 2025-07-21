@@ -29,6 +29,7 @@
     "react-grid-layout": "^1.5.1",
     "react-redux": "^9.2.0",
     "redux": "^5.0.1",
+    "uplot": "^1.6.32",
     "xstate": "^5.19.3"
   }
 }

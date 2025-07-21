@@ -22,4 +22,5 @@ export { useWidgetDataSync } from "./useWidgetDataSync";
 export { useWidgetState } from "./useWidgetState";
 export { useWelcomeWidget } from "./useWelcomeWidget";
 export { useAnnotationManagement } from "./useAnnotationManagement";
+export { useCachedPlotCheck } from "./useCachedPlotCheck";
 export { useIsMobile } from "./useMobile";

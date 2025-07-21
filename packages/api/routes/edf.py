@@ -55,6 +55,56 @@ async def get_cache_stats(_: User = Depends(get_current_user)):
         )
 
 
+@router.get("/cache/check")
+async def check_cached_plot(
+    file_path: str,
+    chunk_start: int = 0,
+    chunk_size: int = 25600,
+    preprocessing_options: str = None,
+    _: User = Depends(get_current_user),
+):
+    """Check if a cached plot exists for the given parameters."""
+    try:
+        from core.edf.edf_cache import get_cache_manager
+
+        cache_manager = get_cache_manager()
+
+        # Convert preprocessing_options from JSON string if provided
+        import json
+
+        preprocess_opts = None
+        if preprocessing_options:
+            try:
+                preprocess_opts = json.loads(preprocessing_options)
+            except json.JSONDecodeError:
+                raise HTTPException(
+                    status_code=400, detail="Invalid preprocessing_options JSON format"
+                )
+
+        # Check if the file exists first
+        full_path = Path(settings.data_dir) / file_path
+        if not full_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+        # Check if cached data exists
+        cached_exists = cache_manager.check_cached_chunk(
+            str(full_path), chunk_start, chunk_size, preprocess_opts
+        )
+
+        return {
+            "exists": cached_exists,
+            "file_path": file_path,
+            "chunk_start": chunk_start,
+            "chunk_size": chunk_size,
+            "preprocessing_options": preprocess_opts,
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error checking cached plot: {str(e)}"
+        )
+
+
 @router.post("/cache/clear")
 async def clear_cache(file_path: str = None, _: User = Depends(get_current_user)):
     """Clear EDF cache for a specific file or all files."""

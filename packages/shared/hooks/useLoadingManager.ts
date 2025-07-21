@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useMemo } from "react";
 import { useAppDispatch, useAppSelector } from "../store";
 import {
   startLoading,
@@ -48,6 +48,57 @@ export interface LoadingManager {
 
 export function useLoadingManager(): LoadingManager {
   const dispatch = useAppDispatch();
+  const operations = useAppSelector((state) => state.loading.operations);
+  const timeoutRefs = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const lastCleanupRef = useRef<number>(0);
+
+  // Auto-cleanup stuck loading operations
+  useEffect(() => {
+    const cleanupStuckOperations = () => {
+      const now = Date.now();
+      const maxDuration = 60000; // 60 seconds max duration
+      let hasCleanup = false;
+
+      Object.entries(operations).forEach(([id, operation]) => {
+        const duration = now - operation.startTime;
+        if (duration > maxDuration) {
+          console.warn(
+            `Auto-clearing stuck loading operation: ${id} (${operation.type})`
+          );
+          dispatch(stopLoading(id));
+          hasCleanup = true;
+
+          // Clear timeout if it exists
+          const timeoutRef = timeoutRefs.current.get(id);
+          if (timeoutRef) {
+            clearTimeout(timeoutRef);
+            timeoutRefs.current.delete(id);
+          }
+        }
+      });
+
+      if (hasCleanup) {
+        lastCleanupRef.current = now;
+      }
+    };
+
+    // Only run cleanup if we haven't cleaned up recently (avoid excessive calls)
+    const now = Date.now();
+    if (now - lastCleanupRef.current > 5000) {
+      // Minimum 5 seconds between cleanups
+      cleanupStuckOperations();
+    }
+
+    // Check for stuck operations every 30 seconds
+    const interval = setInterval(cleanupStuckOperations, 30000);
+
+    return () => {
+      clearInterval(interval);
+      // Clear all timeout refs on unmount
+      timeoutRefs.current.forEach((timeout) => clearTimeout(timeout));
+      timeoutRefs.current.clear();
+    };
+  }, [operations, dispatch]);
 
   // State selectors
   const isGloballyLoading = useAppSelector(selectIsGloballyLoading);
@@ -65,6 +116,17 @@ export function useLoadingManager(): LoadingManager {
       metadata?: Record<string, any>;
     }) => {
       dispatch(startLoading(params));
+
+      // Set up auto-timeout for this operation (45 seconds)
+      const timeout = setTimeout(() => {
+        console.warn(
+          `Auto-timeout for loading operation: ${params.id} (${params.type})`
+        );
+        dispatch(stopLoading(params.id));
+        timeoutRefs.current.delete(params.id);
+      }, 45000);
+
+      timeoutRefs.current.set(params.id, timeout);
     },
     [dispatch]
   );
@@ -79,12 +141,23 @@ export function useLoadingManager(): LoadingManager {
   const stop = useCallback(
     (id: string) => {
       dispatch(stopLoading(id));
+
+      // Clear timeout if it exists
+      const timeoutRef = timeoutRefs.current.get(id);
+      if (timeoutRef) {
+        clearTimeout(timeoutRef);
+        timeoutRefs.current.delete(id);
+      }
     },
     [dispatch]
   );
 
   const clear = useCallback(() => {
     dispatch(clearAllLoading());
+
+    // Clear all timeout refs
+    timeoutRefs.current.forEach((timeout) => clearTimeout(timeout));
+    timeoutRefs.current.clear();
   }, [dispatch]);
 
   // Global overlay control
@@ -148,29 +221,50 @@ export function useLoadingManager(): LoadingManager {
     [start]
   );
 
-  return {
-    // State getters
-    isGloballyLoading,
-    isDDAProcessing,
-    isFileLoading,
-    isUploading,
+  // Use useMemo to create a stable object reference
+  const loadingManager = useMemo(
+    () => ({
+      // State getters
+      isGloballyLoading,
+      isDDAProcessing,
+      isFileLoading,
+      isUploading,
 
-    // Loading control
-    start,
-    updateProgress: handleUpdateProgress,
-    stop,
-    clear,
+      // Loading control
+      start,
+      updateProgress: handleUpdateProgress,
+      stop,
+      clear,
 
-    // Global overlay control
-    showGlobalOverlay: showGlobalOverlayFn,
-    hideGlobalOverlay,
+      // Global overlay control
+      showGlobalOverlay: showGlobalOverlayFn,
+      hideGlobalOverlay,
 
-    // Convenience methods
-    startFileLoad,
-    startDDAProcessing,
-    startUpload,
-    startAPIRequest,
-  };
+      // Convenience methods
+      startFileLoad,
+      startDDAProcessing,
+      startUpload,
+      startAPIRequest,
+    }),
+    [
+      isGloballyLoading,
+      isDDAProcessing,
+      isFileLoading,
+      isUploading,
+      start,
+      handleUpdateProgress,
+      stop,
+      clear,
+      showGlobalOverlayFn,
+      hideGlobalOverlay,
+      startFileLoad,
+      startDDAProcessing,
+      startUpload,
+      startAPIRequest,
+    ]
+  );
+
+  return loadingManager;
 }
 
 // Hook to check if a specific loading operation is active

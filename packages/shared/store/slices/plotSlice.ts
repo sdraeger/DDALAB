@@ -7,6 +7,7 @@ import logger from "../../lib/utils/logger";
 import { apolloClient } from "../../lib/utils/apollo-client";
 import { GET_EDF_DATA } from "../../lib/graphql/queries";
 import { startLoading, stopLoading, updateProgress } from "./loadingSlice";
+import { plotStorage, PlotData } from "../../lib/utils/indexedDB/plotStorage";
 
 interface PlotMetadata extends EdfFileInfo {
   availableChannels?: string[];
@@ -159,13 +160,29 @@ export const loadChunk = createAsyncThunk(
     },
     { getState, rejectWithValue, dispatch }
   ) => {
+    // Add debugging at the start
+    console.log("[loadChunk] Thunk started:", {
+      filePath,
+      chunkNumber,
+      chunkSizeSeconds,
+      hasToken: !!token,
+    });
+
     const state = getState() as { plots: PlotsState };
     const plot = state.plots[filePath];
 
+    console.log("[loadChunk] Current state:", {
+      hasPlot: !!plot,
+      hasMetadata: !!plot?.metadata,
+      plotKeys: plot ? Object.keys(plot) : null,
+    });
+
     if (!plot || !plot.metadata) {
+      console.error("[loadChunk] Plot or metadata not initialized");
       return rejectWithValue("Plot or metadata not initialized.");
     }
     if (!token) {
+      console.error("[loadChunk] No token provided");
       return rejectWithValue("No token provided for fetching chunk data.");
     }
 
@@ -244,9 +261,72 @@ export const loadChunk = createAsyncThunk(
         annotations: [],
       };
 
-      logger.info(
-        `[Thunk] Successfully loaded chunk ${chunkNumber} with ${eegData.channels.length} channels`
-      );
+      // Add comprehensive debugging to understand the data structure
+      logger.info(`[Thunk] Raw EDF data structure:`, {
+        hasChannelLabels: !!rawEdfData.channelLabels,
+        channelLabelsLength: rawEdfData.channelLabels?.length,
+        hasData: !!rawEdfData.data,
+        dataLength: rawEdfData.data?.length,
+        firstChannelDataLength: rawEdfData.data?.[0]?.length,
+        samplingFrequency: rawEdfData.samplingFrequency,
+        chunkSize: rawEdfData.chunkSize,
+        totalSamples: rawEdfData.totalSamples,
+        // Add more detailed data inspection
+        dataType: typeof rawEdfData.data,
+        isArray: Array.isArray(rawEdfData.data),
+        firstChannelType: typeof rawEdfData.data?.[0],
+        firstChannelIsArray: Array.isArray(rawEdfData.data?.[0]),
+        // Add raw data inspection
+        rawDataKeys: rawEdfData ? Object.keys(rawEdfData) : null,
+        rawDataSample: rawEdfData.data ? rawEdfData.data.slice(0, 2) : null, // Show first 2 channels
+      });
+
+      // Add debugging for the transformed data
+      logger.info(`[Thunk] Transformed EEG data:`, {
+        channelsLength: eegData.channels.length,
+        dataLength: eegData.data.length,
+        samplesPerChannel: eegData.samplesPerChannel,
+        duration: eegData.duration,
+        // Add more detailed inspection
+        dataType: typeof eegData.data,
+        isArray: Array.isArray(eegData.data),
+        firstChannelType: typeof eegData.data?.[0],
+        firstChannelIsArray: Array.isArray(eegData.data?.[0]),
+        firstChannelLength: eegData.data?.[0]?.length,
+        // Add transformed data inspection
+        transformedDataSample: eegData.data ? eegData.data.slice(0, 2) : null, // Show first 2 channels
+      });
+
+      // After successfully loading data, save to IndexedDB
+      if (eegData) {
+        try {
+          const plotData: PlotData = {
+            filePath,
+            metadata: plot.metadata,
+            edfData: eegData,
+            selectedChannels: plot.selectedChannels,
+            timeWindow: plot.timeWindow,
+            absoluteTimeWindow: plot.absoluteTimeWindow,
+            zoomLevel: plot.zoomLevel,
+            chunkSizeSeconds: plot.chunkSizeSeconds,
+            currentChunkNumber: chunkNumber,
+            totalChunks: plot.totalChunks,
+            chunkStart: (chunkNumber - 1) * chunkSizeSeconds,
+            showHeatmap: plot.showHeatmap,
+            ddaResults: plot.ddaResults,
+            annotations: plot.annotations || [],
+            showSettingsDialog: plot.showSettingsDialog,
+            showZoomSettingsDialog: plot.showZoomSettingsDialog,
+            preprocessingOptions: plot.preprocessingOptions,
+            lastAccessed: Date.now(),
+            size: 0,
+          };
+
+          await plotStorage.savePlot(plotData);
+        } catch (error) {
+          console.warn("Failed to save plot to IndexedDB:", error);
+        }
+      }
 
       return {
         filePath,
@@ -535,6 +615,18 @@ const plotsSlice = createSlice({
         const { filePath, chunkNumber, chunkStart, eegData } = action.payload;
         const plot = state[filePath];
         if (plot && eegData) {
+          // Add debugging to see what's being stored
+          logger.info(`[Redux] Storing EEG data in Redux:`, {
+            filePath,
+            chunkNumber,
+            hasEegData: !!eegData,
+            channelsLength: eegData.channels?.length,
+            dataLength: eegData.data?.length,
+            firstChannelLength: eegData.data?.[0]?.length,
+            dataType: typeof eegData.data,
+            isArray: Array.isArray(eegData.data),
+          });
+
           // Ensure eegData is not null
           plot.isLoading = false;
           plot.edfData = eegData;
@@ -575,6 +667,14 @@ const plotsSlice = createSlice({
             chunkStart,
             chunkStart + actualChunkDuration,
           ];
+
+          // Add debugging after storage
+          logger.info(`[Redux] EEG data stored successfully:`, {
+            filePath,
+            storedDataLength: plot.edfData?.data?.length,
+            storedChannelsLength: plot.edfData?.channels?.length,
+            selectedChannelsLength: plot.selectedChannels.length,
+          });
         }
       })
       .addCase(loadChunk.rejected, (state, action) => {

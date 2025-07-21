@@ -303,3 +303,89 @@ if (plotDependentWidgets.includes(widget.type)) {
 - Enhanced data sync for other Redux slices
 - Real-time collaborative editing
 - Data conflict resolution
+
+# Shared Hooks
+
+This directory contains reusable React hooks for the DDALAB application.
+
+## Available Hooks
+
+### useCachedPlotCheck
+
+A hook that queries the API server to check if a cached plot exists for a given file and parameters.
+
+#### Usage
+
+```typescript
+import { useCachedPlotCheck } from "shared/hooks";
+
+function ChartWidget() {
+  const { isChecking, result, error } = useCachedPlotCheck(
+    {
+      filePath: "path/to/file.edf",
+      chunkStart: 0,
+      chunkSize: 25600,
+      preprocessingOptions: null,
+    },
+    {
+      enabled: true,
+      onCacheHit: (result) => {
+        console.log("Cache hit:", result);
+      },
+      onCacheMiss: () => {
+        console.log("Cache miss");
+      },
+    }
+  );
+
+  return (
+    <div>
+      {isChecking && <div>Checking cache...</div>}
+      {result && <div>Cache exists: {result.exists}</div>}
+      {error && <div>Error: {error}</div>}
+    </div>
+  );
+}
+```
+
+#### Parameters
+
+- `params`: Object containing plot parameters
+
+  - `filePath`: Path to the EDF file
+  - `chunkStart`: Start position in samples (optional, default: 0)
+  - `chunkSize`: Size of the chunk in samples (optional, default: 25600)
+  - `preprocessingOptions`: Preprocessing options (optional)
+
+- `options`: Configuration options
+  - `enabled`: Whether to enable the cache check (default: true)
+  - `onCacheHit`: Callback when cache exists
+  - `onCacheMiss`: Callback when cache doesn't exist
+
+#### Returns
+
+- `isChecking`: Boolean indicating if the check is in progress
+- `result`: The cache check result (null if not checked yet)
+- `error`: Error message if the check failed
+- `checkCachedPlot`: Function to manually trigger the check
+
+#### API Endpoint
+
+The hook queries the `/api/edf/cache/check` endpoint with the following parameters:
+
+- `file_path`: The file path to check
+- `chunk_start`: Start position in samples
+- `chunk_size`: Size of the chunk in samples
+- `preprocessing_options`: JSON string of preprocessing options (if provided)
+
+The endpoint returns:
+
+```json
+{
+  "exists": true,
+  "file_path": "path/to/file.edf",
+  "chunk_start": 0,
+  "chunk_size": 25600,
+  "preprocessing_options": null
+}
+```

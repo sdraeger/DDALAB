@@ -132,11 +132,12 @@ export function ModernWidgetContainer({
 	return (
 		<div
 			className={cn(
-				'modern-widget-container h-full w-full bg-background border border-border rounded-lg shadow-sm overflow-hidden',
-				'transition-all duration-200 ease-in-out',
-				'hover:shadow-md hover:border-primary/20',
+				"modern-widget-container relative h-full w-full bg-background border border-border rounded-lg shadow-sm overflow-hidden",
+				"transition-all duration-200 hover:shadow-md",
+				"group", // For hover effects
 				className
 			)}
+			data-widget-id={widget.id}
 			onMouseEnter={() => setIsHovered(true)}
 			onMouseLeave={() => setIsHovered(false)}
 		>

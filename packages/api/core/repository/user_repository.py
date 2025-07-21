@@ -7,6 +7,7 @@ from core.models import User
 from core.repository.base import BaseRepository
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 
 class UserRepository(BaseRepository[User]):
@@ -25,7 +26,16 @@ class UserRepository(BaseRepository[User]):
         Returns:
             The user if found, None otherwise
         """
-        result = await self.db.execute(select(User).where(User.username == username))
+        result = await self.db.execute(
+            select(User)
+            .options(
+                selectinload(User.preferences),
+                selectinload(User.favorite_files),
+                selectinload(User.layouts),
+                selectinload(User.artifacts),
+            )
+            .where(User.username == username)
+        )
         return result.scalar_one_or_none()
 
     async def update_last_login(self, user: User) -> User:

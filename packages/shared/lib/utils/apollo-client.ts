@@ -1,12 +1,11 @@
 import {
   ApolloClient,
-  ApolloLink,
   InMemoryCache,
   createHttpLink,
   from,
 } from "@apollo/client";
 import { setContext } from "@apollo/client/link/context";
-import { getSession } from "next-auth/react";
+import { sessionTokenManager } from "./session-token-manager";
 
 // Create the http link with the correct URL based on environment
 const httpLink = createHttpLink({
@@ -22,8 +21,7 @@ const httpLink = createHttpLink({
 });
 
 const authLink = setContext(async (_, { headers }) => {
-  const session = await getSession();
-  const token = session?.accessToken;
+  const token = await sessionTokenManager.getToken();
   console.log("Apollo - Sending token:", token);
   return {
     headers: {

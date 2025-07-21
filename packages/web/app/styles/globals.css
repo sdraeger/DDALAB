@@ -16,6 +16,18 @@
   }
 }
 
+/* uPlot Custom Styles */
+.u-select {
+  background-color: rgba(60, 130, 255, 0.2); /* A semi-transparent blue fill */
+  border: 1px solid rgba(60, 130, 255, 0.7); /* A more solid border */
+}
+
+@layer components {
+  .u-select {
+    @apply bg-blue-500/20 border border-blue-500/70;
+  }
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
