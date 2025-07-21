@@ -103,11 +103,11 @@ export function PersistentPlotsProvider({ children }: { children: ReactNode }) {
           prev.map((plot) =>
             plot.id === existingPlot.id
               ? {
-                  ...plot,
-                  lastAccessed: Date.now(),
-                  isVisible: true,
-                  isMinimized: false,
-                }
+                ...plot,
+                lastAccessed: Date.now(),
+                isVisible: true,
+                isMinimized: false,
+              }
               : plot
           )
         );

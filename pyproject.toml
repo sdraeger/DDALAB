@@ -7,6 +7,7 @@ requires-python = ">=3.10"
 dependencies = [
     "aiofiles>=23.2.1",
     "aiohttp>=3.9.3",
+    "aioredis>=2.0.0",
     "asyncpg>=0.27.0",
     "click>=8.1.8",
     "cryptography>=41.0.0",
@@ -41,6 +42,7 @@ dependencies = [
     "python-dateutil>=2.8.2",
     "python-jose[cryptography]>=3.3.0",
     "python-multipart>=0.0.5",
+    "redis>=5.0.0",
     "requests>=2.32.3",
     "requests-mock>=1.11.0",
     "requests-toolbelt>=1.0.0",

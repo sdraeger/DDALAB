@@ -182,16 +182,16 @@ try:
 except Exception as e:
     logger.warning(f"Failed to configure OTLP tracing: {e}. Tracing will be disabled.")
 
+# Add Prometheus middleware (executed first due to LIFO order)
+app.add_middleware(PrometheusMiddleware)
+
 # Add MinIO middleware
 app.add_middleware(MinIOMiddleware)
 
-# Add Prometheus middleware
-app.add_middleware(PrometheusMiddleware)
-
-# Add auth middleware
+# Add auth middleware (executed before database middleware due to LIFO order)
 app.add_middleware(AuthMiddleware)
 
-# Add database middleware (runs before auth middleware due to reverse execution order)
+# Add database middleware (executed last, so it runs first in the chain)
 app.add_middleware(DatabaseMiddleware)
 
 # Add CORS middleware

@@ -7,12 +7,12 @@ from core.dependencies import get_service
 from core.models import User
 from core.services import PlotService
 from fastapi import APIRouter, Depends
-from schemas.plots import Plot
+from schemas.plots import PlotResponse
 
 router = APIRouter()
 
 
-@router.get("", response_model=List[Plot])
+@router.get("", response_model=List[PlotResponse])
 async def list_plots(
     current_user: User = Depends(get_current_user),
     plot_service: PlotService = Depends(get_service(PlotService)),

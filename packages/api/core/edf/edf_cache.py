@@ -166,6 +166,21 @@ class ChunkDataCache:
 
             return copied_edf_file, data["total_samples"]
 
+    def exists(
+        self,
+        file_path: str,
+        chunk_start: int,
+        chunk_size: int,
+        preprocessing_options: Optional[Dict] = None,
+    ) -> bool:
+        """Check if cached chunk data exists without retrieving it."""
+        key = self._generate_key(
+            file_path, chunk_start, chunk_size, preprocessing_options
+        )
+
+        with self._lock:
+            return key in self._cache
+
     def put(
         self,
         file_path: str,
@@ -671,6 +686,18 @@ class EDFCacheManager:
             "chunk_cache": self.chunk_cache.get_stats(),
             "file_handles": self.file_handles.get_stats(),
         }
+
+    def check_cached_chunk(
+        self,
+        file_path: str,
+        chunk_start: int = 0,
+        chunk_size: int = 25_600,
+        preprocessing_options: Optional[Dict] = None,
+    ) -> bool:
+        """Check if a cached chunk exists for the given parameters."""
+        return self.chunk_cache.exists(
+            file_path, chunk_start, chunk_size, preprocessing_options
+        )
 
     def clear_all_caches(self):
         """Clear all caches."""

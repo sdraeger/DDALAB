@@ -95,6 +95,8 @@ export * from "./components/files/FileActionButton";
 export * from "./components/plot/DDAPlot";
 export * from "./components/plot/DDAHeatmap";
 export * from "./components/plot/EEGChart";
+export * from "./components/plot/CachedPlotsDisplay";
+export * from "./components/plot/PlotCacheIntegration";
 export * from "./components/dialog/EDFPlotDialog";
 export * from "./components/dialog/PreprocessingDialog";
 export * from "./components/dialog/ShareArtifactDialog";

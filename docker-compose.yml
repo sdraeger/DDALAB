@@ -46,12 +46,20 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       DDALAB_ALLOWED_DIRS: ${DDALAB_ALLOWED_DIRS}
       PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus
+      DDALAB_REDIS_HOST: redis
+      DDALAB_REDIS_PORT: 6379
+      DDALAB_REDIS_DB: 0
+      DDALAB_REDIS_PASSWORD: ${DDALAB_REDIS_PASSWORD:-}
+      DDALAB_REDIS_USE_SSL: ${DDALAB_REDIS_USE_SSL:-False}
+      DDALAB_PLOT_CACHE_TTL: ${DDALAB_PLOT_CACHE_TTL:-3600}
     volumes:
       - prometheus_metrics:/tmp/prometheus
     depends_on:
       postgres:
         condition: service_healthy
       minio:
+        condition: service_started
+      redis:
         condition: service_started
     networks:
       - internal
