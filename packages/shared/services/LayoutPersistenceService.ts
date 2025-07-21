@@ -2,6 +2,10 @@ import type { Layout } from "react-grid-layout";
 import { IDashboardWidget, ILayoutPersistence } from "../types/dashboard";
 import logger from "../lib/utils/logger";
 import { apiRequest } from "../lib/utils/request";
+import {
+  dashboardStorage,
+  widgetLayoutStorage,
+} from "../lib/utils/authModeStorage";
 
 // Serializable widget data for persistence
 interface SerializableWidgetData {
@@ -27,6 +31,7 @@ interface SerializableWidgetData {
 export class LayoutPersistenceService implements ILayoutPersistence {
   private static instance: LayoutPersistenceService;
   private accessToken: string | null = null;
+  private isLocalMode: boolean = false; // Add local mode flag
 
   private constructor() {}
 
@@ -37,14 +42,37 @@ export class LayoutPersistenceService implements ILayoutPersistence {
     return LayoutPersistenceService.instance;
   }
 
+  /**
+   * Set the access token for multi-user mode.
+   */
   public setAccessToken(token: string | null): void {
     this.accessToken = token;
   }
 
+  /**
+   * Set local mode flag. Should be called by the dashboard context/provider.
+   */
+  public setLocalMode(isLocal: boolean): void {
+    this.isLocalMode = isLocal;
+  }
+
+  /**
+   * Save layout and widgets. Uses localStorage in local mode, network in multi-user mode.
+   */
   public async saveLayout(
     layout: Layout[],
     widgets: IDashboardWidget[]
   ): Promise<void> {
+    if (this.isLocalMode) {
+      // LOCAL MODE: Save to localStorage only
+      dashboardStorage.setItem("layouts", layout);
+      widgetLayoutStorage.setItem("widgets", widgets);
+      logger.info(
+        "[LocalMode] Saved dashboard layout and widgets to localStorage"
+      );
+      return;
+    }
+    // MULTI-USER MODE: Network request
     if (!this.accessToken) {
       throw new Error("No authentication token available");
     }
@@ -131,10 +159,24 @@ export class LayoutPersistenceService implements ILayoutPersistence {
     }
   }
 
+  /**
+   * Load layout and widgets. Uses localStorage in local mode, network in multi-user mode.
+   */
   public async loadLayout(): Promise<{
     layout: Layout[];
     widgets: IDashboardWidget[];
   } | null> {
+    if (this.isLocalMode) {
+      // LOCAL MODE: Load from localStorage only
+      const layout = dashboardStorage.getItem<Layout[]>("layouts") || [];
+      const widgets =
+        widgetLayoutStorage.getItem<IDashboardWidget[]>("widgets") || [];
+      logger.info(
+        "[LocalMode] Loaded dashboard layout and widgets from localStorage"
+      );
+      return { layout, widgets };
+    }
+    // MULTI-USER MODE: Network request
     if (!this.accessToken) {
       logger.warn("No authentication token available for loading layout");
       return null;
@@ -238,7 +280,20 @@ export class LayoutPersistenceService implements ILayoutPersistence {
     }
   }
 
+  /**
+   * Clear layout and widgets. Uses localStorage in local mode, network in multi-user mode.
+   */
   public async clearLayout(): Promise<void> {
+    if (this.isLocalMode) {
+      // LOCAL MODE: Clear from localStorage only
+      dashboardStorage.clear();
+      widgetLayoutStorage.clear();
+      logger.info(
+        "[LocalMode] Cleared dashboard layout and widgets from localStorage"
+      );
+      return;
+    }
+    // MULTI-USER MODE: Network request
     if (!this.accessToken) {
       throw new Error("No authentication token available");
     }
@@ -262,8 +317,20 @@ export class LayoutPersistenceService implements ILayoutPersistence {
     }
   }
 
-  // Utility method to check if layout exists
+  /**
+   * Check if layout exists. Uses localStorage in local mode, network in multi-user mode.
+   */
   public async hasLayout(): Promise<boolean> {
+    if (this.isLocalMode) {
+      // LOCAL MODE: Check localStorage only
+      const layout = dashboardStorage.getItem<Layout[]>("layouts");
+      const widgets =
+        widgetLayoutStorage.getItem<IDashboardWidget[]>("widgets");
+      return (
+        !!(layout && layout.length > 0) || !!(widgets && widgets.length > 0)
+      );
+    }
+    // MULTI-USER MODE: Network request
     if (!this.accessToken) {
       return false;
     }

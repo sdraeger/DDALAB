@@ -96,6 +96,11 @@ export function useModernDashboard(
     }
   }, [authToken]);
 
+  // Update persistence service local mode flag when isMultiUserMode changes
+  useEffect(() => {
+    persistenceService.current.setLocalMode(!isMultiUserMode);
+  }, [isMultiUserMode]);
+
   // Load initial layout
   useEffect(() => {
     if (!hasInitialized.current) {
