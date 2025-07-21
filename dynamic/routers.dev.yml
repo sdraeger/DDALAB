@@ -112,6 +112,22 @@ http:
       tls:
         options: default
 
+    web-auth:
+      rule: "Host(`localhost`) && PathPrefix(`/api/auth`)"
+      priority: 100
+      entryPoints:
+        - web
+      service: web
+
+    web-auth-secure:
+      rule: "Host(`localhost`) && PathPrefix(`/api/auth`)"
+      priority: 100
+      entryPoints:
+        - websecure
+      service: web
+      tls:
+        options: default
+
   services:
     web:
       loadBalancer:
