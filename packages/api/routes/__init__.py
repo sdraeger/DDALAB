@@ -13,6 +13,8 @@ from .files import router as files_router
 from .health import router as health_router
 from .layouts import router as layouts_router
 from .metrics import router as metrics_router
+from .plot_cache import router as plot_cache_router
+from .plots import router as plots_router
 from .tickets import router as tickets_router
 from .user_preferences import router as user_preferences_router
 from .users import router as users_router
@@ -26,6 +28,8 @@ router_metrics = APIRouter()
 router.include_router(artifacts_router, prefix="/artifacts", tags=["artifacts"])
 router.include_router(dda_router, prefix="/dda", tags=["dda"])
 router.include_router(files_router, prefix="/files", tags=["files"])
+router.include_router(plot_cache_router, prefix="/plot-cache", tags=["plot_cache"])
+router.include_router(plots_router, prefix="/plots", tags=["plots"])
 router.include_router(tickets_router, prefix="/tickets", tags=["tickets"])
 router.include_router(
     user_preferences_router,

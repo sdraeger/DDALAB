@@ -144,6 +144,11 @@ export function useModernDashboard(
             }
           }
           setWidgets(restoredWidgets);
+
+          // Delay restoration events to allow widgets to render and set DOM attributes
+          setTimeout(() => {
+            dispatchRestorationEvents(restoredWidgets);
+          }, 500);
         }
 
         logger.info("Loaded dashboard layout from local storage");
@@ -206,6 +211,11 @@ export function useModernDashboard(
 
         setWidgets(restoredWidgets);
 
+        // Delay restoration events to allow widgets to render and set DOM attributes
+        setTimeout(() => {
+          dispatchRestorationEvents(restoredWidgets);
+        }, 500);
+
         // Store in auth mode storage as backup
         dashboardStorage.setItem("layouts", layoutData.layout);
         widgetLayoutStorage.setItem("widgets", layoutData.widgets);
@@ -252,6 +262,11 @@ export function useModernDashboard(
           }
 
           setWidgets(restoredWidgets);
+
+          // Delay restoration events to allow widgets to render and set DOM attributes
+          setTimeout(() => {
+            dispatchRestorationEvents(restoredWidgets);
+          }, 500);
         } else {
           logger.info("No saved layout found anywhere, starting fresh");
           setLayouts([]);
@@ -272,7 +287,193 @@ export function useModernDashboard(
       setIsLoading(false);
       setIsLayoutInitialized(true);
     }
-  }, [authToken, isMultiUserMode]);
+  }, [authToken, isMultiUserMode]); // Remove options.widgetCallbacks from dependency array
+
+  // Helper function to dispatch restoration events for widgets with file paths
+  const dispatchRestorationEvents = useCallback(
+    (widgets: IDashboardWidget[]) => {
+      logger.info(
+        `[dispatchRestorationEvents] Starting restoration for ${widgets.length} widgets`
+      );
+
+      // For chart widgets, wait a bit longer to allow cached plots to be loaded
+      const chartWidgets = widgets.filter((widget) => widget.type === "chart");
+      if (chartWidgets.length > 0) {
+        logger.info(
+          `[dispatchRestorationEvents] Found ${chartWidgets.length} chart widgets, waiting for cache loading...`
+        );
+
+        // Wait longer for chart widgets to allow Redis cache loading
+        setTimeout(() => {
+          dispatchRestorationEventsInternal(widgets);
+        }, 3000);
+        return;
+      }
+
+      // For non-chart widgets, proceed immediately
+      dispatchRestorationEventsInternal(widgets);
+    },
+    []
+  );
+
+  // Internal function to actually dispatch restoration events
+  const dispatchRestorationEventsInternal = useCallback(
+    (widgets: IDashboardWidget[]) => {
+      // Find widgets that have file paths in their metadata
+      const widgetsWithFiles = widgets.filter((widget) => {
+        const filePath =
+          widget.metadata?.filePath || widget.metadata?.selectedFilePath;
+        return filePath && typeof filePath === "string";
+      });
+
+      logger.info(
+        `[dispatchRestorationEvents] Found ${widgetsWithFiles.length} widgets with file paths in metadata`
+      );
+
+      // Also find widgets with file paths stored in DOM attributes (for ChartWidget)
+      const widgetsWithDomFiles = widgets.filter((widget) => {
+        const widgetElement = document.querySelector(
+          `[data-widget-id="${widget.id}"]`
+        );
+        if (widgetElement) {
+          const filePath = widgetElement.getAttribute("data-file-path");
+          return filePath && typeof filePath === "string";
+        }
+        return false;
+      });
+
+      logger.info(
+        `[dispatchRestorationEvents] Found ${widgetsWithDomFiles.length} widgets with file paths in DOM attributes`
+      );
+
+      // Also check for file paths in Redux store plots state (for ChartWidget)
+      const widgetsWithReduxFiles = widgets.filter((widget) => {
+        if (widget.type === "chart") {
+          // For chart widgets, check if there are any plots in the Redux store
+          const plotsState = (window as any).__REDUX_STORE__?.getState()?.plots;
+          if (plotsState && typeof plotsState === "object") {
+            const plotKeys = Object.keys(plotsState);
+            return plotKeys.length > 0;
+          }
+        }
+        return false;
+      });
+
+      logger.info(
+        `[dispatchRestorationEvents] Found ${widgetsWithReduxFiles.length} widgets with file paths in Redux store`
+      );
+
+      // Combine all sets of widgets, avoiding duplicates
+      const allWidgetsWithFiles = [...widgetsWithFiles];
+      widgetsWithDomFiles.forEach((widget) => {
+        if (!allWidgetsWithFiles.find((w) => w.id === widget.id)) {
+          allWidgetsWithFiles.push(widget);
+        }
+      });
+      widgetsWithReduxFiles.forEach((widget) => {
+        if (!allWidgetsWithFiles.find((w) => w.id === widget.id)) {
+          allWidgetsWithFiles.push(widget);
+        }
+      });
+
+      logger.info(
+        `[dispatchRestorationEvents] Total widgets with files: ${allWidgetsWithFiles.length}`
+      );
+
+      // Dispatch restoration events for each widget with a file path
+      allWidgetsWithFiles.forEach((widget) => {
+        let filePath =
+          widget.metadata?.filePath || widget.metadata?.selectedFilePath;
+        let selectedChannels = widget.metadata?.selectedChannels || [];
+
+        // If not found in metadata, try DOM attributes
+        if (!filePath) {
+          const widgetElement = document.querySelector(
+            `[data-widget-id="${widget.id}"]`
+          );
+          if (widgetElement) {
+            filePath = widgetElement.getAttribute("data-file-path");
+            const channelsAttr = widgetElement.getAttribute(
+              "data-selected-channels"
+            );
+            if (channelsAttr) {
+              try {
+                selectedChannels = JSON.parse(channelsAttr);
+              } catch (e) {
+                logger.warn(
+                  `Failed to parse selected channels for widget ${widget.id}:`,
+                  e
+                );
+              }
+            }
+          }
+        }
+
+        // If still not found and it's a chart widget, try Redux store
+        if (!filePath && widget.type === "chart") {
+          const plotsState = (window as any).__REDUX_STORE__?.getState()?.plots;
+          if (plotsState && typeof plotsState === "object") {
+            const plotKeys = Object.keys(plotsState);
+            if (plotKeys.length > 0) {
+              // Find a plot with actual data
+              const plotWithData = Object.entries(plotsState).find(
+                ([_, plot]) =>
+                  plot && (plot as any).edfData && (plot as any).metadata
+              );
+
+              if (plotWithData) {
+                // Extract the base file path from the complex key
+                // Keys are like: /Users/simon/Desktop/copy.edf_0_25600
+                const complexKey = plotWithData[0];
+                const baseFilePath = complexKey.split("_")[0]; // Get the part before first underscore
+                filePath = baseFilePath;
+
+                // Get selected channels from the plot data
+                selectedChannels =
+                  (plotWithData[1] as any).selectedChannels || [];
+
+                logger.info(
+                  `[dispatchRestorationEvents] Found file path in Redux store for chart widget: ${filePath} (from key: ${complexKey})`
+                );
+              } else {
+                // Fallback to first plot key
+                filePath = plotKeys[0].split("_")[0];
+                logger.info(
+                  `[dispatchRestorationEvents] Found fallback file path in Redux store for chart widget: ${filePath}`
+                );
+              }
+            }
+          }
+        }
+
+        if (filePath) {
+          logger.info(
+            `Dispatching restoration event for widget ${widget.id} with file: ${filePath}`
+          );
+
+          // Dispatch the custom event that the dashboard restoration hook is listening for
+          const event = new CustomEvent("dashboard-file-restored", {
+            detail: {
+              filePath,
+              selectedChannels,
+            },
+          });
+          window.dispatchEvent(event);
+        } else {
+          logger.warn(
+            `[dispatchRestorationEvents] Widget ${widget.id} has no file path found`
+          );
+        }
+      });
+
+      if (allWidgetsWithFiles.length === 0) {
+        logger.warn(
+          `[dispatchRestorationEvents] No widgets with file paths found for restoration`
+        );
+      }
+    },
+    []
+  );
 
   const updateLayout = useCallback((newLayouts: Layout[]) => {
     setLayouts(newLayouts);
@@ -321,21 +522,51 @@ export function useModernDashboard(
           setLayouts([...layouts, newLayout]);
         }
 
-        // Store widget in auth mode storage
-        const serializableWidget = {
-          id: widget.id,
-          title: widget.title,
-          type: widget.type,
-          metadata: widget.metadata,
-          constraints: widget.constraints,
-        };
-
+        // Store widget in auth mode storage with enhanced metadata
         const existingWidgets =
           widgetLayoutStorage.getItem<any[]>("widgets") || [];
-        widgetLayoutStorage.setItem("widgets", [
+        const serializableWidgets = [
           ...existingWidgets,
-          serializableWidget,
-        ]);
+          {
+            id: widget.id,
+            title: widget.title,
+            type: widget.type,
+            metadata: widget.metadata,
+            constraints: widget.constraints,
+          },
+        ];
+
+        // Enhance chart widget metadata with file paths from Redux store
+        const enhancedSerializableWidgets = serializableWidgets.map((w) => {
+          let enhancedMetadata = { ...w.metadata };
+
+          // For chart widgets, add file path from Redux store if available
+          if (w.type === "chart") {
+            const plotsState = (window as any).__REDUX_STORE__?.getState()
+              ?.plots;
+            if (plotsState && typeof plotsState === "object") {
+              const plotKeys = Object.keys(plotsState);
+              if (plotKeys.length > 0) {
+                const plotState = plotsState[plotKeys[0]];
+                enhancedMetadata = {
+                  ...enhancedMetadata,
+                  filePath: plotKeys[0],
+                  selectedChannels: plotState?.selectedChannels || [],
+                };
+                logger.debug(
+                  `[addWidget] Enhanced chart widget ${w.id} with file path: ${plotKeys[0]}`
+                );
+              }
+            }
+          }
+
+          return {
+            ...w,
+            metadata: enhancedMetadata,
+          };
+        });
+
+        widgetLayoutStorage.setItem("widgets", enhancedSerializableWidgets);
 
         // Clean up widget state from auth mode storage
         const stateKey = `widget-state-${widget.id}`;
@@ -359,14 +590,37 @@ export function useModernDashboard(
       const newWidgets = widgets.filter((w) => w.id !== widgetId);
       setWidgets(newWidgets);
 
-      // Update auth mode storage
-      const serializableWidgets = newWidgets.map((w) => ({
-        id: w.id,
-        title: w.title,
-        type: w.type,
-        metadata: w.metadata,
-        constraints: w.constraints,
-      }));
+      // Update auth mode storage with enhanced metadata
+      const serializableWidgets = newWidgets.map((w) => {
+        let enhancedMetadata = { ...w.metadata };
+
+        // For chart widgets, add file path from Redux store if available
+        if (w.type === "chart") {
+          const plotsState = (window as any).__REDUX_STORE__?.getState()?.plots;
+          if (plotsState && typeof plotsState === "object") {
+            const plotKeys = Object.keys(plotsState);
+            if (plotKeys.length > 0) {
+              const plotState = plotsState[plotKeys[0]];
+              enhancedMetadata = {
+                ...enhancedMetadata,
+                filePath: plotKeys[0],
+                selectedChannels: plotState?.selectedChannels || [],
+              };
+              logger.debug(
+                `[removeWidget] Enhanced chart widget ${w.id} with file path: ${plotKeys[0]}`
+              );
+            }
+          }
+        }
+
+        return {
+          id: w.id,
+          title: w.title,
+          type: w.type,
+          metadata: enhancedMetadata,
+          constraints: w.constraints,
+        };
+      });
       widgetLayoutStorage.setItem("widgets", serializableWidgets);
 
       // Remove widget-specific data from auth mode storage
@@ -392,14 +646,37 @@ export function useModernDashboard(
       );
       setWidgets(newWidgets);
 
-      // Update auth mode storage
-      const serializableWidgets = newWidgets.map((w) => ({
-        id: w.id,
-        title: w.title,
-        type: w.type,
-        metadata: w.metadata,
-        constraints: w.constraints,
-      }));
+      // Update auth mode storage with enhanced metadata
+      const serializableWidgets = newWidgets.map((w) => {
+        let enhancedMetadata = { ...w.metadata };
+
+        // For chart widgets, add file path from Redux store if available
+        if (w.type === "chart") {
+          const plotsState = (window as any).__REDUX_STORE__?.getState()?.plots;
+          if (plotsState && typeof plotsState === "object") {
+            const plotKeys = Object.keys(plotsState);
+            if (plotKeys.length > 0) {
+              const plotState = plotsState[plotKeys[0]];
+              enhancedMetadata = {
+                ...enhancedMetadata,
+                filePath: plotKeys[0],
+                selectedChannels: plotState?.selectedChannels || [],
+              };
+              logger.debug(
+                `[updateWidget] Enhanced chart widget ${w.id} with file path: ${plotKeys[0]}`
+              );
+            }
+          }
+        }
+
+        return {
+          id: w.id,
+          title: w.title,
+          type: w.type,
+          metadata: enhancedMetadata,
+          constraints: w.constraints,
+        };
+      });
       widgetLayoutStorage.setItem("widgets", serializableWidgets);
 
       logger.debug(`Updated widget: ${widgetId}`);
@@ -411,13 +688,39 @@ export function useModernDashboard(
     // In local mode, just save to local storage
     if (!isMultiUserMode) {
       dashboardStorage.setItem("layouts", layouts);
-      const serializableWidgets = widgets.map((w) => ({
-        id: w.id,
-        title: w.title,
-        type: w.type,
-        metadata: w.metadata,
-        constraints: w.constraints,
-      }));
+
+      // Enhance widget metadata with file paths from Redux store
+      const serializableWidgets = widgets.map((w) => {
+        let enhancedMetadata = { ...w.metadata };
+
+        // For chart widgets, add file path from Redux store if available
+        if (w.type === "chart") {
+          const plotsState = (window as any).__REDUX_STORE__?.getState()?.plots;
+          if (plotsState && typeof plotsState === "object") {
+            const plotKeys = Object.keys(plotsState);
+            if (plotKeys.length > 0) {
+              const plotState = plotsState[plotKeys[0]];
+              enhancedMetadata = {
+                ...enhancedMetadata,
+                filePath: plotKeys[0],
+                selectedChannels: plotState?.selectedChannels || [],
+              };
+              logger.debug(
+                `[saveLayout] Enhanced chart widget ${w.id} with file path: ${plotKeys[0]}`
+              );
+            }
+          }
+        }
+
+        return {
+          id: w.id,
+          title: w.title,
+          type: w.type,
+          metadata: enhancedMetadata,
+          constraints: w.constraints,
+        };
+      });
+
       widgetLayoutStorage.setItem("widgets", serializableWidgets);
 
       setSaveStatus("success");
@@ -442,11 +745,40 @@ export function useModernDashboard(
     setSaveError(null);
 
     try {
-      await persistenceService.current.saveLayout(layouts, widgets);
+      // Enhance widget metadata with file paths from Redux store before saving
+      const enhancedWidgets = widgets.map((w) => {
+        let enhancedMetadata = { ...w.metadata };
+
+        // For chart widgets, add file path from Redux store if available
+        if (w.type === "chart") {
+          const plotsState = (window as any).__REDUX_STORE__?.getState()?.plots;
+          if (plotsState && typeof plotsState === "object") {
+            const plotKeys = Object.keys(plotsState);
+            if (plotKeys.length > 0) {
+              const plotState = plotsState[plotKeys[0]];
+              enhancedMetadata = {
+                ...enhancedMetadata,
+                filePath: plotKeys[0],
+                selectedChannels: plotState?.selectedChannels || [],
+              };
+              logger.debug(
+                `[saveLayout] Enhanced chart widget ${w.id} with file path: ${plotKeys[0]}`
+              );
+            }
+          }
+        }
+
+        return {
+          ...w,
+          metadata: enhancedMetadata,
+        };
+      });
+
+      await persistenceService.current.saveLayout(layouts, enhancedWidgets);
 
       // Also save to auth mode storage as backup
       dashboardStorage.setItem("layouts", layouts);
-      const serializableWidgets = widgets.map((w) => ({
+      const serializableWidgets = enhancedWidgets.map((w) => ({
         id: w.id,
         title: w.title,
         type: w.type,

@@ -1,4 +1,13 @@
 services:
+  redis:
+    image: redis:7.4.1-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - internal
+
   minio:
     image: minio/minio:RELEASE.2025-03-12T18-04-18Z
     ports:
@@ -98,6 +107,7 @@ volumes:
   grafana_data:
   postgres-data:
   minio-data:
+  redis-data:
 
 networks:
   internal:

@@ -4,56 +4,39 @@ import storage from "redux-persist/lib/storage";
 import rootReducer, { RootState } from "./rootReducer";
 import { TypedUseSelectorHook, useSelector } from "react-redux";
 import { useDispatch } from "react-redux";
+import { indexedDBStorage } from "../lib/utils/indexedDB/indexedDBStorage";
 
-// Configure persistence for plot data
+// Configure persistence with hybrid storage
 const persistConfig = {
   key: "ddalab-root",
-  storage,
-  whitelist: ["plots"], // Only persist plots state
-  // Transform the data to handle non-serializable values
+  storage: indexedDBStorage, // Use our custom storage engine
+  whitelist: ["auth", "tickets", "artifacts", "loading"], // Remove plots from whitelist to prevent quota issues
+  // Transform to exclude large data from persistence but keep metadata
   transforms: [
     {
-      // Custom transform to handle EEGData serialization
       in: (state: any) => {
-        if (!state) return state;
-
-        // Deep clone and transform the state
-        const transformedState = JSON.parse(
-          JSON.stringify(state, (key, value) => {
-            // Handle Date objects
-            if (value && typeof value === "object" && value.startTime) {
-              return {
-                ...value,
-                startTime:
-                  typeof value.startTime === "string"
-                    ? value.startTime
-                    : value.startTime.toISOString(),
+        // Keep everything except the actual EEG data arrays
+        if (state.plots) {
+          const transformedPlots = { ...state.plots };
+          Object.keys(transformedPlots).forEach((filePath) => {
+            if (transformedPlots[filePath]?.edfData) {
+              // Keep metadata but remove the large data arrays
+              transformedPlots[filePath] = {
+                ...transformedPlots[filePath],
+                edfData: {
+                  ...transformedPlots[filePath].edfData,
+                  data: null, // Don't persist the large data arrays
+                },
               };
             }
-            return value;
-          })
-        );
-
-        return transformedState;
+          });
+          return { ...state, plots: transformedPlots };
+        }
+        return state;
       },
       out: (state: any) => {
-        if (!state) return state;
-
-        // Transform back from storage
-        const transformedState = JSON.parse(
-          JSON.stringify(state, (key, value) => {
-            // Handle Date objects
-            if (value && typeof value === "object" && value.startTime) {
-              return {
-                ...value,
-                startTime: new Date(value.startTime),
-              };
-            }
-            return value;
-          })
-        );
-
-        return transformedState;
+        // Restore the state as-is (data will be reloaded from IndexedDB)
+        return state;
       },
     },
   ],
@@ -73,10 +56,17 @@ const store = configureStore({
           "persist/REHYDRATE",
         ],
         ignoredPaths: [
+          "plots.*.edfData.data",
           "plots.*.edfData",
           "plots.*.metadata",
           "plots.*.annotations",
         ],
+        // Add more specific ignores for large data
+        ignoredActionPaths: ["payload.edfData.data", "payload.eegData.data"],
+      },
+      // Increase the warning threshold for large state
+      immutableCheck: {
+        warnAfter: 128,
       },
     }),
   devTools: process.env.NODE_ENV !== "production",

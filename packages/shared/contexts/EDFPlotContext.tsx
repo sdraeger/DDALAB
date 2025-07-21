@@ -96,8 +96,24 @@ export function EDFPlotProvider({ children }: { children: ReactNode }) {
       setPlotStates((prevStates) => {
         const newStates = new Map(prevStates);
         const currentState = newStates.get(filePath) || { ...defaultPlotState };
-        newStates.set(filePath, { ...currentState, ...state });
-        return newStates;
+
+        // Check if any values have actually changed
+        let hasChanges = false;
+        for (const [key, value] of Object.entries(state)) {
+          if (currentState[key as keyof EDFPlotState] !== value) {
+            hasChanges = true;
+            break;
+          }
+        }
+
+        // Only update if there are actual changes
+        if (hasChanges) {
+          newStates.set(filePath, { ...currentState, ...state });
+          return newStates;
+        }
+
+        // Return the same Map if no changes
+        return prevStates;
       });
     },
     []
