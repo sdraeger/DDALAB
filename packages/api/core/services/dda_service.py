@@ -1,4 +1,4 @@
-"""DDA analysis service."""
+"""DDA service."""
 
 from pathlib import Path
 
@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 @register_service
 class DDAService(BaseService):
-    """Service for handling DDA analysis."""
+    """Service for handling DDA."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(db)
@@ -41,7 +41,7 @@ class DDAService(BaseService):
             return False
 
     async def analyze(self, request: DDARequest) -> DDAResponse:
-        """Perform DDA analysis on the given file."""
+        """Perform DDA on the given file."""
         try:
             # Validate file path
             file_path = Path(request.file_path)
@@ -66,7 +66,7 @@ class DDAService(BaseService):
                         request.preprocessing_options.resample
                     )
 
-            # Run DDA analysis using the core implementation
+            # Run DDA using the core implementation
             result = await run_dda(
                 file_path=file_path,
                 preprocessing_options=preprocessing_options,
@@ -98,8 +98,8 @@ class DDAService(BaseService):
         except NotFoundError:
             raise
         except Exception as e:
-            logger.error(f"Error performing DDA analysis: {e}")
-            raise ServiceError(f"Error performing DDA analysis: {str(e)}")
+            logger.error(f"Error performing DDA: {e}")
+            raise ServiceError(f"Error performing DDA: {str(e)}")
 
     @classmethod
     def from_db(cls, db: AsyncSession) -> "DDAService":

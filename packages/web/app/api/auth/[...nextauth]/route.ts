@@ -243,8 +243,16 @@ export const authOptions: NextAuthOptions = {
             eegZoomFactor: token.eegZoomFactor as number,
           },
           isLocalMode: token.isLocalMode ?? false,
+          accessToken: token.accessToken, // <-- Ensure accessToken is on user
         };
         session.accessToken = token.accessToken;
+      }
+      // Debug log
+      if (process.env.NODE_ENV === "development") {
+        console.log(
+          "[NextAuth session callback] session:",
+          JSON.stringify(session, null, 2)
+        );
       }
       return session;
     },

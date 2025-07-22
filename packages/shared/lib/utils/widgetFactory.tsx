@@ -6,11 +6,13 @@ import { DDAHeatmapWidget } from "../../components/dashboard/widgets/DDAHeatmapW
 import { DDALinePlotWidget } from "../../components/dashboard/widgets/DDALinePlotWidget";
 import { Settings } from "lucide-react";
 
-export function createWidgetContent(type?: string): React.ReactNode {
+// Accept onFileSelect as an optional prop
+export function createWidgetContent(type?: string, onFileSelect?: (filePath: string) => void): React.ReactNode {
 	switch (type) {
 		case 'file-browser':
 			return (
 				<FileBrowserWidget
+					onFileSelect={onFileSelect}
 					maxHeight="100%"
 				/>
 			);

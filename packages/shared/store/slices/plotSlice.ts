@@ -427,6 +427,7 @@ const plotsSlice = createSlice({
       const plot = state[filePath];
       if (plot) {
         plot.selectedChannels = channels;
+        console.log("[plotSlice] setSelectedChannels:", filePath, channels);
       }
     },
     setTimeWindow: (

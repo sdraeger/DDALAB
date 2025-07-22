@@ -38,8 +38,8 @@ const WIDGET_TYPES = [
 	},
 	{
 		type: 'dda-form',
-		label: 'DDA Analysis',
-		description: 'Configure and run DDA analysis',
+		label: 'DDA Form',
+		description: 'Configure and run DDA',
 		icon: Zap,
 		category: 'Analysis',
 	},
@@ -166,7 +166,7 @@ export function ModernDashboardToolbar({
 					size="sm"
 					onClick={() => handleAddWidget('dda-form')}
 					className="gap-1.5"
-					title="Add DDA Analysis"
+					title="Add DDA Form"
 				>
 					<Zap className="h-3.5 w-3.5" />
 					<span className="hidden sm:inline">DDA</span>

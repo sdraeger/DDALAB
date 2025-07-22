@@ -1,3 +1,5 @@
+from typing import List
+
 from pydantic import BaseModel
 
 
@@ -10,3 +12,4 @@ class EdfFileInfo(BaseModel):
     total_samples: int
     sampling_rate: float
     total_duration: float
+    channels: List[str]  # List of channel names
