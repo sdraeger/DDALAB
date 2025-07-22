@@ -1,6 +1,6 @@
 """Routes for plot caching operations."""
 
-from core.auth import get_current_user
+from core.auth import get_admin_user, get_current_user
 from core.dependencies import get_service
 from core.models import User
 from core.services import PlotCacheService
@@ -267,14 +267,14 @@ async def delete_user_plots(
 
 @router.post("/cleanup", response_model=CleanupResponse)
 async def cleanup_expired_plots(
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(get_admin_user),
     plot_cache_service: PlotCacheService = Depends(get_service(PlotCacheService)),
 ):
     """
     Clean up expired plots for all users (admin operation).
     """
+
     try:
-        # TODO: Add admin check here if needed
         cleaned_count = await plot_cache_service.cleanup_expired_plots()
 
         return CleanupResponse(

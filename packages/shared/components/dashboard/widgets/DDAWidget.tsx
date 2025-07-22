@@ -83,7 +83,7 @@ export function DDAWidget({ widgetId = 'dda-widget-default', isPopout = false }:
 		if (!token) {
 			toast({
 				title: "Authentication Required",
-				description: "Please log in to run DDA analysis.",
+				description: "Please log in to run DDA.",
 				variant: "destructive",
 			});
 			return;
@@ -95,7 +95,7 @@ export function DDAWidget({ widgetId = 'dda-widget-default', isPopout = false }:
 			// Start DDA processing with unified loading
 			loadingManager.startDDAProcessing(
 				loadingId,
-				"Initializing DDA analysis..."
+				"Initializing DDA request..."
 			);
 
 			// Convert selected channels to indices (assuming metadata has available channels)
@@ -127,7 +127,7 @@ export function DDAWidget({ widgetId = 'dda-widget-default', isPopout = false }:
 				},
 			};
 
-			loadingManager.updateProgress(loadingId, 40, "Submitting DDA analysis...");
+			loadingManager.updateProgress(loadingId, 40, "Submitting DDA request...");
 
 			const response = await apiRequest<{
 				Q: (number | null)[][];
@@ -166,12 +166,12 @@ export function DDAWidget({ widgetId = 'dda-widget-default', isPopout = false }:
 				},
 			}));
 
-			loadingManager.updateProgress(loadingId, 100, "DDA analysis complete!");
+			loadingManager.updateProgress(loadingId, 100, "DDA request complete!");
 
 			setTimeout(() => {
 				loadingManager.stop(loadingId);
 				toast({
-					title: "DDA Analysis Complete",
+					title: "DDA Complete",
 					description: `Successfully analyzed ${selectedChannels.length} channels. Matrix size: ${response.Q.length}×${response.Q[0]?.length || 0}`,
 				});
 			}, 500);
@@ -181,7 +181,7 @@ export function DDAWidget({ widgetId = 'dda-widget-default', isPopout = false }:
 			loadingManager.stop(loadingId);
 			toast({
 				title: "DDA Processing Error",
-				description: `Failed to process DDA analysis: ${error instanceof Error ? error.message : 'Unknown error'}`,
+				description: `Failed to process DDA request: ${error instanceof Error ? error.message : 'Unknown error'}`,
 				variant: "destructive",
 			});
 		}
@@ -278,7 +278,7 @@ export function DDAWidget({ widgetId = 'dda-widget-default', isPopout = false }:
 				onClick={handleDDAProcess}
 			>
 				<Play className="h-4 w-4 mr-2" />
-				Run DDA Analysis
+				Run DDA
 			</Button>
 		</div>
 	);

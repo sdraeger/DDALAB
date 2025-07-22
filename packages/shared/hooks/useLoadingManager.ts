@@ -186,7 +186,7 @@ export function useLoadingManager(): LoadingManager {
   );
 
   const startDDAProcessing = useCallback(
-    (id: string, message = "Processing DDA analysis...") => {
+    (id: string, message = "Processing DDA request...") => {
       start({
         id,
         type: "dda-processing",

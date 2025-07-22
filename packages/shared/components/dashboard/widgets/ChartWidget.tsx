@@ -20,6 +20,16 @@ import {
 	setPlotPreprocessingOptions
 } from "../../../store/slices/plotSlice";
 import { Skeleton } from "../../ui/skeleton";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "../../ui/collapsible";
+import { useForm, FormProvider } from "react-hook-form";
+import { FormValues } from "../../../types/preprocessing";
+import { FilterOptionsGroup } from "../../ui/preprocessing/FilterOptionsGroup";
+import { SignalProcessingGroup } from "../../ui/preprocessing/SignalProcessingGroup";
+import { NormalizationGroup } from "../../ui/preprocessing/NormalizationGroup";
+import { Loader2 } from "lucide-react";
+import uPlot from "uplot";
+import "uplot/dist/uPlot.min.css";
+import { Button } from "../../ui/button";
 
 interface ChartWidgetProps {
 	// Props for popout mode - when provided, these override Redux state
@@ -46,6 +56,104 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 		zoomLevel: 1,
 		selectedChannels: [] as string[],
 	}, isPopout);
+
+	// --- DDA Preprocessing and Q Plot State ---
+	const [isDdaOpen, setIsDdaOpen] = useState(false);
+	const [isDdaLoading, setIsDdaLoading] = useState(false);
+	const [ddaQ, setDdaQ] = useState<number[][] | null>(null);
+	const [ddaError, setDdaError] = useState<string | null>(null);
+	const ddaPlotRef = useRef<HTMLDivElement | null>(null);
+	const ddaUPlotInstance = useRef<uPlot | null>(null);
+
+	const ddaForm = useForm<FormValues>({
+		defaultValues: {
+			preprocessingSteps: [],
+			removeOutliers: false,
+			smoothing: false,
+			smoothingWindow: 3,
+			normalization: "none",
+		},
+	});
+
+	// --- DDA Q Plotting Logic (reuse from DDALinePlotWidget) ---
+	const getUPlotData = (Q: number[][] | null) => {
+		if (!Q || Q.length === 0) return null;
+		const length = Q[0].length;
+		const x = Array.from({ length }, (_, i) => i);
+		const ySeries = Q.map(row => row.map(val => val == null ? NaN : val));
+		return [x, ...ySeries];
+	};
+	const getUPlotOpts = (seriesCount: number) => ({
+		width: 800,
+		height: 300,
+		scales: { x: { time: false } },
+		axes: [
+			{ label: "Time Step", stroke: "#555" },
+			{ label: "Q Value", stroke: "#555" },
+		],
+		series: [
+			{ label: "Time" },
+			...Array.from({ length: seriesCount }, (_, i) => ({
+				label: `Channel ${i + 1}`,
+				stroke: `hsl(${(i * 60) % 360}, 70%, 50%)`,
+				width: 2,
+				points: { show: false },
+			})),
+		],
+	});
+	useEffect(() => {
+		if (!ddaQ || ddaQ.length === 0) {
+			if (ddaUPlotInstance.current) {
+				ddaUPlotInstance.current.destroy();
+				ddaUPlotInstance.current = null;
+			}
+			return;
+		}
+		const data = getUPlotData(ddaQ);
+		if (!data) return;
+		const opts = getUPlotOpts(data.length - 1);
+		if (ddaUPlotInstance.current) {
+			ddaUPlotInstance.current.destroy();
+		}
+		ddaUPlotInstance.current = new uPlot(opts as any, data as any, ddaPlotRef.current!);
+		return () => {
+			if (ddaUPlotInstance.current) {
+				ddaUPlotInstance.current.destroy();
+				ddaUPlotInstance.current = null;
+			}
+		};
+	}, [ddaQ]);
+
+	// --- DDA Request Handler ---
+	const handleRunDDA = async () => {
+		setIsDdaLoading(true);
+		setDdaError(null);
+		setDdaQ(null);
+		try {
+			// Prepare request body
+			const preprocessing = ddaForm.getValues();
+			const filePath = currentFilePath;
+			const channels = plotState?.selectedChannels || [];
+			// TODO: Replace with actual API request logic
+			const response = await fetch("/api/dda", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					file_path: filePath,
+					channel_list: channels,
+					preprocessing_options: preprocessing,
+				}),
+			});
+			if (!response.ok) throw new Error("DDA request failed");
+			const data = await response.json();
+			if (!data.Q) throw new Error("No Q returned from DDA");
+			setDdaQ(data.Q);
+		} catch (err: any) {
+			setDdaError(err.message || "Unknown error");
+		} finally {
+			setIsDdaLoading(false);
+		}
+	};
 
 	// Track initialization
 	const initializationAttempted = useRef(false);
@@ -134,9 +242,18 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 
 	// Get the current plot state based on whether we're in popout mode
 	const currentPlots = isPopout ? syncedPlots : plots;
+	const currentFilePath = useMemo(() => {
+		if (!currentPlots) return null;
+		const plotEntry = Object.entries(currentPlots).find(([_, plot]) =>
+			plot && plot.metadata && plot.edfData
+		);
+		return plotEntry ? plotEntry[0] : null;
+	}, [currentPlots]);
+	const plotState = (currentFilePath && currentPlots) ? currentPlots[currentFilePath] : undefined;
+	console.log('[ChartWidget] selectedChannels from Redux:', plotState?.selectedChannels);
 
 	// Find the best plot state - prioritize plots with edfData
-	const plotState = useMemo(() => {
+	const memoizedPlotState = useMemo(() => {
 		if (!currentPlots) return null;
 
 		// First, try to find a plot with edfData
@@ -150,18 +267,6 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 
 		// Fallback to first plot if no plot with data found
 		return Object.values(currentPlots)[0] || null;
-	}, [currentPlots]);
-
-	// Get the current file path from the plot state
-	const currentFilePath = useMemo(() => {
-		if (!currentPlots) return null;
-
-		// Find the first plot with data
-		const plotEntry = Object.entries(currentPlots).find(([_, plot]) =>
-			plot && plot.metadata && plot.edfData
-		);
-
-		return plotEntry ? plotEntry[0] : null;
 	}, [currentPlots]);
 
 	// Update widget metadata with current file path for restoration
@@ -190,13 +295,13 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 
 	// Check for cached plot when widget is created and file path is available
 	const cachedPlotParams = useMemo(() => {
-		if (!currentFilePath || !plotState) return null;
+		if (!currentFilePath || !memoizedPlotState) return null;
 
 		const params = {
 			filePath: currentFilePath,
-			chunkStart: plotState.chunkStart || 0,
-			chunkSize: plotState.chunkSizeSeconds ? Math.round(plotState.chunkSizeSeconds * (plotState.metadata?.sampling_rate || 256)) : 25600,
-			preprocessingOptions: plotState.preprocessingOptions,
+			chunkStart: memoizedPlotState.chunkStart || 0,
+			chunkSize: memoizedPlotState.chunkSizeSeconds ? Math.round(memoizedPlotState.chunkSizeSeconds * (memoizedPlotState.metadata?.sampling_rate || 256)) : 25600,
+			preprocessingOptions: memoizedPlotState.preprocessingOptions,
 			selectedChannels: chartState.selectedChannels,
 			timeWindow: chartState.timeWindow,
 			zoomLevel: chartState.zoomLevel,
@@ -210,15 +315,15 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 			selectedChannels: params.selectedChannels,
 			timeWindow: params.timeWindow,
 			zoomLevel: params.zoomLevel,
-			plotStateKeys: Object.keys(plotState),
-			plotStateChunkStart: plotState.chunkStart,
-			plotStateChunkSizeSeconds: plotState.chunkSizeSeconds,
-			plotStateMetadata: plotState.metadata ? 'exists' : 'null',
-			plotStatePreprocessingOptions: plotState.preprocessingOptions ? 'exists' : 'null'
+			plotStateKeys: Object.keys(memoizedPlotState),
+			plotStateChunkStart: memoizedPlotState.chunkStart,
+			plotStateChunkSizeSeconds: memoizedPlotState.chunkSizeSeconds,
+			plotStateMetadata: memoizedPlotState.metadata ? 'exists' : 'null',
+			plotStatePreprocessingOptions: memoizedPlotState.preprocessingOptions ? 'exists' : 'null'
 		});
 
 		return params;
-	}, [currentFilePath, plotState, chartState.selectedChannels, chartState.timeWindow, chartState.zoomLevel, widgetId]);
+	}, [currentFilePath, memoizedPlotState, chartState.selectedChannels, chartState.timeWindow, chartState.zoomLevel, widgetId]);
 
 	// Memoize callback functions to prevent infinite loops
 	const handleCacheHit = useCallback((result: any) => {
@@ -243,7 +348,7 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 	// Load cached plots from Redis when component mounts (for page reload restoration)
 	useEffect(() => {
 		const loadCachedPlots = async () => {
-			if (!isPopout && !plotState) {
+			if (!isPopout && !memoizedPlotState) {
 				logger.info(`[ChartWidget] Starting plot restoration for widget ${widgetId}`);
 				try {
 					logger.debug(`[ChartWidget] Loading cached plots from Redis for widget ${widgetId}`);
@@ -377,12 +482,12 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 					logger.error(`[ChartWidget] Error loading cached plots from Redis for widget ${widgetId}:`, error);
 				}
 			} else {
-				logger.debug(`[ChartWidget] Skipping plot restoration - isPopout: ${isPopout}, hasPlotState: ${!!plotState}`);
+				logger.debug(`[ChartWidget] Skipping plot restoration - isPopout: ${isPopout}, hasPlotState: ${!!memoizedPlotState}`);
 			}
 		};
 
 		loadCachedPlots();
-	}, [isPopout, plotState, widgetId, setChartState, dispatch]);
+	}, [isPopout, memoizedPlotState, widgetId, setChartState, dispatch]);
 
 	// Handle cache hit from the new Redis-based system
 	useEffect(() => {
@@ -412,34 +517,34 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 	useEffect(() => {
 		logger.info(`[ChartWidget] State update for widget ${widgetId}:`, {
 			isPopout,
-			hasPlotState: !!plotState,
-			isLoading: plotState?.isLoading,
-			hasEdfData: !!plotState?.edfData,
-			hasError: !!plotState?.error,
-			channelsCount: plotState?.edfData?.channels?.length || 0,
-			dataLength: plotState?.edfData?.data?.length || 0,
+			hasPlotState: !!memoizedPlotState,
+			isLoading: memoizedPlotState?.isLoading,
+			hasEdfData: !!memoizedPlotState?.edfData,
+			hasError: !!memoizedPlotState?.error,
+			channelsCount: memoizedPlotState?.edfData?.channels?.length || 0,
+			dataLength: memoizedPlotState?.edfData?.data?.length || 0,
 			currentFilePath,
 			isCheckingCache: isChecking,
 			cacheResult: hasCachedPlot,
 			availablePlots: currentPlots ? Object.keys(currentPlots) : [],
 			plotsWithData: currentPlots ? Object.entries(currentPlots).filter(([_, plot]) => plot?.edfData).map(([key, _]) => key) : []
 		});
-	}, [plotState, widgetId, isPopout, currentFilePath, isChecking, hasCachedPlot, currentPlots]);
+	}, [memoizedPlotState, widgetId, isPopout, currentFilePath, isChecking, hasCachedPlot, currentPlots]);
 
 	// Auto-select default channels when EDF data becomes available
 	useEffect(() => {
-		if (plotState?.edfData?.channels && chartState.selectedChannels.length === 0 && !channelsInitialized.current) {
+		if (memoizedPlotState?.edfData?.channels && chartState.selectedChannels.length === 0 && !channelsInitialized.current) {
 			logger.info(`[ChartWidget] Auto-selecting default channels:`, {
 				widgetId,
-				availableChannels: plotState.edfData.channels.length,
-				channels: plotState.edfData.channels.slice(0, 5)
+				availableChannels: memoizedPlotState.edfData.channels.length,
+				channels: memoizedPlotState.edfData.channels.slice(0, 5)
 			});
 
 			// Select first 5 channels by default, similar to useDDAPlot
-			const defaultChannels = plotState.edfData.channels.slice(0, 5);
+			const defaultChannels = memoizedPlotState.edfData.channels.slice(0, 5);
 
 			// Also initialize time window based on data duration
-			const dataDuration = plotState.edfData.duration || 10;
+			const dataDuration = memoizedPlotState.edfData.duration || 10;
 			const initialTimeWindow: [number, number] = [0, Math.min(10, dataDuration)];
 
 			setChartState(prev => ({
@@ -450,14 +555,28 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 
 			channelsInitialized.current = true;
 		}
-	}, [plotState?.edfData?.channels, plotState?.edfData?.duration, chartState.selectedChannels.length, setChartState, widgetId]);
+	}, [memoizedPlotState?.edfData?.channels, memoizedPlotState?.edfData?.duration, chartState.selectedChannels.length, setChartState, widgetId]);
 
 	// Reset channel initialization flag when plot state changes
 	useEffect(() => {
-		if (!plotState?.edfData) {
+		if (!memoizedPlotState?.edfData) {
 			channelsInitialized.current = false;
 		}
-	}, [plotState?.edfData]);
+	}, [memoizedPlotState?.edfData]);
+
+	// Sync chartState.selectedChannels with Redux plotState.selectedChannels
+	useEffect(() => {
+		if (
+			plotState?.selectedChannels &&
+			plotState.selectedChannels.length > 0 &&
+			chartState.selectedChannels.join(',') !== plotState.selectedChannels.join(',')
+		) {
+			setChartState(prev => ({
+				...prev,
+				selectedChannels: plotState.selectedChannels
+			}));
+		}
+	}, [plotState?.selectedChannels, chartState.selectedChannels, setChartState]);
 
 	// Add a timeout for loading state
 	const [loadingTimeout, setLoadingTimeout] = useState<NodeJS.Timeout | null>(null);
@@ -466,8 +585,8 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 	useEffect(() => {
 		// Set a timeout to prevent infinite loading
 		// Check if we're in a loading state or if we have no data but should have data
-		const shouldShowTimeout = (plotState?.isLoading && !plotState?.edfData) ||
-			(!plotState?.edfData && !plotState?.isLoading && !plotState?.error && !isPopout);
+		const shouldShowTimeout = (memoizedPlotState?.isLoading && !memoizedPlotState?.edfData) ||
+			(!memoizedPlotState?.edfData && !memoizedPlotState?.isLoading && !memoizedPlotState?.error && !isPopout);
 
 		if (shouldShowTimeout) {
 			const timeout = setTimeout(() => {
@@ -482,7 +601,7 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 				setLoadingTimeout(null);
 			}
 			// Reset timeout state when data loads successfully
-			if (plotState?.edfData) {
+			if (memoizedPlotState?.edfData) {
 				setHasTimedOut(false);
 			}
 		}
@@ -492,19 +611,19 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 				clearTimeout(loadingTimeout);
 			}
 		};
-	}, [plotState?.isLoading, plotState?.edfData, plotState?.error, isPopout, widgetId]);
+	}, [memoizedPlotState?.isLoading, memoizedPlotState?.edfData, memoizedPlotState?.error, isPopout, widgetId]);
 
 	// --- Centralized loading state logic ---
 	const isWidgetLoading = useMemo(() => {
 		// Loading if: not in error/timeout, and either isLoading or missing data/metadata
-		if (plotState?.error || hasTimedOut) return false;
-		if (plotState?.isLoading) return true;
-		if (!plotState?.edfData || !plotState?.metadata) return true;
+		if (memoizedPlotState?.error || hasTimedOut) return false;
+		if (memoizedPlotState?.isLoading) return true;
+		if (!memoizedPlotState?.edfData || !memoizedPlotState?.metadata) return true;
 		return false;
-	}, [plotState, hasTimedOut]);
+	}, [memoizedPlotState, hasTimedOut]);
 
 	// --- Centralized error/timeout logic ---
-	if (hasTimedOut && !plotState?.edfData) {
+	if (hasTimedOut && !memoizedPlotState?.edfData) {
 		return (
 			<div className="flex h-full w-full items-center justify-center opacity-100" data-widget-id={widgetId}>
 				<Alert variant="destructive">
@@ -515,12 +634,12 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 			</div>
 		);
 	}
-	if (plotState?.error) {
+	if (memoizedPlotState?.error) {
 		return (
 			<div className="flex h-full w-full items-center justify-center opacity-100" data-widget-id={widgetId}>
 				<Alert variant="destructive">
 					<AlertDescription>
-						{plotState.error || "Failed to load chart data"}
+						{memoizedPlotState.error || "Failed to load chart data"}
 					</AlertDescription>
 				</Alert>
 			</div>
@@ -533,6 +652,29 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 			className={`h-full w-full transition-opacity duration-300 ${isWidgetLoading ? "opacity-50 pointer-events-none" : "opacity-100"}`}
 			data-widget-id={widgetId}
 		>
+			{/* DDA Preprocessing Collapsible */}
+			<div className="mb-4">
+				<Collapsible open={isDdaOpen} onOpenChange={setIsDdaOpen}>
+					<CollapsibleTrigger asChild>
+						<Button variant="outline" className="mb-2">
+							{isDdaOpen ? "Hide DDA Preprocessing" : "Show DDA Preprocessing"}
+						</Button>
+					</CollapsibleTrigger>
+					<CollapsibleContent>
+						<FormProvider {...ddaForm}>
+							<form onSubmit={e => { e.preventDefault(); handleRunDDA(); }} className="space-y-4">
+								<FilterOptionsGroup form={ddaForm} />
+								<SignalProcessingGroup form={ddaForm} />
+								<NormalizationGroup form={ddaForm} />
+								<Button type="submit" disabled={isDdaLoading} className="w-full">
+									{isDdaLoading ? (<><Loader2 className="animate-spin mr-2" /> Running DDA...</>) : "Run DDA"}
+								</Button>
+								{ddaError && <div className="text-red-500 text-sm">{ddaError}</div>}
+							</form>
+						</FormProvider>
+					</CollapsibleContent>
+				</Collapsible>
+			</div>
 			{isWidgetLoading ? (
 				<div className="flex flex-col items-center justify-center h-full p-4 space-y-4">
 					<Skeleton className="w-full h-40 mb-4" />
@@ -540,16 +682,25 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 				</div>
 			) : (
 				// Only render chart if all required data is present
-				plotState && plotState.edfData && plotState.metadata ? (
-					<EEGChart2
-						eegData={plotState.edfData}
-						selectedChannels={chartState.selectedChannels}
-						timeWindow={chartState.timeWindow}
-						zoomLevel={chartState.zoomLevel}
-						onTimeWindowChange={(newWindow) => {
-							setChartState(prev => ({ ...prev, timeWindow: newWindow }));
-						}}
-					/>
+				memoizedPlotState && memoizedPlotState.edfData && memoizedPlotState.metadata ? (
+					<>
+						<EEGChart2
+							eegData={memoizedPlotState.edfData}
+							selectedChannels={chartState.selectedChannels}
+							timeWindow={chartState.timeWindow}
+							zoomLevel={chartState.zoomLevel}
+							onTimeWindowChange={(newWindow) => {
+								setChartState(prev => ({ ...prev, timeWindow: newWindow }));
+							}}
+						/>
+						{/* Q Plot below the main chart */}
+						{ddaQ && (
+							<div className="mt-6">
+								<h3 className="text-base font-semibold mb-2">DDA Q Plot</h3>
+								<div ref={ddaPlotRef} style={{ width: "100%", height: 300 }} />
+							</div>
+						)}
+					</>
 				) : (
 					// Fallback: no data to display
 					<div className="flex h-full w-full items-center justify-center">

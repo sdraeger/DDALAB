@@ -9,14 +9,11 @@ import { Badge } from "../../ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { useLoadingManager } from "../../../hooks/useLoadingManager";
 import { LoadingOverlay } from "../../ui/loading-overlay";
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, ChartData } from 'chart.js';
-import { Line } from 'react-chartjs-2';
-import { useWidgetState } from "../../../hooks/useWidgetState";
-import { useWidgetDataSync } from "../../../hooks/useWidgetDataSync";
+import uPlot from "uplot";
+import "uplot/dist/uPlot.min.css";
 import { PlotState } from "../../../store/slices/plotSlice";
 import { isEqual } from 'lodash';
-
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+import { useWidgetState } from "../../../hooks/useWidgetState";
 
 interface DDALinePlotWidgetProps {
 	widgetId?: string;
@@ -36,15 +33,12 @@ export function DDALinePlotWidget({
 	const plots = useAppSelector(state => state.plots);
 	const loadingManager = useLoadingManager();
 	const workerRef = useRef<Worker | null>(null);
-	const chartRef = useRef<ChartJS<"line"> | null>(null);
+	const chartRef = useRef<HTMLDivElement | null>(null);
+	const uplotInstance = useRef<uPlot | null>(null);
 	const lastProcessedQRef = useRef<any>(null);
 
 	const [isProcessing, setIsProcessing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [chartData, setChartData] = useState<ChartData<"line">>({
-		labels: [],
-		datasets: [],
-	});
 
 	// Synchronized widget state
 	const { state: widgetState, updateState: setWidgetState } = useWidgetState<DDALinePlotState>(
@@ -74,74 +68,90 @@ export function DDALinePlotWidget({
 	const hasData = Q && Array.isArray(Q) && Q.length > 0;
 	const hasPlottableData = useMemo(() => {
 		if (!hasData || !Q) return false;
-		// Check if there is at least one non-null value in the entire matrix
 		return Q.some(row => row.some(val => val !== null));
 	}, [Q, hasData]);
 
-	useEffect(() => {
-		// Initialize worker
-		workerRef.current = new Worker(
-			new URL('../../../lib/workers/dda-line-plot.worker.ts', import.meta.url)
-		);
-
-		workerRef.current.onmessage = (event: MessageEvent) => {
-			const { chartData: workerChartData, error: workerError } = event.data;
-			setIsProcessing(false);
-			if (workerError) {
-				setError(workerError);
-			} else if (workerChartData) {
-				setChartData(workerChartData);
-				// This direct update is often needed for react-chartjs-2
-				if (chartRef.current) {
-					chartRef.current.data = workerChartData;
-					chartRef.current.update();
+	// Prepare data for uPlot
+	const getUPlotData = () => {
+		if (!Q || !hasPlottableData) return null;
+		const length = Q[0].length;
+		const x = Array.from({ length }, (_, i) => i);
+		let ySeries: number[][] = [];
+		if (plotMode === "all") {
+			ySeries = Q.slice(0, maxDisplayRows).map(row => row.map(val => val == null ? NaN : val));
+		} else if (plotMode === "average") {
+			const avg = Q[0].map((_, colIdx) => {
+				let sum = 0;
+				let count = 0;
+				for (let row = 0; row < Q.length; row++) {
+					const val = Q[row][colIdx];
+					if (val !== null && val !== undefined) {
+						sum += val;
+						count++;
+					}
 				}
-			}
-		};
-
-		return () => {
-			workerRef.current?.terminate();
-			workerRef.current = null;
-		};
-	}, []);
-
-	useEffect(() => {
-		if (hasData && workerRef.current) {
-			const currentQ = Q;
-			// Deep comparison to avoid reprocessing identical data
-			if (!isEqual(currentQ, lastProcessedQRef.current)) {
-				setIsProcessing(true);
-				setError(null);
-				workerRef.current.postMessage({
-					Q: currentQ,
-					plotMode,
-					selectedRow,
-					maxDisplayRows,
-				});
-				lastProcessedQRef.current = currentQ;
-			}
+				return count > 0 ? sum / count : NaN;
+			});
+			ySeries = [avg];
+		} else if (plotMode === "individual") {
+			ySeries = [Q[selectedRow].map(val => val == null ? NaN : val)];
 		}
-	}, [Q, hasData, plotMode, selectedRow, maxDisplayRows]);
+		return [x, ...ySeries];
+	};
 
+	// uPlot options
+	const getUPlotOpts = (seriesCount: number) => ({
+		width: 800,
+		height: 300,
+		scales: { x: { time: false } },
+		axes: [
+			{ label: "Time Step", stroke: "#555" },
+			{ label: "Q Value", stroke: "#555" },
+		],
+		series: [
+			{ label: "Time" },
+			...Array.from({ length: seriesCount }, (_, i) => ({
+				label: plotMode === "all" ? `Channel ${i + 1}` : plotMode === "average" ? "Average" : `Channel ${selectedRow + 1}`,
+				stroke: `hsl(${(i * 60) % 360}, 70%, 50%)`,
+				width: 2,
+				points: { show: false },
+			})),
+		],
+	});
+
+	// Render uPlot
+	useEffect(() => {
+		if (!hasPlottableData || !Q) {
+			if (uplotInstance.current) {
+				uplotInstance.current.destroy();
+				uplotInstance.current = null;
+			}
+			return;
+		}
+		const data = getUPlotData();
+		if (!data) return;
+		const opts = getUPlotOpts(data.length - 1);
+		if (uplotInstance.current) {
+			uplotInstance.current.destroy();
+		}
+		uplotInstance.current = new uPlot(opts as any, data as any, chartRef.current!);
+		return () => {
+			if (uplotInstance.current) {
+				uplotInstance.current.destroy();
+				uplotInstance.current = null;
+			}
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [Q, plotMode, maxDisplayRows, selectedRow, hasPlottableData]);
 
 	const handleRefresh = () => {
 		lastProcessedQRef.current = null;
-		if (hasData && workerRef.current) {
-			setIsProcessing(true);
-			setError(null);
-			workerRef.current.postMessage({
-				Q,
-				plotMode,
-				selectedRow,
-				maxDisplayRows,
-			});
-			lastProcessedQRef.current = Q;
-		}
+		setError(null);
 	};
 
 	const increaseRows = () => {
 		if (Q) {
-			setWidgetState(prev => ({
+			setWidgetState((prev: DDALinePlotState) => ({
 				...prev,
 				maxDisplayRows: Math.min(prev.maxDisplayRows + 1, Q.length)
 			}));
@@ -149,7 +159,7 @@ export function DDALinePlotWidget({
 	};
 
 	const decreaseRows = () => {
-		setWidgetState(prev => ({
+		setWidgetState((prev: DDALinePlotState) => ({
 			...prev,
 			maxDisplayRows: Math.max(prev.maxDisplayRows - 1, 1)
 		}));
@@ -172,7 +182,7 @@ export function DDALinePlotWidget({
 						<p className="text-xs">
 							{hasData && !hasPlottableData
 								? "The analysis completed, but resulted in no valid data points."
-								: "Run a DDA analysis to see results."}
+								: "Run DDA to see results."}
 						</p>
 					</div>
 				</CardContent>
@@ -194,7 +204,7 @@ export function DDALinePlotWidget({
 					</Button>
 				</CardTitle>
 				<div className="text-xs text-muted-foreground">
-					{Q ? `Matrix: ${Q.length} × ${Q[0]?.length || 0}` : 'No data'}
+					{Q ? `Matrix: ${Q.length}  ${Q[0]?.length || 0}` : 'No data'}
 				</div>
 			</CardHeader>
 			<CardContent className="flex-grow flex flex-col">
@@ -204,30 +214,7 @@ export function DDALinePlotWidget({
 					</div>
 				)}
 				<div className="flex-grow min-h-0">
-					<Line ref={chartRef} data={chartData} options={{
-						responsive: true,
-						maintainAspectRatio: false,
-						animation: false,
-						scales: {
-							x: {
-								title: {
-									display: true,
-									text: "Time Step"
-								}
-							},
-							y: {
-								title: {
-									display: true,
-									text: "Value"
-								}
-							}
-						},
-						plugins: {
-							legend: {
-								position: 'top' as const,
-							},
-						}
-					}} />
+					<div ref={chartRef} style={{ width: "100%", height: 300 }} />
 				</div>
 				<div className="flex items-center justify-between pt-2">
 					<div className="flex items-center gap-2">
@@ -235,7 +222,7 @@ export function DDALinePlotWidget({
 						<Select
 							value={plotMode}
 							onValueChange={(value) =>
-								setWidgetState(prev => ({ ...prev, plotMode: value as any }))
+								setWidgetState((prev: DDALinePlotState) => ({ ...prev, plotMode: value as any }))
 							}
 						>
 							<SelectTrigger className="h-8 w-32">
@@ -268,7 +255,7 @@ export function DDALinePlotWidget({
 							<Select
 								value={String(selectedRow)}
 								onValueChange={(value) =>
-									setWidgetState(prev => ({ ...prev, selectedRow: parseInt(value, 10) }))
+									setWidgetState((prev: DDALinePlotState) => ({ ...prev, selectedRow: parseInt(value, 10) }))
 								}
 							>
 								<SelectTrigger className="h-8 w-40">

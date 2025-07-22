@@ -12,7 +12,7 @@ import {
 import { Checkbox } from "../checkbox";
 import { Badge } from "../badge";
 import { Slider } from "../slider";
-import { FormValues } from "../../form/DDAForm";
+import { FormValues } from "../../../types/preprocessing";
 import { TrendingUpIcon } from "lucide-react";
 
 interface SignalProcessingGroupProps {
@@ -73,10 +73,9 @@ export function SignalProcessingGroup({ form }: SignalProcessingGroupProps) {
         <div
           className={`
             relative p-4 rounded-lg border-2 transition-all duration-200 group
-            ${
-              isDetrendActive
-                ? "border-primary/30 bg-primary/5 shadow-sm"
-                : "border-border hover:border-primary/20 hover:bg-muted/30"
+            ${isDetrendActive
+              ? "border-primary/30 bg-primary/5 shadow-sm"
+              : "border-border hover:border-primary/20 hover:bg-muted/30"
             }
           `}
         >
@@ -117,10 +116,9 @@ export function SignalProcessingGroup({ form }: SignalProcessingGroupProps) {
             <div
               className={`
                 relative p-4 rounded-lg border-2 transition-all duration-200 group
-                ${
-                  field.value
-                    ? "border-primary/30 bg-primary/5 shadow-sm"
-                    : "border-border hover:border-primary/20 hover:bg-muted/30"
+                ${field.value
+                  ? "border-primary/30 bg-primary/5 shadow-sm"
+                  : "border-border hover:border-primary/20 hover:bg-muted/30"
                 }
               `}
             >
@@ -164,10 +162,9 @@ export function SignalProcessingGroup({ form }: SignalProcessingGroupProps) {
               <div
                 className={`
                   relative p-4 rounded-lg border-2 transition-all duration-200 group
-                  ${
-                    field.value
-                      ? "border-primary/30 bg-primary/5 shadow-sm"
-                      : "border-border hover:border-primary/20 hover:bg-muted/30"
+                  ${field.value
+                    ? "border-primary/30 bg-primary/5 shadow-sm"
+                    : "border-border hover:border-primary/20 hover:bg-muted/30"
                   }
                 `}
               >

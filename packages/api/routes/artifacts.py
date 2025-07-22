@@ -9,7 +9,7 @@ from core.services import ArtifactService
 from fastapi import APIRouter, Depends, HTTPException, status
 from schemas.artifacts.artifact import (
     Artifact,
-    ArtifactCreate,
+    ArtifactCreateRequest,
     ArtifactShare,
     ArtifactUpdate,
 )
@@ -19,20 +19,23 @@ router = APIRouter()
 
 @router.post("", response_model=Artifact, status_code=status.HTTP_201_CREATED)
 async def create_artifact(
-    request: ArtifactCreate,
+    request: ArtifactCreateRequest,
     current_user: User = Depends(get_current_user),
     artifact_service: ArtifactService = Depends(get_service(ArtifactService)),
 ):
+    print("[DEBUG] Entered create_artifact route handler")
     """
     Create a new artifact.
     """
     try:
+        print(f"[DEBUG] Incoming artifact create request: {request}")
+        print(f"[DEBUG] Using user_id: {current_user.id}")
         artifact = await artifact_service.create_artifact(
             name=request.name,
             file_path=request.file_path,
             user_id=current_user.id,
         )
-
+        print(f"[DEBUG] Created artifact: {artifact}")
         # Convert to response model
         return Artifact(
             artifact_id=str(artifact.id),
@@ -42,6 +45,7 @@ async def create_artifact(
             user_id=artifact.user_id,
         )
     except Exception as e:
+        print(f"[ERROR] Exception in create_artifact: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -221,6 +225,33 @@ async def rename_artifact(
             artifact_id=artifact_id,
             name=request.name,
         )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/{artifact_id}", status_code=status.HTTP_200_OK)
+async def delete_artifact(
+    artifact_id: str,
+    current_user: User = Depends(get_current_user),
+    artifact_service: ArtifactService = Depends(get_service(ArtifactService)),
+):
+    """
+    Delete an artifact by ID if the user owns it or has permission.
+    """
+    try:
+        artifact = await artifact_service.get_artifact(
+            artifact_id=artifact_id,
+            user_id=current_user.id,
+        )
+        if not artifact:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Artifact not found: {artifact_id}",
+            )
+        await artifact_service.delete_artifact(artifact_id)
+        return {"status": "success", "message": f"Artifact {artifact_id} deleted"}
     except HTTPException:
         raise
     except Exception as e:

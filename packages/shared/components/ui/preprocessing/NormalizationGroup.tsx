@@ -10,8 +10,8 @@ import {
   FormLabel,
 } from "../form";
 import { Badge } from "../badge";
-import { FormValues } from "../../form/DDAForm";
 import { BarChart3Icon } from "lucide-react";
+import { FormValues } from "../../../types/preprocessing";
 
 interface NormalizationGroupProps {
   form: UseFormReturn<FormValues>;
@@ -73,10 +73,9 @@ export function NormalizationGroup({ form }: NormalizationGroupProps) {
                   key={option.value}
                   className={`
                     relative p-4 rounded-lg border-2 transition-all duration-200 group
-                    ${
-                      isSelected
-                        ? "border-primary/30 bg-primary/5 shadow-sm ring-1 ring-primary/20"
-                        : "border-border hover:border-primary/20 hover:bg-muted/30"
+                    ${isSelected
+                      ? "border-primary/30 bg-primary/5 shadow-sm ring-1 ring-primary/20"
+                      : "border-border hover:border-primary/20 hover:bg-muted/30"
                     }
                   `}
                 >
@@ -85,10 +84,9 @@ export function NormalizationGroup({ form }: NormalizationGroupProps) {
                       <div
                         className={`
                           w-4 h-4 rounded-full border-2 transition-colors cursor-pointer
-                          ${
-                            isSelected
-                              ? "border-primary bg-primary"
-                              : "border-muted-foreground/30 bg-background"
+                          ${isSelected
+                            ? "border-primary bg-primary"
+                            : "border-muted-foreground/30 bg-background"
                           }
                         `}
                         onClick={() => field.onChange(option.value)}

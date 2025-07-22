@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { Button } from "../ui/button";
 import { Plus, FileText, BarChart3, Settings, Activity, TrendingUp } from "lucide-react";
 import { SimpleWidget } from "./SimpleDashboardGrid";
@@ -10,101 +10,33 @@ import { ChartWidget } from "./widgets/ChartWidget";
 import { DDAHeatmapWidget } from "./widgets/DDAHeatmapWidget";
 import { DDALinePlotWidget } from "./widgets/DDALinePlotWidget";
 import { useAppDispatch } from "../../store";
-import { initializePlot, loadChunk, ensurePlotState } from "../../store/slices/plotSlice";
 import { useToast } from "../ui/use-toast";
 import { useLoadingManager } from "../../hooks/useLoadingManager";
 import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
+import { useEDFPlot } from "../../contexts/EDFPlotContext";
+import { ChannelSelectionDialog } from "../dialog/ChannelSelectionDialog";
 
 interface SimpleDashboardToolbarProps {
 	onAddWidget: (widget: SimpleWidget) => void;
 	className?: string;
+	onFileSelect?: (filePath: string) => void;
 }
 
-export function SimpleDashboardToolbar({ onAddWidget, className }: SimpleDashboardToolbarProps) {
+export function SimpleDashboardToolbar({ onAddWidget, className, onFileSelect }: SimpleDashboardToolbarProps) {
 	const { data: session } = useUnifiedSessionData();
 	const dispatch = useAppDispatch();
 	const { toast } = useToast();
 	const loadingManager = useLoadingManager();
+	const { setSelectedFilePath } = useEDFPlot();
+	const [channelDialogOpen, setChannelDialogOpen] = useState(false);
+	const [pendingFilePath, setPendingFilePath] = useState<string | null>(null);
 
 	const handleFileSelect = async (filePath: string) => {
-		const token = session?.accessToken;
-		console.log("[handleFileSelect] in handleFileSelect");
-		console.log("[handleFileSelect] token", token);
-
-		if (!token) {
-			toast({
-				title: "Authentication Error",
-				description: "Please log in to load files.",
-				variant: "destructive",
-			});
-			return;
-		}
-
-		const loadingId = `file-select-${filePath}`;
-
-		try {
-			// Start unified loading for the entire file selection process
-			loadingManager.startFileLoad(
-				loadingId,
-				`Loading ${filePath.split('/').pop()}...`,
-				true // Show global overlay for file loading
-			);
-
-			// Ensure plot state exists for this file
-			dispatch(ensurePlotState(filePath));
-
-			// Initialize plot metadata
-			const initResult = await dispatch(initializePlot({ filePath, token }));
-
-			if (initResult.meta.requestStatus === 'fulfilled') {
-				// Update progress
-				loadingManager.updateProgress(loadingId, 50, "Loading file data...");
-
-				// Load the first chunk
-				const loadResult = await dispatch(loadChunk({
-					filePath,
-					chunkNumber: 1,
-					chunkSizeSeconds: 10,
-					token,
-				}));
-
-				if (loadResult.meta.requestStatus === 'fulfilled') {
-					// Complete loading with success
-					loadingManager.updateProgress(loadingId, 100, "File loaded successfully!");
-
-					// Small delay to show completion before hiding
-					setTimeout(() => {
-						loadingManager.stop(loadingId);
-						toast({
-							title: "File Loaded",
-							description: `Successfully loaded data from ${filePath.split('/').pop()}`,
-						});
-					}, 500);
-				} else {
-					loadingManager.stop(loadingId);
-					toast({
-						title: "Data Load Error",
-						description: "Failed to load file data chunk.",
-						variant: "destructive",
-					});
-				}
-			} else {
-				loadingManager.stop(loadingId);
-				toast({
-					title: "Metadata Error",
-					description: "Failed to load file metadata.",
-					variant: "destructive",
-				});
-			}
-		} catch (error) {
-			console.error('Error loading file:', error);
-			loadingManager.stop(loadingId);
-			toast({
-				title: "File Load Error",
-				description: `Failed to load file: ${error instanceof Error ? error.message : 'Unknown error'}`,
-				variant: "destructive",
-			});
-		}
+		console.log('[SimpleDashboardToolbar] handleFileSelect called with:', filePath);
+		setPendingFilePath(filePath);
+		setChannelDialogOpen(true);
+		setSelectedFilePath(filePath);
+		console.log('[SimpleDashboardToolbar] channelDialogOpen should be true:', true);
 	};
 
 	const createWidget = (type: string) => {
@@ -120,14 +52,14 @@ export function SimpleDashboardToolbar({ onAddWidget, className }: SimpleDashboa
 				size = { width: 350, height: 400 };
 				content = (
 					<FileBrowserWidget
-						onFileSelect={handleFileSelect}
+						onFileSelect={onFileSelect}
 						maxHeight="100%"
 					/>
 				);
 				break;
 
 			case 'dda-form':
-				title = 'DDA Analysis Form';
+				title = 'DDA Form';
 				size = { width: 350, height: 400 };
 				content = <DDAWidget />;
 				break;
@@ -239,6 +171,17 @@ export function SimpleDashboardToolbar({ onAddWidget, className }: SimpleDashboa
 					Custom
 				</Button>
 			</div>
+			{/* Channel Selection Dialog */}
+			{pendingFilePath && (
+				<ChannelSelectionDialog
+					open={channelDialogOpen}
+					onOpenChange={open => {
+						setChannelDialogOpen(open);
+						if (!open) setPendingFilePath(null);
+					}}
+					filePath={pendingFilePath}
+				/>
+			)}
 		</div>
 	);
 }

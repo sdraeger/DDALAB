@@ -23,7 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "shared/components/ui/dropdown-menu";
 import { ArrowDown, ArrowUp, GripVertical, PlusCircle, X } from "lucide-react";
-import { FormValues } from "../form/DDAForm";
+import { FormValues } from "../../types/preprocessing";
 
 const availablePreprocessingSteps = [
   { id: "resample", label: "Resample" },
@@ -76,6 +76,9 @@ export function PreprocessingOptionsUI({ form }: PreprocessingOptionsUIProps) {
     }
     setValue("preprocessingSteps", newSteps, { shouldValidate: true });
   };
+
+  // When accessing form.watch('smoothingWindow'), provide a default value if undefined
+  const smoothingWindow = form.watch('smoothingWindow') ?? 3;
 
   return (
     <FormField

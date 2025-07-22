@@ -8,6 +8,7 @@ export interface UnifiedUser {
   firstName?: string;
   lastName?: string;
   isLocalMode: boolean;
+  accessToken?: string; // <-- add this line
 }
 
 export interface UnifiedSession {
@@ -76,6 +77,7 @@ export function useUnifiedSession(): UnifiedSession {
           firstName: (nextAuthSession.user as any).firstName || undefined,
           lastName: (nextAuthSession.user as any).lastName || undefined,
           isLocalMode: false,
+          accessToken: (nextAuthSession.user as any).accessToken, // <-- ensure this is included!
         },
         status: "authenticated",
       };

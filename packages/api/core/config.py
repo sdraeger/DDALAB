@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     jwt_algorithm: str
     auth_mode: str = "multi-user"
-    token_expiration_minutes: int
+    token_expiration_minutes: int = 10080  # 7 days
     refresh_token_expire_days: int = 7  # Default to 7 days
 
     # Allowed directories

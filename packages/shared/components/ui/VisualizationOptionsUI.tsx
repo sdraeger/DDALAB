@@ -9,7 +9,7 @@ import {
   FormLabel,
 } from "shared/components/ui/form";
 import { Checkbox } from "shared/components/ui/checkbox";
-import { FormValues } from "../form/DDAForm";
+import { FormValues } from "../../types/preprocessing";
 
 interface VisualizationOptionsUIProps {
   form: UseFormReturn<FormValues>;
@@ -31,9 +31,8 @@ export function VisualizationOptionsUI({ form }: VisualizationOptionsUIProps) {
         name="removeOutliers"
         render={({ field }) => (
           <FormItem
-            className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 cursor-pointer hover:bg-muted/50 transition-colors ${
-              field.value ? "bg-primary/10 border-primary/20" : ""
-            }`}
+            className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 cursor-pointer hover:bg-muted/50 transition-colors ${field.value ? "bg-primary/10 border-primary/20" : ""
+              }`}
             onClick={(e) => {
               if (!(e.target as HTMLElement).closest(".checkbox-container")) {
                 field.onChange(!field.value);
@@ -63,9 +62,8 @@ export function VisualizationOptionsUI({ form }: VisualizationOptionsUIProps) {
         name="smoothing"
         render={({ field }) => (
           <FormItem
-            className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 cursor-pointer hover:bg-muted/50 transition-colors ${
-              field.value ? "bg-primary/10 border-primary/20" : ""
-            }`}
+            className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 cursor-pointer hover:bg-muted/50 transition-colors ${field.value ? "bg-primary/10 border-primary/20" : ""
+              }`}
             onClick={(e) => {
               if (!(e.target as HTMLElement).closest(".checkbox-container")) {
                 field.onChange(!field.value);

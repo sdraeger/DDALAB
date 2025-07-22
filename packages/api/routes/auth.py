@@ -65,6 +65,7 @@ async def login_for_access_token(
     user_service: UserService = Depends(get_service(UserService)),
 ):
     """Login endpoint to issue access tokens using repository pattern"""
+
     # In local mode, reject login attempts
     if settings.is_local_mode:
         raise HTTPException(
@@ -79,7 +80,7 @@ async def login_for_access_token(
     # Update last login timestamp
     user = await user_service.update_last_login(user)
 
-    expires_in = timedelta(days=7)  # TODO: use env var
+    expires_in = timedelta(minutes=settings.token_expiration_minutes)
     access_token = create_jwt_token(
         subject=user.username,
         expires_delta=expires_in,
@@ -116,7 +117,7 @@ async def refresh_token(
         # Update last login timestamp on token refresh too
         user = await user_service.update_last_login(user)
 
-        expires_in = timedelta(days=7)  # TODO: use env var
+        expires_in = timedelta(minutes=settings.token_expiration_minutes)
         new_access_token = create_jwt_token(
             subject=user.username,
             expires_delta=expires_in,

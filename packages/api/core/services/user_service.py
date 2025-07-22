@@ -61,3 +61,17 @@ class UserService(BaseService[User]):
             return True
         except Exception:
             return False
+
+
+class DummyUserService(UserService):
+    async def create(self, *args, **kwargs):
+        pass
+
+    async def get_all(self, *args, **kwargs):
+        return []
+
+    async def get_all_users(self, *args, **kwargs):
+        return []
+
+    async def health_check(self):
+        return True

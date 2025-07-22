@@ -278,7 +278,7 @@ useWidgetDataSync(widgetId, isPopout, options);
 #### Supported Data Types
 
 - `plots`: Complete plots state from Redux store
-- `dda-results`: DDA analysis results
+- `dda-results`: DDA results
 - `file-selection`: Currently selected files
 
 #### Integration with Pop-out System

@@ -1,199 +1,161 @@
 "use client";
 
-import React, { useEffect } from 'react';
-import { useUnifiedSession } from 'shared/hooks/useUnifiedSession';
-import { ModernDashboardGrid } from 'shared/components/dashboard/ModernDashboardGrid';
-import { ModernDashboardToolbar } from 'shared/components/dashboard/ModernDashboardToolbar';
-import { useModernDashboard } from 'shared/hooks/useModernDashboard';
-import { Button } from 'shared/components/ui/button';
-import { Save, RefreshCw, Trash2, Sparkles } from 'lucide-react';
-import { useToast } from 'shared/components/ui/use-toast';
-import { useAppDispatch } from 'shared/store';
-import { initializePlot, loadChunk, ensurePlotState } from 'shared/store/slices/plotSlice';
-import { useLoadingManager } from 'shared/hooks/useLoadingManager';
-import { useDashboardRestoration } from 'shared/hooks/useDashboardRestoration';
-import { usePlotCaching } from 'shared/hooks/usePlotCaching';
+import React from "react";
+import { SimpleDashboardGrid, SimpleWidget } from "shared/components/dashboard/SimpleDashboardGrid";
+import { SimpleDashboardToolbar } from "shared/components/dashboard/SimpleDashboardToolbar";
+import { usePersistentDashboard } from "shared/hooks/usePersistentDashboard";
+import { Button } from "shared/components/ui/button";
+import { Save, RefreshCw, Trash2 } from "lucide-react";
+import { useToast } from "shared/components/ui/use-toast";
+import { useUnifiedSessionData } from "shared/hooks";
+import { useEDFPlot } from "shared/contexts/EDFPlotContext";
+import { ChannelSelectionDialog } from "shared/components/dialog/ChannelSelectionDialog";
+import { FileBrowserWidget } from "shared/components/dashboard/widgets/FileBrowserWidget";
+import { useAppDispatch } from "shared/store";
+import { ensurePlotState, initializePlot, loadChunk, setSelectedChannels } from "shared/store/slices/plotSlice";
 
 export default function Dashboard() {
-	const { user, status } = useUnifiedSession();
+	const { data: session } = useUnifiedSessionData();
 	const { toast } = useToast();
+	const { setSelectedFilePath } = useEDFPlot();
 	const dispatch = useAppDispatch();
-	const loadingManager = useLoadingManager();
+	const [channelDialogOpen, setChannelDialogOpen] = React.useState(false);
+	const [pendingFilePath, setPendingFilePath] = React.useState<string | null>(null);
 
-	// Add dashboard restoration hook
-	useDashboardRestoration();
+	const handleFileSelect = (filePath: string) => {
+		console.log('[Dashboard] handleFileSelect called with:', filePath);
+		setPendingFilePath(filePath);
+		setChannelDialogOpen(true);
+		// Do NOT setSelectedFilePath here
+	};
 
-	// Add plot caching hook to automatically cache plots when they are generated
-	usePlotCaching({ enabled: true, ttl: 3600 }); // Cache for 1 hour
-
-	const handleFileSelect = async (filePath: string) => {
-		// In local mode, we'll use a placeholder token since the API will handle it
-		const token = user?.isLocalMode ? "local-mode-token" : (user as any)?.accessToken;
-
-		// Add debugging
-		console.log("[handleFileSelect] Starting file selection:", {
-			filePath,
-			hasToken: !!token,
-			isLocalMode: user?.isLocalMode,
-			user: user
-		});
-
+	const handleDialogConfirm = async (filePath: string, selectedChannels: string[]) => {
+		setSelectedFilePath(filePath); // Only set after confirmation
+		const token = session?.accessToken;
 		if (!token) {
 			toast({
 				title: "Authentication Error",
-				description: "Please log in to load files",
+				description: "Please log in to load files.",
 				variant: "destructive",
 			});
 			return;
 		}
-
 		const loadingId = `file-select-${filePath}`;
-		const fileName = filePath.split('/').pop() || 'file';
-
 		try {
-			// Start loading with global overlay for file selection
-			loadingManager.startFileLoad(
-				loadingId,
-				`Loading ${fileName}...`,
-				true // Show global overlay
-			);
-
-			// Set a timeout to prevent indefinite loading
-			const timeoutPromise = new Promise((_, reject) => {
-				setTimeout(() => {
-					reject(new Error(`File load timeout: ${fileName} took too long to load`));
-				}, 45000); // 45 second timeout
-			});
-
-			// Ensure plot state exists for this file
-			console.log("[handleFileSelect] Dispatching ensurePlotState");
+			// Start unified loading for the entire file selection process
 			dispatch(ensurePlotState(filePath));
-
-			// Update loading message for metadata phase
-			loadingManager.updateProgress(loadingId, 25, `Loading metadata for ${fileName}...`);
-
-			// Initialize plot metadata with timeout protection
-			console.log("[handleFileSelect] Dispatching initializePlot");
-			const initPromise = dispatch(initializePlot({ filePath, token }));
-			const initResult = await Promise.race([initPromise, timeoutPromise]) as any;
-
-			console.log("[handleFileSelect] initializePlot result:", {
-				status: initResult.meta.requestStatus,
-				payload: initResult.payload,
-				error: initResult.error
-			});
-
+			const initResult = await dispatch(initializePlot({ filePath, token }));
 			if (initResult.meta.requestStatus === 'fulfilled') {
-				// Update loading message for data phase
-				loadingManager.updateProgress(loadingId, 60, `Loading data for ${fileName}...`);
-
-				// Load the first chunk with timeout protection
-				console.log("[handleFileSelect] Dispatching loadChunk");
-				const loadPromise = dispatch(loadChunk({
-					filePath,
-					chunkNumber: 1,
-					chunkSizeSeconds: 10,
-					token,
-				}));
-				const loadResult = await Promise.race([loadPromise, timeoutPromise]) as any;
-
-				console.log("[handleFileSelect] loadChunk result:", {
-					status: loadResult.meta.requestStatus,
-					payload: loadResult.payload,
-					error: loadResult.error
-				});
-
-				if (loadResult.meta.requestStatus === 'fulfilled') {
-					// Complete loading
-					loadingManager.updateProgress(loadingId, 100, `Successfully loaded ${fileName}`);
-
-					// Stop loading after a brief success display
-					setTimeout(() => {
-						loadingManager.stop(loadingId);
-					}, 800);
-
-					toast({
-						title: "File Loaded",
-						description: `Successfully loaded data from ${fileName}`,
-						duration: 3000,
-					});
-				} else {
-					console.error("[handleFileSelect] loadChunk failed:", loadResult.error);
-					throw new Error(`Failed to load data for ${fileName}: ${loadResult.error?.message || 'Unknown error'}`);
-				}
-			} else {
-				console.error("[handleFileSelect] initializePlot failed:", initResult.error);
-				throw new Error(`Failed to initialize ${fileName}: ${initResult.error?.message || 'Unknown error'}`);
+				await dispatch(loadChunk({ filePath, chunkNumber: 1, chunkSizeSeconds: 10, token }));
+				// Set selected channels in Redux after loading chunk
+				console.log('[Dashboard] Dispatching setSelectedChannels:', { filePath, channels: selectedChannels });
+				dispatch(setSelectedChannels({ filePath, channels: selectedChannels }));
 			}
 		} catch (error) {
-			console.error("[handleFileSelect] Error loading file:", error);
-
-			// Always stop loading on error
-			loadingManager.stop(loadingId);
-
-			// Provide user-friendly error message
-			const errorMessage = error instanceof Error ? error.message : `Failed to load ${fileName}`;
-
+			console.error('Error loading file:', error);
 			toast({
-				title: "Load Error",
-				description: errorMessage,
+				title: "File Load Error",
+				description: `Failed to load file: ${error instanceof Error ? error.message : 'Unknown error'}`,
 				variant: "destructive",
-				duration: 5000,
 			});
 		}
 	};
 
-	// Initialize modern dashboard with default configuration
+	// Initialize with some default widgets
+	const initialWidgets: SimpleWidget[] = [
+		{
+			id: "file-browser-default",
+			title: "File Browser",
+			position: { x: 20, y: 20 },
+			size: { width: 350, height: 400 },
+			minSize: { width: 250, height: 300 },
+			maxSize: { width: 500, height: 600 },
+			type: "file-browser",
+			content: (
+				<div className="space-y-4">
+					<div className="text-sm text-muted-foreground">Browse and select files</div>
+					<div className="space-y-2">
+						<div className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer">
+							<span className="text-sm">📁 Janet</span>
+						</div>
+						<div className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer">
+							<span className="text-sm">📁 Julia</span>
+						</div>
+						<div className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer">
+							<span className="text-sm">📁 Kotlin</span>
+						</div>
+						<div className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer">
+							<span className="text-sm">📁 Lambda Calculus</span>
+						</div>
+						<div className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer">
+							<span className="text-sm">📁 LaTeX</span>
+						</div>
+						<div className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer">
+							<span className="text-sm">📁 Lisp</span>
+						</div>
+					</div>
+				</div>
+			)
+		},
+		{
+			id: "dda-form-default",
+			title: "DDA Form",
+			position: { x: 400, y: 20 },
+			size: { width: 400, height: 350 },
+			minSize: { width: 300, height: 250 },
+			maxSize: { width: 600, height: 500 },
+			type: "dda-form",
+			content: (
+				<div className="space-y-4">
+					<div>
+						<label className="text-sm font-medium">Selected File</label>
+						<input
+							type="text"
+							placeholder="No file selected"
+							className="w-full mt-1 px-3 py-2 border border-border rounded-md text-sm"
+							readOnly
+						/>
+					</div>
+					<div>
+						<label className="text-sm font-medium">Selected Channels</label>
+						<div className="mt-1 p-2 border border-border rounded-md text-sm text-muted-foreground">
+							Loading channels...
+						</div>
+					</div>
+					<div className="space-y-2">
+						<button className="w-full bg-white text-black border border-gray-300 px-4 py-2 rounded text-sm">
+							Loading channels...
+						</button>
+					</div>
+					<div className="flex gap-2">
+						<button className="px-3 py-1 text-sm">‹</button>
+						<span className="px-3 py-1 text-sm">#</span>
+						<span className="px-3 py-1 text-sm">1</span>
+						<span className="px-3 py-1 text-sm">/0</span>
+						<button className="px-3 py-1 text-sm">›</button>
+					</div>
+				</div>
+			)
+		}
+	];
+
 	const {
 		widgets,
-		layout,
-		config,
-		isLoading,
-		isSaving,
-		saveStatus,
-		isLayoutInitialized,
+		updateWidget,
 		addWidget,
 		removeWidget,
-		updateWidget,
-		updateLayout,
+		popOutWidget,
+		swapInWidget,
 		saveLayout,
 		loadLayout,
-		clearLayout,
-		onBreakpointChange,
-	} = useModernDashboard({
-		config: {
-			// Custom configuration can be provided here
-			autoSaveDelay: 1500, // Faster auto-save for better UX
-			margin: [12, 12], // Slightly larger margins
-			containerPadding: [16, 16], // More padding
-		},
-		widgetCallbacks: {
-			onFileSelect: handleFileSelect,
-		},
+		isLoading,
+		isSaving,
+		isLayoutLoaded
+	} = usePersistentDashboard(initialWidgets, {
+		autoSaveDelay: 2000, // 2 seconds auto-save delay
+		enableAutoSave: true,
+		enableCache: true,
 	});
-
-	// Handle messages from popped-out widgets
-	useEffect(() => {
-		const handleMessage = (event: MessageEvent) => {
-			if (event.origin !== window.location.origin) return;
-
-			if (event.data.type === 'SWAP_IN_MODERN_WIDGET') {
-				const { widgetId } = event.data;
-				if (widgetId) {
-					updateWidget(widgetId, { metadata: { isPoppedOut: false } });
-
-					toast({
-						title: "Widget Returned",
-						description: `The widget has been returned to your dashboard.`,
-						duration: 3000,
-					});
-				}
-			}
-		};
-
-		window.addEventListener('message', handleMessage);
-		return () => window.removeEventListener('message', handleMessage);
-	}, [updateWidget, toast]);
 
 	const handleManualSave = async () => {
 		try {
@@ -207,8 +169,8 @@ export default function Dashboard() {
 		try {
 			await loadLayout();
 			toast({
-				title: 'Layout Reloaded',
-				description: 'Your saved layout has been reloaded.',
+				title: "Layout Reloaded",
+				description: "Your saved layout has been reloaded.",
 				duration: 2000,
 			});
 		} catch (error) {
@@ -218,39 +180,49 @@ export default function Dashboard() {
 
 	const handleClearLayout = async () => {
 		try {
-			await clearLayout();
+			// Reset to initial widgets (clear current layout)
+			initialWidgets.forEach((widget, index) => {
+				if (index < widgets.length) {
+					updateWidget(widgets[index].id, widget);
+				} else {
+					addWidget(widget);
+				}
+			});
+			// Remove any extra widgets
+			widgets.slice(initialWidgets.length).forEach(widget => {
+				removeWidget(widget.id);
+			});
+
+			toast({
+				title: "Layout Cleared",
+				description: "Layout has been reset to default.",
+				duration: 2000,
+			});
 		} catch (error) {
-			// Error handling is done in the hook
+			toast({
+				title: "Error",
+				description: "Failed to clear layout.",
+				variant: "destructive",
+				duration: 3000,
+			});
 		}
 	};
 
-	const handleAddWidget = (type: string, widgetConfig?: any) => {
-		// Find a good position for the new widget
-		const position = {
-			x: (widgets.length * 2) % config.cols.lg,
-			y: 0, // Let react-grid-layout auto-place vertically
-		};
-
-		addWidget(type, widgetConfig, position);
-	};
-
 	return (
-		<div className="flex h-full w-full flex-col bg-gradient-to-br from-background to-muted/20">
-			{/* Header */}
-			<div className="relative z-10 flex h-[72px] flex-shrink-0 items-center justify-between border-b border-border/50 bg-background/80 px-4 sm:px-6 backdrop-blur-sm">
-				<ModernDashboardToolbar onAddWidget={handleAddWidget} />
-
-				{/* Layout controls */}
-				{user && (
-					<div className="flex flex-shrink-0 items-center gap-2">
+		<div className="h-screen flex flex-col">
+			<div className="flex items-center justify-between px-4 py-2 bg-background border-b">
+				<SimpleDashboardToolbar onAddWidget={addWidget} className="flex-1" onFileSelect={handleFileSelect} />
+				{/* Layout controls - show if user is logged in */}
+				{session && isLayoutLoaded && (
+					<div className="flex items-center gap-2 ml-4">
 						<Button
 							variant="outline"
 							size="sm"
 							onClick={handleManualSave}
-							disabled={isSaving || !user}
-							className="gap-2"
+							disabled={isSaving || !session}
+							className="gap-1"
 						>
-							<Save className="h-4 w-4" />
+							<Save className="h-3 w-3" />
 							{isSaving ? "Saving..." : "Save Layout"}
 						</Button>
 						<Button
@@ -258,68 +230,77 @@ export default function Dashboard() {
 							size="sm"
 							onClick={handleManualLoad}
 							disabled={isLoading}
-							className="gap-2"
+							className="gap-1"
 						>
-							<RefreshCw className="h-4 w-4" />
+							<RefreshCw className="h-3 w-3" />
 							Reload
 						</Button>
 						<Button
 							variant="outline"
 							size="sm"
 							onClick={handleClearLayout}
-							className="gap-2 text-destructive hover:text-destructive"
+							className="gap-1 text-destructive hover:text-destructive"
 						>
-							<Trash2 className="h-4 w-4" />
+							<Trash2 className="h-3 w-3" />
 							Clear
 						</Button>
 					</div>
 				)}
 			</div>
 
-			{/* Main Content */}
-			<div className="relative flex-1 w-full min-w-0">
-				{/* Layout Loading State */}
-				{!isLayoutInitialized && user && (
-					<div className="absolute inset-0 flex items-center justify-center p-6 bg-background/80 backdrop-blur-sm z-50">
-						<div className="mx-auto max-w-md text-center">
-							<RefreshCw className="mx-auto mb-4 h-8 w-8 text-primary animate-spin" />
-							<h2 className="mb-2 text-lg font-semibold">Loading Your Dashboard</h2>
+			<div className="flex-1 overflow-hidden relative">
+				{/* Loading overlay */}
+				{(isLoading || (!isLayoutLoaded && session)) && (
+					<div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+						<div className="text-center">
+							<RefreshCw className="h-8 w-8 animate-spin mx-auto mb-2" />
 							<p className="text-sm text-muted-foreground">
-								Restoring your saved layout and widgets...
+								{isLoading ? "Loading your layout..." : "Restoring your saved layout..."}
 							</p>
 						</div>
 					</div>
 				)}
 
-				{/* Empty State */}
-				{widgets.length === 0 && !isLoading && isLayoutInitialized && (
-					<div className="absolute inset-0 flex items-center justify-center p-6">
-						<div className="mx-auto max-w-md text-center">
-							<Sparkles className="mx-auto mb-4 h-12 w-12 text-primary opacity-50" />
-							<h2 className="mb-2 text-xl font-semibold">Welcome to Your Dashboard</h2>
-							<p className="mb-6 leading-relaxed text-muted-foreground">
-								Start by adding a widget to organize your workspace. You can drag, resize, and
-								customize widgets to fit your needs.
-							</p>
-							<Button onClick={() => handleAddWidget("file-browser")} className="gap-2">
-								<Sparkles className="h-4 w-4" />
-								Add a Widget
-							</Button>
-						</div>
-					</div>
-				)}
-
-				{/* Dashboard Grid */}
-				<ModernDashboardGrid
-					widgets={widgets}
-					layout={layout}
-					config={config}
-					onLayoutChange={updateLayout}
-					onWidgetRemove={removeWidget}
+				<SimpleDashboardGrid
+					widgets={widgets.map(widget => {
+						if (widget.type === 'file-browser') {
+							return {
+								...widget,
+								content: <FileBrowserWidget onFileSelect={handleFileSelect} maxHeight="100%" />
+							};
+						}
+						return widget;
+					})}
 					onWidgetUpdate={updateWidget}
-					onBreakpointChange={onBreakpointChange}
-					className="w-full h-full"
+					onWidgetRemove={removeWidget}
+					onWidgetPopOut={popOutWidget}
+					onWidgetSwapIn={swapInWidget}
+					className="h-full"
+					gridSize={10}
+					enableSnapping={false}
+					enableCollisionDetection={false}
 				/>
+
+				{/* Auto-save indicator */}
+				{isSaving && (
+					<div className="absolute bottom-4 right-4 bg-primary text-primary-foreground px-3 py-1 rounded-md text-sm flex items-center gap-2">
+						<RefreshCw className="h-3 w-3 animate-spin" />
+						Auto-saving...
+					</div>
+				)}
+
+				{/* Channel Selection Dialog */}
+				{pendingFilePath && (
+					<ChannelSelectionDialog
+						open={channelDialogOpen}
+						onOpenChange={open => {
+							setChannelDialogOpen(open);
+							if (!open) setPendingFilePath(null);
+						}}
+						filePath={pendingFilePath}
+						onConfirm={handleDialogConfirm}
+					/>
+				)}
 			</div>
 		</div>
 	);

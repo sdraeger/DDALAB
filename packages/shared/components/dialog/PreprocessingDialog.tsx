@@ -11,11 +11,11 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Button } from "../ui/button";
-import { FormValues } from "../form/DDAForm";
 import { FilterOptionsGroup } from "../ui/preprocessing/FilterOptionsGroup";
 import { SignalProcessingGroup } from "../ui/preprocessing/SignalProcessingGroup";
 import { NormalizationGroup } from "../ui/preprocessing/NormalizationGroup";
 import { Loader2, PlayCircle, Settings } from "lucide-react";
+import { FormValues } from "../../types/preprocessing";
 
 interface PreprocessingDialogProps {
   open: boolean;
@@ -60,6 +60,9 @@ export function PreprocessingDialog({
   };
 
   const activeCount = getActiveOptionsCount();
+
+  // When accessing form.watch('smoothingWindow'), provide a default value if undefined
+  const smoothingWindow = form.watch('smoothingWindow') ?? 3;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

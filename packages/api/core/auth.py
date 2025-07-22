@@ -15,8 +15,6 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-settings = get_server_settings()
-
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
 
@@ -49,15 +47,11 @@ async def get_current_user(
     request: Request,
     user_service: UserService = Depends(get_service(UserService)),
 ) -> User:
-    """Get current user using JWT token and repository
-
-    Args:
-        request (Request): Request object containing JWT token or local user
-        user_service (UserService, optional): UserService dependency
-
-    Returns:
-        User: Authenticated user
-    """
+    print("[DEBUG] Entered get_current_user dependency")
+    settings = get_server_settings()
+    print(
+        f"[APP] Verifying JWT with secret={settings.jwt_secret_key}, algorithm={settings.jwt_algorithm}"
+    )
     # Check if we're in local mode and user is already injected by middleware
     if hasattr(request.state, "is_local_mode") and request.state.is_local_mode:
         if hasattr(request.state, "current_user") and request.state.current_user:
@@ -124,6 +118,7 @@ async def get_local_user(request: Request) -> User:
     Raises:
         HTTPException: If not in local mode or user not available
     """
+    settings = get_server_settings()
     if not settings.is_local_mode:
         raise HTTPException(
             status_code=400,
@@ -206,6 +201,7 @@ def _decode_jwt_token(token: str) -> dict:
     Returns:
         dict: Decoded JWT payload
     """
+    settings = get_server_settings()
     return jwt.decode(
         token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
     )
@@ -292,12 +288,14 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     expire = datetime.now(timezone.utc) + (
         expires_delta
         if expires_delta
-        else timedelta(minutes=settings.token_expiration_minutes)
+        else timedelta(minutes=get_server_settings().token_expiration_minutes)
     )
 
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(
-        to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+        to_encode,
+        get_server_settings().jwt_secret_key,
+        algorithm=get_server_settings().jwt_algorithm,
     )
     return encoded_jwt
 

@@ -39,7 +39,7 @@ class ArtifactService(BaseService[Artifact]):
         try:
             # Handle both data object and keyword arguments for backward compatibility
             if data is not None:
-                artifact_data = data.dict()
+                artifact_data = data.model_dump()
             else:
                 # Handle keyword arguments from route
                 artifact_data = kwargs

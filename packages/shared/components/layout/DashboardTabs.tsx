@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect } from "react";
-import { FileBrowser } from "../files/FileBrowser";
-import { DDAForm } from "../form/DDAForm";
+import { useEffect, useState } from "react";
+import { FileBrowserWidget } from "../dashboard/widgets/FileBrowserWidget";
 import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { cn } from "../../lib/utils/misc";
 import { apiRequest, ApiRequestOptions } from "../../lib/utils/request";
 import { EdfConfigResponse } from "../../lib/schemas/edf";
-import { useDashboardState } from "../../contexts/DashboardStateContext";
+import { useEDFPlot } from "../../contexts/EDFPlotContext";
+import { ChannelSelectionDialog } from "../dialog/ChannelSelectionDialog";
 import logger from "../../lib/utils/logger";
 import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
 
@@ -17,46 +17,19 @@ export function DashboardTabs() {
   const { data: session } = useUnifiedSessionData();
   const {
     selectedFilePath,
-    fileBrowserCollapsed,
-    selectedChannels,
-    setSelectedChannels,
-    toggleFileBrowser,
-    handleFileSelect: handleFileSelectFromContext,
-  } = useDashboardState();
+    setSelectedFilePath,
+    updatePlotState,
+  } = useEDFPlot();
+  const [channelDialogOpen, setChannelDialogOpen] = useState(false);
+  const [pendingFilePath, setPendingFilePath] = useState<string | null>(null);
 
   const handleFileSelect = async (filePath: string) => {
-    // Use the context's file select handler first
-    handleFileSelectFromContext(filePath);
-
-    const token = session?.accessToken;
-    if (!token) {
-      logger.error("No token found in session");
-      return;
-    }
-
-    try {
-      const configRequestOptions: ApiRequestOptions & { responseType: "json" } =
-      {
-        url: `/api/config/edf?file_path=${encodeURIComponent(filePath)}`,
-        method: "GET",
-        token,
-        responseType: "json",
-        contentType: "application/json",
-      };
-
-      const fileCfgResponse = await apiRequest<EdfConfigResponse>(
-        configRequestOptions
-      );
-
-      logger.info("File config loaded:", fileCfgResponse);
-
-      // Update selected channels from the file config
-      setSelectedChannels(fileCfgResponse?.channels || []);
-    } catch (error) {
-      logger.error("Error loading file config:", error);
-      // Still update the selected file path even if config fails
-      setSelectedChannels([]);
-    }
+    console.log('[DashboardTabs] handleFileSelect called with:', filePath);
+    setPendingFilePath(filePath);
+    setChannelDialogOpen(true);
+    setSelectedFilePath(filePath);
+    console.log('[DashboardTabs] channelDialogOpen should be true:', true);
+    // Do not fetch channels or update state here; let the dialog handle it
   };
 
   // Handle keyboard shortcuts
@@ -64,21 +37,20 @@ export function DashboardTabs() {
     const handleKeyPress = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === "b") {
         e.preventDefault();
-        toggleFileBrowser();
+        // toggleFileBrowser(); // This function is removed from context
       }
     };
 
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [toggleFileBrowser]);
+  }, []); // Removed toggleFileBrowser from dependency array
 
   // Load file configuration if we have a selected file path on mount
   // This handles the case where the component mounts with a persisted file selection
   useEffect(() => {
     if (
       selectedFilePath &&
-      session?.accessToken &&
-      selectedChannels.length === 0
+      session?.accessToken
     ) {
       const loadFileConfig = async () => {
         try {
@@ -102,7 +74,7 @@ export function DashboardTabs() {
             "File config restored for persisted file:",
             fileCfgResponse
           );
-          setSelectedChannels(fileCfgResponse?.channels || []);
+          // setSelectedChannels(fileCfgResponse?.channels || []); // This line is removed
         } catch (error) {
           logger.error("Error loading config for persisted file:", error);
         }
@@ -113,8 +85,8 @@ export function DashboardTabs() {
   }, [
     selectedFilePath,
     session?.accessToken,
-    selectedChannels.length,
-    setSelectedChannels,
+    // selectedChannels.length, // This line is removed
+    // setSelectedChannels, // This line is removed
   ]);
 
   return (
@@ -122,11 +94,12 @@ export function DashboardTabs() {
       <div
         className={cn(
           "h-full bg-background border-r z-30 shadow-lg transition-all duration-300 ease-in-out flex-shrink-0",
-          fileBrowserCollapsed ? "w-0 opacity-0 overflow-hidden" : "w-80 lg:w-96 opacity-100"
+          // fileBrowserCollapsed ? "w-0 opacity-0 overflow-hidden" : "w-80 lg:w-96 opacity-100" // This line is removed
+          "w-80 lg:w-96 opacity-100" // This line is removed
         )}
       >
         <div className="p-6 h-full overflow-auto">
-          <FileBrowser onFileSelect={handleFileSelect} />
+          <FileBrowserWidget onFileSelect={handleFileSelect} />
         </div>
       </div>
 
@@ -135,18 +108,20 @@ export function DashboardTabs() {
           <Button
             variant="outline"
             size="sm"
-            onClick={toggleFileBrowser}
+            // onClick={toggleFileBrowser} // This function is removed from context
             className="h-8 shadow-sm"
           >
-            {fileBrowserCollapsed ? (
+            {/* {fileBrowserCollapsed ? ( // This line is removed
               <>
                 <ChevronRight className="h-4 w-4 mr-1" /> Show Files
               </>
-            ) : (
+            ) : ( // This line is removed
               <>
                 <ChevronLeft className="h-4 w-4 mr-1" /> Hide Files
               </>
-            )}
+            )} */}
+            {/* This button is now static, no toggle logic */}
+            <ChevronLeft className="h-4 w-4 mr-1" /> Hide Files
           </Button>
         </div>
 
@@ -154,11 +129,7 @@ export function DashboardTabs() {
           <div className="p-6 sm:p-8 lg:p-12 xl:p-16 2xl:p-20">
             {selectedFilePath ? (
               <div className="space-y-6">
-                <DDAForm
-                  filePath={selectedFilePath}
-                  selectedChannels={selectedChannels}
-                  setSelectedChannels={setSelectedChannels}
-                />
+                {/* DDAForm removed */}
               </div>
             ) : (
               <div className="flex items-center justify-center min-h-[400px]">
@@ -170,6 +141,17 @@ export function DashboardTabs() {
                   </CardContent>
                 </Card>
               </div>
+            )}
+            {/* Channel Selection Dialog */}
+            {pendingFilePath && (
+              <ChannelSelectionDialog
+                open={channelDialogOpen}
+                onOpenChange={open => {
+                  setChannelDialogOpen(open);
+                  if (!open) setPendingFilePath(null);
+                }}
+                filePath={pendingFilePath}
+              />
             )}
           </div>
         </div>

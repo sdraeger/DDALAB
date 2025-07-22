@@ -74,9 +74,9 @@ The dashboard provides a **fluid, responsive drag experience** similar to modern
 - Browse and select EDF files
 - Integration with file loading system
 
-### ⚙️ **DDA Analysis Form**
+### ⚙️ **DDA Form**
 
-- Configure and run DDA analysis
+- Configure and run DDA
 - Channel selection and parameter tuning
 
 ### 📊 **Data Visualization Chart**

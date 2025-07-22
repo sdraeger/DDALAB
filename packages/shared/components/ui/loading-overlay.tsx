@@ -150,7 +150,7 @@ export function DDAProcessingOverlay({ show, message, progress, className }: {
 	return (
 		<LoadingOverlay
 			show={show}
-			message={message || "Processing DDA analysis..."}
+			message={message || "Processing DDA request..."}
 			progress={progress}
 			type="dda-processing"
 			variant="fullscreen"

@@ -1,4 +1,4 @@
-"""DDA analysis schemas."""
+"""DDA schemas."""
 
 from typing import Any, Dict, List, Optional, Union
 
@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 
 class PreprocessingOptions(BaseModel):
-    """Options for preprocessing EEG data before DDA analysis."""
+    """Options for preprocessing EEG data before DDA."""
 
     filter_low: Optional[float] = None  # Lowpass filter cutoff frequency in Hz
     filter_high: Optional[float] = None  # Highpass filter cutoff frequency in Hz
@@ -20,17 +20,17 @@ class PreprocessingOptions(BaseModel):
 
 
 class DDARequest(BaseModel):
-    """Request schema for DDA analysis."""
+    """Request schema for DDA."""
 
     file_path: str  # Path to the EDF file to analyze
     preprocessing_options: Optional[PreprocessingOptions] = None
 
 
 class DDAResponse(BaseModel):
-    """Response schema for DDA analysis."""
+    """Response schema for DDA."""
 
     file_path: str  # Path to the analyzed file
-    Q: List[List[float]] = []  # DDA analysis results (Q matrix)
+    Q: List[List[float]] = []  # DDA results (Q matrix)
     metadata: Optional[Dict[str, Any]] = None  # Additional metadata about the analysis
     preprocessing_options: Optional[Union[PreprocessingOptions, Dict[str, Any]]] = (
         None  # Applied preprocessing options
