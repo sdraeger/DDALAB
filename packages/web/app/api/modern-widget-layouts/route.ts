@@ -265,11 +265,6 @@ export async function POST(request: NextRequest) {
         .filter(Boolean), // Remove null entries
     };
 
-    console.log(
-      "Transformed payload for Python API:",
-      JSON.stringify(pythonAPIPayload, null, 2)
-    );
-
     // Double-check that we have widgets after transformation
     if (pythonAPIPayload.widgets.length === 0) {
       console.warn(

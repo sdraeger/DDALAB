@@ -9,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "../card";
-import { FormValues } from "../../form/DDAForm";
+import { FormValues } from "../../../types/preprocessing";
 import { FilterOptionsGroup } from "./FilterOptionsGroup";
 import { SignalProcessingGroup } from "./SignalProcessingGroup";
 import { NormalizationGroup } from "./NormalizationGroup";
@@ -19,6 +19,8 @@ interface PreprocessingCardProps {
 }
 
 export function PreprocessingCard({ form }: PreprocessingCardProps) {
+  // When accessing form.watch('smoothingWindow'), provide a default value if undefined
+  const smoothingWindow = form.watch('smoothingWindow') ?? 3;
   return (
     <Card className="w-full">
       <CardHeader className="pb-4">

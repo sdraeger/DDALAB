@@ -152,7 +152,7 @@ export function FileBrowserWidget({
 	};
 
 	const handleItemClick = async (item: FileItem) => {
-		console.log("handleItemClick: item = ", item);
+		console.log('[FileBrowserWidget] handleItemClick:', item);
 		if (item.isDirectory) {
 			// Navigate to directory
 			const newPath = currentPath === '/'
@@ -168,7 +168,7 @@ export function FileBrowserWidget({
 			setSelectedFileForLoading(fullPath);
 
 			try {
-				// Select file
+				console.log('[FileBrowserWidget] onFileSelect called with:', fullPath);
 				onFileSelect?.(fullPath);
 			} catch (error) {
 				console.error("Error during file selection:", error);

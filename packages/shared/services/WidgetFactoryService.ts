@@ -71,12 +71,12 @@ export class WidgetFactoryService implements IWidgetFactory {
       },
     }));
 
-    // DDA Analysis Form Widget
+    // DDA Form Widget
     this.registerWidgetType("dda-form", (config) => {
       const widgetId = config?.id || `dda-form-${Date.now()}`;
       return {
         id: widgetId,
-        title: config?.title || "DDA Analysis Form",
+        title: config?.title || "DDA Form",
         type: "dda-form",
         content: React.createElement(DDAWidget as any, {
           widgetId,

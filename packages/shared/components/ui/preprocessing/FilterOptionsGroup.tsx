@@ -12,8 +12,8 @@ import {
 import { Checkbox } from "../checkbox";
 import { Input } from "../input";
 import { Badge } from "../badge";
-import { FormValues } from "../../form/DDAForm";
 import { FilterIcon } from "lucide-react";
+import { FormValues } from "../../../types/preprocessing";
 
 interface FilterOptionsGroupProps {
   form: UseFormReturn<FormValues>;
@@ -101,10 +101,9 @@ export function FilterOptionsGroup({ form }: FilterOptionsGroupProps) {
               key={option.id}
               className={`
                 relative p-4 rounded-lg border-2 transition-all duration-200 group
-                ${
-                  isActive
-                    ? "border-primary/30 bg-primary/5 shadow-sm"
-                    : "border-border hover:border-primary/20 hover:bg-muted/30"
+                ${isActive
+                  ? "border-primary/30 bg-primary/5 shadow-sm"
+                  : "border-border hover:border-primary/20 hover:bg-muted/30"
                 }
               `}
             >

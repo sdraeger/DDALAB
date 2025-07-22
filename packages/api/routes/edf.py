@@ -1,9 +1,11 @@
 """EDF file management endpoints."""
 
+import json
 from pathlib import Path
 
 from core.auth import get_current_user
 from core.config import get_server_settings
+from core.edf.edf_cache import clear_global_cache, get_cache_manager
 from core.edf.edf_reader import get_edf_navigator
 from fastapi import APIRouter, Depends, HTTPException
 from schemas.edf import EdfFileInfo
@@ -38,15 +40,15 @@ async def get_edf_info(
         total_samples=total_samples,
         sampling_rate=navigator.sampling_frequencies[0],
         total_duration=navigator.file_duration_seconds,
+        channels=navigator.signal_labels,
     )
 
 
 @router.get("/cache/stats")
 async def get_cache_stats(_: User = Depends(get_current_user)):
     """Get EDF cache statistics."""
-    try:
-        from core.edf.edf_cache import get_cache_manager
 
+    try:
         cache_manager = get_cache_manager()
         return cache_manager.get_cache_stats()
     except Exception as e:
@@ -64,14 +66,11 @@ async def check_cached_plot(
     _: User = Depends(get_current_user),
 ):
     """Check if a cached plot exists for the given parameters."""
-    try:
-        from core.edf.edf_cache import get_cache_manager
 
+    try:
         cache_manager = get_cache_manager()
 
         # Convert preprocessing_options from JSON string if provided
-        import json
-
         preprocess_opts = None
         if preprocessing_options:
             try:
@@ -108,9 +107,8 @@ async def check_cached_plot(
 @router.post("/cache/clear")
 async def clear_cache(file_path: str = None, _: User = Depends(get_current_user)):
     """Clear EDF cache for a specific file or all files."""
-    try:
-        from core.edf.edf_cache import clear_global_cache, get_cache_manager
 
+    try:
         if file_path:
             # Clear cache for specific file
             full_path = Path(settings.data_dir) / file_path
@@ -129,9 +127,8 @@ async def clear_cache(file_path: str = None, _: User = Depends(get_current_user)
 @router.post("/cache/warmup")
 async def warmup_cache(file_path: str, _: User = Depends(get_current_user)):
     """Warm up cache for a specific file by preloading metadata."""
-    try:
-        from core.edf.edf_cache import get_cache_manager
 
+    try:
         full_path = Path(settings.data_dir) / file_path
         if not full_path.exists():
             raise HTTPException(status_code=404, detail=f"File not found: {file_path}")

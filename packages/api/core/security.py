@@ -120,6 +120,6 @@ def generate_token_pair(username: str) -> dict:
         ),
         "refresh_token": create_jwt_token(
             username,
-            expires_delta=timedelta(days=settings.refresh_token_expire_days),  # TODO
+            expires_delta=timedelta(days=settings.refresh_token_expire_days),
         ),
     }
