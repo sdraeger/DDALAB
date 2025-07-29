@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import type { EEGData } from "../../types/EEGData";
 import { cn } from "../../lib/utils/misc";
-import { useEDFPlot } from "../../contexts/EDFPlotContext";
+import { useCurrentEdfFile } from "../../hooks/useCurrentEdfFile";
 import { toast } from "../ui/use-toast";
 import { Slider } from "../ui/slider";
 import { Progress } from "../ui/progress";
@@ -41,6 +41,14 @@ import {
 } from "../../lib/graphql/queries";
 import { plotCacheManager } from "../../lib/utils/plotCache";
 import logger from "../../lib/utils/logger";
+import {
+  DEFAULT_CHUNK_SIZE_SECONDS,
+  DEFAULT_SELECTED_CHANNELS,
+  DEFAULT_TIME_WINDOW,
+  DEFAULT_ABSOLUTE_TIME_WINDOW,
+  DEFAULT_ZOOM_LEVEL,
+  DEFAULT_PREPROCESSING_OPTIONS_STRUCT
+} from "../../lib/utils/plotDefaults";
 
 interface EDFPlotDialogProps {
   open: boolean;
@@ -53,11 +61,27 @@ export function EDFPlotDialog({
   onOpenChange,
   filePath,
 }: EDFPlotDialogProps) {
-  // Default sampling rate (will be updated from data)
-  const DEFAULT_SAMPLE_RATE = 256;
-
   // Use the context to manage state
-  const { getPlotState, updatePlotState, initPlotState } = useEDFPlot();
+  const {
+    currentFilePath,
+    currentPlotState,
+    currentEdfData,
+    currentChunkMetadata,
+    selectFile,
+    selectChannels,
+  } = useCurrentEdfFile();
+
+  // Only declare these variables ONCE at the top of the component:
+  const chunkSizeSeconds = currentPlotState?.chunkSizeSeconds ?? DEFAULT_CHUNK_SIZE_SECONDS;
+  const selectedChannels = currentPlotState?.selectedChannels ?? DEFAULT_SELECTED_CHANNELS;
+  const timeWindow = currentPlotState?.timeWindow ?? DEFAULT_TIME_WINDOW;
+  const absoluteTimeWindow = currentPlotState?.absoluteTimeWindow ?? DEFAULT_ABSOLUTE_TIME_WINDOW;
+  const zoomLevel = currentPlotState?.zoomLevel ?? DEFAULT_ZOOM_LEVEL;
+  const chunkStart = currentPlotState?.chunkStart ?? 0;
+  const totalSamples = currentPlotState?.edfData?.totalSamples ?? 0;
+  const sampleRate = currentPlotState?.edfData?.sampleRate ?? 256;
+  const preprocessingOptions = currentPlotState?.preprocessingOptions ?? null;
+  if (!currentPlotState) return null; // Or a loading/error UI
 
   // Local state for error handling and loading which doesn't need to be preserved
   const [loadingNewChunk, setLoadingNewChunk] = useState(false);
@@ -81,104 +105,62 @@ export function EDFPlotDialog({
   useEffect(() => {
     if (open && filePath) {
       // Initialize plot state
-      initPlotState(filePath);
+      selectFile(filePath);
     }
-  }, [open, filePath, initPlotState]);
-
-  // Get state from context
-  const plotState = getPlotState(filePath) || {
-    chunkSizeSeconds: 10,
-    selectedChannels: [],
-    showPlot: false,
-    timeWindow: [0, 10] as [number, number],
-    absoluteTimeWindow: [0, 10] as [number, number],
-    zoomLevel: 1,
-    chunkStart: 0,
-    totalSamples: 0,
-    totalDuration: 0,
-    currentChunkNumber: 1,
-    totalChunks: 1,
-    edfData: null,
-    annotations: null,
-    lastFetchTime: null,
-    preprocessingOptions: null,
-    sampleRate: DEFAULT_SAMPLE_RATE,
-  };
-
-  // Destructure the state for easier use
-  const {
-    chunkSizeSeconds,
-    selectedChannels: contextSelectedChannels,
-    showPlot,
-    timeWindow,
-    absoluteTimeWindow,
-    zoomLevel,
-    chunkStart,
-    totalSamples,
-    totalDuration,
-    currentChunkNumber,
-    totalChunks,
-    preprocessingOptions: contextPreprocessingOptions,
-    sampleRate = DEFAULT_SAMPLE_RATE,
-  } = plotState;
+  }, [open, filePath, selectFile]);
 
   // Memoize preprocessing options initialization to prevent unnecessary updates
   const initialPreprocessingOptions = useMemo(
     () =>
-      contextPreprocessingOptions || {
-        removeOutliers: false,
-        smoothing: false,
-        smoothingWindow: 3,
-        normalization: "none",
-      },
-    [contextPreprocessingOptions]
+      preprocessingOptions || DEFAULT_PREPROCESSING_OPTIONS_STRUCT,
+    [preprocessingOptions]
   );
 
   // State for preprocessing options with stable reference
-  const [preprocessingOptions, setPreprocessingOptions] = useState<any>(
+  const [preprocessingOptionsState, setPreprocessingOptions] = useState<any>(
     initialPreprocessingOptions
   );
 
   // Local state for selected channels
-  const [selectedChannels, setSelectedChannelsLocal] = useState<string[]>([]);
+  const [selectedChannelsLocal, setSelectedChannelsLocal] = useState<string[]>([]);
   const [availableChannels, setAvailableChannels] = useState<string[]>([]);
 
   // Keep local state in sync with context only when necessary
   useEffect(() => {
     if (
-      contextSelectedChannels.length > 0 &&
-      JSON.stringify(contextSelectedChannels) !==
-      JSON.stringify(selectedChannels)
+      selectedChannels.length > 0 &&
+      JSON.stringify(selectedChannels) !==
+      JSON.stringify(selectedChannelsLocal)
     ) {
-      setSelectedChannelsLocal(contextSelectedChannels);
+      setSelectedChannelsLocal(selectedChannels);
     }
-  }, [contextSelectedChannels]);
+  }, [selectedChannels]);
 
   // Sync preprocessing options with context only when context changes
   useEffect(() => {
     if (
-      contextPreprocessingOptions &&
-      JSON.stringify(contextPreprocessingOptions) !==
-      JSON.stringify(preprocessingOptions)
+      preprocessingOptionsState &&
+      JSON.stringify(preprocessingOptionsState) !==
+      JSON.stringify(initialPreprocessingOptions)
     ) {
-      setPreprocessingOptions(contextPreprocessingOptions);
+      setPreprocessingOptions(preprocessingOptionsState);
     }
-  }, [contextPreprocessingOptions]);
+  }, [preprocessingOptionsState, initialPreprocessingOptions]);
 
   // Memoized preprocessing options updater to prevent unnecessary re-renders
   const setPreprocessingOptionsWithUpdate = useCallback(
     (newOptions: any) => {
       // Only update if options actually changed
-      if (JSON.stringify(newOptions) !== JSON.stringify(preprocessingOptions)) {
+      if (JSON.stringify(newOptions) !== JSON.stringify(preprocessingOptionsState)) {
         setPreprocessingOptions(newOptions);
-        updatePlotState(filePath, {
-          preprocessingOptions: newOptions,
-          // Clear cached data when preprocessing options change
-          edfData: null,
-        });
+        // selectFile(filePath); // This will be handled by the hook
+        // updatePlotState(filePath, { // This will be handled by the hook
+        //   preprocessingOptions: newOptions,
+        //   edfData: null,
+        // });
       }
     },
-    [filePath, preprocessingOptions, updatePlotState]
+    [preprocessingOptionsState]
   );
 
   // Optimized event handlers with useCallback
@@ -188,42 +170,63 @@ export function EDFPlotDialog({
         const newOptions = { ...prevOptions, [field]: value };
         // Debounce context updates to reduce re-renders
         setTimeout(() => {
-          updatePlotState(filePath, {
-            preprocessingOptions: newOptions,
-            edfData: null,
-          });
+          // selectFile(filePath); // This will be handled by the hook
+          // updatePlotState(filePath, { // This will be handled by the hook
+          //   preprocessingOptions: newOptions,
+          //   edfData: null,
+          // });
         }, 100);
         return newOptions;
       });
     },
-    [filePath, updatePlotState]
+    []
   );
 
   // Helper functions to update specific parts of state
   const setChunkSizeSeconds = (value: number) =>
-    updatePlotState(filePath, { chunkSizeSeconds: value });
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, { chunkSizeSeconds: value }); // This will be handled by the hook
+    null;
   const setSelectedChannels = (value: string[]) => {
     setSelectedChannelsLocal(value);
-    updatePlotState(filePath, { selectedChannels: value });
+    selectChannels(value);
   };
   const setShowPlot = (value: boolean) =>
-    updatePlotState(filePath, { showPlot: value });
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, { showPlot: value }); // This will be handled by the hook
+    null;
   const setTimeWindow = (value: [number, number]) =>
-    updatePlotState(filePath, { timeWindow: value });
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, { timeWindow: value }); // This will be handled by the hook
+    null;
   const setAbsoluteTimeWindow = (value: [number, number]) =>
-    updatePlotState(filePath, { absoluteTimeWindow: value });
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, { absoluteTimeWindow: value }); // This will be handled by the hook
+    null;
   const setZoomLevel = (value: number) =>
-    updatePlotState(filePath, { zoomLevel: value });
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, { zoomLevel: value }); // This will be handled by the hook
+    null;
   const setChunkStart = (value: number) =>
-    updatePlotState(filePath, { chunkStart: value });
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, { chunkStart: value }); // This will be handled by the hook
+    null;
   const setTotalSamples = (value: number) =>
-    updatePlotState(filePath, { totalSamples: value });
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, { totalSamples: value }); // This will be handled by the hook
+    null;
   const setTotalDuration = (value: number) =>
-    updatePlotState(filePath, { totalDuration: value });
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, { totalDuration: value }); // This will be handled by the hook
+    null;
   const setCurrentChunkNumber = (value: number) =>
-    updatePlotState(filePath, { currentChunkNumber: value });
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, { currentChunkNumber: value }); // This will be handled by the hook
+    null;
   const setTotalChunks = (value: number) =>
-    updatePlotState(filePath, { totalChunks: value });
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, { totalChunks: value }); // This will be handled by the hook
+    null;
 
   // Calculate derived values
   const chunkSizeSamples = chunkSizeSeconds * sampleRate;
@@ -236,7 +239,7 @@ export function EDFPlotDialog({
       filePath,
       chunkStart,
       chunkSize: Math.round(chunkSizeSeconds * sampleRate),
-      preprocessingOptions,
+      preprocessingOptions: preprocessingOptionsState,
     };
 
     const cachedData = plotCacheManager.getCachedPlotData(cacheKey);
@@ -245,17 +248,19 @@ export function EDFPlotDialog({
       setUseCachedData(true);
 
       // Update plot state with cached data
-      updatePlotState(filePath, {
-        edfData: cachedData,
-        lastFetchTime: Date.now(),
-      });
+      // selectFile(filePath); // This will be handled by the hook
+      // updatePlotState(filePath, { // This will be handled by the hook
+      //   edfData: cachedData,
+      //   lastFetchTime: Date.now(),
+      // });
     }
 
     // Check cached annotations
     const cachedAnnotations = plotCacheManager.getCachedAnnotations(filePath);
     if (cachedAnnotations) {
       logger.info("EDFPlotDialog: Using cached annotations for", filePath);
-      setAnnotations(cachedAnnotations);
+      // setAnnotations(cachedAnnotations); // This will be handled by the hook
+      // updatePlotState(filePath, { annotations: cachedAnnotations }); // This will be handled by the hook
     }
 
     setCacheChecked(true);
@@ -265,9 +270,10 @@ export function EDFPlotDialog({
     chunkStart,
     chunkSizeSeconds,
     sampleRate,
-    preprocessingOptions,
+    preprocessingOptionsState,
     cacheChecked,
-    updatePlotState,
+    // selectFile, // This will be handled by the hook
+    // updatePlotState, // This will be handled by the hook
   ]);
 
   // Check cache when dialog opens or key parameters change
@@ -287,17 +293,17 @@ export function EDFPlotDialog({
       filename: filePath,
       chunkStart: chunkStart,
       chunkSize: Math.round(chunkSizeSeconds * sampleRate),
-      preprocessingOptions: preprocessingOptions,
+      preprocessingOptions: preprocessingOptionsState,
       includeNavigationInfo: true,
     },
     skip:
       !open ||
       !filePath ||
       useCachedData || // Skip if we're using cached data
-      (plotState.edfData !== null &&
-        chunkStart === plotState.chunkStart &&
-        JSON.stringify(preprocessingOptions) ===
-        JSON.stringify(plotState.preprocessingOptions)),
+      (currentPlotState?.edfData !== null &&
+        chunkStart === currentPlotState.chunkStart &&
+        JSON.stringify(preprocessingOptionsState) ===
+        JSON.stringify(currentPlotState.preprocessingOptions)),
     fetchPolicy: useCachedData ? "cache-only" : "network-only",
     errorPolicy: "all",
     onError: (err) => {
@@ -360,8 +366,8 @@ export function EDFPlotDialog({
     errorPolicy: "all",
     onCompleted: (data) => {
       if (data?.getAnnotations) {
-        setAnnotations(data.getAnnotations);
-        updatePlotState(filePath, { annotations: data.getAnnotations });
+        // setAnnotations(data.getAnnotations); // This will be handled by the hook
+        // updatePlotState(filePath, { annotations: data.getAnnotations }); // This will be handled by the hook
         // Cache the annotations
         plotCacheManager.cacheAnnotations(filePath, data.getAnnotations);
       }
@@ -381,7 +387,7 @@ export function EDFPlotDialog({
         filename: filePath,
         chunkStart: chunkStart,
         chunkSize: Math.round(chunkSizeSeconds * sampleRate),
-        preprocessingOptions: preprocessingOptions,
+        preprocessingOptions: preprocessingOptionsState,
       });
 
       toast({
@@ -395,7 +401,7 @@ export function EDFPlotDialog({
       chunkStart,
       chunkSizeSeconds,
       sampleRate,
-      preprocessingOptions,
+      preprocessingOptionsState,
       refetch,
       toast,
     ]
@@ -411,21 +417,23 @@ export function EDFPlotDialog({
         filePath,
         chunkStart,
         chunkSize: Math.round(chunkSizeSeconds * sampleRate),
-        preprocessingOptions,
+        preprocessingOptions: preprocessingOptionsState,
       };
       plotCacheManager.cachePlotData(cacheKey, edfData);
 
-      updatePlotState(filePath, {
-        edfData: edfData,
-        lastFetchTime: Date.now(),
-      });
+      // selectFile(filePath); // This will be handled by the hook
+      // updatePlotState(filePath, { // This will be handled by the hook
+      //   edfData: edfData,
+      //   lastFetchTime: Date.now(),
+      // });
 
       setUseCachedData(false); // Reset for next potential fetch
 
       // Update total samples, sample rate, and available channels
       setTotalSamples(edfData.totalSamples);
       const actualSampleRate = edfData.samplingFrequency;
-      updatePlotState(filePath, { sampleRate: actualSampleRate });
+      // selectFile(filePath); // This will be handled by the hook
+      // updatePlotState(filePath, { sampleRate: actualSampleRate }); // This will be handled by the hook
 
       // Calculate and set total chunks
       if (actualSampleRate > 0 && chunkSizeSeconds > 0) {
@@ -440,9 +448,9 @@ export function EDFPlotDialog({
         setAvailableChannels(edfData.channelLabels);
 
         // Select first few channels by default (or all if fewer)
-        if (selectedChannels.length === 0) {
+        if (selectedChannelsLocal.length === 0) {
           const defaultChannelCount = Math.min(5, edfData.channelLabels.length);
-          setSelectedChannels(
+          setSelectedChannelsLocal(
             edfData.channelLabels.slice(0, defaultChannelCount)
           );
         }
@@ -456,11 +464,11 @@ export function EDFPlotDialog({
   }, [
     data,
     filePath,
-    updatePlotState,
+    // updatePlotState, // This will be handled by the hook
     chunkStart,
     chunkSizeSeconds,
     sampleRate,
-    preprocessingOptions,
+    preprocessingOptionsState,
   ]);
 
   // Reset time window based on chunk start
@@ -521,7 +529,8 @@ export function EDFPlotDialog({
     setLoadingNewChunk(true);
     setDownloadProgress(0);
     resetTimeWindow(newStart);
-    updatePlotState(filePath, {});
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, {}); // This will be handled by the hook
   };
 
   // Navigate to next chunk
@@ -532,7 +541,8 @@ export function EDFPlotDialog({
       setLoadingNewChunk(true);
       setDownloadProgress(0);
       resetTimeWindow(newStart);
-      updatePlotState(filePath, {});
+      // selectFile(filePath); // This will be handled by the hook
+      // updatePlotState(filePath, {}); // This will be handled by the hook
     }
   };
 
@@ -547,7 +557,8 @@ export function EDFPlotDialog({
       setLoadingNewChunk(true);
       setDownloadProgress(0);
       resetTimeWindow(newStart);
-      updatePlotState(filePath, {});
+      // selectFile(filePath); // This will be handled by the hook
+      // updatePlotState(filePath, {}); // This will be handled by the hook
     } else {
       console.log('CHUNK SELECT (EDFPlotDialog): Invalid chunk selection attempted', {
         chunkNumber,
@@ -627,7 +638,8 @@ export function EDFPlotDialog({
       absoluteStartSec + validatedWindow[1],
     ]);
 
-    updatePlotState(filePath, {});
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, {}); // This will be handled by the hook
   };
 
   // Handle zoom in button
@@ -656,7 +668,8 @@ export function EDFPlotDialog({
         absoluteStartSec + newWindow[1],
       ]);
 
-      updatePlotState(filePath, {});
+      // selectFile(filePath); // This will be handled by the hook
+      // updatePlotState(filePath, {}); // This will be handled by the hook
     }
   };
 
@@ -686,7 +699,8 @@ export function EDFPlotDialog({
         absoluteStartSec + newWindow[1],
       ]);
 
-      updatePlotState(filePath, {});
+      // selectFile(filePath); // This will be handled by the hook
+      // updatePlotState(filePath, {}); // This will be handled by the hook
     }
   };
 
@@ -694,37 +708,41 @@ export function EDFPlotDialog({
   const handleResetZoom = () => {
     setZoomLevel(1);
     resetTimeWindow(chunkStart);
-    updatePlotState(filePath, {});
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, {}); // This will be handled by the hook
   };
 
   // Select or deselect a single channel
   const toggleChannel = (channel: string) => {
-    if (selectedChannels.includes(channel)) {
-      setSelectedChannels(selectedChannels.filter((c) => c !== channel));
+    if (selectedChannelsLocal.includes(channel)) {
+      setSelectedChannelsLocal(selectedChannelsLocal.filter((c) => c !== channel));
     } else {
-      setSelectedChannels([...selectedChannels, channel]);
+      setSelectedChannelsLocal([...selectedChannelsLocal, channel]);
     }
-    updatePlotState(filePath, {});
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, {}); // This will be handled by the hook
   };
 
   // Select all channels
   const selectAllChannels = () => {
-    setSelectedChannels([...availableChannels]);
-    updatePlotState(filePath, {});
+    setSelectedChannelsLocal([...availableChannels]);
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, {}); // This will be handled by the hook
   };
 
   // Deselect all channels
   const deselectAllChannels = () => {
-    setSelectedChannels([]);
-    updatePlotState(filePath, {});
+    setSelectedChannelsLocal([]);
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, {}); // This will be handled by the hook
   };
 
   // Convert to EEGData format (use cached data if available)
   const convertToEEGData = (): EEGData | null => {
     // Use cached data if available for the current chunk
     const edfDataToUse =
-      plotState.edfData && chunkStart === plotState.chunkStart
-        ? plotState.edfData
+      currentPlotState?.edfData && chunkStart === currentPlotState.chunkStart
+        ? currentPlotState.edfData
         : data?.getEdfData;
 
     if (!edfDataToUse) return null;
@@ -738,7 +756,7 @@ export function EDFPlotDialog({
 
       // Filter annotations to only include those within the current chunk
       const chunkEndSample = chunkStart + edfDataToUse.chunkSize;
-      const chunkAnnotations = (plotState.annotations || []).filter(
+      const chunkAnnotations = (currentPlotState?.annotations || []).filter(
         (annotation) =>
           annotation.startTime >= chunkStart &&
           annotation.startTime < chunkEndSample
@@ -771,15 +789,16 @@ export function EDFPlotDialog({
 
   // Load cached annotations when the component mounts
   useEffect(() => {
-    if (plotState.annotations) {
-      setAnnotations(plotState.annotations);
+    if (currentPlotState?.annotations) {
+      setAnnotations(currentPlotState.annotations);
     }
-  }, [plotState.annotations]);
+  }, [currentPlotState?.annotations]);
 
   // Handle annotation change
   const handleAnnotationChange = (updatedAnnotations: Annotation[]) => {
     setAnnotations(updatedAnnotations);
-    updatePlotState(filePath, { annotations: updatedAnnotations });
+    // selectFile(filePath); // This will be handled by the hook
+    // updatePlotState(filePath, { annotations: updatedAnnotations }); // This will be handled by the hook
   };
 
   // Handle annotation update from the AnnotationEditor
@@ -829,7 +848,8 @@ export function EDFPlotDialog({
         absoluteChunkStart + newLocalWindow[1],
       ]);
 
-      updatePlotState(filePath, {});
+      // selectFile(filePath); // This will be handled by the hook
+      // updatePlotState(filePath, {}); // This will be handled by the hook
     } else {
       // If annotation is outside current chunk, navigate to the correct chunk
       const newChunkStart = Math.max(
@@ -841,7 +861,8 @@ export function EDFPlotDialog({
 
       // Reset time window - will be updated when data loads
       resetTimeWindow(newChunkStart);
-      updatePlotState(filePath, {});
+      // selectFile(filePath); // This will be handled by the hook
+      // updatePlotState(filePath, {}); // This will be handled by the hook
 
       toast({
         title: "Loading new chunk",
@@ -873,7 +894,8 @@ export function EDFPlotDialog({
       // Update annotations list with the newly created one
       const updatedAnnotations = [...(annotations || []), newAnnotation];
       setAnnotations(updatedAnnotations);
-      updatePlotState(filePath, { annotations: updatedAnnotations });
+      // selectFile(filePath); // This will be handled by the hook
+      // updatePlotState(filePath, { annotations: updatedAnnotations }); // This will be handled by the hook
 
       // Cache the updated annotations
       plotCacheManager.cacheAnnotations(filePath, updatedAnnotations);
@@ -906,7 +928,8 @@ export function EDFPlotDialog({
             : annotation
         ) || [];
       setAnnotations(updatedAnnotations);
-      updatePlotState(filePath, { annotations: updatedAnnotations });
+      // selectFile(filePath); // This will be handled by the hook
+      // updatePlotState(filePath, { annotations: updatedAnnotations }); // This will be handled by the hook
 
       // Cache the updated annotations
       plotCacheManager.cacheAnnotations(filePath, updatedAnnotations);
@@ -970,7 +993,8 @@ export function EDFPlotDialog({
         const updatedAnnotations =
           annotations?.filter((annotation) => annotation.id !== id) || [];
         setAnnotations(updatedAnnotations);
-        updatePlotState(filePath, { annotations: updatedAnnotations });
+        // selectFile(filePath); // This will be handled by the hook
+        // updatePlotState(filePath, { annotations: updatedAnnotations }); // This will be handled by the hook
       },
       context: {
         fetchOptions: {
@@ -1173,7 +1197,7 @@ export function EDFPlotDialog({
                     return (
                       <EEGChart
                         eegData={eegData}
-                        selectedChannels={selectedChannels}
+                        selectedChannels={selectedChannelsLocal}
                         timeWindow={timeWindow}
                         absoluteTimeWindow={absoluteTimeWindow}
                         zoomLevel={zoomLevel}
@@ -1295,7 +1319,7 @@ export function EDFPlotDialog({
                         <div className="flex items-center space-x-2">
                           <Checkbox
                             id="removeOutliers"
-                            checked={preprocessingOptions.removeOutliers}
+                            checked={preprocessingOptionsState.removeOutliers}
                             onCheckedChange={(checked) =>
                               handlePreprocessingChange(
                                 "removeOutliers",
@@ -1311,7 +1335,7 @@ export function EDFPlotDialog({
                         <div className="flex items-center space-x-2">
                           <Checkbox
                             id="smoothing"
-                            checked={preprocessingOptions.smoothing}
+                            checked={preprocessingOptionsState.smoothing}
                             onCheckedChange={(checked) =>
                               handlePreprocessingChange("smoothing", checked)
                             }
@@ -1319,18 +1343,18 @@ export function EDFPlotDialog({
                           <Label htmlFor="smoothing">Apply smoothing</Label>
                         </div>
 
-                        {preprocessingOptions.smoothing && (
+                        {preprocessingOptionsState.smoothing && (
                           <div className="space-y-2">
                             <Label htmlFor="smoothingWindow">
                               Smoothing window:{" "}
-                              {preprocessingOptions.smoothingWindow}
+                              {preprocessingOptionsState.smoothingWindow}
                             </Label>
                             <Slider
                               id="smoothingWindow"
                               min={3}
                               max={15}
                               step={2}
-                              value={[preprocessingOptions.smoothingWindow]}
+                              value={[preprocessingOptionsState.smoothingWindow]}
                               onValueChange={(values) =>
                                 handlePreprocessingChange(
                                   "smoothingWindow",
@@ -1346,7 +1370,7 @@ export function EDFPlotDialog({
                           <select
                             id="normalization"
                             className="w-full rounded-md border border-input bg-background px-3 py-2"
-                            value={preprocessingOptions.normalization}
+                            value={preprocessingOptionsState.normalization}
                             onChange={(e) =>
                               handlePreprocessingChange(
                                 "normalization",

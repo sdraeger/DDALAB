@@ -2,9 +2,9 @@ import { useState, useCallback, useEffect } from "react";
 import {
   SimpleWidget,
   SerializableWidget,
-} from "../components/dashboard/SimpleDashboardGrid";
+} from "../components/dashboard/DashboardGrid";
 
-export function useSimpleDashboard(initialWidgets: SimpleWidget[] = []) {
+export function useDashboard(initialWidgets: SimpleWidget[] = []) {
   const [widgets, setWidgets] = useState<SimpleWidget[]>(initialWidgets);
   const [poppedOutWindows, setPoppedOutWindows] = useState<Map<string, Window>>(
     new Map()

@@ -1,6 +1,10 @@
 import { useState, useCallback, useRef } from "react";
 import { useEDFPlot } from "../contexts/EDFPlotContext";
 import type { EEGData } from "../types/EEGData";
+import {
+  DEFAULT_TIME_WINDOW,
+  DEFAULT_ZOOM_LEVEL,
+} from "../lib/utils/plotDefaults";
 
 interface UseTimeWindowProps {
   filePath: string;
@@ -37,12 +41,14 @@ export const useTimeWindow = ({
 
   const plotState = getPlotState(filePath);
   const [timeWindow, setTimeWindow] = useState<[number, number]>(
-    plotState?.timeWindow || [0, 10]
+    plotState?.timeWindow || DEFAULT_TIME_WINDOW
   );
   const [absoluteTimeWindow, setAbsoluteTimeWindow] = useState<
     [number, number] | undefined
   >(plotState?.absoluteTimeWindow);
-  const [zoomLevel, setZoomLevel] = useState(plotState?.zoomLevel || 1);
+  const [zoomLevel, setZoomLevel] = useState(
+    plotState?.zoomLevel || DEFAULT_ZOOM_LEVEL
+  );
   const [showZoomSettings, setShowZoomSettings] = useState(false);
   const [shouldUpdateViewContext, setShouldUpdateViewContext] = useState(false);
 
@@ -53,7 +59,7 @@ export const useTimeWindow = ({
       const chunkDurationSec = chunkSize / sampleRate;
       const newTimeWindow: [number, number] = [
         start,
-        start + Math.min(10, chunkDurationSec),
+        start + Math.min(DEFAULT_TIME_WINDOW[1], chunkDurationSec),
       ];
       setTimeWindow(newTimeWindow);
       setZoomLevel(1);

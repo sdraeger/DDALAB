@@ -3,41 +3,23 @@
 import React, { useState } from "react";
 import { Button } from "../ui/button";
 import { Plus, FileText, BarChart3, Settings, Activity, TrendingUp } from "lucide-react";
-import { SimpleWidget } from "./SimpleDashboardGrid";
+import { Widget } from "./DashboardGrid";
 import { FileBrowserWidget } from "./widgets/FileBrowserWidget";
 import { DDAWidget } from "./widgets/DDAWidget";
 import { ChartWidget } from "./widgets/ChartWidget";
 import { DDAHeatmapWidget } from "./widgets/DDAHeatmapWidget";
 import { DDALinePlotWidget } from "./widgets/DDALinePlotWidget";
-import { useAppDispatch } from "../../store";
-import { useToast } from "../ui/use-toast";
-import { useLoadingManager } from "../../hooks/useLoadingManager";
-import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
-import { useEDFPlot } from "../../contexts/EDFPlotContext";
-import { ChannelSelectionDialog } from "../dialog/ChannelSelectionDialog";
+import { FileSelectionDialog } from "../dialog/FileSelectionDialog";
 
-interface SimpleDashboardToolbarProps {
-	onAddWidget: (widget: SimpleWidget) => void;
+interface DashboardToolbarProps {
+	onAddWidget: (widget: Widget) => void;
 	className?: string;
 	onFileSelect?: (filePath: string) => void;
 }
 
-export function SimpleDashboardToolbar({ onAddWidget, className, onFileSelect }: SimpleDashboardToolbarProps) {
-	const { data: session } = useUnifiedSessionData();
-	const dispatch = useAppDispatch();
-	const { toast } = useToast();
-	const loadingManager = useLoadingManager();
-	const { setSelectedFilePath } = useEDFPlot();
+export function DashboardToolbar({ onAddWidget, className, onFileSelect }: DashboardToolbarProps) {
 	const [channelDialogOpen, setChannelDialogOpen] = useState(false);
 	const [pendingFilePath, setPendingFilePath] = useState<string | null>(null);
-
-	const handleFileSelect = async (filePath: string) => {
-		console.log('[SimpleDashboardToolbar] handleFileSelect called with:', filePath);
-		setPendingFilePath(filePath);
-		setChannelDialogOpen(true);
-		setSelectedFilePath(filePath);
-		console.log('[SimpleDashboardToolbar] channelDialogOpen should be true:', true);
-	};
 
 	const createWidget = (type: string) => {
 		const id = `widget-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -94,7 +76,7 @@ export function SimpleDashboardToolbar({ onAddWidget, className, onFileSelect }:
 				);
 		}
 
-		const widget: SimpleWidget = {
+		const widget: Widget = {
 			id,
 			title,
 			content,
@@ -173,7 +155,7 @@ export function SimpleDashboardToolbar({ onAddWidget, className, onFileSelect }:
 			</div>
 			{/* Channel Selection Dialog */}
 			{pendingFilePath && (
-				<ChannelSelectionDialog
+				<FileSelectionDialog
 					open={channelDialogOpen}
 					onOpenChange={open => {
 						setChannelDialogOpen(open);

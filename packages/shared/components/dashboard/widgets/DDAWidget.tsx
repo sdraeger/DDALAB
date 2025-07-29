@@ -11,6 +11,7 @@ import { setDDAResults } from "../../../store/slices/plotSlice";
 import { useWidgetState } from "../../../hooks/useWidgetState";
 import { Play } from "lucide-react";
 import { useUnifiedSessionData } from "../../../hooks/useUnifiedSession";
+import { useCurrentEdfFile } from "../../../hooks/useCurrentEdfFile";
 
 interface DDAWidgetProps {
 	widgetId?: string;
@@ -26,8 +27,17 @@ interface DDAFormState {
 }
 
 export function DDAWidget({ widgetId = 'dda-widget-default', isPopout = false }: DDAWidgetProps = {}) {
+	console.log('[DDAWidget] Component rendered with widgetId:', widgetId);
+
 	const { data: session } = useUnifiedSessionData();
-	const plots = useAppSelector(state => state.plots);
+	const {
+		currentFilePath,
+		currentPlotState,
+		currentEdfData,
+		currentChunkMetadata,
+		selectFile,
+		selectChannels,
+	} = useCurrentEdfFile();
 	const dispatch = useAppDispatch();
 	const { toast } = useToast();
 	const loadingManager = useLoadingManager();
@@ -45,11 +55,8 @@ export function DDAWidget({ widgetId = 'dda-widget-default', isPopout = false }:
 		isPopout
 	);
 
-	const latestFilePath = Object.keys(plots).find(filePath =>
-		plots[filePath]?.metadata && plots[filePath]?.edfData
-	);
-
-	const plotState = latestFilePath ? plots[latestFilePath] : null;
+	const latestFilePath = currentFilePath;
+	const plotState = currentPlotState;
 	const selectedChannels = plotState?.selectedChannels || [];
 	const metadata = plotState?.metadata;
 
@@ -61,6 +68,15 @@ export function DDAWidget({ widgetId = 'dda-widget-default', isPopout = false }:
 	};
 
 	const handleDDAProcess = async () => {
+		console.log('[DDAWidget] handleDDAProcess called');
+		console.log('[DDAWidget] Current state:', {
+			latestFilePath,
+			hasPlotState: !!plotState,
+			hasEdfData: !!plotState?.edfData,
+			selectedChannels,
+			metadata,
+		});
+
 		if (!latestFilePath || !plotState?.edfData) {
 			toast({
 				title: "No Data Available",
@@ -144,6 +160,14 @@ export function DDAWidget({ widgetId = 'dda-widget-default', isPopout = false }:
 				responseType: "json",
 			});
 
+			console.log('[DDAWidget] DDA API response:', {
+				hasQ: !!response.Q,
+				QLength: response.Q?.length,
+				QFirstRowLength: response.Q?.[0]?.length,
+				error: response.error,
+				error_message: response.error_message,
+			});
+
 			// Check for server errors
 			if (response.error === "DDA_BINARY_INVALID") {
 				throw new Error(response.error_message || "DDA binary is not properly configured on the server");
@@ -156,15 +180,33 @@ export function DDAWidget({ widgetId = 'dda-widget-default', isPopout = false }:
 			loadingManager.updateProgress(loadingId, 80, "Processing results...");
 
 			// Store results in Redux store
-			dispatch(setDDAResults({
+			console.log('[DDAWidget] About to dispatch setDDAResults:', {
 				filePath: latestFilePath,
+				Q: response.Q,
+				QLength: response.Q?.length,
+				QFirstRowLength: response.Q?.[0]?.length,
+				metadata: response.metadata,
+				artifact_id: response.artifact_id,
+			});
+
+			// Use the original file path for DDA API calls (preserve absolute path)
+			const ddaFilePath = latestFilePath;
+			console.log('[DDAWidget] Using file path for DDA:', {
+				original: latestFilePath,
+				ddaFilePath: ddaFilePath,
+			});
+
+			dispatch(setDDAResults({
+				filePath: ddaFilePath,
 				results: {
 					Q: response.Q,
 					metadata: response.metadata,
 					artifact_id: response.artifact_id,
-					file_path: response.file_path || latestFilePath,
+					file_path: response.file_path || ddaFilePath,
 				},
 			}));
+
+			console.log('[DDAWidget] setDDAResults dispatched successfully');
 
 			loadingManager.updateProgress(loadingId, 100, "DDA request complete!");
 
@@ -253,33 +295,53 @@ export function DDAWidget({ widgetId = 'dda-widget-default', isPopout = false }:
 				<div className="space-y-2">
 					<div className="flex items-center space-x-2">
 						<Checkbox
-							id="preprocessing"
+							id="enablePreprocessing"
 							checked={formData.enablePreprocessing}
 							onCheckedChange={(checked) => handleFormChange('enablePreprocessing', checked)}
 						/>
-						<label htmlFor="preprocessing" className="text-sm">Enable preprocessing</label>
+						<label htmlFor="enablePreprocessing" className="text-sm">
+							Enable Preprocessing
+						</label>
 					</div>
-
 					<div className="flex items-center space-x-2">
 						<Checkbox
-							id="metadata"
+							id="includeMetadata"
 							checked={formData.includeMetadata}
 							onCheckedChange={(checked) => handleFormChange('includeMetadata', checked)}
 						/>
-						<label htmlFor="metadata" className="text-sm">Include metadata in results</label>
+						<label htmlFor="includeMetadata" className="text-sm">
+							Include Metadata
+						</label>
 					</div>
 				</div>
 			</div>
 
-			{/* Action Button */}
+			{/* Run DDA Button */}
 			<Button
+				onClick={() => {
+					console.log('[DDAWidget] DDA button clicked');
+					handleDDAProcess();
+				}}
 				className="w-full"
-				disabled={!plotState?.edfData || selectedChannels.length === 0}
-				onClick={handleDDAProcess}
+				disabled={!latestFilePath || selectedChannels.length === 0}
 			>
-				<Play className="h-4 w-4 mr-2" />
-				Run DDA
+				Run DDA Analysis
 			</Button>
+
+			{/* Debug info */}
+			<div className="text-xs text-muted-foreground mt-2">
+				<div>Button disabled: {(!latestFilePath || selectedChannels.length === 0).toString()}</div>
+				<div>Has file path: {!!latestFilePath}</div>
+				<div>File path: {latestFilePath}</div>
+				<div>Selected channels: {selectedChannels.length}</div>
+				<div>Selected channels list: {JSON.stringify(selectedChannels)}</div>
+				<div>Has plot state: {!!plotState}</div>
+				<div>Has EDF data: {!!plotState?.edfData}</div>
+				<div>Available channels: {metadata?.availableChannels?.length || 0}</div>
+				<div>Available channels list: {JSON.stringify(metadata?.availableChannels?.slice(0, 5))}</div>
+				<div>Current file path: {currentFilePath}</div>
+				<div>Path match: {latestFilePath === currentFilePath}</div>
+			</div>
 		</div>
 	);
 }
