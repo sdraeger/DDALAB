@@ -39,6 +39,25 @@ docker-compose --version
 
 ## Getting Started
 
+### Option 1: Quick Docker Deployment (Recommended)
+
+For the easiest setup, use our automated deployment script:
+
+```bash
+# Clone the repository
+git clone https://github.com/sdraeger/DDALAB.git
+cd DDALAB
+
+# Run the deployment script
+./deploy-ddalab.sh
+
+# Access the application
+# Web interface: http://localhost:3000
+# API documentation: http://localhost:8001/docs
+```
+
+### Option 2: Manual Setup
+
 1. **Clone the repository**:
 
    ```bash
@@ -90,6 +109,10 @@ docker-compose --version
    ```bash
    docker-compose down
    ```
+
+## Docker Hub Setup
+
+If you want to contribute to the project and have your changes automatically build and push Docker images to Docker Hub, see [DOCKER_HUB_SETUP.md](DOCKER_HUB_SETUP.md) for detailed instructions on setting up the required credentials.
 
 ## SSL Configuration
 
