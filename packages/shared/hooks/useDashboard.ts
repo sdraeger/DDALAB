@@ -1,17 +1,17 @@
 import { useState, useCallback, useEffect } from "react";
 import {
-  SimpleWidget,
+  Widget,
   SerializableWidget,
 } from "../components/dashboard/DashboardGrid";
 
-export function useDashboard(initialWidgets: SimpleWidget[] = []) {
-  const [widgets, setWidgets] = useState<SimpleWidget[]>(initialWidgets);
+export function useDashboard(initialWidgets: Widget[] = []) {
+  const [widgets, setWidgets] = useState<Widget[]>(initialWidgets);
   const [poppedOutWindows, setPoppedOutWindows] = useState<Map<string, Window>>(
     new Map()
   );
 
   const updateWidget = useCallback(
-    (id: string, updates: Partial<SimpleWidget>) => {
+    (id: string, updates: Partial<Widget>) => {
       setWidgets((prev) =>
         prev.map((widget) =>
           widget.id === id ? { ...widget, ...updates } : widget
@@ -33,7 +33,7 @@ export function useDashboard(initialWidgets: SimpleWidget[] = []) {
     [widgets]
   );
 
-  const addWidget = useCallback((widget: SimpleWidget) => {
+  const addWidget = useCallback((widget: Widget) => {
     setWidgets((prev) => [...prev, widget]);
   }, []);
 

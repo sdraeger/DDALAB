@@ -18,6 +18,13 @@ services:
     platform: linux/amd64
     env_file:
       - ./.env
+    environment:
+      # Next.js Environment Variables
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      NODE_ENV: production
+      # Session Configuration
+      SESSION_EXPIRATION: ${SESSION_EXPIRATION:-10080}
     volumes:
       - type: bind
         source: ./.env
@@ -39,7 +46,7 @@ services:
 
   api:
     # Use Docker Hub image if DDALAB_API_IMAGE is set, otherwise build locally
-    image: ${DDALAB_API_IMAGE:-sdraeger1/ddalab-api-server:${VERSION:-latest}}
+    image: ${DDALAB_API_IMAGE:-sdraeger1/ddalab-api:${VERSION:-latest}}
     build:
       context: .
       dockerfile: ./packages/api/Dockerfile

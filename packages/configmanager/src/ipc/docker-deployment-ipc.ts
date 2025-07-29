@@ -2,7 +2,7 @@ import { ipcMain } from "electron";
 import path from "path";
 import fs from "fs/promises";
 import { logger } from "../utils/logger";
-import { SetupService } from "../services/setup-service";
+import { SetupService, UserConfiguration } from "../services/setup-service";
 
 export function registerDockerDeploymentIpcHandlers() {
   // Validate Docker setup
@@ -19,11 +19,8 @@ export function registerDockerDeploymentIpcHandlers() {
         };
       }
 
-      // Check for docker-compose.simple.yml
-      const dockerComposePath = path.join(
-        setupPath,
-        "docker-compose.simple.yml"
-      );
+      // Check for docker-compose.yml and .env
+      const dockerComposePath = path.join(setupPath, "docker-compose.yml");
       const envPath = path.join(setupPath, ".env");
 
       try {
@@ -54,12 +51,89 @@ export function registerDockerDeploymentIpcHandlers() {
     }
   });
 
-  // Setup Docker deployment
+  // Setup Docker deployment using enhanced approach
   ipcMain.handle(
     "setup-docker-deployment",
+    async (
+      event,
+      dataLocation: string,
+      setupLocation: string,
+      userConfig: UserConfiguration
+    ) => {
+      try {
+        logger.info(
+          `Setting up Docker deployment at: ${setupLocation} with user config:`,
+          userConfig
+        );
+
+        // Use the enhanced setup method
+        const result = await SetupService.setupDDALAB(
+          setupLocation,
+          userConfig
+        );
+
+        if (result.success) {
+          await SetupService.saveConfigManagerState(
+            dataLocation,
+            setupLocation
+          );
+          logger.info("Docker deployment setup completed successfully");
+        }
+
+        return result;
+      } catch (error: any) {
+        logger.error("Docker deployment setup failed:", error);
+        return {
+          success: false,
+          message: `Docker deployment setup failed: ${error.message}`,
+        };
+      }
+    }
+  );
+
+  // Setup Docker directory with enhanced approach
+  ipcMain.handle(
+    "setup-docker-directory",
+    async (event, targetDirectory: string, userConfig: UserConfiguration) => {
+      try {
+        logger.info(
+          `Setting up Docker directory at: ${targetDirectory} with user config:`,
+          userConfig
+        );
+
+        // Use the enhanced setup method
+        const result = await SetupService.setupDDALAB(
+          targetDirectory,
+          userConfig
+        );
+
+        if (result.success) {
+          await SetupService.saveConfigManagerState(
+            targetDirectory,
+            targetDirectory
+          );
+          logger.info("Docker directory setup completed successfully");
+        }
+
+        return result;
+      } catch (error: any) {
+        logger.error("Docker directory setup failed:", error);
+        return {
+          success: false,
+          message: `Docker directory setup failed: ${error.message}`,
+        };
+      }
+    }
+  );
+
+  // Legacy method for backward compatibility
+  ipcMain.handle(
+    "setup-docker-deployment-legacy",
     async (event, dataLocation: string, setupLocation: string) => {
       try {
-        logger.info(`Setting up Docker deployment at: ${setupLocation}`);
+        logger.info(
+          `Setting up Docker deployment (legacy) at: ${setupLocation}`
+        );
 
         // Create setup directory if it doesn't exist
         await fs.mkdir(setupLocation, { recursive: true });
@@ -80,9 +154,9 @@ export function registerDockerDeploymentIpcHandlers() {
         const traefikLogsDir = path.join(setupLocation, "traefik-logs");
         await fs.mkdir(traefikLogsDir, { recursive: true });
 
-        // Copy docker-compose.simple.yml
+        // Copy docker-compose.yml
         const dockerComposeContent = await fs.readFile(
-          path.join(process.cwd(), "docker-compose.simple.yml"),
+          path.join(process.cwd(), "docker-compose.yml"),
           "utf-8"
         );
         await fs.writeFile(
@@ -90,16 +164,59 @@ export function registerDockerDeploymentIpcHandlers() {
           dockerComposeContent
         );
 
-        // Copy .env.simple to .env
-        const envContent = await fs.readFile(
-          path.join(process.cwd(), ".env.simple"),
-          "utf-8"
-        );
+        // Create .env file with proper configuration
+        const envContent = `# DDALAB Docker Deployment Configuration
+# This file configures DDALAB to use Docker Hub images
+
+# Use Docker Hub images instead of building locally
+DDALAB_WEB_IMAGE=sdraeger1/ddalab-web:latest
+DDALAB_API_IMAGE=sdraeger1/ddalab-api:latest
+
+# Database Configuration
+DDALAB_DB_USER=ddalab
+DDALAB_DB_PASSWORD=ddalab_password
+DDALAB_DB_NAME=ddalab
+
+# MinIO Configuration
+MINIO_ROOT_USER=ddalab
+MINIO_ROOT_PASSWORD=ddalab_password
+
+# Redis Configuration (optional)
+DDALAB_REDIS_PASSWORD=
+DDALAB_REDIS_USE_SSL=False
+
+# Data Directory (where your EDF files will be stored)
+DDALAB_DATA_DIR=./data
+
+# Web Application Port
+WEB_PORT=3000
+
+# Session Configuration
+SESSION_EXPIRATION=10080
+
+# Traefik Configuration
+TRAEFIK_ACME_EMAIL=admin@ddalab.local
+TRAEFIK_PASSWORD_HASH=
+
+# Cache Configuration
+DDALAB_PLOT_CACHE_TTL=3600
+
+# Allowed Directories for API access
+DDALAB_ALLOWED_DIRS=${dataLocation}:/app/data:rw
+
+# Grafana Configuration (optional)
+GRAFANA_ADMIN_USER=admin
+GRAFANA_ADMIN_PASSWORD=admin
+
+# Next.js Environment Variables
+NEXT_PUBLIC_API_URL=http://localhost:8001
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+`;
         await fs.writeFile(path.join(setupLocation, ".env"), envContent);
 
-        // Copy traefik.simple.yml
+        // Copy traefik.yml
         const traefikContent = await fs.readFile(
-          path.join(process.cwd(), "traefik.simple.yml"),
+          path.join(process.cwd(), "traefik.yml"),
           "utf-8"
         );
         await fs.writeFile(
@@ -109,7 +226,7 @@ export function registerDockerDeploymentIpcHandlers() {
 
         // Copy dynamic configuration
         const dynamicContent = await fs.readFile(
-          path.join(process.cwd(), "dynamic/routers.simple.yml"),
+          path.join(process.cwd(), "dynamic/routers.yml"),
           "utf-8"
         );
         await fs.writeFile(
@@ -129,40 +246,47 @@ export function registerDockerDeploymentIpcHandlers() {
           message: "Docker deployment setup completed successfully",
           setupPath: setupLocation,
         };
-      } catch (error) {
+      } catch (error: any) {
         logger.error("Docker deployment setup failed:", error);
         return {
           success: false,
-          message: `Setup failed: ${String(error)}`,
+          message: `Docker deployment setup failed: ${error.message}`,
         };
       }
     }
   );
 
-  // Setup Docker directory
+  // Legacy method for backward compatibility
   ipcMain.handle(
-    "setup-docker-directory",
+    "setup-docker-directory-legacy",
     async (event, targetDirectory: string) => {
       try {
-        logger.info(`Setting up Docker directory at: ${targetDirectory}`);
+        logger.info(
+          `Setting up Docker directory (legacy) at: ${targetDirectory}`
+        );
 
-        // Create the directory if it doesn't exist
+        // Create setup directory if it doesn't exist
         await fs.mkdir(targetDirectory, { recursive: true });
 
-        // Create subdirectories
+        // Create data directory
         const dataDir = path.join(targetDirectory, "data");
-        const dynamicDir = path.join(targetDirectory, "dynamic");
-        const certsDir = path.join(targetDirectory, "certs");
-        const traefikLogsDir = path.join(targetDirectory, "traefik-logs");
-
         await fs.mkdir(dataDir, { recursive: true });
+
+        // Create dynamic directory for Traefik
+        const dynamicDir = path.join(targetDirectory, "dynamic");
         await fs.mkdir(dynamicDir, { recursive: true });
+
+        // Create certs directory
+        const certsDir = path.join(targetDirectory, "certs");
         await fs.mkdir(certsDir, { recursive: true });
+
+        // Create traefik-logs directory
+        const traefikLogsDir = path.join(targetDirectory, "traefik-logs");
         await fs.mkdir(traefikLogsDir, { recursive: true });
 
-        // Copy configuration files
+        // Copy docker-compose.yml
         const dockerComposeContent = await fs.readFile(
-          path.join(process.cwd(), "docker-compose.simple.yml"),
+          path.join(process.cwd(), "docker-compose.yml"),
           "utf-8"
         );
         await fs.writeFile(
@@ -170,14 +294,58 @@ export function registerDockerDeploymentIpcHandlers() {
           dockerComposeContent
         );
 
-        const envContent = await fs.readFile(
-          path.join(process.cwd(), ".env.simple"),
-          "utf-8"
-        );
+        // Create .env file with proper configuration
+        const envContent = `# DDALAB Docker Deployment Configuration
+# This file configures DDALAB to use Docker Hub images
+
+# Use Docker Hub images instead of building locally
+DDALAB_WEB_IMAGE=sdraeger1/ddalab-web:latest
+DDALAB_API_IMAGE=sdraeger1/ddalab-api:latest
+
+# Database Configuration
+DDALAB_DB_USER=ddalab
+DDALAB_DB_PASSWORD=ddalab_password
+DDALAB_DB_NAME=ddalab
+
+# MinIO Configuration
+MINIO_ROOT_USER=ddalab
+MINIO_ROOT_PASSWORD=ddalab_password
+
+# Redis Configuration (optional)
+DDALAB_REDIS_PASSWORD=
+DDALAB_REDIS_USE_SSL=False
+
+# Data Directory (where your EDF files will be stored)
+DDALAB_DATA_DIR=./data
+
+# Web Application Port
+WEB_PORT=3000
+
+# Session Configuration
+SESSION_EXPIRATION=10080
+
+# Traefik Configuration
+TRAEFIK_ACME_EMAIL=admin@ddalab.local
+TRAEFIK_PASSWORD_HASH=
+
+# Cache Configuration
+DDALAB_PLOT_CACHE_TTL=3600
+
+# Allowed Directories for API access
+DDALAB_ALLOWED_DIRS=./data:/app/data:rw
+
+# Grafana Configuration (optional)
+GRAFANA_ADMIN_USER=admin
+GRAFANA_ADMIN_PASSWORD=admin
+
+# Next.js Environment Variables
+NEXT_PUBLIC_API_URL=http://localhost:8001
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+`;
         await fs.writeFile(path.join(targetDirectory, ".env"), envContent);
 
         const traefikContent = await fs.readFile(
-          path.join(process.cwd(), "traefik.simple.yml"),
+          path.join(process.cwd(), "traefik.yml"),
           "utf-8"
         );
         await fs.writeFile(
@@ -186,7 +354,7 @@ export function registerDockerDeploymentIpcHandlers() {
         );
 
         const dynamicContent = await fs.readFile(
-          path.join(process.cwd(), "dynamic/routers.simple.yml"),
+          path.join(process.cwd(), "dynamic/routers.yml"),
           "utf-8"
         );
         await fs.writeFile(
@@ -203,11 +371,11 @@ export function registerDockerDeploymentIpcHandlers() {
           message: "Docker directory setup completed successfully",
           setupPath: targetDirectory,
         };
-      } catch (error) {
+      } catch (error: any) {
         logger.error("Docker directory setup failed:", error);
         return {
           success: false,
-          message: `Setup failed: ${String(error)}`,
+          message: `Docker directory setup failed: ${error.message}`,
         };
       }
     }

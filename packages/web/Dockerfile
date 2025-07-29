@@ -19,6 +19,9 @@ COPY packages/shared ./packages/shared
 COPY packages/web/package*.json ./packages/web/
 COPY package*.json ./
 
+# Copy environment files from web package
+COPY packages/web/.env* ./packages/web/
+
 # Install root dependencies first
 RUN npm install
 
@@ -32,15 +35,17 @@ WORKDIR /app/packages/web
 RUN npm install
 COPY packages/web .
 
-# Load .env and run build
-RUN echo "NEXT_PUBLIC_API_URL=https://localhost" > .env.local
-RUN echo "SESSION_EXPIRATION=10080" >> .env.local
+# Create .env.development file for Next.js (after copying web files)
+RUN echo "NEXT_PUBLIC_API_URL=http://localhost:8001" > .env.development
+RUN echo "NEXT_PUBLIC_APP_URL=http://localhost:3000" >> .env.development
+RUN echo "NODE_ENV=production" >> .env.development
 
 # Create symlink for shared package
 RUN mkdir -p node_modules/shared && \
 	ln -sf /app/packages/shared/dist/* node_modules/shared/
 
-RUN npm run build
+# Build without dotenv (use local environment)
+RUN npm run build:docker
 
 FROM node:20-alpine AS runner
 
@@ -58,7 +63,6 @@ COPY --from=builder /app/packages/web/.next ./.next
 COPY --from=builder /app/packages/web/start.js ./start.js
 COPY --from=builder /app/packages/shared ./packages/shared
 COPY --from=builder /app/packages/web/node_modules ./node_modules
-COPY --from=builder /app/packages/web/.env.local ./.env.local
 
 # Install production dependencies
 RUN npm install --production
