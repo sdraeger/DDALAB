@@ -81,7 +81,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Handle local mode - inject default user
-        if settings.is_local_mode:
+        if settings.auth_mode == "local":
             # Import here to avoid circular imports
             from core.services.local_user_service import LocalUserService
             from loguru import logger
@@ -91,23 +91,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 local_user_service = LocalUserService(request.state.db)
                 default_user = await local_user_service.get_default_user()
                 request.state.current_user = default_user
-                request.state.is_local_mode = True
-                logger.debug(
-                    f"Local mode: Using default user '{default_user.username}'"
-                )
-                return await call_next(request)
+                logger.info(f"Local mode: Using default user '{default_user.username}'")
             except Exception as e:
-                logger.error(f"Failed to get default user in local mode: {e}")
-                from fastapi import HTTPException
-
-                raise HTTPException(
-                    status_code=500, detail="Failed to initialize local mode user"
-                )
-
-        # Multi-user mode - require authentication
-        if not settings.auth_enabled:
-            # This shouldn't happen given current logic, but keep as fallback
-            return await call_next(request)
+                logger.error(f"Failed to get default user in local mode: {str(e)}")
+                # Continue without user in local mode
+                request.state.current_user = None
 
         # Extract token from Authorization header
         auth_header = request.headers.get("authorization", "")
@@ -115,7 +103,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Store token in request state
         request.state.token = token
-        request.state.is_local_mode = False
+        request.state.auth_mode = settings.auth_mode
 
         # Check if user is logged in
         if not is_user_logged_in(request):

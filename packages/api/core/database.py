@@ -10,18 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from .config import get_server_settings
 
 settings = get_server_settings()
-
-# Create SQLAlchemy engine for PostgreSQL
 engine = create_async_engine(
-    settings.database_url,
+    settings.get_database_url(),
     echo=settings.debug,
     pool_size=20,
     max_overflow=10,
     pool_timeout=30,
     pool_recycle=1800,
 )
-
-# Create async session factory
 async_session_maker = async_sessionmaker(
     engine,
     class_=AsyncSession,
@@ -33,16 +29,9 @@ async_session_maker = async_sessionmaker(
 
 @asynccontextmanager
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Get a database session.
-
-    Returns:
-        AsyncSession: Database session
-
-    Example:
-        async with get_db() as db:
-            result = await db.execute(query)
-            await db.commit()
-    """
+    """Get a database session."""
+    if async_session_maker is None:
+        raise RuntimeError("Database session maker not initialized.")
     async with async_session_maker() as session:
         try:
             yield session
@@ -59,6 +48,9 @@ get_db_session = get_db
 
 def get_minio_client():
     """Initialize and yield a MinIO client instance."""
+
+    settings = get_server_settings()
+
     endpoint = settings.minio_host
     access_key = settings.minio_access_key
     secret_key = settings.minio_secret_key

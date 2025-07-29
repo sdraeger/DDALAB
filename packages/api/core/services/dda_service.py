@@ -45,8 +45,18 @@ class DDAService(BaseService):
         try:
             # Validate file path
             file_path = Path(request.file_path)
-            if not (Path(self.settings.data_dir) / file_path).exists():
-                raise NotFoundError("File", str(file_path))
+
+            # Handle absolute paths
+            if file_path.is_absolute():
+                # For absolute paths, check if the file exists directly
+                if not file_path.exists():
+                    raise NotFoundError("File", str(file_path))
+            else:
+                # For relative paths, check relative to data directory
+                full_path = Path(self.settings.data_dir) / file_path
+                if not full_path.exists():
+                    raise NotFoundError("File", str(file_path))
+                file_path = full_path
 
             # Convert preprocessing options to dict format expected by run_dda
             preprocessing_options = {}

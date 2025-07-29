@@ -11,10 +11,3 @@ CREATE TABLE public.edf_configs (
 );
 
 ALTER TABLE public.edf_configs OWNER TO {owner};
-
---
--- Name: edf_configs edf_configs_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: {owner}
---
-
-ALTER TABLE ONLY public.edf_configs
-    ADD CONSTRAINT edf_configs_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);

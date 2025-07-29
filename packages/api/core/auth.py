@@ -47,13 +47,9 @@ async def get_current_user(
     request: Request,
     user_service: UserService = Depends(get_service(UserService)),
 ) -> User:
-    print("[DEBUG] Entered get_current_user dependency")
     settings = get_server_settings()
-    print(
-        f"[APP] Verifying JWT with secret={settings.jwt_secret_key}, algorithm={settings.jwt_algorithm}"
-    )
     # Check if we're in local mode and user is already injected by middleware
-    if hasattr(request.state, "is_local_mode") and request.state.is_local_mode:
+    if settings.auth_mode == "local":
         if hasattr(request.state, "current_user") and request.state.current_user:
             logger.debug(
                 f"Local mode: Using injected user '{request.state.current_user.username}'"
@@ -119,7 +115,7 @@ async def get_local_user(request: Request) -> User:
         HTTPException: If not in local mode or user not available
     """
     settings = get_server_settings()
-    if not settings.is_local_mode:
+    if settings.auth_mode != "local":
         raise HTTPException(
             status_code=400,
             detail="Local mode user only available in local authentication mode",
@@ -146,7 +142,7 @@ async def get_current_user_from_request(request: Request) -> User:
         HTTPException: For various authentication failures
     """
     # Handle local mode
-    if hasattr(request.state, "is_local_mode") and request.state.is_local_mode:
+    if request.state.auth_mode == "local":
         return await get_local_user(request)
 
     # Extract and validate token
@@ -327,7 +323,7 @@ async def get_admin_user(
 def is_user_logged_in(request: Request) -> bool:
     """Check if the user is logged in."""
     # In local mode, always consider user as logged in since user is injected by middleware
-    if hasattr(request.state, "is_local_mode") and request.state.is_local_mode:
+    if request.state.auth_mode == "local":
         return (
             hasattr(request.state, "current_user")
             and request.state.current_user is not None

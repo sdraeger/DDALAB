@@ -12,7 +12,6 @@ data_settings = get_data_settings()
 async def get_config():
     """Get server configuration."""
     return {
-        "auth_enabled": settings.auth_enabled,
         "token_expiration_minutes": settings.token_expiration_minutes,
         "refresh_token_expire_days": settings.refresh_token_expire_days,
         "debug": settings.debug,

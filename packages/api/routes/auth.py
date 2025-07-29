@@ -27,12 +27,10 @@ async def get_auth_mode(request: Request):
     """
     auth_info = {
         "auth_mode": settings.auth_mode,
-        "auth_enabled": settings.auth_enabled,
-        "is_local_mode": settings.is_local_mode,
     }
 
     # If in local mode, include the current user information
-    if settings.is_local_mode:
+    if settings.auth_mode == "local":
         try:
             from core.services.local_user_service import LocalUserService
 
@@ -67,7 +65,7 @@ async def login_for_access_token(
     """Login endpoint to issue access tokens using repository pattern"""
 
     # In local mode, reject login attempts
-    if settings.is_local_mode:
+    if settings.auth_mode == "local":
         raise HTTPException(
             status_code=400, detail="Authentication is disabled in local mode"
         )
@@ -102,7 +100,7 @@ async def refresh_token(
 ):
     """Refresh access token using valid refresh token"""
     # In local mode, reject refresh token attempts
-    if settings.is_local_mode:
+    if settings.auth_mode == "local":
         raise HTTPException(
             status_code=400, detail="Token refresh is disabled in local mode"
         )
