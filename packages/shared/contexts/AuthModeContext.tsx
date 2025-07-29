@@ -47,7 +47,7 @@ export function AuthModeProvider({ children, initialMode = 'multi-user' }: AuthM
 				const response = await fetch(`${apiUrl}/api/auth/mode`);
 				if (response.ok) {
 					const data = await response.json();
-					const detectedMode: AuthModeType = data.is_local_mode ? 'local' : 'multi-user';
+					const detectedMode: AuthModeType = data.auth_mode;
 
 					// Only update if different from current mode
 					if (detectedMode !== authMode) {

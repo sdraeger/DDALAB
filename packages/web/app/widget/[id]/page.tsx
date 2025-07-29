@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { SimpleWidget, SerializableWidget } from "shared/components/dashboard/SimpleDashboardGrid";
+import { Widget, SerializableWidget } from "shared/components/dashboard/DashboardGrid";
 import { Button } from "shared/components/ui/button";
 import { ArrowLeft, RotateCcw } from "lucide-react";
 import { createWidgetContent } from "shared/lib/utils/widgetFactory";
@@ -12,7 +12,7 @@ interface PoppedOutWidgetPageProps { }
 export default function PoppedOutWidgetPage({ }: PoppedOutWidgetPageProps) {
 	const params = useParams();
 	const router = useRouter();
-	const [widget, setWidget] = useState<SimpleWidget | null>(null);
+	const [widget, setWidget] = useState<Widget | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
 	const widgetId = params?.id as string;
@@ -31,7 +31,7 @@ export default function PoppedOutWidgetPage({ }: PoppedOutWidgetPageProps) {
 			try {
 				const parsedWidget: SerializableWidget = JSON.parse(storedWidget);
 				// Reconstruct the widget with content based on type
-				const reconstructedWidget: SimpleWidget = {
+				const reconstructedWidget: Widget = {
 					...parsedWidget,
 					content: createWidgetContent(parsedWidget.type)
 				};
@@ -49,7 +49,7 @@ export default function PoppedOutWidgetPage({ }: PoppedOutWidgetPageProps) {
 				try {
 					const updatedWidget: SerializableWidget = JSON.parse(e.newValue);
 					// Reconstruct the widget with content based on type
-					const reconstructedWidget: SimpleWidget = {
+					const reconstructedWidget: Widget = {
 						...updatedWidget,
 						content: createWidgetContent(updatedWidget.type)
 					};

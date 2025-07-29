@@ -40,7 +40,7 @@ export interface ParsedEnvEntry {
 
 // User Selections (from renderer.ts)
 export interface UserSelections {
-  setupType: "" | "automatic" | "manual";
+  setupType: "" | "automatic" | "manual" | "docker";
   dataLocation: string;
   cloneLocation: string;
   envVariables: { [key: string]: string };
@@ -137,6 +137,27 @@ export interface ElectronAPI {
     envPath: string,
     envData: Record<string, string>
   ) => Promise<void>;
+  // Docker-based deployment methods
+  validateDockerSetup: (setupPath: string) => Promise<{
+    success: boolean;
+    message?: string;
+    setupPath?: string;
+    needsSetup?: boolean;
+    targetPath?: string;
+  }>;
+  setupDockerDeployment: (
+    dataLocation: string,
+    setupLocation: string
+  ) => Promise<{
+    success: boolean;
+    message: string;
+    setupPath?: string;
+  }>;
+  setupDockerDirectory: (targetDirectory: string) => Promise<{
+    success: boolean;
+    message: string;
+    setupPath?: string;
+  }>;
 }
 
 // This declares the shape of window.electronAPI for TypeScript

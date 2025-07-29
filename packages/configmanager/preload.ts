@@ -94,6 +94,27 @@ export interface ElectronAPI {
     message: string;
     setupPath?: string;
   }>;
+  // Docker-based deployment methods
+  validateDockerSetup: (setupPath: string) => Promise<{
+    success: boolean;
+    message?: string;
+    setupPath?: string;
+    needsSetup?: boolean;
+    targetPath?: string;
+  }>;
+  setupDockerDeployment: (
+    dataLocation: string,
+    setupLocation: string
+  ) => Promise<{
+    success: boolean;
+    message: string;
+    setupPath?: string;
+  }>;
+  setupDockerDirectory: (targetDirectory: string) => Promise<{
+    success: boolean;
+    message: string;
+    setupPath?: string;
+  }>;
 }
 
 interface ParsedEnvEntry {
@@ -210,6 +231,13 @@ const exposedAPI: ElectronAPI = {
       targetDirectory,
       allowedDirsValue
     ),
+  // Docker-based deployment methods
+  validateDockerSetup: (setupPath: string) =>
+    ipcRenderer.invoke("validate-docker-setup", setupPath),
+  setupDockerDeployment: (dataLocation: string, setupLocation: string) =>
+    ipcRenderer.invoke("setup-docker-deployment", dataLocation, setupLocation),
+  setupDockerDirectory: (targetDirectory: string) =>
+    ipcRenderer.invoke("setup-docker-directory", targetDirectory),
 };
 
 console.log("[preload.ts] About to expose electronAPI to main world");

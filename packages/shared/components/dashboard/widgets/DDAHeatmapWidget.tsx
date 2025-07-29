@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useAppSelector } from "../../../store";
+import { useCurrentEdfFile } from "../../../hooks/useCurrentEdfFile";
 import { Activity, Settings, RotateCcw } from "lucide-react";
 import { DDAHeatmap } from "../../plot/DDAHeatmap";
 import { Button } from "../../ui/button";
@@ -12,18 +12,42 @@ import { LoadingOverlay } from "../../ui/loading-overlay";
 import logger from "../../../lib/utils/logger";
 
 export function DDAHeatmapWidget() {
-	const plots = useAppSelector(state => state.plots);
+	console.log('[DDAHeatmapWidget] Component rendered');
+
+	const {
+		currentFilePath,
+		currentPlotState,
+		currentEdfData,
+		currentChunkMetadata,
+		selectFile,
+		selectChannels,
+	} = useCurrentEdfFile();
+
 	const loadingManager = useLoadingManager();
 
-	// Find the most recent plot with DDA results (Q matrix)
-	const plotWithDDA = Object.entries(plots).find(([filePath, plotState]) =>
-		plotState?.ddaResults?.Q && Array.isArray(plotState.ddaResults.Q) && plotState.ddaResults.Q.length > 0
-	);
+	// Use currentPlotState only if it exists and has the required properties
+	const plotWithDDA = currentPlotState && currentPlotState.ddaResults && Array.isArray(currentPlotState.ddaResults.Q) && currentPlotState.ddaResults.Q.length > 0 ? currentPlotState : null;
 
-	const [filePath, plotState] = plotWithDDA || [null, null];
-	const ddaResults = plotState?.ddaResults;
+	// Use plotWithDDA directly as a PlotState or null
+	const ddaResults = plotWithDDA?.ddaResults;
 	const Q = ddaResults?.Q;
 	const hasData = Q && Array.isArray(Q) && Q.length > 0;
+
+	console.log('[DDAHeatmapWidget] DDA data check:', {
+		currentFilePath,
+		currentPlotState: !!currentPlotState,
+		hasDdaResults: !!currentPlotState?.ddaResults,
+		ddaResultsQ: currentPlotState?.ddaResults?.Q,
+		plotWithDDA: !!plotWithDDA,
+		Q: Q,
+		hasData: hasData,
+		QLength: Q?.length,
+		QFirstRowLength: Q?.[0]?.length,
+		// Check if file paths match
+		storedFilePath: currentPlotState?.ddaResults?.file_path,
+		pathMatch: currentFilePath === currentPlotState?.ddaResults?.file_path,
+	});
+
 	const hasPlottableData = useMemo(() => {
 		if (!hasData || !Q) return false;
 		return Q.some(row => row.some(val => val !== null));
@@ -227,9 +251,9 @@ export function DDAHeatmapWidget() {
 			</CardContent>
 
 			{/* Info overlay */}
-			{filePath && !isProcessing && (
+			{currentFilePath && !isProcessing && (
 				<div className="absolute bottom-2 left-2 bg-background/80 backdrop-blur-sm rounded-md p-2 text-xs">
-					<div className="font-medium">{filePath.split('/').pop()}</div>
+					<div className="font-medium">{currentFilePath.split('/').pop()}</div>
 					<div className="text-muted-foreground">
 						{heatmapData.length} data points
 					</div>

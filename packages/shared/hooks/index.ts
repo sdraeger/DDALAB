@@ -15,7 +15,7 @@ export { usePlotCache } from "./usePlotCache";
 export { useResizable } from "./useResizable";
 export { useUnifiedSessionData } from "./useUnifiedSession";
 export { useSettings } from "../contexts/SettingsContext";
-export { useSimpleDashboard } from "./useSimpleDashboard";
+export { useDashboard } from "./useDashboard";
 export { useTimeWindow } from "./useTimeWindow";
 export { useToast } from "./useToast";
 export { useWidgetDataSync } from "./useWidgetDataSync";

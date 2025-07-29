@@ -6,6 +6,7 @@ import { registerConfigManagerIpcHandlers } from "./ipc/configmanager-ipc";
 import { registerEnvIpcHandlers } from "./ipc/env-ipc";
 import { registerDockerIpcHandlers } from "./ipc/docker-ipc";
 import { registerSetupIpcHandlers } from "./ipc/setup-ipc";
+import { registerDockerDeploymentIpcHandlers } from "./ipc/docker-deployment-ipc";
 import { logger } from "./utils/logger";
 import { PROJECT_ROOT_ENV_PATH } from "./utils/env-manager";
 
@@ -23,5 +24,6 @@ registerConfigManagerIpcHandlers();
 registerEnvIpcHandlers();
 registerDockerIpcHandlers();
 registerSetupIpcHandlers();
+registerDockerDeploymentIpcHandlers();
 
 export { setMainWindow } from "./utils/main-window";

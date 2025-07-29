@@ -428,7 +428,6 @@ export function useModernDashboard(
 
               if (plotWithData) {
                 // Extract the base file path from the complex key
-                // Keys are like: /Users/simon/Desktop/copy.edf_0_25600
                 const complexKey = plotWithData[0];
                 const baseFilePath = complexKey.split("_")[0]; // Get the part before first underscore
                 filePath = baseFilePath;

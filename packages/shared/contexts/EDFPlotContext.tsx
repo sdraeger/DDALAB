@@ -8,6 +8,19 @@ import {
   type ReactNode,
 } from "react";
 
+import {
+  DEFAULT_CHUNK_SIZE_SECONDS,
+  DEFAULT_SELECTED_CHANNELS,
+  DEFAULT_TIME_WINDOW,
+  DEFAULT_ABSOLUTE_TIME_WINDOW,
+  DEFAULT_ZOOM_LEVEL,
+  DEFAULT_CURRENT_CHUNK_NUMBER,
+  DEFAULT_TOTAL_CHUNKS,
+  DEFAULT_CHUNK_START,
+  DEFAULT_ANNOTATIONS,
+  DEFAULT_PREPROCESSING_OPTIONS,
+} from "../lib/utils/plotDefaults";
+
 // Define the types for the EDF plot state
 export interface EDFPlotState {
   chunkSizeSeconds: number;
@@ -38,6 +51,8 @@ export interface EDFPlotContext {
   updatePlotState: (filePath: string, state: Partial<EDFPlotState>) => void;
   // Function to create initial state for a new file
   initPlotState: (filePath: string) => void;
+  // Function to clear all plot states
+  clearAllPlotStates: () => void;
   // Currently selected file path
   selectedFilePath: string;
   // Update selected file path
@@ -50,21 +65,21 @@ export interface EDFPlotContext {
 
 // Default values for EDF plot state
 const defaultPlotState: EDFPlotState = {
-  chunkSizeSeconds: 10,
-  selectedChannels: [],
+  chunkSizeSeconds: DEFAULT_CHUNK_SIZE_SECONDS,
+  selectedChannels: DEFAULT_SELECTED_CHANNELS,
   showPlot: false,
-  timeWindow: [0, 10],
-  absoluteTimeWindow: [0, 10],
-  zoomLevel: 1,
-  chunkStart: 0,
+  timeWindow: DEFAULT_TIME_WINDOW,
+  absoluteTimeWindow: DEFAULT_ABSOLUTE_TIME_WINDOW,
+  zoomLevel: DEFAULT_ZOOM_LEVEL,
+  chunkStart: DEFAULT_CHUNK_START,
   totalSamples: 0,
   totalDuration: 0,
-  currentChunkNumber: 1,
-  totalChunks: 1,
+  currentChunkNumber: DEFAULT_CURRENT_CHUNK_NUMBER,
+  totalChunks: DEFAULT_TOTAL_CHUNKS,
   edfData: null,
-  annotations: null,
+  annotations: DEFAULT_ANNOTATIONS,
   lastFetchTime: null,
-  preprocessingOptions: null,
+  preprocessingOptions: DEFAULT_PREPROCESSING_OPTIONS,
   sampleRate: 256,
 };
 
@@ -132,12 +147,19 @@ export function EDFPlotProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Clear all plot states - memoize to avoid recreating on each render
+  const clearAllPlotStates = useCallback(() => {
+    setPlotStates(new Map());
+    setSelectedFilePath("");
+  }, [setSelectedFilePath]);
+
   // Value provided by the context
   const value = {
     plotStates,
     getPlotState,
     updatePlotState,
     initPlotState,
+    clearAllPlotStates,
     selectedFilePath,
     setSelectedFilePath,
     plotDialogOpen,

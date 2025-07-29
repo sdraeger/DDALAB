@@ -26,10 +26,19 @@ import { FormValues } from "../../../types/preprocessing";
 import { FilterOptionsGroup } from "../../ui/preprocessing/FilterOptionsGroup";
 import { SignalProcessingGroup } from "../../ui/preprocessing/SignalProcessingGroup";
 import { NormalizationGroup } from "../../ui/preprocessing/NormalizationGroup";
-import { Loader2 } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, SkipBack, SkipForward } from "lucide-react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { Button } from "../../ui/button";
+import { useCurrentEdfFile } from "../../../hooks/useCurrentEdfFile";
+import { useChunkNavigation } from "../../../hooks/useChunkNavigation";
+import { useUnifiedSessionData } from "../../../hooks/useUnifiedSession";
+import { loadChunk } from "../../../store/slices/plotSlice";
+import {
+	DEFAULT_TIME_WINDOW,
+	DEFAULT_ZOOM_LEVEL,
+	DEFAULT_SELECTED_CHANNELS
+} from "../../../lib/utils/plotDefaults";
 
 interface ChartWidgetProps {
 	// Props for popout mode - when provided, these override Redux state
@@ -52,9 +61,9 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 
 	// Widget state for UI preferences
 	const { state: chartState, updateState: setChartState } = useWidgetState(widgetId, {
-		timeWindow: [0, 10] as [number, number],
-		zoomLevel: 1,
-		selectedChannels: [] as string[],
+		timeWindow: DEFAULT_TIME_WINDOW,
+		zoomLevel: DEFAULT_ZOOM_LEVEL,
+		selectedChannels: DEFAULT_SELECTED_CHANNELS,
 	}, isPopout);
 
 	// --- DDA Preprocessing and Q Plot State ---
@@ -133,7 +142,7 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 			// Prepare request body
 			const preprocessing = ddaForm.getValues();
 			const filePath = currentFilePath;
-			const channels = plotState?.selectedChannels || [];
+			const channels = chartState.selectedChannels;
 			// TODO: Replace with actual API request logic
 			const response = await fetch("/api/dda", {
 				method: "POST",
@@ -242,32 +251,49 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 
 	// Get the current plot state based on whether we're in popout mode
 	const currentPlots = isPopout ? syncedPlots : plots;
-	const currentFilePath = useMemo(() => {
-		if (!currentPlots) return null;
-		const plotEntry = Object.entries(currentPlots).find(([_, plot]) =>
-			plot && plot.metadata && plot.edfData
-		);
-		return plotEntry ? plotEntry[0] : null;
-	}, [currentPlots]);
-	const plotState = (currentFilePath && currentPlots) ? currentPlots[currentFilePath] : undefined;
-	console.log('[ChartWidget] selectedChannels from Redux:', plotState?.selectedChannels);
+
+	// Debug log for currentPlots structure
+	console.log('[ChartWidget] currentPlots:', currentPlots);
+	console.log('[ChartWidget] currentPlots.byFilePath:', currentPlots?.byFilePath);
+
+	const {
+		currentFilePath,
+		currentPlotState,
+		currentEdfData,
+		currentChunkMetadata,
+		selectFile,
+		selectChannels,
+	} = useCurrentEdfFile();
+
+	// Use currentPlotState only if it exists and has the required properties
+	const selectedChannels = currentPlotState?.selectedChannels || DEFAULT_SELECTED_CHANNELS;
+	const timeWindow = currentPlotState?.timeWindow || DEFAULT_TIME_WINDOW;
+	const zoomLevel = currentPlotState?.zoomLevel || DEFAULT_ZOOM_LEVEL;
 
 	// Find the best plot state - prioritize plots with edfData
 	const memoizedPlotState = useMemo(() => {
-		if (!currentPlots) return null;
-
+		if (!currentPlots || !currentPlots.byFilePath) return null;
 		// First, try to find a plot with edfData
-		const plotWithData = Object.values(currentPlots).find(plot =>
+		const plotWithData = Object.values(currentPlots.byFilePath).find(plot =>
 			plot && plot.edfData && plot.metadata
 		);
-
 		if (plotWithData) {
 			return plotWithData;
 		}
-
 		// Fallback to first plot if no plot with data found
-		return Object.values(currentPlots)[0] || null;
+		return Object.values(currentPlots.byFilePath)[0] || null;
 	}, [currentPlots]);
+
+	// Session for authentication
+	const { data: session } = useUnifiedSessionData();
+
+	// Chunk navigation hook
+	const chunkNavigation = useChunkNavigation({
+		filePath: currentFilePath || '',
+		sampleRate: memoizedPlotState?.edfData?.sampleRate || 256,
+		totalSamples: memoizedPlotState?.edfData?.totalSamples || 0,
+		token: session?.accessToken,
+	});
 
 	// Update widget metadata with current file path for restoration
 	useEffect(() => {
@@ -567,16 +593,16 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 	// Sync chartState.selectedChannels with Redux plotState.selectedChannels
 	useEffect(() => {
 		if (
-			plotState?.selectedChannels &&
-			plotState.selectedChannels.length > 0 &&
-			chartState.selectedChannels.join(',') !== plotState.selectedChannels.join(',')
+			memoizedPlotState?.selectedChannels &&
+			memoizedPlotState.selectedChannels.length > 0 &&
+			chartState.selectedChannels.join(',') !== memoizedPlotState.selectedChannels.join(',')
 		) {
 			setChartState(prev => ({
 				...prev,
-				selectedChannels: plotState.selectedChannels
+				selectedChannels: memoizedPlotState.selectedChannels
 			}));
 		}
-	}, [plotState?.selectedChannels, chartState.selectedChannels, setChartState]);
+	}, [memoizedPlotState?.selectedChannels, chartState.selectedChannels, setChartState]);
 
 	// Add a timeout for loading state
 	const [loadingTimeout, setLoadingTimeout] = useState<NodeJS.Timeout | null>(null);
@@ -584,9 +610,11 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 
 	useEffect(() => {
 		// Set a timeout to prevent infinite loading
-		// Check if we're in a loading state or if we have no data but should have data
-		const shouldShowTimeout = (memoizedPlotState?.isLoading && !memoizedPlotState?.edfData) ||
-			(!memoizedPlotState?.edfData && !memoizedPlotState?.isLoading && !memoizedPlotState?.error && !isPopout);
+		// Only show timeout when we have a file path and are actually loading
+		const shouldShowTimeout = currentFilePath && (
+			(memoizedPlotState?.isLoading && !memoizedPlotState?.edfData) ||
+			(!memoizedPlotState?.edfData && !memoizedPlotState?.isLoading && !memoizedPlotState?.error && !isPopout)
+		);
 
 		if (shouldShowTimeout) {
 			const timeout = setTimeout(() => {
@@ -611,16 +639,38 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 				clearTimeout(loadingTimeout);
 			}
 		};
-	}, [memoizedPlotState?.isLoading, memoizedPlotState?.edfData, memoizedPlotState?.error, isPopout, widgetId]);
+	}, [memoizedPlotState?.isLoading, memoizedPlotState?.edfData, memoizedPlotState?.error, isPopout, widgetId, currentFilePath]);
 
 	// --- Centralized loading state logic ---
 	const isWidgetLoading = useMemo(() => {
-		// Loading if: not in error/timeout, and either isLoading or missing data/metadata
+		// Don't show loading if there's an error or timeout
 		if (memoizedPlotState?.error || hasTimedOut) return false;
+
+		// Show loading if the plot state is actively loading
 		if (memoizedPlotState?.isLoading) return true;
-		if (!memoizedPlotState?.edfData || !memoizedPlotState?.metadata) return true;
+
+		// Only show loading if we have a file path but missing data
+		// This prevents showing loading when no file is selected
+		if (currentFilePath && (!memoizedPlotState?.edfData || !memoizedPlotState?.metadata)) {
+			return true;
+		}
+
 		return false;
-	}, [memoizedPlotState, hasTimedOut]);
+	}, [memoizedPlotState, hasTimedOut, currentFilePath]);
+
+	// Debug logging for loading state
+	useEffect(() => {
+		console.log(`[ChartWidget] Loading state for widget ${widgetId}:`, {
+			isWidgetLoading,
+			currentFilePath,
+			hasPlotState: !!memoizedPlotState,
+			hasEdfData: !!memoizedPlotState?.edfData,
+			hasMetadata: !!memoizedPlotState?.metadata,
+			isLoading: memoizedPlotState?.isLoading,
+			hasError: !!memoizedPlotState?.error,
+			hasTimedOut
+		});
+	}, [isWidgetLoading, currentFilePath, memoizedPlotState, hasTimedOut, widgetId]);
 
 	// --- Centralized error/timeout logic ---
 	if (hasTimedOut && !memoizedPlotState?.edfData) {
@@ -684,6 +734,65 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 				// Only render chart if all required data is present
 				memoizedPlotState && memoizedPlotState.edfData && memoizedPlotState.metadata ? (
 					<>
+						{/* Navigation Controls */}
+						{memoizedPlotState.edfData.totalSamples && memoizedPlotState.edfData.totalSamples > 0 && (
+							<div className="mb-4 p-3 bg-muted/50 rounded-lg border">
+								<div className="flex items-center justify-between gap-2">
+									<div className="flex items-center gap-1">
+										<Button
+											variant="outline"
+											size="sm"
+											onClick={() => chunkNavigation.handleChunkSelect(1)}
+											title="Jump to start"
+											disabled={chunkNavigation.currentChunkNumber <= 1}
+										>
+											<SkipBack className="h-4 w-4" />
+										</Button>
+										<Button
+											variant="outline"
+											size="sm"
+											onClick={chunkNavigation.handlePrevChunk}
+											title="Previous chunk"
+											disabled={chunkNavigation.currentChunkNumber <= 1}
+										>
+											<ChevronLeft className="h-4 w-4" />
+										</Button>
+									</div>
+
+									<div className="flex items-center gap-2 text-sm text-muted-foreground">
+										<span>
+											Chunk {chunkNavigation.currentChunkNumber} of {chunkNavigation.totalChunks}
+										</span>
+										<span>•</span>
+										<span>
+											{Math.round(chunkNavigation.chunkStart / (memoizedPlotState.edfData.sampleRate || 256))}s - {Math.round((chunkNavigation.chunkStart + chunkNavigation.chunkSize) / (memoizedPlotState.edfData.sampleRate || 256))}s
+										</span>
+									</div>
+
+									<div className="flex items-center gap-1">
+										<Button
+											variant="outline"
+											size="sm"
+											onClick={chunkNavigation.handleNextChunk}
+											title="Next chunk"
+											disabled={chunkNavigation.currentChunkNumber >= chunkNavigation.totalChunks}
+										>
+											<ChevronRight className="h-4 w-4" />
+										</Button>
+										<Button
+											variant="outline"
+											size="sm"
+											onClick={() => chunkNavigation.handleChunkSelect(chunkNavigation.totalChunks)}
+											title="Jump to end"
+											disabled={chunkNavigation.currentChunkNumber >= chunkNavigation.totalChunks}
+										>
+											<SkipForward className="h-4 w-4" />
+										</Button>
+									</div>
+								</div>
+							</div>
+						)}
+
 						<EEGChart2
 							eegData={memoizedPlotState.edfData}
 							selectedChannels={chartState.selectedChannels}
@@ -706,7 +815,10 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 					<div className="flex h-full w-full items-center justify-center">
 						<Alert>
 							<AlertDescription>
-								No data to display. Select a file to view charts.
+								{currentFilePath
+									? "No chart data available. Please wait for data to load or try selecting a different file."
+									: "No file selected. Use the file browser to select an EDF file to view charts."
+								}
 							</AlertDescription>
 						</Alert>
 					</div>

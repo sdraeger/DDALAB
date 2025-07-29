@@ -1,14 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import {
-  SimpleWidget,
+  Widget,
   SerializableWidget,
-} from "../components/dashboard/SimpleDashboardGrid";
+} from "../components/dashboard/DashboardGrid";
 import { createWidgetContent } from "../lib/utils/widgetFactory";
 import {
   WidgetLayoutCacheManager,
   WidgetLayoutData,
 } from "../lib/utils/cache/widgetLayoutCache";
-import logger from "../lib/utils/logger";
 import { useToast } from "../components/ui/use-toast";
 import { apiRequest } from "../lib/utils/request";
 import { useUnifiedSessionData } from "./useUnifiedSession";
@@ -27,14 +26,14 @@ const DEFAULT_OPTIONS: UsePersistentDashboardOptions = {
 };
 
 export function usePersistentDashboard(
-  initialWidgets: SimpleWidget[] = [],
+  initialWidgets: Widget[] = [],
   options: UsePersistentDashboardOptions = {}
 ) {
   const { data: session } = useUnifiedSessionData();
   const { toast } = useToast();
   const config = { ...DEFAULT_OPTIONS, ...options };
 
-  const [widgets, setWidgets] = useState<SimpleWidget[]>(initialWidgets);
+  const [widgets, setWidgets] = useState<Widget[]>(initialWidgets);
   const [poppedOutWindows, setPoppedOutWindows] = useState<Map<string, Window>>(
     new Map()
   );
@@ -55,7 +54,7 @@ export function usePersistentDashboard(
    * Convert SimpleWidget to WidgetLayoutData for persistence
    */
   const serializeWidgetsForPersistence = useCallback(
-    (widgets: SimpleWidget[]): WidgetLayoutData[] => {
+    (widgets: Widget[]): WidgetLayoutData[] => {
       return widgets.map((widget) => {
         const { content, ...serializableData } = widget;
         return serializableData as WidgetLayoutData;
@@ -68,7 +67,7 @@ export function usePersistentDashboard(
    * Convert WidgetLayoutData to SimpleWidget for rendering
    */
   const deserializeWidgetsFromPersistence = useCallback(
-    (layoutData: WidgetLayoutData[]): SimpleWidget[] => {
+    (layoutData: WidgetLayoutData[]): Widget[] => {
       return layoutData.map((data) => ({
         ...data,
         content: createWidgetContent(data.type),
@@ -81,22 +80,14 @@ export function usePersistentDashboard(
    * Save layout to database
    */
   const saveLayoutToDatabase = useCallback(
-    async (widgets: SimpleWidget[]) => {
+    async (widgets: Widget[]) => {
       if (!session?.accessToken) {
-        logger.warn("No authentication token available for saving layout");
         return;
       }
 
       try {
         setIsSaving(true);
         const widgetData = serializeWidgetsForPersistence(widgets);
-
-        // Debug logging
-        console.log("Saving widget layout data:", widgetData);
-        console.log(
-          "Widget data stringified:",
-          JSON.stringify({ widgets: widgetData }, null, 2)
-        );
 
         const response = await apiRequest({
           url: "/api/widget-layouts",
@@ -116,7 +107,6 @@ export function usePersistentDashboard(
           } catch {
             // If response is not JSON, use statusText
           }
-          console.error("API Response Error:", errorDetails);
           throw new Error(`Failed to save layout: ${errorDetails}`);
         }
 
@@ -130,8 +120,6 @@ export function usePersistentDashboard(
         // Update last saved reference
         lastSavedLayoutRef.current = JSON.stringify(widgetData);
 
-        logger.info("Widget layout saved successfully");
-
         toast({
           title: "Layout Saved",
           description: "Your widget layout has been saved successfully.",
@@ -140,7 +128,6 @@ export function usePersistentDashboard(
 
         return result;
       } catch (error) {
-        logger.error("Error saving widget layout:", error);
         toast({
           title: "Save Failed",
           description: "Failed to save widget layout. Please try again.",
@@ -158,11 +145,8 @@ export function usePersistentDashboard(
   /**
    * Load layout from database or cache
    */
-  const loadLayoutFromDatabase = useCallback(async (): Promise<
-    SimpleWidget[]
-  > => {
+  const loadLayoutFromDatabase = useCallback(async (): Promise<Widget[]> => {
     if (!session?.accessToken) {
-      logger.warn("No authentication token available for loading layout");
       return initialWidgets;
     }
 
@@ -173,7 +157,6 @@ export function usePersistentDashboard(
       if (cacheManager && session.user?.id) {
         const cachedLayout = cacheManager.getCachedLayout(session.user.id);
         if (cachedLayout) {
-          logger.info("Loaded widget layout from cache");
           return deserializeWidgetsFromPersistence(cachedLayout);
         }
       }
@@ -189,7 +172,6 @@ export function usePersistentDashboard(
       if (!response.ok) {
         if (response.status === 404) {
           // No saved layout found, use initial widgets
-          logger.info("No saved layout found, using initial widgets");
           return initialWidgets;
         }
         throw new Error(`Failed to load layout: ${response.statusText}`);
@@ -208,10 +190,8 @@ export function usePersistentDashboard(
       // Update last saved reference
       lastSavedLayoutRef.current = JSON.stringify(result.widgets || []);
 
-      logger.info(`Loaded widget layout with ${loadedWidgets.length} widgets`);
       return loadedWidgets.length > 0 ? loadedWidgets : initialWidgets;
     } catch (error) {
-      logger.error("Error loading widget layout:", error);
       toast({
         title: "Load Failed",
         description: "Failed to load saved layout. Using default layout.",
@@ -234,7 +214,7 @@ export function usePersistentDashboard(
    * Auto-save functionality
    */
   const scheduleAutoSave = useCallback(
-    (widgets: SimpleWidget[]) => {
+    (widgets: Widget[]) => {
       if (!config.enableAutoSave || !session?.accessToken) return;
 
       // Clear existing timer
@@ -283,7 +263,7 @@ export function usePersistentDashboard(
    * Widget management functions
    */
   const updateWidget = useCallback(
-    (id: string, updates: Partial<SimpleWidget>) => {
+    (id: string, updates: Partial<Widget>) => {
       setWidgets((prev) => {
         const updated = prev.map((widget) =>
           widget.id === id ? { ...widget, ...updates } : widget
@@ -310,7 +290,7 @@ export function usePersistentDashboard(
   );
 
   const addWidget = useCallback(
-    (widget: SimpleWidget) => {
+    (widget: Widget) => {
       setWidgets((prev) => {
         const updated = [...prev, widget];
         scheduleAutoSave(updated);
@@ -434,7 +414,6 @@ export function usePersistentDashboard(
    */
   const deleteLayoutFromDatabase = useCallback(async (): Promise<void> => {
     if (!session?.accessToken) {
-      logger.warn("No authentication token available for deleting layout");
       return;
     }
 
@@ -461,15 +440,12 @@ export function usePersistentDashboard(
       setWidgets(initialWidgets);
       lastSavedLayoutRef.current = "";
 
-      logger.info("Widget layout deleted successfully");
-
       toast({
         title: "Layout Deleted",
         description: "Your saved layout has been deleted.",
         duration: 2000,
       });
     } catch (error) {
-      logger.error("Error deleting widget layout:", error);
       toast({
         title: "Delete Failed",
         description: "Failed to delete widget layout. Please try again.",
