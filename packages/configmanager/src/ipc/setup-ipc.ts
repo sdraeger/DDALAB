@@ -1,83 +1,33 @@
 import { ipcMain } from "electron";
-import path from "path";
 import fs from "fs/promises";
 import { logger } from "../utils/logger";
+import { getMainWindow } from "../utils/main-window";
 import {
   SetupService,
-  ConfigManagerState,
   SetupResult,
+  UserConfiguration,
 } from "../services/setup-service";
-import { getMainWindow } from "../utils/main-window";
 
 export function registerSetupIpcHandlers() {
   logger.info("Registering setup IPC handlers...");
 
-  ipcMain.handle(
-    "get-configmanager-state",
-    async (): Promise<ConfigManagerState> => {
-      logger.info('IPC event "get-configmanager-state" received.');
-      return SetupService.getConfigManagerState();
-    }
-  );
-
-  ipcMain.handle(
-    "mark-setup-complete",
-    async (event, manualSetupDirectory?: string): Promise<SetupResult> => {
-      logger.info('IPC event "mark-setup-complete" received.', {
-        manualSetupDirectory,
-      });
-      if (manualSetupDirectory) {
-        try {
-          await fs.access(
-            path.join(manualSetupDirectory, "docker-compose.yml")
-          );
-          logger.info(
-            `docker-compose.yml found in manual path: ${manualSetupDirectory}`
-          );
-          await SetupService.saveConfigManagerState(
-            manualSetupDirectory,
-            manualSetupDirectory
-          );
-          return {
-            success: true,
-            message: "Setup complete!",
-            setupPath: manualSetupDirectory || undefined,
-          };
-        } catch (error: any) {
-          logger.error(
-            `Validation Error: docker-compose.yml NOT found in manual path: ${manualSetupDirectory}.`,
-            error
-          );
-          return {
-            success: false,
-            message: `Invalid manual setup directory: docker-compose.yml not found in ${manualSetupDirectory}.`,
-            setupPath: undefined,
-            needsClone: true,
-            targetPath: manualSetupDirectory,
-          };
-        }
-      } else {
-        const currentState = await SetupService.getConfigManagerState();
-        await SetupService.saveConfigManagerState(currentState.setupPath);
-        return {
-          success: true,
-          message: "Setup complete!",
-          setupPath: currentState.setupPath || undefined,
-        };
-      }
-    }
-  );
+  ipcMain.handle("get-configmanager-state", async (event): Promise<any> => {
+    logger.info('IPC event "get-configmanager-state" received.');
+    return await SetupService.getConfigManagerState();
+  });
 
   ipcMain.handle(
     "run-initial-setup",
     async (
       event,
       dataLocation: string,
-      cloneLocation: string
+      cloneLocation: string,
+      userConfig: UserConfiguration
     ): Promise<SetupResult> => {
       logger.info('IPC event "run-initial-setup" received.', {
         dataLocation,
         cloneLocation,
+        userConfig,
       });
       const mainWindow = getMainWindow();
       if (!mainWindow) {
@@ -86,7 +36,7 @@ export function registerSetupIpcHandlers() {
       }
 
       mainWindow.webContents.send("setup-progress", {
-        message: "Starting setup...",
+        message: "Starting DDALAB setup...",
       });
 
       try {
@@ -96,11 +46,12 @@ export function registerSetupIpcHandlers() {
           `Successfully removed existing directory: ${cloneLocation}`
         );
 
-        const allowedDirsValue = `${dataLocation}:/app/data:rw`;
-        const result = await SetupService.cloneRepository(
+        // Use the enhanced setup method
+        const result = await SetupService.setupDDALAB(
           cloneLocation,
-          allowedDirsValue
+          userConfig
         );
+
         if (result.success) {
           await SetupService.saveConfigManagerState(
             dataLocation,
@@ -133,16 +84,19 @@ export function registerSetupIpcHandlers() {
     async (
       event,
       targetDirectory: string,
-      allowedDirsValue: string
+      userConfig: UserConfiguration
     ): Promise<SetupResult> => {
       logger.info('IPC event "clone-repository-to-directory" received.', {
         targetDirectory,
-        allowedDirsValue,
+        userConfig,
       });
-      const result = await SetupService.cloneRepository(
+
+      // Use the enhanced setup method
+      const result = await SetupService.setupDDALAB(
         targetDirectory,
-        allowedDirsValue
+        userConfig
       );
+
       if (result.success) {
         // For manual setup clone, both data and clone location are the same directory
         await SetupService.saveConfigManagerState(
@@ -150,11 +104,29 @@ export function registerSetupIpcHandlers() {
           targetDirectory
         );
         getMainWindow()?.webContents.send("setup-progress", {
-          message: "Repository setup complete!",
+          message: "DDALAB setup complete!",
           type: "success",
         });
       }
       return result;
+    }
+  );
+
+  ipcMain.handle(
+    "save-configmanager-state",
+    async (
+      event,
+      setupPathOrDataLocation: string | null,
+      cloneLocation?: string
+    ): Promise<void> => {
+      logger.info('IPC event "save-configmanager-state" received.', {
+        setupPathOrDataLocation,
+        cloneLocation,
+      });
+      await SetupService.saveConfigManagerState(
+        setupPathOrDataLocation,
+        cloneLocation
+      );
     }
   );
 

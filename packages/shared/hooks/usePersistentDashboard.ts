@@ -51,7 +51,7 @@ export function usePersistentDashboard(
   const lastSavedLayoutRef = useRef<string>("");
 
   /**
-   * Convert SimpleWidget to WidgetLayoutData for persistence
+   * Convert Widget to WidgetLayoutData for persistence
    */
   const serializeWidgetsForPersistence = useCallback(
     (widgets: Widget[]): WidgetLayoutData[] => {
@@ -64,7 +64,7 @@ export function usePersistentDashboard(
   );
 
   /**
-   * Convert WidgetLayoutData to SimpleWidget for rendering
+   * Convert WidgetLayoutData to Widget for rendering
    */
   const deserializeWidgetsFromPersistence = useCallback(
     (layoutData: WidgetLayoutData[]): Widget[] => {

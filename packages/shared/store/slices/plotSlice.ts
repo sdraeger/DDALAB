@@ -32,7 +32,7 @@ import {
   DEFAULT_IS_HEATMAP_PROCESSING,
 } from "../../lib/utils/plotDefaults";
 
-interface PlotMetadata extends EdfFileInfo {
+export interface PlotMetadata extends EdfFileInfo {
   availableChannels?: string[];
 }
 

@@ -42,6 +42,16 @@ export const useNavigationValidation = (
               ? "Please select a clone location"
               : undefined,
           };
+        case "docker-config":
+          // For Docker config, we can proceed as long as we have the basic setup
+          const hasBasicSetup =
+            !!userSelections.dataLocation && !!userSelections.cloneLocation;
+          return {
+            enabled: hasBasicSetup,
+            message: !hasBasicSetup
+              ? "Please complete the previous steps first"
+              : undefined,
+          };
         case "manual-config":
           // For manual config, we just need a directory to be selected
           // The actual setup completion will happen when Next is clicked
@@ -59,9 +69,11 @@ export const useNavigationValidation = (
           const hasSetupType = !!userSelections.setupType;
           const hasDataLocation = !!userSelections.dataLocation;
           const hasCloneLocation =
-            userSelections.setupType === "automatic"
+            userSelections.setupType === "docker"
               ? !!userSelections.cloneLocation
-              : true;
+              : userSelections.setupType === "manual"
+              ? true
+              : !!userSelections.cloneLocation;
           const hasEnvConfig =
             userSelections.setupType === "manual"
               ? Object.keys(userSelections.envVariables).length > 0 ||

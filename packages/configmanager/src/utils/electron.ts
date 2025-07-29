@@ -44,6 +44,13 @@ export interface UserSelections {
   dataLocation: string;
   cloneLocation: string;
   envVariables: { [key: string]: string };
+  // Docker configuration fields
+  webPort?: string;
+  apiPort?: string;
+  dbPassword?: string;
+  minioPassword?: string;
+  traefikEmail?: string;
+  useDockerHub?: boolean;
   // Potentially add other state installer might need, e.g. installationLog
   installationLog?: string[];
 }

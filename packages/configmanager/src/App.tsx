@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
-import type { ParsedEnvEntry, ElectronAPI } from "./utils/electron";
+import type { ParsedEnvEntry, ElectronAPI, UserSelections } from "./utils/electron";
 import {
   WelcomeSite,
   DataLocationSite,
   CloneLocationSite,
   ManualConfigSite,
+  DockerConfigSite,
   SummarySite,
   ControlPanelSite,
 } from "./components";
@@ -20,8 +21,8 @@ interface CloneDialog {
 }
 
 interface CommonProps {
-  userSelections: any;
-  onUpdateSelections: (selections: any) => void;
+  userSelections: UserSelections;
+  onUpdateSelections: (selections: Partial<UserSelections>) => void;
   parsedEnvEntries: ParsedEnvEntry[];
   onUpdateEnvEntries: (entries: ParsedEnvEntry[]) => void;
   onNext: () => void;
@@ -35,39 +36,23 @@ const CloneDialogModal: React.FC<{
   onClone: () => void;
   onClose: () => void;
 }> = ({ dialog, isLoading, onClone, onClose }) => (
-  <div
-    className="modal d-block"
-    style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
-    onClick={(e) => e.target === e.currentTarget && onClose()}
-  >
-    <div className="modal-dialog modal-dialog-centered">
+  <div className="modal fade show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+    <div className="modal-dialog">
       <div className="modal-content">
         <div className="modal-header">
-          <h5 className="modal-title">Setup DDALAB Directory?</h5>
-          <button
-            className="btn-close"
-            onClick={onClose}
-            disabled={isLoading}
-          />
+          <h5 className="modal-title">Setup Directory</h5>
+          <button type="button" className="btn-close" onClick={onClose}></button>
         </div>
         <div className="modal-body">
           <p>{dialog.message}</p>
-          <p className="text-muted">
-            <small>
-              This will create the DDALAB directory at:{" "}
-              <code>{dialog.targetPath}</code>
-            </small>
-          </p>
+          <p><strong>Target Path:</strong> {dialog.targetPath}</p>
         </div>
         <div className="modal-footer">
-          <button
-            className="btn btn-secondary"
-            onClick={onClose}
-            disabled={isLoading}
-          >
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
             Cancel
           </button>
           <button
+            type="button"
             className="btn btn-primary"
             onClick={onClone}
             disabled={isLoading}
@@ -82,7 +67,7 @@ const CloneDialogModal: React.FC<{
                 Setting up...
               </>
             ) : (
-              "Yes, Setup Directory"
+              "Setup Directory"
             )}
           </button>
         </div>
@@ -233,6 +218,13 @@ const AppContent: React.FC = () => {
             canProceed = false;
           }
           break;
+        case "docker-config":
+          // For Docker config, we can proceed as long as we have the basic setup
+          if (!userSelections.dataLocation || !userSelections.cloneLocation) {
+            alert("Please complete the previous steps first.");
+            canProceed = false;
+          }
+          break;
         case "manual-config":
           canProceed = await validateDockerSetup(userSelections.dataLocation);
           break;
@@ -328,6 +320,11 @@ const AppContent: React.FC = () => {
         onCloneLocationChange={(path) =>
           updateSelections({ cloneLocation: path })
         }
+      />
+    ),
+    "docker-config": (
+      <DockerConfigSite
+        {...commonProps}
       />
     ),
     "manual-config": (

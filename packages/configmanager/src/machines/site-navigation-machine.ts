@@ -25,7 +25,7 @@ export const siteNavigationMachine = createMachine<
   context: {
     currentSite: "loading",
     userSelections: {
-      setupType: "automatic",
+      setupType: "docker",
       dataLocation: "",
       cloneLocation: "",
       envVariables: {},
@@ -54,18 +54,33 @@ export const siteNavigationMachine = createMachine<
             switch (context.currentSite) {
               case "welcome":
                 // Choose path based on setup type
-                nextSite =
-                  context.userSelections.setupType === "automatic"
-                    ? "data-location"
-                    : "manual-config";
+                if (context.userSelections.setupType === "docker") {
+                  nextSite = "data-location";
+                } else if (context.userSelections.setupType === "manual") {
+                  nextSite = "manual-config";
+                } else {
+                  // Legacy "automatic" setup type
+                  nextSite = "data-location";
+                }
                 break;
               case "data-location":
-                nextSite =
-                  context.userSelections.setupType === "automatic"
-                    ? "clone-location"
-                    : "summary";
+                if (context.userSelections.setupType === "docker") {
+                  nextSite = "clone-location";
+                } else if (context.userSelections.setupType === "manual") {
+                  nextSite = "summary";
+                } else {
+                  // Legacy "automatic" setup type
+                  nextSite = "clone-location";
+                }
                 break;
               case "clone-location":
+                if (context.userSelections.setupType === "docker") {
+                  nextSite = "docker-config";
+                } else {
+                  nextSite = "summary";
+                }
+                break;
+              case "docker-config":
                 nextSite = "summary";
                 break;
               case "manual-config":
@@ -95,15 +110,21 @@ export const siteNavigationMachine = createMachine<
               case "clone-location":
                 previousSite = "data-location";
                 break;
+              case "docker-config":
+                previousSite = "clone-location";
+                break;
               case "manual-config":
                 previousSite = "welcome";
                 break;
               case "summary":
                 // Go back based on setup type
-                if (context.userSelections.setupType === "automatic") {
-                  previousSite = "clone-location";
-                } else {
+                if (context.userSelections.setupType === "docker") {
+                  previousSite = "docker-config";
+                } else if (context.userSelections.setupType === "manual") {
                   previousSite = "manual-config";
+                } else {
+                  // Legacy "automatic" setup type
+                  previousSite = "clone-location";
                 }
                 break;
               case "control-panel":

@@ -2,20 +2,20 @@ name: Build and Push Docker Images
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
     paths:
-      - 'packages/api/**'
-      - 'packages/web/**'
-      - 'packages/shared/**'
-      - 'docker-compose.yml'
-      - '.github/workflows/docker-build.yml'
+      - "packages/api/**"
+      - "packages/web/**"
+      - "packages/shared/**"
+      - "docker-compose.yml"
+      - ".github/workflows/docker-build.yml"
   pull_request:
-    branches: [ main ]
+    branches: [main]
     paths:
-      - 'packages/api/**'
-      - 'packages/web/**'
-      - 'packages/shared/**'
-      - 'docker-compose.yml'
+      - "packages/api/**"
+      - "packages/web/**"
+      - "packages/shared/**"
+      - "docker-compose.yml"
   release:
     types: [published]
 
@@ -123,7 +123,7 @@ jobs:
           cp .env.example .env.test
 
           # Update docker-compose to use latest images
-          sed -i 's|sdraeger1/ddalab-api-server:${VERSION:-latest}|ddalab/api:latest|g' docker-compose.yml
+          sed -i 's|sdraeger1/ddalab-api:${VERSION:-latest}|ddalab/api:latest|g' docker-compose.yml
           sed -i 's|sdraeger1/ddalab-web:${VERSION:-latest}|ddalab/web:latest|g' docker-compose.yml
 
           # Test docker-compose configuration

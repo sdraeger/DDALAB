@@ -8,7 +8,13 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
-    "install-deps": "npm install"
+    "install-deps": "npm install",
+    "dev:configmanager": "cd packages/configmanager && npm run dev",
+    "start:configmanager": "cd packages/configmanager && npm start",
+    "build:docker": "./scripts/build-docker-images.sh",
+    "build:docker:win": "scripts\\build-docker-images.bat",
+    "push:docker": "./scripts/push-docker-images.sh",
+    "push:docker:win": "scripts\\push-docker-images.bat"
   },
   "devDependencies": {
     "@types/lodash": "^4.17.20",
