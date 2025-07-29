@@ -41,9 +41,10 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    ports:
+      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    network_mode: host
 
   traefik:
     image: traefik:v3.3.5

@@ -8,6 +8,29 @@ import { apolloClient } from "../../lib/utils/apollo-client";
 import { GET_EDF_DATA } from "../../lib/graphql/queries";
 import { startLoading, stopLoading, updateProgress } from "./loadingSlice";
 import { plotStorage, PlotData } from "../../lib/utils/indexedDB/plotStorage";
+import {
+  DEFAULT_CHUNK_SIZE_SECONDS,
+  DEFAULT_TIME_WINDOW,
+  DEFAULT_ABSOLUTE_TIME_WINDOW,
+  DEFAULT_ZOOM_LEVEL,
+  DEFAULT_SHOW_HEATMAP,
+  DEFAULT_SELECTED_CHANNELS,
+  DEFAULT_CURRENT_CHUNK_NUMBER,
+  DEFAULT_TOTAL_CHUNKS,
+  DEFAULT_CHUNK_START,
+  DEFAULT_EDF_DATA,
+  DEFAULT_METADATA,
+  DEFAULT_DDA_HEATMAP_DATA,
+  DEFAULT_DDA_RESULTS,
+  DEFAULT_ANNOTATIONS,
+  DEFAULT_SHOW_SETTINGS_DIALOG,
+  DEFAULT_SHOW_ZOOM_SETTINGS_DIALOG,
+  DEFAULT_PREPROCESSING_OPTIONS,
+  DEFAULT_ERROR,
+  DEFAULT_IS_LOADING,
+  DEFAULT_IS_METADATA_LOADING,
+  DEFAULT_IS_HEATMAP_PROCESSING,
+} from "../../lib/utils/plotDefaults";
 
 interface PlotMetadata extends EdfFileInfo {
   availableChannels?: string[];
@@ -60,31 +83,47 @@ export interface PlotState {
 
 // Define the state structure for all plots (keyed by filePath)
 export interface PlotsState {
-  [filePath: string]: PlotState | undefined;
+  byFilePath: Record<string, PlotState>;
+  currentFilePath: string | null;
 }
 
 const initialPlotState: PlotState = {
-  isLoading: false,
-  isMetadataLoading: false,
-  isHeatmapProcessing: false,
-  error: null,
-  metadata: null,
-  chunkSizeSeconds: 10, // Changed from 100 to 10 to match context default
-  currentChunkNumber: 1,
-  totalChunks: 1,
-  chunkStart: 0,
-  edfData: null,
-  selectedChannels: [],
-  timeWindow: [0, 10], // Changed from [0, 100] to [0, 10] to match context default
-  absoluteTimeWindow: [0, 10], // Changed from [0, 100] to [0, 10] to match context default
-  zoomLevel: 1,
-  showHeatmap: false,
-  ddaHeatmapData: null,
-  ddaResults: null,
-  annotations: null,
-  showSettingsDialog: false,
-  showZoomSettingsDialog: false,
-  preprocessingOptions: null,
+  isLoading: DEFAULT_IS_LOADING,
+  isMetadataLoading: DEFAULT_IS_METADATA_LOADING,
+  isHeatmapProcessing: DEFAULT_IS_HEATMAP_PROCESSING,
+  error: DEFAULT_ERROR,
+  metadata: DEFAULT_METADATA,
+  chunkSizeSeconds: DEFAULT_CHUNK_SIZE_SECONDS,
+  currentChunkNumber: DEFAULT_CURRENT_CHUNK_NUMBER,
+  totalChunks: DEFAULT_TOTAL_CHUNKS,
+  chunkStart: DEFAULT_CHUNK_START,
+  edfData: DEFAULT_EDF_DATA,
+  selectedChannels: DEFAULT_SELECTED_CHANNELS,
+  timeWindow: DEFAULT_TIME_WINDOW,
+  absoluteTimeWindow: DEFAULT_ABSOLUTE_TIME_WINDOW,
+  zoomLevel: DEFAULT_ZOOM_LEVEL,
+  showHeatmap: DEFAULT_SHOW_HEATMAP,
+  ddaHeatmapData: DEFAULT_DDA_HEATMAP_DATA,
+  ddaResults: DEFAULT_DDA_RESULTS,
+  annotations: DEFAULT_ANNOTATIONS,
+  showSettingsDialog: DEFAULT_SHOW_SETTINGS_DIALOG,
+  showZoomSettingsDialog: DEFAULT_SHOW_ZOOM_SETTINGS_DIALOG,
+  preprocessingOptions: DEFAULT_PREPROCESSING_OPTIONS,
+};
+
+const initialPlotsState: PlotsState = {
+  byFilePath: {},
+  currentFilePath: null,
+};
+
+// Helper function to normalize file paths
+const normalizeFilePath = (filePath: string): string => {
+  // For absolute paths, keep them as is
+  if (filePath.startsWith("/")) {
+    return filePath;
+  }
+  // For relative paths, ensure they start with /
+  return `/${filePath}`;
 };
 
 // Async Thunks
@@ -149,38 +188,44 @@ export const loadChunk = createAsyncThunk(
       chunkSizeSeconds,
       token,
       preprocessingOptions,
-      qValue,
     }: {
       filePath: string;
       chunkNumber: number;
       chunkSizeSeconds: number;
       token: string | undefined;
       preprocessingOptions?: any;
-      qValue?: any;
     },
     { getState, rejectWithValue, dispatch }
   ) => {
-    // Add debugging at the start
-    console.log("[loadChunk] Thunk started:", {
-      filePath,
-      chunkNumber,
-      chunkSizeSeconds,
-      hasToken: !!token,
-    });
-
-    const state = getState() as { plots: PlotsState };
-    const plot = state.plots[filePath];
-
-    console.log("[loadChunk] Current state:", {
-      hasPlot: !!plot,
-      hasMetadata: !!plot?.metadata,
-      plotKeys: plot ? Object.keys(plot) : null,
-    });
-
-    if (!plot || !plot.metadata) {
-      console.error("[loadChunk] Plot or metadata not initialized");
-      return rejectWithValue("Plot or metadata not initialized.");
+    // Defensive: ensure plot state exists
+    let state = getState() as { plots: PlotsState };
+    let plot = state.plots.byFilePath[filePath];
+    if (!plot) {
+      logger.warn(
+        `[loadChunk] Plot state for ${filePath} not found. Dispatching ensurePlotState.`
+      );
+      dispatch(ensurePlotState(filePath));
+      // Re-fetch state after dispatch
+      state = getState() as { plots: PlotsState };
+      plot = state.plots.byFilePath[filePath];
     }
+    if (!plot) {
+      logger.error(
+        `[loadChunk] Plot state for ${filePath} is still undefined after ensurePlotState.`
+      );
+      return rejectWithValue(
+        "Plot state not initialized for filePath: " + filePath
+      );
+    }
+    if (!plot.metadata) {
+      logger.error(
+        `[loadChunk] Plot metadata for ${filePath} is not initialized.`
+      );
+      return rejectWithValue(
+        "Plot metadata not initialized for filePath: " + filePath
+      );
+    }
+
     if (!token) {
       console.error("[loadChunk] No token provided");
       return rejectWithValue("No token provided for fetching chunk data.");
@@ -389,24 +434,30 @@ export const fetchDdaHeatmapData = createAsyncThunk(
 
 const plotsSlice = createSlice({
   name: "plots",
-  initialState: {} as PlotsState, // Start with an empty object for multiple plots
+  initialState: initialPlotsState,
   reducers: {
     // Ensures a plot state exists for a given filePath
     ensurePlotState: (state, action: PayloadAction<string>) => {
-      const filePath = action.payload;
-      if (!state[filePath]) {
-        state[filePath] = {
+      const filePath = normalizeFilePath(action.payload);
+      if (!state.byFilePath[filePath]) {
+        state.byFilePath[filePath] = {
           ...initialPlotState,
           // Potentially override some defaults based on global settings if needed
         };
       }
+    },
+    setCurrentFilePath: (state, action: PayloadAction<string | null>) => {
+      state.currentFilePath = action.payload
+        ? normalizeFilePath(action.payload)
+        : null;
     },
     setCurrentChunkNumber: (
       state,
       action: PayloadAction<{ filePath: string; chunkNumber: number }>
     ) => {
       const { filePath, chunkNumber } = action.payload;
-      const plot = state[filePath];
+      const normalizedFilePath = normalizeFilePath(filePath);
+      const plot = state.byFilePath[normalizedFilePath];
       if (plot) {
         plot.currentChunkNumber = chunkNumber;
         plot.chunkStart = (chunkNumber - 1) * plot.chunkSizeSeconds;
@@ -424,10 +475,15 @@ const plotsSlice = createSlice({
       action: PayloadAction<{ filePath: string; channels: string[] }>
     ) => {
       const { filePath, channels } = action.payload;
-      const plot = state[filePath];
+      const normalizedFilePath = normalizeFilePath(filePath);
+      const plot = state.byFilePath[normalizedFilePath];
       if (plot) {
         plot.selectedChannels = channels;
-        console.log("[plotSlice] setSelectedChannels:", filePath, channels);
+        console.log(
+          "[plotSlice] setSelectedChannels:",
+          normalizedFilePath,
+          channels
+        );
       }
     },
     setTimeWindow: (
@@ -435,7 +491,8 @@ const plotsSlice = createSlice({
       action: PayloadAction<{ filePath: string; timeWindow: [number, number] }>
     ) => {
       const { filePath, timeWindow } = action.payload;
-      const plot = state[filePath];
+      const normalizedFilePath = normalizeFilePath(filePath);
+      const plot = state.byFilePath[normalizedFilePath];
       if (plot) {
         plot.timeWindow = timeWindow;
         // Update absolute time window based on current chunkStart and new relative timeWindow
@@ -450,14 +507,16 @@ const plotsSlice = createSlice({
       action: PayloadAction<{ filePath: string; zoomLevel: number }>
     ) => {
       const { filePath, zoomLevel } = action.payload;
-      const plot = state[filePath];
+      const normalizedFilePath = normalizeFilePath(filePath);
+      const plot = state.byFilePath[normalizedFilePath];
       if (plot) {
         plot.zoomLevel = zoomLevel;
       }
     },
     toggleShowHeatmap: (state, action: PayloadAction<{ filePath: string }>) => {
       const { filePath } = action.payload;
-      const plot = state[filePath];
+      const normalizedFilePath = normalizeFilePath(filePath);
+      const plot = state.byFilePath[normalizedFilePath];
       if (plot) {
         plot.showHeatmap = !plot.showHeatmap;
         if (plot.showHeatmap && !plot.ddaHeatmapData) {
@@ -471,7 +530,8 @@ const plotsSlice = createSlice({
       action: PayloadAction<{ filePath: string; annotations: Annotation[] }>
     ) => {
       const { filePath, annotations } = action.payload;
-      const plot = state[filePath];
+      const normalizedFilePath = normalizeFilePath(filePath);
+      const plot = state.byFilePath[normalizedFilePath];
       if (plot) {
         plot.annotations = annotations;
       }
@@ -481,7 +541,8 @@ const plotsSlice = createSlice({
       action: PayloadAction<{ filePath: string; annotation: Annotation }>
     ) => {
       const { filePath, annotation } = action.payload;
-      const plot = state[filePath];
+      const normalizedFilePath = normalizeFilePath(filePath);
+      const plot = state.byFilePath[normalizedFilePath];
       if (plot) {
         if (!plot.annotations) plot.annotations = [];
         plot.annotations.push(annotation);
@@ -492,7 +553,8 @@ const plotsSlice = createSlice({
       action: PayloadAction<{ filePath: string; annotation: Annotation }>
     ) => {
       const { filePath, annotation } = action.payload;
-      const plot = state[filePath];
+      const normalizedFilePath = normalizeFilePath(filePath);
+      const plot = state.byFilePath[normalizedFilePath];
       if (plot && plot.annotations) {
         const index = plot.annotations.findIndex((a) => a.id === annotation.id);
         if (index !== -1) {
@@ -505,7 +567,8 @@ const plotsSlice = createSlice({
       action: PayloadAction<{ filePath: string; annotationId: string }>
     ) => {
       const { filePath, annotationId } = action.payload;
-      const plot = state[filePath];
+      const normalizedFilePath = normalizeFilePath(filePath);
+      const plot = state.byFilePath[normalizedFilePath];
       if (plot && plot.annotations) {
         plot.annotations = plot.annotations.filter(
           (a) => a.id !== Number(annotationId)
@@ -517,7 +580,8 @@ const plotsSlice = createSlice({
       action: PayloadAction<{ filePath: string; options: any }>
     ) => {
       const { filePath, options } = action.payload;
-      const plot = state[filePath];
+      const normalizedFilePath = normalizeFilePath(filePath);
+      const plot = state.byFilePath[normalizedFilePath];
       if (plot) {
         plot.preprocessingOptions = options;
       }
@@ -535,9 +599,27 @@ const plotsSlice = createSlice({
       }>
     ) => {
       const { filePath, results } = action.payload;
-      const plot = state[filePath];
+      const normalizedFilePath = normalizeFilePath(filePath);
+      console.log("[Redux] setDDAResults called:", {
+        filePath,
+        normalizedFilePath,
+        resultsQLength: results.Q?.length,
+        resultsQFirstRowLength: results.Q?.[0]?.length,
+        plotExists: !!state.byFilePath[normalizedFilePath],
+        availablePlotPaths: Object.keys(state.byFilePath),
+        currentFilePath: state.currentFilePath,
+        pathMatch: normalizedFilePath === state.currentFilePath,
+        stateKeys: Object.keys(state),
+      });
+      const plot = state.byFilePath[normalizedFilePath];
       if (plot) {
         plot.ddaResults = results;
+        console.log("[Redux] DDA results stored successfully");
+      } else {
+        console.warn(
+          "[Redux] No plot state found for filePath:",
+          normalizedFilePath
+        );
       }
     },
     // UI State Reducers
@@ -546,15 +628,20 @@ const plotsSlice = createSlice({
       action: PayloadAction<{ filePath: string; show: boolean }>
     ) => {
       const { filePath, show } = action.payload;
-      const plot = state[filePath];
+      const normalizedFilePath = normalizeFilePath(filePath);
+      const plot = state.byFilePath[normalizedFilePath];
       if (plot) {
         plot.showSettingsDialog = show;
       }
     },
     // Add other simple reducers here
     cleanupPlotState: (state, action: PayloadAction<string>) => {
-      const filePath = action.payload;
-      delete state[filePath];
+      const filePath = normalizeFilePath(action.payload);
+      delete state.byFilePath[filePath];
+    },
+    clearAllPlots: (state) => {
+      state.byFilePath = {};
+      state.currentFilePath = null;
     },
   },
   extraReducers: (builder) => {
@@ -562,14 +649,15 @@ const plotsSlice = createSlice({
     builder
       .addCase(initializePlot.pending, (state, action) => {
         const { filePath } = action.meta.arg;
-        if (!state[filePath]) state[filePath] = { ...initialPlotState };
-        const plot = state[filePath]!;
+        if (!state.byFilePath[filePath])
+          state.byFilePath[filePath] = { ...initialPlotState };
+        const plot = state.byFilePath[filePath]!;
         plot.isMetadataLoading = true;
         plot.error = null;
       })
       .addCase(initializePlot.fulfilled, (state, action) => {
         const { filePath, fileInfo } = action.payload;
-        const plot = state[filePath]!;
+        const plot = state.byFilePath[filePath]!;
         plot.isMetadataLoading = false;
         plot.metadata = {
           ...fileInfo,
@@ -597,7 +685,7 @@ const plotsSlice = createSlice({
       })
       .addCase(initializePlot.rejected, (state, action) => {
         const { filePath } = action.meta.arg;
-        const plot = state[filePath]!;
+        const plot = state.byFilePath[filePath]!;
         plot.isMetadataLoading = false;
         plot.error = action.payload as string;
       });
@@ -606,7 +694,7 @@ const plotsSlice = createSlice({
     builder
       .addCase(loadChunk.pending, (state, action) => {
         const { filePath } = action.meta.arg;
-        const plot = state[filePath];
+        const plot = state.byFilePath[filePath];
         if (plot) {
           plot.isLoading = true;
           plot.error = null;
@@ -614,7 +702,7 @@ const plotsSlice = createSlice({
       })
       .addCase(loadChunk.fulfilled, (state, action) => {
         const { filePath, chunkNumber, chunkStart, eegData } = action.payload;
-        const plot = state[filePath];
+        const plot = state.byFilePath[filePath];
         if (plot && eegData) {
           // Add debugging to see what's being stored
           logger.info(`[Redux] Storing EEG data in Redux:`, {
@@ -680,7 +768,7 @@ const plotsSlice = createSlice({
       })
       .addCase(loadChunk.rejected, (state, action) => {
         const { filePath } = action.meta.arg;
-        const plot = state[filePath];
+        const plot = state.byFilePath[filePath];
         if (plot) {
           plot.isLoading = false;
           plot.error = action.payload as string;
@@ -691,7 +779,7 @@ const plotsSlice = createSlice({
     builder
       .addCase(fetchDdaHeatmapData.pending, (state, action) => {
         const { filePath } = action.meta.arg;
-        const plot = state[filePath];
+        const plot = state.byFilePath[filePath];
         if (plot) {
           plot.isHeatmapProcessing = true;
           plot.error = null; // Clear previous errors specific to heatmap if any
@@ -699,7 +787,7 @@ const plotsSlice = createSlice({
       })
       .addCase(fetchDdaHeatmapData.fulfilled, (state, action) => {
         const { filePath, heatmapData } = action.payload;
-        const plot = state[filePath];
+        const plot = state.byFilePath[filePath];
         if (plot) {
           plot.isHeatmapProcessing = false;
           plot.ddaHeatmapData = heatmapData;
@@ -708,7 +796,7 @@ const plotsSlice = createSlice({
       })
       .addCase(fetchDdaHeatmapData.rejected, (state, action) => {
         const { filePath } = action.meta.arg;
-        const plot = state[filePath];
+        const plot = state.byFilePath[filePath];
         if (plot) {
           plot.isHeatmapProcessing = false;
           plot.error = action.payload as string; // Or a specific heatmapError field
@@ -720,6 +808,7 @@ const plotsSlice = createSlice({
 
 export const {
   ensurePlotState,
+  setCurrentFilePath,
   setCurrentChunkNumber,
   setSelectedChannels,
   setTimeWindow,
@@ -733,6 +822,7 @@ export const {
   setDDAResults,
   setShowSettingsDialog,
   cleanupPlotState,
+  clearAllPlots,
 } = plotsSlice.actions;
 
 export default plotsSlice.reducer;
@@ -741,19 +831,53 @@ export default plotsSlice.reducer;
 export const selectPlotStateByPath = (
   state: { plots: PlotsState },
   filePath: string
-): PlotState | undefined => state.plots[filePath];
+): PlotState | undefined => {
+  const normalizedFilePath = normalizeFilePath(filePath);
+  return state.plots.byFilePath[normalizedFilePath];
+};
 
-// Add more specific selectors as needed, e.g.:
+export const selectCurrentFilePath = (state: { plots: PlotsState }) =>
+  state.plots.currentFilePath;
+
+export const selectCurrentPlotState = (state: { plots: PlotsState }) => {
+  const currentFilePath = state.plots.currentFilePath;
+  return currentFilePath ? state.plots.byFilePath[currentFilePath] : undefined;
+};
+
+export const selectCurrentEdfData = (state: { plots: PlotsState }) => {
+  const currentFilePath = state.plots.currentFilePath;
+  return currentFilePath
+    ? state.plots.byFilePath[currentFilePath]?.edfData
+    : undefined;
+};
+
+export const selectCurrentChunkMetadata = (state: { plots: PlotsState }) => {
+  const currentFilePath = state.plots.currentFilePath;
+  return currentFilePath
+    ? state.plots.byFilePath[currentFilePath]?.metadata
+    : undefined;
+};
+
 export const selectPlotMetadata = (
   state: { plots: PlotsState },
   filePath: string
-) => state.plots[filePath]?.metadata;
+) => {
+  const normalizedFilePath = normalizeFilePath(filePath);
+  return state.plots.byFilePath[normalizedFilePath]?.metadata;
+};
+
 export const selectPlotEdfData = (
   state: { plots: PlotsState },
   filePath: string
-) => state.plots[filePath]?.edfData;
+) => {
+  const normalizedFilePath = normalizeFilePath(filePath);
+  return state.plots.byFilePath[normalizedFilePath]?.edfData;
+};
+
 export const selectPlotSelectedChannels = (
   state: { plots: PlotsState },
   filePath: string
-) => state.plots[filePath]?.selectedChannels;
-// ... and so on for other parts of the plot state.
+) => {
+  const normalizedFilePath = normalizeFilePath(filePath);
+  return state.plots.byFilePath[normalizedFilePath]?.selectedChannels;
+};

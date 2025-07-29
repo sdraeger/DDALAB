@@ -43,7 +43,7 @@ const CloneDialogModal: React.FC<{
     <div className="modal-dialog modal-dialog-centered">
       <div className="modal-content">
         <div className="modal-header">
-          <h5 className="modal-title">Clone DDALAB Repository?</h5>
+          <h5 className="modal-title">Setup DDALAB Directory?</h5>
           <button
             className="btn-close"
             onClick={onClose}
@@ -54,7 +54,7 @@ const CloneDialogModal: React.FC<{
           <p>{dialog.message}</p>
           <p className="text-muted">
             <small>
-              This will clone the DDALAB repository into:{" "}
+              This will create the DDALAB directory at:{" "}
               <code>{dialog.targetPath}</code>
             </small>
           </p>
@@ -79,10 +79,10 @@ const CloneDialogModal: React.FC<{
                   role="status"
                   aria-hidden="true"
                 />
-                Cloning...
+                Setting up...
               </>
             ) : (
-              "Yes, Clone Repository"
+              "Yes, Setup Directory"
             )}
           </button>
         </div>
@@ -140,13 +140,13 @@ const AppContent: React.FC = () => {
     }
   };
 
-  const validateManualSetup = async (path: string): Promise<boolean> => {
+  const validateDockerSetup = async (path: string): Promise<boolean> => {
     if (!electronAPI || !path) {
       alert("Setup validation not available or no directory selected.");
       return false;
     }
     try {
-      const result = await electronAPI.markSetupComplete(path);
+      const result = await electronAPI.validateDockerSetup(path);
       if (result.success && result.setupPath) {
         updateSelections({
           dataLocation: result.setupPath,
@@ -154,36 +154,36 @@ const AppContent: React.FC = () => {
         });
         return true;
       }
-      if (result.needsClone && result.targetPath) {
+      if (result.needsSetup && result.targetPath) {
         setCloneDialog({
           show: true,
           targetPath: result.targetPath,
           message:
             result.message ||
-            `No docker-compose.yml found in ${result.targetPath}. Would you like to clone the DDALAB repository?`,
+            `No DDALAB Docker setup found in ${result.targetPath}. Would you like to create the necessary files?`,
         });
       } else {
-        alert(result.message || "Failed to validate manual setup directory.");
+        alert(result.message || "Failed to validate Docker setup directory.");
       }
       return false;
     } catch (error) {
-      alert(`Failed to validate manual setup: ${String(error)}`);
+      alert(`Failed to validate Docker setup: ${String(error)}`);
       return false;
     }
   };
 
-  const executeInstallation = async (): Promise<boolean> => {
+  const executeDockerInstallation = async (): Promise<boolean> => {
     if (!electronAPI || !userSelections.dataLocation) {
       alert("Installation interface not available or no directory selected.");
       return false;
     }
     try {
-      if (userSelections.setupType === "automatic") {
+      if (userSelections.setupType === "docker") {
         if (!userSelections.cloneLocation) {
-          alert("Clone location not selected for automatic setup.");
+          alert("Setup location not selected for Docker setup.");
           return false;
         }
-        await electronAPI.runInitialSetup(
+        await electronAPI.setupDockerDeployment(
           userSelections.dataLocation,
           userSelections.cloneLocation
         );
@@ -217,7 +217,7 @@ const AppContent: React.FC = () => {
           if (!userSelections.setupType) {
             alert("Please select a setup type.");
             canProceed = false;
-          } else if (userSelections.setupType === "automatic") {
+          } else if (userSelections.setupType === "docker") {
             updateSelections({ envVariables: {} });
           }
           break;
@@ -229,15 +229,15 @@ const AppContent: React.FC = () => {
           break;
         case "clone-location":
           if (!userSelections.cloneLocation) {
-            alert("Please select a clone location.");
+            alert("Please select a setup location.");
             canProceed = false;
           }
           break;
         case "manual-config":
-          canProceed = await validateManualSetup(userSelections.dataLocation);
+          canProceed = await validateDockerSetup(userSelections.dataLocation);
           break;
         case "summary":
-          canProceed = await executeInstallation();
+          canProceed = await executeDockerInstallation();
           break;
       }
       if (canProceed) goToNextSite();
@@ -248,14 +248,12 @@ const AppContent: React.FC = () => {
     }
   };
 
-  const handleCloneRepository = async () => {
+  const handleSetupDirectory = async () => {
     if (!cloneDialog?.targetPath || !electronAPI) return;
     setIsLoading(true);
     try {
-      const allowedDirsValue = `${cloneDialog.targetPath}:/app/data:rw`;
-      const result = await electronAPI.cloneRepositoryToDirectory(
-        cloneDialog.targetPath,
-        allowedDirsValue
+      const result = await electronAPI.setupDockerDirectory(
+        cloneDialog.targetPath
       );
       if (result.success && result.setupPath) {
         updateSelections({
@@ -266,10 +264,10 @@ const AppContent: React.FC = () => {
         setCloneDialog(null);
         goToNextSite();
       } else {
-        alert(result.message || "Failed to clone repository.");
+        alert(result.message || "Failed to setup directory.");
       }
     } catch (error) {
-      alert(`Failed to clone repository: ${String(error)}`);
+      alert(`Failed to setup directory: ${String(error)}`);
     } finally {
       setIsLoading(false);
     }
@@ -360,9 +358,8 @@ const AppContent: React.FC = () => {
         </button>
         {(shouldShowNextButton || shouldShowFinishButton) && (
           <button
-            className={`btn ${
-              shouldShowFinishButton ? "btn-success" : "btn-primary"
-            }`}
+            className={`btn ${shouldShowFinishButton ? "btn-success" : "btn-primary"
+              }`}
             onClick={() => handleNavigation("next")}
             disabled={!isNextButtonEnabled}
           >
@@ -387,7 +384,7 @@ const AppContent: React.FC = () => {
         <CloneDialogModal
           dialog={cloneDialog}
           isLoading={isLoading}
-          onClone={handleCloneRepository}
+          onClone={handleSetupDirectory}
           onClose={() => setCloneDialog(null)}
         />
       )}

@@ -16,7 +16,7 @@ providers:
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: "sdraeger@salk.edu"
+      email: "${TRAEFIK_ACME_EMAIL:-admin@ddalab.local}"
       storage: "/acme.json"
       httpChallenge:
         entryPoint: "web"

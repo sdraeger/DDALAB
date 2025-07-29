@@ -27,6 +27,7 @@ declare module "next-auth" {
       lastName?: string | null;
       preferences?: UserPreferences;
       isLocalMode?: boolean;
+      accessToken?: string;
     } & DefaultSession["user"];
   }
 
@@ -56,7 +57,6 @@ declare module "next-auth/jwt" {
 
 // Check authentication mode from API
 async function checkAuthMode(): Promise<{
-  is_local_mode: boolean;
   current_user?: any;
   auth_mode: string;
 }> {
@@ -70,7 +70,7 @@ async function checkAuthMode(): Promise<{
   } catch (error) {
     console.error("Failed to check auth mode:", error);
     // Default to multi-user mode on error
-    return { is_local_mode: false, auth_mode: "multi-user" };
+    return { auth_mode: "multi-user" };
   }
 }
 
@@ -100,7 +100,7 @@ export const authOptions: NextAuthOptions = {
         // Check if we're in local mode
         const authMode = await checkAuthMode();
 
-        if (authMode.is_local_mode) {
+        if (authMode.auth_mode === "local") {
           // In local mode, auto-login with the default user
           if (authMode.current_user) {
             const user = authMode.current_user;
@@ -224,7 +224,7 @@ export const authOptions: NextAuthOptions = {
       // Refresh token (multi-user mode only)
       const authMode = await checkAuthMode();
 
-      if (authMode.is_local_mode) {
+      if (authMode.auth_mode === "local") {
         return token;
       }
 
@@ -243,28 +243,11 @@ export const authOptions: NextAuthOptions = {
             eegZoomFactor: token.eegZoomFactor as number,
           },
           isLocalMode: token.isLocalMode ?? false,
-          accessToken: token.accessToken, // <-- Ensure accessToken is on user
+          accessToken: token.accessToken,
         };
         session.accessToken = token.accessToken;
       }
-      // Debug log
-      if (process.env.NODE_ENV === "development") {
-        console.log(
-          "[NextAuth session callback] session:",
-          JSON.stringify(session, null, 2)
-        );
-      }
       return session;
-    },
-  },
-  events: {
-    async session({ session, token }) {
-      if (process.env.NODE_ENV === "development") {
-        console.debug("[NextAuth Event] Session accessed:", {
-          userId: session?.user?.id,
-          isLocalMode: session?.user?.isLocalMode,
-        });
-      }
     },
   },
   pages: {

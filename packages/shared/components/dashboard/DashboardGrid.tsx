@@ -3,7 +3,7 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { cn } from "../../lib/utils/misc";
 
-export interface SimpleWidget {
+export interface Widget {
 	id: string;
 	title: string;
 	content: React.ReactNode;
@@ -26,9 +26,9 @@ export interface SerializableWidget {
 	type?: string;
 }
 
-interface SimpleDashboardGridProps {
-	widgets: SimpleWidget[];
-	onWidgetUpdate?: (id: string, updates: Partial<SimpleWidget>) => void;
+interface DashboardGridProps {
+	widgets: Widget[];
+	onWidgetUpdate?: (id: string, updates: Partial<Widget>) => void;
 	onWidgetRemove?: (id: string) => void;
 	onWidgetPopOut?: (id: string) => void;
 	onWidgetSwapIn?: (id: string) => void;
@@ -99,7 +99,7 @@ const findNonOverlappingPosition = (
 	return { x: widget.x, y: maxY + 10 };
 };
 
-export function SimpleDashboardGrid({
+export function DashboardGrid({
 	widgets,
 	onWidgetUpdate,
 	onWidgetRemove,
@@ -109,7 +109,7 @@ export function SimpleDashboardGrid({
 	gridSize = 10,
 	enableSnapping = false,
 	enableCollisionDetection = false
-}: SimpleDashboardGridProps) {
+}: DashboardGridProps) {
 	const [dragging, setDragging] = useState<string | null>(null);
 	const [resizing, setResizing] = useState<string | null>(null);
 	const [dragStart, setDragStart] = useState({ x: 0, y: 0 });

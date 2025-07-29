@@ -1,26 +1,89 @@
 "use client";
 
-import React from "react";
-import { SimpleDashboardGrid, SimpleWidget } from "shared/components/dashboard/SimpleDashboardGrid";
-import { SimpleDashboardToolbar } from "shared/components/dashboard/SimpleDashboardToolbar";
+import { useEffect, useState } from "react";
+import { DashboardGrid } from "shared/components/dashboard/DashboardGrid";
+import { DashboardToolbar } from "shared/components/dashboard/DashboardToolbar";
 import { usePersistentDashboard } from "shared/hooks/usePersistentDashboard";
 import { Button } from "shared/components/ui/button";
 import { Save, RefreshCw, Trash2 } from "lucide-react";
 import { useToast } from "shared/components/ui/use-toast";
 import { useUnifiedSessionData } from "shared/hooks";
 import { useEDFPlot } from "shared/contexts/EDFPlotContext";
-import { ChannelSelectionDialog } from "shared/components/dialog/ChannelSelectionDialog";
+import { EdfMetadata, FileSelectionDialog } from "shared/components/dialog/FileSelectionDialog";
 import { FileBrowserWidget } from "shared/components/dashboard/widgets/FileBrowserWidget";
 import { useAppDispatch } from "shared/store";
 import { ensurePlotState, initializePlot, loadChunk, setSelectedChannels } from "shared/store/slices/plotSlice";
+import { apiRequest } from "shared/lib/utils/request";
+import { DashboardStateManager } from "shared/components/ui/dashboard-state-manager";
+import { useSelector } from "react-redux";
+import { selectIsFileLoading, startLoading, stopLoading, clearAllLoading } from "shared/store/slices/loadingSlice";
+import { useCurrentEdfFile } from "shared/hooks/useCurrentEdfFile";
+
+
+interface Segment {
+	start: { days: number; hours: number; minutes: number; seconds: number };
+	end: { days: number; hours: number; minutes: number; seconds: number };
+}
+
+
+function timePartsToSeconds(tp: { days: number, hours: number, minutes: number, seconds: number }): number {
+	return (
+		(tp.days || 0) * 86400 +
+		(tp.hours || 0) * 3600 +
+		(tp.minutes || 0) * 60 +
+		(tp.seconds || 0)
+	);
+}
+
+const EPSILON = 0.5; // seconds
 
 export default function Dashboard() {
 	const { data: session } = useUnifiedSessionData();
 	const { toast } = useToast();
 	const { setSelectedFilePath } = useEDFPlot();
 	const dispatch = useAppDispatch();
-	const [channelDialogOpen, setChannelDialogOpen] = React.useState(false);
-	const [pendingFilePath, setPendingFilePath] = React.useState<string | null>(null);
+	const { selectFile } = useCurrentEdfFile();
+	const [channelDialogOpen, setChannelDialogOpen] = useState(false);
+	const [pendingFilePath, setPendingFilePath] = useState<string | null>(null);
+	const isFileLoading = useSelector(selectIsFileLoading);
+
+	// Debug logging for loading state
+	useEffect(() => {
+		console.log('[Dashboard] isFileLoading changed:', isFileLoading);
+
+		// Also log the current loading operations for debugging
+		const state = (window as any).__REDUX_STORE__?.getState?.();
+		if (state?.loading?.operations) {
+			const operations = Object.keys(state.loading.operations);
+			if (operations.length > 0) {
+				console.log('[Dashboard] Current loading operations:', operations);
+				console.log('[Dashboard] Loading operations details:', state.loading.operations);
+			}
+		}
+	}, [isFileLoading]);
+
+	// Clear any stuck loading operations on mount
+	useEffect(() => {
+		// Immediately clear all loading operations to ensure clean state
+		dispatch(clearAllLoading());
+
+		const clearStuckLoading = () => {
+			// Get current loading state
+			const state = (window as any).__REDUX_STORE__?.getState?.();
+			if (state?.loading?.operations) {
+				const operations = Object.keys(state.loading.operations);
+				if (operations.length > 0) {
+					console.log('[Dashboard] Clearing stuck loading operations:', operations);
+					// Clear all loading operations to ensure clean state
+					dispatch(clearAllLoading());
+				}
+			}
+		};
+
+		// Clear stuck operations after a short delay to allow initial render
+		const timeout = setTimeout(clearStuckLoading, 100);
+		return () => clearTimeout(timeout);
+	}, [dispatch]);
 
 	const handleFileSelect = (filePath: string) => {
 		console.log('[Dashboard] handleFileSelect called with:', filePath);
@@ -29,9 +92,11 @@ export default function Dashboard() {
 		// Do NOT setSelectedFilePath here
 	};
 
-	const handleDialogConfirm = async (filePath: string, selectedChannels: string[]) => {
-		setSelectedFilePath(filePath); // Only set after confirmation
+	const handleDialogConfirm = async (filePath: string, selectedChannels: string[], metadata: EdfMetadata | null, segment: Segment) => {
+		setSelectedFilePath(filePath);
+		selectFile(filePath);
 		const token = session?.accessToken;
+
 		if (!token) {
 			toast({
 				title: "Authentication Error",
@@ -40,17 +105,107 @@ export default function Dashboard() {
 			});
 			return;
 		}
-		const loadingId = `file-select-${filePath}`;
+
+		// Start loading state immediately when dialog closes
+		const loadingId = `file-load-${filePath}`;
+		dispatch(
+			startLoading({
+				id: loadingId,
+				type: "file-load",
+				message: "Loading file data...",
+				showGlobalOverlay: false,
+			})
+		);
+
 		try {
 			// Start unified loading for the entire file selection process
 			dispatch(ensurePlotState(filePath));
 			const initResult = await dispatch(initializePlot({ filePath, token }));
-			if (initResult.meta.requestStatus === 'fulfilled') {
-				await dispatch(loadChunk({ filePath, chunkNumber: 1, chunkSizeSeconds: 10, token }));
-				// Set selected channels in Redux after loading chunk
-				console.log('[Dashboard] Dispatching setSelectedChannels:', { filePath, channels: selectedChannels });
-				dispatch(setSelectedChannels({ filePath, channels: selectedChannels }));
+			console.log('[handleDialogConfirm] initializePlot result:', initResult);
+
+			if (initResult.meta.requestStatus !== 'fulfilled') {
+				console.error('[handleDialogConfirm] initializePlot failed:', initResult);
+				const errorMsg = (initResult as any)?.error?.message || (initResult as any)?.error || 'Unknown error';
+				toast({
+					title: "Plot Initialization Error",
+					description: `Failed to initialize plot: ${errorMsg}`,
+					variant: "destructive",
+				});
+				return;
 			}
+
+			// Optionally, log Redux state for the filePath
+			// (Assumes you have access to the Redux store, otherwise remove this block)
+			try {
+				const state = (window as any).__REDUX_STORE__?.getState?.();
+				if (state) {
+					console.log('[handleDialogConfirm] Redux plot state after init:', state.plots?.byFilePath?.[filePath]);
+				}
+			} catch (e) {
+				// Ignore if store is not available
+			}
+
+			const processedSegment: Segment = {
+				start: {
+					days: Math.floor(segment.start.days),
+					hours: Math.floor(segment.start.hours),
+					minutes: Math.floor(segment.start.minutes),
+					seconds: Math.floor(segment.start.seconds),
+				},
+				end: {
+					days: Math.floor(segment.end.days),
+					hours: Math.floor(segment.end.hours),
+					minutes: Math.floor(segment.end.minutes),
+					seconds: Math.floor(segment.end.seconds),
+				},
+			};
+
+			const needsSegmenting =
+				Math.abs(timePartsToSeconds(segment.start) - 0) > EPSILON ||
+				Math.abs(timePartsToSeconds(segment.end) - (metadata?.total_duration || 0)) > EPSILON;
+
+			if (needsSegmenting) {
+				console.log('[handleDialogConfirm] segmenting file');
+				filePath = await apiRequest<string>({
+					url: `/api/edf/segment?file_path=${encodeURIComponent(filePath)}`,
+					method: "POST",
+					token,
+					body: processedSegment,
+					responseType: "json",
+				});
+
+				// After segmenting, initialize plot for the new filePath
+				if (filePath) {
+					// Update the current file path for the segmented file
+					setSelectedFilePath(filePath);
+					selectFile(filePath);
+
+					const segmentInitResult = await dispatch(initializePlot({ filePath, token }));
+					console.log('[handleDialogConfirm] initializePlot (segmented) result:', segmentInitResult);
+
+					if (segmentInitResult.meta.requestStatus !== 'fulfilled') {
+						console.error('[handleDialogConfirm] initializePlot (segmented) failed:', segmentInitResult);
+						const errorMsg = (segmentInitResult as any)?.error?.message || (segmentInitResult as any)?.error || 'Unknown error';
+						toast({
+							title: "Plot Initialization Error",
+							description: `Failed to initialize plot for segmented file: ${errorMsg}`,
+							variant: "destructive",
+						});
+						return;
+					}
+				}
+			} else {
+				console.log('[handleDialogConfirm] no segmenting needed');
+			}
+
+			console.log('[handleDialogConfirm] filePath:', filePath);
+
+			if (!filePath) {
+				throw new Error("Failed to fetch segment");
+			}
+
+			await dispatch(loadChunk({ filePath, chunkNumber: 1, chunkSizeSeconds: 10, token }));
+			dispatch(setSelectedChannels({ filePath, channels: selectedChannels }));
 		} catch (error) {
 			console.error('Error loading file:', error);
 			toast({
@@ -58,86 +213,11 @@ export default function Dashboard() {
 				description: `Failed to load file: ${error instanceof Error ? error.message : 'Unknown error'}`,
 				variant: "destructive",
 			});
+		} finally {
+			// Stop loading state
+			dispatch(stopLoading(loadingId));
 		}
 	};
-
-	// Initialize with some default widgets
-	const initialWidgets: SimpleWidget[] = [
-		{
-			id: "file-browser-default",
-			title: "File Browser",
-			position: { x: 20, y: 20 },
-			size: { width: 350, height: 400 },
-			minSize: { width: 250, height: 300 },
-			maxSize: { width: 500, height: 600 },
-			type: "file-browser",
-			content: (
-				<div className="space-y-4">
-					<div className="text-sm text-muted-foreground">Browse and select files</div>
-					<div className="space-y-2">
-						<div className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer">
-							<span className="text-sm">📁 Janet</span>
-						</div>
-						<div className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer">
-							<span className="text-sm">📁 Julia</span>
-						</div>
-						<div className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer">
-							<span className="text-sm">📁 Kotlin</span>
-						</div>
-						<div className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer">
-							<span className="text-sm">📁 Lambda Calculus</span>
-						</div>
-						<div className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer">
-							<span className="text-sm">📁 LaTeX</span>
-						</div>
-						<div className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer">
-							<span className="text-sm">📁 Lisp</span>
-						</div>
-					</div>
-				</div>
-			)
-		},
-		{
-			id: "dda-form-default",
-			title: "DDA Form",
-			position: { x: 400, y: 20 },
-			size: { width: 400, height: 350 },
-			minSize: { width: 300, height: 250 },
-			maxSize: { width: 600, height: 500 },
-			type: "dda-form",
-			content: (
-				<div className="space-y-4">
-					<div>
-						<label className="text-sm font-medium">Selected File</label>
-						<input
-							type="text"
-							placeholder="No file selected"
-							className="w-full mt-1 px-3 py-2 border border-border rounded-md text-sm"
-							readOnly
-						/>
-					</div>
-					<div>
-						<label className="text-sm font-medium">Selected Channels</label>
-						<div className="mt-1 p-2 border border-border rounded-md text-sm text-muted-foreground">
-							Loading channels...
-						</div>
-					</div>
-					<div className="space-y-2">
-						<button className="w-full bg-white text-black border border-gray-300 px-4 py-2 rounded text-sm">
-							Loading channels...
-						</button>
-					</div>
-					<div className="flex gap-2">
-						<button className="px-3 py-1 text-sm">‹</button>
-						<span className="px-3 py-1 text-sm">#</span>
-						<span className="px-3 py-1 text-sm">1</span>
-						<span className="px-3 py-1 text-sm">/0</span>
-						<button className="px-3 py-1 text-sm">›</button>
-					</div>
-				</div>
-			)
-		}
-	];
 
 	const {
 		widgets,
@@ -151,8 +231,8 @@ export default function Dashboard() {
 		isLoading,
 		isSaving,
 		isLayoutLoaded
-	} = usePersistentDashboard(initialWidgets, {
-		autoSaveDelay: 2000, // 2 seconds auto-save delay
+	} = usePersistentDashboard([], {
+		autoSaveDelay: 2000,
 		enableAutoSave: true,
 		enableCache: true,
 	});
@@ -180,16 +260,7 @@ export default function Dashboard() {
 
 	const handleClearLayout = async () => {
 		try {
-			// Reset to initial widgets (clear current layout)
-			initialWidgets.forEach((widget, index) => {
-				if (index < widgets.length) {
-					updateWidget(widgets[index].id, widget);
-				} else {
-					addWidget(widget);
-				}
-			});
-			// Remove any extra widgets
-			widgets.slice(initialWidgets.length).forEach(widget => {
+			widgets.forEach(widget => {
 				removeWidget(widget.id);
 			});
 
@@ -211,7 +282,7 @@ export default function Dashboard() {
 	return (
 		<div className="h-screen flex flex-col">
 			<div className="flex items-center justify-between px-4 py-2 bg-background border-b">
-				<SimpleDashboardToolbar onAddWidget={addWidget} className="flex-1" onFileSelect={handleFileSelect} />
+				<DashboardToolbar onAddWidget={addWidget} className="flex-1" onFileSelect={handleFileSelect} />
 				{/* Layout controls - show if user is logged in */}
 				{session && isLayoutLoaded && (
 					<div className="flex items-center gap-2 ml-4">
@@ -247,7 +318,10 @@ export default function Dashboard() {
 					</div>
 				)}
 			</div>
-
+			{/* Add persistent dashboard state view here */}
+			<div className="px-4 py-2 bg-muted/10 border-b">
+				<DashboardStateManager />
+			</div>
 			<div className="flex-1 overflow-hidden relative">
 				{/* Loading overlay */}
 				{(isLoading || (!isLayoutLoaded && session)) && (
@@ -261,7 +335,17 @@ export default function Dashboard() {
 					</div>
 				)}
 
-				<SimpleDashboardGrid
+				{/* Local loading overlay for file/plot loading */}
+				{isFileLoading && (
+					<div className="absolute inset-0 bg-background/60 backdrop-blur-sm z-40 flex items-center justify-center">
+						<div className="flex flex-col items-center bg-background/90 rounded-lg p-6 shadow-lg border">
+							<RefreshCw className="h-8 w-8 animate-spin text-primary mb-3" />
+							<span className="text-foreground font-medium">Loading file data...</span>
+						</div>
+					</div>
+				)}
+
+				<DashboardGrid
 					widgets={widgets.map(widget => {
 						if (widget.type === 'file-browser') {
 							return {
@@ -291,7 +375,7 @@ export default function Dashboard() {
 
 				{/* Channel Selection Dialog */}
 				{pendingFilePath && (
-					<ChannelSelectionDialog
+					<FileSelectionDialog
 						open={channelDialogOpen}
 						onOpenChange={open => {
 							setChannelDialogOpen(open);

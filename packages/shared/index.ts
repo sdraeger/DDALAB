@@ -34,17 +34,12 @@ export * from "./hooks/useTimeWindow";
 export * from "./hooks/useHeatmapData";
 export * from "./hooks/useArtifactInfo";
 export * from "./hooks/useWelcomeWidget";
-export * from "./hooks/useSimpleDashboard";
+export * from "./hooks/useDashboard";
 export * from "./hooks/useLoadingManager";
 export * from "./hooks/usePersistentDashboard";
 export * from "./hooks/useModernDashboard";
 export * from "./hooks/useWidgetState";
 export * from "./hooks/useWidgetDataSync";
-
-// Modern Dashboard Components
-export * from "./components/dashboard/ModernDashboardGrid";
-export * from "./components/dashboard/ModernDashboardToolbar";
-export * from "./components/dashboard/ModernWidgetContainer";
 
 // Services
 export * from "./services/WidgetFactoryService";
@@ -54,9 +49,9 @@ export * from "./services/LayoutPersistenceService";
 export * from "./types/dashboard";
 
 // Simple Dashboard components (new clean system)
-export { SimpleDashboardGrid } from "./components/dashboard/SimpleDashboardGrid";
-export { SimpleDashboardToolbar } from "./components/dashboard/SimpleDashboardToolbar";
-export type { SimpleWidget } from "./components/dashboard/SimpleDashboardGrid";
+export { DashboardGrid } from "./components/dashboard/DashboardGrid";
+export { DashboardToolbar } from "./components/dashboard/DashboardToolbar";
+export type { Widget } from "./components/dashboard/DashboardGrid";
 
 // Dashboard widgets
 export * from "./components/dashboard/widgets/DDAWidget";
@@ -85,18 +80,12 @@ export * from "./components/higher-order/ProtectedRoute";
 export * from "./components/higher-order/ApolloWrapper";
 export * from "./components/layout/Footer";
 export * from "./components/layout/DashboardSidebar";
-export * from "./components/layout/DashboardTabs";
 export * from "./components/layout/Header";
-export * from "./components/form/DDAForm";
 export * from "./components/form/ResultsForm";
-export * from "./components/files/FileBrowser";
-export * from "./components/files/CompactFileBrowser";
 export * from "./components/files/FileActionButton";
 export * from "./components/plot/DDAPlot";
 export * from "./components/plot/DDAHeatmap";
 export * from "./components/plot/EEGChart";
-export * from "./components/plot/CachedPlotsDisplay";
-export * from "./components/plot/PlotCacheIntegration";
 export * from "./components/dialog/EDFPlotDialog";
 export * from "./components/dialog/PreprocessingDialog";
 export * from "./components/dialog/ShareArtifactDialog";

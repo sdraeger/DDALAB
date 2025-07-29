@@ -14,6 +14,7 @@ import "uplot/dist/uPlot.min.css";
 import { PlotState } from "../../../store/slices/plotSlice";
 import { isEqual } from 'lodash';
 import { useWidgetState } from "../../../hooks/useWidgetState";
+import { useCurrentEdfFile } from "../../../hooks/useCurrentEdfFile";
 
 interface DDALinePlotWidgetProps {
 	widgetId?: string;
@@ -30,7 +31,17 @@ export function DDALinePlotWidget({
 	widgetId = 'dda-lineplot-widget-default',
 	isPopout = false
 }: DDALinePlotWidgetProps = {}) {
-	const plots = useAppSelector(state => state.plots);
+	console.log('[DDALinePlotWidget] Component rendered');
+
+	const {
+		currentFilePath,
+		currentPlotState,
+		currentEdfData,
+		currentChunkMetadata,
+		selectFile,
+		selectChannels,
+	} = useCurrentEdfFile();
+
 	const loadingManager = useLoadingManager();
 	const workerRef = useRef<Worker | null>(null);
 	const chartRef = useRef<HTMLDivElement | null>(null);
@@ -52,20 +63,25 @@ export function DDALinePlotWidget({
 	);
 	const { plotMode, selectedRow, maxDisplayRows } = widgetState;
 
-	// Find the most recent plot with DDA results (Q matrix)
-	const plotWithDDA = useMemo(() => {
-		return Object.values(plots as Record<string, PlotState>).find(
-			(plotState) =>
-				plotState &&
-				plotState.ddaResults &&
-				plotState.ddaResults.Q &&
-				Array.isArray(plotState.ddaResults.Q) &&
-				plotState.ddaResults.Q.length > 0
-		);
-	}, [plots]);
-
+	// Use currentPlotState only if it exists and has the required properties
+	const plotWithDDA = currentPlotState && currentPlotState.ddaResults && currentPlotState.ddaResults.Q && Array.isArray(currentPlotState.ddaResults.Q) && currentPlotState.ddaResults.Q.length > 0 ? currentPlotState : null;
 	const Q = plotWithDDA?.ddaResults?.Q;
 	const hasData = Q && Array.isArray(Q) && Q.length > 0;
+
+	console.log('[DDALinePlotWidget] DDA data check:', {
+		currentFilePath,
+		currentPlotState: !!currentPlotState,
+		hasDdaResults: !!currentPlotState?.ddaResults,
+		ddaResultsQ: currentPlotState?.ddaResults?.Q,
+		plotWithDDA: !!plotWithDDA,
+		Q: Q,
+		hasData: hasData,
+		QLength: Q?.length,
+		QFirstRowLength: Q?.[0]?.length,
+		// Check if file paths match
+		storedFilePath: currentPlotState?.ddaResults?.file_path,
+		pathMatch: currentFilePath === currentPlotState?.ddaResults?.file_path,
+	});
 	const hasPlottableData = useMemo(() => {
 		if (!hasData || !Q) return false;
 		return Q.some(row => row.some(val => val !== null));

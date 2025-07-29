@@ -14,6 +14,19 @@ import logger from "../lib/utils/logger";
 import { cacheManager } from "../lib/utils/cache";
 import type { Annotation } from "../types/annotation";
 import type { DDAPlotProps } from "../types/DDAPlotProps";
+import {
+  DEFAULT_CHUNK_SIZE_SECONDS,
+  DEFAULT_SELECTED_CHANNELS,
+  DEFAULT_TIME_WINDOW,
+  DEFAULT_ABSOLUTE_TIME_WINDOW,
+  DEFAULT_ZOOM_LEVEL,
+  DEFAULT_CURRENT_CHUNK_NUMBER,
+  DEFAULT_TOTAL_CHUNKS,
+  DEFAULT_CHUNK_START,
+  DEFAULT_ANNOTATIONS,
+  DEFAULT_PREPROCESSING_OPTIONS,
+  DEFAULT_SAMPLE_RATE,
+} from "../lib/utils/plotDefaults";
 
 // Helper functions moved to top level for better organization
 const hasActivePreprocessing = (options: any): boolean => {
@@ -66,22 +79,22 @@ export const useDDAPlot = ({
 
   // Get plot state with defensive defaults
   const plotState = getPlotState(filePath) || {
-    chunkSizeSeconds: 10,
-    selectedChannels: [],
+    chunkSizeSeconds: DEFAULT_CHUNK_SIZE_SECONDS,
+    selectedChannels: DEFAULT_SELECTED_CHANNELS,
     showPlot: false,
-    timeWindow: [0, 10] as [number, number],
-    absoluteTimeWindow: [0, 10] as [number, number],
-    zoomLevel: 1,
-    chunkStart: 0,
+    timeWindow: DEFAULT_TIME_WINDOW,
+    absoluteTimeWindow: DEFAULT_ABSOLUTE_TIME_WINDOW,
+    zoomLevel: DEFAULT_ZOOM_LEVEL,
+    chunkStart: DEFAULT_CHUNK_START,
     totalSamples: 0,
     totalDuration: 0,
-    currentChunkNumber: 1,
-    totalChunks: 1,
+    currentChunkNumber: DEFAULT_CURRENT_CHUNK_NUMBER,
+    totalChunks: DEFAULT_TOTAL_CHUNKS,
     edfData: null,
-    annotations: null,
+    annotations: DEFAULT_ANNOTATIONS,
     lastFetchTime: null,
-    preprocessingOptions: null,
-    sampleRate: 256,
+    preprocessingOptions: DEFAULT_PREPROCESSING_OPTIONS,
+    sampleRate: DEFAULT_SAMPLE_RATE,
   };
 
   // Basic state management
@@ -112,6 +125,7 @@ export const useDDAPlot = ({
     filePath: actualEDFFilePath || filePath,
     sampleRate,
     totalSamples,
+    token: undefined, // DDA plots don't have access to token, only use state management
   });
 
   const timeWindowManager = useTimeWindow({

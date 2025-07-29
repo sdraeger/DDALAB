@@ -12,7 +12,24 @@ import { useWidgetDataSync } from "shared/hooks/useWidgetDataSync";
 import { useAppDispatch } from "shared/store";
 import { ensurePlotState } from "shared/store/slices/plotSlice";
 import logger from "shared/lib/utils/logger";
-import { useUnifiedSessionData } from "shared/hooks/useUnifiedSession";
+import { useCurrentEdfFile } from "shared/hooks/useCurrentEdfFile";
+import {
+	DEFAULT_SELECTED_CHANNELS,
+	DEFAULT_TIME_WINDOW,
+	DEFAULT_ZOOM_LEVEL,
+	DEFAULT_CHUNK_SIZE_SECONDS,
+	DEFAULT_CURRENT_CHUNK_NUMBER,
+	DEFAULT_TOTAL_CHUNKS,
+	DEFAULT_CHUNK_START,
+	DEFAULT_ABSOLUTE_TIME_WINDOW,
+	DEFAULT_SHOW_HEATMAP,
+	DEFAULT_DDA_HEATMAP_DATA,
+	DEFAULT_DDA_RESULTS,
+	DEFAULT_ANNOTATIONS,
+	DEFAULT_SHOW_SETTINGS_DIALOG,
+	DEFAULT_SHOW_ZOOM_SETTINGS_DIALOG,
+	DEFAULT_PREPROCESSING_OPTIONS
+} from "../../../../../shared/lib/utils/plotDefaults";
 
 interface SerializableModernWidget {
 	id: string;
@@ -41,6 +58,15 @@ export default function ModernWidgetPopoutPage() {
 	const storageKey = searchParams?.get('storageKey');
 	const widgetFactory = WidgetFactoryService.getInstance();
 	const { registerDataListener, unregisterDataListener, syncData } = useWidgetDataSync(widgetId, true);
+
+	const {
+		currentFilePath,
+		currentPlotState,
+		currentEdfData,
+		currentChunkMetadata,
+		selectFile,
+		selectChannels,
+	} = useCurrentEdfFile();
 
 	// Effect for handling data synchronization from the main window
 	useEffect(() => {
@@ -178,9 +204,9 @@ export default function ModernWidgetPopoutPage() {
 					// Create a placeholder plot state with metadata
 					const plotState = {
 						'popped-out-file': {
-							selectedChannels: selectedChannels || [],
-							timeWindow: timeWindow || [0, 10],
-							zoomLevel: zoomLevel || 1,
+							selectedChannels: selectedChannels || DEFAULT_SELECTED_CHANNELS,
+							timeWindow: timeWindow || DEFAULT_TIME_WINDOW,
+							zoomLevel: zoomLevel || DEFAULT_ZOOM_LEVEL,
 							metadata: {
 								file_path: 'popped-out-file',
 								num_chunks: 1,
@@ -194,18 +220,20 @@ export default function ModernWidgetPopoutPage() {
 							isMetadataLoading: false,
 							isHeatmapProcessing: false,
 							error: null,
-							chunkSizeSeconds: edfMetadata.duration,
-							currentChunkNumber: 1,
-							totalChunks: 1,
-							chunkStart: 0,
-							absoluteTimeWindow: [0, edfMetadata.duration],
-							showHeatmap: false,
-							ddaHeatmapData: null,
-							ddaResults: null,
-							annotations: null,
-							showSettingsDialog: false,
-							showZoomSettingsDialog: false,
-							preprocessingOptions: null
+							chunkSizeSeconds: edfMetadata.duration || DEFAULT_CHUNK_SIZE_SECONDS,
+							currentChunkNumber: DEFAULT_CURRENT_CHUNK_NUMBER,
+							totalChunks: DEFAULT_TOTAL_CHUNKS,
+							chunkStart: DEFAULT_CHUNK_START,
+							absoluteTimeWindow: (edfMetadata.duration !== undefined && edfMetadata.duration !== null)
+								? [0, edfMetadata.duration]
+								: DEFAULT_ABSOLUTE_TIME_WINDOW,
+							showHeatmap: DEFAULT_SHOW_HEATMAP,
+							ddaHeatmapData: DEFAULT_DDA_HEATMAP_DATA,
+							ddaResults: DEFAULT_DDA_RESULTS,
+							annotations: DEFAULT_ANNOTATIONS,
+							showSettingsDialog: DEFAULT_SHOW_SETTINGS_DIALOG,
+							showZoomSettingsDialog: DEFAULT_SHOW_ZOOM_SETTINGS_DIALOG,
+							preprocessingOptions: DEFAULT_PREPROCESSING_OPTIONS
 						}
 					};
 
