@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Type, TypeVar, Union
 
 from loguru import logger
-from pydantic import BaseModel, computed_field, field_validator, model_validator
+from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings
 
 T = TypeVar("T", bound=BaseModel)
@@ -67,42 +67,14 @@ class Settings(BaseSettings):
     otlp_host: str
     otlp_port: int = 4317
 
-    @computed_field
-    @property
-    def database_url(self) -> str:
+    def get_database_url(self) -> str:
         """Get the database URL.
 
         Returns:
             Database URL in the format: postgresql+asyncpg://user:password@host:port/dbname
         """
-        return f"postgresql+asyncpg://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
-
-    @computed_field
-    @property
-    def auth_enabled(self) -> bool:
-        """Compute auth_enabled based on auth_mode and backward compatibility.
-
-        Returns:
-            True if authentication is enabled (multi-user mode), False otherwise
-        """
-        # If auth_enabled is explicitly set via environment variable (backward compatibility)
-        auth_enabled_env = os.getenv("DDALAB_AUTH_ENABLED")
-        if auth_enabled_env is not None:
-            return auth_enabled_env.lower() in ("true", "1", "yes", "on")
-
-        # Otherwise, use auth_mode
-        return self.auth_mode == "multi-user"
-
-    @computed_field
-    @property
-    def is_local_mode(self) -> bool:
-        """Check if the application is running in local mode.
-
-        Returns:
-            True if in local mode (authentication disabled), False otherwise
-        """
-        # Use the computed auth_enabled property to determine local mode
-        return not self.auth_enabled
+        url = f"postgresql+asyncpg://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
+        return url
 
     @field_validator("auth_mode")
     @classmethod
@@ -125,35 +97,6 @@ class Settings(BaseSettings):
             )
             return "multi-user"
         return value
-
-    @model_validator(mode="after")
-    def handle_backward_compatibility(self) -> "Settings":
-        """Handle backward compatibility with DDALAB_AUTH_ENABLED.
-
-        Returns:
-            Settings instance with properly configured auth_mode
-        """
-        # Check if DDALAB_AUTH_ENABLED is explicitly set via environment variable
-        auth_enabled_env = os.getenv("DDALAB_AUTH_ENABLED")
-        if auth_enabled_env is not None:
-            auth_enabled_value = auth_enabled_env.lower() in ("true", "1", "yes", "on")
-
-            if auth_enabled_value:
-                # auth_enabled=True means multi-user mode
-                if self.auth_mode != "multi-user":
-                    logger.info(
-                        "DDALAB_AUTH_ENABLED=True detected, setting auth_mode to 'multi-user'"
-                    )
-                    object.__setattr__(self, "auth_mode", "multi-user")
-            else:
-                # auth_enabled=False means local mode
-                if self.auth_mode != "local":
-                    logger.info(
-                        "DDALAB_AUTH_ENABLED=False detected, setting auth_mode to 'local'"
-                    )
-                    object.__setattr__(self, "auth_mode", "local")
-
-        return self
 
     @field_validator("allowed_dirs", mode="before")
     @classmethod
@@ -250,7 +193,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_prefix = "DDALAB_"
-        env_file = str(os.getenv("DDALAB_ENV_FILE", ".env"))
+        env_file = ".env"
         env_file_encoding = "utf-8"
         extra = "allow"
 

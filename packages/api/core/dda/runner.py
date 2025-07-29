@@ -4,8 +4,6 @@ import dda_py
 import numpy as np
 from core.config import get_server_settings
 from core.dda.binary_validation import validate_dda_binary
-
-# Re-enable APE compatibility patch
 from core.dda_ape_patch import patch_dda_py
 from core.edf.edf_cache import get_cache_manager
 from core.files import read_edf_header
@@ -43,10 +41,10 @@ async def run_dda(
     file_path: Path = None,
     channel_list: list[int] = None,
     preprocessing_options: dict = None,
-    max_heatmap_points: int = 100000,
 ) -> DDAResponse:
     settings = get_server_settings()
     is_valid, error_message = validate_dda_binary(settings)
+
     if not is_valid:
         logger.warning(f"DDA binary validation failed: {error_message}")
         return DDAResponse(

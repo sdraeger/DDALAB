@@ -3,7 +3,7 @@ import time
 from collections import OrderedDict
 from typing import Dict, Optional
 
-from core.edf.edf_reader import EDFFile
+from core.edf import EDFFile
 
 
 class ChunkDataCache:
@@ -39,9 +39,13 @@ class ChunkDataCache:
     def _deep_copy_edf_file(self, edf_file: EDFFile) -> EDFFile:
         new_edf_file = EDFFile()
         new_edf_file.labels = edf_file.labels.copy() if edf_file.labels else []
-        new_edf_file.chunk_info = (
-            edf_file.chunk_info.copy() if edf_file.chunk_info else {}
-        )
+        new_edf_file.start_datetime = edf_file.start_datetime
+        new_edf_file.physical_maximum = edf_file.physical_maximum.copy()
+        new_edf_file.physical_minimum = edf_file.physical_minimum.copy()
+        new_edf_file.digital_maximum = edf_file.digital_maximum.copy()
+        new_edf_file.digital_minimum = edf_file.digital_minimum.copy()
+        new_edf_file.edf_type = edf_file.edf_type
+        new_edf_file.sampling_frequencies = edf_file.sampling_frequencies.copy()
         new_edf_file.signals = []
         for signal in edf_file.signals:
             new_signal = EDFFile.Signal(

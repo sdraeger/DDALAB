@@ -8,7 +8,7 @@ import strawberry
 from core.auth import get_current_user_from_request
 from core.config import get_server_settings
 from core.edf import get_edf_navigator, read_edf_chunk_cached
-from core.edf.edf_cache import get_cache_manager
+from core.edf.edf_cache import clear_global_cache, get_cache_manager
 from core.files import list_directory, validate_file_path
 from core.models import FavoriteFile
 from core.services import AnnotationService, FavoriteFilesService
@@ -251,17 +251,17 @@ class Query:
         preprocessingOptions: Optional[VisualizationPreprocessingOptionsInput] = None,
         includeNavigationInfo: bool = False,  # Whether to include navigation info
     ) -> EDFData:
-        """Get raw EDF data for a file.
+        """Get EDF data for a specific chunk.
 
         Args:
             filename: Path to the EDF file
-            chunkStart: Start index for data chunk
-            chunkSize: Size of data chunk to return (in samples)
-            preprocessingOptions: Optional preprocessing options for visualization
-            includeNavigationInfo: Whether to include navigation info in the response
+            chunkStart: Start position in samples
+            chunkSize: Size of the chunk to read
+            preprocessingOptions: Optional preprocessing options
+            includeNavigationInfo: Whether to include navigation info
 
         Returns:
-            EDFData containing the raw data and metadata
+            EDFData object with signal data and metadata
         """
         try:
             # Handle None values for optional parameters
@@ -288,10 +288,14 @@ class Query:
                 preprocessingOptions,
             )
 
-            # Convert signal data to list format
-            signal_data = [signal.data.tolist() for signal in data.signals]
+            # Optimize data conversion - only convert to list when needed for GraphQL
+            # Use numpy arrays for internal processing, convert to list only for serialization
+            signal_data = []
+            for signal in data.signals:
+                # Convert to list only for GraphQL serialization
+                signal_data.append(signal.data.tolist())
 
-            # Get navigation info if requested
+            # Get navigation info if requested - use cached navigator when possible
             navigation_info = None
             chunk_info = None
             if includeNavigationInfo:
@@ -365,30 +369,21 @@ class Query:
                 ]
 
                 navigation_info = EDFNavigationInfo(
-                    totalSamples=nav_info.get(
-                        "totalSamples", nav_info.get("total_samples", 0)
-                    ),
-                    fileDurationSeconds=nav_info.get(
-                        "fileDurationSeconds", nav_info.get("file_duration_seconds", 0)
-                    ),
-                    numSignals=nav_info.get(
-                        "numSignals", nav_info.get("num_signals", 0)
-                    ),
-                    signalLabels=nav_info.get(
-                        "signalLabels", nav_info.get("signal_labels", [])
-                    ),
-                    samplingFrequencies=nav_info.get(
-                        "samplingFrequencies", nav_info.get("sampling_frequencies", [])
-                    ),
+                    totalSamples=nav_info.get("totalSamples", 0),
+                    fileDurationSeconds=nav_info.get("fileDurationSeconds", 0),
+                    numSignals=nav_info.get("numSignals", 0),
+                    signalLabels=nav_info.get("signalLabels", []),
+                    samplingFrequencies=nav_info.get("samplingFrequencies", []),
                     chunks=chunks,
                 )
 
+            # Create EDFData object with optimized data structure
             return EDFData(
                 data=signal_data,
-                samplingFrequency=data.signals[0].sampling_frequency
-                if data.signals
-                else 0,
-                channelLabels=[signal.label for signal in data.signals],
+                samplingFrequency=data.sampling_frequencies[0]
+                if data.sampling_frequencies
+                else 256,
+                channelLabels=data.labels,
                 totalSamples=metadata,
                 chunkStart=chunkStart,
                 chunkSize=chunkSize,
@@ -422,8 +417,6 @@ class Query:
     async def clear_edf_cache(self, file_path: Optional[str] = None) -> str:
         """Clear EDF cache for a specific file or all files."""
         try:
-            from api.core.edf.edf_cache import clear_global_cache, get_cache_manager
-
             if file_path:
                 # Clear cache for specific file
                 full_path = os.path.join(settings.data_dir, file_path)
