@@ -9,7 +9,7 @@ export function usePlotStorage() {
   // Save plot to IndexedDB when it changes
   const savePlot = useCallback(
     async (filePath: string) => {
-      const plot = plots[filePath];
+      const plot = plots.byFilePath[filePath];
       if (!plot) return;
 
       try {
