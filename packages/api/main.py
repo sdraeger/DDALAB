@@ -2,6 +2,13 @@
 
 from contextlib import asynccontextmanager
 
+from core.config import get_server_settings, initialize_config
+from core.middleware import (
+    AuthMiddleware,
+    DatabaseMiddleware,
+    MinIOMiddleware,
+    PrometheusMiddleware,
+)
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -12,13 +19,6 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from core.config import get_server_settings, initialize_config
-from core.middleware import (
-    AuthMiddleware,
-    DatabaseMiddleware,
-    MinIOMiddleware,
-    PrometheusMiddleware,
-)
 
 # Conditional imports to handle both production and test contexts
 try:
