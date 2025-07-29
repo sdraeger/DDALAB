@@ -10,10 +10,3 @@ CREATE TABLE public.edf_config_channels (
 );
 
 ALTER TABLE public.edf_config_channels OWNER TO {owner};
-
---
--- Name: edf_config_channels edf_config_channels_config_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: {owner}
---
-
-ALTER TABLE ONLY public.edf_config_channels
-    ADD CONSTRAINT edf_config_channels_config_id_fkey FOREIGN KEY (config_id) REFERENCES public.edf_configs(id);

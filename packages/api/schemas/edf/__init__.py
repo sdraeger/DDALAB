@@ -8,6 +8,7 @@ from schemas.edf.config import (
     EdfConfigUpdate,
 )
 from schemas.edf.file_info import EdfFileInfo
+from schemas.edf.segment import Segment
 
 __all__ = [
     "EdfConfig",
@@ -16,4 +17,5 @@ __all__ = [
     "EdfConfigCreate",
     "EdfConfigUpdate",
     "EdfFileInfo",
+    "Segment",
 ]

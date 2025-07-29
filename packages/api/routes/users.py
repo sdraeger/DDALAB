@@ -2,13 +2,13 @@
 
 from datetime import timedelta
 
-from core.auth import create_access_token, get_admin_user, get_current_user
+from core.auth import create_access_token, get_admin_user
 from core.config import get_server_settings
 from core.dependencies import get_service
 from core.models import User as UserDB
 from core.services import UserService
 from core.services.errors import ServiceError
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from schemas.auth import Token
 from schemas.user import User, UserCreate, UserUpdate
@@ -21,15 +21,9 @@ settings = get_server_settings()
 async def create_user(
     user_data: UserCreate,
     user_service: UserService = Depends(get_service(UserService)),
-    _: UserDB = Depends(get_current_user),
+    _: UserDB = Depends(get_admin_user),
 ):
     """Create a new user (requires admin privileges)."""
-
-    if not settings.auth_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Authentication is currently disabled",
-        )
 
     try:
         user = await user_service.create(user_data)
@@ -47,9 +41,9 @@ async def create_user(
 @router.get("", response_model=list[User])
 async def get_users(
     user_service: UserService = Depends(get_service(UserService)),
-    _: UserDB = Depends(get_current_user),
+    _: UserDB = Depends(get_admin_user),
 ):
-    """Get all users (requires admin privileges)."""
+    """Get all users."""
 
     try:
         users = await user_service.get_all_users()

@@ -6,9 +6,9 @@ from pathlib import Path
 from core.auth import get_current_user
 from core.config import get_server_settings
 from core.edf.edf_cache import clear_global_cache, get_cache_manager
-from core.edf.edf_reader import get_edf_navigator
+from core.edf.edf_navigator import get_edf_navigator
 from fastapi import APIRouter, Depends, HTTPException
-from schemas.edf import EdfFileInfo
+from schemas.edf import EdfFileInfo, Segment
 from schemas.user import User
 
 router = APIRouter()
@@ -42,6 +42,27 @@ async def get_edf_info(
         total_duration=navigator.file_duration_seconds,
         channels=navigator.signal_labels,
     )
+
+
+@router.post("/segment")
+async def get_segment(
+    file_path: str,
+    segment: Segment,
+    _: User = Depends(get_current_user),
+):
+    """Get a segment of an EDF file."""
+
+    path = Path(settings.data_dir) / file_path
+
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {path}")
+
+    navigator = get_edf_navigator(str(path))
+    edf_file = navigator.segment(segment)
+    new_path = str(path).replace(".edf", "_segment.edf")
+    navigator.write_file(edf_file, new_path)
+
+    return new_path
 
 
 @router.get("/cache/stats")

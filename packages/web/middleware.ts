@@ -6,39 +6,31 @@ import logger from "shared/lib/utils/logger";
 let authModeCache: {
   mode: string;
   timestamp: number;
-  is_local_mode: boolean;
 } | null = null;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 const MAX_RETRIES = 3;
 let retryCount = 0;
 
 async function getAuthMode(): Promise<{
-  is_local_mode: boolean;
   auth_mode: string;
 }> {
   // Check cache first
   if (authModeCache && Date.now() - authModeCache.timestamp < CACHE_DURATION) {
     return {
-      is_local_mode: authModeCache.is_local_mode,
       auth_mode: authModeCache.mode,
     };
   }
 
   try {
     // Check environment variable first as fallback for local mode
-    const envAuthMode =
-      process.env.DDALAB_AUTH_MODE ||
-      process.env.DDALAB_AUTH_ENABLED === "False"
-        ? "local"
-        : "multi-user";
+    const envAuthMode = process.env.DDALAB_AUTH_MODE || "multi-user";
 
     // Reset retry count on successful cache hit or new attempt
     if (retryCount >= MAX_RETRIES) {
       logger.warn(
         `Max retries reached for auth mode check, using environment fallback: ${envAuthMode}`
       );
-      const isLocal = envAuthMode === "local";
-      return { is_local_mode: isLocal, auth_mode: envAuthMode };
+      return { auth_mode: envAuthMode };
     }
 
     // Get API URL - handle both development and production
@@ -72,14 +64,12 @@ async function getAuthMode(): Promise<{
     authModeCache = {
       mode: data.auth_mode,
       timestamp: Date.now(),
-      is_local_mode: data.is_local_mode,
     };
 
     // Reset retry count on success
     retryCount = 0;
 
     return {
-      is_local_mode: data.is_local_mode,
       auth_mode: data.auth_mode,
     };
   } catch (error) {
@@ -90,22 +80,19 @@ async function getAuthMode(): Promise<{
     );
 
     // Use environment variable as fallback
-    const envAuthMode =
-      process.env.DDALAB_AUTH_MODE ||
-      (process.env.DDALAB_AUTH_ENABLED === "False" ? "local" : "multi-user");
-    const isLocal = envAuthMode === "local";
+    const envAuthMode = process.env.DDALAB_AUTH_MODE || "multi-user";
 
     // If we've exceeded retries, use environment fallback
     if (retryCount >= MAX_RETRIES) {
       logger.warn(
         `Using environment fallback after max retries: ${envAuthMode}`
       );
-      return { is_local_mode: isLocal, auth_mode: envAuthMode };
+      return { auth_mode: envAuthMode };
     }
 
     // For early failures, also use environment fallback but allow retry
     logger.info(`Using environment fallback for now: ${envAuthMode}`);
-    return { is_local_mode: isLocal, auth_mode: envAuthMode };
+    return { auth_mode: envAuthMode };
   }
 }
 
@@ -133,7 +120,7 @@ export async function middleware(request: NextRequest) {
   // Check authentication mode
   const authMode = await getAuthMode();
 
-  if (authMode.is_local_mode) {
+  if (authMode.auth_mode === "local") {
     logger.info(`Middleware: Local mode detected, bypassing auth for ${path}`);
     return NextResponse.next();
   }

@@ -11,24 +11,3 @@ CREATE TABLE public.artifact_shares (
 );
 
 ALTER TABLE public.artifact_shares OWNER TO {owner};
-
---
--- Name: artifact_shares artifact_shares_artifact_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: {owner}
---
-
-ALTER TABLE ONLY public.artifact_shares
-    ADD CONSTRAINT artifact_shares_artifact_id_fkey FOREIGN KEY (artifact_id) REFERENCES public.artifacts(id);
-
---
--- Name: artifact_shares artifact_shares_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: {owner}
---
-
-ALTER TABLE ONLY public.artifact_shares
-    ADD CONSTRAINT artifact_shares_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
-
---
--- Name: artifact_shares artifact_shares_shared_with_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: {owner}
---
-
-ALTER TABLE ONLY public.artifact_shares
-    ADD CONSTRAINT artifact_shares_shared_with_user_id_fkey FOREIGN KEY (shared_with_user_id) REFERENCES public.users(id);

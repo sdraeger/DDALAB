@@ -11,10 +11,3 @@ CREATE TABLE public.artifacts (
 );
 
 ALTER TABLE public.artifacts OWNER TO {owner};
-
---
--- Name: artifacts artifacts_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: {owner}
---
-
-ALTER TABLE ONLY public.artifacts
-    ADD CONSTRAINT artifacts_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);

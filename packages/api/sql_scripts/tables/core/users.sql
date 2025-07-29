@@ -34,33 +34,6 @@ COMMENT ON TABLE public.users IS 'Stores user credentials with bcrypt password h
 COMMENT ON COLUMN public.users.password_hash IS 'Bcrypt hashed password - NEVER store plain text passwords';
 
 --
--- Name: users_id_seq; Type: SEQUENCE; Schema: public; Owner: {owner}
---
-
-CREATE SEQUENCE public.users_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-ALTER TABLE public.users_id_seq OWNER TO {owner};
-
---
--- Name: users_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: {owner}
---
-
-ALTER SEQUENCE public.users_id_seq OWNED BY public.users.id;
-
---
--- Name: users id; Type: DEFAULT; Schema: public; Owner: {owner}
---
-
-ALTER TABLE ONLY public.users
-    ALTER COLUMN id SET DEFAULT nextval('public.users_id_seq'::regclass);
-
---
 -- Name: idx_users_email; Type: INDEX; Schema: public; Owner: {owner}
 --
 

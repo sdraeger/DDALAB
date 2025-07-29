@@ -2,7 +2,8 @@ import asyncio
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
-from core.edf.edf_reader import EDFFile, apply_preprocessing, read_edf_chunk
+from core.edf.edf_file import EDFFile
+from core.edf.utils import read_edf_chunk
 from loguru import logger
 
 
@@ -23,59 +24,57 @@ class ChunkReader:
             chunk_start = 0
         if chunk_size <= 0:
             chunk_size = 25_600
-        cached_chunk = self.chunk_cache.get(file_path, chunk_start, chunk_size, None)
+
+        # Check cache first - use preprocessing options as part of cache key
+        cached_chunk = self.chunk_cache.get(
+            file_path, chunk_start, chunk_size, preprocessing_options
+        )
         if cached_chunk:
             logger.debug(f"Chunk cache hit: {file_path}:{chunk_start}:{chunk_size}")
             edf_file, total_samples = cached_chunk
-            if preprocessing_options:
-                for signal in edf_file.signals:
-                    try:
-                        signal.data = apply_preprocessing(
-                            signal.data, preprocessing_options
-                        )
-                    except Exception as preproc_error:
-                        logger.warning(
-                            f"Preprocessing failed for signal {signal.label}: {preproc_error}"
-                        )
+            # No need to apply preprocessing again since it's already cached with preprocessing
             if self.preload_enabled:
                 try:
                     loop = asyncio.get_running_loop()
                     loop.create_task(
                         self._async_schedule_preload(
-                            file_path, chunk_start, chunk_size, None
+                            file_path, chunk_start, chunk_size, preprocessing_options
                         )
                     )
                 except RuntimeError:
                     pass
             return edf_file, total_samples
+
         logger.debug(f"Reading chunk: {file_path}:{chunk_start}:{chunk_size}")
+
         if not Path(file_path).exists():
             logger.error(f"File not found during chunk read: {file_path}")
             raise FileNotFoundError(f"EDF file not found: {file_path}")
+
         logger.debug(f"Using fallback reading for reliable data access: {file_path}")
+
         try:
+            # Read chunk with preprocessing applied during initial read
             edf_file, total_samples = read_edf_chunk(
-                file_path, chunk_start, chunk_size, None
+                file_path, chunk_start, chunk_size, preprocessing_options
             )
+
+            # Cache the processed data with preprocessing options as part of the key
             self.chunk_cache.put(
-                file_path, chunk_start, chunk_size, edf_file, total_samples, None
+                file_path,
+                chunk_start,
+                chunk_size,
+                edf_file,
+                total_samples,
+                preprocessing_options,
             )
-            if preprocessing_options:
-                for signal in edf_file.signals:
-                    try:
-                        signal.data = apply_preprocessing(
-                            signal.data, preprocessing_options
-                        )
-                    except Exception as preproc_error:
-                        logger.warning(
-                            f"Preprocessing failed for signal {signal.label}: {preproc_error}"
-                        )
+
             if self.preload_enabled:
                 try:
                     loop = asyncio.get_running_loop()
                     loop.create_task(
                         self._async_schedule_preload(
-                            file_path, chunk_start, chunk_size, None
+                            file_path, chunk_start, chunk_size, preprocessing_options
                         )
                     )
                 except RuntimeError:
@@ -94,32 +93,34 @@ class ChunkReader:
     ):
         if not self.preload_enabled:
             return
+
+        # Preload next chunk asynchronously
+        next_chunk_start = chunk_start + chunk_size
         try:
-            metadata = self.file_handle_manager.get_file_metadata(file_path)
-            total_samples = metadata["total_samples"]
-            next_chunk_start = chunk_start + chunk_size
-            if next_chunk_start < total_samples:
-                if not self.chunk_cache.get(
-                    file_path, next_chunk_start, chunk_size, None
-                ):
-                    await asyncio.to_thread(
-                        self.read_chunk_optimized,
+            # Check if next chunk exists and isn't already cached
+            if not self.chunk_cache.exists(
+                file_path, next_chunk_start, chunk_size, preprocessing_options
+            ):
+                # Preload next chunk in background
+                await asyncio.sleep(0.1)  # Small delay to avoid overwhelming the system
+                try:
+                    edf_file, total_samples = read_edf_chunk(
+                        file_path, next_chunk_start, chunk_size, preprocessing_options
+                    )
+                    self.chunk_cache.put(
                         file_path,
                         next_chunk_start,
                         chunk_size,
-                        None,
+                        edf_file,
+                        total_samples,
+                        preprocessing_options,
                     )
-            prev_chunk_start = max(0, chunk_start - chunk_size)
-            if prev_chunk_start != chunk_start:
-                if not self.chunk_cache.get(
-                    file_path, prev_chunk_start, chunk_size, None
-                ):
-                    await asyncio.to_thread(
-                        self.read_chunk_optimized,
-                        file_path,
-                        prev_chunk_start,
-                        chunk_size,
-                        None,
+                    logger.debug(
+                        f"Preloaded chunk: {file_path}:{next_chunk_start}:{chunk_size}"
+                    )
+                except Exception as e:
+                    logger.debug(
+                        f"Preload failed for {file_path}:{next_chunk_start}:{chunk_size} - {e}"
                     )
         except Exception as e:
-            logger.debug(f"Preload failed: {e}")
+            logger.debug(f"Preload scheduling failed: {e}")

@@ -2,13 +2,6 @@
 
 from contextlib import asynccontextmanager
 
-from core.config import get_server_settings, initialize_config
-from core.middleware import (
-    AuthMiddleware,
-    DatabaseMiddleware,
-    MinIOMiddleware,
-    PrometheusMiddleware,
-)
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -19,6 +12,13 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from core.config import get_server_settings, initialize_config
+from core.middleware import (
+    AuthMiddleware,
+    DatabaseMiddleware,
+    MinIOMiddleware,
+    PrometheusMiddleware,
+)
 
 # Conditional imports to handle both production and test contexts
 try:
@@ -67,6 +67,11 @@ settings = get_server_settings()
 async def _ensure_minio_bucket_exists():
     """Ensure the MinIO bucket exists."""
     try:
+        print("MinIO host:", settings.minio_host)
+        print("MinIO access key:", settings.minio_access_key)
+        print("MinIO secret key:", settings.minio_secret_key)
+        print("MinIO bucket name:", settings.minio_bucket_name)
+
         minio_client = Minio(
             settings.minio_host,
             access_key=settings.minio_access_key,
@@ -91,7 +96,7 @@ async def _ensure_minio_bucket_exists():
 
 async def _initialize_local_mode():
     """Initialize local mode by ensuring the default user exists."""
-    if not settings.is_local_mode:
+    if settings.auth_mode != "local":
         logger.debug("Not in local mode, skipping local user initialization")
         return
 
@@ -124,9 +129,7 @@ async def lifespan(app: FastAPI):
         # Initialize configurations
         configs = initialize_config()
         logger.info(f"Initialized configurations: {list(configs.keys())}")
-        logger.info(
-            f"Auth mode: {settings.auth_mode} (auth_enabled: {settings.auth_enabled})"
-        )
+        logger.info(f"Auth mode: {settings.auth_mode}")
 
         # Check MinIO bucket
         await _ensure_minio_bucket_exists()
@@ -154,6 +157,7 @@ app = FastAPI(
     lifespan=lifespan,
     redirect_slashes=False,
 )
+
 app_metrics = FastAPI(
     title="DDALAB Metrics API",
     description="Metrics endpoint for Prometheus",

@@ -3,7 +3,6 @@ from pathlib import Path
 import bcrypt
 import click
 import psycopg2
-from core.config import get_server_settings
 from loguru import logger
 from psycopg2 import Error
 from sql_scripts.table_config import (
@@ -11,23 +10,16 @@ from sql_scripts.table_config import (
     get_execution_order_for_tables,
 )
 
-settings = get_server_settings()
-
 # Directory containing .sql files
 SQL_DIR = Path(__file__).parent / "sql_scripts"
-DB_PARAMS = {
-    "dbname": settings.db_name,
-    "user": settings.db_user,
-    "password": settings.db_password,
-    "host": settings.db_host,
-    "port": settings.db_port,
-}
 
 
-def connect_to_db():
+def connect_to_db(dbname, user, password, host, port):
     """Establish a connection to the PostgreSQL database."""
     try:
-        connection = psycopg2.connect(**DB_PARAMS)
+        connection = psycopg2.connect(
+            dbname=dbname, user=user, password=password, host=host, port=port
+        )
         connection.autocommit = True
         logger.info("Successfully connected to the database")
         return connection
@@ -63,6 +55,9 @@ def insert_admin_user(db, username, password, email, first_name, last_name):
     if not db:
         logger.error("Failed to connect to the database")
         return False
+
+    logger.info(f"Inserting admin user: {username}")
+    logger.info(f"Password: {password}")
 
     password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode(
         "utf-8"
@@ -183,11 +178,10 @@ def create_tables_from_decomposed_files(db, tables_to_create, owner):
         if function_file not in ordered_files:
             ordered_files.insert(0, function_file)
 
-    cursor = None
-    try:
-        cursor = db.cursor()
+    cursor = db.cursor()
 
-        for relative_file_path in ordered_files:
+    for relative_file_path in ordered_files:
+        try:
             file_path = SQL_DIR / relative_file_path
 
             if not file_path.exists():
@@ -205,28 +199,27 @@ def create_tables_from_decomposed_files(db, tables_to_create, owner):
 
             cursor.execute(sql_content)
             logger.info(f"Successfully executed: {relative_file_path}")
+        except Error as e:
+            logger.error(f"Error executing SQL file: {e}")
 
-        return True
-    except Error as e:
-        logger.error(f"Error creating tables from decomposed files: {e}")
-        return False
-    finally:
-        if cursor:
-            cursor.close()
+    return True
 
 
 @click.command()
-@click.option("--username", type=str, required=True)
+@click.option("--dbname", type=str, required=True)
+@click.option("--user", type=str, required=True)
 @click.option("--password", type=str, required=True)
+@click.option("--host", type=str, required=True)
+@click.option("--port", type=int, required=True)
 @click.option("--email", type=str, required=True)
 @click.option("--first_name", type=str, required=True)
 @click.option("--last_name", type=str, required=True)
-def main(username, password, email, first_name, last_name):
-    logger.info(f"DB_PARAMS: {DB_PARAMS}")
-
+def main(dbname, user, password, host, port, email, first_name, last_name):
     db = None
     try:
-        db = connect_to_db()
+        db = connect_to_db(
+            dbname=dbname, user=user, password=password, host=host, port=port
+        )
         if not db:
             return
 
@@ -238,16 +231,14 @@ def main(username, password, email, first_name, last_name):
 
             # Always use the decomposed files approach
             logger.info("Using decomposed SQL files to create tables")
-            if not create_tables_from_decomposed_files(db, missing_tables, username):
+            if not create_tables_from_decomposed_files(db, missing_tables, user):
                 return
 
         users_exist = check_users_exist(db)
         logger.info(f"Users exist: {users_exist}")
         if not users_exist:
             logger.info("Inserting admin user")
-            if not insert_admin_user(
-                db, username, password, email, first_name, last_name
-            ):
+            if not insert_admin_user(db, user, password, email, first_name, last_name):
                 return
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}")
