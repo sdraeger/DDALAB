@@ -35,17 +35,13 @@ WORKDIR /app/packages/web
 RUN npm install
 COPY packages/web .
 
-# Create .env.development file for Next.js (after copying web files)
-RUN echo "NEXT_PUBLIC_API_URL=http://api:8001" > .env.development
-RUN echo "NEXT_PUBLIC_APP_URL=http://localhost:3000" >> .env.development
-RUN echo "NODE_ENV=production" >> .env.development
-RUN echo "NEXTAUTH_URL=http://localhost:3000" >> .env.development
-RUN echo "NEXTAUTH_SECRET=ddalab-auth-secret-key-2024-03-21-development" >> .env.development
-RUN echo "NEXT_PUBLIC_NEXTAUTH_URL=http://localhost:3000" >> .env.development
-RUN echo "DDALAB_AUTH_MODE=multi-user" >> .env.development
-RUN echo "PYTHON_API_URL=http://api:8001" >> .env.development
-RUN echo "SESSION_EXPIRATION=10080" >> .env.development
-RUN echo "API_URL=http://api:8001" >> .env.development
+# Copy and modify environment file for Next.js
+COPY .env.example .env
+RUN sed -i 's|NEXTAUTH_URL=https://localhost|NEXTAUTH_URL=http://localhost:3000|g' .env
+RUN sed -i 's|NEXT_PUBLIC_NEXTAUTH_URL=https://localhost|NEXT_PUBLIC_NEXTAUTH_URL=http://localhost:3000|g' .env
+RUN sed -i 's|API_URL=http://localhost:8001|API_URL=http://api:8001|g' .env
+RUN echo "PYTHON_API_URL=http://api:8001" >> .env
+RUN echo "NEXT_PUBLIC_APP_URL=http://localhost:3000" >> .env
 
 # Create symlink for shared package
 RUN mkdir -p node_modules/shared && \
