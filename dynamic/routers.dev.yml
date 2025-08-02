@@ -6,12 +6,7 @@ http:
       entryPoints:
         - web
       service: web
-    # Removed: web-auth routing to avoid conflicts with Python API auth endpoints
-    web-api:
-      rule: "Host(`localhost`) && Path(`/api`)"
-      entryPoints:
-        - web
-      service: web
+    # Removed: web-api routing to avoid conflicts with Python API endpoints
     web-debug:
       rule: "Host(`localhost`) && PathPrefix(`/api/debug`)"
       priority: 80
@@ -56,14 +51,7 @@ http:
       service: web
       tls:
         options: default
-    # Removed: web-auth-secure routing to avoid conflicts with Python API auth endpoints
-    web-api-secure:
-      rule: "Host(`localhost`) && Path(`/api`)"
-      entryPoints:
-        - websecure
-      service: web
-      tls:
-        options: default
+    # Removed: web-api-secure routing to avoid conflicts with Python API endpoints
     web-debug-secure:
       rule: "Host(`localhost`) && PathPrefix(`/api/debug`)"
       priority: 80
@@ -132,13 +120,13 @@ http:
     web:
       loadBalancer:
         servers:
-          - url: "http://host.docker.internal:3000" # Web service (e.g., Next.js)
+          - url: "http://web:3000"
     api:
       loadBalancer:
         servers:
-          - url: "http://host.docker.internal:8001" # API service (uvicorn)
+          - url: "http://api:8001"
 
   middlewares:
     auth:
       basicAuth:
-        users: "admin:$apr1$example$hashedpassword" # Replace with dev password hash
+        users: "${env.TRAEFIK_PASSWORD_HASH}"

@@ -19,9 +19,6 @@ COPY packages/shared ./packages/shared
 COPY packages/web/package*.json ./packages/web/
 COPY package*.json ./
 
-# Copy environment files from web package
-COPY packages/web/.env* ./packages/web/
-
 # Install root dependencies first
 RUN npm install
 
@@ -36,7 +33,7 @@ RUN npm install
 COPY packages/web .
 
 # Copy and modify environment file for Next.js
-COPY .env.example .env
+COPY ../.env .env
 RUN sed -i 's|NEXTAUTH_URL=https://localhost|NEXTAUTH_URL=http://localhost:3000|g' .env
 RUN sed -i 's|NEXT_PUBLIC_NEXTAUTH_URL=https://localhost|NEXT_PUBLIC_NEXTAUTH_URL=http://localhost:3000|g' .env
 RUN sed -i 's|API_URL=http://localhost:8001|API_URL=http://api:8001|g' .env
@@ -63,7 +60,11 @@ COPY --from=builder /app/packages/web/package*.json ./
 COPY --from=builder /app/packages/web/public ./public
 COPY --from=builder /app/packages/web/next.config.mjs ./
 COPY --from=builder /app/packages/web/.next ./.next
-COPY --from=builder /app/packages/web/start.js ./start.js
+COPY --from=builder /app/packages/web/start.cjs ./start.cjs
+COPY --from=builder /app/packages/web/nextjs-patch.cjs ./nextjs-patch.cjs
+COPY --from=builder /app/packages/web/webpack-patch.cjs ./webpack-patch.cjs
+COPY --from=builder /app/packages/web/client-proxy-patch.cjs ./client-proxy-patch.cjs
+COPY --from=builder /app/packages/web/.env ./.env
 COPY --from=builder /app/packages/shared ./packages/shared
 COPY --from=builder /app/packages/web/node_modules ./node_modules
 
@@ -72,4 +73,4 @@ RUN npm install --production
 
 EXPOSE 3000
 
-CMD ["node", "start.js"]
+CMD ["node", "start.cjs"]

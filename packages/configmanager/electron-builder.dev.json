@@ -1,0 +1,62 @@
+{
+	"appId": "com.ddalab.configmanager.dev",
+	"productName": "DDALAB ConfigManager (Dev)",
+	"directories": {
+		"output": "release-dev"
+	},
+	"files": [
+		"dist/**/*",
+		"node_modules/**/*",
+		"package.json",
+		"src/assets/**/*"
+	],
+	"publish": {
+		"provider": "github",
+		"owner": "ddalab",
+		"repo": "configmanager",
+		"releaseType": "draft",
+		"channel": "development"
+	},
+	"mac": {
+		"target": "dmg",
+		"category": "public.app-category.developer-tools",
+		"artifactName": "DDALAB-ConfigManager-Dev-${version}-${arch}.${ext}",
+		"identity": null,
+		"hardenedRuntime": false,
+		"gatekeeperAssess": false,
+		"entitlements": null,
+		"entitlementsInherit": null
+	},
+	"win": {
+		"target": "nsis",
+		"icon": "build/icon.ico",
+		"artifactName": "DDALAB-ConfigManager-Dev-${version}-${arch}.${ext}",
+		"certificateFile": null,
+		"certificatePassword": null,
+		"rfc3161TimeStampServer": null,
+		"timeStampServer": null
+	},
+	"linux": {
+		"target": "AppImage",
+		"icon": "build/icon.png",
+		"artifactName": "DDALAB-ConfigManager-Dev-${version}-${arch}.${ext}"
+	},
+	"nsis": {
+		"oneClick": false,
+		"allowToChangeInstallationDirectory": true,
+		"createDesktopShortcut": true,
+		"createStartMenuShortcut": true,
+		"installerIcon": "build/icon.ico",
+		"uninstallerIcon": "build/icon.ico",
+		"installerHeaderIcon": "build/icon.ico"
+	},
+	"dmg": {
+		"title": "DDALAB ConfigManager (Dev)",
+		"icon": "build/icon.icns"
+	},
+	"appImage": {
+		"category": "Development"
+	},
+	"asar": true,
+	"compression": "normal"
+}

@@ -60,12 +60,20 @@ export function AuthModeProvider({ children, initialMode = 'multi-user' }: AuthM
 				}
 			} catch (error) {
 				console.warn('Failed to check auth mode from API, using default:', authMode, error);
+				// Set to multi-user mode as default when API is not available
+				setAuthModeState('multi-user');
+				switchAuthMode('multi-user');
 			} finally {
 				setIsInitialized(true);
 			}
 		}
 
-		checkAuthMode();
+		// Add a small delay to ensure API is ready
+		const timer = setTimeout(() => {
+			checkAuthMode();
+		}, 1000);
+
+		return () => clearTimeout(timer);
 	}, []);
 
 	// Update storage contexts when auth mode changes

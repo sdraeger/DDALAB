@@ -5,6 +5,8 @@ console.log(
   "[preload.ts] Script execution started at:",
   new Date().toISOString()
 );
+console.log("[preload.ts] contextBridge available:", !!contextBridge);
+console.log("[preload.ts] ipcRenderer available:", !!ipcRenderer);
 
 export interface ElectronAPI {
   openFile: () => Promise<string | null>;
@@ -31,7 +33,9 @@ export interface ElectronAPI {
   startDockerCompose: () => Promise<boolean>;
   stopDockerCompose: (deleteVolumes?: boolean) => Promise<boolean>;
   getDockerStatus: () => Promise<boolean>;
+  getIsDockerRunning: () => Promise<boolean>;
   getDockerLogs: () => Promise<string>;
+  startDockerLogStream: () => Promise<boolean>;
   onDockerLogs: (
     callback: (log: { type: string; data: string }) => void
   ) => () => void;
@@ -115,6 +119,44 @@ export interface ElectronAPI {
     message: string;
     setupPath?: string;
   }>;
+  // Docker installation check methods
+  checkDockerInstallation: () => Promise<{
+    dockerInstalled: boolean;
+    dockerComposeInstalled: boolean;
+    dockerVersion?: string;
+    dockerComposeVersion?: string;
+    error?: string;
+  }>;
+  getDockerInstallationInstructions: () => Promise<string>;
+  onDockerInstallationCheck: (
+    callback: (data: {
+      status: {
+        dockerInstalled: boolean;
+        dockerComposeInstalled: boolean;
+        dockerVersion?: string;
+        dockerComposeVersion?: string;
+        error?: string;
+      };
+      instructions: string;
+    }) => void
+  ) => () => void;
+  // Auto-update methods
+  checkForUpdates: () => Promise<void>;
+  getUpdateInfo: () => Promise<{
+    version: string;
+    releaseDate: string;
+    releaseNotes?: string;
+    downloadUrl?: string;
+  } | null>;
+  isUpdateAvailable: () => Promise<boolean>;
+  onUpdateStatus: (
+    callback: (data: {
+      status: string;
+      message: string;
+      data?: any;
+      timestamp: string;
+    }) => void
+  ) => () => void;
 }
 
 interface ParsedEnvEntry {
@@ -146,13 +188,19 @@ const exposedAPI: ElectronAPI = {
     return ipcRenderer.invoke("stop-docker-compose", deleteVolumes);
   },
   getDockerStatus: () => ipcRenderer.invoke("get-docker-status"),
-  getDockerLogs: () => ipcRenderer.invoke("get-docker-logs"),
+  getIsDockerRunning: () => ipcRenderer.invoke("get-is-docker-running"),
+  getDockerLogs: () => ipcRenderer.invoke("fetch-current-docker-logs"),
+  startDockerLogStream: () => ipcRenderer.invoke("start-docker-log-stream"),
   onDockerLogs: (callback) => {
-    const handler = (_event: any, log: { type: string; data: string }) =>
+    console.log("[preload.ts] Setting up onDockerLogs listener");
+    const handler = (_event: any, log: { type: string; data: string }) => {
+      console.log("[preload.ts] Received docker-logs event:", log);
       callback(log);
-    ipcRenderer.on("docker-log-stream", handler);
+    };
+    ipcRenderer.on("docker-logs", handler);
     return () => {
-      ipcRenderer.removeListener("docker-log-stream", handler);
+      console.log("[preload.ts] Removing docker-logs listener");
+      ipcRenderer.removeListener("docker-logs", handler);
     };
   },
   clearDockerLogsListener: () => {
@@ -234,10 +282,62 @@ const exposedAPI: ElectronAPI = {
   // Docker-based deployment methods
   validateDockerSetup: (setupPath: string) =>
     ipcRenderer.invoke("validate-docker-setup", setupPath),
-  setupDockerDeployment: (dataLocation: string, setupLocation: string) =>
-    ipcRenderer.invoke("setup-docker-deployment", dataLocation, setupLocation),
-  setupDockerDirectory: (targetDirectory: string) =>
-    ipcRenderer.invoke("setup-docker-directory", targetDirectory),
+  setupDockerDeployment: (
+    dataLocation: string,
+    setupLocation: string,
+    userConfig?: any
+  ) =>
+    ipcRenderer.invoke(
+      "setup-docker-deployment",
+      dataLocation,
+      setupLocation,
+      userConfig
+    ),
+  setupDockerDirectory: (targetDirectory: string, userConfig?: any) =>
+    ipcRenderer.invoke("setup-docker-directory", targetDirectory, userConfig),
+  // Docker installation check methods
+  checkDockerInstallation: () =>
+    ipcRenderer.invoke("check-docker-installation"),
+  getDockerInstallationInstructions: () =>
+    ipcRenderer.invoke("get-docker-installation-instructions"),
+  onDockerInstallationCheck: (callback) => {
+    const handler = (
+      _event: any,
+      data: {
+        status: {
+          dockerInstalled: boolean;
+          dockerComposeInstalled: boolean;
+          dockerVersion?: string;
+          dockerComposeVersion?: string;
+          error?: string;
+        };
+        instructions: string;
+      }
+    ) => callback(data);
+    ipcRenderer.on("docker-installation-check", handler);
+    return () => {
+      ipcRenderer.removeListener("docker-installation-check", handler);
+    };
+  },
+  // Auto-update methods
+  checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
+  getUpdateInfo: () => ipcRenderer.invoke("get-update-info"),
+  isUpdateAvailable: () => ipcRenderer.invoke("is-update-available"),
+  onUpdateStatus: (callback) => {
+    const handler = (
+      _event: any,
+      data: {
+        status: string;
+        message: string;
+        data?: any;
+        timestamp: string;
+      }
+    ) => callback(data);
+    ipcRenderer.on("update-status", handler);
+    return () => {
+      ipcRenderer.removeListener("update-status", handler);
+    };
+  },
 };
 
 console.log("[preload.ts] About to expose electronAPI to main world");
@@ -250,3 +350,7 @@ console.log(
 contextBridge.exposeInMainWorld("electronAPI", exposedAPI);
 
 console.log("[preload.ts] electronAPI exposed to main world");
+console.log(
+  "[preload.ts] Checking if electronAPI is available in window:",
+  typeof window !== "undefined" && "electronAPI" in window
+);

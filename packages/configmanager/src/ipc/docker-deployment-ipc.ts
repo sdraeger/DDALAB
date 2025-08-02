@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs/promises";
 import { logger } from "../utils/logger";
 import { SetupService, UserConfiguration } from "../services/setup-service";
+import { EnvironmentIsolationService } from "../services/environment-isolation";
 
 export function registerDockerDeploymentIpcHandlers() {
   // Validate Docker setup
@@ -19,20 +20,32 @@ export function registerDockerDeploymentIpcHandlers() {
         };
       }
 
-      // Check for docker-compose.yml and .env
+      // Check for docker-compose.yml
       const dockerComposePath = path.join(setupPath, "docker-compose.yml");
-      const envPath = path.join(setupPath, ".env");
 
       try {
         await fs.access(dockerComposePath);
-        await fs.access(envPath);
 
-        logger.info("Docker setup validation successful");
-        return {
-          success: true,
-          message: "Docker setup is valid",
-          setupPath,
-        };
+        // Use ensureEnvironmentFileExists to handle missing .env file
+        try {
+          await EnvironmentIsolationService.ensureEnvironmentFileExists(
+            setupPath
+          );
+          logger.info("Docker setup validation successful");
+          return {
+            success: true,
+            message: "Docker setup is valid",
+            setupPath,
+          };
+        } catch (envError) {
+          logger.warn(`Environment file issue: ${envError}`);
+          return {
+            success: false,
+            message: "Docker setup files not found",
+            needsSetup: true,
+            targetPath: setupPath,
+          };
+        }
       } catch (error) {
         // Files don't exist, needs setup
         return {
@@ -173,13 +186,13 @@ DDALAB_WEB_IMAGE=sdraeger1/ddalab-web:latest
 DDALAB_API_IMAGE=sdraeger1/ddalab-api:latest
 
 # Database Configuration
-DDALAB_DB_USER=ddalab
-DDALAB_DB_PASSWORD=ddalab_password
-DDALAB_DB_NAME=ddalab
+DDALAB_DB_USER=admin
+DDALAB_DB_PASSWORD=AdminPassword123
+DDALAB_DB_NAME=postgres
 
 # MinIO Configuration
 MINIO_ROOT_USER=ddalab
-MINIO_ROOT_PASSWORD=ddalab_password
+MINIO_ROOT_PASSWORD=AdminPassword123
 
 # Redis Configuration (optional)
 DDALAB_REDIS_PASSWORD=
@@ -303,13 +316,13 @@ DDALAB_WEB_IMAGE=sdraeger1/ddalab-web:latest
 DDALAB_API_IMAGE=sdraeger1/ddalab-api:latest
 
 # Database Configuration
-DDALAB_DB_USER=ddalab
-DDALAB_DB_PASSWORD=ddalab_password
-DDALAB_DB_NAME=ddalab
+DDALAB_DB_USER=admin
+DDALAB_DB_PASSWORD=AdminPassword123
+DDALAB_DB_NAME=postgres
 
 # MinIO Configuration
 MINIO_ROOT_USER=ddalab
-MINIO_ROOT_PASSWORD=ddalab_password
+MINIO_ROOT_PASSWORD=AdminPassword123
 
 # Redis Configuration (optional)
 DDALAB_REDIS_PASSWORD=

@@ -34,6 +34,10 @@ export const DockerConfigSite: React.FC<DockerConfigSiteProps> = ({
 		onUpdateSelections({ traefikEmail: event.target.value });
 	};
 
+	const handleAuthModeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+		onUpdateSelections({ authMode: event.target.value });
+	};
+
 	return (
 		<>
 			<div className="text-center mb-4">
@@ -175,6 +179,35 @@ export const DockerConfigSite: React.FC<DockerConfigSiteProps> = ({
 				</div>
 			</div>
 
+			<div className="row">
+				<div className="col-md-6">
+					<div className="card mb-3">
+						<div className="card-header">
+							<h6 className="mb-0">Authentication Settings</h6>
+						</div>
+						<div className="card-body">
+							<div className="mb-3">
+								<label htmlFor="authMode" className="form-label">
+									Authentication Mode
+								</label>
+								<select
+									className="form-select"
+									id="authMode"
+									value={userSelections.authMode || "multi-user"}
+									onChange={handleAuthModeChange}
+								>
+									<option value="multi-user">Multi-User Mode</option>
+									<option value="local">Local Mode</option>
+								</select>
+								<div className="form-text">
+									Multi-User Mode: Requires login credentials. Local Mode: Automatic login for development.
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
 			<div className="alert alert-success">
 				<h6>✅ Configuration Summary</h6>
 				<ul className="mb-0">
@@ -184,6 +217,7 @@ export const DockerConfigSite: React.FC<DockerConfigSiteProps> = ({
 					<li><strong>Database Password:</strong> {userSelections.dbPassword ? "••••••••" : "ddalab_password"}</li>
 					<li><strong>MinIO Password:</strong> {userSelections.minioPassword ? "••••••••" : "ddalab_password"}</li>
 					<li><strong>Traefik Email:</strong> {userSelections.traefikEmail || "admin@ddalab.local"}</li>
+					<li><strong>Authentication Mode:</strong> {userSelections.authMode || "multi-user"}</li>
 				</ul>
 			</div>
 

@@ -73,7 +73,7 @@
     "lodash.debounce": "^4.0.8",
     "lucide-react": "^0.454.0",
     "module-alias": "^2.2.3",
-    "next": ">=15.2.3",
+    "next": "^14.2.5",
     "next-auth": "^4.24.11",
     "next-themes": "latest",
     "path": "latest",

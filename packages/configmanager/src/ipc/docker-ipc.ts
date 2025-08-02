@@ -69,7 +69,7 @@ export function registerDockerIpcHandlers() {
       }
 
       const projectName = await DockerService.getDockerProjectName();
-      const command = `docker-compose -f docker-compose.yml -f docker-compose.volumes.yml ps --services --filter status=running`;
+      const command = `docker compose -p ${projectName} ps --services --filter status=running`;
       logger.info(`Checking Docker status with command: ${command}`);
 
       const { stdout } = await new Promise<{ stdout: string; stderr: string }>(
@@ -98,9 +98,36 @@ export function registerDockerIpcHandlers() {
       logger.info(
         `Docker status result: ${isRunning} (output: "${stdout.trim()}")`
       );
+
+      // If containers are running but log stream isn't active, start it
+      if (isRunning && !DockerService.getIsDockerRunning()) {
+        logger.info("Starting log stream for detected running containers");
+        DockerService.streamDockerLogs(state);
+        // Update the internal running state
+        (DockerService as any).isDockerRunning = true;
+      }
+
       return isRunning;
     } catch (error) {
       logger.error(`Error checking Docker status:`, error);
+      return false;
+    }
+  });
+
+  ipcMain.handle("start-docker-log-stream", async (): Promise<boolean> => {
+    logger.info('IPC event "start-docker-log-stream" received.');
+    const state = await SetupService.getConfigManagerState();
+    if (!state.setupComplete || !state.setupPath) {
+      logger.error("Cannot start log stream: setup not complete or path missing.");
+      return false;
+    }
+
+    try {
+      DockerService.streamDockerLogs(state);
+      logger.info("Docker log stream started successfully");
+      return true;
+    } catch (error: any) {
+      logger.error("Failed to start Docker log stream:", error.message);
       return false;
     }
   });
@@ -113,6 +140,14 @@ export function registerDockerIpcHandlers() {
   ipcMain.handle("fetch-current-docker-logs", async (): Promise<string> => {
     logger.info('IPC event "fetch-current-docker-logs" received.');
     const state = await SetupService.getConfigManagerState();
+
+    // Also start streaming logs if containers are running
+    const isRunning = await DockerService.getIsDockerRunning();
+    if (isRunning && state.setupComplete && state.setupPath) {
+      logger.info("Starting log stream for running containers");
+      DockerService.streamDockerLogs(state);
+    }
+
     return DockerService.fetchCurrentDockerLogs(state);
   });
 

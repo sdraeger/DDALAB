@@ -51,6 +51,7 @@ export interface UserSelections {
   minioPassword?: string;
   traefikEmail?: string;
   useDockerHub?: boolean;
+  authMode?: string;
   // Potentially add other state installer might need, e.g. installationLog
   installationLog?: string[];
 }
@@ -154,13 +155,17 @@ export interface ElectronAPI {
   }>;
   setupDockerDeployment: (
     dataLocation: string,
-    setupLocation: string
+    setupLocation: string,
+    userConfig?: any
   ) => Promise<{
     success: boolean;
     message: string;
     setupPath?: string;
   }>;
-  setupDockerDirectory: (targetDirectory: string) => Promise<{
+  setupDockerDirectory: (
+    targetDirectory: string,
+    userConfig?: any
+  ) => Promise<{
     success: boolean;
     message: string;
     setupPath?: string;

@@ -50,7 +50,7 @@ const TicketsPageComponent = () => {
     token: session?.accessToken,
   });
 
-  const tickets = data || [];
+  const tickets = Array.isArray(data) ? data : [];
 
   const openTickets = tickets.filter(
     (ticket: Ticket) =>

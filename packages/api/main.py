@@ -2,7 +2,7 @@
 
 from contextlib import asynccontextmanager
 
-from core.config import get_server_settings, initialize_config
+from core.environment import get_config_service
 from core.middleware import (
     AuthMiddleware,
     DatabaseMiddleware,
@@ -61,25 +61,23 @@ except ImportError as e:
     graphql_app = graphql_router
     logger.warning("Using fallback GraphQL router - endpoint will return 501")
 
-settings = get_server_settings()
+# Configuration service will be initialized in lifespan
+config_service = None
 
 
 async def _ensure_minio_bucket_exists():
     """Ensure the MinIO bucket exists."""
     try:
-        print("MinIO host:", settings.minio_host)
-        print("MinIO access key:", settings.minio_access_key)
-        print("MinIO secret key:", settings.minio_secret_key)
-        print("MinIO bucket name:", settings.minio_bucket_name)
-
+        storage_settings = config_service.get_storage_settings()
+        
         minio_client = Minio(
-            settings.minio_host,
-            access_key=settings.minio_access_key,
-            secret_key=settings.minio_secret_key,
+            storage_settings.minio_host,
+            access_key=storage_settings.minio_access_key,
+            secret_key=storage_settings.minio_secret_key,
             secure=False,
         )
 
-        bucket_name = settings.minio_bucket_name
+        bucket_name = storage_settings.minio_bucket_name
         if not minio_client.bucket_exists(bucket_name):
             minio_client.make_bucket(bucket_name)
             logger.info(f"Created MinIO bucket: {bucket_name}")
@@ -96,7 +94,8 @@ async def _ensure_minio_bucket_exists():
 
 async def _initialize_local_mode():
     """Initialize local mode by ensuring the default user exists."""
-    if settings.auth_mode != "local":
+    auth_settings = config_service.get_auth_settings()
+    if auth_settings.auth_mode != "local":
         logger.debug("Not in local mode, skipping local user initialization")
         return
 
@@ -126,10 +125,14 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("Starting up DDALAB API server...")
 
-        # Initialize configurations
-        configs = initialize_config()
-        logger.info(f"Initialized configurations: {list(configs.keys())}")
-        logger.info(f"Auth mode: {settings.auth_mode}")
+        # Initialize environment-based configuration
+        global config_service
+        config_service = get_config_service()
+        
+        service_settings = config_service.get_service_settings()
+        auth_settings = config_service.get_auth_settings()
+        logger.info(f"Environment: {service_settings.environment.value}")
+        logger.info(f"Auth mode: {auth_settings.auth_mode}")
 
         # Check MinIO bucket
         await _ensure_minio_bucket_exists()
@@ -171,8 +174,11 @@ trace.set_tracer_provider(
 
 # Use OTLP HTTP exporter instead of UDP to avoid packet size limitations
 try:
+    # Get observability settings for tracing configuration
+    observability_settings = get_config_service().get_observability_settings()
+    
     otlp_exporter = OTLPSpanExporter(
-        endpoint=f"http://{settings.otlp_host}:4318/v1/traces",
+        endpoint=f"http://{observability_settings.otlp_host}:{observability_settings.otlp_port}/v1/traces",
     )
     span_processor = BatchSpanProcessor(
         otlp_exporter,
@@ -182,7 +188,7 @@ try:
         export_timeout_millis=30000,
     )
     trace.get_tracer_provider().add_span_processor(span_processor)
-    logger.info(f"OTLP tracing configured for {settings.otlp_host}:4318")
+    logger.info(f"OTLP tracing configured for {observability_settings.otlp_host}:{observability_settings.otlp_port}")
 except Exception as e:
     logger.warning(f"Failed to configure OTLP tracing: {e}. Tracing will be disabled.")
 
