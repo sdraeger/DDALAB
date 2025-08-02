@@ -1,44 +1,53 @@
 import { useContext } from "react";
-import { DockerContext } from "../context/DockerContext";
+import { useSelector } from "@xstate/react";
+import { DockerContext } from "../context/DockerProvider";
+import type { StateFrom } from "xstate";
+import { dockerMachine } from "../machines/docker-machine";
+
+type DockerState = StateFrom<typeof dockerMachine>;
 
 export const useDockerState = () => {
-  const { state, send } = useContext(DockerContext);
+  const service = useContext(DockerContext);
+
+  // Use useSelector to properly subscribe to state changes
+  const state = useSelector(service, (state: DockerState) => state);
+  const context = useSelector(service, (state: DockerState) => state.context);
 
   return {
     // State values
-    dockerStatus: state.context.status,
-    dockerLogs: state.context.logs,
-    isTraefikHealthy: state.context.isTraefikHealthy,
-    lastError: state.context.lastError,
+    dockerStatus: context.status,
+    dockerLogs: context.logs,
+    isTraefikHealthy: context.isTraefikHealthy,
+    lastError: context.lastError,
     currentState: state.value,
 
     // Action dispatchers
     startDocker: () => {
-      send("START_DOCKER");
+      service.send("START_DOCKER");
     },
 
     stopDocker: () => {
-      send("STOP_DOCKER");
+      service.send("STOP_DOCKER");
     },
 
     fetchLogs: () => {
-      send("FETCH_LOGS");
+      service.send("FETCH_LOGS");
     },
 
     dockerStarted: () => {
-      send("DOCKER_STARTED");
+      service.send("DOCKER_STARTED");
     },
 
     dockerStopped: () => {
-      send("DOCKER_STOPPED");
+      service.send("DOCKER_STOPPED");
     },
 
     servicesReady: () => {
-      send("SERVICES_READY");
+      service.send("SERVICES_READY");
     },
 
     statusUpdate: (statusUpdate: { type: string; message: string }) => {
-      send({ type: "STATUS_UPDATE", statusUpdate });
+      service.send({ type: "STATUS_UPDATE", statusUpdate });
     },
 
     logUpdate: (logUpdate: {
@@ -46,24 +55,24 @@ export const useDockerState = () => {
       message: string;
       logs?: string;
     }) => {
-      send({ type: "LOG_UPDATE", logUpdate });
+      service.send({ type: "LOG_UPDATE", logUpdate });
     },
 
     error: (error: string) => {
-      send({ type: "ERROR", error });
+      service.send({ type: "ERROR", error });
     },
 
     // Helper methods for adding logs
     addActionLog: (action: string) => {
       const log = `[ACTION] ${action} (${new Date().toLocaleTimeString()})`;
-      send({
+      service.send({
         type: "LOG_UPDATE",
         logUpdate: { type: "info", message: action },
       });
     },
 
     addErrorLog: (error: string) => {
-      send({ type: "ERROR", error });
+      service.send({ type: "ERROR", error });
     },
 
     // State checkers

@@ -40,6 +40,8 @@ export const dockerMachine = createMachine<DockerContext, DockerEvent>({
       }),
       on: {
         START_DOCKER: "starting",
+        DOCKER_STARTED: "running",
+        DOCKER_STOPPED: "stopped",
         SERVICES_READY: "runningHealthy",
         STATUS_UPDATE: {
           actions: [
@@ -442,6 +444,7 @@ export const dockerMachine = createMachine<DockerContext, DockerEvent>({
       entry: assign({
         status: () => "Stopped",
         isTraefikHealthy: () => false,
+        allServicesHealthy: () => false,
       }),
       on: {
         START_DOCKER: "starting",
@@ -480,6 +483,11 @@ export const dockerMachine = createMachine<DockerContext, DockerEvent>({
       },
     },
     error: {
+      entry: assign({
+        status: () => "Error",
+        isTraefikHealthy: () => false,
+        allServicesHealthy: () => false,
+      }),
       on: {
         START_DOCKER: "starting",
         SERVICES_READY: "runningHealthy",

@@ -10,12 +10,10 @@ services:
     restart: unless-stopped
 
   web:
-    # Use Docker Hub image if DDALAB_USE_DOCKER_HUB=true, otherwise build locally
-    image: ${DDALAB_WEB_IMAGE:-sdraeger1/ddalab-web:${VERSION:-latest}}
+    image: sdraeger1/ddalab-web:latest
     build:
       context: .
       dockerfile: ./packages/web/Dockerfile
-    platform: linux/amd64
     env_file:
       - ./.env
     environment:
@@ -25,19 +23,17 @@ services:
       NODE_ENV: production
       # Session Configuration
       SESSION_EXPIRATION: ${SESSION_EXPIRATION:-10080}
-    volumes:
-      - type: bind
-        source: ./.env
-        target: /app/.env
     ports:
       - "${WEB_PORT:-3000}:3000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     networks:
       - internal
     labels:
@@ -45,8 +41,7 @@ services:
     restart: unless-stopped
 
   api:
-    # Use Docker Hub image if DDALAB_API_IMAGE is set, otherwise build locally
-    image: ${DDALAB_API_IMAGE:-sdraeger1/ddalab-api:${VERSION:-latest}}
+    image: sdraeger1/ddalab-api:latest
     build:
       context: .
       dockerfile: ./packages/api/Dockerfile
@@ -62,9 +57,10 @@ services:
     env_file:
       - ./.env
     environment:
-      MINIO_HOST: "minio:9000"
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      DDALAB_MINIO_HOST: "minio:9000"
+      DDALAB_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      DDALAB_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      DDALAB_MINIO_BUCKET_NAME: "dda-results"
       DDALAB_ALLOWED_DIRS: ${DDALAB_ALLOWED_DIRS}
       PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus
       DDALAB_REDIS_HOST: redis
@@ -74,8 +70,12 @@ services:
       DDALAB_REDIS_USE_SSL: ${DDALAB_REDIS_USE_SSL:-False}
       DDALAB_PLOT_CACHE_TTL: ${DDALAB_PLOT_CACHE_TTL:-3600}
     volumes:
-      - prometheus_metrics:/tmp/prometheus
-      - ${DDALAB_DATA_DIR:-./data}:/app/data:rw
+      - type: bind
+        source: ./prometheus-metrics
+        target: /tmp/prometheus
+      - type: bind
+        source: ${DDALAB_DATA_DIR:-./data}
+        target: /app/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -111,15 +111,7 @@ services:
       POSTGRES_PASSWORD: ${DDALAB_DB_PASSWORD}
       POSTGRES_DB: ${DDALAB_DB_NAME}
     healthcheck:
-      test:
-        [
-          "CMD",
-          "pg_isready",
-          "-U",
-          "${DDALAB_DB_USER}",
-          "-d",
-          "${DDALAB_DB_NAME}",
-        ]
+      test: ["CMD", "pg_isready", "-U", "${DDALAB_DB_USER}", "-d", "postgres"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -180,12 +172,24 @@ services:
   prometheus:
     image: prom/prometheus:v3.2.1
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
+      - prometheus_tmp:/tmp
     ports:
       - "9090:9090"
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--storage.tsdb.retention.time=200h"
+      - "--web.enable-lifecycle"
+      - "--query.timeout=2m"
+      - "--query.max-concurrency=20"
+      - "--storage.tsdb.no-lockfile"
+      - "--query.log-file=/tmp/queries.active"
+      - "--query.log-file-mode=0644"
+      - "--query.active-query-tracker-dir=/tmp"
     restart: unless-stopped
     networks:
       - internal
@@ -207,7 +211,7 @@ services:
 
 volumes:
   prometheus_data:
-  prometheus_metrics:
+  prometheus_tmp:
   grafana_data:
   postgres-data:
   minio-data:

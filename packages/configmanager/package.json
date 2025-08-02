@@ -1,21 +1,36 @@
 {
   "name": "@ddalab/configmanager",
-  "version": "1.0.0",
+  "version": "1.0.1-dev.1",
   "private": true,
   "description": "An application to help configure .env files.",
   "main": "dist/main.js",
   "scripts": {
-    "build": "node esbuild.config.mjs",
+    "build": "node scripts/build-icons.js && node esbuild.config.mjs",
     "dev": "node esbuild.config.mjs --watch",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "start": "npm run build && NODE_ENV=development electron .",
+    "start:test": "npm run build && NODE_ENV=test ELECTRON_IS_TESTING=true electron .",
+    "start:prod": "npm run build && NODE_ENV=production ELECTRON_IS_PRODUCTION=true electron .",
     "watch": "tsc -w",
     "test": "echo \"Error: no test specified\" && exit 1",
     "package": "npm run build && electron-builder",
     "package:win": "npm run build && electron-builder --win",
     "package:mac": "npm run build && electron-builder --mac",
-    "package:linux": "npm run build && electron-builder --linux"
+    "package:linux": "npm run build && electron-builder --linux",
+    "publish": "npm run build && electron-builder --publish=always",
+    "build-icons": "node scripts/build-icons.js",
+    "package:dev": "npm run build && electron-builder --config electron-builder.dev.json",
+    "package:dev:win": "npm run build && electron-builder --config electron-builder.dev.json --win",
+    "package:dev:mac": "npm run build && electron-builder --config electron-builder.dev.json --mac",
+    "package:dev:linux": "npm run build && electron-builder --config electron-builder.dev.json --linux",
+    "publish:dev": "npm run build && electron-builder --config electron-builder.dev.json --publish=always",
+    "publish:beta": "npm run build && electron-builder --config electron-builder.beta.json --publish=always",
+    "version:dev": "node scripts/version-dev.js",
+    "version:beta": "node scripts/version-beta.js",
+    "setup:signing": "node scripts/setup-signing.js",
+    "check:certificates": "node scripts/setup-signing.js check",
+    "create:env-files": "node scripts/create-env-files.js"
   },
   "keywords": [
     "electron",
@@ -27,6 +42,8 @@
   "dependencies": {
     "@xstate/react": "^3.2.2",
     "electron-is-dev": "^2.0.0",
+    "electron-updater": "^6.1.8",
+    "electron-store": "^8.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "xstate": "^4.38.2"
@@ -38,7 +55,7 @@
     "@types/react-dom": "^18.2.18",
     "cpx": "^1.5.0",
     "electron": "28.3.3",
-    "electron-builder": "^24.9.1",
+    "electron-builder": "^24.13.3",
     "esbuild": ">=0.25.0",
     "eslint": "^8.56.0",
     "typescript": "^5.3.3"
@@ -52,16 +69,32 @@
     "files": [
       "dist/**/*",
       "node_modules/**/*",
-      "package.json"
+      "package.json",
+      "src/assets/**/*"
     ],
+    "publish": {
+      "provider": "github",
+      "owner": "ddalab",
+      "repo": "configmanager"
+    },
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "category": "public.app-category.developer-tools"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
-  }
+  },
+  "asar": true
 }

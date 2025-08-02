@@ -168,9 +168,23 @@ const AppContent: React.FC = () => {
           alert("Setup location not selected for Docker setup.");
           return false;
         }
+
+        // Construct user configuration from user selections
+        const userConfig = {
+          dataLocation: userSelections.dataLocation,
+          allowedDirs: `${userSelections.dataLocation}:/app/data:rw`,
+          webPort: userSelections.webPort || "3000",
+          apiPort: userSelections.apiPort || "8001",
+          dbPassword: userSelections.dbPassword || "ddalab_password",
+          minioPassword: userSelections.minioPassword || "ddalab_password",
+          traefikEmail: userSelections.traefikEmail || "admin@ddalab.local",
+          useDockerHub: userSelections.useDockerHub !== false, // Default to true
+        };
+
         await electronAPI.setupDockerDeployment(
           userSelections.dataLocation,
-          userSelections.cloneLocation
+          userSelections.cloneLocation,
+          userConfig
         );
       } else {
         await electronAPI.saveEnvFile(
@@ -244,8 +258,21 @@ const AppContent: React.FC = () => {
     if (!cloneDialog?.targetPath || !electronAPI) return;
     setIsLoading(true);
     try {
+      // Construct user configuration with default values
+      const userConfig = {
+        dataLocation: cloneDialog.targetPath,
+        allowedDirs: `${cloneDialog.targetPath}:/app/data:rw`,
+        webPort: "3000",
+        apiPort: "8001",
+        dbPassword: "ddalab_password",
+        minioPassword: "ddalab_password",
+        traefikEmail: "admin@ddalab.local",
+        useDockerHub: true,
+      };
+
       const result = await electronAPI.setupDockerDirectory(
-        cloneDialog.targetPath
+        cloneDialog.targetPath,
+        userConfig
       );
       if (result.success && result.setupPath) {
         updateSelections({

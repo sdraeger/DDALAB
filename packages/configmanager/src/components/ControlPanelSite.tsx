@@ -24,6 +24,8 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
     canStop,
     startDocker,
     stopDocker,
+    dockerStarted,
+    dockerStopped,
   } = useDockerState();
 
   const logsEndRef = useRef<null | HTMLDivElement>(null);
@@ -43,28 +45,33 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
       servicesReady();
     });
 
-    // Listener for Docker status updates from main.ts (e.g., starting, stopping, error during these phases)
-    const removeStatusListener = electronAPI.onDockerStatusUpdate?.(
-      (update) => {
-        console.log("[ControlPanelSite] Docker Status Update:", update);
-        statusUpdate(update);
-      }
-    );
-
-    // Listener for bulk log updates (e.g., from getDockerLogs)
-    const removeLogUpdateListener = electronAPI.onDockerLogUpdate?.(
-      (update) => {
-        console.log("[ControlPanelSite] Docker Log Update:", update);
-        logUpdate(update);
-      }
-    );
-
     return () => {
       removeReadyListener?.();
-      removeStatusListener?.();
-      removeLogUpdateListener?.();
     };
-  }, [electronAPI, servicesReady, statusUpdate, logUpdate]);
+  }, [electronAPI, servicesReady]);
+
+  // Validate setup when control panel loads
+  useEffect(() => {
+    const validateSetup = async () => {
+      if (!electronAPI?.validateDockerSetup || !userSelections.cloneLocation) return;
+
+      try {
+        console.log("[ControlPanelSite] Validating setup on load...");
+        const result = await electronAPI.validateDockerSetup(userSelections.cloneLocation);
+        if (!result.success && result.needsSetup) {
+          console.warn("[ControlPanelSite] Setup validation failed, needs setup:", result.message);
+          addErrorLog(`Setup validation failed: ${result.message}`);
+        } else {
+          console.log("[ControlPanelSite] Setup validation successful");
+        }
+      } catch (error) {
+        console.error("[ControlPanelSite] Setup validation error:", error);
+        addErrorLog(`Setup validation error: ${error}`);
+      }
+    };
+
+    validateSetup();
+  }, [electronAPI, userSelections.cloneLocation, addErrorLog]);
 
   const handleStartDDALAB = async () => {
     if (!electronAPI || !electronAPI.startDockerCompose) return;
@@ -78,6 +85,14 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
       console.log("[ControlPanelSite] Start result:", result);
       if (!result) {
         addErrorLog("Start operation failed");
+      } else {
+        // Start log streaming after successful start
+        try {
+          await electronAPI.getDockerLogs();
+          addActionLog("Log streaming started");
+        } catch (error) {
+          console.warn("[ControlPanelSite] Failed to start log streaming:", error);
+        }
       }
     } catch (error: any) {
       console.error(
@@ -120,6 +135,7 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
         addErrorLog("Stop operation failed");
       } else {
         console.log("[ControlPanelSite] Stop operation succeeded");
+        addActionLog("Services stopped successfully");
       }
     } catch (error: any) {
       console.error(
@@ -127,22 +143,6 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
         error
       );
       addErrorLog(`Failed to send stop command: ${error.message}`);
-    }
-  };
-
-  const handleFetchLogs = async () => {
-    if (!electronAPI || !electronAPI.getDockerLogs) return;
-
-    addActionLog("Fetching recent logs...");
-
-    try {
-      await electronAPI.getDockerLogs(); // Triggers "docker-log-update" event caught by listener
-    } catch (error: any) {
-      console.error(
-        "[ControlPanelSite] Error calling getDockerLogs command:",
-        error
-      );
-      addErrorLog(`Failed to send fetch logs command: ${error.message}`);
     }
   };
 
@@ -165,7 +165,7 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
             disabled={!canStart()}
           >
             {dockerStatus.includes("Starting") ||
-            dockerStatus.includes("Checking Health") ? (
+              dockerStatus.includes("Checking Health") ? (
               <span
                 className="spinner-border spinner-border-sm me-2"
                 role="status"
@@ -176,11 +176,7 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
             )}
             Start DDALAB
           </button>
-          <button
-            className="btn btn-danger me-2"
-            onClick={handleStopDDALAB}
-            disabled={!canStop()}
-          >
+          <button className="btn btn-danger me-2" onClick={handleStopDDALAB} disabled={!canStop()}>
             {dockerStatus.includes("Stopping") ? (
               <span
                 className="spinner-border spinner-border-sm me-2"
@@ -192,9 +188,6 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
             )}
             Stop DDALAB
           </button>
-          {/* <button className="btn btn-info" onClick={handleFetchLogs}>
-            Fetch Recent Logs
-          </button> */}
         </div>
       </div>
 
@@ -206,15 +199,15 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
           </p>
           {(dockerStatus.includes("Running") ||
             dockerStatus.includes("Checking Health")) && (
-            <p className="card-text">
-              Services Health (Traefik):{" "}
-              <strong
-                className={isTraefikHealthy ? "text-success" : "text-warning"}
-              >
-                {isTraefikHealthy ? "Healthy" : "Pending/Unhealthy..."}
-              </strong>
-            </p>
-          )}
+              <p className="card-text">
+                Services Health (Traefik):{" "}
+                <strong
+                  className={isTraefikHealthy ? "text-success" : "text-warning"}
+                >
+                  {isTraefikHealthy ? "Healthy" : "Pending/Unhealthy..."}
+                </strong>
+              </p>
+            )}
         </div>
       </div>
 

@@ -14,40 +14,10 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  // Add custom headers to enable WebSockets
-  async headers() {
-    return [
-      {
-        source: "/_next/webpack-hmr",
-        headers: [
-          {
-            key: "Connection",
-            value: "Upgrade",
-          },
-          {
-            key: "Upgrade",
-            value: "websocket",
-          },
-        ],
-      },
-    ];
+  // In Next.js 14, serverExternalPackages is in experimental
+  experimental: {
+    serverComponentsExternalPackages: ["pino"],
   },
-  // Add rewrites to ensure API routes work correctly
-  async rewrites() {
-    return [
-      // Rewrites for GraphQL API
-      {
-        source: "/graphql",
-        destination: "http://localhost:8001/graphql",
-      },
-      // Rewrites for API server
-      {
-        source: "/api/direct/:path*",
-        destination: "http://localhost:8001/api/:path*",
-      },
-    ];
-  },
-  serverExternalPackages: ["pino"],
   webpack: (config, { isServer }) => {
     // Add alias for shared package and @ paths
     config.resolve.alias = {
@@ -55,7 +25,7 @@ const nextConfig = {
       shared: path.resolve(__dirname, "../shared"),
       "@": path.resolve(__dirname, "./app"),
     };
-    
+
     // Properly handle Apollo Client on the client side
     if (!isServer) {
       config.resolve.fallback = {
@@ -65,14 +35,63 @@ const nextConfig = {
         tls: false,
       };
     }
-    
+
+    // Fix createClientModuleProxy issue with a custom webpack plugin
+    // TEMPORARILY COMMENTED OUT TO TEST BUILD
+    // if (isServer) {
+    //   config.plugins.push({
+    //     apply: (compiler) => {
+    //       compiler.hooks.compilation.tap('CreateClientModuleProxyFix', (compilation) => {
+    //         compilation.hooks.processAssets.tap(
+    //           {
+    //             name: 'CreateClientModuleProxyFix',
+    //             stage: compilation.PROCESS_ASSETS_STAGE_OPTIMIZE,
+    //           },
+    //           (assets) => {
+    //             Object.keys(assets).forEach((filename) => {
+    //               if (filename.endsWith('.js')) {
+    //                 const asset = assets[filename];
+    //                 let source = asset.source();
+                    
+    //                 if (typeof source === 'string' && source.includes('createClientModuleProxy')) {
+    //                   // Add createClientModuleProxy polyfill at the top
+    //                   const polyfill = `
+    // if (typeof createClientModuleProxy === 'undefined') {
+    //   var createClientModuleProxy = function(moduleId) {
+    //     return { __esModule: true, default: function() { return null; } };
+    //   };
+    // }
+    // `;
+                      
+    //                   // Replace problematic patterns
+    //                   source = source.replace(
+    //                     /(\w+)\.createClientModuleProxy\s*\(/g,
+    //                     '(($1 && $1.createClientModuleProxy) || createClientModuleProxy)('
+    //                   );
+                      
+    //                   const newSource = polyfill + source;
+                      
+    //                   compilation.updateAsset(filename, {
+    //                     source: () => newSource,
+    //                     size: () => newSource.length
+    //                   });
+    //                 }
+    //               }
+    //             });
+    //           }
+    //         );
+    //       });
+    //     }
+    //   });
+    // }
+
     // Increase the asset size limit to handle large bundles like Apollo Client
     config.performance = {
       ...config.performance,
       maxAssetSize: 1000000, // 1MB
       maxEntrypointSize: 1000000, // 1MB
     };
-    
+
     return config;
   },
 };

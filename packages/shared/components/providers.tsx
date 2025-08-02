@@ -47,6 +47,8 @@ function LocalSessionProvider({ children }: { children: ReactNode }) {
 
   // Save session to localStorage for persistence
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     const savedSession = localStorage.getItem('dda-local-session');
     if (savedSession) {
       try {
@@ -66,7 +68,9 @@ function LocalSessionProvider({ children }: { children: ReactNode }) {
     if (data) {
       const updatedSession = { ...session.data, ...data };
       setSession(prev => ({ ...prev, data: updatedSession }));
-      localStorage.setItem('dda-local-session', JSON.stringify(updatedSession));
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('dda-local-session', JSON.stringify(updatedSession));
+      }
     }
     return null;
   }, [session.data]);
