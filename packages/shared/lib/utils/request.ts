@@ -60,8 +60,10 @@ function getApiBaseUrl(url: string): string {
         );
         return nextjsUrl;
       } else {
-        // For Python API routes and modern-widget-layouts, use HTTPS through Traefik to avoid redirect issues
-        const resolvedUrl = `https://localhost${url}`;
+        // For Python API routes, use the NEXT_PUBLIC_API_URL environment variable
+        const apiUrl =
+          process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+        const resolvedUrl = `${apiUrl}${url}`;
         console.log(
           `[API Request] Browser + Development (API route): ${url} -> ${resolvedUrl}`
         );

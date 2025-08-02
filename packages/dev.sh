@@ -1,19 +1,77 @@
 #!/bin/bash
 
-# Clear potentially conflicting environment variables that might override .env
-unset DDALAB_MINIO_HOST MINIO_HOST
-unset DDALAB_DB_HOST DDALAB_DB_PORT DDALAB_DB_USER DDALAB_DB_PASSWORD
-unset DDALAB_API_HOST DDALAB_API_PORT
-
-echo "Clearing potentially conflicting environment variables for development..."
+echo "=== DDALAB Development Server ==="
+echo "Using consolidated environment system"
 
 # Set PYTHONPATH to include packages/api
 export PYTHONPATH=$PYTHONPATH:$(pwd)/packages/api
 
-# Export all variables from .env.dev to the environment
+# Load development environment configuration
+# Priority: .env.local > .env.example (for new setups)
+ENV_FILE=".env.local"
+if [ ! -f "$ENV_FILE" ]; then
+    echo "Creating .env.local from template..."
+    cp .env.example .env.local
+    
+    # Apply development-specific overrides
+    cat >> .env.local << EOF
+
+#=============================================================================
+# DEVELOPMENT OVERRIDES (auto-generated)
+#=============================================================================
+DDALAB_ENVIRONMENT=development
+DDALAB_DEBUG=true
+DDALAB_RELOAD=true
+DDALAB_AUTH_MODE=local
+DDALAB_DB_HOST=localhost
+DDALAB_MINIO_HOST=localhost:9000
+DDALAB_MINIO_ACCESS_KEY=admin
+DDALAB_MINIO_SECRET_KEY=dev_password123
+DDALAB_REDIS_HOST=localhost
+DDALAB_DATA_DIR=data
+DDALAB_ALLOWED_DIRS=/Users/$(whoami)/Desktop
+DDALAB_DDA_BINARY_PATH=/Users/$(whoami)/Desktop/DDALAB/bin/run_DDA_ASCII
+NEXT_PUBLIC_API_URL=http://localhost:8001
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXTAUTH_URL=http://localhost:3000
+MINIO_ROOT_USER=admin
+MINIO_ROOT_PASSWORD=dev_password123
+DDALAB_JWT_SECRET_KEY=dev-jwt-secret-key
+NEXTAUTH_SECRET=dev-nextauth-secret-key
+DDALAB_DB_USER=admin
+DDALAB_DB_PASSWORD=dev_password123
+EOF
+    
+    echo "✓ Created .env.local with development defaults"
+    echo "  Customize paths and secrets as needed"
+fi
+
+echo "Loading environment from $ENV_FILE..."
 set -a
-source .env.dev
+source "$ENV_FILE"
 set +a
+
+# Validate required environment variables
+REQUIRED_VARS=(
+    "DDALAB_DB_USER"
+    "DDALAB_DB_PASSWORD"
+    "DDALAB_JWT_SECRET_KEY"
+    "DDALAB_MINIO_HOST"
+    "DDALAB_MINIO_ACCESS_KEY"
+    "DDALAB_MINIO_SECRET_KEY"
+    "DDALAB_DDA_BINARY_PATH"
+    "DDALAB_ALLOWED_DIRS"
+)
+
+echo "Validating environment configuration..."
+for var in "${REQUIRED_VARS[@]}"; do
+    if [ -z "${!var}" ]; then
+        echo "❌ ERROR: Required environment variable $var is not set"
+        echo "   Please check your $ENV_FILE file"
+        exit 1
+    fi
+done
+echo "✓ Environment configuration validated"
 
 # Function to clean up background processes
 cleanup() {
@@ -46,6 +104,11 @@ PGPASSWORD="$DDALAB_DB_PASSWORD" psql -h "$DDALAB_DB_HOST" -p "$DDALAB_DB_PORT" 
 PGPASSWORD="$DDALAB_DB_PASSWORD" psql -h "$DDALAB_DB_HOST" -p "$DDALAB_DB_PORT" -U "$DDALAB_DB_USER" -d postgres -c "CREATE DATABASE ddalab WITH OWNER = \"$DDALAB_DB_USER\" ENCODING = 'UTF8' LC_COLLATE = 'C' LC_CTYPE = 'C';"
 
 echo "Applying SQL files..."
+
+# Activate virtual environment if it exists
+if [ -d ".venv" ]; then
+    source .venv/bin/activate
+fi
 
 python packages/api/apply_sql_files.py \
   --dbname "$DDALAB_DB_NAME" \

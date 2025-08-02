@@ -4,18 +4,23 @@ import { setMainWindow as setMainProcessMainWindow } from "../main";
 
 let mainWindow: BrowserWindow | null = null;
 
-export function createWindow(): void {
+export function createWindow(): BrowserWindow {
+  const preloadPath = path.join(__dirname, "preload.js");
+  console.log("[window-manager.ts] Preload script path:", preloadPath);
+
   const newWindow = new BrowserWindow({
     width: 1400,
     height: 1000,
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
 
-  newWindow.loadFile(path.join(__dirname, "src", "configmanager.html"));
+  const htmlPath = path.join(__dirname, "src", "configmanager.html");
+  console.log("[window-manager.ts] HTML file path:", htmlPath);
+  newWindow.loadFile(htmlPath);
 
   newWindow.on("closed", () => {
     if (mainWindow === newWindow) {
@@ -29,6 +34,8 @@ export function createWindow(): void {
 
   mainWindow = newWindow;
   setMainProcessMainWindow(newWindow);
+
+  return newWindow;
 }
 
 export function getMainWindow(): BrowserWindow | null {

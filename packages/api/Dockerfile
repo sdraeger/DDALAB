@@ -1,23 +1,24 @@
-FROM python:3.10-slim
+FROM python:3.10-alpine
 
-WORKDIR /app
+WORKDIR /app/server
 
 # Copy server files
 COPY packages/api /app/server
+RUN ls -la /app/server/
 RUN chmod +x /app/server/start.sh
 
 # Install dependencies
-RUN apt update
-RUN apt install -y \
-	build-essential \
+RUN apk update && apk add --no-cache \
+	build-base \
 	gcc \
 	openssl \
-	libssl-dev \
+	openssl-dev \
 	libpq-dev \
 	curl \
 	netcat-openbsd \
 	wget \
-	&& rm -rf /var/lib/apt/lists/*
+	bash \
+	&& rm -rf /var/cache/apk/*
 
 # Install DDA binary
 RUN mkdir -p /app/server/bin
@@ -26,15 +27,18 @@ RUN chmod +x /app/server/bin/run_DDA_ASCII
 
 # Install Python dependencies
 RUN pip install --upgrade pip
-RUN pip install -r server/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Create non-root user
-RUN useradd -m -r apiuser \
-	&& chown apiuser:apiuser /app \
-	&& mkdir -p /tmp/prometheus \
-	&& chown -R apiuser:apiuser /tmp/prometheus \
-	&& mkdir -p /app/data \
-	&& chown -R apiuser:apiuser /app/data
+RUN adduser -D -s /bin/sh apiuser \
+    && chown apiuser:apiuser /app \
+    && mkdir -p /tmp/prometheus \
+    && chown -R apiuser:apiuser /tmp/prometheus \
+    && chmod 755 /tmp/prometheus \
+    && mkdir -p /app/data \
+    && chown -R apiuser:apiuser /app/data \
+    && mkdir -p /app/server/.config \
+    && chown -R apiuser:apiuser /app/server/.config
 USER apiuser
 
 # Expose ports
@@ -42,4 +46,4 @@ EXPOSE 8001
 EXPOSE 8002
 
 # Run server
-CMD ["/app/server/start.sh"]
+CMD ["/bin/bash", "/app/server/start.sh"]

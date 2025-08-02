@@ -1,22 +1,25 @@
-# DDALab Electron App
+# DDALAB Electron App
 
-This is the Electron version of the DDALab web application. It provides a desktop experience with the same functionality as the web app.
+This is the Electron version of the DDALAB web application. It provides a desktop experience with the same functionality as the web app.
 
 ## Development
 
 To start the development environment:
 
 1. Install dependencies:
+
 ```bash
 pnpm install
 ```
 
 2. Start the development server:
+
 ```bash
 pnpm dev
 ```
 
 This will:
+
 - Start the Electron app in development mode
 - Connect to the Next.js development server
 - Enable hot reloading
@@ -31,6 +34,7 @@ pnpm build
 ```
 
 This will:
+
 - Compile TypeScript files
 - Build the Next.js application
 - Package the Electron app
