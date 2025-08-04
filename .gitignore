@@ -61,3 +61,6 @@ docker-compose.volumes.yml
 
 # Development storage (temporary layout files)
 packages/web/.next/dev-storage/
+
+packages/configmanager/release/
+packages/configmanager/release-dev/

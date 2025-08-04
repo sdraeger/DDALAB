@@ -10,6 +10,8 @@ import { registerDockerDeploymentIpcHandlers } from "./ipc/docker-deployment-ipc
 import { registerEnhancedSetupIpcHandlers } from "./ipc/enhanced-setup-ipc";
 import { registerDockerCheckIpcHandlers } from "./ipc/docker-check-ipc";
 import { registerUpdateIpcHandlers } from "./ipc/update-ipc";
+import { registerMinIOUpdateIpcHandlers } from "./ipc/minio-update-ipc";
+import { registerMenuIpcHandlers } from "./ipc/menu-ipc";
 import { logger } from "./utils/logger";
 import { PROJECT_ROOT_ENV_PATH } from "./utils/env-manager";
 
@@ -31,5 +33,7 @@ registerDockerDeploymentIpcHandlers();
 registerEnhancedSetupIpcHandlers();
 registerDockerCheckIpcHandlers();
 registerUpdateIpcHandlers();
+registerMinIOUpdateIpcHandlers();
+registerMenuIpcHandlers();
 
 export { setMainWindow } from "./utils/main-window";

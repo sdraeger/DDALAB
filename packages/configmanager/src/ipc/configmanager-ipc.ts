@@ -1,5 +1,7 @@
 import { ipcMain, dialog, app } from "electron";
 import { getMainWindow } from "../utils/window-manager";
+import { SetupService } from "../services/setup-service";
+import type { UserSelections, ParsedEnvEntry } from "../utils/electron";
 
 export function registerConfigManagerIpcHandlers(): void {
   ipcMain.handle(
@@ -15,6 +17,50 @@ export function registerConfigManagerIpcHandlers(): void {
       }
       console.log(`[configmanager-ipc] Selected directory: ${filePaths[0]}`);
       return filePaths[0];
+    }
+  );
+
+  ipcMain.handle("configmanager:get-state", async (): Promise<any> => {
+    return await SetupService.getConfigManagerState();
+  });
+
+  ipcMain.handle(
+    "configmanager:save-user-state",
+    async (
+      event,
+      userSelections: UserSelections,
+      currentSite: string,
+      parsedEnvEntries: ParsedEnvEntry[],
+      installationSuccess: boolean | null
+    ): Promise<void> => {
+      await SetupService.saveUserState(
+        userSelections,
+        currentSite,
+        parsedEnvEntries,
+        installationSuccess
+      );
+    }
+  );
+
+  ipcMain.handle(
+    "configmanager:save-full-state",
+    async (
+      event,
+      setupPathOrDataLocation: string | null,
+      cloneLocation: string | null,
+      userSelections: UserSelections,
+      currentSite: string,
+      parsedEnvEntries: ParsedEnvEntry[],
+      installationSuccess: boolean | null
+    ): Promise<void> => {
+      await SetupService.saveFullApplicationState(
+        setupPathOrDataLocation,
+        cloneLocation,
+        userSelections,
+        currentSite,
+        parsedEnvEntries,
+        installationSuccess
+      );
     }
   );
 

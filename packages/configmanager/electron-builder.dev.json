@@ -11,14 +11,23 @@
 		"src/assets/**/*"
 	],
 	"publish": {
-		"provider": "github",
-		"owner": "ddalab",
-		"repo": "configmanager",
-		"releaseType": "draft",
-		"channel": "development"
+		"provider": "s3",
+		"bucket": "ddalab-configmanager-updates",
+		"region": "us-east-1",
+		"channel": "development",
+		"path": "dev",
+		"acl": null
 	},
 	"mac": {
-		"target": "dmg",
+		"target": [
+			{
+				"target": "dmg",
+				"arch": [
+					"x64",
+					"arm64"
+				]
+			}
+		],
 		"category": "public.app-category.developer-tools",
 		"artifactName": "DDALAB-ConfigManager-Dev-${version}-${arch}.${ext}",
 		"identity": null,
@@ -28,8 +37,15 @@
 		"entitlementsInherit": null
 	},
 	"win": {
-		"target": "nsis",
-		"icon": "build/icon.ico",
+		"target": [
+			{
+				"target": "nsis",
+				"arch": [
+					"x64",
+					"arm64"
+				]
+			}
+		],
 		"artifactName": "DDALAB-ConfigManager-Dev-${version}-${arch}.${ext}",
 		"certificateFile": null,
 		"certificatePassword": null,
@@ -37,22 +53,51 @@
 		"timeStampServer": null
 	},
 	"linux": {
-		"target": "AppImage",
-		"icon": "build/icon.png",
-		"artifactName": "DDALAB-ConfigManager-Dev-${version}-${arch}.${ext}"
+		"target": [
+			{
+				"target": "AppImage",
+				"arch": [
+					"x64",
+					"arm64"
+				]
+			},
+			{
+				"target": "deb",
+				"arch": [
+					"x64",
+					"arm64"
+				]
+			},
+			{
+				"target": "rpm",
+				"arch": [
+					"x64",
+					"arm64"
+				]
+			},
+			{
+				"target": "tar.gz",
+				"arch": [
+					"x64",
+					"arm64"
+				]
+			}
+		],
+		"artifactName": "DDALAB-ConfigManager-Dev-${version}-${arch}.${ext}",
+		"category": "Development",
+		"maintainer": "DDALAB Team",
+		"vendor": "DDALAB",
+		"synopsis": "DDALAB Configuration Manager (Dev)",
+		"description": "A configuration management tool for DDALAB applications (Development Version)"
 	},
 	"nsis": {
 		"oneClick": false,
 		"allowToChangeInstallationDirectory": true,
 		"createDesktopShortcut": true,
-		"createStartMenuShortcut": true,
-		"installerIcon": "build/icon.ico",
-		"uninstallerIcon": "build/icon.ico",
-		"installerHeaderIcon": "build/icon.ico"
+		"createStartMenuShortcut": true
 	},
 	"dmg": {
-		"title": "DDALAB ConfigManager (Dev)",
-		"icon": "build/icon.icns"
+		"title": "DDALAB ConfigManager (Dev)"
 	},
 	"appImage": {
 		"category": "Development"

@@ -153,7 +153,15 @@ export function registerDockerIpcHandlers() {
 
   ipcMain.handle("get-is-docker-running", async (): Promise<boolean> => {
     logger.info('IPC event "get-is-docker-running" received.');
-    return DockerService.getIsDockerRunning();
+    // Check if Docker daemon is actually running, not just the internal flag
+    try {
+      const daemonRunning = await DockerService.checkDockerDaemonRunning();
+      logger.info(`Docker daemon running: ${daemonRunning}`);
+      return daemonRunning;
+    } catch (error) {
+      logger.error("Error checking Docker daemon:", error);
+      return false;
+    }
   });
 
   ipcMain.on("ddalab-services-ready", () => {

@@ -8,7 +8,13 @@ import {
   DockerConfigSite,
   SummarySite,
   ControlPanelSite,
+  ProgressSidebar,
+  ControlPanelSidebar,
+  ConfigurationEditor,
+  SystemInfoModal,
 } from "./components";
+import { ServiceManagementModal } from "./components/ServiceManagementModal";
+import { LogsViewerModal } from "./components/LogsViewerModal";
 import { SiteNavigationProvider } from "./context/SiteNavigationProvider";
 import { DockerProvider } from "./context/DockerProvider";
 import { useSiteNavigation } from "./hooks/useSiteNavigation";
@@ -81,6 +87,7 @@ const AppContent: React.FC = () => {
     currentSite,
     userSelections,
     parsedEnvEntries,
+    installationSuccess,
     goToNextSite,
     goToPreviousSite,
     goToSite,
@@ -91,6 +98,12 @@ const AppContent: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [cloneDialog, setCloneDialog] = useState<CloneDialog | null>(null);
+  const [sidebarExpanded, setSidebarExpanded] = useState(true);
+  const [isSetupComplete, setIsSetupComplete] = useState(false);
+  const [showConfigEditor, setShowConfigEditor] = useState(false);
+  const [showSystemInfo, setShowSystemInfo] = useState(false);
+  const [showServiceManagement, setShowServiceManagement] = useState(false);
+  const [showLogsViewer, setShowLogsViewer] = useState(false);
   const electronAPI = window.electronAPI as ElectronAPI | undefined;
 
   const {
@@ -193,6 +206,19 @@ const AppContent: React.FC = () => {
         );
         await electronAPI.markSetupComplete(userSelections.dataLocation);
       }
+
+      // Save full state after successful installation
+      if (electronAPI?.saveFullState) {
+        await electronAPI.saveFullState(
+          userSelections.dataLocation,
+          userSelections.cloneLocation,
+          userSelections,
+          currentSite,
+          parsedEnvEntries,
+          true
+        );
+      }
+
       setInstallationSuccess(true);
       return true;
     } catch (error) {
@@ -244,6 +270,10 @@ const AppContent: React.FC = () => {
           break;
         case "summary":
           canProceed = await executeDockerInstallation();
+          if (canProceed) {
+            // Setup is complete, transition to control panel
+            setIsSetupComplete(true);
+          }
           break;
       }
       if (canProceed) goToNextSite();
@@ -293,6 +323,83 @@ const AppContent: React.FC = () => {
   };
 
   useEffect(() => {
+    const handleMenuAction = (data: { action: string; path?: string }) => {
+      switch (data.action) {
+        case 'new-setup':
+          goToSite('welcome');
+          updateSelections({});
+          updateEnvEntries([]);
+          setInstallationSuccess(false);
+          break;
+        case 'open-setup-directory':
+          if (data.path) {
+            updateSelections({ dataLocation: data.path, cloneLocation: data.path });
+          }
+          break;
+        case 'restart-setup-wizard':
+          goToSite('welcome');
+          break;
+        case 'reset-all-settings':
+          goToSite('welcome');
+          updateSelections({});
+          updateEnvEntries([]);
+          setInstallationSuccess(false);
+          break;
+        case 'validate-current-setup':
+          if (electronAPI?.validateDockerSetup && userSelections.dataLocation) {
+            validateDockerSetup(userSelections.dataLocation);
+          }
+          break;
+        case 'start-docker-services':
+          if (electronAPI?.startDockerCompose) {
+            electronAPI.startDockerCompose();
+          }
+          break;
+        case 'stop-docker-services':
+          if (electronAPI?.stopDockerCompose) {
+            electronAPI.stopDockerCompose(false);
+          }
+          break;
+        case 'restart-docker-services':
+          if (electronAPI?.stopDockerCompose && electronAPI?.startDockerCompose) {
+            electronAPI.stopDockerCompose(false).then(() => {
+              setTimeout(() => electronAPI.startDockerCompose(), 2000);
+            });
+          }
+          break;
+        case 'check-docker-status':
+          if (electronAPI?.getDockerStatus) {
+            electronAPI.getDockerStatus();
+          }
+          break;
+        case 'view-docker-logs':
+          goToSite('control-panel');
+          break;
+        case 'reset-docker-volumes':
+          if (electronAPI?.stopDockerCompose) {
+            electronAPI.stopDockerCompose(true);
+          }
+          break;
+        case 'export-configuration':
+        case 'import-configuration':
+          // These are handled by menu IPC handlers
+          break;
+        default:
+          console.log('Unhandled menu action:', data.action);
+      }
+    };
+
+    // Listen for menu actions
+    if (electronAPI?.onMenuAction) {
+      const removeMenuListener = electronAPI.onMenuAction(handleMenuAction);
+      
+      return () => {
+        removeMenuListener();
+      };
+    }
+  }, [electronAPI, goToSite, updateSelections, updateEnvEntries, setInstallationSuccess, userSelections.dataLocation, validateDockerSetup]);
+
+  useEffect(() => {
     const initializeApp = async () => {
       if (!electronAPI?.getConfigManagerState) {
         goToSite("welcome");
@@ -300,14 +407,40 @@ const AppContent: React.FC = () => {
       }
       try {
         const state = await electronAPI.getConfigManagerState();
+
+        // Restore user selections if available
+        if (state.userSelections) {
+          updateSelections(state.userSelections);
+        }
+
+        // Restore navigation state if available
+        if (state.currentSite) {
+          goToSite(state.currentSite);
+        }
+
+        // Restore environment entries if available
+        if (state.parsedEnvEntries) {
+          updateEnvEntries(state.parsedEnvEntries);
+        }
+
+        // Restore installation success state
+        if (state.installationSuccess !== undefined) {
+          setInstallationSuccess(state.installationSuccess);
+        }
+
         if (state.setupComplete) {
+          // Setup is complete, go to control panel and set flag
+          setIsSetupComplete(true);
           goToSite("control-panel");
           updateSelections({
             dataLocation: state.dataLocation || state.setupPath,
             cloneLocation: state.cloneLocation || state.setupPath,
           });
         } else {
-          goToSite("welcome");
+          // Only go to welcome if no current site is set
+          if (!state.currentSite) {
+            goToSite("welcome");
+          }
         }
       } catch (error) {
         goToSite("welcome");
@@ -315,6 +448,76 @@ const AppContent: React.FC = () => {
     };
     initializeApp();
   }, []);
+
+  // Auto-save state when user selections or navigation changes
+  useEffect(() => {
+    const saveState = async () => {
+      if (electronAPI?.saveUserState) {
+        try {
+          await electronAPI.saveUserState(
+            userSelections,
+            currentSite,
+            parsedEnvEntries,
+            installationSuccess
+          );
+        } catch (error) {
+          console.error("Failed to save user state:", error);
+        }
+      }
+    };
+
+    // Debounce state saving to avoid excessive writes
+    const timeoutId = setTimeout(saveState, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [userSelections, currentSite, parsedEnvEntries, installationSuccess, electronAPI]);
+
+  // Control panel sidebar handlers
+  const handleEditConfig = () => {
+    setShowConfigEditor(true);
+  };
+
+  const handleViewLogs = () => {
+    setShowLogsViewer(true);
+  };
+
+  const handleManageServices = () => {
+    setShowServiceManagement(true);
+  };
+
+  const handleSystemInfo = () => {
+    setShowSystemInfo(true);
+  };
+
+  const handleSaveConfiguration = async (selections: Partial<UserSelections>, envEntries: ParsedEnvEntry[]) => {
+    try {
+      updateSelections(selections);
+      updateEnvEntries(envEntries);
+      
+      // Save to electron store
+      if (electronAPI?.saveUserState) {
+        await electronAPI.saveUserState(
+          { ...userSelections, ...selections },
+          currentSite,
+          envEntries,
+          installationSuccess
+        );
+      }
+      
+      // Save env file if needed
+      if (electronAPI?.saveEnvFile && userSelections.dataLocation) {
+        await electronAPI.saveEnvFile(
+          userSelections.dataLocation,
+          selections.envVariables || userSelections.envVariables
+        );
+      }
+      
+      setShowConfigEditor(false);
+      alert('Configuration saved successfully!');
+    } catch (error) {
+      console.error('Failed to save configuration:', error);
+      alert('Failed to save configuration. Please try again.');
+    }
+  };
 
   const commonProps: CommonProps = {
     userSelections,
@@ -370,48 +573,134 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="installer-container">
-      {siteComponents[currentSite] || <div>Loading...</div>}
-      <footer className="mt-auto pt-3 border-top d-flex justify-content-between">
-        <button
-          className="btn btn-secondary"
-          onClick={() => handleNavigation("back")}
-          disabled={!isBackButtonEnabled}
-        >
-          Back
-        </button>
-        {(shouldShowNextButton || shouldShowFinishButton) && (
-          <button
-            className={`btn ${shouldShowFinishButton ? "btn-success" : "btn-primary"
-              }`}
-            onClick={() => handleNavigation("next")}
-            disabled={!isNextButtonEnabled}
-          >
-            {isLoading ? (
-              <>
-                <span
-                  className="spinner-border spinner-border-sm me-2"
-                  role="status"
-                  aria-hidden="true"
-                />
-                {shouldShowFinishButton ? "Processing..." : "Loading..."}
-              </>
-            ) : shouldShowFinishButton ? (
-              "Finish"
-            ) : (
-              "Next"
-            )}
-          </button>
-        )}
-      </footer>
-      {cloneDialog?.show && (
-        <CloneDialogModal
-          dialog={cloneDialog}
-          isLoading={isLoading}
-          onClone={handleSetupDirectory}
-          onClose={() => setCloneDialog(null)}
+    <div className="app-layout">
+      {isSetupComplete ? (
+        <ControlPanelSidebar
+          isExpanded={sidebarExpanded}
+          onToggle={() => setSidebarExpanded(!sidebarExpanded)}
+          electronAPI={electronAPI}
+          userSelections={userSelections}
+          onEditConfig={handleEditConfig}
+          onViewLogs={handleViewLogs}
+          onManageServices={handleManageServices}
+          onSystemInfo={handleSystemInfo}
+        />
+      ) : (
+        <ProgressSidebar
+          currentSite={currentSite}
+          setupType={userSelections.setupType}
+          isExpanded={sidebarExpanded}
+          onToggle={() => setSidebarExpanded(!sidebarExpanded)}
+          electronAPI={electronAPI}
+          isSetupComplete={isSetupComplete}
         />
       )}
+      <div className={`main-content ${sidebarExpanded ? 'with-sidebar' : 'with-collapsed-sidebar'}`}>
+        <div className="installer-container">
+          {siteComponents[currentSite] || <div>Loading...</div>}
+          {!isSetupComplete && (
+            <footer className="mt-auto pt-3 border-top d-flex justify-content-between">
+              <button
+                className="btn btn-secondary"
+                onClick={() => handleNavigation("back")}
+                disabled={!isBackButtonEnabled}
+              >
+                Back
+              </button>
+              {(shouldShowNextButton || shouldShowFinishButton) && (
+                <button
+                  className={`btn ${shouldShowFinishButton ? "btn-success" : "btn-primary"
+                    }`}
+                  onClick={() => handleNavigation("next")}
+                  disabled={!isNextButtonEnabled}
+                >
+                  {isLoading ? (
+                    <>
+                      <span
+                        className="spinner-border spinner-border-sm me-2"
+                        role="status"
+                        aria-hidden="true"
+                      />
+                      {shouldShowFinishButton ? "Processing..." : "Loading..."}
+                    </>
+                  ) : shouldShowFinishButton ? (
+                    "Finish Setup"
+                  ) : (
+                    "Next"
+                  )}
+                </button>
+              )}
+            </footer>
+          )}
+          {cloneDialog?.show && (
+            <CloneDialogModal
+              dialog={cloneDialog}
+              isLoading={isLoading}
+              onClone={handleSetupDirectory}
+              onClose={() => setCloneDialog(null)}
+            />
+          )}
+        </div>
+      </div>
+      
+      {showConfigEditor && (
+        <ConfigurationEditor
+          userSelections={userSelections}
+          parsedEnvEntries={parsedEnvEntries}
+          electronAPI={electronAPI}
+          onSave={handleSaveConfiguration}
+          onCancel={() => setShowConfigEditor(false)}
+        />
+      )}
+      
+      {showSystemInfo && (
+        <SystemInfoModal
+          electronAPI={electronAPI}
+          onClose={() => setShowSystemInfo(false)}
+        />
+      )}
+      
+      {showServiceManagement && (
+        <ServiceManagementModal
+          electronAPI={electronAPI}
+          onClose={() => setShowServiceManagement(false)}
+        />
+      )}
+      
+      {showLogsViewer && (
+        <LogsViewerModal
+          electronAPI={electronAPI}
+          onClose={() => setShowLogsViewer(false)}
+        />
+      )}
+      <style jsx>{`
+        .app-layout {
+          display: flex;
+          height: 100vh;
+          overflow: hidden;
+        }
+
+        .main-content {
+          flex: 1;
+          overflow-y: auto;
+          transition: margin-left 0.3s ease;
+        }
+
+        .main-content.with-sidebar {
+          margin-left: ${isSetupComplete ? '320px' : '280px'};
+        }
+
+        .main-content.with-collapsed-sidebar {
+          margin-left: 50px;
+        }
+
+        .installer-container {
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          padding: 20px;
+        }
+      `}</style>
     </div>
   );
 };
