@@ -94,10 +94,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@formspree/react": "^3.0.0",
     "@xstate/react": "^3.2.2",
     "electron-is-dev": "^2.0.0",
-    "electron-updater": "^6.1.8",
     "electron-store": "^8.1.0",
+    "electron-updater": "^6.1.8",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "xstate": "^4.38.2"

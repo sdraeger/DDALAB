@@ -12,9 +12,12 @@ import {
   ControlPanelSidebar,
   ConfigurationEditor,
   SystemInfoModal,
+  BugReportModal,
+  EnhancedControlPanel,
+  SimplifiedControlSidebar,
+  UpdateProgressModal,
+  QuitConfirmationModal,
 } from "./components";
-import { ServiceManagementModal } from "./components/ServiceManagementModal";
-import { LogsViewerModal } from "./components/LogsViewerModal";
 import { SiteNavigationProvider } from "./context/SiteNavigationProvider";
 import { DockerProvider } from "./context/DockerProvider";
 import { useSiteNavigation } from "./hooks/useSiteNavigation";
@@ -102,8 +105,10 @@ const AppContent: React.FC = () => {
   const [isSetupComplete, setIsSetupComplete] = useState(false);
   const [showConfigEditor, setShowConfigEditor] = useState(false);
   const [showSystemInfo, setShowSystemInfo] = useState(false);
-  const [showServiceManagement, setShowServiceManagement] = useState(false);
-  const [showLogsViewer, setShowLogsViewer] = useState(false);
+  const [showBugReport, setShowBugReport] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showQuitConfirmation, setShowQuitConfirmation] = useState(false);
+  const [isDDALABRunning, setIsDDALABRunning] = useState(false);
   const electronAPI = window.electronAPI as ElectronAPI | undefined;
 
   const {
@@ -392,7 +397,7 @@ const AppContent: React.FC = () => {
     // Listen for menu actions
     if (electronAPI?.onMenuAction) {
       const removeMenuListener = electronAPI.onMenuAction(handleMenuAction);
-      
+
       return () => {
         removeMenuListener();
       };
@@ -471,28 +476,100 @@ const AppContent: React.FC = () => {
     return () => clearTimeout(timeoutId);
   }, [userSelections, currentSite, parsedEnvEntries, installationSuccess, electronAPI]);
 
+  // Listen for quit requests and Docker status updates
+  useEffect(() => {
+    if (!electronAPI) return;
+
+    // Listen for quit confirmation requests
+    const removeQuitListener = electronAPI.onQuitRequest ? electronAPI.onQuitRequest(() => {
+      // Check Docker status before showing quit confirmation
+      if (electronAPI.getDockerStatus) {
+        electronAPI.getDockerStatus().then((isRunning: boolean) => {
+          setIsDDALABRunning(isRunning);
+          setShowQuitConfirmation(true);
+        }).catch(() => {
+          // If we can't check Docker status, assume it's not running
+          setIsDDALABRunning(false);
+          setShowQuitConfirmation(true);
+        });
+      } else {
+        // Fallback if getDockerStatus is not available
+        setIsDDALABRunning(false);
+        setShowQuitConfirmation(true);
+      }
+    }) : null;
+
+    // Listen for Docker status updates
+    const removeDockerListener = electronAPI.onDockerStatusUpdate ? electronAPI.onDockerStatusUpdate((status: { isRunning: boolean }) => {
+      setIsDDALABRunning(status.isRunning);
+    }) : null;
+
+    return () => {
+      if (removeQuitListener) removeQuitListener();
+      if (removeDockerListener) removeDockerListener();
+    };
+  }, [electronAPI]);
+
   // Control panel sidebar handlers
   const handleEditConfig = () => {
     setShowConfigEditor(true);
-  };
-
-  const handleViewLogs = () => {
-    setShowLogsViewer(true);
-  };
-
-  const handleManageServices = () => {
-    setShowServiceManagement(true);
   };
 
   const handleSystemInfo = () => {
     setShowSystemInfo(true);
   };
 
+  const handleBugReport = () => {
+    setShowBugReport(true);
+  };
+
+  const handleNewSetup = () => {
+    goToSite('welcome');
+    updateSelections({});
+    updateEnvEntries([]);
+    setInstallationSuccess(false);
+    setIsSetupComplete(false);
+  };
+
+  const handleShowUpdateModal = () => {
+    setShowUpdateModal(true);
+  };
+
+  const handleQuitRequest = () => {
+    setShowQuitConfirmation(true);
+  };
+
+  const handleConfirmQuit = async (stopDDALAB: boolean) => {
+    if (!electronAPI) return;
+
+    try {
+      if (stopDDALAB && isDDALABRunning) {
+        // Stop DDALAB services before quitting
+        await electronAPI.stopDockerCompose();
+      }
+
+      // Close the modal and proceed with quit
+      setShowQuitConfirmation(false);
+
+      // Signal to electron that it's safe to quit
+      if (electronAPI.confirmQuit) {
+        electronAPI.confirmQuit();
+      }
+    } catch (error) {
+      console.error('Error during quit process:', error);
+      // Still proceed with quit even if stopping Docker fails
+      setShowQuitConfirmation(false);
+      if (electronAPI.confirmQuit) {
+        electronAPI.confirmQuit();
+      }
+    }
+  };
+
   const handleSaveConfiguration = async (selections: Partial<UserSelections>, envEntries: ParsedEnvEntry[]) => {
     try {
       updateSelections(selections);
       updateEnvEntries(envEntries);
-      
+
       // Save to electron store
       if (electronAPI?.saveUserState) {
         await electronAPI.saveUserState(
@@ -502,7 +579,7 @@ const AppContent: React.FC = () => {
           installationSuccess
         );
       }
-      
+
       // Save env file if needed
       if (electronAPI?.saveEnvFile && userSelections.dataLocation) {
         await electronAPI.saveEnvFile(
@@ -510,7 +587,7 @@ const AppContent: React.FC = () => {
           selections.envVariables || userSelections.envVariables
         );
       }
-      
+
       setShowConfigEditor(false);
       alert('Configuration saved successfully!');
     } catch (error) {
@@ -569,21 +646,27 @@ const AppContent: React.FC = () => {
       />
     ),
     summary: <SummarySite {...commonProps} />,
-    "control-panel": <ControlPanelSite {...commonProps} />,
+    "control-panel": (
+      <EnhancedControlPanel
+        electronAPI={electronAPI}
+        userSelections={userSelections}
+        onEditConfig={handleEditConfig}
+        onSystemInfo={handleSystemInfo}
+        onBugReport={handleBugReport}
+      />
+    ),
   };
 
   return (
     <div className="app-layout">
       {isSetupComplete ? (
-        <ControlPanelSidebar
+        <SimplifiedControlSidebar
           isExpanded={sidebarExpanded}
           onToggle={() => setSidebarExpanded(!sidebarExpanded)}
           electronAPI={electronAPI}
           userSelections={userSelections}
-          onEditConfig={handleEditConfig}
-          onViewLogs={handleViewLogs}
-          onManageServices={handleManageServices}
-          onSystemInfo={handleSystemInfo}
+          onNewSetup={handleNewSetup}
+          onShowUpdateModal={handleShowUpdateModal}
         />
       ) : (
         <ProgressSidebar
@@ -642,7 +725,7 @@ const AppContent: React.FC = () => {
           )}
         </div>
       </div>
-      
+
       {showConfigEditor && (
         <ConfigurationEditor
           userSelections={userSelections}
@@ -652,25 +735,31 @@ const AppContent: React.FC = () => {
           onCancel={() => setShowConfigEditor(false)}
         />
       )}
-      
+
       {showSystemInfo && (
         <SystemInfoModal
           electronAPI={electronAPI}
           onClose={() => setShowSystemInfo(false)}
         />
       )}
-      
-      {showServiceManagement && (
-        <ServiceManagementModal
-          electronAPI={electronAPI}
-          onClose={() => setShowServiceManagement(false)}
+
+      {showBugReport && (
+        <BugReportModal
+          onClose={() => setShowBugReport(false)}
         />
       )}
-      
-      {showLogsViewer && (
-        <LogsViewerModal
+
+      {showUpdateModal && (
+        <UpdateProgressModal
           electronAPI={electronAPI}
-          onClose={() => setShowLogsViewer(false)}
+          onClose={() => setShowUpdateModal(false)}
+        />
+      )}
+      {showQuitConfirmation && (
+        <QuitConfirmationModal
+          onClose={() => setShowQuitConfirmation(false)}
+          onConfirmQuit={handleConfirmQuit}
+          isDDALABRunning={isDDALABRunning}
         />
       )}
       <style jsx>{`
@@ -687,7 +776,7 @@ const AppContent: React.FC = () => {
         }
 
         .main-content.with-sidebar {
-          margin-left: ${isSetupComplete ? '320px' : '280px'};
+          margin-left: ${isSetupComplete ? '280px' : '280px'};
         }
 
         .main-content.with-collapsed-sidebar {

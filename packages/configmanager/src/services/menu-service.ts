@@ -253,7 +253,7 @@ export class MenuService {
   private static async showAboutDialog(): Promise<void> {
     const version = app.getVersion();
     const environment = EnvironmentConfigService.getCurrentEnvironment();
-    
+
     await dialog.showMessageBox(this.mainWindow!, {
       type: 'info',
       title: 'About DDALAB ConfigManager',
@@ -267,7 +267,7 @@ export class MenuService {
     try {
       await AutoUpdateService.forceCheckForUpdates();
       const updateInfo = AutoUpdateService.getUpdateInfo();
-      
+
       if (!updateInfo || !AutoUpdateService.isUpdateAvailable()) {
         await dialog.showMessageBox(this.mainWindow!, {
           type: 'info',
@@ -298,9 +298,9 @@ export class MenuService {
     });
 
     if (!result.canceled && result.filePaths.length > 0) {
-      this.mainWindow?.webContents.send('menu-action', { 
-        action: 'open-setup-directory', 
-        path: result.filePaths[0] 
+      this.mainWindow?.webContents.send('menu-action', {
+        action: 'open-setup-directory',
+        path: result.filePaths[0]
       });
     }
   }
@@ -316,9 +316,9 @@ export class MenuService {
     });
 
     if (!result.canceled && result.filePath) {
-      this.mainWindow?.webContents.send('menu-action', { 
-        action: 'export-configuration', 
-        path: result.filePath 
+      this.mainWindow?.webContents.send('menu-action', {
+        action: 'export-configuration',
+        path: result.filePath
       });
     }
   }
@@ -334,9 +334,9 @@ export class MenuService {
     });
 
     if (!result.canceled && result.filePaths.length > 0) {
-      this.mainWindow?.webContents.send('menu-action', { 
-        action: 'import-configuration', 
-        path: result.filePaths[0] 
+      this.mainWindow?.webContents.send('menu-action', {
+        action: 'import-configuration',
+        path: result.filePaths[0]
       });
     }
   }
@@ -368,7 +368,7 @@ export class MenuService {
   private static async checkDockerInstallation(): Promise<void> {
     try {
       const status = await DockerService.checkDockerInstallation();
-      const message = status.dockerInstalled && status.dockerComposeInstalled 
+      const message = status.dockerInstalled && status.dockerComposeInstalled
         ? `Docker is properly installed.\n\nDocker: ${status.dockerVersion}\nDocker Compose: ${status.dockerComposeVersion}`
         : `Docker installation issues detected:\n\nDocker Installed: ${status.dockerInstalled ? 'Yes' : 'No'}\nDocker Compose Installed: ${status.dockerComposeInstalled ? 'Yes' : 'No'}`;
 

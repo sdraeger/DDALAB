@@ -33,21 +33,46 @@ export function initializeAppLifecycle(): void {
     await checkDockerInstallationOnStartup();
 
     app.on("activate", () => {
+      // On macOS, show the window when clicking the dock icon
       if (BrowserWindow.getAllWindows().length === 0) {
         createWindow();
+      } else {
+        // If window exists but is hidden, show it
+        const existingWindow = BrowserWindow.getAllWindows()[0];
+        if (existingWindow && !existingWindow.isVisible()) {
+          existingWindow.show();
+          existingWindow.focus();
+        }
       }
     });
   });
 
   app.on("window-all-closed", () => {
-    if (process.platform !== "darwin") {
-      app.quit();
-    }
+    // Don't quit the app when all windows are closed
+    // The app will continue running in the system tray/dock
+    // Users can quit via the tray context menu or Cmd+Q on macOS
   });
 
-  app.on("before-quit", () => {
-    DockerService.stopLogStream();
-    SystemTrayService.destroy();
+  app.on("before-quit", (event) => {
+    // Check if quit confirmation has been shown already
+    if (!SystemTrayService.getIsQuitting()) {
+      // Prevent default quit and show confirmation dialog
+      event.preventDefault();
+
+      // Send quit request to renderer to show confirmation modal
+      const mainWindow = BrowserWindow.getAllWindows()[0];
+      if (mainWindow) {
+        mainWindow.webContents.send("quit-request");
+      } else {
+        // If no window, allow quit to proceed
+        DockerService.stopLogStream();
+        SystemTrayService.destroy();
+      }
+    } else {
+      // Quit confirmation already handled, proceed with cleanup
+      DockerService.stopLogStream();
+      SystemTrayService.destroy();
+    }
   });
 }
 

@@ -181,6 +181,41 @@ export interface ElectronAPI {
   }>;
   downloadUpdate: () => Promise<void>;
   testUpdateCheck: () => Promise<void>;
+
+  // Enhanced update methods
+  enhancedCheckForUpdates: () => Promise<{
+    success: boolean;
+    message: string;
+    updateInfo?: any;
+    error?: string;
+  }>;
+  enhancedDownloadUpdate: () => Promise<{
+    success: boolean;
+    message: string;
+    updateInfo?: any;
+    error?: string;
+  }>;
+  installUpdate: () => Promise<{
+    success: boolean;
+    message: string;
+    error?: string;
+  }>;
+  cancelUpdate: () => Promise<void>;
+  testUpdate: () => Promise<{
+    success: boolean;
+    message: string;
+    updateInfo?: any;
+    error?: string;
+  }>;
+  onEnhancedUpdateStatus: (callback: (status: {
+    status: string;
+    message: string;
+    progress?: any;
+    updateInfo?: any;
+    timestamp: string;
+    error?: string;
+  }) => void) => () => void;
+
   // MinIO update methods
   checkMinIOUpdate: () => Promise<{
     currentVersion: string;
@@ -207,6 +242,10 @@ export interface ElectronAPI {
   onMenuAction: (
     callback: (data: { action: string; path?: string }) => void
   ) => () => void;
+
+  // Quit confirmation methods
+  onQuitRequest: (callback: () => void) => () => void;
+  confirmQuit: () => void;
 }
 
 interface ParsedEnvEntry {
@@ -408,6 +447,19 @@ const exposedAPI: ElectronAPI = {
   getSystemInfo: () => ipcRenderer.invoke("get-system-info"),
   downloadUpdate: () => ipcRenderer.invoke("download-update"),
   testUpdateCheck: () => ipcRenderer.invoke("test-update-check"),
+
+  // Enhanced update methods
+  enhancedCheckForUpdates: () => ipcRenderer.invoke("enhanced-check-for-updates"),
+  enhancedDownloadUpdate: () => ipcRenderer.invoke("enhanced-download-update"),
+  installUpdate: () => ipcRenderer.invoke("enhanced-install-update"),
+  cancelUpdate: () => ipcRenderer.invoke("enhanced-cancel-update"),
+  testUpdate: () => ipcRenderer.invoke("enhanced-test-update"),
+  onEnhancedUpdateStatus: (callback: (status: any) => void) => {
+    const handler = (_event: any, status: any) => callback(status);
+    ipcRenderer.on("enhanced-update-status", handler);
+    return () => ipcRenderer.removeListener("enhanced-update-status", handler);
+  },
+
   // MinIO update methods
   checkMinIOUpdate: () => ipcRenderer.invoke("check-minio-update"),
   updateMinIO: () => ipcRenderer.invoke("update-minio"),
@@ -435,6 +487,16 @@ const exposedAPI: ElectronAPI = {
       ipcRenderer.removeListener("menu-action", handler);
     };
   },
+
+  // Quit confirmation methods
+  onQuitRequest: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on("quit-request", handler);
+    return () => {
+      ipcRenderer.removeListener("quit-request", handler);
+    };
+  },
+  confirmQuit: () => ipcRenderer.invoke("app:confirmQuit"),
 };
 
 console.log("[preload.ts] About to expose electronAPI to main world");

@@ -14,6 +14,7 @@ import { registerMinIOUpdateIpcHandlers } from "./ipc/minio-update-ipc";
 import { registerMenuIpcHandlers } from "./ipc/menu-ipc";
 import { logger } from "./utils/logger";
 import { PROJECT_ROOT_ENV_PATH } from "./utils/env-manager";
+import { EnhancedUpdateService } from "./services/enhanced-update-service";
 
 logger.info("Script execution started");
 logger.info("Initializing Paths:", {
@@ -35,5 +36,8 @@ registerDockerCheckIpcHandlers();
 registerUpdateIpcHandlers();
 registerMinIOUpdateIpcHandlers();
 registerMenuIpcHandlers();
+
+// Initialize enhanced update service
+EnhancedUpdateService.getInstance().initialize();
 
 export { setMainWindow } from "./utils/main-window";

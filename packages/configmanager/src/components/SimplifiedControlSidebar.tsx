@@ -1,16 +1,13 @@
 import React, { useState, useEffect } from "react";
 import type { ElectronAPI, UserSelections } from "../utils/electron";
 
-interface ControlPanelSidebarProps {
+interface SimplifiedControlSidebarProps {
   isExpanded: boolean;
   onToggle: () => void;
   electronAPI?: ElectronAPI;
   userSelections: UserSelections;
-  onEditConfig: () => void;
-  onViewLogs: () => void;
-  onManageServices: () => void;
-  onSystemInfo: () => void;
-  onBugReport: () => void;
+  onNewSetup: () => void;
+  onShowUpdateModal: () => void;
 }
 
 interface ServiceStatus {
@@ -19,16 +16,13 @@ interface ServiceStatus {
   services: { [key: string]: string };
 }
 
-export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
+export const SimplifiedControlSidebar: React.FC<SimplifiedControlSidebarProps> = ({
   isExpanded,
   onToggle,
   electronAPI,
   userSelections,
-  onEditConfig,
-  onViewLogs,
-  onManageServices,
-  onSystemInfo,
-  onBugReport,
+  onNewSetup,
+  onShowUpdateModal,
 }) => {
   const [serviceStatus, setServiceStatus] = useState<ServiceStatus | null>(null);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
@@ -57,17 +51,9 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
     const checkServiceStatus = async () => {
       if (electronAPI) {
         try {
-          // Check Docker installation status
           const dockerInstallStatus = await electronAPI.checkDockerInstallation();
-          console.log('Docker installation status:', dockerInstallStatus);
-
-          // Check if Docker daemon is running
           const dockerDaemonRunning = await electronAPI.getIsDockerRunning();
-          console.log('Docker daemon running:', dockerDaemonRunning);
-
-          // Check if DDALAB containers are running
           const ddalabRunning = await electronAPI.getDockerStatus();
-          console.log('DDALAB containers running:', ddalabRunning);
 
           let dockerEngineStatus = "Not installed";
           if (dockerInstallStatus.dockerInstalled) {
@@ -108,23 +94,15 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
     };
 
     checkServiceStatus();
-    const interval = setInterval(checkServiceStatus, 10000); // Check every 10 seconds
+    const interval = setInterval(checkServiceStatus, 15000); // Check every 15 seconds
     return () => clearInterval(interval);
   }, [electronAPI]);
 
   const handleCheckForUpdates = async () => {
     if (!electronAPI || isCheckingUpdate) return;
 
-    setIsCheckingUpdate(true);
-    try {
-      await electronAPI.checkForUpdates();
-      const info = await electronAPI.getUpdateInfo();
-      setUpdateInfo(info);
-    } catch (error) {
-      console.error("Failed to check for updates:", error);
-    } finally {
-      setIsCheckingUpdate(false);
-    }
+    // Use the enhanced update modal instead of handling updates inline
+    onShowUpdateModal();
   };
 
   const getStatusClass = (status: string): string => {
@@ -143,46 +121,8 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
     return 'stopped';
   };
 
-  const quickActions = [
-    {
-      id: 'edit-config',
-      title: 'Edit Configuration',
-      icon: '⚙️',
-      description: 'Modify setup variables',
-      onClick: onEditConfig
-    },
-    {
-      id: 'manage-services',
-      title: 'Manage Services',
-      icon: '🐳',
-      description: 'Start/stop Docker services',
-      onClick: onManageServices
-    },
-    {
-      id: 'view-logs',
-      title: 'View Logs',
-      icon: '📋',
-      description: 'Application and Docker logs',
-      onClick: onViewLogs
-    },
-    {
-      id: 'system-info',
-      title: 'System Info',
-      icon: 'ℹ️',
-      description: 'System and Docker status',
-      onClick: onSystemInfo
-    },
-    {
-      id: 'bug-report',
-      title: 'Report Bug',
-      icon: '🐛',
-      description: 'Report a bug or issue',
-      onClick: onBugReport
-    }
-  ];
-
   return (
-    <div className={`control-panel-sidebar ${isExpanded ? 'expanded' : 'collapsed'}`}>
+    <div className={`simplified-control-sidebar ${isExpanded ? 'expanded' : 'collapsed'}`}>
       <div className="sidebar-header">
         <button
           className="btn btn-sm btn-outline-secondary toggle-btn"
@@ -191,58 +131,45 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
         >
           {isExpanded ? '◀' : '▶'}
         </button>
-        {isExpanded && <h6 className="mb-0">DDALAB Control</h6>}
+        {isExpanded && <h6 className="mb-0">DDALAB</h6>}
       </div>
 
       {isExpanded && (
         <div className="sidebar-content">
-          {/* Service Status */}
+          {/* Service Status Summary */}
           <div className="status-section">
-            <h6 className="section-title">Service Status</h6>
+            <h6 className="section-title">Status</h6>
             {serviceStatus && (
-              <div className="status-grid">
-                {Object.entries(serviceStatus.services).map(([service, status]) => (
-                  <div key={service} className="status-item">
-                    <span className="service-name">{service}</span>
-                    <span className={`status-badge ${getStatusClass(status)}`}>
-                      {status}
-                    </span>
+              <div className="status-summary">
+                <div className="overall-status">
+                  <div className={`status-indicator ${serviceStatus.healthy ? 'healthy' : 'unhealthy'}`}>
+                    {serviceStatus.healthy ? '🟢' : '🔴'}
                   </div>
-                ))}
+                  <div className="status-text">
+                    <div className="fw-bold">
+                      {serviceStatus.healthy ? 'Running' : 'Stopped'}
+                    </div>
+                    <small className="text-muted">
+                      {serviceStatus.healthy ? 'All services operational' : 'Services not running'}
+                    </small>
+                  </div>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Quick Actions */}
-          <div className="actions-section">
-            <h6 className="section-title">Quick Actions</h6>
-            <div className="action-grid">
-              {quickActions.map(action => (
-                <button
-                  key={action.id}
-                  className="action-button"
-                  onClick={action.onClick}
-                  title={action.description}
-                >
-                  <span className="action-icon">{action.icon}</span>
-                  <span className="action-title">{action.title}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Setup Information */}
           <div className="info-section">
-            <h6 className="section-title">Setup Info</h6>
+            <h6 className="section-title">Setup</h6>
             <div className="info-content">
               <div className="info-item">
-                <label>Setup Type:</label>
+                <label>Type:</label>
                 <span className="setup-type-badge">
                   {userSelections.setupType || 'Docker'}
                 </span>
               </div>
               <div className="info-item">
-                <label>Data Location:</label>
+                <label>Location:</label>
                 <div className="location-path" title={userSelections.dataLocation}>
                   {userSelections.dataLocation ?
                     userSelections.dataLocation.split('/').pop() || userSelections.dataLocation :
@@ -250,69 +177,75 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
                   }
                 </div>
               </div>
-              {userSelections.setupType === 'docker' && (
-                <div className="info-item">
-                  <label>Ports:</label>
-                  <span className="port-info">
-                    Web: {userSelections.webPort || '3000'},
-                    API: {userSelections.apiPort || '8001'}
-                  </span>
-                </div>
-              )}
             </div>
           </div>
 
-          {/* Footer with version and updates */}
-          <div className="sidebar-footer">
-            <div className="build-info">
-              {buildInfo && (
-                <div className="mb-2">
-                  <small className="text-muted">
-                    v{buildInfo.version}
-                    {buildInfo.environment !== 'production' && (
-                      <span className="badge badge-warning ms-1">
-                        {buildInfo.environment}
-                      </span>
-                    )}
-                  </small>
-                </div>
-              )}
-
+          {/* Navigation Actions */}
+          <div className="actions-section">
+            <h6 className="section-title">Actions</h6>
+            <div className="d-grid gap-2">
               <button
-                className="btn btn-sm btn-outline-primary w-100"
-                onClick={handleCheckForUpdates}
-                disabled={isCheckingUpdate}
+                className="btn btn-outline-primary btn-sm"
+                onClick={onNewSetup}
               >
-                {isCheckingUpdate ? (
-                  <>
-                    <span className="spinner-border spinner-border-sm me-1" />
-                    Checking...
-                  </>
-                ) : (
-                  'Check for Updates'
-                )}
+                🔧 New Setup
               </button>
-
-              {updateInfo && (
-                <div className="mt-2">
-                  {updateInfo.available ? (
-                    <div className="alert alert-info alert-sm">
-                      <small>Update available: v{updateInfo.version}</small>
-                    </div>
-                  ) : (
-                    <div className="alert alert-success alert-sm">
-                      <small>Up to date</small>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           </div>
         </div>
       )}
 
+      {/* Footer with version and updates */}
+      {isExpanded && (
+        <div className="sidebar-footer">
+          <div className="build-info">
+            {buildInfo && (
+              <div className="mb-2">
+                <small className="text-muted">
+                  v{buildInfo.version}
+                  {buildInfo.environment !== 'production' && (
+                    <span className="badge badge-warning ms-1">
+                      {buildInfo.environment}
+                    </span>
+                  )}
+                </small>
+              </div>
+            )}
+
+            <button
+              className="btn btn-sm btn-outline-primary w-100"
+              onClick={handleCheckForUpdates}
+              disabled={isCheckingUpdate}
+            >
+              {isCheckingUpdate ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-1" />
+                  Checking...
+                </>
+              ) : (
+                'Check Updates'
+              )}
+            </button>
+
+            {updateInfo && (
+              <div className="mt-2">
+                {updateInfo.available ? (
+                  <div className="alert alert-info alert-sm">
+                    <small>Update available: v{updateInfo.version}</small>
+                  </div>
+                ) : (
+                  <div className="alert alert-success alert-sm">
+                    <small>Up to date</small>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <style jsx>{`
-        .control-panel-sidebar {
+        .simplified-control-sidebar {
           position: fixed;
           left: 0;
           top: 0;
@@ -325,12 +258,12 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
           flex-direction: column;
         }
 
-        .control-panel-sidebar.collapsed {
+        .simplified-control-sidebar.collapsed {
           width: 50px;
         }
 
-        .control-panel-sidebar.expanded {
-          width: 320px;
+        .simplified-control-sidebar.expanded {
+          width: 280px;
         }
 
         .sidebar-header {
@@ -375,95 +308,27 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
           border: 1px solid #e9ecef;
         }
 
-        .status-grid {
+        .status-summary {
           display: flex;
           flex-direction: column;
-          gap: 8px;
+          gap: 12px;
         }
 
-        .status-item {
+        .overall-status {
           display: flex;
-          justify-content: space-between;
           align-items: center;
+          gap: 12px;
         }
 
-        .service-name {
-          font-size: 12px;
-          font-weight: 500;
+        .status-indicator {
+          font-size: 18px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
-        .status-badge {
-          padding: 2px 8px;
-          border-radius: 12px;
-          font-size: 10px;
-          font-weight: 600;
-          text-transform: uppercase;
-        }
-
-        .status-badge.running {
-          background: #d4edda;
-          color: #155724;
-        }
-
-        .status-badge.stopped {
-          background: #f8d7da;
-          color: #721c24;
-        }
-
-        .status-badge.warning {
-          background: #fff3cd;
-          color: #856404;
-        }
-
-        .status-badge.error {
-          background: #f8d7da;
-          color: #721c24;
-        }
-
-        .actions-section {
+        .status-text {
           flex: 1;
-        }
-
-        .action-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 10px;
-        }
-
-        .action-grid .action-button:nth-child(5) {
-          grid-column: 1 / -1;
-        }
-
-        .action-button {
-          background: #fff;
-          border: 1px solid #e9ecef;
-          border-radius: 8px;
-          padding: 15px 10px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 8px;
-          transition: all 0.2s ease;
-          cursor: pointer;
-          text-decoration: none;
-        }
-
-        .action-button:hover {
-          border-color: #007bff;
-          background: #f8f9ff;
-          transform: translateY(-1px);
-        }
-
-        .action-icon {
-          font-size: 20px;
-        }
-
-        .action-title {
-          font-size: 11px;
-          font-weight: 500;
-          text-align: center;
-          line-height: 1.2;
-          color: #495057;
         }
 
         .info-section {
@@ -514,15 +379,16 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
           word-break: break-all;
         }
 
-        .port-info {
-          font-size: 11px;
-          color: #495057;
-          font-family: monospace;
+        .actions-section {
+          background: #fff;
+          padding: 15px;
+          border-radius: 8px;
+          border: 1px solid #e9ecef;
         }
 
         .sidebar-footer {
           border-top: 1px solid #dee2e6;
-          padding-top: 15px;
+          padding: 15px;
         }
 
         .build-info {
