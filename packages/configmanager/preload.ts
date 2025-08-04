@@ -59,8 +59,28 @@ export interface ElectronAPI {
     setupPath: string | null;
     dataLocation?: string;
     cloneLocation?: string;
+    userSelections?: any;
+    currentSite?: string;
+    parsedEnvEntries?: any[];
+    installationSuccess?: boolean | null;
+    lastUpdated?: number;
+    version?: string;
     error?: boolean;
   }>;
+  saveUserState: (
+    userSelections: any,
+    currentSite: string,
+    parsedEnvEntries: any[],
+    installationSuccess: boolean | null
+  ) => Promise<void>;
+  saveFullState: (
+    setupPathOrDataLocation: string | null,
+    cloneLocation: string | null,
+    userSelections: any,
+    currentSite: string,
+    parsedEnvEntries: any[],
+    installationSuccess: boolean | null
+  ) => Promise<void>;
   onSetupProgress: (
     callback: (progress: { message: string; type?: string }) => void
   ) => () => void;
@@ -147,8 +167,34 @@ export interface ElectronAPI {
     releaseDate: string;
     releaseNotes?: string;
     downloadUrl?: string;
+    currentVersion?: string;
+    newVersion?: string;
   } | null>;
   isUpdateAvailable: () => Promise<boolean>;
+  getCurrentVersion: () => Promise<string>;
+  getEnvironment: () => Promise<string>;
+  getSystemInfo: () => Promise<{
+    platform: string;
+    nodeVersion: string;
+    electronVersion: string;
+    arch: string;
+  }>;
+  downloadUpdate: () => Promise<void>;
+  testUpdateCheck: () => Promise<void>;
+  // MinIO update methods
+  checkMinIOUpdate: () => Promise<{
+    currentVersion: string;
+    latestVersion: string;
+    updateAvailable: boolean;
+    lastChecked: string;
+  }>;
+  updateMinIO: () => Promise<{ success: boolean; message: string }>;
+  getMinIOUpdateInfo: () => Promise<{
+    currentVersion: string;
+    latestVersion: string;
+    updateAvailable: boolean;
+    lastChecked: string;
+  } | null>;
   onUpdateStatus: (
     callback: (data: {
       status: string;
@@ -156,6 +202,10 @@ export interface ElectronAPI {
       data?: any;
       timestamp: string;
     }) => void
+  ) => () => void;
+  // Menu action handlers
+  onMenuAction: (
+    callback: (data: { action: string; path?: string }) => void
   ) => () => void;
 }
 
@@ -219,7 +269,37 @@ const exposedAPI: ElectronAPI = {
     ipcRenderer.invoke("save-env-file", envPath, envData),
   runInitialSetup: (dataLocation: string, cloneLocation: string) =>
     ipcRenderer.invoke("run-initial-setup", dataLocation, cloneLocation),
-  getConfigManagerState: () => ipcRenderer.invoke("get-configmanager-state"),
+  getConfigManagerState: () => ipcRenderer.invoke("configmanager:get-state"),
+  saveUserState: (
+    userSelections: any,
+    currentSite: string,
+    parsedEnvEntries: any[],
+    installationSuccess: boolean | null
+  ) =>
+    ipcRenderer.invoke(
+      "configmanager:save-user-state",
+      userSelections,
+      currentSite,
+      parsedEnvEntries,
+      installationSuccess
+    ),
+  saveFullState: (
+    setupPathOrDataLocation: string | null,
+    cloneLocation: string | null,
+    userSelections: any,
+    currentSite: string,
+    parsedEnvEntries: any[],
+    installationSuccess: boolean | null
+  ) =>
+    ipcRenderer.invoke(
+      "configmanager:save-full-state",
+      setupPathOrDataLocation,
+      cloneLocation,
+      userSelections,
+      currentSite,
+      parsedEnvEntries,
+      installationSuccess
+    ),
   onSetupProgress: (callback) => {
     const handler = (
       _event: any,
@@ -323,6 +403,15 @@ const exposedAPI: ElectronAPI = {
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
   getUpdateInfo: () => ipcRenderer.invoke("get-update-info"),
   isUpdateAvailable: () => ipcRenderer.invoke("is-update-available"),
+  getCurrentVersion: () => ipcRenderer.invoke("get-current-version"),
+  getEnvironment: () => ipcRenderer.invoke("get-environment"),
+  getSystemInfo: () => ipcRenderer.invoke("get-system-info"),
+  downloadUpdate: () => ipcRenderer.invoke("download-update"),
+  testUpdateCheck: () => ipcRenderer.invoke("test-update-check"),
+  // MinIO update methods
+  checkMinIOUpdate: () => ipcRenderer.invoke("check-minio-update"),
+  updateMinIO: () => ipcRenderer.invoke("update-minio"),
+  getMinIOUpdateInfo: () => ipcRenderer.invoke("get-minio-update-info"),
   onUpdateStatus: (callback) => {
     const handler = (
       _event: any,
@@ -336,6 +425,14 @@ const exposedAPI: ElectronAPI = {
     ipcRenderer.on("update-status", handler);
     return () => {
       ipcRenderer.removeListener("update-status", handler);
+    };
+  },
+  // Menu action handlers
+  onMenuAction: (callback) => {
+    const handler = (_event: any, data: { action: string; path?: string }) => callback(data);
+    ipcRenderer.on("menu-action", handler);
+    return () => {
+      ipcRenderer.removeListener("menu-action", handler);
     };
   },
 };

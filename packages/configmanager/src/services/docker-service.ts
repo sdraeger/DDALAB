@@ -566,6 +566,17 @@ services:
     return this.isDockerRunning;
   }
 
+  // New method to actually check if Docker daemon is running
+  static async checkDockerDaemonRunning(): Promise<boolean> {
+    try {
+      const result = await this.execCommand("docker info");
+      return result.success;
+    } catch (error) {
+      logger.warn("Docker daemon check failed:", error);
+      return false;
+    }
+  }
+
   static async startDockerCompose(state: ConfigManagerState): Promise<boolean> {
     const mainWindow = getMainWindow();
     if (!mainWindow || !state.setupPath) {
