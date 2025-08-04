@@ -58,15 +58,15 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
           // Check Docker installation status
           const dockerInstallStatus = await electronAPI.checkDockerInstallation();
           console.log('Docker installation status:', dockerInstallStatus);
-          
+
           // Check if Docker daemon is running
           const dockerDaemonRunning = await electronAPI.getIsDockerRunning();
           console.log('Docker daemon running:', dockerDaemonRunning);
-          
+
           // Check if DDALAB containers are running
           const ddalabRunning = await electronAPI.getDockerStatus();
           console.log('DDALAB containers running:', ddalabRunning);
-          
+
           let dockerEngineStatus = "Not installed";
           if (dockerInstallStatus.dockerInstalled) {
             if (dockerDaemonRunning) {
@@ -82,7 +82,7 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
           if (dockerDaemonRunning) {
             ddalabServicesStatus = ddalabRunning ? "Running" : "Stopped";
           }
-          
+
           setServiceStatus({
             running: dockerDaemonRunning,
             healthy: dockerDaemonRunning && ddalabRunning,
@@ -112,7 +112,7 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
 
   const handleCheckForUpdates = async () => {
     if (!electronAPI || isCheckingUpdate) return;
-    
+
     setIsCheckingUpdate(true);
     try {
       await electronAPI.checkForUpdates();
@@ -235,7 +235,7 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
               <div className="info-item">
                 <label>Data Location:</label>
                 <div className="location-path" title={userSelections.dataLocation}>
-                  {userSelections.dataLocation ? 
+                  {userSelections.dataLocation ?
                     userSelections.dataLocation.split('/').pop() || userSelections.dataLocation :
                     'Not configured'
                   }
@@ -245,7 +245,7 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
                 <div className="info-item">
                   <label>Ports:</label>
                   <span className="port-info">
-                    Web: {userSelections.webPort || '3000'}, 
+                    Web: {userSelections.webPort || '3000'},
                     API: {userSelections.apiPort || '8001'}
                   </span>
                 </div>
@@ -268,7 +268,7 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
                   </small>
                 </div>
               )}
-              
+
               <button
                 className="btn btn-sm btn-outline-primary w-100"
                 onClick={handleCheckForUpdates}
@@ -283,7 +283,7 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
                   'Check for Updates'
                 )}
               </button>
-              
+
               {updateInfo && (
                 <div className="mt-2">
                   {updateInfo.available ? (

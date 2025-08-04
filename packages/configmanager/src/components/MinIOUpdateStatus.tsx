@@ -216,4 +216,4 @@ export const MinIOUpdateStatus: React.FC = () => {
 			</CardContent>
 		</Card>
 	);
-}; 
+};

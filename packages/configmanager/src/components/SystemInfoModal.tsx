@@ -38,7 +38,7 @@ export const SystemInfoModal: React.FC<SystemInfoModalProps> = ({
     const fetchSystemInfo = async () => {
       console.log('SystemInfoModal: Starting to fetch system info...');
       setIsLoading(true);
-      
+
       try {
         // Start with basic info that should always work
         const info: SystemInfo = {
@@ -112,7 +112,7 @@ export const SystemInfoModal: React.FC<SystemInfoModalProps> = ({
           console.log('SystemInfoModal: Checking Docker installation...');
           const dockerStatus = await electronAPI.checkDockerInstallation();
           console.log('SystemInfoModal: Docker installation status:', dockerStatus);
-          
+
           info.dockerInfo = {
             dockerInstalled: dockerStatus?.dockerInstalled || false,
             dockerComposeInstalled: dockerStatus?.dockerComposeInstalled || false,
@@ -130,7 +130,7 @@ export const SystemInfoModal: React.FC<SystemInfoModalProps> = ({
           console.log('SystemInfoModal: Checking Docker daemon status...');
           const dockerRunning = await electronAPI.getIsDockerRunning();
           console.log('SystemInfoModal: Docker running:', dockerRunning);
-          
+
           if (info.dockerInfo) {
             info.dockerInfo.dockerRunning = dockerRunning;
           }
@@ -146,7 +146,7 @@ export const SystemInfoModal: React.FC<SystemInfoModalProps> = ({
           console.log('SystemInfoModal: Checking DDALAB service status...');
           const ddalabRunning = await electronAPI.getDockerStatus();
           console.log('SystemInfoModal: DDALAB running:', ddalabRunning);
-          
+
           if (info.dockerInfo) {
             (info.dockerInfo as any).ddalabRunning = ddalabRunning;
           }
@@ -160,7 +160,7 @@ export const SystemInfoModal: React.FC<SystemInfoModalProps> = ({
           console.log('SystemInfoModal: Getting setup paths...');
           const state = await electronAPI.getConfigManagerState();
           console.log('SystemInfoModal: Config manager state:', state);
-          
+
           info.paths.dataLocation = state?.dataLocation || 'Not configured';
           info.paths.cloneLocation = state?.cloneLocation || 'Not configured';
         } catch (error) {
@@ -171,10 +171,10 @@ export const SystemInfoModal: React.FC<SystemInfoModalProps> = ({
 
         console.log('SystemInfoModal: Final system info:', info);
         setSystemInfo(info);
-        
+
       } catch (error) {
         console.error('SystemInfoModal: Critical error in fetchSystemInfo:', error);
-        
+
         // Fallback: create minimal system info
         const fallbackInfo: SystemInfo = {
           version: 'Error',
@@ -194,7 +194,7 @@ export const SystemInfoModal: React.FC<SystemInfoModalProps> = ({
             userDataPath: 'Error'
           }
         };
-        
+
         setSystemInfo(fallbackInfo);
       } finally {
         console.log('SystemInfoModal: Finished fetching system info');
@@ -371,9 +371,9 @@ Setup Paths:
               )}
             </div>
             <div className="modal-footer">
-              <button 
-                type="button" 
-                className="btn btn-secondary" 
+              <button
+                type="button"
+                className="btn btn-secondary"
                 onClick={copyToClipboard}
                 disabled={!systemInfo}
               >

@@ -26,7 +26,7 @@ export const ServiceManagementModal: React.FC<ServiceManagementModalProps> = ({
   useEffect(() => {
     const checkServiceStatus = async () => {
       setIsLoading(true);
-      
+
       if (!electronAPI) {
         setServices([{
           name: 'Docker Services',
@@ -47,9 +47,9 @@ export const ServiceManagementModal: React.FC<ServiceManagementModalProps> = ({
         const serviceList: ServiceStatus[] = [
           {
             name: 'Docker Engine',
-            status: dockerInstalled.dockerInstalled ? 
+            status: dockerInstalled.dockerInstalled ?
               (dockerRunning ? 'running' : 'stopped') : 'error',
-            description: dockerInstalled.dockerInstalled ? 
+            description: dockerInstalled.dockerInstalled ?
               (dockerRunning ? 'Docker daemon is running' : 'Docker daemon is not running') :
               'Docker is not installed',
             canStart: false, // Can't control Docker daemon from app
@@ -58,7 +58,7 @@ export const ServiceManagementModal: React.FC<ServiceManagementModalProps> = ({
           {
             name: 'DDALAB Services',
             status: dockerRunning ? (ddalabRunning ? 'running' : 'stopped') : 'error',
-            description: dockerRunning ? 
+            description: dockerRunning ?
               (ddalabRunning ? 'All DDALAB containers are running' : 'DDALAB containers are stopped') :
               'Docker daemon is not running',
             canStart: dockerRunning && !ddalabRunning,
@@ -82,7 +82,7 @@ export const ServiceManagementModal: React.FC<ServiceManagementModalProps> = ({
     };
 
     checkServiceStatus();
-    
+
     // Set up periodic refresh
     const interval = setInterval(checkServiceStatus, 5000);
     return () => clearInterval(interval);
@@ -152,7 +152,7 @@ export const ServiceManagementModal: React.FC<ServiceManagementModalProps> = ({
       }
 
       setStatusMessage('Services stopped, starting again...');
-      
+
       // Wait a moment
       await new Promise(resolve => setTimeout(resolve, 2000));
 
