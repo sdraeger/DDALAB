@@ -242,11 +242,8 @@ Setup Paths:
         <div className="modal-dialog modal-lg">
           <div className="modal-content">
             <div className="modal-header">
-              <div className="modal-title-container">
-                <h5 className="modal-title">🛠️ System Information</h5>
-                <p className="modal-subtitle">DDALAB ConfigManager diagnostic information</p>
-              </div>
-              <button type="button" className="btn-close" onClick={onClose}></button>
+              <h5 className="modal-title">🛠️ System Information</h5>
+              <button type="button" className="btn-close" onClick={onClose} aria-label="Close"></button>
             </div>
             <div className="modal-body">
               {isLoading ? (
@@ -418,41 +415,46 @@ Setup Paths:
         }
 
         .modal-header {
-          padding: 24px 24px 16px;
+          padding: 20px 24px;
           border-bottom: 1px solid #e9ecef;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-          border-radius: 16px 16px 0 0;
-        }
-
-        .modal-title-container {
-          flex: 1;
+          background: #fff;
+          border-radius: 8px 8px 0 0;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
         }
 
         .modal-title {
-          font-size: 20px;
-          font-weight: 700;
+          font-size: 18px;
+          font-weight: 600;
           margin: 0;
-          color: white;
-        }
-
-        .modal-subtitle {
-          font-size: 14px;
-          margin: 4px 0 0 0;
-          color: rgba(255, 255, 255, 0.8);
-          font-weight: 400;
+          color: #495057;
         }
 
         .btn-close {
-          background: rgba(255, 255, 255, 0.2);
-          border-radius: 50%;
-          width: 32px;
-          height: 32px;
-          opacity: 1;
+          background: transparent;
+          border: none;
+          font-size: 20px;
+          font-weight: 700;
+          line-height: 1;
+          color: #6c757d;
+          opacity: 0.75;
+          padding: 0;
+          width: 24px;
+          height: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
         .btn-close:hover {
-          background: rgba(255, 255, 255, 0.3);
+          color: #000;
+          opacity: 1;
+        }
+
+        .btn-close:focus {
+          outline: none;
+          box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
         }
 
         .modal-body {

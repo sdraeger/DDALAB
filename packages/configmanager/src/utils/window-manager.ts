@@ -1,6 +1,7 @@
-import { BrowserWindow } from "electron";
+import { BrowserWindow, app } from "electron";
 import path from "path";
 import { setMainWindow as setMainProcessMainWindow } from "../main";
+import { SystemTrayService } from "../services/system-tray-service";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -21,6 +22,19 @@ export function createWindow(): BrowserWindow {
   const htmlPath = path.join(__dirname, "src", "configmanager.html");
   console.log("[window-manager.ts] HTML file path:", htmlPath);
   newWindow.loadFile(htmlPath);
+
+  newWindow.on("close", (event) => {
+    // Check if the app is being force quit (via tray menu or Cmd+Q)
+    if (SystemTrayService.getIsQuitting()) {
+      // Allow the window to close normally when quitting
+      return;
+    }
+
+    // Otherwise, hide the window instead of closing it
+    // This keeps the app running in the system tray (Windows/Linux) or dock (macOS)
+    event.preventDefault();
+    newWindow.hide();
+  });
 
   newWindow.on("closed", () => {
     if (mainWindow === newWindow) {

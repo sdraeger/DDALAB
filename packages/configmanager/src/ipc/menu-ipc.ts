@@ -57,7 +57,7 @@ export function registerMenuIpcHandlers(): void {
       // Clear application data
       const userDataPath = app.getPath("userData");
       const configPath = path.join(userDataPath, "config.json");
-      
+
       try {
         await fs.unlink(configPath);
       } catch (error) {
@@ -86,11 +86,11 @@ export function registerMenuIpcHandlers(): void {
       }
 
       const setupPath = currentState.setupPath || currentState.dataLocation;
-      
+
       // Validate Docker setup if it's a Docker configuration
       const result = await validateSetupDirectory(setupPath);
       logger.info(`Setup validation result for ${setupPath}:`, result);
-      
+
       return result;
     } catch (error: any) {
       logger.error("Error validating setup:", error);
@@ -161,17 +161,17 @@ export function registerMenuIpcHandlers(): void {
     try {
       const isRunning = await DockerService.getIsDockerRunning();
       const status = await DockerService.getDockerStatus();
-      
+
       event.sender.send('docker-status-update', {
         type: 'info',
         message: `Docker services are ${isRunning ? 'running' : 'stopped'}`
       });
 
-      return { 
-        success: true, 
-        running: isRunning, 
+      return {
+        success: true,
+        running: isRunning,
         status: status,
-        message: `Services are ${isRunning ? 'running' : 'stopped'}` 
+        message: `Services are ${isRunning ? 'running' : 'stopped'}`
       };
     } catch (error: any) {
       logger.error("Error checking Docker status:", error);
@@ -209,7 +209,7 @@ export function registerMenuIpcHandlers(): void {
     try {
       const userDataPath = app.getPath("userData");
       const logsPath = path.join(userDataPath, "logs");
-      
+
       // Create logs directory if it doesn't exist
       try {
         await fs.mkdir(logsPath, { recursive: true });
@@ -247,15 +247,15 @@ async function validateSetupDirectory(setupPath: string): Promise<{ success: boo
     }
 
     if (missingFiles.length > 0) {
-      return { 
-        success: false, 
-        error: `Missing required files: ${missingFiles.join(', ')}` 
+      return {
+        success: false,
+        error: `Missing required files: ${missingFiles.join(', ')}`
       };
     }
 
-    return { 
-      success: true, 
-      message: "Setup directory validation successful" 
+    return {
+      success: true,
+      message: "Setup directory validation successful"
     };
   } catch (error: any) {
     return { success: false, error: error.message };

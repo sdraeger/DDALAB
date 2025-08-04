@@ -9,3 +9,8 @@ export * from "./ProgressSidebar";
 export * from "./ControlPanelSidebar";
 export * from "./ConfigurationEditor";
 export * from "./SystemInfoModal";
+export * from "./BugReportModal";
+export * from "./EnhancedControlPanel";
+export * from "./SimplifiedControlSidebar";
+export * from "./UpdateProgressModal";
+export * from "./QuitConfirmationModal";

@@ -1,6 +1,8 @@
 import { ipcMain, dialog, app } from "electron";
 import { getMainWindow } from "../utils/window-manager";
 import { SetupService } from "../services/setup-service";
+import { SystemTrayService } from "../services/system-tray-service";
+import { DockerService } from "../services/docker-service";
 import type { UserSelections, ParsedEnvEntry } from "../utils/electron";
 
 export function registerConfigManagerIpcHandlers(): void {
@@ -65,6 +67,16 @@ export function registerConfigManagerIpcHandlers(): void {
   );
 
   ipcMain.on("configmanager:quit-app", () => {
+    app.quit();
+  });
+
+  // Quit confirmation handlers
+  ipcMain.handle("app:confirmQuit", async () => {
+    // Set the quitting flag so the before-quit handler knows to proceed
+    SystemTrayService.setIsQuitting(true);
+
+    // Clean up and quit the app
+    SystemTrayService.destroy();
     app.quit();
   });
 }

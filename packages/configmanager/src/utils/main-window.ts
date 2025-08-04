@@ -1,6 +1,7 @@
 import { BrowserWindow } from "electron";
 import { logger } from "./logger";
 import { SetupService } from "../services/setup-service";
+import { EnhancedUpdateService } from "../services/enhanced-update-service";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -11,6 +12,9 @@ export function getMainWindow(): BrowserWindow | null {
 export function setMainWindow(win: BrowserWindow) {
   logger.info(`setMainWindow called with window ID: ${win.id}`);
   mainWindow = win;
+
+  // Set window reference in enhanced update service
+  EnhancedUpdateService.getInstance().setMainWindow(win);
 
   win.webContents.on("before-input-event", (event, input) => {
     if (

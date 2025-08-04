@@ -7,6 +7,7 @@ import { SetupService } from "./setup-service";
 export class SystemTrayService {
   private static tray: Tray | null = null;
   private static mainWindow: BrowserWindow | null = null;
+  private static isQuitting = false;
 
   static initialize(mainWindow: BrowserWindow): void {
     this.mainWindow = mainWindow;
@@ -97,7 +98,7 @@ export class SystemTrayService {
       { type: "separator" },
       {
         label: "Quit",
-        click: () => app.quit(),
+        click: () => this.quitApp(),
       },
     ];
 
@@ -189,6 +190,25 @@ export class SystemTrayService {
 
     // Update menu
     this.updateTrayMenu();
+  }
+
+  private static quitApp(): void {
+    // Send quit request to renderer instead of directly quitting
+    if (this.mainWindow) {
+      this.mainWindow.webContents.send("quit-request");
+    } else {
+      // Fallback: quit directly if no main window
+      this.isQuitting = true;
+      app.quit();
+    }
+  }
+
+  static getIsQuitting(): boolean {
+    return this.isQuitting;
+  }
+
+  static setIsQuitting(value: boolean): void {
+    this.isQuitting = value;
   }
 
   static destroy(): void {

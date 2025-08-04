@@ -10,6 +10,7 @@ interface ControlPanelSidebarProps {
   onViewLogs: () => void;
   onManageServices: () => void;
   onSystemInfo: () => void;
+  onBugReport: () => void;
 }
 
 interface ServiceStatus {
@@ -27,6 +28,7 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
   onViewLogs,
   onManageServices,
   onSystemInfo,
+  onBugReport,
 }) => {
   const [serviceStatus, setServiceStatus] = useState<ServiceStatus | null>(null);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
@@ -169,6 +171,13 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
       icon: 'ℹ️',
       description: 'System and Docker status',
       onClick: onSystemInfo
+    },
+    {
+      id: 'bug-report',
+      title: 'Report Bug',
+      icon: '🐛',
+      description: 'Report a bug or issue',
+      onClick: onBugReport
     }
   ];
 
@@ -419,6 +428,10 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 10px;
+        }
+
+        .action-grid .action-button:nth-child(5) {
+          grid-column: 1 / -1;
         }
 
         .action-button {
