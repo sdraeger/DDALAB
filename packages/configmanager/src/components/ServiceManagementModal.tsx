@@ -19,13 +19,21 @@ export const ServiceManagementModal: React.FC<ServiceManagementModalProps> = ({
   onClose,
 }) => {
   const [services, setServices] = useState<ServiceStatus[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [operationInProgress, setOperationInProgress] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
 
   useEffect(() => {
-    const checkServiceStatus = async () => {
-      setIsLoading(true);
+    const checkServiceStatus = async (isInitial = false) => {
+      if (isInitial) {
+        setIsInitialLoading(true);
+      } else {
+        // Don't show refresh indicator if user is performing an operation
+        if (!operationInProgress) {
+          setIsRefreshing(true);
+        }
+      }
 
       if (!electronAPI) {
         setServices([{
@@ -35,7 +43,12 @@ export const ServiceManagementModal: React.FC<ServiceManagementModalProps> = ({
           canStart: false,
           canStop: false
         }]);
-        setIsLoading(false);
+        if (isInitial) {
+          setIsInitialLoading(false);
+        } else {
+          // Ensure refresh indicator shows for at least 500ms for visibility
+          setTimeout(() => setIsRefreshing(false), 500);
+        }
         return;
       }
 
@@ -77,16 +90,22 @@ export const ServiceManagementModal: React.FC<ServiceManagementModalProps> = ({
           canStop: false
         }]);
       } finally {
-        setIsLoading(false);
+        if (isInitial) {
+          setIsInitialLoading(false);
+        } else {
+          // Ensure refresh indicator shows for at least 500ms for visibility
+          setTimeout(() => setIsRefreshing(false), 500);
+        }
       }
     };
 
-    checkServiceStatus();
+    // Initial load
+    checkServiceStatus(true);
 
-    // Set up periodic refresh
-    const interval = setInterval(checkServiceStatus, 5000);
+    // Set up periodic refresh without loading indicator
+    const interval = setInterval(() => checkServiceStatus(false), 8000);
     return () => clearInterval(interval);
-  }, [electronAPI]);
+  }, [electronAPI, operationInProgress]);
 
   const handleStartService = async (serviceName: string) => {
     if (!electronAPI || operationInProgress) return;
@@ -198,14 +217,20 @@ export const ServiceManagementModal: React.FC<ServiceManagementModalProps> = ({
         <div className="modal-dialog modal-lg">
           <div className="modal-content">
             <div className="modal-header">
-              <div className="modal-title-container">
-                <h5 className="modal-title">🐳 Service Management</h5>
-                <p className="modal-subtitle">Control and monitor DDALAB services</p>
-              </div>
-              <button type="button" className="btn-close" onClick={onClose}></button>
+              <h5 className="modal-title">
+                🐳 Service Management
+                {isRefreshing && (
+                  <span className="refresh-indicator ms-2">
+                    <span className="spinner-border spinner-border-sm" role="status">
+                      <span className="visually-hidden">Refreshing...</span>
+                    </span>
+                  </span>
+                )}
+              </h5>
+              <button type="button" className="btn-close" onClick={onClose} aria-label="Close"></button>
             </div>
             <div className="modal-body">
-              {isLoading ? (
+              {isInitialLoading ? (
                 <div className="text-center">
                   <div className="spinner-border" role="status">
                     <span className="visually-hidden">Loading...</span>
@@ -328,7 +353,7 @@ export const ServiceManagementModal: React.FC<ServiceManagementModalProps> = ({
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .service-management-modal {
           position: fixed;
           top: 0;
@@ -359,41 +384,60 @@ export const ServiceManagementModal: React.FC<ServiceManagementModalProps> = ({
         }
 
         .modal-header {
-          padding: 24px 24px 16px;
+          padding: 20px 24px;
           border-bottom: 1px solid #e9ecef;
-          background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-          color: white;
-          border-radius: 16px 16px 0 0;
-        }
-
-        .modal-title-container {
-          flex: 1;
+          background: #fff;
+          border-radius: 8px 8px 0 0;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
         }
 
         .modal-title {
-          font-size: 20px;
-          font-weight: 700;
+          font-size: 18px;
+          font-weight: 600;
           margin: 0;
-          color: white;
+          color: #495057;
+          display: flex;
+          align-items: center;
         }
 
-        .modal-subtitle {
-          font-size: 14px;
-          margin: 4px 0 0 0;
-          color: rgba(255, 255, 255, 0.8);
-          font-weight: 400;
+        .refresh-indicator {
+          opacity: 0.7;
+          transition: opacity 0.3s ease;
+        }
+
+        .refresh-indicator .spinner-border-sm {
+          width: 16px;
+          height: 16px;
+          border-width: 2px;
+          color: #6c757d;
         }
 
         .btn-close {
-          background: rgba(255, 255, 255, 0.2);
-          border-radius: 50%;
-          width: 32px;
-          height: 32px;
-          opacity: 1;
+          background: transparent;
+          border: none;
+          font-size: 20px;
+          font-weight: 700;
+          line-height: 1;
+          color: #6c757d;
+          opacity: 0.75;
+          padding: 0;
+          width: 24px;
+          height: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
         .btn-close:hover {
-          background: rgba(255, 255, 255, 0.3);
+          color: #000;
+          opacity: 1;
+        }
+
+        .btn-close:focus {
+          outline: none;
+          box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
         }
 
         .modal-body {
