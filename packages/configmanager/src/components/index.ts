@@ -5,3 +5,7 @@ export * from "./SummarySite";
 export * from "./WelcomeSite";
 export * from "./ControlPanelSite";
 export * from "./DockerConfigSite";
+export * from "./ProgressSidebar";
+export * from "./ControlPanelSidebar";
+export * from "./ConfigurationEditor";
+export * from "./SystemInfoModal";

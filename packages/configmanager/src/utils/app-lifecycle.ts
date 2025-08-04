@@ -3,7 +3,9 @@ import { createWindow } from "./window-manager";
 import { DockerService } from "../services/docker-service";
 import { SystemTrayService } from "../services/system-tray-service";
 import { AutoUpdateService } from "../services/auto-update-service";
+import { MenuService } from "../services/menu-service";
 import { EnvironmentIsolationService } from "../services/environment-isolation";
+import { EnvironmentConfigService } from "../services/environment-config-service";
 import { logger } from "./logger";
 
 export function initializeAppLifecycle(): void {
@@ -12,13 +14,20 @@ export function initializeAppLifecycle(): void {
     const envConfig = await EnvironmentIsolationService.initialize();
     logger.info(`App started in ${envConfig.mode} mode`);
 
+    // Initialize environment configuration
+    const environment = EnvironmentConfigService.initialize();
+
     const mainWindow = createWindow();
+
+    // Initialize application menu
+    MenuService.initialize(mainWindow);
 
     // Initialize system tray
     SystemTrayService.initialize(mainWindow);
 
-    // Initialize auto-update service
+    // Initialize auto-update service with environment-specific configuration
     AutoUpdateService.initialize(mainWindow);
+    AutoUpdateService.configureUpdateChannel(environment);
 
     // Check Docker installation on startup
     await checkDockerInstallationOnStartup();

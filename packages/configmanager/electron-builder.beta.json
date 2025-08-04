@@ -11,14 +11,23 @@
 		"src/assets/**/*"
 	],
 	"publish": {
-		"provider": "github",
-		"owner": "ddalab",
-		"repo": "configmanager",
-		"releaseType": "prerelease",
-		"channel": "beta"
+		"provider": "s3",
+		"bucket": "ddalab-configmanager-updates",
+		"region": "us-east-1",
+		"channel": "beta",
+		"path": "beta",
+		"acl": null
 	},
 	"mac": {
-		"target": "dmg",
+		"target": [
+			{
+				"target": "dmg",
+				"arch": [
+					"x64",
+					"arm64"
+				]
+			}
+		],
 		"category": "public.app-category.developer-tools",
 		"artifactName": "DDALAB-ConfigManager-Beta-${version}-${arch}.${ext}",
 		"identity": null,
@@ -28,7 +37,15 @@
 		"entitlementsInherit": null
 	},
 	"win": {
-		"target": "nsis",
+		"target": [
+			{
+				"target": "nsis",
+				"arch": [
+					"x64",
+					"arm64"
+				]
+			}
+		],
 		"icon": "build/icon.ico",
 		"artifactName": "DDALAB-ConfigManager-Beta-${version}-${arch}.${ext}",
 		"certificateFile": null,
@@ -37,9 +54,43 @@
 		"timeStampServer": null
 	},
 	"linux": {
-		"target": "AppImage",
+		"target": [
+			{
+				"target": "AppImage",
+				"arch": [
+					"x64",
+					"arm64"
+				]
+			},
+			{
+				"target": "deb",
+				"arch": [
+					"x64",
+					"arm64"
+				]
+			},
+			{
+				"target": "rpm",
+				"arch": [
+					"x64",
+					"arm64"
+				]
+			},
+			{
+				"target": "tar.gz",
+				"arch": [
+					"x64",
+					"arm64"
+				]
+			}
+		],
 		"icon": "build/icon.png",
-		"artifactName": "DDALAB-ConfigManager-Beta-${version}-${arch}.${ext}"
+		"artifactName": "DDALAB-ConfigManager-Beta-${version}-${arch}.${ext}",
+		"category": "Development",
+		"maintainer": "DDALAB Team",
+		"vendor": "DDALAB",
+		"synopsis": "DDALAB Configuration Manager (Beta)",
+		"description": "A configuration management tool for DDALAB applications (Beta Version)"
 	},
 	"nsis": {
 		"oneClick": false,

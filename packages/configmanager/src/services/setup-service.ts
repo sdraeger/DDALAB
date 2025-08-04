@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import { logger } from "../utils/logger";
 import { getMainWindow } from "../utils/main-window";
 import { EnvGeneratorService } from "./env-generator-service";
+import type { UserSelections, ParsedEnvEntry } from "../utils/electron";
 
 const DDALAB_SETUP_REPO_URL = "https://github.com/sdraeger/DDALAB-setup.git";
 const DDALAB_SETUP_DIR_NAME = "ddalab-setup-data";
@@ -20,6 +21,13 @@ export interface ConfigManagerState {
   setupPath: string | null;
   dataLocation?: string;
   cloneLocation?: string;
+  // Enhanced state persistence
+  userSelections?: UserSelections;
+  currentSite?: string;
+  parsedEnvEntries?: ParsedEnvEntry[];
+  installationSuccess?: boolean | null;
+  lastUpdated?: number;
+  version?: string;
 }
 
 export interface SetupResult {
@@ -57,13 +65,18 @@ export class SetupService {
     try {
       const data = await fs.readFile(stateFilePath, "utf-8");
       const state = JSON.parse(data);
+
+      // Validate basic required fields
       if (
         typeof state.setupComplete === "boolean" &&
         (state.setupPath === null || typeof state.setupPath === "string")
       ) {
-        logger.info(`Successfully parsed configmanager state:`, state);
-        return state;
+        // Migrate old state format if needed
+        const migratedState = this.migrateStateIfNeeded(state);
+        logger.info(`Successfully parsed configmanager state:`, migratedState);
+        return migratedState;
       }
+
       logger.warn(
         `ConfigManager state file format is invalid. Resetting. State was:`,
         state
@@ -84,9 +97,51 @@ export class SetupService {
     }
   }
 
+  /**
+   * Migrate state format between versions
+   */
+  private static migrateStateIfNeeded(state: any): ConfigManagerState {
+    const currentVersion = "2.0.0"; // Increment when state format changes
+
+    // If no version, it's an old format
+    if (!state.version) {
+      logger.info("Migrating from legacy state format");
+      return {
+        ...state,
+        version: currentVersion,
+        lastUpdated: Date.now(),
+        userSelections: state.userSelections || {
+          setupType: "",
+          dataLocation: "",
+          cloneLocation: "",
+          envVariables: {},
+        },
+        currentSite: state.currentSite || "welcome",
+        parsedEnvEntries: state.parsedEnvEntries || [],
+        installationSuccess: state.installationSuccess || null,
+      };
+    }
+
+    // If version is current, return as-is
+    if (state.version === currentVersion) {
+      return state;
+    }
+
+    // Handle future migrations here
+    logger.info(
+      `Migrating state from version ${state.version} to ${currentVersion}`
+    );
+    return {
+      ...state,
+      version: currentVersion,
+      lastUpdated: Date.now(),
+    };
+  }
+
   static async saveConfigManagerState(
     setupPathOrDataLocation: string | null,
-    cloneLocation?: string
+    cloneLocation?: string,
+    additionalState?: Partial<ConfigManagerState>
   ): Promise<void> {
     const stateFilePath = this.getConfigManagerStateFilePath();
 
@@ -98,12 +153,18 @@ export class SetupService {
         setupPath: cloneLocation, // For backward compatibility, use cloneLocation as setupPath
         dataLocation: setupPathOrDataLocation || undefined,
         cloneLocation: cloneLocation,
+        version: "2.0.0",
+        lastUpdated: Date.now(),
+        ...additionalState,
       };
     } else {
       // Legacy format
       state = {
         setupComplete: true,
         setupPath: setupPathOrDataLocation,
+        version: "2.0.0",
+        lastUpdated: Date.now(),
+        ...additionalState,
       };
     }
 
@@ -125,6 +186,65 @@ export class SetupService {
       getMainWindow()?.webContents.send("configmanager-state-save-error", {
         message: `Failed to save configmanager state: ${error.message}`,
       });
+    }
+  }
+
+  /**
+   * Save comprehensive application state including user selections and navigation
+   */
+  static async saveFullApplicationState(
+    setupPathOrDataLocation: string | null,
+    cloneLocation: string | null,
+    userSelections: UserSelections,
+    currentSite: string,
+    parsedEnvEntries: ParsedEnvEntry[],
+    installationSuccess: boolean | null
+  ): Promise<void> {
+    const additionalState: Partial<ConfigManagerState> = {
+      userSelections,
+      currentSite,
+      parsedEnvEntries,
+      installationSuccess,
+    };
+
+    await this.saveConfigManagerState(
+      setupPathOrDataLocation,
+      cloneLocation || undefined,
+      additionalState
+    );
+  }
+
+  /**
+   * Save only user selections and navigation state (for frequent updates)
+   */
+  static async saveUserState(
+    userSelections: UserSelections,
+    currentSite: string,
+    parsedEnvEntries: ParsedEnvEntry[],
+    installationSuccess: boolean | null
+  ): Promise<void> {
+    try {
+      const existingState = await this.getConfigManagerState();
+      const updatedState: ConfigManagerState = {
+        ...existingState,
+        userSelections,
+        currentSite,
+        parsedEnvEntries,
+        installationSuccess,
+        lastUpdated: Date.now(),
+      };
+
+      const stateFilePath = this.getConfigManagerStateFilePath();
+      await fs.mkdir(app.getPath("userData"), { recursive: true });
+      await fs.writeFile(
+        stateFilePath,
+        JSON.stringify(updatedState, null, 2),
+        "utf-8"
+      );
+
+      logger.info("User state saved successfully");
+    } catch (error: any) {
+      logger.error("Error saving user state:", error);
     }
   }
 
