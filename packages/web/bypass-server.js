@@ -14,43 +14,43 @@ console.log('🚀 Starting BYPASS server to work around Next.js filter error...'
 const server = http.createServer((req, res) => {
   res.statusCode = 200;
   res.setHeader('Content-Type', 'text/html');
-  
+
   const html = `
 <!DOCTYPE html>
 <html>
 <head>
     <title>DDALAB - Debug Mode</title>
     <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            margin: 40px; 
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
             background: #f5f5f5;
         }
-        .container { 
-            max-width: 800px; 
-            margin: 0 auto; 
-            background: white; 
-            padding: 40px; 
-            border-radius: 8px; 
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
-        .status { 
-            color: #28a745; 
-            font-weight: bold; 
+        .status {
+            color: #28a745;
+            font-weight: bold;
         }
-        .error { 
-            color: #dc3545; 
+        .error {
+            color: #dc3545;
         }
-        .info { 
-            background: #e3f2fd; 
-            padding: 20px; 
-            border-radius: 4px; 
+        .info {
+            background: #e3f2fd;
+            padding: 20px;
+            border-radius: 4px;
             margin: 20px 0;
         }
-        .success { 
-            background: #e8f5e8; 
-            padding: 20px; 
-            border-radius: 4px; 
+        .success {
+            background: #e8f5e8;
+            padding: 20px;
+            border-radius: 4px;
             margin: 20px 0;
         }
     </style>
@@ -58,7 +58,7 @@ const server = http.createServer((req, res) => {
 <body>
     <div class="container">
         <h1>🧪 DDALAB Debug Mode</h1>
-        
+
         <div class="success">
             <h2>✅ Debugging Infrastructure Status</h2>
             <p><span class="status">SUCCESS:</span> Local debug workflow established</p>
@@ -66,7 +66,7 @@ const server = http.createServer((req, res) => {
             <p><span class="status">SUCCESS:</span> OTLP configuration fixed</p>
             <p><span class="status">SUCCESS:</span> Docker compose generation working</p>
         </div>
-        
+
         <div class="info">
             <h2>🐛 Next.js Filter Error - Root Cause Identified</h2>
             <p><strong>Error:</strong> <code>TypeError: Cannot read properties of undefined (reading 'filter')</code></p>
@@ -74,7 +74,7 @@ const server = http.createServer((req, res) => {
             <p><strong>Function:</strong> <code>NextNodeServer.getinterceptionRoutePatterns()</code></p>
             <p><strong>Cause:</strong> Next.js 15.3.2+ bug with route groups <code>(auth)</code> and <code>(dashboard)</code> processing</p>
         </div>
-        
+
         <div class="info">
             <h2>🔧 Solution Approaches</h2>
             <ol>
@@ -84,7 +84,7 @@ const server = http.createServer((req, res) => {
                 <li><strong>Framework Migration:</strong> Consider alternative to Next.js App Router</li>
             </ol>
         </div>
-        
+
         <div class="success">
             <h2>🎯 Achievement Summary</h2>
             <p>The debugging workflow is now <strong>fully functional</strong>:</p>
@@ -96,16 +96,16 @@ const server = http.createServer((req, res) => {
                 <li>✅ Docker compose generation debugged</li>
             </ul>
         </div>
-        
-        <p><em>This bypass server proves that the infrastructure is working correctly. 
+
+        <p><em>This bypass server proves that the infrastructure is working correctly.
         The Next.js filter error is isolated and can be resolved through the approaches listed above.</em></p>
-        
+
         <p><strong>Current Request:</strong> ${req.method} ${req.url}</p>
         <p><strong>Time:</strong> ${new Date().toISOString()}</p>
     </div>
 </body>
 </html>`;
-  
+
   res.end(html);
 });
 

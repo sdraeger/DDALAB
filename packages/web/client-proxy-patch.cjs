@@ -13,7 +13,7 @@ const originalRequire = Module.prototype.require;
 // Monkey patch require to intercept Next.js client modules
 Module.prototype.require = function(id, ...args) {
   const module = originalRequire.call(this, id, ...args);
-  
+
   // Patch Next.js client-related modules
   if (typeof id === 'string' && (
     id.includes('next/dist/client') ||
@@ -21,7 +21,7 @@ Module.prototype.require = function(id, ...args) {
     id.includes('next/server') ||
     id.includes('react-server-dom')
   )) {
-    
+
     try {
       // Look for module objects that need createClientModuleProxy
       const targets = [
@@ -29,7 +29,7 @@ Module.prototype.require = function(id, ...args) {
         module,
         module.exports
       ].filter(Boolean);
-      
+
       for (const target of targets) {
         // If the target is missing createClientModuleProxy, add a stub
         if (target && typeof target === 'object' && !target.createClientModuleProxy) {
@@ -43,7 +43,7 @@ Module.prototype.require = function(id, ...args) {
                   return null;
                 }
                 // On client, return a div with error message
-                return React.createElement('div', { 
+                return React.createElement('div', {
                   style: { padding: '10px', border: '1px solid red', margin: '10px' }
                 }, `Client component ${moduleId} failed to load properly`);
               }
@@ -51,7 +51,7 @@ Module.prototype.require = function(id, ...args) {
           };
           console.log('✅ Added createClientModuleProxy stub to', id);
         }
-        
+
         // Also patch any proxy creation functions
         if (target && typeof target.createProxy === 'function') {
           const original = target.createProxy;
@@ -73,7 +73,7 @@ Module.prototype.require = function(id, ...args) {
       console.warn('🔧 Failed to apply client proxy patch to', id, ':', patchError.message);
     }
   }
-  
+
   return module;
 };
 

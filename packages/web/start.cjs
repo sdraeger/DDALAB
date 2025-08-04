@@ -33,7 +33,7 @@ const handle = app.getRequestHandler();
 // Prepare and start the app
 app.prepare().then(() => {
   console.log('🚀 Next.js app prepared successfully');
-  
+
   // Create an HTTP server
   const server = createServer((req, res) => {
     handle(req, res);
@@ -52,6 +52,6 @@ app.prepare().then(() => {
   if (err.cause) {
     console.error('Error cause:', err.cause);
   }
-  
+
   process.exit(1);
 });
