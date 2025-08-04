@@ -15,44 +15,44 @@ global.eval = function(code) {
     code.includes('react-server-dom') ||
     code.includes('__webpack_require__')
   )) {
-    
+
     // Inject createClientModuleProxy stub into webpack runtime
     const patchedCode = code.replace(
       /(\w+)\.createClientModuleProxy/g,
       '(($1.createClientModuleProxy) || (function(id) { console.log("🔧 WEBPACK PATCH: createClientModuleProxy stub for", id); return { __esModule: true, default: function() { return null; } }; }))'
     );
-    
+
     // Also patch direct references
     const fullyPatchedCode = patchedCode.replace(
       /createClientModuleProxy\s*\(/g,
       '((typeof createClientModuleProxy !== "undefined" ? createClientModuleProxy : function(id) { console.log("🔧 WEBPACK PATCH: createClientModuleProxy global stub for", id); return { __esModule: true, default: function() { return null; } }; })('
     );
-    
+
     if (patchedCode !== code || fullyPatchedCode !== patchedCode) {
       console.log('🔧 WEBPACK PATCH: Patched createClientModuleProxy references in webpack runtime');
       return originalEval.call(this, fullyPatchedCode);
     }
   }
-  
+
   return originalEval.call(this, code);
 };
 
 // Also patch Function constructor calls that webpack might use
 global.Function = function(...args) {
   const code = args[args.length - 1];
-  
+
   if (typeof code === 'string' && code.includes('createClientModuleProxy')) {
     const patchedCode = code.replace(
       /(\w+)\.createClientModuleProxy/g,
       '(($1.createClientModuleProxy) || (function(id) { console.log("🔧 FUNCTION PATCH: createClientModuleProxy stub for", id); return { __esModule: true, default: function() { return null; } }; }))'
     );
-    
+
     if (patchedCode !== code) {
       console.log('🔧 FUNCTION PATCH: Patched createClientModuleProxy in Function constructor');
       args[args.length - 1] = patchedCode;
     }
   }
-  
+
   return OriginalFunction.apply(this, args);
 };
 

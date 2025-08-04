@@ -21,7 +21,7 @@ console.log(`Server will listen on: http://${hostname}:${port}`);
 const originalRequire = require;
 require = function(id) {
   const module = originalRequire.apply(this, arguments);
-  
+
   // Intercept Next.js server module and patch the filter error
   if (id.includes('next/dist/server/next-server') || id.includes('next-server')) {
     if (module.NextNodeServer && module.NextNodeServer.prototype.getinterceptionRoutePatterns) {
@@ -38,14 +38,14 @@ require = function(id) {
       console.log('✅ Successfully patched getinterceptionRoutePatterns');
     }
   }
-  
+
   return module;
 };
 
 // Now initialize Next.js
-const app = next({ 
-  dev, 
-  hostname, 
+const app = next({
+  dev,
+  hostname,
   port,
   // Force disable some problematic features
   experimental: {
