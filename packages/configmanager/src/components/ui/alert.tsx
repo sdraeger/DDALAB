@@ -37,4 +37,4 @@ export const AlertDescription: React.FC<AlertDescriptionProps> = ({ className = 
 			{children}
 		</div>
 	);
-}; 
+};

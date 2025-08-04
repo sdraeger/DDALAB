@@ -29,7 +29,7 @@ export const LogsViewerModal: React.FC<LogsViewerModalProps> = ({
   useEffect(() => {
     const fetchInitialLogs = async () => {
       setIsLoading(true);
-      
+
       if (!electronAPI) {
         setLogs([{
           timestamp: new Date().toISOString(),
@@ -44,11 +44,11 @@ export const LogsViewerModal: React.FC<LogsViewerModalProps> = ({
       try {
         // Get current Docker logs
         const dockerLogs = await electronAPI.getDockerLogs();
-        
+
         // Parse Docker logs into structured format
         const parsedLogs = parseDockerLogs(dockerLogs);
         setLogs(parsedLogs);
-        
+
         // Start streaming logs
         startLogStreaming();
       } catch (error) {
@@ -70,7 +70,7 @@ export const LogsViewerModal: React.FC<LogsViewerModalProps> = ({
       try {
         await electronAPI.startDockerLogStream();
         setIsStreaming(true);
-        
+
         // Set up log listener
         const cleanup = electronAPI.onDockerLogs((log: { type: string; data: string }) => {
           const newLogEntry: LogEntry = {
@@ -79,10 +79,10 @@ export const LogsViewerModal: React.FC<LogsViewerModalProps> = ({
             level: 'info',
             message: log.data || ''
           };
-          
+
           setLogs(prevLogs => [...prevLogs, newLogEntry].slice(-1000)); // Keep last 1000 logs
         });
-        
+
         cleanupRef.current = cleanup;
       } catch (error) {
         console.error('Failed to start log streaming:', error);
@@ -112,7 +112,7 @@ export const LogsViewerModal: React.FC<LogsViewerModalProps> = ({
 
   const parseDockerLogs = (rawLogs: string): LogEntry[] => {
     if (!rawLogs) return [];
-    
+
     const lines = rawLogs.split('\n').filter(line => line.trim());
     return lines.map(line => {
       // Try to parse Docker compose log format
@@ -125,7 +125,7 @@ export const LogsViewerModal: React.FC<LogsViewerModalProps> = ({
           message: match[2]
         };
       }
-      
+
       // Fallback to raw line
       return {
         timestamp: new Date().toISOString(),
@@ -141,10 +141,10 @@ export const LogsViewerModal: React.FC<LogsViewerModalProps> = ({
   };
 
   const downloadLogs = () => {
-    const logText = filteredLogs.map(log => 
+    const logText = filteredLogs.map(log =>
       `[${log.timestamp}] [${log.service}] [${log.level.toUpperCase()}] ${log.message}`
     ).join('\n');
-    
+
     const blob = new Blob([logText], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -205,7 +205,7 @@ export const LogsViewerModal: React.FC<LogsViewerModalProps> = ({
               </div>
               <button type="button" className="btn-close" onClick={onClose}></button>
             </div>
-            
+
             <div className="modal-body">
               {/* Controls */}
               <div className="logs-controls">
@@ -225,7 +225,7 @@ export const LogsViewerModal: React.FC<LogsViewerModalProps> = ({
                       <option value="debug">Debug</option>
                     </select>
                   </div>
-                  
+
                   <div className="filter-group">
                     <label htmlFor="service-filter">Service:</label>
                     <select
@@ -240,7 +240,7 @@ export const LogsViewerModal: React.FC<LogsViewerModalProps> = ({
                       ))}
                     </select>
                   </div>
-                  
+
                   <div className="filter-group">
                     <label className="form-check-label">
                       <input
@@ -253,7 +253,7 @@ export const LogsViewerModal: React.FC<LogsViewerModalProps> = ({
                     </label>
                   </div>
                 </div>
-                
+
                 <div className="action-controls">
                   <button
                     className="btn btn-sm btn-outline-secondary"
@@ -315,7 +315,7 @@ export const LogsViewerModal: React.FC<LogsViewerModalProps> = ({
                 )}
               </div>
             </div>
-            
+
             <div className="modal-footer">
               <button type="button" className="btn btn-secondary" onClick={onClose}>
                 Close

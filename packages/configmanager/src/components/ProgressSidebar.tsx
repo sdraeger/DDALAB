@@ -50,7 +50,7 @@ export const ProgressSidebar: React.FC<ProgressSidebarProps> = ({
 
   const handleCheckForUpdates = async () => {
     if (!electronAPI || isCheckingUpdate) return;
-    
+
     setIsCheckingUpdate(true);
     try {
       await electronAPI.checkForUpdates();
@@ -187,7 +187,7 @@ export const ProgressSidebar: React.FC<ProgressSidebarProps> = ({
                   </small>
                 </div>
               )}
-              
+
               <button
                 className="btn btn-sm btn-outline-primary w-100"
                 onClick={handleCheckForUpdates}
@@ -202,7 +202,7 @@ export const ProgressSidebar: React.FC<ProgressSidebarProps> = ({
                   'Check for Updates'
                 )}
               </button>
-              
+
               {updateInfo && (
                 <div className="mt-2">
                   {updateInfo.available ? (

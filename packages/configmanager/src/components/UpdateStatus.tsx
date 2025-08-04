@@ -220,4 +220,4 @@ export const UpdateStatus: React.FC = () => {
 			</CardContent>
 		</Card>
 	);
-}; 
+};
