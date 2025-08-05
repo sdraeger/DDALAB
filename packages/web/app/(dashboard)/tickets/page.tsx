@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useApiQuery } from "shared/hooks/useApiQuery";
-// DashboardLayout is now handled at the layout level
 import { Button } from "shared/components/ui/button";
 import {
   Card,
@@ -22,7 +21,8 @@ import {
 import { Badge } from "shared/components/ui/badge";
 import { TicketDialog } from "shared/components/dialog/TicketDialog";
 import { useToast } from "shared/hooks/useToast";
-import { useUnifiedSessionData } from "shared/hooks";
+import { useUnifiedSession } from "shared/hooks/useUnifiedSession";
+import { useAuthMode } from "shared/contexts/AuthModeContext";
 
 interface Ticket {
   id: string;
@@ -37,196 +37,359 @@ interface Ticket {
 }
 
 const TicketsPageComponent = () => {
-  const { data: session, status } = useUnifiedSessionData();
+  const { user, status } = useUnifiedSession();
+  const { authMode } = useAuthMode();
   const router = useRouter();
   const { toast } = useToast();
   const [ticketDialogTitle, setTicketDialogTitle] = useState("");
   const [ticketDialogDescription, setTicketDialogDescription] = useState("");
   const [ticketDialogOpen, setTicketDialogOpen] = useState(false);
-  const { data, loading, error, refetch } = useApiQuery<Ticket[]>({
+
+  // Stabilize the token to prevent unnecessary re-renders
+  const token = useMemo(() => user?.accessToken, [user?.accessToken]);
+
+  // Only enable API query when we have a stable authenticated status AND auth mode is determined
+  const shouldMakeRequest = useMemo(() => {
+    const isAuthenticated = status === "authenticated" && !!user;
+    const hasStableAuthMode = !!authMode;
+
+    return isAuthenticated && hasStableAuthMode;
+  }, [status, user, authMode]);
+
+  const {
+    data: tickets,
+    isLoading,
+    error,
+    refetch,
+  } = useApiQuery<Ticket[]>({
+    queryKey: ["tickets"],
     url: "/api/tickets",
-    method: "GET",
-    enabled: status === "authenticated",
-    token: session?.accessToken,
+    enabled: shouldMakeRequest,
+    token,
   });
 
-  const tickets = Array.isArray(data) ? data : [];
-
-  const openTickets = tickets.filter(
-    (ticket: Ticket) =>
-      ticket.status === "open" || ticket.status === "in-progress"
-  );
-
-  const resolvedTickets = tickets.filter(
-    (ticket: Ticket) =>
-      ticket.status === "resolved" || ticket.status === "closed"
-  );
-
-  const handleRefresh = () => {
-    refetch();
-  };
-
-  const handleTicketClick = (ticketId: string) => {
-    const ticket = tickets.find((ticket: Ticket) => ticket.id === ticketId);
-    if (ticket) {
-      setTicketDialogTitle(ticket.title);
-      setTicketDialogDescription(ticket.description);
-      setTicketDialogOpen(true);
-    } else {
+  const handleCreateTicket = useCallback(async () => {
+    if (!ticketDialogTitle.trim() || !ticketDialogDescription.trim()) {
       toast({
-        title: "Ticket not found",
-        description: `The ticket (id: ${ticketId}) you are looking for does not exist.`,
+        title: "Error",
+        description: "Please fill in both title and description",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/tickets", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: JSON.stringify({
+          title: ticketDialogTitle,
+          description: ticketDialogDescription,
+          status: "open",
+          priority: "medium",
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to create ticket");
+      }
+
+      toast({
+        title: "Success",
+        description: "Ticket created successfully",
+      });
+
+      setTicketDialogTitle("");
+      setTicketDialogDescription("");
+      setTicketDialogOpen(false);
+      refetch();
+    } catch (error) {
+      console.error("Error creating ticket:", error);
+      toast({
+        title: "Error",
+        description: "Failed to create ticket",
         variant: "destructive",
       });
     }
+  }, [ticketDialogTitle, ticketDialogDescription, token, toast, refetch]);
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "open":
+        return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300";
+      case "in-progress":
+        return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300";
+      case "resolved":
+        return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300";
+      case "closed":
+        return "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300";
+      default:
+        return "bg-gray-100 text-gray-800";
+    }
   };
 
-  if (status === "loading") {
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case "low":
+        return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300";
+      case "medium":
+        return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300";
+      case "high":
+        return "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300";
+      case "critical":
+        return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300";
+      default:
+        return "bg-gray-100 text-gray-800";
+    }
+  };
+
+  if (!shouldMakeRequest) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <Loader2 className="h-8 w-8 animate-spin" />
+      <div className="flex h-64 w-full items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="mx-auto h-6 w-6 animate-spin" />
+          <p className="mt-2 text-sm text-muted-foreground">
+            Initializing session...
+          </p>
+        </div>
       </div>
     );
   }
 
-  if (status === "unauthenticated") {
-    router.push("/login");
-    return null;
-  }
-
-  return (
-    <>
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Tickets</h1>
-          <p className="text-muted-foreground">
-            Manage and track support tickets
+  if (isLoading) {
+    return (
+      <div className="flex h-64 w-full items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="mx-auto h-6 w-6 animate-spin" />
+          <p className="mt-2 text-sm text-muted-foreground">
+            Loading tickets...
           </p>
         </div>
-        <TicketDialog
-          title={ticketDialogTitle}
-          description={ticketDialogDescription}
-          open={ticketDialogOpen}
-          setOpen={setTicketDialogOpen}
-          mode="readonly"
-        />
-        <Button
-          onClick={handleRefresh}
-          disabled={loading}
-          aria-label="Refresh tickets"
-        >
-          {loading ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-64 w-full items-center justify-center">
+        <div className="text-center">
+          <p className="text-sm text-muted-foreground">
+            Error loading tickets: {error.message}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            className="mt-2"
+          >
             <RefreshCw className="mr-2 h-4 w-4" />
-          )}
-          Refresh
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const openTickets = tickets?.filter((ticket) => ticket.status === "open") || [];
+  const inProgressTickets = tickets?.filter((ticket) => ticket.status === "in-progress") || [];
+  const resolvedTickets = tickets?.filter((ticket) => ticket.status === "resolved") || [];
+  const closedTickets = tickets?.filter((ticket) => ticket.status === "closed") || [];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Help Tickets</h1>
+          <p className="text-muted-foreground">
+            Manage and track support requests
+          </p>
+        </div>
+        <Button onClick={() => setTicketDialogOpen(true)}>
+          Create Ticket
         </Button>
       </div>
 
-      {loading && tickets.length === 0 ? (
-        <div className="flex justify-center py-8">
-          <Loader2 className="h-8 w-8 animate-spin" />
-        </div>
-      ) : error ? (
-        <Card>
-          <CardContent className="py-6">
-            <div className="text-center text-destructive">
-              <p>Failed to load tickets. Please try again.</p>
-              <p className="text-sm">{error.message}</p>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <Tabs defaultValue="open" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="open">
-              Open Tickets
-              {openTickets.length > 0 && (
-                <Badge variant="outline" className="ml-2">
-                  {openTickets.length}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="resolved">
-              Resolved Tickets
-              {resolvedTickets.length > 0 && (
-                <Badge variant="outline" className="ml-2">
-                  {resolvedTickets.length}
-                </Badge>
-              )}
-            </TabsTrigger>
-          </TabsList>
+      <Tabs defaultValue="open" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="open">
+            Open ({openTickets.length})
+          </TabsTrigger>
+          <TabsTrigger value="in-progress">
+            In Progress ({inProgressTickets.length})
+          </TabsTrigger>
+          <TabsTrigger value="resolved">
+            Resolved ({resolvedTickets.length})
+          </TabsTrigger>
+          <TabsTrigger value="closed">
+            Closed ({closedTickets.length})
+          </TabsTrigger>
+        </TabsList>
 
-          <TabsContent value="open" className="space-y-4">
-            {openTickets.length === 0 ? (
-              <Card>
-                <CardContent className="py-6 text-center">
-                  <p>No open tickets found.</p>
+        <TabsContent value="open" className="space-y-4">
+          {openTickets.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-center text-muted-foreground">
+                  No open tickets
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            openTickets.map((ticket) => (
+              <Card key={ticket.id}>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">{ticket.title}</CardTitle>
+                    <div className="flex gap-2">
+                      <Badge className={getPriorityColor(ticket.priority)}>
+                        {ticket.priority}
+                      </Badge>
+                      <Badge className={getStatusColor(ticket.status)}>
+                        {ticket.status}
+                      </Badge>
+                    </div>
+                  </div>
+                  <CardDescription>
+                    Created by {ticket.createdBy} on{" "}
+                    {new Date(ticket.createdAt).toLocaleDateString()}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm">{ticket.description}</p>
                 </CardContent>
               </Card>
-            ) : (
-              openTickets.map((ticket: Ticket) => (
-                <Card
-                  key={ticket.id}
-                  className="cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() => handleTicketClick(ticket.id)}
-                >
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <CardTitle>{ticket.title}</CardTitle>
-                        <CardDescription className="mt-1">
-                          #{ticket.id} •{" "}
-                          {new Date(ticket.createdAt).toLocaleDateString()}
-                        </CardDescription>
-                      </div>
-                      <Badge variant="outline">{ticket.status}</Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground line-clamp-2">
-                      {ticket.description}
-                    </p>
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </TabsContent>
+            ))
+          )}
+        </TabsContent>
 
-          <TabsContent value="resolved" className="space-y-4">
-            {resolvedTickets.length === 0 ? (
-              <Card>
-                <CardContent className="py-6 text-center">
-                  <p>No resolved tickets found.</p>
+        <TabsContent value="in-progress" className="space-y-4">
+          {inProgressTickets.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-center text-muted-foreground">
+                  No tickets in progress
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            inProgressTickets.map((ticket) => (
+              <Card key={ticket.id}>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">{ticket.title}</CardTitle>
+                    <div className="flex gap-2">
+                      <Badge className={getPriorityColor(ticket.priority)}>
+                        {ticket.priority}
+                      </Badge>
+                      <Badge className={getStatusColor(ticket.status)}>
+                        {ticket.status}
+                      </Badge>
+                    </div>
+                  </div>
+                  <CardDescription>
+                    Created by {ticket.createdBy} on{" "}
+                    {new Date(ticket.createdAt).toLocaleDateString()}
+                    {ticket.assignedTo && ` • Assigned to ${ticket.assignedTo}`}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm">{ticket.description}</p>
                 </CardContent>
               </Card>
-            ) : (
-              resolvedTickets.map((ticket: Ticket) => (
-                <Card
-                  key={ticket.id}
-                  className="opacity-75 hover:opacity-100 transition-opacity cursor-pointer"
-                  onClick={() => handleTicketClick(ticket.id)}
-                >
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <CardTitle>{ticket.title}</CardTitle>
-                        <CardDescription className="mt-1">
-                          #{ticket.id} •{" "}
-                          {new Date(ticket.createdAt).toLocaleDateString()}
-                        </CardDescription>
-                      </div>
-                      <Badge variant="outline">{ticket.status}</Badge>
+            ))
+          )}
+        </TabsContent>
+
+        <TabsContent value="resolved" className="space-y-4">
+          {resolvedTickets.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-center text-muted-foreground">
+                  No resolved tickets
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            resolvedTickets.map((ticket) => (
+              <Card key={ticket.id}>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">{ticket.title}</CardTitle>
+                    <div className="flex gap-2">
+                      <Badge className={getPriorityColor(ticket.priority)}>
+                        {ticket.priority}
+                      </Badge>
+                      <Badge className={getStatusColor(ticket.status)}>
+                        {ticket.status}
+                      </Badge>
                     </div>
-                  </CardHeader>
-                </Card>
-              ))
-            )}
-          </TabsContent>
-        </Tabs>
-      )}
-    </>
+                  </div>
+                  <CardDescription>
+                    Created by {ticket.createdBy} on{" "}
+                    {new Date(ticket.createdAt).toLocaleDateString()} •
+                    Resolved on {new Date(ticket.updatedAt).toLocaleDateString()}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm">{ticket.description}</p>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </TabsContent>
+
+        <TabsContent value="closed" className="space-y-4">
+          {closedTickets.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-center text-muted-foreground">
+                  No closed tickets
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            closedTickets.map((ticket) => (
+              <Card key={ticket.id}>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">{ticket.title}</CardTitle>
+                    <div className="flex gap-2">
+                      <Badge className={getPriorityColor(ticket.priority)}>
+                        {ticket.priority}
+                      </Badge>
+                      <Badge className={getStatusColor(ticket.status)}>
+                        {ticket.status}
+                      </Badge>
+                    </div>
+                  </div>
+                  <CardDescription>
+                    Created by {ticket.createdBy} on{" "}
+                    {new Date(ticket.createdAt).toLocaleDateString()} •
+                    Closed on {new Date(ticket.updatedAt).toLocaleDateString()}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm">{ticket.description}</p>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </TabsContent>
+      </Tabs>
+
+      <TicketDialog
+        open={ticketDialogOpen}
+        onOpenChange={setTicketDialogOpen}
+        title={ticketDialogTitle}
+        onTitleChange={setTicketDialogTitle}
+        description={ticketDialogDescription}
+        onDescriptionChange={setTicketDialogDescription}
+        onSubmit={handleCreateTicket}
+      />
+    </div>
   );
 };
 

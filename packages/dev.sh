@@ -12,7 +12,7 @@ ENV_FILE=".env.local"
 if [ ! -f "$ENV_FILE" ]; then
     echo "Creating .env.local from template..."
     cp .env.example .env.local
-    
+
     # Apply development-specific overrides
     cat >> .env.local << EOF
 
@@ -41,7 +41,7 @@ NEXTAUTH_SECRET=dev-nextauth-secret-key
 DDALAB_DB_USER=admin
 DDALAB_DB_PASSWORD=dev_password123
 EOF
-    
+
     echo "✓ Created .env.local with development defaults"
     echo "  Customize paths and secrets as needed"
 fi
@@ -50,6 +50,29 @@ echo "Loading environment from $ENV_FILE..."
 set -a
 source "$ENV_FILE"
 set +a
+
+# Override with development-specific values to ensure they take precedence
+export DDALAB_ENVIRONMENT=development
+export DDALAB_DEBUG=true
+export DDALAB_RELOAD=true
+export DDALAB_AUTH_MODE=local
+export DDALAB_DB_HOST=localhost
+export DDALAB_MINIO_HOST=localhost:9000
+export DDALAB_MINIO_ACCESS_KEY=admin
+export DDALAB_MINIO_SECRET_KEY=dev_password123
+export DDALAB_REDIS_HOST=localhost
+export DDALAB_DATA_DIR=data
+export DDALAB_ALLOWED_DIRS=/Users/$(whoami)/Desktop
+export DDALAB_DDA_BINARY_PATH=/Users/$(whoami)/Desktop/DDALAB/bin/run_DDA_ASCII
+export NEXT_PUBLIC_API_URL=http://localhost:8001
+export NEXT_PUBLIC_APP_URL=http://localhost:3000
+export NEXTAUTH_URL=http://localhost:3000
+export MINIO_ROOT_USER=admin
+export MINIO_ROOT_PASSWORD=dev_password123
+export DDALAB_JWT_SECRET_KEY=dev-jwt-secret-key
+export NEXTAUTH_SECRET=dev-nextauth-secret-key
+export DDALAB_DB_USER=admin
+export DDALAB_DB_PASSWORD=dev_password123
 
 # Validate required environment variables
 REQUIRED_VARS=(
@@ -128,6 +151,9 @@ fi
 mkdir -p /tmp/prometheus
 
 echo "DDALAB_DB_USER: $DDALAB_DB_USER"
+echo "DDALAB_DB_HOST: $DDALAB_DB_HOST"
+echo "DDALAB_MINIO_HOST: $DDALAB_MINIO_HOST"
+echo "DDALAB_REDIS_HOST: $DDALAB_REDIS_HOST"
 
 uvicorn packages.api.main:app --host 0.0.0.0 --port 8001 --reload &
 API_PID=$!

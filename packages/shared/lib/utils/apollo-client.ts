@@ -15,7 +15,7 @@ const httpLink = createHttpLink({
       window.location.hostname === "localhost" ||
       window.location.hostname === "127.0.0.1" ||
       window.location.port === "3000")
-      ? "https://localhost/graphql"
+      ? "http://localhost:8001/graphql"
       : "/graphql",
   credentials: "include", // Include credentials for CORS
 });

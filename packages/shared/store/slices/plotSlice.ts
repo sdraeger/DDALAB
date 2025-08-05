@@ -261,24 +261,29 @@ export const loadChunk = createAsyncThunk(
         }`
       );
 
-      // Use GraphQL query to fetch EDF data
-      const { data: gqlData } = await apolloClient.query({
-        query: GET_EDF_DATA,
-        variables: {
-          filename: filePath,
-          chunkStart: chunkStartSample,
-          chunkSize: chunkSizeInSamples,
-          includeNavigationInfo: true,
-          ...(preprocessingOptions ? { preprocessingOptions } : {}),
-        },
-        fetchPolicy: "network-only", // Ensure fresh data
-      });
+      // Use REST API to fetch EDF data (fallback from GraphQL)
+      const edfDataRequestOptions: ApiRequestOptions & { responseType: "json" } = {
+        url: `/api/edf/data?file_path=${encodeURIComponent(filePath)}&chunk_start=${chunkStartSample}&chunk_size=${chunkSizeInSamples}`,
+        method: "GET",
+        token,
+        responseType: "json",
+        contentType: "application/json",
+      };
 
-      if (!gqlData || !gqlData.getEdfData) {
-        throw new Error("No data returned from GraphQL query");
+      const rawEdfData = await apiRequest<any>(edfDataRequestOptions);
+
+      if (!rawEdfData) {
+        throw new Error("No data returned from REST API");
       }
 
-      const rawEdfData = gqlData.getEdfData;
+      logger.info(`[Thunk] Raw EDF data received from REST API:`, {
+        hasData: !!rawEdfData.data,
+        hasChannelLabels: !!rawEdfData.channel_labels,
+        hasSamplingFrequency: !!rawEdfData.sampling_frequency,
+        dataStructure: typeof rawEdfData.data,
+        channelCount: rawEdfData.channel_labels?.length,
+        sampleCount: rawEdfData.data?.[0]?.length
+      });
 
       // Update progress as we process the data
       dispatch(
@@ -289,33 +294,33 @@ export const loadChunk = createAsyncThunk(
         })
       );
 
-      // Transform GraphQL response to EEGData format
+      // Transform REST API response to EEGData format
       const eegData: EEGData = {
-        channels: rawEdfData.channelLabels || [],
-        sampleRate: rawEdfData.samplingFrequency || 256,
+        channels: rawEdfData.channel_labels || rawEdfData.channelLabels || [],
+        sampleRate: rawEdfData.sampling_frequency || rawEdfData.samplingFrequency || 256,
         data: rawEdfData.data || [],
         startTime: new Date().toISOString(), // Convert to ISO string for Redux serialization
-        duration: rawEdfData.chunkSize
-          ? rawEdfData.chunkSize / rawEdfData.samplingFrequency
+        duration: rawEdfData.chunk_size
+          ? rawEdfData.chunk_size / (rawEdfData.sampling_frequency || rawEdfData.samplingFrequency || 256)
           : chunkSizeSeconds,
         samplesPerChannel: rawEdfData.data?.[0]?.length || 0,
-        totalSamples: rawEdfData.totalSamples || 0,
-        chunkSize: rawEdfData.chunkSize || chunkSizeInSamples,
-        chunkStart: rawEdfData.chunkStart || chunkStartSample,
+        totalSamples: rawEdfData.total_samples || rawEdfData.totalSamples || 0,
+        chunkSize: rawEdfData.chunk_size || rawEdfData.chunkSize || chunkSizeInSamples,
+        chunkStart: rawEdfData.chunk_start || rawEdfData.chunkStart || chunkStartSample,
         absoluteStartTime: 0,
         annotations: [],
       };
 
       // Add comprehensive debugging to understand the data structure
       logger.info(`[Thunk] Raw EDF data structure:`, {
-        hasChannelLabels: !!rawEdfData.channelLabels,
-        channelLabelsLength: rawEdfData.channelLabels?.length,
+        hasChannelLabels: !!(rawEdfData.channel_labels || rawEdfData.channelLabels),
+        channelLabelsLength: (rawEdfData.channel_labels || rawEdfData.channelLabels)?.length,
         hasData: !!rawEdfData.data,
         dataLength: rawEdfData.data?.length,
         firstChannelDataLength: rawEdfData.data?.[0]?.length,
-        samplingFrequency: rawEdfData.samplingFrequency,
-        chunkSize: rawEdfData.chunkSize,
-        totalSamples: rawEdfData.totalSamples,
+        samplingFrequency: rawEdfData.sampling_frequency || rawEdfData.samplingFrequency,
+        chunkSize: rawEdfData.chunk_size || rawEdfData.chunkSize,
+        totalSamples: rawEdfData.total_samples || rawEdfData.totalSamples,
         // Add more detailed data inspection
         dataType: typeof rawEdfData.data,
         isArray: Array.isArray(rawEdfData.data),

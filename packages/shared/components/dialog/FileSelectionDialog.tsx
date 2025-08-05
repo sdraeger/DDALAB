@@ -52,6 +52,8 @@ function secondsToTimeParts(totalSeconds: number): TimeParts {
 }
 
 export function FileSelectionDialog({ open, onOpenChange, filePath, onConfirm }: FileSelectionDialogProps) {
+	console.log('[FileSelectionDialog] Component rendered:', { open, filePath, hasOnConfirm: !!onConfirm });
+
 	const [metadata, setMetadata] = useState<EdfMetadata | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -64,15 +66,23 @@ export function FileSelectionDialog({ open, onOpenChange, filePath, onConfirm }:
 	// Fetch metadata when dialog opens
 	useEffect(() => {
 		if (open && filePath) {
+			console.log('[FileSelectionDialog] Fetching metadata for:', filePath);
 			setLoading(true);
 			setError(null);
 			fetch(`/api/edf/info?file_path=${encodeURIComponent(filePath)}`)
-				.then(res => res.json())
+				.then(res => {
+					console.log('[FileSelectionDialog] Metadata fetch response:', res.status, res.ok);
+					return res.json();
+				})
 				.then(data => {
+					console.log('[FileSelectionDialog] Metadata received:', data);
 					setMetadata(data);
 					setSelectedChannels([]);
 				})
-				.catch(err => setError(err.message || "Failed to fetch metadata"))
+				.catch(err => {
+					console.error('[FileSelectionDialog] Metadata fetch error:', err);
+					setError(err.message || "Failed to fetch metadata");
+				})
 				.finally(() => setLoading(false));
 		}
 	}, [open, filePath]);
@@ -116,16 +126,43 @@ export function FileSelectionDialog({ open, onOpenChange, filePath, onConfirm }:
 
 	// Confirm selection
 	const handleConfirm = () => {
+		console.log('[FileSelectionDialog] handleConfirm called:', {
+			filePath,
+			selectedChannels,
+			selectedChannelsLength: selectedChannels.length,
+			hasMetadata: !!metadata,
+			startTime,
+			endTime,
+			hasOnConfirm: !!onConfirm
+		});
+
 		const duration = metadata && metadata.total_duration ? Number(metadata.total_duration) : undefined;
 		const error = validateSelection(selectedChannels, startTime, endTime, duration);
 
 		if (error) {
+			console.log('[FileSelectionDialog] Validation error:', error);
 			setValidationError(error);
 			return;
 		}
 
 		setValidationError(null);
-		if (onConfirm) onConfirm(filePath, selectedChannels, metadata, { start: startTime, end: endTime } as Segment);
+		console.log('[FileSelectionDialog] Calling onConfirm callback');
+		try {
+			if (onConfirm) {
+				console.log('[FileSelectionDialog] About to call onConfirm with:', {
+					filePath,
+					selectedChannels,
+					hasMetadata: !!metadata,
+					segment: { start: startTime, end: endTime }
+				});
+				onConfirm(filePath, selectedChannels, metadata, { start: startTime, end: endTime } as Segment);
+				console.log('[FileSelectionDialog] onConfirm call completed successfully');
+			} else {
+				console.error('[FileSelectionDialog] onConfirm callback is null/undefined!');
+			}
+		} catch (error) {
+			console.error('[FileSelectionDialog] Error calling onConfirm:', error);
+		}
 		onOpenChange(false);
 	};
 

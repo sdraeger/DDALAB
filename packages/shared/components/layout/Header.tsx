@@ -22,16 +22,15 @@ import { HelpButton } from "../ui/help-button";
 import { OpenPlotsIndicator } from "../ui/open-plots-indicator";
 import { signOut } from "next-auth/react";
 import { useApiQuery } from "../../hooks/useApiQuery";
-import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
+import { useUnifiedSession } from "../../hooks/useUnifiedSession";
 
 interface ConfigResponse {
   institutionName: string;
 }
 
 export function Header() {
-  const { data: session } = useUnifiedSessionData();
-  const user = session?.user;
-  const isLoggedIn = !!session;
+  const { user, status } = useUnifiedSession();
+  const isLoggedIn = status === "authenticated" && user !== null;
 
   const handleLogout = async () => {
     await signOut({ callbackUrl: "/" });
@@ -41,14 +40,16 @@ export function Header() {
     url: "/api/config",
     method: "GET",
     responseType: "json",
-    enabled: true,
+    enabled: true, // Config should always be available
+    requiresAuth: false, // Config endpoint doesn't require auth
+    retryOnUnauthorized: false, // Disable retry to prevent infinite loop
   });
 
   const institutionName = configData?.institutionName;
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-14 items-center">
+      <div className="w-full px-4 flex h-14 items-center">
         <div className="flex items-center mr-4">
           <BrainCircuit className="h-6 w-6 mr-2" />
           <Link href="/" className="font-bold">

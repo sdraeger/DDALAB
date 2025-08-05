@@ -71,6 +71,37 @@ class TicketService(CRUDService[Ticket]):
         """Get all tickets."""
         return await self.repo.get_all()
 
+    async def get_tickets_by_user_id(self, user_id: int) -> List[Ticket]:
+        """Get all tickets for a specific user."""
+        try:
+            # Use the repository to filter by user_id
+            return await self.repo.get_by_user_id(user_id)
+        except Exception as e:
+            raise ValidationError(f"Failed to get tickets for user {user_id}: {str(e)}")
+
+    # Abstract methods required by CRUDService
+    async def create(self, data: TicketCreate) -> Ticket:
+        """Create a new ticket (abstract method implementation)."""
+        return await self.create_ticket(data)
+
+    async def get(self, ticket_id: int | str) -> Ticket:
+        """Get a ticket by ID (abstract method implementation)."""
+        if isinstance(ticket_id, str):
+            ticket_id = UUID(ticket_id)
+        return await self.get_ticket(ticket_id)
+
+    async def update(self, ticket_id: int | str, data: TicketUpdate) -> Ticket:
+        """Update a ticket (abstract method implementation)."""
+        if isinstance(ticket_id, str):
+            ticket_id = UUID(ticket_id)
+        return await self.update_ticket(ticket_id, data)
+
+    async def delete(self, ticket_id: int | str) -> None:
+        """Delete a ticket (abstract method implementation)."""
+        if isinstance(ticket_id, str):
+            ticket_id = UUID(ticket_id)
+        await self.delete_ticket(ticket_id)
+
 
 class DummyTicketService(TicketService):
     async def create(self, *args, **kwargs):

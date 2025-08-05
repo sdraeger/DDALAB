@@ -42,7 +42,7 @@ import {
 	DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Badge } from "../ui/badge";
-import { useUnifiedSessionData, useUnifiedLogout } from "../../hooks/useUnifiedSession";
+import { useUnifiedSession, useUnifiedLogout } from "../../hooks/useUnifiedSession";
 import { ModeToggle } from "../ModeToggle";
 import { HelpButton } from "../ui/help-button";
 import { OpenPlotsIndicator } from "../ui/open-plots-indicator";
@@ -60,13 +60,6 @@ const mainNavigationItems = [
 		url: "/dashboard",
 		icon: FolderOpen,
 		description: "Main workspace with draggable widgets",
-		variant: "default" as const,
-	},
-	{
-		title: "Data Analysis",
-		url: "/dda",
-		icon: BarChart3,
-		description: "Run DDA on EDF files",
 		variant: "default" as const,
 	},
 	{
@@ -101,10 +94,9 @@ interface AppSidebarProps {
 
 export function AppSidebar({ className }: AppSidebarProps) {
 	const pathname = usePathname();
-	const { data: session, status } = useUnifiedSessionData();
+	const { user, status } = useUnifiedSession();
 	const { state } = useSidebar();
-	const user = session?.user;
-	const isLoggedIn = !!session;
+	const isLoggedIn = !!user;
 	const isLoading = status === "loading";
 
 	const { logout } = useUnifiedLogout();

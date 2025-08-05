@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import {
 	AuthModeType,
 	switchAuthMode,
@@ -33,54 +33,58 @@ interface AuthModeProviderProps {
 export function AuthModeProvider({ children, initialMode = 'multi-user' }: AuthModeProviderProps) {
 	const [authMode, setAuthModeState] = useState<AuthModeType>(initialMode);
 	const [isInitialized, setIsInitialized] = useState(false);
+	const authModeRef = useRef<AuthModeType>(initialMode);
 
-	// Check API for auth mode on mount
+	// Keep ref in sync with state
 	useEffect(() => {
-		async function checkAuthMode() {
-			try {
-				// Use relative URL to go through Traefik (browser) or direct URL (server)
-				// In browser: relative '/api/auth/mode' -> goes through Traefik -> Python API
-				// In server: direct 'http://localhost:8001/api/auth/mode' -> Python API
-				const apiUrl = typeof window !== 'undefined'
-					? '' // Use relative URL in browser to go through Traefik
-					: 'http://localhost:8001'; // Direct connection on server
-				const response = await fetch(`${apiUrl}/api/auth/mode`);
-				if (response.ok) {
-					const data = await response.json();
-					const detectedMode: AuthModeType = data.auth_mode;
+		authModeRef.current = authMode;
+	}, [authMode]);
 
-					// Only update if different from current mode
-					if (detectedMode !== authMode) {
-						console.log(`Auth mode detected from API: ${detectedMode}`);
-						setAuthModeState(detectedMode);
-						switchAuthMode(detectedMode);
-					}
+	// Improved auth mode detection with stable dependencies
+	useEffect(() => {
+		let isMounted = true;
+
+		const detectAuthMode = async () => {
+			try {
+				console.log("[AuthModeContext] Detecting auth mode...");
+				const response = await fetch('/api/config');
+
+				if (!isMounted) return; // Prevent state updates if unmounted
+
+				if (response.ok) {
+					console.log("[AuthModeContext] API accessible, using multi-user mode");
+					setAuthModeState('multi-user');
 				} else {
-					console.warn('Failed to detect auth mode from API, using default:', authMode);
+					console.log("[AuthModeContext] API not accessible, using local mode");
+					setAuthModeState('local');
 				}
 			} catch (error) {
-				console.warn('Failed to check auth mode from API, using default:', authMode, error);
-				// Set to multi-user mode as default when API is not available
-				setAuthModeState('multi-user');
-				switchAuthMode('multi-user');
+				if (!isMounted) return;
+				console.log("[AuthModeContext] API detection failed, using local mode");
+				setAuthModeState('local');
 			} finally {
-				setIsInitialized(true);
+				if (isMounted) {
+					setIsInitialized(true);
+				}
 			}
-		}
+		};
 
-		// Add a small delay to ensure API is ready
-		const timer = setTimeout(() => {
-			checkAuthMode();
-		}, 1000);
+		detectAuthMode();
 
-		return () => clearTimeout(timer);
-	}, []);
+		return () => {
+			isMounted = false;
+		};
+	}, []); // Empty dependency array - only run once
 
-	// Update storage contexts when auth mode changes
+	// Update storage contexts when auth mode changes - but with debouncing
 	useEffect(() => {
 		if (isInitialized) {
-			switchAuthMode(authMode);
-			console.log(`Auth mode context switched to: ${authMode}`);
+			const timeoutId = setTimeout(() => {
+				switchAuthMode(authMode);
+				console.log(`Auth mode context switched to: ${authMode}`);
+			}, 100); // Small delay to prevent rapid switches
+
+			return () => clearTimeout(timeoutId);
 		}
 	}, [authMode, isInitialized]);
 
