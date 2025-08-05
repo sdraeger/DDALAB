@@ -40,6 +40,7 @@ export function useUnifiedSession(): UnifiedSession {
             firstName: localSession.data.user.firstName,
             lastName: localSession.data.user.lastName,
             isLocalMode: true,
+            accessToken: localSession.data.accessToken, // Get accessToken from session data, not user
           },
           status: localSession.status,
         };
@@ -55,6 +56,7 @@ export function useUnifiedSession(): UnifiedSession {
         firstName: "Local",
         lastName: "User",
         isLocalMode: true,
+        accessToken: "local-mode-token",
       },
       status: "authenticated",
     };
@@ -118,7 +120,7 @@ export function useUnifiedSessionData(): UnifiedSessionData {
         accessToken: "local-mode-token",
         expires: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
       },
-      status: "authenticated",
+      status: "authenticated" as const,
       update: async () => null,
     };
   }

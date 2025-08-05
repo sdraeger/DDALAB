@@ -17,7 +17,8 @@ import {
 	setSelectedChannels,
 	setTimeWindow,
 	setZoomLevel,
-	setPlotPreprocessingOptions
+	setPlotPreprocessingOptions,
+	setDDAResults
 } from "../../../store/slices/plotSlice";
 import { Skeleton } from "../../ui/skeleton";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "../../ui/collapsible";
@@ -69,7 +70,6 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 	// --- DDA Preprocessing and Q Plot State ---
 	const [isDdaOpen, setIsDdaOpen] = useState(false);
 	const [isDdaLoading, setIsDdaLoading] = useState(false);
-	const [ddaQ, setDdaQ] = useState<number[][] | null>(null);
 	const [ddaError, setDdaError] = useState<string | null>(null);
 	const ddaPlotRef = useRef<HTMLDivElement | null>(null);
 	const ddaUPlotInstance = useRef<uPlot | null>(null);
@@ -85,7 +85,7 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 	});
 
 	// --- DDA Q Plotting Logic (reuse from DDALinePlotWidget) ---
-	const getUPlotData = (Q: number[][] | null) => {
+	const getUPlotData = (Q: (number | null)[][] | null) => {
 		if (!Q || Q.length === 0) return null;
 		const length = Q[0].length;
 		const x = Array.from({ length }, (_, i) => i);
@@ -110,39 +110,17 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 			})),
 		],
 	});
-	useEffect(() => {
-		if (!ddaQ || ddaQ.length === 0) {
-			if (ddaUPlotInstance.current) {
-				ddaUPlotInstance.current.destroy();
-				ddaUPlotInstance.current = null;
-			}
-			return;
-		}
-		const data = getUPlotData(ddaQ);
-		if (!data) return;
-		const opts = getUPlotOpts(data.length - 1);
-		if (ddaUPlotInstance.current) {
-			ddaUPlotInstance.current.destroy();
-		}
-		ddaUPlotInstance.current = new uPlot(opts as any, data as any, ddaPlotRef.current!);
-		return () => {
-			if (ddaUPlotInstance.current) {
-				ddaUPlotInstance.current.destroy();
-				ddaUPlotInstance.current = null;
-			}
-		};
-	}, [ddaQ]);
 
 	// --- DDA Request Handler ---
 	const handleRunDDA = async () => {
 		setIsDdaLoading(true);
 		setDdaError(null);
-		setDdaQ(null);
 		try {
 			// Prepare request body
 			const preprocessing = ddaForm.getValues();
 			const filePath = currentFilePath;
 			const channels = chartState.selectedChannels;
+
 			// TODO: Replace with actual API request logic
 			const response = await fetch("/api/dda", {
 				method: "POST",
@@ -153,10 +131,28 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 					preprocessing_options: preprocessing,
 				}),
 			});
+
+			console.log('[ChartWidget] DDA API response:', response);
+
 			if (!response.ok) throw new Error("DDA request failed");
 			const data = await response.json();
 			if (!data.Q) throw new Error("No Q returned from DDA");
-			setDdaQ(data.Q);
+
+			console.log('[ChartWidget] DDA Q:', data.Q);
+
+			// Dispatch DDA results to Redux store
+			if (filePath) {
+				dispatch(setDDAResults({
+					filePath: filePath,
+					results: {
+						Q: data.Q,
+						metadata: data.metadata,
+						artifact_id: data.artifact_id,
+						file_path: data.file_path || filePath,
+					},
+				}));
+				console.log('[ChartWidget] DDA results dispatched to Redux');
+			}
 		} catch (err: any) {
 			setDdaError(err.message || "Unknown error");
 		} finally {
@@ -256,6 +252,24 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 	console.log('[ChartWidget] currentPlots:', currentPlots);
 	console.log('[ChartWidget] currentPlots.byFilePath:', currentPlots?.byFilePath);
 
+	// Debug the actual plot state content
+	if (currentPlots?.currentFilePath && currentPlots?.byFilePath) {
+		const currentPlot = currentPlots.byFilePath[currentPlots.currentFilePath];
+		console.log('[ChartWidget] Current plot state details:', {
+			filePath: currentPlots.currentFilePath,
+			hasPlotState: !!currentPlot,
+			plotStateKeys: currentPlot ? Object.keys(currentPlot) : null,
+			hasEdfData: !!currentPlot?.edfData,
+			edfDataKeys: currentPlot?.edfData ? Object.keys(currentPlot.edfData) : null,
+			hasMetadata: !!currentPlot?.metadata,
+			metadataKeys: currentPlot?.metadata ? Object.keys(currentPlot.metadata) : null,
+			isLoading: currentPlot?.isLoading,
+			error: currentPlot?.error,
+			selectedChannels: currentPlot?.selectedChannels,
+			selectedChannelsLength: currentPlot?.selectedChannels?.length
+		});
+	}
+
 	const {
 		currentFilePath,
 		currentPlotState,
@@ -283,6 +297,32 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 		// Fallback to first plot if no plot with data found
 		return Object.values(currentPlots.byFilePath)[0] || null;
 	}, [currentPlots]);
+
+	// DDA Q Plot effect - render uPlot when DDA results are available
+	useEffect(() => {
+		// Get DDA Q from Redux store instead of local state
+		const ddaQ = memoizedPlotState?.ddaResults?.Q;
+		if (!ddaQ || ddaQ.length === 0) {
+			if (ddaUPlotInstance.current) {
+				ddaUPlotInstance.current.destroy();
+				ddaUPlotInstance.current = null;
+			}
+			return;
+		}
+		const data = getUPlotData(ddaQ);
+		if (!data) return;
+		const opts = getUPlotOpts(data.length - 1);
+		if (ddaUPlotInstance.current) {
+			ddaUPlotInstance.current.destroy();
+		}
+		ddaUPlotInstance.current = new uPlot(opts as any, data as any, ddaPlotRef.current!);
+		return () => {
+			if (ddaUPlotInstance.current) {
+				ddaUPlotInstance.current.destroy();
+				ddaUPlotInstance.current = null;
+			}
+		};
+	}, [memoizedPlotState?.ddaResults?.Q]);
 
 	// Session for authentication
 	const { data: session } = useUnifiedSessionData();
@@ -803,7 +843,7 @@ export function ChartWidget({ widgetId = "chart-widget-default", isPopout = fals
 							}}
 						/>
 						{/* Q Plot below the main chart */}
-						{ddaQ && (
+						{memoizedPlotState?.ddaResults?.Q && (
 							<div className="mt-6">
 								<h3 className="text-base font-semibold mb-2">DDA Q Plot</h3>
 								<div ref={ddaPlotRef} style={{ width: "100%", height: 300 }} />

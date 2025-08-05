@@ -2,6 +2,7 @@
 
 import { BrainCircuit, Mail, Globe, Github } from "lucide-react";
 import { useApiQuery } from "../../hooks/useApiQuery";
+import { useUnifiedSession } from "../../hooks/useUnifiedSession";
 
 interface ConfigResponse {
   institutionName: string;
@@ -9,19 +10,23 @@ interface ConfigResponse {
 
 export function Footer() {
   const currentYear = new Date().getFullYear();
+  const { status } = useUnifiedSession();
+  const isAuthenticated = status === "authenticated";
 
   const { data: configData, loading: configLoading } = useApiQuery<ConfigResponse>({
     url: "/api/config",
     method: "GET",
     responseType: "json",
-    enabled: true,
+    enabled: true, // Config should always be available
+    requiresAuth: false, // Config endpoint doesn't require auth
+    retryOnUnauthorized: false, // Disable retry to prevent infinite loop
   });
 
   const institutionName = configData?.institutionName;
 
   return (
     <footer className="w-full bg-background border-t shadow-sm mt-auto">
-      <div className="container mx-auto py-3 px-4">
+      <div className="w-full py-3 px-4">
         <div className="flex flex-col items-center">
           <div className="flex items-center gap-2 mb-3">
             <BrainCircuit className="h-5 w-5 text-foreground" />

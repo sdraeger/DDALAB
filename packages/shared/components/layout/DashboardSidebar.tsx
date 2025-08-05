@@ -38,12 +38,6 @@ const navigationItems = [
 		description: "Dashboard overview and quick actions",
 	},
 	{
-		title: "Data Analysis",
-		url: "/dashboard/dda",
-		icon: BarChart3,
-		description: "Run DDA on EDF files",
-	},
-	{
 		title: "Artifacts",
 		url: "/dashboard/artifacts",
 		icon: FileText,

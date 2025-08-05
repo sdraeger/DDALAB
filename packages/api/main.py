@@ -69,7 +69,7 @@ async def _ensure_minio_bucket_exists():
     """Ensure the MinIO bucket exists."""
     try:
         storage_settings = config_service.get_storage_settings()
-        
+
         minio_client = Minio(
             storage_settings.minio_host,
             access_key=storage_settings.minio_access_key,
@@ -128,7 +128,7 @@ async def lifespan(app: FastAPI):
         # Initialize environment-based configuration
         global config_service
         config_service = get_config_service()
-        
+
         service_settings = config_service.get_service_settings()
         auth_settings = config_service.get_auth_settings()
         logger.info(f"Environment: {service_settings.environment.value}")
@@ -176,7 +176,7 @@ trace.set_tracer_provider(
 try:
     # Get observability settings for tracing configuration
     observability_settings = get_config_service().get_observability_settings()
-    
+
     otlp_exporter = OTLPSpanExporter(
         endpoint=f"http://{observability_settings.otlp_host}:{observability_settings.otlp_port}/v1/traces",
     )
@@ -188,7 +188,9 @@ try:
         export_timeout_millis=30000,
     )
     trace.get_tracer_provider().add_span_processor(span_processor)
-    logger.info(f"OTLP tracing configured for {observability_settings.otlp_host}:{observability_settings.otlp_port}")
+    logger.info(
+        f"OTLP tracing configured for {observability_settings.otlp_host}:{observability_settings.otlp_port}"
+    )
 except Exception as e:
     logger.warning(f"Failed to configure OTLP tracing: {e}. Tracing will be disabled.")
 
@@ -214,6 +216,8 @@ app.add_middleware(
         "https://localhost:8001",
         "http://localhost",
         "https://localhost",
+        "https://localhost:443",
+        "https://localhost:80",
         "file://",
     ],
     allow_credentials=True,

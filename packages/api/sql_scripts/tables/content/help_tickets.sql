@@ -50,10 +50,11 @@ ALTER TABLE ONLY public.help_tickets
 
 --
 -- Name: help_tickets help_tickets_user_id_key; Type: CONSTRAINT; Schema: public; Owner: {owner}
+-- Note: Removed UNIQUE constraint on user_id to allow multiple tickets per user
 --
 
-ALTER TABLE ONLY public.help_tickets
-    ADD CONSTRAINT help_tickets_user_id_key UNIQUE (user_id);
+-- ALTER TABLE ONLY public.help_tickets
+--     ADD CONSTRAINT help_tickets_user_id_key UNIQUE (user_id);
 
 --
 -- Name: idx_help_tickets_user_id; Type: INDEX; Schema: public; Owner: {owner}
