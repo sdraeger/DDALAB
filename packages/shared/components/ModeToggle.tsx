@@ -3,8 +3,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { useTheme } from "next-themes";
 import { useToast } from "./ui/use-toast";
-import { useSettings } from "../contexts/SettingsContext";
 import { Button } from "./ui/button";
+import { useAppSettings } from "../lib/state/examples/DashboardStateExample";
 import { Moon, Sun, MonitorSmartphone } from "lucide-react";
 import {
   DropdownMenu,
@@ -29,7 +29,7 @@ const getThemeIcon = (theme: string | undefined) => {
 export function ModeToggle() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { toast } = useToast();
-  const { updatePreference, saveChanges, userPreferences } = useSettings();
+  const { theme: centralizedTheme, setTheme: setCentralizedTheme } = useAppSettings();
   const [mounted, setMounted] = useState(false);
 
   // Prevent hydration mismatch by tracking mounted state
@@ -37,28 +37,25 @@ export function ModeToggle() {
     setMounted(true);
   }, []);
 
-  // Sync with settings context on mount
+  // Sync with centralized state on mount
   useEffect(() => {
     if (!mounted) return;
 
     const syncTheme = async () => {
-      if (userPreferences.theme && theme !== userPreferences.theme) {
-        setTheme(userPreferences.theme);
+      if (centralizedTheme && theme !== centralizedTheme) {
+        setTheme(centralizedTheme);
       }
     };
 
     syncTheme();
-  }, [mounted, theme, userPreferences.theme, setTheme]);
+  }, [mounted, theme, centralizedTheme, setTheme]);
 
   const handleThemeChange = useCallback(async (newTheme: Theme) => {
     if (newTheme === theme) return;
 
     try {
       setTheme(newTheme);
-      updatePreference("theme", newTheme);
-
-      const saved = await saveChanges();
-      if (!saved) throw new Error("Save failed");
+      await setCentralizedTheme(newTheme);
 
       toast({
         title: `Switched to ${newTheme} theme`,
@@ -73,7 +70,7 @@ export function ModeToggle() {
         duration: 5000,
       });
     }
-  }, [theme, setTheme, updatePreference, saveChanges, toast]);
+  }, [theme, setTheme, setCentralizedTheme, toast]);
 
   // Prevent hydration mismatch by not rendering theme-dependent content until mounted
   if (!mounted) {
