@@ -17,15 +17,17 @@ export default function DashboardLayout({
   return (
     <SidebarProvider>
       <EDFPlotProvider>
-        <div className="min-h-screen w-full bg-background flex flex-col">
-          <Header />
-          <div className="flex flex-1 w-full">
+        <div className="min-h-screen w-full bg-background">
+          <div className="flex h-screen">
             <AppSidebar />
-            <main className="flex-1 min-w-0 w-full">
-              {children}
-            </main>
+            <div className="flex flex-col flex-1 min-w-0">
+              <Header />
+              <main className="flex-1 overflow-auto">
+                {children}
+              </main>
+              <Footer />
+            </div>
           </div>
-          <Footer />
         </div>
       </EDFPlotProvider>
     </SidebarProvider>
