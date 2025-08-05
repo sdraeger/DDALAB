@@ -145,6 +145,158 @@ async def clear_cache(file_path: str = None, _: User = Depends(get_current_user)
         raise HTTPException(status_code=500, detail=f"Error clearing cache: {str(e)}")
 
 
+@router.get("/data")
+async def get_edf_data(
+    file_path: str,
+    chunk_start: int = 0,
+    chunk_size: int = 5120,
+    preprocessing_options: str = None,
+    _: User = Depends(get_current_user),
+):
+    """Get EDF data chunk."""
+    from loguru import logger
+
+    try:
+        logger.info(
+            f"EDF data request: file_path={file_path}, chunk_start={chunk_start}, chunk_size={chunk_size}"
+        )
+
+        # Handle both absolute and relative paths
+        if Path(file_path).is_absolute():
+            full_path = Path(file_path)
+        else:
+            full_path = Path(settings.data_dir) / file_path
+
+        logger.info(f"Resolved file path: {full_path}")
+
+        if not full_path.exists():
+            logger.error(f"File not found: {full_path}")
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+        # Convert preprocessing_options from JSON string if provided
+        preprocess_opts = None
+        if preprocessing_options:
+            try:
+                preprocess_opts = json.loads(preprocessing_options)
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid preprocessing options JSON: {e}")
+                raise HTTPException(
+                    status_code=400, detail="Invalid preprocessing_options JSON format"
+                )
+
+        logger.info("Getting cache manager...")
+        # Get data from cache manager
+        try:
+            cache_manager = get_cache_manager()
+            logger.info("Cache manager obtained successfully")
+        except Exception as e:
+            logger.error(f"Error getting cache manager: {e}")
+            raise
+
+        logger.info("Reading chunk from cache manager...")
+        try:
+            result = cache_manager.read_chunk_optimized(
+                str(full_path), chunk_start, chunk_size, preprocess_opts
+            )
+            logger.info(f"Cache manager returned: {type(result)}")
+
+            if isinstance(result, tuple) and len(result) == 2:
+                edf_file, total_samples = result
+                logger.info(
+                    f"EDF file type: {type(edf_file)}, total_samples: {total_samples}"
+                )
+            else:
+                logger.error(f"Unexpected result format from cache manager: {result}")
+                raise ValueError(f"Unexpected result format: {type(result)}")
+
+        except Exception as e:
+            logger.error(f"Error reading chunk: {e}")
+            raise
+
+        # Transform EDFFile to JSON format expected by frontend
+        data = []
+        channel_labels = []
+
+        logger.info(f"Processing EDF file: {edf_file}")
+
+        if edf_file and hasattr(edf_file, "signals") and edf_file.signals:
+            logger.info(f"EDF file has {len(edf_file.signals)} signals")
+            # Extract signal data and labels
+            for i, signal in enumerate(edf_file.signals):
+                try:
+                    if hasattr(signal, "data") and signal.data is not None:
+                        signal_data = (
+                            signal.data.tolist()
+                            if hasattr(signal.data, "tolist")
+                            else list(signal.data)
+                        )
+                        data.append(signal_data)
+                        logger.info(f"Signal {i}: {len(signal_data)} samples")
+                    else:
+                        logger.warning(f"Signal {i} has no data or data is None")
+                except Exception as e:
+                    logger.error(f"Error processing signal {i}: {e}")
+                    raise
+
+            # Get channel labels
+            if hasattr(edf_file, "labels") and edf_file.labels:
+                channel_labels = edf_file.labels
+                logger.info(f"Using edf_file.labels: {channel_labels}")
+            elif hasattr(edf_file, "signal_labels"):
+                channel_labels = edf_file.signal_labels
+                logger.info(f"Using edf_file.signal_labels: {channel_labels}")
+            else:
+                logger.warning("No channel labels found")
+        else:
+            logger.warning("EDF file has no signals or is None")
+
+        # Get sampling frequency
+        sampling_frequency = 256  # default
+        if (
+            edf_file
+            and hasattr(edf_file, "sampling_frequencies")
+            and edf_file.sampling_frequencies
+        ):
+            sampling_frequency = edf_file.sampling_frequencies[0]
+            logger.info(f"Using sampling frequency: {sampling_frequency}")
+        else:
+            logger.warning(f"Using default sampling frequency: {sampling_frequency}")
+
+        # Convert numpy types to Python native types for JSON serialization
+        def convert_numpy_types(obj):
+            """Convert numpy types to Python native types."""
+            import numpy as np
+
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            return obj
+
+        response_data = {
+            "data": data,
+            "channel_labels": channel_labels,
+            "sampling_frequency": convert_numpy_types(sampling_frequency),
+            "chunk_size": convert_numpy_types(chunk_size),
+            "chunk_start": convert_numpy_types(chunk_start),
+            "total_samples": convert_numpy_types(total_samples),
+        }
+
+        logger.info(
+            f"Returning response with {len(data)} channels, {len(channel_labels)} labels"
+        )
+        return response_data
+
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in get_edf_data: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error reading EDF data: {str(e)}")
+
+
 @router.post("/cache/warmup")
 async def warmup_cache(file_path: str, _: User = Depends(get_current_user)):
     """Warm up cache for a specific file by preloading metadata."""

@@ -3,6 +3,303 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { cn } from "../../lib/utils/misc";
 
+// ===== IMPROVED DRAGGING SYSTEM - SOLID PRINCIPLES =====
+
+// Interface for position and size
+interface Rectangle {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
+interface DragState {
+	widgetId: string;
+	startPosition: { x: number; y: number };
+	currentPosition: { x: number; y: number };
+	mouseStart: { x: number; y: number };
+}
+
+// Single Responsibility: Handle collision detection
+class CollisionDetector {
+	static checkOverlap(rect1: Rectangle, rect2: Rectangle): boolean {
+		return !(
+			rect1.x + rect1.width <= rect2.x ||
+			rect2.x + rect2.width <= rect1.x ||
+			rect1.y + rect1.height <= rect2.y ||
+			rect2.y + rect2.height <= rect1.y
+		);
+	}
+
+	static findNearestDockPosition(
+		draggedWidget: Rectangle,
+		otherWidgets: Rectangle[],
+		containerBounds: Rectangle,
+		tolerance: number = 20
+	): Rectangle {
+		let bestPosition = { ...draggedWidget };
+		let minDistance = Infinity;
+
+		// Try docking to each other widget
+		otherWidgets.forEach(other => {
+			// Calculate potential dock positions
+			const dockPositions = [
+				// Left side
+				{ x: other.x - draggedWidget.width - 10, y: other.y },
+				// Right side
+				{ x: other.x + other.width + 10, y: other.y },
+				// Top side
+				{ x: other.x, y: other.y - draggedWidget.height - 10 },
+				// Bottom side
+				{ x: other.x, y: other.y + other.height + 10 },
+			];
+
+			dockPositions.forEach(pos => {
+				// Check if position is within container bounds
+				if (
+					pos.x >= 0 &&
+					pos.y >= 0 &&
+					pos.x + draggedWidget.width <= containerBounds.width &&
+					pos.y + draggedWidget.height <= containerBounds.height
+				) {
+					const distance = Math.sqrt(
+						Math.pow(pos.x - draggedWidget.x, 2) +
+						Math.pow(pos.y - draggedWidget.y, 2)
+					);
+
+					if (distance < minDistance && distance <= tolerance) {
+						// Check if this position would overlap with any widget
+						const testRect = { ...draggedWidget, x: pos.x, y: pos.y };
+						const hasOverlap = otherWidgets.some(w =>
+							w !== other && CollisionDetector.checkOverlap(testRect, w)
+						);
+
+						if (!hasOverlap) {
+							minDistance = distance;
+							bestPosition = { ...draggedWidget, x: pos.x, y: pos.y };
+						}
+					}
+				}
+			});
+		});
+
+		return bestPosition;
+	}
+}
+
+// Single Responsibility: Handle smooth animations
+class SmoothAnimator {
+	static easeOutCubic(t: number): number {
+		return 1 - Math.pow(1 - t, 3);
+	}
+
+	static interpolate(start: number, end: number, progress: number): number {
+		return start + (end - start) * this.easeOutCubic(progress);
+	}
+}
+
+// Single Responsibility: Handle alignment guides
+class SnapGuide {
+	static findAlignmentGuides(
+		draggedWidget: Rectangle,
+		otherWidgets: Rectangle[],
+		tolerance: number = 10
+	): { x?: number; y?: number; snapX?: number; snapY?: number } {
+		const guides: { x?: number; y?: number; snapX?: number; snapY?: number } = {};
+		let minXDistance = tolerance + 1;
+		let minYDistance = tolerance + 1;
+
+		otherWidgets.forEach(other => {
+			// Vertical alignment checks
+			const alignments = [
+				{ pos: other.x, snap: other.x }, // Left to left
+				{ pos: other.x + other.width, snap: other.x + other.width }, // Left to right
+				{ pos: other.x, snap: other.x - draggedWidget.width }, // Right to left
+				{ pos: other.x + other.width, snap: other.x + other.width - draggedWidget.width }, // Right to right
+				{ pos: other.x + other.width / 2, snap: other.x + (other.width - draggedWidget.width) / 2 } // Center to center
+			];
+
+			alignments.forEach(({ pos, snap }) => {
+				const distance = Math.abs(draggedWidget.x - snap);
+				if (distance < minXDistance) {
+					minXDistance = distance;
+					guides.x = pos;
+					guides.snapX = snap;
+				}
+			});
+
+			// Horizontal alignment checks
+			const hAlignments = [
+				{ pos: other.y, snap: other.y }, // Top to top
+				{ pos: other.y + other.height, snap: other.y + other.height }, // Top to bottom
+				{ pos: other.y, snap: other.y - draggedWidget.height }, // Bottom to top
+				{ pos: other.y + other.height, snap: other.y + other.height - draggedWidget.height }, // Bottom to bottom
+				{ pos: other.y + other.height / 2, snap: other.y + (other.height - draggedWidget.height) / 2 } // Center to center
+			];
+
+			hAlignments.forEach(({ pos, snap }) => {
+				const distance = Math.abs(draggedWidget.y - snap);
+				if (distance < minYDistance) {
+					minYDistance = distance;
+					guides.y = pos;
+					guides.snapY = snap;
+				}
+			});
+		});
+
+		return guides;
+	}
+}
+
+// Single Responsibility: Handle drag operations
+class DragHandler {
+	private animationFrame?: number;
+
+	constructor(
+		private onUpdate: (id: string, position: { x: number; y: number }) => void,
+		private onGuidesUpdate: (guides: { x?: number; y?: number }) => void
+	) {}
+
+	processDrag(
+		dragState: DragState,
+		mousePosition: { x: number; y: number },
+		widgets: Widget[],
+		containerBounds: Rectangle
+	): void {
+		if (this.animationFrame) {
+			cancelAnimationFrame(this.animationFrame);
+		}
+
+		this.animationFrame = requestAnimationFrame(() => {
+			const deltaX = mousePosition.x - dragState.mouseStart.x;
+			const deltaY = mousePosition.y - dragState.mouseStart.y;
+
+			let newX = dragState.startPosition.x + deltaX;
+			let newY = dragState.startPosition.y + deltaY;
+
+			const draggedWidget = widgets.find(w => w.id === dragState.widgetId);
+			if (!draggedWidget) return;
+
+			// Keep within bounds
+			newX = Math.max(0, Math.min(newX, containerBounds.width - draggedWidget.size.width));
+			newY = Math.max(0, Math.min(newY, containerBounds.height - draggedWidget.size.height));
+
+
+			const otherWidgets = widgets
+				.filter(w => w.id !== dragState.widgetId && !w.isPopOut)
+				.map(w => ({
+					x: w.position.x,
+					y: w.position.y,
+					width: w.size.width,
+					height: w.size.height
+				}));
+
+			const draggedRect = {
+				x: newX,
+				y: newY,
+				width: draggedWidget.size.width,
+				height: draggedWidget.size.height
+			};
+
+			// Find alignment guides and snap positions
+			const guides = SnapGuide.findAlignmentGuides(draggedRect, otherWidgets);
+
+			// Apply snapping
+			if (guides.snapX !== undefined) newX = guides.snapX;
+			if (guides.snapY !== undefined) newY = guides.snapY;
+
+			// Update guides display
+			this.onGuidesUpdate({ x: guides.x, y: guides.y });
+
+			// Update position
+			this.onUpdate(dragState.widgetId, { x: newX, y: newY });
+		});
+	}
+
+	finishDrag(
+		dragState: DragState,
+		widgets: Widget[],
+		containerBounds: Rectangle
+	): void {
+		if (this.animationFrame) {
+			cancelAnimationFrame(this.animationFrame);
+		}
+
+		const draggedWidget = widgets.find(w => w.id === dragState.widgetId);
+		if (!draggedWidget) return;
+
+		const otherWidgets = widgets
+			.filter(w => w.id !== dragState.widgetId && !w.isPopOut)
+			.map(w => ({
+				x: w.position.x,
+				y: w.position.y,
+				width: w.size.width,
+				height: w.size.height
+			}));
+
+		const draggedRect = {
+			x: draggedWidget.position.x,
+			y: draggedWidget.position.y,
+			width: draggedWidget.size.width,
+			height: draggedWidget.size.height
+		};
+
+		// Find best dock position if close enough
+		const dockPosition = CollisionDetector.findNearestDockPosition(
+			draggedRect,
+			otherWidgets,
+			containerBounds,
+			50 // Dock tolerance
+		);
+
+		// Smooth animate to dock position if different
+		if (dockPosition.x !== draggedRect.x || dockPosition.y !== draggedRect.y) {
+			this.animateToPosition(
+				dragState.widgetId,
+				{ x: draggedRect.x, y: draggedRect.y },
+				{ x: dockPosition.x, y: dockPosition.y },
+				300
+			);
+		}
+
+		// Clear guides
+		this.onGuidesUpdate({});
+	}
+
+	private animateToPosition(
+		widgetId: string,
+		from: { x: number; y: number },
+		to: { x: number; y: number },
+		duration: number
+	): void {
+		const startTime = Date.now();
+
+		const animate = () => {
+			const elapsed = Date.now() - startTime;
+			const progress = Math.min(elapsed / duration, 1);
+
+			const currentX = SmoothAnimator.interpolate(from.x, to.x, progress);
+			const currentY = SmoothAnimator.interpolate(from.y, to.y, progress);
+
+			this.onUpdate(widgetId, { x: currentX, y: currentY });
+
+			if (progress < 1) {
+				requestAnimationFrame(animate);
+			}
+		};
+
+		requestAnimationFrame(animate);
+	}
+
+	destroy(): void {
+		if (this.animationFrame) {
+			cancelAnimationFrame(this.animationFrame);
+		}
+	}
+}
+
+// ===== END IMPROVED DRAGGING SYSTEM =====
+
 export interface Widget {
 	id: string;
 	title: string;
@@ -46,58 +343,7 @@ interface ResizePreview {
 	visible: boolean;
 }
 
-// Helper function to check if two rectangles overlap
-const rectanglesOverlap = (rect1: { x: number; y: number; width: number; height: number }, rect2: { x: number; y: number; width: number; height: number }) => {
-	return !(rect1.x + rect1.width <= rect2.x ||
-		rect2.x + rect2.width <= rect1.x ||
-		rect1.y + rect1.height <= rect2.y ||
-		rect2.y + rect2.height <= rect1.y);
-};
-
-// Helper function to snap to grid
-const snapToGrid = (value: number, gridSize: number) => {
-	return Math.round(value / gridSize) * gridSize;
-};
-
-// Helper function to find non-overlapping position
-const findNonOverlappingPosition = (
-	widget: { x: number; y: number; width: number; height: number },
-	otherWidgets: { x: number; y: number; width: number; height: number }[],
-	containerWidth: number,
-	containerHeight: number
-) => {
-	let newX = widget.x;
-	let newY = widget.y;
-
-	// Try positions in expanding spiral pattern
-	const maxAttempts = 50;
-	let attempts = 0;
-
-	while (attempts < maxAttempts) {
-		const testWidget = { ...widget, x: newX, y: newY };
-
-		// Check if this position overlaps with any other widget
-		const hasOverlap = otherWidgets.some(other => rectanglesOverlap(testWidget, other));
-
-		if (!hasOverlap && newX >= 0 && newY >= 0 &&
-			newX + widget.width <= containerWidth &&
-			newY + widget.height <= containerHeight) {
-			return { x: newX, y: newY };
-		}
-
-		// Move in spiral pattern
-		if (attempts % 4 === 0) newX += 20;
-		else if (attempts % 4 === 1) newY += 20;
-		else if (attempts % 4 === 2) newX -= 20;
-		else newY -= 20;
-
-		attempts++;
-	}
-
-	// If no non-overlapping position found, stack vertically
-	const maxY = Math.max(0, ...otherWidgets.map(w => w.y + w.height));
-	return { x: widget.x, y: maxY + 10 };
-};
+// Legacy helper functions removed - now using SOLID architecture classes above
 
 export function DashboardGrid({
 	widgets,
@@ -110,165 +356,105 @@ export function DashboardGrid({
 	enableSnapping = false,
 	enableCollisionDetection = false
 }: DashboardGridProps) {
-	const [dragging, setDragging] = useState<string | null>(null);
+	const [dragState, setDragState] = useState<DragState | null>(null);
+	const [dragPreview, setDragPreview] = useState<{ widgetId: string; x: number; y: number } | null>(null);
 	const [resizing, setResizing] = useState<string | null>(null);
-	const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 	const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 });
-
 	const [resizePreview, setResizePreview] = useState<ResizePreview>({ x: 0, y: 0, width: 0, height: 0, visible: false });
 	const [alignmentGuides, setAlignmentGuides] = useState<{ x?: number; y?: number }>({});
 	const containerRef = useRef<HTMLDivElement>(null);
+	const dragHandlerRef = useRef<DragHandler | null>(null);
+	const animationFrameRef = useRef<number | null>(null);
+	const lastUpdateTimeRef = useRef<number>(0);
+	const updateThrottleMs = 16; // ~60fps
+
+	// Initialize drag handler
+	useEffect(() => {
+		if (!dragHandlerRef.current && onWidgetUpdate) {
+			dragHandlerRef.current = new DragHandler(
+				(id, position) => onWidgetUpdate(id, { position }),
+				(guides) => setAlignmentGuides(guides)
+			);
+		}
+
+		return () => {
+			if (dragHandlerRef.current) {
+				dragHandlerRef.current.destroy();
+				dragHandlerRef.current = null;
+			}
+			if (animationFrameRef.current) {
+				cancelAnimationFrame(animationFrameRef.current);
+				animationFrameRef.current = null;
+			}
+		};
+	}, [onWidgetUpdate]);
 
 	// Handle mouse move for dragging and resizing
 	const handleMouseMove = useCallback((e: MouseEvent) => {
-		if (dragging) {
-			const deltaX = e.clientX - dragStart.x;
-			const deltaY = e.clientY - dragStart.y;
-			const widget = widgets.find(w => w.id === dragging);
+		if (dragState && containerRef.current && onWidgetUpdate) {
+			// Cancel any pending animation frame to prevent multiple updates
+			if (animationFrameRef.current) {
+				cancelAnimationFrame(animationFrameRef.current);
+			}
 
-			if (widget && containerRef.current && onWidgetUpdate) {
-				const containerRect = containerRef.current.getBoundingClientRect();
-				let newX = widget.position.x + deltaX;
-				let newY = widget.position.y + deltaY;
+			// Use requestAnimationFrame for smooth visual updates
+			animationFrameRef.current = requestAnimationFrame(() => {
+				const containerRect = containerRef.current?.getBoundingClientRect();
+				if (!containerRect) return;
 
-				// Keep within container bounds
-				newX = Math.max(0, Math.min(newX, containerRect.width - widget.size.width));
-				newY = Math.max(0, Math.min(newY, containerRect.height - widget.size.height));
+				const deltaX = e.clientX - dragState.mouseStart.x;
+				const deltaY = e.clientY - dragState.mouseStart.y;
 
-				// Check for edge alignment and push functionality
-				const otherWidgets = widgets.filter(w => w.id !== dragging);
-				const guides: { x?: number; y?: number } = {};
-				const pushedWidgets: { id: string; position: { x: number; y: number } }[] = [];
+				let newX = dragState.startPosition.x + deltaX;
+				let newY = dragState.startPosition.y + deltaY;
 
-				// Alignment detection with visual guides (always active for better UX)
-				const tolerance = 10; // Reasonable snap distance
+				const widget = widgets.find(w => w.id === dragState.widgetId);
+				if (widget) {
+					// Keep within bounds
+					newX = Math.max(0, Math.min(newX, containerRect.width - widget.size.width));
+					newY = Math.max(0, Math.min(newY, containerRect.height - widget.size.height));
 
-				// Find vertical alignment guides
-				otherWidgets.forEach(other => {
-					// Left edges align
-					if (Math.abs(newX - other.position.x) < tolerance) {
-						newX = other.position.x;
-						guides.x = other.position.x;
-					}
-					// Right edge to left edge align
-					else if (Math.abs(newX - (other.position.x + other.size.width)) < tolerance) {
-						newX = other.position.x + other.size.width;
-						guides.x = other.position.x + other.size.width;
-					}
-					// Left edge to right edge align
-					else if (Math.abs(newX + widget.size.width - other.position.x) < tolerance) {
-						newX = other.position.x - widget.size.width;
-						guides.x = other.position.x;
-					}
-					// Right edges align
-					else if (Math.abs(newX + widget.size.width - (other.position.x + other.size.width)) < tolerance) {
-						newX = other.position.x + other.size.width - widget.size.width;
-						guides.x = other.position.x;
-					}
-					// Center alignment
-					else if (Math.abs(newX + widget.size.width / 2 - (other.position.x + other.size.width / 2)) < tolerance) {
-						newX = other.position.x + (other.size.width - widget.size.width) / 2;
-						guides.x = other.position.x + other.size.width / 2;
-					}
-				});
+					// Find other widgets for alignment
+					const otherWidgets = widgets.filter(w => w.id !== dragState.widgetId && !w.isPopOut);
+					const guides: { x?: number; y?: number } = {};
+					const tolerance = 10;
 
-				// Find horizontal alignment guides
-				otherWidgets.forEach(other => {
-					// Top edges align
-					if (Math.abs(newY - other.position.y) < tolerance) {
-						newY = other.position.y;
-						guides.y = other.position.y;
-					}
-					// Bottom edge to top edge align
-					else if (Math.abs(newY - (other.position.y + other.size.height)) < tolerance) {
-						newY = other.position.y + other.size.height;
-						guides.y = other.position.y + other.size.height;
-					}
-					// Top edge to bottom edge align
-					else if (Math.abs(newY + widget.size.height - other.position.y) < tolerance) {
-						newY = other.position.y - widget.size.height;
-						guides.y = other.position.y;
-					}
-					// Bottom edges align
-					else if (Math.abs(newY + widget.size.height - (other.position.y + other.size.height)) < tolerance) {
-						newY = other.position.y + other.size.height - widget.size.height;
-						guides.y = other.position.y;
-					}
-					// Center alignment
-					else if (Math.abs(newY + widget.size.height / 2 - (other.position.y + other.size.height / 2)) < tolerance) {
-						newY = other.position.y + (other.size.height - widget.size.height) / 2;
-						guides.y = other.position.y + other.size.height / 2;
-					}
-				});
-
-				// Push functionality - check for overlaps and push other widgets
-				const draggedRect = {
-					x: newX,
-					y: newY,
-					width: widget.size.width,
-					height: widget.size.height
-				};
-
-				otherWidgets.forEach(otherWidget => {
-					const otherRect = {
-						x: otherWidget.position.x,
-						y: otherWidget.position.y,
-						width: otherWidget.size.width,
-						height: otherWidget.size.height
-					};
-
-					// Check for overlap and calculate push direction
-					if (rectanglesOverlap(draggedRect, otherRect)) {
-						// Calculate overlap areas in each direction
-						const overlapLeft = draggedRect.x + draggedRect.width - otherRect.x;
-						const overlapRight = otherRect.x + otherRect.width - draggedRect.x;
-						const overlapTop = draggedRect.y + draggedRect.height - otherRect.y;
-						const overlapBottom = otherRect.y + otherRect.height - draggedRect.y;
-
-						// Find the direction with minimum overlap (easiest push direction)
-						const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
-
-						let newOtherX = otherRect.x;
-						let newOtherY = otherRect.y;
-
-						if (minOverlap === overlapLeft && overlapLeft > 0) {
-							// Push left
-							newOtherX = draggedRect.x - otherRect.width - 5;
-						} else if (minOverlap === overlapRight && overlapRight > 0) {
-							// Push right
-							newOtherX = draggedRect.x + draggedRect.width + 5;
-						} else if (minOverlap === overlapTop && overlapTop > 0) {
-							// Push up
-							newOtherY = draggedRect.y - otherRect.height - 5;
-						} else if (minOverlap === overlapBottom && overlapBottom > 0) {
-							// Push down
-							newOtherY = draggedRect.y + draggedRect.height + 5;
+					// Simple alignment detection
+					otherWidgets.forEach(other => {
+						// Vertical alignment (X-axis)
+						if (Math.abs(newX - other.position.x) < tolerance) {
+							newX = other.position.x;
+							guides.x = other.position.x;
+						} else if (Math.abs(newX + widget.size.width - (other.position.x + other.size.width)) < tolerance) {
+							newX = other.position.x + other.size.width - widget.size.width;
+							guides.x = other.position.x + other.size.width;
 						}
 
-						// Ensure pushed widget stays within container bounds
-						newOtherX = Math.max(0, Math.min(newOtherX, containerRect.width - otherRect.width));
-						newOtherY = Math.max(0, Math.min(newOtherY, containerRect.height - otherRect.height));
+						// Horizontal alignment (Y-axis)
+						if (Math.abs(newY - other.position.y) < tolerance) {
+							newY = other.position.y;
+							guides.y = other.position.y;
+						} else if (Math.abs(newY + widget.size.height - (other.position.y + other.size.height)) < tolerance) {
+							newY = other.position.y + other.size.height - widget.size.height;
+							guides.y = other.position.y + other.size.height;
+						}
+					});
 
-						pushedWidgets.push({
-							id: otherWidget.id,
-							position: { x: newOtherX, y: newOtherY }
-						});
+					// Update alignment guides immediately for visual feedback
+					setAlignmentGuides(guides);
+
+					// Update drag preview for instant visual feedback
+					setDragPreview({ widgetId: dragState.widgetId, x: newX, y: newY });
+
+					// Throttle actual widget updates to reduce re-renders
+					const now = Date.now();
+					if (now - lastUpdateTimeRef.current > updateThrottleMs) {
+						onWidgetUpdate(dragState.widgetId, { position: { x: newX, y: newY } });
+						lastUpdateTimeRef.current = now;
 					}
-				});
-
-				// Apply pushed widget positions immediately for real-time feedback
-				pushedWidgets.forEach(({ id, position }) => {
-					onWidgetUpdate(id, { position });
-				});
-
-				// Update alignment guides
-				setAlignmentGuides(guides);
-
-				// Move the dragged widget in real-time
-				onWidgetUpdate(dragging, { position: { x: newX, y: newY } });
-
-				setDragStart({ x: e.clientX, y: e.clientY });
-			}
+				}
+				animationFrameRef.current = null;
+			});
 		}
 
 		if (resizing) {
@@ -307,10 +493,76 @@ export function DashboardGrid({
 				});
 			}
 		}
-	}, [dragging, resizing, dragStart, resizeStart, widgets, onWidgetUpdate]);
+	}, [dragState, resizing, resizeStart, widgets, onWidgetUpdate]);
 
 	// Handle mouse up to stop dragging/resizing
 	const handleMouseUp = useCallback(() => {
+		if (dragState && containerRef.current && onWidgetUpdate) {
+			const containerRect = containerRef.current.getBoundingClientRect();
+			const widget = widgets.find(w => w.id === dragState.widgetId);
+
+			if (widget) {
+				// Find potential dock positions
+				const otherWidgets = widgets.filter(w => w.id !== dragState.widgetId && !w.isPopOut);
+				const currentPos = { x: widget.position.x, y: widget.position.y };
+				let bestDockPos = currentPos;
+				let minDistance = 50; // Only dock if within 50px
+
+				otherWidgets.forEach(other => {
+					const dockPositions = [
+						// Right of other widget
+						{ x: other.position.x + other.size.width + 10, y: other.position.y },
+						// Left of other widget
+						{ x: other.position.x - widget.size.width - 10, y: other.position.y },
+						// Below other widget
+						{ x: other.position.x, y: other.position.y + other.size.height + 10 },
+						// Above other widget
+						{ x: other.position.x, y: other.position.y - widget.size.height - 10 }
+					];
+
+					dockPositions.forEach(pos => {
+						if (pos.x >= 0 && pos.y >= 0 &&
+							pos.x + widget.size.width <= containerRect.width &&
+							pos.y + widget.size.height <= containerRect.height) {
+
+							const distance = Math.sqrt(
+								Math.pow(pos.x - currentPos.x, 2) +
+								Math.pow(pos.y - currentPos.y, 2)
+							);
+
+							if (distance < minDistance) {
+								minDistance = distance;
+								bestDockPos = pos;
+							}
+						}
+					});
+				});
+
+				// Smooth animate to dock position if different
+				if (bestDockPos.x !== currentPos.x || bestDockPos.y !== currentPos.y) {
+					const startTime = Date.now();
+					const duration = 200;
+
+					const animate = () => {
+						const elapsed = Date.now() - startTime;
+						const progress = Math.min(elapsed / duration, 1);
+						const eased = 1 - Math.pow(1 - progress, 3); // Ease out cubic
+
+						const currentX = currentPos.x + (bestDockPos.x - currentPos.x) * eased;
+						const currentY = currentPos.y + (bestDockPos.y - currentPos.y) * eased;
+
+						onWidgetUpdate(dragState.widgetId, { position: { x: currentX, y: currentY } });
+
+						if (progress < 1) {
+							requestAnimationFrame(animate);
+						}
+					};
+
+					requestAnimationFrame(animate);
+				}
+			}
+		}
+
 		if (resizing && resizePreview.visible) {
 			const widget = widgets.find(w => w.id === resizing);
 			if (widget && onWidgetUpdate) {
@@ -323,18 +575,32 @@ export function DashboardGrid({
 			}
 		}
 
-		// Clean up states
-		setDragging(null);
+		// Ensure final position is committed before cleanup
+		if (dragPreview && onWidgetUpdate) {
+			onWidgetUpdate(dragPreview.widgetId, {
+				position: { x: dragPreview.x, y: dragPreview.y }
+			});
+		}
+
+		// Clean up states and animation frames
+		if (animationFrameRef.current) {
+			cancelAnimationFrame(animationFrameRef.current);
+			animationFrameRef.current = null;
+		}
+
+		setDragState(null);
+		setDragPreview(null);
 		setResizing(null);
 		setResizePreview(prev => ({ ...prev, visible: false }));
 		setAlignmentGuides({});
+		lastUpdateTimeRef.current = 0;
 		document.body.style.cursor = '';
 		document.body.style.userSelect = '';
-	}, [resizing, resizePreview, widgets, onWidgetUpdate]);
+	}, [dragState, resizing, resizePreview, widgets, onWidgetUpdate]);
 
 	// Add global event listeners
 	useEffect(() => {
-		if (dragging || resizing) {
+		if (dragState || resizing) {
 			document.addEventListener('mousemove', handleMouseMove);
 			document.addEventListener('mouseup', handleMouseUp);
 			document.body.style.userSelect = 'none';
@@ -342,7 +608,7 @@ export function DashboardGrid({
 
 			if (resizing) {
 				document.body.style.cursor = 'se-resize';
-			} else if (dragging) {
+			} else if (dragState) {
 				document.body.style.cursor = 'move';
 			}
 
@@ -354,7 +620,7 @@ export function DashboardGrid({
 				document.body.style.webkitUserSelect = '';
 			};
 		}
-	}, [dragging, resizing, handleMouseMove, handleMouseUp]);
+	}, [dragState, resizing, handleMouseMove, handleMouseUp]);
 
 	// Cleanup effect to ensure text selection is restored if operations are interrupted
 	useEffect(() => {
@@ -390,9 +656,16 @@ export function DashboardGrid({
 	// Start dragging
 	const handleDragStart = useCallback((widgetId: string, e: React.MouseEvent) => {
 		e.preventDefault();
-		setDragging(widgetId);
-		setDragStart({ x: e.clientX, y: e.clientY });
-	}, []);
+		const widget = widgets.find(w => w.id === widgetId);
+		if (widget) {
+			setDragState({
+				widgetId,
+				startPosition: { x: widget.position.x, y: widget.position.y },
+				currentPosition: { x: widget.position.x, y: widget.position.y },
+				mouseStart: { x: e.clientX, y: e.clientY }
+			});
+		}
+	}, [widgets]);
 
 	// Start resizing
 	const handleResizeStart = useCallback((widgetId: string, e: React.MouseEvent) => {
@@ -421,10 +694,7 @@ export function DashboardGrid({
 	return (
 		<div
 			ref={containerRef}
-			className={cn("relative w-full h-full bg-muted/5", className)}
-			style={{
-				minHeight: 'calc(100vh - 200px)'
-			}}
+			className={cn("relative w-full h-full bg-muted/5 min-w-full", className)}
 		>
 			{/* Alignment Guides - Subtle and helpful */}
 			{alignmentGuides.x !== undefined && (
@@ -469,16 +739,18 @@ export function DashboardGrid({
 					key={widget.id}
 					className={cn(
 						"absolute bg-background border border-border rounded-lg shadow-md overflow-hidden",
-						"transition-all duration-150 hover:shadow-lg",
-						dragging === widget.id && "shadow-2xl ring-2 ring-blue-500/50 scale-[1.01] rotate-[0.5deg]",
+						// Only apply transitions when not dragging for better performance
+					dragState?.widgetId !== widget.id && "transition-all duration-150 hover:shadow-lg",
+						dragState?.widgetId === widget.id && "shadow-2xl ring-2 ring-blue-500/50 scale-[1.01] rotate-[0.5deg]",
 						resizing === widget.id && "shadow-xl ring-2 ring-blue-500/40"
 					)}
 					style={{
-						left: widget.position.x,
-						top: widget.position.y,
+						// Use drag preview position if this widget is being dragged
+					left: dragPreview?.widgetId === widget.id ? dragPreview.x : widget.position.x,
+						top: dragPreview?.widgetId === widget.id ? dragPreview.y : widget.position.y,
 						width: widget.size.width,
 						height: widget.size.height,
-						zIndex: (dragging === widget.id || resizing === widget.id) ? 1000 : 1
+						zIndex: (dragState?.widgetId === widget.id || resizing === widget.id) ? 1000 : 1
 					}}
 				>
 					{/* Widget Header - Drag handle */}
@@ -488,7 +760,7 @@ export function DashboardGrid({
 							"hover:bg-blue-500/10 transition-all duration-200",
 							"active:bg-blue-500/20",
 							"select-none", // Prevent text selection
-							dragging === widget.id && "bg-blue-500/15 text-blue-900"
+							dragState?.widgetId === widget.id && "bg-blue-500/15 text-blue-900"
 						)}
 						onMouseDown={(e) => handleDragStart(widget.id, e)}
 						title="Drag to move widget - snap to edges when close to other widgets"

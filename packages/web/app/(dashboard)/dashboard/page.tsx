@@ -5,19 +5,20 @@ import { DashboardGrid } from "shared/components/dashboard/DashboardGrid";
 import { DashboardToolbar } from "shared/components/dashboard/DashboardToolbar";
 import { usePersistentDashboard } from "shared/hooks/usePersistentDashboard";
 import { Button } from "shared/components/ui/button";
-import { Save, RefreshCw, Trash2 } from "lucide-react";
+import { Save, RefreshCw, Trash2, Settings } from "lucide-react";
 import { useToast } from "shared/components/ui/use-toast";
 import { useUnifiedSessionData } from "shared/hooks";
 import { useEDFPlot } from "shared/contexts/EDFPlotContext";
 import { EdfMetadata, FileSelectionDialog } from "shared/components/dialog/FileSelectionDialog";
 import { FileBrowserWidget } from "shared/components/dashboard/widgets/FileBrowserWidget";
 import { useAppDispatch } from "shared/store";
-import { ensurePlotState, initializePlot, loadChunk, setSelectedChannels } from "shared/store/slices/plotSlice";
+import { ensurePlotState, initializePlot, loadChunk, setSelectedChannels, clearAllPlots } from "shared/store/slices/plotSlice";
 import { apiRequest } from "shared/lib/utils/request";
 import { DashboardStateManager } from "shared/components/ui/dashboard-state-manager";
 import { useSelector } from "react-redux";
 import { selectIsFileLoading, startLoading, stopLoading, clearAllLoading } from "shared/store/slices/loadingSlice";
 import { useCurrentEdfFile } from "shared/hooks/useCurrentEdfFile";
+import { useAuthMode } from "shared/contexts/AuthModeContext";
 
 
 interface Segment {
@@ -42,7 +43,8 @@ export default function Dashboard() {
 	const { toast } = useToast();
 	const { setSelectedFilePath } = useEDFPlot();
 	const dispatch = useAppDispatch();
-	const { selectFile } = useCurrentEdfFile();
+	const { selectFile, currentFilePath } = useCurrentEdfFile();
+	const { isLocalMode } = useAuthMode();
 	const [channelDialogOpen, setChannelDialogOpen] = useState(false);
 	const [pendingFilePath, setPendingFilePath] = useState<string | null>(null);
 	const isFileLoading = useSelector(selectIsFileLoading);
@@ -87,41 +89,87 @@ export default function Dashboard() {
 
 	const handleFileSelect = (filePath: string) => {
 		console.log('[Dashboard] handleFileSelect called with:', filePath);
+
+		// Open the channel selection dialog immediately
 		setPendingFilePath(filePath);
 		setChannelDialogOpen(true);
-		// Do NOT setSelectedFilePath here
+
+		console.log('[Dashboard] Dialog state set:', {
+			pendingFilePath: filePath,
+			channelDialogOpen: true,
+			currentFilePath: currentFilePath
+		});
 	};
 
 	const handleDialogConfirm = async (filePath: string, selectedChannels: string[], metadata: EdfMetadata | null, segment: Segment) => {
-		setSelectedFilePath(filePath);
-		selectFile(filePath);
-		const token = session?.accessToken;
-
-		if (!token) {
-			toast({
-				title: "Authentication Error",
-				description: "Please log in to load files.",
-				variant: "destructive",
-			});
-			return;
-		}
-
-		// Start loading state immediately when dialog closes
-		const loadingId = `file-load-${filePath}`;
-		dispatch(
-			startLoading({
-				id: loadingId,
-				type: "file-load",
-				message: "Loading file data...",
-				showGlobalOverlay: false,
-			})
-		);
+		console.log('[handleDialogConfirm] *** CALLED ***', {
+			filePath,
+			selectedChannels,
+			hasMetadata: !!metadata,
+			segment,
+			hasSession: !!session,
+			sessionStructure: session,
+			hasAccessToken: !!session?.data?.accessToken,
+			sessionKeys: session ? Object.keys(session) : null,
+			sessionDataKeys: session?.data ? Object.keys(session.data) : null
+		});
 
 		try {
-			// Start unified loading for the entire file selection process
-			dispatch(ensurePlotState(filePath));
-			const initResult = await dispatch(initializePlot({ filePath, token }));
-			console.log('[handleDialogConfirm] initializePlot result:', initResult);
+			console.log('[handleDialogConfirm] Setting file paths...');
+			setSelectedFilePath(filePath);
+			selectFile(filePath);
+
+			// Try multiple token extraction patterns
+			const tokenOption1 = session?.data?.accessToken;
+			const tokenOption2 = session?.accessToken;
+			const tokenOption3 = (session as any)?.access_token;
+			const token = tokenOption1 || tokenOption2 || tokenOption3;
+
+			console.log('[handleDialogConfirm] Token extraction attempts:', {
+				isLocalMode,
+				tokenOption1: !!tokenOption1,
+				tokenOption2: !!tokenOption2,
+				tokenOption3: !!tokenOption3,
+				finalToken: !!token,
+				tokenLength: token?.length,
+				tokenValue: token ? token.substring(0, 20) + '...' : 'null'
+			});
+
+			if (!token && !isLocalMode) {
+				console.log('[handleDialogConfirm] No token and not in local mode, showing auth error');
+				toast({
+					title: "Authentication Error",
+					description: "Please log in to load files.",
+					variant: "destructive",
+				});
+				return;
+			}
+
+			if (isLocalMode) {
+				console.log('[handleDialogConfirm] Local mode detected, proceeding without token requirement');
+			}
+
+			// Start loading state immediately when dialog closes
+			const loadingId = `file-load-${filePath}`;
+			console.log('[handleDialogConfirm] Starting loading state:', loadingId);
+			dispatch(
+				startLoading({
+					id: loadingId,
+					type: "file-load",
+					message: "Loading file data...",
+					showGlobalOverlay: false,
+				})
+			);
+
+			console.log('[handleDialogConfirm] About to start async operations...');
+			try {
+				// Start unified loading for the entire file selection process
+				console.log('[handleDialogConfirm] Ensuring plot state...');
+				dispatch(ensurePlotState(filePath));
+
+				console.log('[handleDialogConfirm] Calling initializePlot...');
+				const initResult = await dispatch(initializePlot({ filePath, token }));
+				console.log('[handleDialogConfirm] initializePlot result:', initResult);
 
 			if (initResult.meta.requestStatus !== 'fulfilled') {
 				console.error('[handleDialogConfirm] initializePlot failed:', initResult);
@@ -204,8 +252,46 @@ export default function Dashboard() {
 				throw new Error("Failed to fetch segment");
 			}
 
-			await dispatch(loadChunk({ filePath, chunkNumber: 1, chunkSizeSeconds: 10, token }));
+			console.log('[handleDialogConfirm] About to call loadChunk...');
+			const loadChunkResult = await dispatch(loadChunk({ filePath, chunkNumber: 1, chunkSizeSeconds: 10, token }));
+			console.log('[handleDialogConfirm] loadChunk result:', loadChunkResult);
+
+			if (loadChunkResult.meta.requestStatus !== 'fulfilled') {
+				console.error('[handleDialogConfirm] loadChunk failed:', loadChunkResult);
+				throw new Error(`LoadChunk failed: ${(loadChunkResult as any)?.error?.message || 'Unknown error'}`);
+			}
+
+			console.log('[handleDialogConfirm] Setting selected channels...');
 			dispatch(setSelectedChannels({ filePath, channels: selectedChannels }));
+
+			// Debug: Check the final Redux state
+			try {
+				const finalState = (window as any).__REDUX_STORE__?.getState?.();
+				if (finalState?.plots) {
+					console.log('[handleDialogConfirm] Final Redux plots state:', {
+						currentFilePath: finalState.plots.currentFilePath,
+						plotKeys: Object.keys(finalState.plots.byFilePath || {}),
+						selectedPlotState: finalState.plots.byFilePath?.[filePath],
+						hasEdfData: !!finalState.plots.byFilePath?.[filePath]?.edfData,
+						hasMetadata: !!finalState.plots.byFilePath?.[filePath]?.metadata,
+						selectedChannels: finalState.plots.byFilePath?.[filePath]?.selectedChannels,
+						edfDataStructure: finalState.plots.byFilePath?.[filePath]?.edfData ? {
+							channels: finalState.plots.byFilePath?.[filePath]?.edfData?.channels?.length,
+							dataLength: finalState.plots.byFilePath?.[filePath]?.edfData?.data?.length,
+							sampleRate: finalState.plots.byFilePath?.[filePath]?.edfData?.sampleRate
+						} : 'No EDF data'
+					});
+				}
+			} catch (e) {
+				console.error('[handleDialogConfirm] Error checking final state:', e);
+			}
+
+			// Show success message
+			toast({
+				title: "File Loaded",
+				description: `Successfully loaded ${filePath.split('/').pop()}`,
+			});
+
 		} catch (error) {
 			console.error('Error loading file:', error);
 			toast({
@@ -216,6 +302,14 @@ export default function Dashboard() {
 		} finally {
 			// Stop loading state
 			dispatch(stopLoading(loadingId));
+		}
+		} catch (globalError) {
+			console.error('[handleDialogConfirm] Global error:', globalError);
+			toast({
+				title: "Unexpected Error",
+				description: `An unexpected error occurred: ${globalError instanceof Error ? globalError.message : 'Unknown error'}`,
+				variant: "destructive",
+			});
 		}
 	};
 
@@ -280,9 +374,46 @@ export default function Dashboard() {
 	};
 
 	return (
-		<div className="h-screen flex flex-col">
+		<div className="w-full h-full flex flex-col">
 			<div className="flex items-center justify-between px-4 py-2 bg-background border-b">
 				<DashboardToolbar onAddWidget={addWidget} className="flex-1" onFileSelect={handleFileSelect} />
+
+				{/* Show channel settings when a file is loaded */}
+				{currentFilePath && (
+					<div className="flex items-center gap-2 ml-4">
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => {
+								setPendingFilePath(currentFilePath);
+								setChannelDialogOpen(true);
+							}}
+							className="gap-1"
+						>
+							<Settings className="h-3 w-3" />
+							Channel Settings
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => {
+								// Clear all state for debugging
+								setSelectedFilePath("");
+								selectFile("");
+								dispatch(clearAllPlots());
+								toast({
+									title: "State Cleared",
+									description: "All plot state has been cleared",
+								});
+							}}
+							className="gap-1 text-destructive hover:text-destructive"
+						>
+							<Trash2 className="h-3 w-3" />
+							Clear State
+						</Button>
+					</div>
+				)}
+
 				{/* Layout controls - show if user is logged in */}
 				{session && isLayoutLoaded && (
 					<div className="flex items-center gap-2 ml-4">
@@ -322,10 +453,10 @@ export default function Dashboard() {
 			<div className="px-4 py-2 bg-muted/10 border-b">
 				<DashboardStateManager />
 			</div>
-			<div className="flex-1 overflow-hidden relative">
+			<div className="flex-1 overflow-auto relative p-6">
 				{/* Loading overlay */}
 				{(isLoading || (!isLayoutLoaded && session)) && (
-					<div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+					<div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
 						<div className="text-center">
 							<RefreshCw className="h-8 w-8 animate-spin mx-auto mb-2" />
 							<p className="text-sm text-muted-foreground">
@@ -337,7 +468,7 @@ export default function Dashboard() {
 
 				{/* Local loading overlay for file/plot loading */}
 				{isFileLoading && (
-					<div className="absolute inset-0 bg-background/60 backdrop-blur-sm z-40 flex items-center justify-center">
+					<div className="fixed inset-0 bg-background/60 backdrop-blur-sm z-40 flex items-center justify-center">
 						<div className="flex flex-col items-center bg-background/90 rounded-lg p-6 shadow-lg border">
 							<RefreshCw className="h-8 w-8 animate-spin text-primary mb-3" />
 							<span className="text-foreground font-medium">Loading file data...</span>

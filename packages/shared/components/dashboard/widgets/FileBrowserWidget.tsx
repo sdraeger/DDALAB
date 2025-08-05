@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, memo, useCallback } from "react";
 import {
 	Search,
 	SortAsc,
@@ -15,12 +15,15 @@ import { getFileIcon, isEdfFile } from "../../../lib/utils/fileIcons";
 import { apiRequest } from "../../../lib/utils/request";
 import { toast } from "../../../hooks/useToast";
 import { useUnifiedSessionData } from "../../../hooks/useUnifiedSession";
+import { useAuthMode } from "../../../contexts/AuthModeContext";
 
 interface FileItem {
 	name: string;
+	path: string;
 	isDirectory: boolean;
-	size?: number;
-	modified?: Date;
+	size?: number | null;
+	isFavorite: boolean;
+	lastModified: string;
 	extension?: string;
 }
 
@@ -50,40 +53,89 @@ interface FileBrowserWidgetProps {
 	maxHeight?: string;
 }
 
-export function FileBrowserWidget({
+export const FileBrowserWidget = memo(function FileBrowserWidget({
 	onFileSelect,
 	selectedFile,
 	maxHeight = "400px"
 }: FileBrowserWidgetProps) {
-	const { data: session } = useUnifiedSessionData();
+
+	const { data: session, status } = useUnifiedSessionData();
+	const { isLocalMode } = useAuthMode();
+	const isAuthenticated = isLocalMode || (status === "authenticated" && session?.data?.accessToken);
+
 	const [currentPath, setCurrentPath] = useState("");
 	const [searchTerm, setSearchTerm] = useState("");
-	const [sortField, setSortField] = useState<SortField>('name');
-	const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+	const [sortField, setSortField] = useState<SortField>("name");
+	const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 	const [isSelectingFile, setIsSelectingFile] = useState(false);
 	const [selectedFileForLoading, setSelectedFileForLoading] = useState<string | null>(null);
 	const [isDragOver, setIsDragOver] = useState(false);
 	const [isUploading, setIsUploading] = useState(false);
+	const [localFiles, setLocalFiles] = useState<FileItem[]>([]);
+	const [localLoading, setLocalLoading] = useState(false);
+	const [localError, setLocalError] = useState<string | null>(null);
 	const dropZoneRef = useRef<HTMLDivElement>(null);
 
-	const { data: configData } = useApiQuery<ConfigResponse>({
+	// Direct API fetch that bypasses useApiQuery issues
+	const fetchFiles = useCallback(async (path: string) => {
+		if (!path) return;
+
+		setLocalLoading(true);
+		setLocalError(null);
+		try {
+			const response = await fetch(`http://localhost:8001/api/files/list?path=${encodeURIComponent(path)}`);
+			if (!response.ok) {
+				throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+			}
+			const data = await response.json();
+
+			const { snakeToCamel } = await import("../../../lib/utils/caseConverter");
+			const converted = snakeToCamel(data);
+
+			setLocalFiles(converted.files || []);
+		} catch (error) {
+			console.error("[FileBrowserWidget] Direct fetch failed:", error);
+			setLocalError(error instanceof Error ? error.message : 'Failed to load files');
+			setLocalFiles([]);
+		} finally {
+			setLocalLoading(false);
+		}
+	}, []); // Empty dependency array to prevent infinite loops
+
+	// Load initial directory - run once on mount
+	useEffect(() => {
+		if (!currentPath) {
+			setCurrentPath("/Users/simon/Desktop");
+		}
+	}, []); // Empty dependency - only run on mount
+
+	// Load files when currentPath changes
+	useEffect(() => {
+		if (currentPath) {
+			fetchFiles(currentPath);
+		}
+	}, [currentPath]); // Only depend on currentPath
+
+	const { data: configData, loading: configLoading, error: configError } = useApiQuery<ConfigResponse>({
 		url: "/api/config",
 		method: "GET",
 		responseType: "json",
-		enabled: true,
-		token: session?.accessToken,
+		enabled: true, // Config should always be available
+		requiresAuth: false, // Config endpoint doesn't require auth
+		retryOnUnauthorized: false,
 	});
 
-	// Get file list for current directory using useApiQuery
+
+	// Get file list for current directory using useApiQuery (fallback only)
 	const { loading, error, data, refetch } = useApiQuery<FileListResponse>({
-		url: currentPath
-			? `/api/files/list?path=${encodeURIComponent(currentPath)}`
-			: "",
-		token: session?.accessToken,
+		url: `/api/files/list?path=${encodeURIComponent(currentPath || "")}`,
 		method: "GET",
 		responseType: "json",
-		enabled: !!currentPath,
+		enabled: false, // Disabled in favor of direct fetch
+		requiresAuth: !isLocalMode, // In local mode, auth is not required
 	});
+
+
 
 	useEffect(() => {
 		if (configData?.allowedDirs?.length && !currentPath) {
@@ -91,20 +143,23 @@ export function FileBrowserWidget({
 		}
 	}, [configData, currentPath]);
 
-	// Refetch when current directory changes
-	useEffect(() => {
-		console.log("refetch: currentPath = ", currentPath);
-		if (currentPath) refetch();
-	}, [currentPath, refetch]);
+	// This effect is no longer needed since we use direct fetch
+	// useEffect(() => {
+	// 	if (currentPath) {
+	// 		refetch();
+	// 	}
+	// }, [currentPath, refetch]);
 
-	// Get files from API response or fallback data
+	// Get files from local state (bypasses useApiQuery issues)
 	const files = useMemo(() => {
-		console.log("files: data = ", data);
+		if (localFiles.length > 0) {
+			return localFiles;
+		}
 		if (data?.files) {
 			return data.files;
 		}
 		return [];
-	}, [data, error]);
+	}, [localFiles, data, error]);
 
 	// Filter and sort files
 	const filteredAndSortedFiles = useMemo(() => {
@@ -132,7 +187,7 @@ export function FileBrowserWidget({
 					comparison = (a.size || 0) - (b.size || 0);
 					break;
 				case 'modified':
-					comparison = (a.modified?.getTime() || 0) - (b.modified?.getTime() || 0);
+					comparison = (parseFloat(a.lastModified) || 0) - (parseFloat(b.lastModified) || 0);
 					break;
 			}
 
@@ -218,7 +273,7 @@ export function FileBrowserWidget({
 
 			const response = await apiRequest<FileUploadResponse>({
 				url: "/api/files/upload",
-				token: session?.accessToken,
+				token: session?.data?.accessToken,
 				method: "POST",
 				body: formData,
 				responseType: "json",
@@ -229,7 +284,7 @@ export function FileBrowserWidget({
 					title: "Upload Successful",
 					description: `File "${file.name}" uploaded successfully`,
 				});
-				refetch();
+				fetchFiles(currentPath);
 			} else {
 				throw new Error(response.message);
 			}
@@ -383,13 +438,13 @@ export function FileBrowserWidget({
 						</div>
 					</div>
 				)}
-				{loading ? (
+				{localLoading ? (
 					<div className="p-4 text-center text-sm text-muted-foreground">
 						Loading files...
 					</div>
-				) : error ? (
+				) : localError ? (
 					<div className="p-4 text-center text-sm text-destructive">
-						{error.message || 'Failed to load files'}
+						{localError}
 					</div>
 				) : filteredAndSortedFiles.length === 0 ? (
 					<div className="p-4 text-center text-sm text-muted-foreground">
@@ -434,4 +489,4 @@ export function FileBrowserWidget({
 			)}
 		</div>
 	);
-}
+});

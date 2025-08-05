@@ -48,7 +48,7 @@ function LocalSessionProvider({ children }: { children: ReactNode }) {
   // Save session to localStorage for persistence
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    
+
     const savedSession = localStorage.getItem('dda-local-session');
     if (savedSession) {
       try {
@@ -107,35 +107,33 @@ function AutoLoginHandler({ children }: { children: ReactNode }) {
     );
   }
 
-  // In local mode, use our custom local session provider
-  if (authMode === 'local') {
-    // Override the useSession hook globally for local mode
-    if (typeof window !== 'undefined') {
-      window.__useSessionOverride = useLocalSession;
+  // Set up the session override based on auth mode, but keep the same provider structure
+  React.useEffect(() => {
+    if (authMode === 'local') {
+      if (typeof window !== 'undefined') {
+        console.log("[AutoLoginHandler] Setting local session override");
+        window.__useSessionOverride = useLocalSession;
+      }
+    } else {
+      if (typeof window !== 'undefined') {
+        console.log("[AutoLoginHandler] Clearing session override");
+        window.__useSessionOverride = null;
+      }
     }
+  }, [authMode]);
 
-    return (
-      <LocalSessionProvider>
+  console.log("[AutoLoginHandler] Rendering providers with auth mode:", authMode);
+
+  // Always return the same provider structure to prevent remounting
+  return (
+    <LocalSessionProvider>
+      <SessionProvider>
         <SettingsProvider>
           <ThemeInitializer />
           {children}
         </SettingsProvider>
-      </LocalSessionProvider>
-    );
-  }
-
-  // In multi-user mode, use NextAuth's SessionProvider
-  if (typeof window !== 'undefined') {
-    window.__useSessionOverride = null;
-  }
-
-  return (
-    <SessionProvider>
-      <SettingsProvider>
-        <ThemeInitializer />
-        {children}
-      </SettingsProvider>
-    </SessionProvider>
+      </SessionProvider>
+    </LocalSessionProvider>
   );
 }
 

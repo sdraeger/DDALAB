@@ -8,7 +8,6 @@ import { Button } from "shared/components/ui/button";
 import { Progress } from "shared/components/ui/progress";
 import { useApiQuery } from "shared/hooks/useApiQuery";
 import {
-  BarChart3,
   FileText,
   HelpCircle,
   Settings,
@@ -34,12 +33,13 @@ export default function OverviewPage() {
   const { user, status } = useUnifiedSession();
   const router = useRouter();
 
-  // Fetch dashboard statistics
+  // Fetch dashboard statistics - use more stable conditions
   const { data: stats, loading, error } = useApiQuery<StatsResponse>({
     url: "/api/dashboard/stats",
     method: "GET",
     responseType: "json",
-    enabled: !!user,
+    enabled: status === "authenticated" && !!user,
+    requiresAuth: true,
   });
 
   const getHealthColor = (health?: string) => {
@@ -179,24 +179,6 @@ export default function OverviewPage() {
 
           <Card
             className="hover:shadow-md transition-shadow cursor-pointer group"
-            onClick={() => router.push('/dashboard/dda')}
-          >
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Data Analysis</CardTitle>
-              <BarChart3 className="h-4 w-4 text-green-600 group-hover:scale-110 transition-transform" />
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-muted-foreground">
-                Run DDA on EDF files
-              </p>
-              <Badge variant="secondary" className="mt-2">
-                Analyze →
-              </Badge>
-            </CardContent>
-          </Card>
-
-          <Card
-            className="hover:shadow-md transition-shadow cursor-pointer group"
             onClick={() => router.push('/dashboard/artifacts')}
           >
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -315,13 +297,6 @@ export default function OverviewPage() {
                 <p className="text-sm text-muted-foreground">Live data visualization and analysis</p>
               </div>
             </div>
-            <Button
-              variant="outline"
-              className="w-full mt-4"
-              onClick={() => router.push('/dashboard/dda')}
-            >
-              Start Analysis
-            </Button>
           </CardContent>
         </Card>
 
