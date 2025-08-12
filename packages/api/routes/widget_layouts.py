@@ -31,7 +31,10 @@ async def save_widget_layout(
     try:
         # Convert widget layout data to dictionaries for the service layer
         widget_dicts = [widget.model_dump() for widget in request.widgets]
-        await layout_service.save_user_layouts(current_user.id, widget_dicts)
+        # Pass both widgets and layout to the service
+        await layout_service.save_user_layouts(
+            current_user.id, widget_dicts, request.layout or []
+        )
         logger.info(
             f"Saved widget layout for user {current_user.id} with {len(widget_dicts)} widgets"
         )
@@ -39,6 +42,7 @@ async def save_widget_layout(
             status="success",
             message="Widget layout saved successfully",
             widgets=request.widgets,
+            layout=request.layout,
         )
 
     except ValueError as ve:
@@ -65,9 +69,16 @@ async def get_widget_layout(
     Retrieve user-specific widget layouts.
     """
     try:
-        layout_dicts = await layout_service.get_user_layouts(current_user.id)
-        # Convert dictionaries back to Pydantic models for the response
-        widgets = [WidgetLayoutData(**widget_dict) for widget_dict in layout_dicts]
+        data = await layout_service.get_user_layouts(current_user.id)
+        # Ensure types are correct even if legacy data exists
+        raw_widgets = data.get("widgets", [])
+        raw_layout = data.get("layout", [])
+        if not isinstance(raw_widgets, list):
+            raw_widgets = []
+        if not isinstance(raw_layout, list):
+            raw_layout = []
+        widgets = [WidgetLayoutData(**widget_dict) for widget_dict in raw_widgets]
+        layout = raw_layout
         logger.info(
             f"Retrieved widget layout for user {current_user.id} with {len(widgets)} widgets"
         )
@@ -75,6 +86,7 @@ async def get_widget_layout(
             status="success",
             message="Widget layout retrieved successfully",
             widgets=widgets,
+            layout=layout,
         )
 
     except Exception as e:

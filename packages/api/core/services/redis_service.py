@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 import aioredis
 from loguru import logger
 
-from ..config import get_server_settings
+from ..environment import get_config_service
 from ..service_registry import register_service
 
 
@@ -15,8 +15,22 @@ from ..service_registry import register_service
 class RedisService:
     """Service for Redis operations."""
 
-    def __init__(self):
-        self.settings = get_server_settings()
+    def __init__(
+        self,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        db: Optional[int] = None,
+        password: Optional[str] = None,
+        use_ssl: Optional[bool] = None,
+    ):
+        cache_settings = get_config_service().get_cache_settings()
+        self._host = host if host is not None else cache_settings.redis_host
+        self._port = port if port is not None else cache_settings.redis_port
+        self._db = db if db is not None else cache_settings.redis_db
+        self._password = (
+            password if password is not None else cache_settings.redis_password
+        )
+        self._use_ssl = use_ssl if use_ssl is not None else cache_settings.redis_use_ssl
         self._redis: Optional[aioredis.Redis] = None
 
     @classmethod
@@ -28,21 +42,21 @@ class RedisService:
         """Get Redis connection."""
         if self._redis is None:
             # Build connection URL with SSL if needed
-            if self.settings.redis_use_ssl:
-                url = f"rediss://{self.settings.redis_host}:{self.settings.redis_port}"
+            if self._use_ssl:
+                url = f"rediss://{self._host}:{self._port}"
             else:
-                url = f"redis://{self.settings.redis_host}:{self.settings.redis_port}"
+                url = f"redis://{self._host}:{self._port}"
 
             # Build connection parameters
             connection_params = {
-                "db": self.settings.redis_db,
+                "db": self._db,
                 "decode_responses": False,  # Keep as bytes for pickle compatibility
                 "encoding": "utf-8",
             }
 
             # Add password if provided
-            if self.settings.redis_password:
-                connection_params["password"] = self.settings.redis_password
+            if self._password:
+                connection_params["password"] = self._password
 
             self._redis = aioredis.from_url(url, **connection_params)
         return self._redis

@@ -9,7 +9,7 @@ import {
   WidgetLayoutData,
 } from "../lib/utils/cache/widgetLayoutCache";
 import { useToast } from "../components/ui/use-toast";
-import { apiRequest } from "../lib/utils/request";
+import { get, post, _delete } from "../lib/utils/request";
 import { useUnifiedSessionData } from "./useUnifiedSession";
 
 // Hook configuration
@@ -70,7 +70,7 @@ export function usePersistentDashboard(
     (layoutData: WidgetLayoutData[]): Widget[] => {
       return layoutData.map((data) => ({
         ...data,
-        content: createWidgetContent(data.type),
+        content: createWidgetContent(data.type, data.id, false),
       }));
     },
     []
@@ -89,13 +89,8 @@ export function usePersistentDashboard(
         setIsSaving(true);
         const widgetData = serializeWidgetsForPersistence(widgets);
 
-        const response = await apiRequest({
-          url: "/api/widget-layouts",
-          method: "POST",
-          token: session.accessToken,
-          contentType: "application/json",
-          body: { widgets: widgetData },
-          responseType: "response",
+        const response = await post("/api/widget-layouts", {
+          widgets: widgetData,
         });
 
         if (!response.ok) {
@@ -162,12 +157,7 @@ export function usePersistentDashboard(
       }
 
       // Fetch from database
-      const response = await apiRequest({
-        url: "/api/widget-layouts",
-        method: "GET",
-        token: session.accessToken,
-        responseType: "response",
-      });
+      const response = await get("/api/widget-layouts");
 
       if (!response.ok) {
         if (response.status === 404) {
@@ -380,11 +370,33 @@ export function usePersistentDashboard(
 
       if (newWindow) {
         setPoppedOutWindows((prev) => new Map(prev).set(id, newWindow));
+
+        // Register with popout auth manager
+        import("../services/PopoutAuthManager").then(
+          ({ getPopoutAuthManager }) => {
+            const authManager = getPopoutAuthManager();
+            if (authManager) {
+              authManager.registerPopoutWindow(id, newWindow);
+            }
+          }
+        );
+
         updateWidget(id, { isPopOut: true });
 
         const checkClosed = setInterval(() => {
           if (newWindow.closed) {
             clearInterval(checkClosed);
+
+            // Unregister from auth manager
+            import("../services/PopoutAuthManager").then(
+              ({ getPopoutAuthManager }) => {
+                const authManager = getPopoutAuthManager();
+                if (authManager) {
+                  authManager.unregisterPopoutWindow(id);
+                }
+              }
+            );
+
             swapInWidget(id);
           }
         }, 1000);
@@ -420,12 +432,7 @@ export function usePersistentDashboard(
     try {
       setIsSaving(true);
 
-      const response = await apiRequest({
-        url: "/api/widget-layouts",
-        method: "DELETE",
-        token: session.accessToken,
-        responseType: "response",
-      });
+      const response = await _delete("/api/widget-layouts");
 
       if (!response.ok) {
         throw new Error(`Failed to delete layout: ${response.statusText}`);

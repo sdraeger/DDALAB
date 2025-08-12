@@ -7,6 +7,7 @@ export interface UnifiedUser {
   email: string;
   firstName?: string;
   lastName?: string;
+  image?: string;
   isLocalMode: boolean;
   accessToken?: string; // <-- add this line
 }
@@ -39,6 +40,7 @@ export function useUnifiedSession(): UnifiedSession {
             email: localSession.data.user.email,
             firstName: localSession.data.user.firstName,
             lastName: localSession.data.user.lastName,
+            image: localSession.data.user.image,
             isLocalMode: true,
             accessToken: localSession.data.accessToken, // Get accessToken from session data, not user
           },
@@ -55,6 +57,7 @@ export function useUnifiedSession(): UnifiedSession {
         email: "local@localhost",
         firstName: "Local",
         lastName: "User",
+        image: undefined,
         isLocalMode: true,
         accessToken: "local-mode-token",
       },
@@ -78,6 +81,7 @@ export function useUnifiedSession(): UnifiedSession {
           email: nextAuthSession.user.email || "",
           firstName: (nextAuthSession.user as any).firstName || undefined,
           lastName: (nextAuthSession.user as any).lastName || undefined,
+          image: (nextAuthSession.user as any).image || undefined,
           isLocalMode: false,
           accessToken: (nextAuthSession.user as any).accessToken, // <-- ensure this is included!
         },

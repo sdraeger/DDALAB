@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 from core.auth import create_access_token, get_admin_user
-from core.config import get_server_settings
+from core.environment import get_config_service
 from core.dependencies import get_service
 from core.models import User as UserDB
 from core.services import UserService
@@ -14,7 +14,7 @@ from schemas.auth import Token
 from schemas.user import User, UserCreate, UserUpdate
 
 router = APIRouter()
-settings = get_server_settings()
+auth_settings = get_config_service().get_auth_settings()
 
 
 @router.post("", response_model=Token)
@@ -29,7 +29,7 @@ async def create_user(
         user = await user_service.create(user_data)
 
         # Generate and return access token for the new user
-        access_token_expires = timedelta(minutes=settings.token_expiration_minutes)
+        access_token_expires = timedelta(minutes=auth_settings.token_expiration_minutes)
         access_token = create_access_token(
             data={"sub": user.username}, expires_delta=access_token_expires
         )

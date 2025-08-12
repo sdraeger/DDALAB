@@ -5,13 +5,10 @@ from pathlib import Path
 from typing import List
 
 import pyedflib
-from core.config import get_data_settings
 from core.utils import is_path_allowed
 from fastapi import HTTPException
 from loguru import logger
 from schemas.files import FileInfo
-
-settings = get_data_settings()
 
 
 async def validate_file_path(file_path: str | Path) -> str:

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
-from core.database import (
+from core.models import (
     Annotation,
     Artifact,
     EdfConfig,

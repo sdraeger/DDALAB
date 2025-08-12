@@ -8,7 +8,8 @@ export interface IDashboardWidget {
   type: string;
   content: ReactNode;
   metadata?: Record<string, any>;
-  constraints?: IWidgetConstraints;
+  constraints?: any;
+  isPopOut?: boolean;
   // Popout-related properties
   supportsPopout?: boolean;
   popoutPreferences?: IWidgetPopoutPreferences;

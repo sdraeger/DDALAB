@@ -132,7 +132,7 @@ def patch_dda_py():
     logger.info("Applying APE compatibility patch to dda_py")
 
     # Import here to avoid circular imports
-    from core.config import get_server_settings
+    from core.environment import get_config_service
 
     # Replace the original DDARunner with our APE-compatible version
     original_runner = dda_py.DDARunner
@@ -141,14 +141,14 @@ def patch_dda_py():
     # Patch the module-level functions to use the new runner
     async def patched_run_dda_async(*args, **kwargs):
         """Patched async DDA execution with APE compatibility."""
-        settings = get_server_settings()
-        runner = APECompatibleDDARunner(settings.dda_binary_path)
+        dda_settings = get_config_service().get_dda_settings()
+        runner = APECompatibleDDARunner(dda_settings.dda_binary_path)
         return await runner.run_async(*args, **kwargs)
 
     def patched_run_dda(*args, **kwargs):
         """Patched sync DDA execution with APE compatibility."""
-        settings = get_server_settings()
-        runner = APECompatibleDDARunner(settings.dda_binary_path)
+        dda_settings = get_config_service().get_dda_settings()
+        runner = APECompatibleDDARunner(dda_settings.dda_binary_path)
         return runner.run(*args, **kwargs)
 
     dda_py.run_dda_async = patched_run_dda_async

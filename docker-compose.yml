@@ -9,73 +9,22 @@ services:
       - internal
     restart: unless-stopped
 
-  web:
-    image: sdraeger1/ddalab-web:latest
+  ddalab-monolith:
+    image: sdraeger1/ddalab-monolith:latest
     build:
       context: .
-      dockerfile: ./packages/web/Dockerfile
+      dockerfile: ./Dockerfile
     env_file:
       - ./.env
-    environment:
-      # Next.js Environment Variables
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001}
-      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
-      NODE_ENV: production
-      # Session Configuration
-      SESSION_EXPIRATION: ${SESSION_EXPIRATION:-10080}
     ports:
       - "${WEB_PORT:-3000}:3000"
+      - "${API_PORT:-8001}:8001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000"]
       interval: 10s
       timeout: 10s
       retries: 10
       start_period: 60s
-    depends_on:
-      api:
-        condition: service_healthy
-    networks:
-      - internal
-    labels:
-      - "traefik.enable=true"
-    restart: unless-stopped
-
-  api:
-    image: sdraeger1/ddalab-api:latest
-    build:
-      context: .
-      dockerfile: ./packages/api/Dockerfile
-    platform: linux/amd64
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    expose:
-      - "8001"
-      - "8002"
-    env_file:
-      - ./.env
-    environment:
-      DDALAB_MINIO_HOST: "minio:9000"
-      DDALAB_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
-      DDALAB_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      DDALAB_MINIO_BUCKET_NAME: "dda-results"
-      DDALAB_ALLOWED_DIRS: ${DDALAB_ALLOWED_DIRS}
-      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus
-      DDALAB_REDIS_HOST: redis
-      DDALAB_REDIS_PORT: 6379
-      DDALAB_REDIS_DB: 0
-      DDALAB_REDIS_PASSWORD: ${DDALAB_REDIS_PASSWORD:-}
-      DDALAB_REDIS_USE_SSL: ${DDALAB_REDIS_USE_SSL:-False}
-      DDALAB_PLOT_CACHE_TTL: ${DDALAB_PLOT_CACHE_TTL:-3600}
-    volumes:
-      - type: bind
-        source: ./prometheus-metrics
-        target: /tmp/prometheus
-      - type: bind
-        source: ${DDALAB_DATA_DIR:-./data}
-        target: /app/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -107,11 +56,11 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: ${DDALAB_DB_USER}
-      POSTGRES_PASSWORD: ${DDALAB_DB_PASSWORD}
-      POSTGRES_DB: ${DDALAB_DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${DDALAB_DB_USER}", "-d", "postgres"]
+      test: ["CMD", "pg_isready", "-U", "${DB_USER}", "-d", "postgres"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -147,10 +96,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      web:
-        condition: service_healthy
-      api:
-        condition: service_healthy
+      ddalab-monolith:
+        condition: service_started
     restart: unless-stopped
     networks:
       - internal

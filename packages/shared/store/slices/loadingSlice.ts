@@ -177,6 +177,34 @@ const loadingSlice = createSlice({
       state.overlayMessage = message;
       state.overlayProgress = progress;
     },
+    // Sync reducer for popout window synchronization
+    syncFromRemote: (state, action: PayloadAction<LoadingState>) => {
+      const incomingState = action.payload;
+
+      // For loading states, we want to be selective about what we sync
+      // Generally, we don't want to sync loading states as they're window-specific
+      // But we might want to sync certain global loading indicators
+
+      if (!incomingState || typeof incomingState !== "object") {
+        console.warn(
+          "[LoadingSync] Invalid loading state received, ignoring sync"
+        );
+        return;
+      }
+
+      // Only sync specific loading states that should be global
+      // For now, we'll sync DDA processing state as it's relevant across windows
+      state.isDDAProcessing = incomingState.isDDAProcessing;
+
+      // Sync global overlay if it's showing important information
+      if (incomingState.showGlobalOverlay && incomingState.overlayMessage) {
+        state.showGlobalOverlay = incomingState.showGlobalOverlay;
+        state.overlayMessage = incomingState.overlayMessage;
+        state.overlayProgress = incomingState.overlayProgress;
+      }
+
+      console.debug("[LoadingSync] Loading state sync (selective changes)");
+    },
   },
 });
 

@@ -108,7 +108,7 @@ export function StateProvider({
     const initializeStore = async () => {
       try {
         await store.hydrate();
-        
+
         if (isMounted && enableDebug) {
           console.log('[StateProvider] Store hydrated successfully');
         }
@@ -126,16 +126,6 @@ export function StateProvider({
     };
   }, [enableDebug]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      const store = storeRef.current;
-      if (store && 'cleanup' in store && typeof store.cleanup === 'function') {
-        store.cleanup();
-      }
-    };
-  }, []);
-
   const contextValue: StateContextValue = {
     store: storeRef.current
   };
@@ -152,7 +142,7 @@ export function StateProvider({
  */
 export function useStateStore(): StateStore {
   const context = useContext(StateContext);
-  
+
   if (!context) {
     throw new Error('useStateStore must be used within a StateProvider');
   }
@@ -174,10 +164,10 @@ export function useStateReady(): boolean {
     };
 
     checkReady();
-    
+
     // Check periodically in case hydration happens async
     const interval = setInterval(checkReady, 100);
-    
+
     // Clean up after a reasonable time
     const timeout = setTimeout(() => {
       clearInterval(interval);

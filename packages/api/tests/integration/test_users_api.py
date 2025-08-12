@@ -219,7 +219,7 @@ class TestUsersAPI:
         self, async_client: AsyncClient, auth_headers_admin, test_session
     ):
         """Test deleting a user as admin."""
-        from core.database import User
+        from core.models import User
         from core.security import get_password_hash
 
         # Create a user to delete

@@ -2,6 +2,15 @@
 export * from "./components/ui/button";
 export * from "./components/ui/input";
 export * from "./components/ui/avatar";
+export * from "./components/ui/label";
+export * from "./components/ui/card";
+export * from "./components/ui/alert";
+export * from "./components/ui/badge";
+export * from "./components/ui/dropdown-menu";
+export * from "./components/ui/scroll-area";
+export * from "./components/ui/separator";
+export * from "./components/ui/select";
+export * from "./components/ui/slider";
 export * from "./components/form/LoginForm";
 export * from "./components/UnsavedChangesAlert";
 export * from "./components/ui/ArtifactIdentifier";
@@ -44,6 +53,7 @@ export * from "./hooks/useWidgetDataSync";
 // Services
 export * from "./services/WidgetFactoryService";
 export * from "./services/LayoutPersistenceService";
+export * from "./services/PopoutDataSyncService";
 
 // Types
 export * from "./types/dashboard";
@@ -89,6 +99,7 @@ export * from "./components/plot/EEGChart";
 export * from "./components/dialog/EDFPlotDialog";
 export * from "./components/dialog/PreprocessingDialog";
 export * from "./components/dialog/ShareArtifactDialog";
+export * from "./components/ui/dialog";
 export * from "./components/DDAResults";
 
 // Export hooks that exist

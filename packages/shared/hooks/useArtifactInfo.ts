@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { ArtifactInfo } from "../components/ui/ArtifactIdentifier";
-import { apiRequest } from "../lib/utils/request";
+import { get } from "../lib/utils/request";
 import { useUnifiedSessionData } from "./useUnifiedSession";
 
 export function useArtifactInfo(artifactId?: string) {
@@ -22,19 +22,12 @@ export function useArtifactInfo(artifactId?: string) {
       setError(null);
 
       try {
-        const response = await apiRequest({
-          url: `/api/artifacts/${artifactId}`,
-          method: "GET",
-          token: session.accessToken,
-          responseType: "response",
-        });
+        const response = await get<ArtifactInfo>(
+          `/api/artifacts/${artifactId}`,
+          session.accessToken
+        );
 
-        if (!response.ok) {
-          throw new Error("Failed to fetch artifact");
-        }
-
-        const data: ArtifactInfo = await response.json();
-        setArtifactInfo(data);
+        setArtifactInfo(response);
       } catch (err) {
         setError(err instanceof Error ? err : new Error("Unknown error"));
       } finally {
@@ -80,18 +73,12 @@ export function useArtifactFromFilePath(filePath?: string) {
         }
 
         // Fetch all artifacts and find the one with matching file path
-        const response = await apiRequest({
-          url: "/api/artifacts",
-          method: "GET",
-          token: session.accessToken,
-          responseType: "response",
-        });
+        const response = await get<ArtifactInfo[]>(
+          "/api/artifacts",
+          session.accessToken
+        );
 
-        if (!response.ok) {
-          throw new Error("Failed to fetch artifacts");
-        }
-
-        const artifacts: ArtifactInfo[] = await response.json();
+        const artifacts: ArtifactInfo[] = response;
 
         if (process.env.NODE_ENV === "development") {
           console.log(

@@ -180,7 +180,7 @@ export class DashboardDebugger {
   public async inspectMockStorage(userId: string): Promise<void> {
     try {
       const response = await apiRequest({
-        url: "/api/modern-widget-layouts",
+        url: "/api/widget-layouts",
         method: "GET",
         responseType: "response",
       });

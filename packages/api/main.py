@@ -3,6 +3,7 @@
 from contextlib import asynccontextmanager
 
 from core.environment import get_config_service
+
 from core.middleware import (
     AuthMiddleware,
     DatabaseMiddleware,
@@ -61,8 +62,8 @@ except ImportError as e:
     graphql_app = graphql_router
     logger.warning("Using fallback GraphQL router - endpoint will return 501")
 
-# Configuration service will be initialized in lifespan
-config_service = None
+# Configuration service instance (initialized globally)
+config_service = get_config_service()
 
 
 async def _ensure_minio_bucket_exists():
@@ -152,13 +153,14 @@ async def lifespan(app: FastAPI):
         logger.info("DDALAB API server shutdown complete!")
 
 
+service_settings = config_service.get_service_settings()
+
 # Create FastAPI application
 app = FastAPI(
-    title="DDALAB GraphQL API",
-    description="GraphQL API for DDALAB data analysis and visualization",
-    version="0.1.0",
-    lifespan=lifespan,
-    redirect_slashes=False,
+    title=service_settings.service_name,
+    debug=service_settings.debug,
+    version="0.0.1",
+    on_startup=[],
 )
 
 app_metrics = FastAPI(
@@ -175,7 +177,7 @@ trace.set_tracer_provider(
 # Use OTLP HTTP exporter instead of UDP to avoid packet size limitations
 try:
     # Get observability settings for tracing configuration
-    observability_settings = get_config_service().get_observability_settings()
+    observability_settings = config_service.get_observability_settings()
 
     otlp_exporter = OTLPSpanExporter(
         endpoint=f"http://{observability_settings.otlp_host}:{observability_settings.otlp_port}/v1/traces",
@@ -209,18 +211,8 @@ app.add_middleware(DatabaseMiddleware)
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://localhost:3000",
-        "http://localhost:8001",
-        "https://localhost:8001",
-        "http://localhost",
-        "https://localhost",
-        "https://localhost:443",
-        "https://localhost:80",
-        "file://",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=[

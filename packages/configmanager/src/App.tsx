@@ -201,8 +201,7 @@ const AppContent: React.FC = () => {
 
         await electronAPI.setupDockerDeployment(
           userSelections.dataLocation,
-          userSelections.cloneLocation,
-          userConfig
+          userSelections.cloneLocation
         );
       } else {
         await electronAPI.saveEnvFile(
@@ -220,7 +219,7 @@ const AppContent: React.FC = () => {
           userSelections,
           currentSite,
           parsedEnvEntries,
-          true
+          installationSuccess
         );
       }
 
@@ -306,8 +305,7 @@ const AppContent: React.FC = () => {
       };
 
       const result = await electronAPI.setupDockerDirectory(
-        cloneDialog.targetPath,
-        userConfig
+        cloneDialog.targetPath
       );
       if (result.success && result.setupPath) {
         updateSelections({
@@ -356,19 +354,19 @@ const AppContent: React.FC = () => {
           }
           break;
         case 'start-docker-services':
-          if (electronAPI?.startDockerCompose) {
-            electronAPI.startDockerCompose();
+          if (electronAPI?.startMonolithicDocker) {
+            electronAPI.startMonolithicDocker();
           }
           break;
         case 'stop-docker-services':
-          if (electronAPI?.stopDockerCompose) {
-            electronAPI.stopDockerCompose(false);
+          if (electronAPI?.stopMonolithicDocker) {
+            electronAPI.stopMonolithicDocker(false);
           }
           break;
         case 'restart-docker-services':
-          if (electronAPI?.stopDockerCompose && electronAPI?.startDockerCompose) {
-            electronAPI.stopDockerCompose(false).then(() => {
-              setTimeout(() => electronAPI.startDockerCompose(), 2000);
+          if (electronAPI?.stopMonolithicDocker && electronAPI?.startMonolithicDocker) {
+            electronAPI.stopMonolithicDocker(false).then(() => {
+              setTimeout(() => electronAPI.startMonolithicDocker(), 2000);
             });
           }
           break;
@@ -381,8 +379,8 @@ const AppContent: React.FC = () => {
           goToSite('control-panel');
           break;
         case 'reset-docker-volumes':
-          if (electronAPI?.stopDockerCompose) {
-            electronAPI.stopDockerCompose(true);
+          if (electronAPI?.stopMonolithicDocker) {
+            electronAPI.stopMonolithicDocker(true);
           }
           break;
         case 'export-configuration':
@@ -545,7 +543,7 @@ const AppContent: React.FC = () => {
     try {
       if (stopDDALAB && isDDALABRunning) {
         // Stop DDALAB services before quitting
-        await electronAPI.stopDockerCompose();
+        await electronAPI.stopMonolithicDocker();
       }
 
       // Close the modal and proceed with quit

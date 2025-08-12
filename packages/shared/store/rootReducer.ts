@@ -4,6 +4,7 @@ import ticketsReducer from "./slices/ticketsSlice";
 import plotsReducer from "./slices/plotSlice";
 import artifactsReducer from "./slices/artifactsSlice";
 import loadingReducer from "./slices/loadingSlice";
+import filesReducer from "./slices/filesSlice";
 
 const rootReducer = combineReducers({
   auth: authReducer,
@@ -11,6 +12,7 @@ const rootReducer = combineReducers({
   plots: plotsReducer,
   artifacts: artifactsReducer,
   loading: loadingReducer,
+  files: filesReducer,
 });
 
 export type RootState = ReturnType<typeof rootReducer>;

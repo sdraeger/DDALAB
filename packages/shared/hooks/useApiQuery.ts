@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import { signOut } from "next-auth/react";
-import { apiRequest, ApiRequestOptions } from "../lib/utils/request";
+import { get, post, put, _delete } from "../lib/utils/request";
 import { snakeToCamel } from "../lib/utils/caseConverter";
 import { useUnifiedSessionData, useUnifiedSession } from "./useUnifiedSession";
 import { useAuthMode } from "../contexts/AuthModeContext";
@@ -15,7 +15,7 @@ interface UseApiQueryResult<T> {
   updateData: (newData: T | ((prevData: T | null) => T | null)) => void;
 }
 
-interface UseApiQueryOptions extends ApiRequestOptions {
+interface UseApiQueryOptions {
   enabled?: boolean;
   requiresAuth?: boolean;
   retryOnUnauthorized?: boolean;
@@ -33,10 +33,7 @@ export function useApiQuery<T>(
   const [loading, setLoading] = useState<boolean>(enabled);
   const [error, setError] = useState<Error | null>(null);
   const [data, setData] = useState<T | null>(null);
-  const {
-    user,
-    status,
-  } = useUnifiedSession();
+  const { user, status } = useUnifiedSession();
 
   // Keep updateSession from the data hook for compatibility with retry logic
   const { update: updateSession } = useUnifiedSessionData();
@@ -155,18 +152,51 @@ export function useApiQuery<T>(
           controller.abort();
         }, 10000); // 10 second timeout
 
-        const response = await apiRequest<T>({
-          ...requestOptions,
-          responseType: "json",
-          token: requestOptions.token || sessionRef.current?.data?.accessToken,
-        });
+        const requestMethod = requestOptions.method || "GET";
+        let response: T;
+
+        switch (requestMethod) {
+          case "GET":
+            response = await get<T>(
+              requestOptions.url as string,
+              requestOptions.token || userRef.current?.accessToken
+            );
+            break;
+          case "POST":
+            response = await post<T>(
+              requestOptions.url as string,
+              requestOptions.body,
+              requestOptions.token || userRef.current?.accessToken
+            );
+            break;
+          case "PUT":
+            response = await put<T>(
+              requestOptions.url as string,
+              requestOptions.body,
+              requestOptions.token || userRef.current?.accessToken
+            );
+            break;
+          case "DELETE":
+            response = await _delete<T>(
+              requestOptions.url as string,
+              requestOptions.token || userRef.current?.accessToken
+            );
+            break;
+          default:
+            throw new Error(`Unsupported HTTP method: ${requestMethod}`);
+        }
 
         clearTimeout(timeoutId);
 
         if (isMountedRef.current) {
           const camelCaseResponse = snakeToCamel(response);
           setData(camelCaseResponse);
-          console.log("[useApiQuery] Request successful:", requestId, "Data:", camelCaseResponse);
+          console.log(
+            "[useApiQuery] Request successful:",
+            requestId,
+            "Data:",
+            camelCaseResponse
+          );
         }
       } catch (err) {
         console.error("[useApiQuery] Request failed:", requestId, err);
@@ -304,7 +334,10 @@ export function useApiQuery<T>(
 
       // Skip if we already have data and this is not a manual refetch
       if (hasDataRef.current && data) {
-        console.log("[useApiQuery] Skipping request - already have data:", requestOptions.url);
+        console.log(
+          "[useApiQuery] Skipping request - already have data:",
+          requestOptions.url
+        );
         return;
       }
 
@@ -324,7 +357,8 @@ export function useApiQuery<T>(
         }
 
         // Check authentication using the actual token that will be used
-        const actualToken = requestOptions.token || userRef.current?.accessToken;
+        const actualToken =
+          requestOptions.token || userRef.current?.accessToken;
         if (requiresAuth && !actualToken) {
           if (isMountedRef.current) {
             setError(new Error("Authentication required"));
@@ -343,12 +377,39 @@ export function useApiQuery<T>(
       setError(null);
 
       try {
-        const actualToken = requestOptions.token || userRef.current?.accessToken;
-        const response = await apiRequest<T>({
-          ...requestOptions,
-          responseType: "json",
-          token: actualToken,
-        });
+        const requestMethod = requestOptions.method || "GET";
+        let response: T;
+
+        switch (requestMethod) {
+          case "GET":
+            response = await get<T>(
+              requestOptions.url as string,
+              requestOptions.token || userRef.current?.accessToken
+            );
+            break;
+          case "POST":
+            response = await post<T>(
+              requestOptions.url as string,
+              requestOptions.body,
+              requestOptions.token || userRef.current?.accessToken
+            );
+            break;
+          case "PUT":
+            response = await put<T>(
+              requestOptions.url as string,
+              requestOptions.body,
+              requestOptions.token || userRef.current?.accessToken
+            );
+            break;
+          case "DELETE":
+            response = await _delete<T>(
+              requestOptions.url as string,
+              requestOptions.token || userRef.current?.accessToken
+            );
+            break;
+          default:
+            throw new Error(`Unsupported HTTP method: ${requestMethod}`);
+        }
 
         if (isCancelled || !isMountedRef.current) {
           return;
@@ -357,7 +418,12 @@ export function useApiQuery<T>(
         const camelCaseResponse = snakeToCamel(response);
         setData(camelCaseResponse);
         hasDataRef.current = true;
-        console.log("[useApiQuery] Request successful:", requestOptions.url, "Response:", camelCaseResponse);
+        console.log(
+          "[useApiQuery] Request successful:",
+          requestOptions.url,
+          "Response:",
+          camelCaseResponse
+        );
       } catch (err) {
         console.error("[useApiQuery] Request failed:", err);
 
@@ -366,9 +432,7 @@ export function useApiQuery<T>(
         }
 
         setError(
-          err instanceof Error
-            ? err
-            : new Error("An unexpected error occurred")
+          err instanceof Error ? err : new Error("An unexpected error occurred")
         );
       } finally {
         if (!isCancelled && isMountedRef.current) {

@@ -6,9 +6,9 @@ from jose import jwt
 from jose.exceptions import ExpiredSignatureError, JWTError
 from passlib.context import CryptContext
 
-from .config import get_server_settings
+from .environment import get_config_service
 
-settings = get_server_settings()
+auth_settings = get_config_service().get_auth_settings()
 
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -27,8 +27,8 @@ def get_password_hash(password: str) -> str:
 def create_jwt_token(
     subject: str,
     expires_delta: Optional[timedelta] = None,
-    secret_key: str = settings.jwt_secret_key,
-    algorithm: str = settings.jwt_algorithm,
+    secret_key: str = auth_settings.jwt_secret_key,
+    algorithm: str = auth_settings.jwt_algorithm,
     **extra_claims,
 ) -> str:
     """
@@ -57,8 +57,8 @@ def create_jwt_token(
 
 def decode_jwt_token(
     token: str,
-    secret_key: str = settings.jwt_secret_key,
-    algorithm: str = settings.jwt_algorithm,
+    secret_key: str = auth_settings.jwt_secret_key,
+    algorithm: str = auth_settings.jwt_algorithm,
     leeway: int = 0,
 ) -> dict:
     """
@@ -116,10 +116,10 @@ def generate_token_pair(username: str) -> dict:
     return {
         "access_token": create_jwt_token(
             username,
-            expires_delta=timedelta(minutes=settings.token_expiration_minutes),
+            expires_delta=timedelta(minutes=auth_settings.token_expiration_minutes),
         ),
         "refresh_token": create_jwt_token(
             username,
-            expires_delta=timedelta(days=settings.refresh_token_expire_days),
+            expires_delta=timedelta(days=auth_settings.refresh_token_expire_days),
         ),
     }

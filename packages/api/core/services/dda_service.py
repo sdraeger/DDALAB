@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from core.config import get_server_settings
+from core.environment import get_config_service
 from core.dda import run_dda
 from core.registry import register_service
 from core.services.base import BaseService
@@ -18,13 +18,13 @@ class DDAService(BaseService):
 
     def __init__(self, db: AsyncSession):
         super().__init__(db)
-        self.settings = get_server_settings()
+        self.storage_settings = get_config_service().get_storage_settings()
 
     async def health_check(self) -> bool:
         """Check if the DDA service is healthy."""
         try:
             # Check if data directory exists and is accessible
-            data_dir = Path(self.settings.data_dir)
+            data_dir = Path(self.storage_settings.data_dir)
             if not data_dir.exists():
                 logger.error(f"Data directory does not exist: {data_dir}")
                 return False
@@ -53,7 +53,7 @@ class DDAService(BaseService):
                     raise NotFoundError("File", str(file_path))
             else:
                 # For relative paths, check relative to data directory
-                full_path = Path(self.settings.data_dir) / file_path
+                full_path = Path(self.storage_settings.data_dir) / file_path
                 if not full_path.exists():
                     raise NotFoundError("File", str(file_path))
                 file_path = full_path
@@ -76,9 +76,12 @@ class DDAService(BaseService):
                         request.preprocessing_options.resample
                     )
 
-            # Run DDA using the core implementation
+            # Run DDA using the core implementation, pass channel_list if provided
             result = await run_dda(
                 file_path=file_path,
+                channel_list=request.channel_list
+                if hasattr(request, "channel_list")
+                else None,
                 preprocessing_options=preprocessing_options,
             )
 
