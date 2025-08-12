@@ -24,6 +24,7 @@ class DDARequest(BaseModel):
 
     file_path: str  # Path to the EDF file to analyze
     preprocessing_options: Optional[PreprocessingOptions] = None
+    channel_list: Optional[List[int]] = None  # 1-based channel indices to analyze
 
 
 class DDAResponse(BaseModel):

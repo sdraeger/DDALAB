@@ -6,15 +6,11 @@ import NextAuth, {
 import CredentialsProvider from "next-auth/providers/credentials";
 import { DEFAULT_USER_PREFERENCES } from "shared/contexts/SettingsContext";
 import { getEnvVar } from "shared/lib/utils/env";
-import { apiRequest } from "shared/lib/utils/request";
+import { get, post } from "shared/lib/utils/request";
 import { TokenResponse, UserPreferences } from "shared/types/auth";
 
-// Fix for development environment - use localhost instead of Docker hostname
-const rawApiUrl = getEnvVar("NEXT_PUBLIC_API_URL");
-const API_URL =
-  process.env.NODE_ENV === "development" && rawApiUrl.includes("api:8001")
-    ? "http://localhost:8001"
-    : rawApiUrl;
+// Use relative API paths via shared request utilities.
+// This avoids relying on baked NEXT_PUBLIC_* environment variables.
 
 const SESSION_EXPIRATION = parseInt(getEnvVar("SESSION_EXPIRATION"));
 
@@ -61,11 +57,7 @@ async function checkAuthMode(): Promise<{
   auth_mode: string;
 }> {
   try {
-    const response = await apiRequest<any>({
-      url: `${API_URL}/api/auth/mode`,
-      method: "GET",
-      responseType: "json",
-    });
+    const response = await get<any>(`/api/auth/mode`);
     return response;
   } catch (error) {
     console.error("Failed to check auth mode:", error);
@@ -120,24 +112,21 @@ export const authOptions: NextAuthOptions = {
         }
 
         // Multi-user mode - require credentials
-        const url = `${API_URL}/api/auth/token`;
+        const url = `/api/auth/token`;
 
         if (!credentials?.username || !credentials?.password) {
           throw new Error("Missing credentials");
         }
 
         try {
-          const res = await apiRequest<TokenResponse>({
+          const res = await post<TokenResponse>(
             url,
-            method: "POST",
-            contentType: "application/x-www-form-urlencoded",
-            body: new URLSearchParams({
-              username: credentials.username,
-              password: credentials.password,
+            new URLSearchParams({
+              username: credentials.username as string,
+              password: credentials.password as string,
               grant_type: "password",
-            }),
-            responseType: "json",
-          });
+            })
+          );
 
           if (!res.access_token) {
             throw new Error("Login failed");
@@ -191,14 +180,8 @@ export const authOptions: NextAuthOptions = {
       // Fetch preferences for token (multi-user mode only)
       if (token.accessToken && (trigger === "signIn" || trigger === "update")) {
         try {
-          const url = `${API_URL}/api/user-preferences`;
-          const res = await apiRequest<UserPreferences>({
-            url,
-            token: token.accessToken,
-            method: "GET",
-            contentType: "application/json",
-            responseType: "json",
-          });
+          const url = `/api/user-preferences`;
+          const res = await get<UserPreferences>(url, token.accessToken);
 
           if (!res) throw new Error("Failed to fetch preferences");
 
@@ -260,17 +243,11 @@ export const authOptions: NextAuthOptions = {
 
 async function refreshAccessToken(token: any) {
   try {
-    const url = `${API_URL}/api/auth/refresh-token`;
-    const refreshedTokens = await apiRequest<{
+    const url = `/api/auth/refresh-token`;
+    const refreshedTokens = await post<{
       access_token: string;
       expires_in: number;
-    }>({
-      url,
-      method: "POST",
-      body: { refresh_token: token.refreshToken },
-      contentType: "application/json",
-      responseType: "json",
-    });
+    }>(url, { refresh_token: token.refreshToken }, token.accessToken);
 
     if (!refreshedTokens || !refreshedTokens.access_token) {
       throw new Error("Invalid refresh token response");

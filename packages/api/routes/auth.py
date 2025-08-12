@@ -5,7 +5,7 @@ from datetime import timedelta
 from core.auth import (
     authenticate_user,
 )
-from core.config import get_server_settings
+from core.environment import get_config_service
 from core.dependencies import get_service
 from core.security import create_jwt_token, verify_refresh_token
 from core.services import UserService
@@ -15,7 +15,7 @@ from jose import jwt
 from schemas.auth import RefreshTokenRequest
 
 router = APIRouter()
-settings = get_server_settings()
+auth_settings = get_config_service().get_auth_settings()
 
 
 @router.get("/mode")
@@ -26,11 +26,11 @@ async def get_auth_mode(request: Request):
         dict: Authentication mode information including current user if in local mode
     """
     auth_info = {
-        "auth_mode": settings.auth_mode,
+        "auth_mode": auth_settings.auth_mode,
     }
 
     # If in local mode, include the current user information
-    if settings.auth_mode == "local":
+    if auth_settings.auth_mode == "local":
         try:
             from core.services.local_user_service import LocalUserService
 
@@ -65,7 +65,7 @@ async def login_for_access_token(
     """Login endpoint to issue access tokens using repository pattern"""
 
     # In local mode, reject login attempts
-    if settings.auth_mode == "local":
+    if auth_settings.auth_mode == "local":
         raise HTTPException(
             status_code=400, detail="Authentication is disabled in local mode"
         )
@@ -78,12 +78,12 @@ async def login_for_access_token(
     # Update last login timestamp
     user = await user_service.update_last_login(user)
 
-    expires_in = timedelta(minutes=settings.token_expiration_minutes)
+    expires_in = timedelta(minutes=auth_settings.token_expiration_minutes)
     access_token = create_jwt_token(
         subject=user.username,
         expires_delta=expires_in,
-        secret_key=settings.jwt_secret_key,
-        algorithm=settings.jwt_algorithm,
+        secret_key=auth_settings.jwt_secret_key,
+        algorithm=auth_settings.jwt_algorithm,
     )
 
     return {
@@ -100,7 +100,7 @@ async def refresh_token(
 ):
     """Refresh access token using valid refresh token"""
     # In local mode, reject refresh token attempts
-    if settings.auth_mode == "local":
+    if auth_settings.auth_mode == "local":
         raise HTTPException(
             status_code=400, detail="Token refresh is disabled in local mode"
         )
@@ -115,12 +115,12 @@ async def refresh_token(
         # Update last login timestamp on token refresh too
         user = await user_service.update_last_login(user)
 
-        expires_in = timedelta(minutes=settings.token_expiration_minutes)
+        expires_in = timedelta(minutes=auth_settings.token_expiration_minutes)
         new_access_token = create_jwt_token(
             subject=user.username,
             expires_delta=expires_in,
-            secret_key=settings.jwt_secret_key,
-            algorithm=settings.jwt_algorithm,
+            secret_key=auth_settings.jwt_secret_key,
+            algorithm=auth_settings.jwt_algorithm,
         )
 
         return {

@@ -1,14 +1,19 @@
 "use client";
 
-import { useState as useReactState, useEffect, useCallback, useRef } from 'react';
-import { useStateStore } from './StateContext';
+import {
+  useState as useReactState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
+import { useStateStore } from "./StateContext";
 import type {
   StateSliceConfig,
   StateValue,
   StateHookReturn,
   StateSlice,
-  StateChangeEvent
-} from '../core/interfaces';
+  StateChangeEvent,
+} from "../core/interfaces";
 
 /**
  * Main hook for managing state with automatic registration and cleanup
@@ -19,6 +24,7 @@ export function useState<T extends StateValue = StateValue>(
   const store = useStateStore();
   const [value, setValue] = useReactState<T>(config.defaultValue);
   const [isLoading, setIsLoading] = useReactState(true);
+  const [isInitialized, setIsInitialized] = useReactState(false);
   const [error, setError] = useReactState<Error | null>(null);
   const sliceRef = useRef<StateSlice<T> | null>(null);
   const isInitializedRef = useRef(false);
@@ -26,57 +32,68 @@ export function useState<T extends StateValue = StateValue>(
   // Register slice and set up subscription
   useEffect(() => {
     let slice: StateSlice<T>;
-    
+
     try {
       // Check if slice already exists
       const existingSlice = store.getSlice<T>(config.key);
-      
+
       if (existingSlice) {
         slice = existingSlice;
       } else {
         slice = store.registerSlice(config);
       }
-      
+
       sliceRef.current = slice;
 
       // Set initial value
       setValue(slice.getValue());
-      
+
       // Subscribe to changes
       const unsubscribe = slice.subscribe((event: StateChangeEvent<T>) => {
-        setValue(event.newValue);
+        if (event.newValue !== undefined) {
+          setValue(event.newValue);
+        }
       });
 
       setIsLoading(false);
       isInitializedRef.current = true;
+
+      // For persistent slices, assume storage is ready after successful slice creation
+      setIsInitialized(true);
 
       return () => {
         unsubscribe();
         // Don't unregister slice here as other components might be using it
       };
     } catch (err) {
-      const error = err instanceof Error ? err : new Error('Failed to initialize state');
+      const error =
+        err instanceof Error ? err : new Error("Failed to initialize state");
       setError(error);
       setIsLoading(false);
+      setIsInitialized(true); // Set to true on error to prevent infinite loading
       console.error(`[useState:${config.key}] Initialization error:`, error);
     }
   }, [store, config.key]); // Only depend on store and key to avoid re-registration
 
   // Create stable setter function
-  const setValueCallback = useCallback(async (newValue: T) => {
-    if (!sliceRef.current) {
-      throw new Error(`State slice "${config.key}" is not initialized`);
-    }
+  const setValueCallback = useCallback(
+    async (newValue: T) => {
+      if (!sliceRef.current) {
+        throw new Error(`State slice "${config.key}" is not initialized`);
+      }
 
-    try {
-      setError(null);
-      await sliceRef.current.setValue(newValue);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error('Failed to set state value');
-      setError(error);
-      throw error;
-    }
-  }, [config.key]);
+      try {
+        setError(null);
+        await sliceRef.current.setValue(newValue);
+      } catch (err) {
+        const error =
+          err instanceof Error ? err : new Error("Failed to set state value");
+        setError(error);
+        throw error;
+      }
+    },
+    [config.key]
+  );
 
   // Create stable reset function
   const resetCallback = useCallback(async () => {
@@ -88,7 +105,8 @@ export function useState<T extends StateValue = StateValue>(
       setError(null);
       await sliceRef.current.reset();
     } catch (err) {
-      const error = err instanceof Error ? err : new Error('Failed to reset state');
+      const error =
+        err instanceof Error ? err : new Error("Failed to reset state");
       setError(error);
       throw error;
     }
@@ -99,7 +117,7 @@ export function useState<T extends StateValue = StateValue>(
     setValue: setValueCallback,
     reset: resetCallback,
     isLoading,
-    error
+    error,
   };
 }
 
@@ -115,7 +133,7 @@ export function useStateValue<T extends StateValue = StateValue>(
 
   useEffect(() => {
     const slice = store.getSlice<T>(key);
-    
+
     if (!slice) {
       setValue(defaultValue);
       return;
@@ -126,7 +144,9 @@ export function useStateValue<T extends StateValue = StateValue>(
 
     // Subscribe to changes
     const unsubscribe = slice.subscribe((event: StateChangeEvent<T>) => {
-      setValue(event.newValue);
+      if (event.newValue !== undefined) {
+        setValue(event.newValue);
+      }
     });
 
     return unsubscribe;
@@ -144,7 +164,9 @@ export function useComputedState<T extends StateValue = StateValue>(
   debugKey?: string
 ): T | undefined {
   const store = useStateStore();
-  const [computedValue, setComputedValue] = useReactState<T | undefined>(undefined);
+  const [computedValue, setComputedValue] = useReactState<T | undefined>(
+    undefined
+  );
   const computeFnRef = useRef(computeFn);
 
   // Update compute function ref
@@ -153,8 +175,10 @@ export function useComputedState<T extends StateValue = StateValue>(
   }, [computeFn]);
 
   useEffect(() => {
-    const slices = dependencies.map(key => store.getSlice(key)).filter(Boolean);
-    
+    const slices = dependencies
+      .map((key) => store.getSlice(key))
+      .filter(Boolean) as StateSlice[];
+
     if (slices.length !== dependencies.length) {
       // Not all dependencies are available yet
       setComputedValue(undefined);
@@ -162,23 +186,23 @@ export function useComputedState<T extends StateValue = StateValue>(
     }
 
     // Compute initial value
-    const values = slices.map(slice => slice.getValue());
+    const values = slices.map((slice) => slice.getValue());
     const initialValue = computeFnRef.current(...values);
     setComputedValue(initialValue);
 
     // Subscribe to all dependencies
-    const unsubscribes = slices.map(slice => 
+    const unsubscribes = slices.map((slice) =>
       slice.subscribe(() => {
-        const currentValues = slices.map(s => s.getValue());
+        const currentValues = slices.map((s) => s.getValue());
         const newValue = computeFnRef.current(...currentValues);
         setComputedValue(newValue);
       })
     );
 
     return () => {
-      unsubscribes.forEach(unsub => unsub());
+      unsubscribes.forEach((unsub) => unsub());
     };
-  }, [store, dependencies.join(',')]); // Join dependencies for stable comparison
+  }, [store, dependencies.join(",")]); // Join dependencies for stable comparison
 
   return computedValue;
 }
@@ -200,34 +224,36 @@ export function useStateListener(
   }, [listener]);
 
   useEffect(() => {
-    const slices = keys.map(key => store.getSlice(key)).filter(Boolean);
-    
+    const slices = keys
+      .map((key) => store.getSlice(key))
+      .filter(Boolean) as StateSlice[];
+
     if (slices.length === 0) return;
 
     // Fire immediately if requested
     if (options?.immediate) {
-      const initialEvents: StateChangeEvent[] = slices.map(slice => ({
+      const initialEvents: StateChangeEvent[] = slices.map((slice) => ({
         key: slice.key,
         oldValue: undefined,
         newValue: slice.getValue(),
         timestamp: Date.now(),
-        source: 'initial'
+        source: "initial",
       }));
-      
+
       listenerRef.current(initialEvents);
     }
 
     // Subscribe to all slices
-    const unsubscribes = slices.map(slice =>
+    const unsubscribes = slices.map((slice) =>
       slice.subscribe((event) => {
         listenerRef.current([event]);
       })
     );
 
     return () => {
-      unsubscribes.forEach(unsub => unsub());
+      unsubscribes.forEach((unsub) => unsub());
     };
-  }, [store, keys.join(','), options?.immediate]);
+  }, [store, keys.join(","), options?.immediate]);
 }
 
 /**
@@ -241,8 +267,13 @@ export function useStateDebug(key?: string) {
     const updateDebugInfo = () => {
       if (key) {
         const slice = store.getSlice(key);
-        if (slice && 'getMetadata' in slice && typeof slice.getMetadata === 'function') {
-          setDebugInfo(slice.getMetadata());
+        if (slice) {
+          setDebugInfo({
+            key: slice.key,
+            config: slice.config,
+            currentValue: slice.getValue(),
+            history: slice.getHistory(),
+          });
         }
       } else {
         setDebugInfo(store.getDebugInfo());
@@ -270,9 +301,12 @@ export function useStateBackup() {
     return store.exportState();
   }, [store]);
 
-  const importState = useCallback(async (state: Record<string, StateValue>) => {
-    await store.importState(state);
-  }, [store]);
+  const importState = useCallback(
+    async (state: Record<string, StateValue>) => {
+      await store.importState(state);
+    },
+    [store]
+  );
 
   const resetAllState = useCallback(async () => {
     await store.reset();
@@ -281,7 +315,7 @@ export function useStateBackup() {
   return {
     exportState,
     importState,
-    resetAllState
+    resetAllState,
   };
 }
 
@@ -291,32 +325,36 @@ export function useStateBackup() {
 export function useBatchState() {
   const store = useStateStore();
 
-  const batchUpdate = useCallback(async (
-    updates: Array<{ key: string; value: StateValue }>
-  ) => {
-    const promises = updates.map(async ({ key, value }) => {
-      const slice = store.getSlice(key);
-      if (slice) {
-        await slice.setValue(value);
-      }
-    });
+  const batchUpdate = useCallback(
+    async (updates: Array<{ key: string; value: StateValue }>) => {
+      const promises = updates.map(async ({ key, value }) => {
+        const slice = store.getSlice(key);
+        if (slice) {
+          await slice.setValue(value);
+        }
+      });
 
-    await Promise.all(promises);
-  }, [store]);
+      await Promise.all(promises);
+    },
+    [store]
+  );
 
-  const batchReset = useCallback(async (keys: string[]) => {
-    const promises = keys.map(async (key) => {
-      const slice = store.getSlice(key);
-      if (slice) {
-        await slice.reset();
-      }
-    });
+  const batchReset = useCallback(
+    async (keys: string[]) => {
+      const promises = keys.map(async (key) => {
+        const slice = store.getSlice(key);
+        if (slice) {
+          await slice.reset();
+        }
+      });
 
-    await Promise.all(promises);
-  }, [store]);
+      await Promise.all(promises);
+    },
+    [store]
+  );
 
   return {
     batchUpdate,
-    batchReset
+    batchReset,
   };
 }

@@ -1,13 +1,18 @@
 """Test configuration and fixtures."""
 
-import asyncio
+import logging
+import os
+import sys
 import tempfile
+import uuid
 from pathlib import Path
-from typing import AsyncGenerator, Dict, Generator
+from typing import AsyncGenerator, Generator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
+from core.models import Base
+from dotenv import load_dotenv
 from faker import Faker
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,31 +22,80 @@ from minio import Minio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from ..core.config import Settings, get_server_settings
-from ..core.database import get_db_session, get_minio_client
-from ..core.middleware import AuthMiddleware, DatabaseMiddleware
-from ..core.models import Base, User
-from ..core.security import get_password_hash
-from ..routes.artifacts import router as artifacts_router
-from ..routes.auth import router as auth_router
-from ..routes.health import router as health_router
-from ..routes.tickets import router as tickets_router
-from ..routes.users import router as users_router
+from core import registry
+from core.environment import get_config_service
+from core.database import get_db_session, get_minio_client
+from core.middleware import AuthMiddleware, DatabaseMiddleware
+from core.models import User
+from core.security import get_password_hash
+from core.services.artifact_service import ArtifactService
+from core.services.dda_service import DDAService
+from core.services.stats_service import StatsService
+from core.services.ticket_service import TicketService
+from core.services.user_service import UserService
+from routes.artifacts import router as artifacts_router
+from routes.edf import router as edf_router
+from routes.auth import router as auth_router
+from routes.health import router as health_router
+from routes.tickets import router as tickets_router
+from routes.users import router as users_router
 
-settings = get_server_settings()
+# Set the env file for Pydantic Settings before any config is loaded
+os.environ["DDALAB_ENV_FILE"] = os.path.join(
+    os.path.dirname(__file__), "../../../.env.test"
+)
+
+# Load .env.test for test environment variables
+load_dotenv(dotenv_path=os.environ["DDALAB_ENV_FILE"])
+
+os.environ["DDALAB_JWT_SECRET_KEY"] = "test_secret_key_123456789"
+
+# Ensure minimal required env vars for tests if not set
+_env_defaults = {
+    "DB_USER": "testuser",
+    "DB_PASSWORD": "testpass",
+    "MINIO_HOST": "localhost:9000",
+    "MINIO_ACCESS_KEY": "minio",
+    "MINIO_SECRET_KEY": "miniosecret",
+    # Allow reading test EDF files under repo data directory by default
+    "ALLOWED_DIRS": str(Path(__file__).resolve().parents[3] / "data"),
+}
+for _k, _v in _env_defaults.items():
+    os.environ.setdefault(_k, _v)
+
+if "pytest" in sys.modules:
+    from unittest.mock import MagicMock
+
+    import prometheus_client
+
+    prometheus_client.Counter = MagicMock()
+    prometheus_client.Histogram = MagicMock()
+    prometheus_client.Summary = MagicMock()
+    prometheus_client.Gauge = MagicMock()
+
+# Explicitly register dummy services for their abstract/base class in the registry
+registry._services[TicketService] = TicketService
+registry._services[UserService] = UserService
+registry._services[ArtifactService] = ArtifactService
+registry._services[StatsService] = StatsService
+registry._services[DDAService] = DDAService
+
+db_settings = get_config_service().get_database_settings()
+auth_settings = get_config_service().get_auth_settings()
+print(f"[DEBUG] Loaded DB URL: {db_settings.connection_url}")
 
 # Use a separate test database
-SQLALCHEMY_DATABASE_URL = (
-    f"postgresql+asyncpg://{settings.db_user}:{settings.db_password}"
-    f"@{settings.db_host}:{settings.db_port}/{settings.db_name}_test"
-)
+# SQLALCHEMY_DATABASE_URL = (
+#     f"postgresql+asyncpg://{db_settings.db_user}:{db_settings.db_password}"
+#     f"@{db_settings.db_host}:{db_settings.db_port}/{db_settings.db_name}_test"
+# )
+
+# print(f"[DEBUG] Test DB URL: {SQLALCHEMY_DATABASE_URL}")
 
 # Create test app
 test_app = FastAPI(title="Test DDALAB API", version="0.1.0")
 
 # Add minimal middleware
-test_app.add_middleware(DatabaseMiddleware)
-test_app.add_middleware(AuthMiddleware)
 test_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -49,6 +103,8 @@ test_app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+test_app.add_middleware(AuthMiddleware)
+test_app.add_middleware(DatabaseMiddleware)
 
 # Include essential routers
 test_app.include_router(health_router, prefix="/api/health", tags=["health"])
@@ -56,6 +112,8 @@ test_app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 test_app.include_router(tickets_router, prefix="/api/tickets", tags=["tickets"])
 test_app.include_router(users_router, prefix="/api/users", tags=["users"])
 test_app.include_router(artifacts_router, prefix="/api/artifacts", tags=["artifacts"])
+# Include EDF router for EDF API tests
+test_app.include_router(edf_router, prefix="/api/edf", tags=["edf"])
 
 # Use test app instead of main app
 app = test_app
@@ -67,55 +125,24 @@ fake = Faker()
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
+    """Create a new event loop for each test."""
+    import asyncio
+
+    loop = asyncio.new_event_loop()
     yield loop
     loop.close()
 
 
-@pytest.fixture
-def test_settings() -> Settings:
-    """Create test settings with safe defaults."""
-    return Settings(
-        # Development settings
-        reload=False,
-        # API settings
-        api_host="localhost",
-        api_port=8000,
-        # Institution name
-        institution_name="Test Institution",
-        # Data directory settings
-        data_dir="/tmp/test_data",
-        anonymize_edf=False,
-        # DDA binary settings
-        dda_binary_path="/usr/bin/dda",
-        # PostgreSQL Database settings
-        db_host="localhost",
-        db_port=5432,
-        db_name="test_db",
-        db_user="test_user",
-        db_password="test_password",
-        # Authentication settings
-        jwt_secret_key="test_secret_key_123456789",
-        jwt_algorithm="HS256",
-        auth_enabled=True,
-        token_expiration_minutes=30,
-        # Allowed directories
-        allowed_dirs=["/tmp", "/test"],
-        # Minio settings
-        minio_host="localhost:9000",
-        minio_access_key="testkey",
-        minio_secret_key="testsecret",
-        minio_bucket_name="test-bucket",
-        # OpenTelemetry settings
-        otlp_host="localhost",
-        otlp_port=4317,
-    )
+# Remove or comment out the test_settings fixture and any hardcoded DB config
+# (Commenting out for clarity)
+# @pytest.fixture
+# def test_settings() -> Settings:
+#     pass  # No longer needed, config comes from env
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="session")
 async def test_engine():
     """Create test database engine."""
     engine = create_async_engine(
@@ -161,27 +188,16 @@ def mock_minio_client():
 
 
 @pytest.fixture
-def override_dependencies(test_session, mock_minio_client, test_settings):
+def override_dependencies(test_session, mock_minio_client):
     """Override FastAPI dependencies for testing."""
-
-    def get_test_db():
-        yield test_session
 
     def get_test_minio():
         yield mock_minio_client
 
-    app.dependency_overrides[get_db_session] = get_test_db
+    # Do NOT override get_db_session; let the app use its own dependency
     app.dependency_overrides[get_minio_client] = get_test_minio
 
-    # Override settings functions to use test settings
-    from unittest.mock import patch
-
-    with (
-        patch("..core.config.get_server_settings", return_value=test_settings),
-        patch("..core.auth.settings", test_settings),
-    ):
-        yield
-
+    yield
     # Clean up
     app.dependency_overrides = {}
 
@@ -202,7 +218,7 @@ async def async_client(override_dependencies) -> AsyncGenerator[AsyncClient, Non
         yield test_client
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="function")
 async def test_user(test_session: AsyncSession) -> User:
     """Create a test user."""
     user = User(
@@ -214,13 +230,18 @@ async def test_user(test_session: AsyncSession) -> User:
         is_active=True,
         is_admin=False,
     )
+    # Ensure a clean state per test to avoid UNIQUE violations
+    await test_session.execute(
+        "DELETE FROM users WHERE username = :uname", {"uname": user.username}
+    )
+    await test_session.commit()
     test_session.add(user)
     await test_session.commit()
     await test_session.refresh(user)
     return user
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="function")
 async def test_admin_user(test_session: AsyncSession) -> User:
     """Create a test admin user."""
     admin_user = User(
@@ -263,11 +284,16 @@ def auth_headers_user(test_user):
 
     from ..core.security import create_jwt_token
 
+    # Use auth_settings from get_config_service()
+    auth_settings = get_config_service().get_auth_settings()
+    secret = auth_settings.jwt_secret_key
+    algorithm = auth_settings.jwt_algorithm
+    print(f"[TEST] Creating JWT with secret={secret}, algorithm={algorithm}")
     token = create_jwt_token(
         subject=test_user.username,
-        expires_delta=timedelta(minutes=30),
-        secret_key="test_secret_key_123456789",
-        algorithm="HS256",
+        expires_delta=timedelta(minutes=auth_settings.token_expiration_minutes),
+        secret_key=secret,
+        algorithm=algorithm,
     )
     return {"Authorization": f"Bearer {token}"}
 
@@ -279,11 +305,16 @@ def auth_headers_admin(test_admin_user):
 
     from ..core.security import create_jwt_token
 
+    # Use auth_settings from get_config_service()
+    auth_settings = get_config_service().get_auth_settings()
+    secret = auth_settings.jwt_secret_key
+    algorithm = auth_settings.jwt_algorithm
+    print(f"[TEST] Creating JWT with secret={secret}, algorithm={algorithm}")
     token = create_jwt_token(
         subject=test_admin_user.username,
-        expires_delta=timedelta(minutes=30),
-        secret_key="test_secret_key_123456789",
-        algorithm="HS256",
+        expires_delta=timedelta(minutes=auth_settings.token_expiration_minutes),
+        secret_key=secret,
+        algorithm=algorithm,
     )
     return {"Authorization": f"Bearer {token}"}
 
@@ -305,51 +336,85 @@ def mock_external_services(monkeypatch):
     mock_minio.bucket_exists.return_value = True
     monkeypatch.setattr("main.Minio", lambda *args, **kwargs: mock_minio)
 
-    # Mock cache manager
-    mock_cache = AsyncMock()
-    monkeypatch.setattr("core.edf.edf_cache.get_cache_manager", lambda: mock_cache)
-    monkeypatch.setattr("core.edf.edf_cache.clear_global_cache", MagicMock())
-
-
-class TestDataFactory:
-    """Factory class for creating test data."""
-
-    @staticmethod
-    def user_data(**kwargs) -> Dict:
-        """Generate user test data."""
-        default_data = {
-            "username": fake.user_name(),
-            "email": fake.email(),
-            "password": fake.password(),
-            "first_name": fake.first_name(),
-            "last_name": fake.last_name(),
-        }
-        default_data.update(kwargs)
-        return default_data
-
-    @staticmethod
-    def ticket_data(**kwargs) -> Dict:
-        """Generate ticket test data."""
-        default_data = {
-            "title": fake.sentence(nb_words=4),
-            "description": fake.text(max_nb_chars=200),
-            "status": "open",
-        }
-        default_data.update(kwargs)
-        return default_data
-
-    @staticmethod
-    def artifact_data(**kwargs) -> Dict:
-        """Generate artifact test data."""
-        default_data = {
-            "name": fake.file_name(),
-            "file_path": f"/tmp/{fake.file_name()}",
-        }
-        default_data.update(kwargs)
-        return default_data
+    # Mock cache manager unless EDF integration is explicitly enabled
+    if os.environ.get("ENABLE_EDF_INTEGRATION", "0") != "1":
+        mock_cache = AsyncMock()
+        monkeypatch.setattr("core.edf.edf_cache.get_cache_manager", lambda: mock_cache)
+        monkeypatch.setattr("core.edf.edf_cache.clear_global_cache", MagicMock())
 
 
 @pytest.fixture
 def test_data_factory():
-    """Provide test data factory."""
-    return TestDataFactory
+    """Factory for generating test data dicts for artifacts, tickets, and users."""
+
+    class TestDataFactory:
+        def __init__(self, fake):
+            self.fake = fake
+
+        def artifact_data(self, name=None, file_path=None, **kwargs):
+            return {
+                "name": name or self.fake.file_name(extension="jpg"),
+                "file_path": file_path
+                or f"/tmp/{self.fake.file_name(extension='jpg')}",
+                **kwargs,
+            }
+
+        def ticket_data(self, title=None, description=None, **kwargs):
+            return {
+                "title": title or self.fake.sentence(nb_words=4),
+                "description": description or self.fake.text(max_nb_chars=50),
+                **kwargs,
+            }
+
+        def user_data(self, username=None, email=None, password=None, **kwargs):
+            return {
+                "username": username or self.fake.user_name(),
+                "email": email or self.fake.email(),
+                "password": password or self.fake.password(),
+                **kwargs,
+            }
+
+    return TestDataFactory(fake)
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def override_app_db_dependency(test_engine):
+    """Override app's get_db_session dependency to yield a new session per test/request."""
+    # Use the test app defined above instead of importing main.app
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    async_session_maker = async_sessionmaker(bind=test_engine, expire_on_commit=False)
+
+    async def _get_test_db():
+        session_id = uuid.uuid4()
+        logging.info(f"[TEST] Creating new DB session: {session_id}")
+        async with async_session_maker() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+            finally:
+                await session.close()
+                logging.info(f"[TEST] Closed DB session: {session_id}")
+
+    # Apply override to the test app instance
+    global app
+    app.dependency_overrides[get_db_session] = _get_test_db
+    yield
+    app.dependency_overrides.pop(get_db_session, None)
+
+
+# Comment out or remove global patching of engine/session to avoid conflicts
+# @pytest_asyncio.fixture(autouse=True, scope="session")
+# def patch_global_db_engine_and_session(test_engine):
+#     """Patch core.database.engine and async_session_maker to use the test engine/session maker."""
+#     core.database.engine = test_engine
+#     core.database.async_session_maker = async_sessionmaker(
+#         test_engine,
+#         class_=AsyncSession,
+#         expire_on_commit=False,
+#         autocommit=False,
+#         autoflush=False,
+#     )

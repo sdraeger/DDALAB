@@ -1,6 +1,8 @@
 export interface UserPreferences {
   theme?: "light" | "dark" | "system";
   eegZoomFactor?: number;
+  sidebarCollapsed?: boolean; // Added for app settings
+  debugMode?: boolean; // Added for app settings
 }
 
 export interface User {

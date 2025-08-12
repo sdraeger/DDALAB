@@ -27,3 +27,4 @@ psycopg2-binary>=2.9.0
 dda_py>=0.1.4
 scipy>=1.7.0
 pydantic[email]>=2.0.0
+matplotlib>=3.7.0

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useToast } from "../../hooks/useToast";
-import { apiRequest } from "../../lib/utils/request";
+import { post } from "../../lib/utils/request";
 import { TicketDialog } from "../dialog/TicketDialog";
 import { useUnifiedSessionData } from "../../hooks/useUnifiedSession";
 
@@ -31,14 +31,11 @@ export function HelpButton() {
       const token = session?.accessToken;
       if (!token) throw new Error("No token found in session");
 
-      await apiRequest({
-        url: "/api/tickets",
-        method: "POST",
-        body: { title, description },
-        contentType: "application/json",
-        token,
-        responseType: "json",
-      });
+      await post(
+        "/api/tickets",
+        { title, description },
+        token
+      );
 
       toast({
         title: "Ticket Submitted",

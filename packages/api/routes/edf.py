@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from core.auth import get_current_user
-from core.config import get_server_settings
+from core.environment import get_config_service
 from core.edf.edf_cache import clear_global_cache, get_cache_manager
 from core.edf.edf_navigator import get_edf_navigator
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,7 +13,7 @@ from schemas.user import User
 
 router = APIRouter()
 
-settings = get_server_settings()
+storage_settings = get_config_service().get_storage_settings()
 
 
 @router.get("/info")
@@ -24,7 +24,7 @@ async def get_edf_info(
 ) -> EdfFileInfo:
     """Get information about an EDF file."""
 
-    path = Path(settings.data_dir) / file_path
+    path = Path(storage_settings.data_dir) / file_path
 
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
@@ -52,7 +52,7 @@ async def get_segment(
 ):
     """Get a segment of an EDF file."""
 
-    path = Path(settings.data_dir) / file_path
+    path = Path(storage_settings.data_dir) / file_path
 
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
@@ -102,7 +102,7 @@ async def check_cached_plot(
                 )
 
         # Check if the file exists first
-        full_path = Path(settings.data_dir) / file_path
+        full_path = Path(storage_settings.data_dir) / file_path
         if not full_path.exists():
             raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
 
@@ -132,7 +132,7 @@ async def clear_cache(file_path: str = None, _: User = Depends(get_current_user)
     try:
         if file_path:
             # Clear cache for specific file
-            full_path = Path(settings.data_dir) / file_path
+            full_path = Path(storage_settings.data_dir) / file_path
             cache_manager = get_cache_manager()
             cache_manager.clear_file_cache(str(full_path))
             return {"message": f"Cleared cache for file: {file_path}"}
@@ -150,6 +150,7 @@ async def get_edf_data(
     file_path: str,
     chunk_start: int = 0,
     chunk_size: int = 5120,
+    channels: str | None = None,
     preprocessing_options: str = None,
     _: User = Depends(get_current_user),
 ):
@@ -157,17 +158,15 @@ async def get_edf_data(
     from loguru import logger
 
     try:
-        logger.info(
-            f"EDF data request: file_path={file_path}, chunk_start={chunk_start}, chunk_size={chunk_size}"
-        )
+        # request received (debug logs trimmed)
 
         # Handle both absolute and relative paths
         if Path(file_path).is_absolute():
             full_path = Path(file_path)
         else:
-            full_path = Path(settings.data_dir) / file_path
+            full_path = Path(storage_settings.data_dir) / file_path
 
-        logger.info(f"Resolved file path: {full_path}")
+        # resolved path
 
         if not full_path.exists():
             logger.error(f"File not found: {full_path}")
@@ -184,27 +183,25 @@ async def get_edf_data(
                     status_code=400, detail="Invalid preprocessing_options JSON format"
                 )
 
-        logger.info("Getting cache manager...")
+        # get cache manager
         # Get data from cache manager
         try:
             cache_manager = get_cache_manager()
-            logger.info("Cache manager obtained successfully")
+            # cache manager ok
         except Exception as e:
             logger.error(f"Error getting cache manager: {e}")
             raise
 
-        logger.info("Reading chunk from cache manager...")
+        # read chunk
         try:
             result = cache_manager.read_chunk_optimized(
                 str(full_path), chunk_start, chunk_size, preprocess_opts
             )
-            logger.info(f"Cache manager returned: {type(result)}")
+            # read ok
 
             if isinstance(result, tuple) and len(result) == 2:
                 edf_file, total_samples = result
-                logger.info(
-                    f"EDF file type: {type(edf_file)}, total_samples: {total_samples}"
-                )
+                # meta ok
             else:
                 logger.error(f"Unexpected result format from cache manager: {result}")
                 raise ValueError(f"Unexpected result format: {type(result)}")
@@ -216,37 +213,74 @@ async def get_edf_data(
         # Transform EDFFile to JSON format expected by frontend
         data = []
         channel_labels = []
+        requested_channels = None
+        if channels:
+            try:
+                requested_channels = set(
+                    [c.strip() for c in channels.split(",") if c.strip()]
+                )
+            except Exception:
+                requested_channels = None
 
-        logger.info(f"Processing EDF file: {edf_file}")
+        # processing edf
 
         if edf_file and hasattr(edf_file, "signals") and edf_file.signals:
-            logger.info(f"EDF file has {len(edf_file.signals)} signals")
-            # Extract signal data and labels
-            for i, signal in enumerate(edf_file.signals):
-                try:
-                    if hasattr(signal, "data") and signal.data is not None:
-                        signal_data = (
-                            signal.data.tolist()
-                            if hasattr(signal.data, "tolist")
-                            else list(signal.data)
-                        )
-                        data.append(signal_data)
-                        logger.info(f"Signal {i}: {len(signal_data)} samples")
-                    else:
-                        logger.warning(f"Signal {i} has no data or data is None")
-                except Exception as e:
-                    logger.error(f"Error processing signal {i}: {e}")
-                    raise
-
-            # Get channel labels
+            # signals count ok
+            # Determine labels, used for filtering
+            available_labels = []
             if hasattr(edf_file, "labels") and edf_file.labels:
-                channel_labels = edf_file.labels
-                logger.info(f"Using edf_file.labels: {channel_labels}")
-            elif hasattr(edf_file, "signal_labels"):
-                channel_labels = edf_file.signal_labels
-                logger.info(f"Using edf_file.signal_labels: {channel_labels}")
+                available_labels = list(edf_file.labels)
+            elif hasattr(edf_file, "signal_labels") and edf_file.signal_labels:
+                available_labels = list(edf_file.signal_labels)
+
+            # Build label -> index map
+            label_to_index = {lbl: idx for idx, lbl in enumerate(available_labels)}
+
+            # Extract signal data in requested order when filtering
+            if requested_channels:
+                ordered_labels = [
+                    lbl for lbl in available_labels if lbl in requested_channels
+                ]
+                for lbl in ordered_labels:
+                    i = label_to_index.get(lbl)
+                    if i is None:
+                        continue
+                    try:
+                        signal = edf_file.signals[i]
+                        if hasattr(signal, "data") and signal.data is not None:
+                            signal_data = (
+                                signal.data.tolist()
+                                if hasattr(signal.data, "tolist")
+                                else list(signal.data)
+                            )
+                            data.append(signal_data)
+                            # per-signal size ok
+                        else:
+                            pass
+                    except Exception as e:
+                        logger.error(f"Error processing signal '{lbl}' (idx {i}): {e}")
+                        raise
+                channel_labels = ordered_labels
             else:
-                logger.warning("No channel labels found")
+                for i, signal in enumerate(edf_file.signals):
+                    try:
+                        if hasattr(signal, "data") and signal.data is not None:
+                            signal_data = (
+                                signal.data.tolist()
+                                if hasattr(signal.data, "tolist")
+                                else list(signal.data)
+                            )
+                            data.append(signal_data)
+                            # size ok
+                        else:
+                            pass
+                    except Exception as e:
+                        logger.error(f"Error processing signal {i}: {e}")
+                        raise
+                channel_labels = available_labels
+
+            # Debug: log first/last values of first returned channel to verify chunking
+            # debug verify removed
         else:
             logger.warning("EDF file has no signals or is None")
 
@@ -284,9 +318,7 @@ async def get_edf_data(
             "total_samples": convert_numpy_types(total_samples),
         }
 
-        logger.info(
-            f"Returning response with {len(data)} channels, {len(channel_labels)} labels"
-        )
+        # returning response
         return response_data
 
     except HTTPException:
@@ -302,7 +334,7 @@ async def warmup_cache(file_path: str, _: User = Depends(get_current_user)):
     """Warm up cache for a specific file by preloading metadata."""
 
     try:
-        full_path = Path(settings.data_dir) / file_path
+        full_path = Path(storage_settings.data_dir) / file_path
         if not full_path.exists():
             raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
 

@@ -1,7 +1,7 @@
 import type { Layout } from "react-grid-layout";
 import { IDashboardWidget, ILayoutPersistence } from "../types/dashboard";
 import logger from "../lib/utils/logger";
-import { apiRequest } from "../lib/utils/request";
+import { get, post, _delete } from "../lib/utils/request";
 import {
   dashboardStorage,
   widgetLayoutStorage,
@@ -14,17 +14,11 @@ interface SerializableWidgetData {
   type: string;
   metadata?: Record<string, any>;
   constraints?: any;
-  // Add layout information to widget data for better restoration
-  layoutInfo?: {
-    w: number;
-    h: number;
-    x: number;
-    y: number;
-    minW?: number;
-    maxW?: number;
-    minH?: number;
-    maxH?: number;
-  };
+  position: { x: number; y: number };
+  size: { width: number; height: number };
+  minSize?: { width?: number; height?: number };
+  maxSize?: { width?: number; height?: number };
+  isPopOut?: boolean;
 }
 
 // Layout Persistence Service (Single Responsibility Principle)
@@ -94,19 +88,26 @@ export class LayoutPersistenceService implements ILayoutPersistence {
             type: widget.type,
             metadata: widget.metadata,
             constraints: widget.constraints,
-            // Embed layout information for this widget to ensure size restoration
-            layoutInfo: layoutItem
-              ? {
-                  w: layoutItem.w,
-                  h: layoutItem.h,
-                  x: layoutItem.x,
-                  y: layoutItem.y,
-                  minW: layoutItem.minW,
-                  maxW: layoutItem.maxW,
-                  minH: layoutItem.minH,
-                  maxH: layoutItem.maxH,
-                }
-              : undefined,
+            position: { x: layoutItem?.x || 0, y: layoutItem?.y || 0 },
+            size: {
+              width: layoutItem?.w || 0,
+              height: layoutItem?.h || 0,
+            },
+            minSize:
+              layoutItem?.minW || layoutItem?.minH
+                ? {
+                    width: layoutItem?.minW,
+                    height: layoutItem?.minH,
+                  }
+                : undefined,
+            maxSize:
+              layoutItem?.maxW || layoutItem?.maxH
+                ? {
+                    width: layoutItem?.maxW,
+                    height: layoutItem?.maxH,
+                  }
+                : undefined,
+            isPopOut: widget.isPopOut || false,
           };
         }
       );
@@ -132,29 +133,25 @@ export class LayoutPersistenceService implements ILayoutPersistence {
         version: payload.version,
       });
 
-      const response = await apiRequest({
-        url: "/api/modern-widget-layouts",
-        method: "POST",
-        token: this.accessToken,
-        contentType: "application/json",
-        body: payload,
-        responseType: "response",
-      });
-
-      if (!response.ok) {
-        const errorData = await response
-          .json()
-          .catch(() => ({ message: response.statusText }));
-        throw new Error(
-          `Failed to save layout: ${errorData.message || response.statusText}`
-        );
-      }
+      await post("/api/widget-layouts", payload, this.accessToken);
 
       logger.info(
         "Modern dashboard layout saved successfully with widget sizes"
       );
     } catch (error) {
       logger.error("Error saving modern dashboard layout:", error);
+
+      // Fallback to local storage if API fails
+      logger.warn("Falling back to local storage due to API error");
+      try {
+        dashboardStorage.setItem("layouts", layout);
+        widgetLayoutStorage.setItem("widgets", widgets);
+        logger.info("Successfully saved to local storage as fallback");
+      } catch (localError) {
+        logger.error("Failed to save to local storage fallback:", localError);
+        throw error; // Throw original error
+      }
+
       throw error;
     }
   }
@@ -183,38 +180,28 @@ export class LayoutPersistenceService implements ILayoutPersistence {
     }
 
     try {
-      // Debug logging for authentication troubleshooting
-      logger.info("Loading modern dashboard layout:", {
-        hasToken: !!this.accessToken,
-        tokenLength: this.accessToken?.length,
-        tokenPrefix: this.accessToken?.substring(0, 10) + "...",
+      // First try to load from server
+      const response = await fetch(`/api/widget-layouts`, {
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+        },
       });
 
-      const response = await apiRequest({
-        url: "/api/modern-widget-layouts",
-        method: "GET",
-        token: this.accessToken,
-        responseType: "response",
-      });
-
-      logger.info("API response status:", response.status);
+      logger.info(
+        `[LayoutPersistenceService] Raw API response. Status: ${response.status}, OK: ${response.ok}, StatusText: ${response.statusText}`
+      );
 
       if (!response.ok) {
-        if (response.status === 404) {
-          logger.info("No saved modern layout found");
-          return null;
-        }
-
-        // Try to get more details about the error
+        // Attempt to parse error details if response is not ok
         let errorDetails = response.statusText;
         try {
           const errorData = await response.json();
           errorDetails = JSON.stringify(errorData);
-        } catch {
-          // Ignore JSON parsing errors
+        } catch (jsonError) {
+          logger.warn(`Failed to parse error JSON: ${jsonError}`);
         }
 
-        logger.error("API request failed:", {
+        logger.error("API request failed during layout load:", {
           status: response.status,
           statusText: response.statusText,
           errorDetails,
@@ -226,7 +213,9 @@ export class LayoutPersistenceService implements ILayoutPersistence {
           return null;
         }
 
-        throw new Error(`Failed to load layout: ${response.statusText}`);
+        throw new Error(
+          `Failed to load layout: ${errorDetails || "Unknown error"}`
+        );
       }
 
       const data = await response.json();
@@ -299,16 +288,7 @@ export class LayoutPersistenceService implements ILayoutPersistence {
     }
 
     try {
-      const response = await apiRequest({
-        url: "/api/modern-widget-layouts",
-        method: "DELETE",
-        token: this.accessToken,
-        responseType: "response",
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to clear layout: ${response.statusText}`);
-      }
+      await _delete("/api/widget-layouts", this.accessToken);
 
       logger.info("Modern dashboard layout cleared successfully");
     } catch (error) {
@@ -336,11 +316,14 @@ export class LayoutPersistenceService implements ILayoutPersistence {
     }
 
     try {
-      const response = await apiRequest({
-        url: "/api/modern-widget-layouts",
+      // The `get` function currently returns the response body directly,
+      // so we need a different approach for a HEAD request.
+      // For now, we'll mimic the old `apiRequest` behavior by performing a GET and checking status.
+      const response = await fetch(`/api/widget-layouts`, {
         method: "HEAD",
-        token: this.accessToken,
-        responseType: "response",
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+        },
       });
 
       return response.ok;

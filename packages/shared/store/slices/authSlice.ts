@@ -1,10 +1,11 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 
 export interface AuthState {
   user: {
     id: string;
     email: string;
     name: string;
+    accessToken?: string;
   } | null;
   isAuthenticated: boolean;
   loading: boolean;
@@ -19,14 +20,17 @@ const initialState: AuthState = {
 };
 
 const authSlice = createSlice({
-  name: 'auth',
+  name: "auth",
   initialState,
   reducers: {
     loginStart: (state) => {
       state.loading = true;
       state.error = null;
     },
-    loginSuccess: (state, action: PayloadAction<{ user: AuthState['user'] }>) => {
+    loginSuccess: (
+      state,
+      action: PayloadAction<{ user: AuthState["user"] }>
+    ) => {
       state.user = action.payload.user;
       state.isAuthenticated = true;
       state.loading = false;
@@ -42,12 +46,35 @@ const authSlice = createSlice({
       state.loading = false;
       state.error = null;
     },
-    setUser: (state, action: PayloadAction<{ user: AuthState['user'] }>) => {
+    setUser: (state, action: PayloadAction<{ user: AuthState["user"] }>) => {
       state.user = action.payload.user;
       state.isAuthenticated = !!action.payload.user;
+    },
+    // Sync reducer for popout window synchronization
+    syncFromRemote: (state, action: PayloadAction<AuthState>) => {
+      const incomingState = action.payload;
+
+      // Validate incoming auth state
+      if (
+        !incomingState ||
+        typeof incomingState.isAuthenticated !== "boolean"
+      ) {
+        console.warn("[AuthSync] Invalid auth state received, ignoring sync");
+        return;
+      }
+
+      // For auth, we want to sync everything except loading states
+      state.user = incomingState.user;
+      state.isAuthenticated = incomingState.isAuthenticated;
+      state.error = incomingState.error;
+      // Keep local loading state
+      // state.loading = state.loading;
+
+      console.debug("[AuthSync] Updated auth state from remote");
     },
   },
 });
 
-export const { loginStart, loginSuccess, loginFailure, logout, setUser } = authSlice.actions;
+export const { loginStart, loginSuccess, loginFailure, logout, setUser } =
+  authSlice.actions;
 export default authSlice.reducer;

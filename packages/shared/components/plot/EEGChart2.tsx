@@ -4,6 +4,7 @@ import React, {
 	useRef,
 	useCallback,
 	useEffect,
+	useState,
 } from "react";
 import { EEGData } from "../../types/EEGData";
 import { Annotation } from "../../types/annotation";
@@ -62,10 +63,43 @@ export function EEGChart2({
 }: EEGChartProps) {
 	// Refs
 	const chartRef = useRef<HTMLDivElement>(null);
+	const containerRef = useRef<HTMLDivElement>(null);
 	const uplotInstance = useRef<uPlot | null>(null);
+	const resizeObserver = useRef<ResizeObserver | null>(null);
+
+	// State for container dimensions
+	const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+
+	// Calculate container dimensions
+	const updateContainerSize = useCallback(() => {
+		if (containerRef.current) {
+			const rect = containerRef.current.getBoundingClientRect();
+			setContainerSize({
+				width: rect.width,
+				height: rect.height,
+			});
+		}
+	}, []);
+
+	// Set up resize observer
+	useEffect(() => {
+		if (containerRef.current) {
+			resizeObserver.current = new ResizeObserver(() => {
+				updateContainerSize();
+			});
+			resizeObserver.current.observe(containerRef.current);
+			updateContainerSize();
+
+			return () => {
+				if (resizeObserver.current) {
+					resizeObserver.current.disconnect();
+				}
+			};
+		}
+	}, [updateContainerSize]);
 
 	const generatePlot = useCallback(() => {
-		if (!eegData || !eegData.data) {
+		if (!eegData || !eegData.data || containerSize.width === 0 || containerSize.height === 0) {
 			if (uplotInstance.current) {
 				uplotInstance.current.destroy();
 				uplotInstance.current = null;
@@ -93,8 +127,8 @@ export function EEGChart2({
 		const yValueToLabel = new Map(ySplits.map((split, i) => [split, plotChannels[i]]));
 
 		const opts = {
-			width: 1000,
-			height: 1000,
+			width: containerSize.width,
+			height: containerSize.height,
 			padding: [15, 0, 0, 0], // uPlot will calculate padding based on axis size
 			scales: {
 				x: { time: false },
@@ -144,7 +178,7 @@ export function EEGChart2({
 		if (chartRef.current) {
 			uplotInstance.current = new uPlot(opts as any, plotData as any, chartRef.current);
 		}
-	}, [eegData, selectedChannels]);
+	}, [eegData, selectedChannels, containerSize]);
 
 	const handleChartClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
 		onChartClick?.(event);
@@ -172,6 +206,9 @@ export function EEGChart2({
 			if (uplotInstance.current) {
 				uplotInstance.current.destroy();
 			}
+			if (resizeObserver.current) {
+				resizeObserver.current.disconnect();
+			}
 		};
 	}, []);
 
@@ -179,11 +216,15 @@ export function EEGChart2({
 	const { numSelectedChannels, totalSelectedPoints, totalPoints, samplingRate, duration } = calculateDisplayInfo();
 
 	return (
-		<div className="chart-container h-full w-full">
-			<div className="plot-info">
+		<div
+			ref={containerRef}
+			className={`chart-container h-full w-full overflow-hidden ${className || ''}`}
+			style={{ height }}
+		>
+			<div className="plot-info p-2 text-xs text-muted-foreground bg-muted/20 rounded-t">
 				Plotting {numSelectedChannels.toLocaleString()} channels with {(samplingRate * duration).toLocaleString()} points each. <strong>Total points shown: {totalSelectedPoints.toLocaleString()} / {totalPoints.toLocaleString()}</strong>. Double-click to reset view.
 			</div>
-			<div ref={chartRef} />
+			<div ref={chartRef} className="w-full h-full" />
 		</div>
 	);
 }

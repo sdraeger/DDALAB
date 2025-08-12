@@ -1,15 +1,13 @@
 """FastAPI middleware."""
 
 from core.auth import is_user_logged_in
-from core.config import get_server_settings
 from core.database import async_session_maker
+from core.environment import get_config_service
 from fastapi import Request, Response
 from minio import Minio
 from prometheus_client import Counter, Histogram
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.types import ASGIApp
-
-settings = get_server_settings()
 
 # Prometheus metrics
 REQUEST_COUNT = Counter(
@@ -57,10 +55,11 @@ class MinIOMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         """Inject MinIO client into request state."""
+        storage_settings = get_config_service().get_storage_settings()
         request.state.minio_client = Minio(
-            settings.minio_host,
-            access_key=settings.minio_access_key,
-            secret_key=settings.minio_secret_key,
+            storage_settings.minio_host,
+            access_key=storage_settings.minio_access_key,
+            secret_key=storage_settings.minio_secret_key,
             secure=False,
         )
         return await call_next(request)
@@ -76,12 +75,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         """Handle authentication."""
+        auth_settings = get_config_service().get_auth_settings()
         # Skip auth for certain paths
         if _should_skip_auth(request.url.path):
             return await call_next(request)
 
         # Handle local mode - inject default user
-        if settings.auth_mode == "local":
+        if auth_settings.auth_mode == "local":
             # Import here to avoid circular imports
             from core.services.local_user_service import LocalUserService
             from loguru import logger
@@ -103,7 +103,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Store token in request state
         request.state.token = token
-        request.state.auth_mode = settings.auth_mode
+        request.state.auth_mode = auth_settings.auth_mode
 
         # Check if user is logged in
         if not is_user_logged_in(request):

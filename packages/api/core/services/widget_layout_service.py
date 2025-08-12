@@ -22,29 +22,45 @@ class WidgetLayoutService(BaseService):
     def from_db(cls, db: AsyncSession) -> "WidgetLayoutService":
         return cls(db)
 
-    async def get_user_layouts(self, user_id: int) -> List[dict]:
-        """Get layouts for a user."""
-        layouts = await self.repo.get_by_user_id(user_id)
-        if not layouts:
-            return []
+    async def get_user_layouts(self, user_id: int) -> dict:
+        """Get layouts for a user.
 
-        # Handle case where multiple layouts are returned
-        if isinstance(layouts, list):
-            # Get the most recent layout
-            layout = layouts[0] if layouts else None
-            if not layout:
-                return []
-            return layout.layout_data if isinstance(layout.layout_data, list) else []
+        Returns a dict with 'widgets' and 'layout' keys.
+        Handles both new format (dict) and legacy format (list of widgets).
+        """
+        layout_row = await self.repo.get_by_user_id(user_id)
+        if layout_row is None:
+            return {"widgets": [], "layout": []}
 
-        # Handle case where a single layout is returned
-        return layouts.layout_data if isinstance(layouts.layout_data, list) else []
+        data = layout_row.layout_data
+        # New format: persisted as a dict with expected keys
+        if isinstance(data, dict):
+            widgets = data.get("widgets", [])
+            layout = data.get("layout", [])
+            # Guard against legacy corruptions where widgets might not be a list
+            if not isinstance(widgets, list):
+                widgets = []
+            if not isinstance(layout, list):
+                layout = []
+            return {"widgets": widgets, "layout": layout}
 
-    async def save_user_layouts(self, user_id: int, layouts: List[dict]) -> UserLayout:
-        """Save or update layouts for a user."""
-        if not layouts:
-            raise ValueError("Layouts list cannot be empty")
+        # Legacy format: stored as a list of widgets directly
+        if isinstance(data, list):
+            return {"widgets": data, "layout": []}
 
-        return await self.repo.create_or_update_layout(user_id, layouts)
+        # Unexpected type: be defensive
+        return {"widgets": [], "layout": []}
+
+    async def save_user_layouts(
+        self, user_id: int, widgets: List[dict], layout: List[dict]
+    ) -> UserLayout:
+        """Save or update layouts and widgets for a user."""
+        if not widgets and not layout:
+            raise ValueError("Widgets and layout cannot both be empty")
+
+        # Store both widgets and layout as a single JSON object
+        data_to_save = {"widgets": widgets, "layout": layout}
+        return await self.repo.create_or_update_layout(user_id, data_to_save)
 
     async def delete_user_layouts(self, user_id: int) -> Optional[UserLayout]:
         """Delete layouts for a user."""

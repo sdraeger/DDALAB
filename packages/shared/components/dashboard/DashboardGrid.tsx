@@ -158,7 +158,7 @@ class DragHandler {
 	constructor(
 		private onUpdate: (id: string, position: { x: number; y: number }) => void,
 		private onGuidesUpdate: (guides: { x?: number; y?: number }) => void
-	) {}
+	) { }
 
 	processDrag(
 		dragState: DragState,
@@ -180,10 +180,15 @@ class DragHandler {
 			const draggedWidget = widgets.find(w => w.id === dragState.widgetId);
 			if (!draggedWidget) return;
 
-			// Keep within bounds
-			newX = Math.max(0, Math.min(newX, containerBounds.width - draggedWidget.size.width));
-			newY = Math.max(0, Math.min(newY, containerBounds.height - draggedWidget.size.height));
+			// Boundary constraints - prevent widgets from going outside container
+			const minX = 0;
+			const minY = 0;
+			const maxX = containerBounds.width - draggedWidget.size.width;
+			const maxY = containerBounds.height - draggedWidget.size.height;
 
+			// Clamp position to container bounds
+			newX = Math.max(minX, Math.min(maxX, newX));
+			newY = Math.max(minY, Math.min(maxY, newY));
 
 			const otherWidgets = widgets
 				.filter(w => w.id !== dragState.widgetId && !w.isPopOut)
@@ -204,9 +209,15 @@ class DragHandler {
 			// Find alignment guides and snap positions
 			const guides = SnapGuide.findAlignmentGuides(draggedRect, otherWidgets);
 
-			// Apply snapping
-			if (guides.snapX !== undefined) newX = guides.snapX;
-			if (guides.snapY !== undefined) newY = guides.snapY;
+			// Apply snapping with boundary re-clamping
+			if (guides.snapX !== undefined) {
+				newX = guides.snapX;
+				newX = Math.max(minX, Math.min(maxX, newX)); // Re-clamp after snapping
+			}
+			if (guides.snapY !== undefined) {
+				newY = guides.snapY;
+				newY = Math.max(minY, Math.min(maxY, newY)); // Re-clamp after snapping
+			}
 
 			// Update guides display
 			this.onGuidesUpdate({ x: guides.x, y: guides.y });
@@ -467,21 +478,29 @@ export function DashboardGrid({
 				let newWidth = resizeStart.width + deltaX;
 				let newHeight = resizeStart.height + deltaY;
 
-				// Apply size constraints
-				newWidth = Math.max(
-					widget.minSize?.width || 200,
-					Math.min(
-						widget.maxSize?.width || containerRect.width - widget.position.x,
-						newWidth
-					)
+				// Enhanced boundary constraints for resize
+				const minWidth = widget.minSize?.width || 200;
+				const minHeight = widget.minSize?.height || 150;
+				const maxWidth = Math.min(
+					widget.maxSize?.width || containerRect.width,
+					containerRect.width - widget.position.x
 				);
-				newHeight = Math.max(
-					widget.minSize?.height || 150,
-					Math.min(
-						widget.maxSize?.height || containerRect.height - widget.position.y,
-						newHeight
-					)
+				const maxHeight = Math.min(
+					widget.maxSize?.height || containerRect.height,
+					containerRect.height - widget.position.y
 				);
+
+				// Clamp size to container bounds
+				newWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+				newHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
+
+				// Ensure widget doesn't extend beyond container boundaries
+				if (widget.position.x + newWidth > containerRect.width) {
+					newWidth = containerRect.width - widget.position.x;
+				}
+				if (widget.position.y + newHeight > containerRect.height) {
+					newHeight = containerRect.height - widget.position.y;
+				}
 
 				// Update resize preview
 				setResizePreview({
@@ -694,7 +713,7 @@ export function DashboardGrid({
 	return (
 		<div
 			ref={containerRef}
-			className={cn("relative w-full h-full bg-muted/5 min-w-full", className)}
+			className={cn("relative w-full h-full bg-muted/5 min-w-full overflow-hidden", className)}
 		>
 			{/* Alignment Guides - Subtle and helpful */}
 			{alignmentGuides.x !== undefined && (
@@ -740,13 +759,13 @@ export function DashboardGrid({
 					className={cn(
 						"absolute bg-background border border-border rounded-lg shadow-md overflow-hidden",
 						// Only apply transitions when not dragging for better performance
-					dragState?.widgetId !== widget.id && "transition-all duration-150 hover:shadow-lg",
+						dragState?.widgetId !== widget.id && "transition-all duration-150 hover:shadow-lg",
 						dragState?.widgetId === widget.id && "shadow-2xl ring-2 ring-blue-500/50 scale-[1.01] rotate-[0.5deg]",
 						resizing === widget.id && "shadow-xl ring-2 ring-blue-500/40"
 					)}
 					style={{
 						// Use drag preview position if this widget is being dragged
-					left: dragPreview?.widgetId === widget.id ? dragPreview.x : widget.position.x,
+						left: dragPreview?.widgetId === widget.id ? dragPreview.x : widget.position.x,
 						top: dragPreview?.widgetId === widget.id ? dragPreview.y : widget.position.y,
 						width: widget.size.width,
 						height: widget.size.height,

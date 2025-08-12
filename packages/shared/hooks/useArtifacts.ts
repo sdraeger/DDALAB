@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useAppDispatch, useAppSelector } from "../store";
-import { apiRequest } from "../lib/utils/request";
+import { get, post, _delete, patch } from "../lib/utils/request";
 import {
   setArtifacts,
   updateArtifact,
@@ -24,12 +24,7 @@ export const useArtifacts = () => {
     async (token: string) => {
       dispatch(setLoading(true));
       try {
-        const response = await apiRequest<Artifact[]>({
-          url: "/api/artifacts",
-          method: "GET",
-          token,
-          responseType: "json",
-        });
+        const response = await get<Artifact[]>("/api/artifacts", token);
         dispatch(setArtifacts(response));
       } catch (err) {
         const errorMessage =
@@ -48,13 +43,11 @@ export const useArtifacts = () => {
   const shareArtifact = useCallback(
     async (token: string, artifactId: string, userIds: number[]) => {
       try {
-        await apiRequest({
-          url: "/api/artifacts/share",
-          method: "POST",
-          token,
-          body: { artifact_id: artifactId, share_with_user_ids: userIds },
-          responseType: "json",
-        });
+        await post(
+          "/api/artifacts/share",
+          { artifact_id: artifactId, share_with_user_ids: userIds },
+          token
+        );
         toast({
           title: "Success",
           description: "Artifact shared successfully",
@@ -76,12 +69,7 @@ export const useArtifacts = () => {
   const deleteArtifact = useCallback(
     async (token: string, artifactId: string) => {
       try {
-        await apiRequest({
-          url: `/api/artifacts/${artifactId}`,
-          method: "DELETE",
-          token,
-          responseType: "json",
-        });
+        await _delete(`/api/artifacts/${artifactId}`, token);
         dispatch(removeArtifact(artifactId));
         toast({
           title: "Success",
@@ -104,13 +92,11 @@ export const useArtifacts = () => {
   const renameArtifact = useCallback(
     async (token: string, artifactId: string, newName: string) => {
       try {
-        const response = await apiRequest<Artifact>({
-          url: `/api/artifacts/${artifactId}/rename`,
-          method: "PATCH",
-          token,
-          body: { name: newName },
-          responseType: "json",
-        });
+        const response = await patch<Artifact>(
+          `/api/artifacts/${artifactId}/rename`,
+          { name: newName },
+          token
+        );
         dispatch(updateArtifact(response));
         toast({
           title: "Success",
