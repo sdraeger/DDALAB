@@ -89,3 +89,13 @@ global.console = {
   warn: jest.fn(),
   error: jest.fn(),
 };
+
+// Add setImmediate polyfill for Node.js compatibility
+if (typeof setImmediate === "undefined") {
+  global.setImmediate = (callback, ...args) => {
+    return setTimeout(callback, 0, ...args);
+  };
+  global.clearImmediate = (id) => {
+    clearTimeout(id);
+  };
+}

@@ -6,7 +6,7 @@ from typing import List, Optional
 
 import strawberry
 from core.auth import get_current_user_from_request
-from core.config import get_server_settings
+from core.environment import get_config_service
 from core.edf import get_edf_navigator, read_edf_chunk_cached
 from core.edf.edf_cache import clear_global_cache, get_cache_manager
 from core.files import list_directory, validate_file_path
@@ -29,7 +29,7 @@ from .types import (
     UserType,
 )
 
-settings = get_server_settings()
+storage_settings = get_config_service().get_storage_settings()
 
 
 @strawberry.type
@@ -160,7 +160,7 @@ class Query:
                 chunkSize = 51_200
 
             # Construct full path first
-            full_path = os.path.join(settings.data_dir, filename)
+            full_path = os.path.join(storage_settings.data_dir, filename)
 
             # Validate the full path
             if not await validate_file_path(full_path):
@@ -271,7 +271,7 @@ class Query:
                 chunkSize = 51_200
 
             # Construct full path first
-            full_path = os.path.join(settings.data_dir, filename)
+            full_path = os.path.join(storage_settings.data_dir, filename)
 
             # Validate the full path
             if not await validate_file_path(full_path):
@@ -419,7 +419,7 @@ class Query:
         try:
             if file_path:
                 # Clear cache for specific file
-                full_path = os.path.join(settings.data_dir, file_path)
+                full_path = os.path.join(storage_settings.data_dir, file_path)
                 cache_manager = get_cache_manager()
                 cache_manager.clear_file_cache(full_path)
                 return f"Cleared cache for file: {file_path}"
@@ -506,7 +506,7 @@ class Query:
 
         try:
             # Construct full path first (similar to get_edf_data)
-            full_path = os.path.join(settings.data_dir, filename)
+            full_path = os.path.join(storage_settings.data_dir, filename)
 
             # Validate the full path
             if not await validate_file_path(full_path):
@@ -549,11 +549,11 @@ class Query:
 
             # Get MinIO client from the GraphQL context
             minio_client = info.context.minio_client
-            settings = get_server_settings()
+            # settings = get_settings()
 
             # Clean the path by removing any bucket prefix and extra slashes
             clean_path = artifact_path.strip("/")  # Remove leading/trailing slashes
-            bucket_name = settings.minio_bucket_name
+            bucket_name = storage_settings.minio_bucket_name
 
             # Remove any instances of the bucket name from the path
             while f"{bucket_name}/" in clean_path:

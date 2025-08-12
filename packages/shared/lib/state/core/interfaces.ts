@@ -8,7 +8,14 @@
 /**
  * Represents a serializable state value
  */
-export type StateValue = string | number | boolean | null | undefined | StateValue[] | { [key: string]: StateValue };
+export type StateValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | StateValue[]
+  | { [key: string]: StateValue };
 
 /**
  * State change event data
@@ -75,14 +82,14 @@ export interface StateSliceConfig<T = StateValue> {
 export interface StateSlice<T = StateValue> {
   readonly key: string;
   readonly config: StateSliceConfig<T>;
-  
+
   getValue(): T;
   setValue(value: T): Promise<void>;
   reset(): Promise<void>;
-  
+
   subscribe(listener: StateListener<T>): () => void;
   unsubscribe(listener: StateListener<T>): void;
-  
+
   // For debugging
   getHistory(): StateChangeEvent<T>[];
   clearHistory(): void;
@@ -93,19 +100,23 @@ export interface StateSlice<T = StateValue> {
  */
 export interface StateStore {
   // Slice management
-  registerSlice<T = StateValue>(config: StateSliceConfig<T>): StateSlice<T>;
+  registerSlice<T extends StateValue = StateValue>(
+    config: StateSliceConfig<T>
+  ): StateSlice<T>;
   unregisterSlice(key: string): void;
-  getSlice<T = StateValue>(key: string): StateSlice<T> | undefined;
+  getSlice<T extends StateValue = StateValue>(
+    key: string
+  ): StateSlice<T> | undefined;
   getAllSlices(): StateSlice[];
-  
+
   // Global operations
   hydrate(): Promise<void>;
   dehydrate(): Promise<void>;
   reset(): Promise<void>;
-  
+
   // Event system
   onStateChange(listener: StateListener): () => void;
-  
+
   // Debugging
   getDebugInfo(): {
     slices: string[];
@@ -150,7 +161,9 @@ export interface ComputedState<T = StateValue> {
  * State middleware interface - intercepts state changes
  */
 export interface StateMiddleware {
-  beforeChange<T>(event: Omit<StateChangeEvent<T>, 'timestamp'>): Promise<boolean>;
+  beforeChange<T>(
+    event: Omit<StateChangeEvent<T>, "timestamp">
+  ): Promise<boolean>;
   afterChange<T>(event: StateChangeEvent<T>): Promise<void>;
 }
 

@@ -130,7 +130,7 @@ export class SystemTrayService {
 
     if (isDockerRunning) {
       // Stop services
-      const success = await DockerService.stopDockerCompose(state);
+      const success = await DockerService.stopMonolithicDocker(state, false);
       if (success) {
         this.mainWindow.webContents.send("docker-status-update", {
           type: "success",
@@ -139,7 +139,7 @@ export class SystemTrayService {
       }
     } else {
       // Start services
-      const success = await DockerService.startDockerCompose(state);
+      const success = await DockerService.startMonolithicDocker(state);
       if (success) {
         this.mainWindow.webContents.send("docker-status-update", {
           type: "success",

@@ -16,7 +16,11 @@
 		"region": "us-east-1",
 		"channel": "beta",
 		"path": "beta",
-		"acl": null
+		"acl": null,
+		"storageClass": "STANDARD",
+		"requestHeaders": {
+			"Cache-Control": "max-age=86400"
+		}
 	},
 	"mac": {
 		"target": [
@@ -30,11 +34,12 @@
 		],
 		"category": "public.app-category.developer-tools",
 		"artifactName": "DDALAB-ConfigManager-Beta-${version}-${arch}.${ext}",
-		"identity": null,
+		"identity": false,
 		"hardenedRuntime": false,
 		"gatekeeperAssess": false,
-		"entitlements": null,
-		"entitlementsInherit": null
+		"entitlements": "entitlements.dev.plist",
+		"entitlementsInherit": "entitlements.dev.plist",
+		"type": "development"
 	},
 	"win": {
 		"target": [
@@ -46,7 +51,6 @@
 				]
 			}
 		],
-		"icon": "build/icon.ico",
 		"artifactName": "DDALAB-ConfigManager-Beta-${version}-${arch}.${ext}",
 		"certificateFile": null,
 		"certificatePassword": null,
@@ -84,7 +88,6 @@
 				]
 			}
 		],
-		"icon": "build/icon.png",
 		"artifactName": "DDALAB-ConfigManager-Beta-${version}-${arch}.${ext}",
 		"category": "Development",
 		"maintainer": "DDALAB Team",
@@ -96,14 +99,7 @@
 		"oneClick": false,
 		"allowToChangeInstallationDirectory": true,
 		"createDesktopShortcut": true,
-		"createStartMenuShortcut": true,
-		"installerIcon": "build/icon.ico",
-		"uninstallerIcon": "build/icon.ico",
-		"installerHeaderIcon": "build/icon.ico"
-	},
-	"dmg": {
-		"title": "DDALAB ConfigManager (Beta)",
-		"icon": "build/icon.icns"
+		"createStartMenuShortcut": true
 	},
 	"appImage": {
 		"category": "Development"

@@ -116,7 +116,17 @@ proxy.on(
 // --- Create the Main HTTP Server ---
 const server = http.createServer(
   (req: IncomingMessage, res: ServerResponse) => {
-    const target = req.url?.startsWith("/graphql") ? apiUrl : nextTarget;
+    const isBackend =
+      req.url?.startsWith("/backend/") || req.url === "/backend";
+    const isGraphql = req.url?.startsWith("/graphql");
+    let target: string = nextTarget;
+    if (isBackend || isGraphql) {
+      // Normalize /backend prefix to root for the Python API
+      if (isBackend && req.url) {
+        req.url = req.url.replace(/^\/backend\//, "/");
+      }
+      target = apiUrl;
+    }
     const options: ServerOptions = { target };
 
     // Add changeOrigin specifically for the API if needed
@@ -147,8 +157,10 @@ const server = http.createServer(
 
 // --- Handle WebSocket Upgrades ---
 server.on("upgrade", (req, socket, head) => {
-  // Only proxy WebSocket connections intended for Next.js HMR (usually not /graphql)
-  if (!req.url?.startsWith("/graphql")) {
+  // Only proxy WebSocket connections intended for Next.js HMR (usually not API)
+  const isBackend = req.url?.startsWith("/backend/") || req.url === "/backend";
+  const isGraphql = req.url?.startsWith("/graphql");
+  if (!isBackend && !isGraphql) {
     logger.debug(
       `Proxying WebSocket upgrade request ${req.url} to ${nextTarget}`
     );

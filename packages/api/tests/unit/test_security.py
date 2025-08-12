@@ -209,7 +209,7 @@ class TestRefreshTokens:
                 algorithm=algorithm,
             )
 
-        with patch("core.security.get_server_settings") as mock_settings:
+        with patch("core.security.get_settings") as mock_settings:
             mock_settings.return_value.jwt_secret_key = secret_key
             mock_settings.return_value.jwt_algorithm = algorithm
 
@@ -220,7 +220,7 @@ class TestRefreshTokens:
         """Test verification of invalid refresh token."""
         invalid_token = "invalid.token.here"
 
-        with patch("core.security.get_server_settings") as mock_settings:
+        with patch("core.security.get_settings") as mock_settings:
             mock_settings.return_value.jwt_secret_key = "test_secret_key"
             mock_settings.return_value.jwt_algorithm = "HS256"
 

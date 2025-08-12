@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, ReactNode } from "react";
-import { apiRequest } from "../lib/utils/request";
+import { get, put } from "../lib/utils/request";
 import { UserPreferences } from "../types/auth";
 import { useAuthMode } from "./AuthModeContext";
 import { useUnifiedSessionData } from "../hooks/useUnifiedSession";
@@ -65,13 +65,9 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     }
 
     try {
-      const res = await apiRequest<UserPreferences>({
-        url: `/api/user-preferences`,
-        method: "GET",
-        token: session.accessToken,
-        contentType: "application/json",
-        responseType: "json",
-      });
+      const res = await get<UserPreferences>(
+        `/api/user-preferences`,
+      );
       setUserPreferences(res);
       setPendingChanges({});
     } catch {
@@ -116,17 +112,13 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     if (!session?.accessToken) return false;
 
     try {
-      await apiRequest({
-        url: `/api/user-preferences`,
-        method: "PUT",
-        token: session.accessToken,
-        contentType: "application/json",
-        body: {
+      await put(
+        `/api/user-preferences`,
+        {
           theme: pendingChanges.theme,
           eeg_zoom_factor: pendingChanges.eegZoomFactor,
         },
-        responseType: "json",
-      });
+      );
       setUserPreferences((prev) => ({ ...prev, ...pendingChanges }));
       setPendingChanges({});
       return true;

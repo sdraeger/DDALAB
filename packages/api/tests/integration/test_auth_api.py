@@ -110,8 +110,7 @@ class TestAuthAPI:
             "/api/auth/refresh-token",
             json={"refresh_token": "invalid.token.here"},
         )
-
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert response.status_code == 401
 
     @pytest.mark.asyncio
     async def test_refresh_token_expired(self, async_client: AsyncClient, test_user):
@@ -133,7 +132,7 @@ class TestAuthAPI:
             json={"refresh_token": expired_token},
         )
 
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.status_code == 401
         assert "expired" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
@@ -162,7 +161,7 @@ class TestAuthAPI:
     @pytest.mark.asyncio
     async def test_login_inactive_user(self, async_client: AsyncClient, test_session):
         """Test login with inactive user."""
-        from core.database import User
+        from core.models import User
         from core.security import get_password_hash
 
         # Create an inactive user

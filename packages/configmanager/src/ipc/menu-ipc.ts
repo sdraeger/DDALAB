@@ -3,54 +3,71 @@ import { DockerService } from "../services/docker-service";
 import { logger } from "../utils/logger";
 import fs from "fs/promises";
 import path from "path";
+import { getMainWindow } from "../utils/main-window";
 
 export function registerMenuIpcHandlers(): void {
   // Handle menu actions from the menu service
-  ipcMain.handle("menu-export-configuration", async (event, exportPath: string) => {
-    try {
-      // Get current configuration state from the renderer
-      const currentState = await event.sender.executeJavaScript(`
+  ipcMain.handle(
+    "menu-export-configuration",
+    async (event, exportPath: string) => {
+      try {
+        // Get current configuration state from the renderer
+        const currentState = await event.sender.executeJavaScript(`
         window.electronAPI?.getConfigManagerState?.() || {}
       `);
 
-      const exportData = {
-        version: app.getVersion(),
-        timestamp: new Date().toISOString(),
-        configuration: currentState,
-        metadata: {
-          platform: process.platform,
-          nodeVersion: process.version,
-          electronVersion: process.versions.electron
-        }
-      };
+        const exportData = {
+          version: app.getVersion(),
+          timestamp: new Date().toISOString(),
+          configuration: currentState,
+          metadata: {
+            platform: process.platform,
+            nodeVersion: process.version,
+            electronVersion: process.versions.electron,
+          },
+        };
 
-      await fs.writeFile(exportPath, JSON.stringify(exportData, null, 2), 'utf8');
-      logger.info(`Configuration exported to: ${exportPath}`);
-      return { success: true, message: "Configuration exported successfully" };
-    } catch (error: any) {
-      logger.error("Error exporting configuration:", error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  ipcMain.handle("menu-import-configuration", async (event, importPath: string) => {
-    try {
-      const fileContent = await fs.readFile(importPath, 'utf8');
-      const importData = JSON.parse(fileContent);
-
-      if (!importData.configuration) {
-        throw new Error("Invalid configuration file format");
+        await fs.writeFile(
+          exportPath,
+          JSON.stringify(exportData, null, 2),
+          "utf8"
+        );
+        logger.info(`Configuration exported to: ${exportPath}`);
+        return {
+          success: true,
+          message: "Configuration exported successfully",
+        };
+      } catch (error: any) {
+        logger.error("Error exporting configuration:", error);
+        return { success: false, error: error.message };
       }
-
-      // Send the imported configuration to the renderer
-      event.sender.send('configuration-imported', importData.configuration);
-      logger.info(`Configuration imported from: ${importPath}`);
-      return { success: true, message: "Configuration imported successfully" };
-    } catch (error: any) {
-      logger.error("Error importing configuration:", error);
-      return { success: false, error: error.message };
     }
-  });
+  );
+
+  ipcMain.handle(
+    "menu-import-configuration",
+    async (event, importPath: string) => {
+      try {
+        const fileContent = await fs.readFile(importPath, "utf8");
+        const importData = JSON.parse(fileContent);
+
+        if (!importData.configuration) {
+          throw new Error("Invalid configuration file format");
+        }
+
+        // Send the imported configuration to the renderer
+        event.sender.send("configuration-imported", importData.configuration);
+        logger.info(`Configuration imported from: ${importPath}`);
+        return {
+          success: true,
+          message: "Configuration imported successfully",
+        };
+      } catch (error: any) {
+        logger.error("Error importing configuration:", error);
+        return { success: false, error: error.message };
+      }
+    }
+  );
 
   ipcMain.handle("menu-reset-all-settings", async (event) => {
     try {
@@ -65,7 +82,7 @@ export function registerMenuIpcHandlers(): void {
       }
 
       // Notify renderer to reset state
-      event.sender.send('settings-reset');
+      event.sender.send("settings-reset");
       logger.info("All settings reset successfully");
       return { success: true, message: "All settings reset successfully" };
     } catch (error: any) {
@@ -98,62 +115,59 @@ export function registerMenuIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle("menu-start-docker-services", async (event) => {
-    try {
-      const result = await DockerService.startDockerCompose();
-      if (result) {
-        event.sender.send('docker-status-update', {
-          type: 'success',
-          message: 'Docker services started successfully'
-        });
-      }
-      return { success: result, message: result ? "Services started" : "Failed to start services" };
-    } catch (error: any) {
-      logger.error("Error starting Docker services:", error);
-      return { success: false, error: error.message };
+  ipcMain.handle("menu-action", async (event, action: string) => {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) {
+      logger.warn(`Main window not available for menu action: ${action}`);
+      return;
     }
-  });
 
-  ipcMain.handle("menu-stop-docker-services", async (event) => {
-    try {
-      const result = await DockerService.stopDockerCompose(false);
-      if (result) {
-        event.sender.send('docker-status-update', {
-          type: 'info',
-          message: 'Docker services stopped successfully'
-        });
-      }
-      return { success: result, message: result ? "Services stopped" : "Failed to stop services" };
-    } catch (error: any) {
-      logger.error("Error stopping Docker services:", error);
-      return { success: false, error: error.message };
-    }
-  });
+    logger.info(`Menu action received: ${action}`);
 
-  ipcMain.handle("menu-restart-docker-services", async (event) => {
-    try {
-      // Stop first
-      const stopResult = await DockerService.stopDockerCompose(false);
-      if (!stopResult) {
-        throw new Error("Failed to stop services");
-      }
-
-      // Wait a moment
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Start again
-      const startResult = await DockerService.startDockerCompose();
-      if (startResult) {
-        event.sender.send('docker-status-update', {
-          type: 'success',
-          message: 'Docker services restarted successfully'
-        });
-      }
-
-      return { success: startResult, message: startResult ? "Services restarted" : "Failed to restart services" };
-    } catch (error: any) {
-      logger.error("Error restarting Docker services:", error);
-      return { success: false, error: error.message };
+    switch (action) {
+      case "start-ddalab":
+        const startResult = await DockerService.startMonolithicDocker();
+        if (startResult) {
+          logger.info("DDALAB services started from menu.");
+        } else {
+          logger.error("Failed to start DDALAB services from menu.");
+        }
+        break;
+      case "stop-ddalab":
+        const stopResult = await DockerService.stopMonolithicDocker(false);
+        if (stopResult) {
+          logger.info("DDALAB services stopped from menu.");
+        } else {
+          logger.error("Failed to stop DDALAB services from menu.");
+        }
+        break;
+      case "restart-ddalab":
+        const stopThenRestartResult =
+          await DockerService.stopMonolithicDocker(false);
+        if (stopThenRestartResult) {
+          setTimeout(async () => {
+            const restartResult = await DockerService.startMonolithicDocker();
+            if (restartResult) {
+              logger.info("DDALAB services restarted from menu.");
+            } else {
+              logger.error("Failed to restart DDALAB services from menu.");
+            }
+          }, 2000);
+        } else {
+          logger.error("Failed to stop DDALAB services for restart from menu.");
+        }
+        break;
+      case "reset-ddalab-volumes":
+        const resetResult = await DockerService.stopMonolithicDocker(true); // Delete volumes
+        if (resetResult) {
+          logger.info("DDALAB services stopped and volumes deleted from menu.");
+        } else {
+          logger.error("Failed to stop DDALAB and delete volumes from menu.");
+        }
+        break;
+      // Add other menu actions here
+      default:
+        logger.warn(`Unknown menu action: ${action}`);
     }
   });
 
@@ -162,35 +176,19 @@ export function registerMenuIpcHandlers(): void {
       const isRunning = await DockerService.getIsDockerRunning();
       const status = await DockerService.getDockerStatus();
 
-      event.sender.send('docker-status-update', {
-        type: 'info',
-        message: `Docker services are ${isRunning ? 'running' : 'stopped'}`
+      event.sender.send("docker-status-update", {
+        type: "info",
+        message: `Docker services are ${isRunning ? "running" : "stopped"}`,
       });
 
       return {
         success: true,
         running: isRunning,
         status: status,
-        message: `Services are ${isRunning ? 'running' : 'stopped'}`
+        message: `Services are ${isRunning ? "running" : "stopped"}`,
       };
     } catch (error: any) {
       logger.error("Error checking Docker status:", error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  ipcMain.handle("menu-reset-docker-volumes", async (event) => {
-    try {
-      const result = await DockerService.stopDockerCompose(true); // Delete volumes
-      if (result) {
-        event.sender.send('docker-status-update', {
-          type: 'warning',
-          message: 'Docker volumes reset successfully'
-        });
-      }
-      return { success: result, message: result ? "Volumes reset" : "Failed to reset volumes" };
-    } catch (error: any) {
-      logger.error("Error resetting Docker volumes:", error);
       return { success: false, error: error.message };
     }
   });
@@ -226,7 +224,9 @@ export function registerMenuIpcHandlers(): void {
   });
 }
 
-async function validateSetupDirectory(setupPath: string): Promise<{ success: boolean; message?: string; error?: string }> {
+async function validateSetupDirectory(
+  setupPath: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
   try {
     // Check if directory exists
     const stats = await fs.stat(setupPath);
@@ -235,7 +235,7 @@ async function validateSetupDirectory(setupPath: string): Promise<{ success: boo
     }
 
     // Check for common DDALAB files
-    const requiredFiles = ['docker-compose.yml', '.env'];
+    const requiredFiles = ["docker-compose.yml", ".env"];
     const missingFiles: string[] = [];
 
     for (const file of requiredFiles) {
@@ -249,13 +249,13 @@ async function validateSetupDirectory(setupPath: string): Promise<{ success: boo
     if (missingFiles.length > 0) {
       return {
         success: false,
-        error: `Missing required files: ${missingFiles.join(', ')}`
+        error: `Missing required files: ${missingFiles.join(", ")}`,
       };
     }
 
     return {
       success: true,
-      message: "Setup directory validation successful"
+      message: "Setup directory validation successful",
     };
   } catch (error: any) {
     return { success: false, error: error.message };

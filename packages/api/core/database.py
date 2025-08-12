@@ -7,12 +7,12 @@ from fastapi import HTTPException
 from minio import Minio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from .config import get_server_settings
+from .environment import get_config_service
 
-settings = get_server_settings()
+settings = get_config_service().get_database_settings()
 engine = create_async_engine(
-    settings.get_database_url(),
-    echo=settings.debug,
+    settings.connection_url,
+    echo=get_config_service().get_service_settings().debug,
     pool_size=20,
     max_overflow=10,
     pool_timeout=30,
@@ -49,7 +49,7 @@ get_db_session = get_db
 def get_minio_client():
     """Initialize and yield a MinIO client instance."""
 
-    settings = get_server_settings()
+    settings = get_config_service().get_storage_settings()
 
     endpoint = settings.minio_host
     access_key = settings.minio_access_key

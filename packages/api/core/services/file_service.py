@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import List
 
-from core.config import get_data_settings
+from core.environment import get_config_service
 from core.service_registry import register_service
 from core.services.base import BaseService
 from core.services.errors import NotFoundError, ServiceError, ValidationError
@@ -12,7 +12,7 @@ from loguru import logger
 from schemas.files import FileInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
-settings = get_data_settings()
+storage_settings = get_config_service().get_storage_settings()
 
 
 @register_service
@@ -109,7 +109,7 @@ class FileService(BaseService):
         """Check if the service is healthy."""
         try:
             # Try listing the data directory
-            await self.list_directory(settings.data_dir)
+            await self.list_directory(storage_settings.data_dir)
             return True
         except Exception:
             return False

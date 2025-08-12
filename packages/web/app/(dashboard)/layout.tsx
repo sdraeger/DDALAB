@@ -1,22 +1,18 @@
 "use client";
 
-import { useEffect } from "react";
 import { Header } from "shared/components/layout/Header";
 import { Footer } from "shared/components/layout/Footer";
 import { AppSidebar } from "shared/components/layout/AppSidebar";
 import { SidebarProvider } from "shared/components/ui/sidebar";
 import { EDFPlotProvider } from "shared/contexts/EDFPlotContext";
-import { AppStateProvider } from "shared/lib/state/examples/DashboardStateExample";
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Remove debugging logs for production
-
   return (
-    <AppStateProvider>
+    <div>
       <SidebarProvider>
         <EDFPlotProvider>
           <div className="min-h-screen w-full bg-background">
@@ -33,6 +29,6 @@ export default function DashboardLayout({
           </div>
         </EDFPlotProvider>
       </SidebarProvider>
-    </AppStateProvider>
+    </div>
   );
 }

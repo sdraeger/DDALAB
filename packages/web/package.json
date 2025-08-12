@@ -10,7 +10,7 @@
     }
   },
   "scripts": {
-    "dev": "NODE_ENV=development NODE_TLS_REJECT_UNAUTHORIZED=0 dotenv -e ../../.env.dev -- next dev --port 3000",
+    "dev": "NODE_ENV=development NODE_TLS_REJECT_UNAUTHORIZED=0 dotenv -e ../../.env -- next dev --port 3000",
     "build": "dotenv -e ../../.env -- next build",
     "build:docker": "next build",
     "start": "next start",
@@ -51,6 +51,7 @@
     "@radix-ui/react-toggle-group": "^1.1.1",
     "@radix-ui/react-tooltip": "^1.1.6",
     "@reduxjs/toolkit": "^2.6.1",
+    "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/react": "^18.3.21",
     "@types/react-dom": "^18.2.0",
@@ -74,8 +75,9 @@
     "lucide-react": "^0.454.0",
     "module-alias": "^2.2.3",
     "next": "^14.2.5",
+    "next-themes": "^0.2.1",
+    "uplot": "^1.6.30",
     "next-auth": "^4.24.11",
-    "next-themes": "latest",
     "path": "latest",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",

@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
-from ..config import get_server_settings
+from ..environment import get_config_service
 from ..service_registry import register_service
 from .base import BaseService
 from .redis_service import RedisService
@@ -19,8 +19,14 @@ class PlotCacheService(BaseService):
 
     def __init__(self):
         super().__init__(None)  # No database dependency needed
-        self.settings = get_server_settings()
-        self.redis_service = RedisService()
+        self.cache_settings = get_config_service().get_cache_settings()
+        self.redis_service = RedisService(
+            host=self.cache_settings.redis_host,
+            port=self.cache_settings.redis_port,
+            db=self.cache_settings.redis_db,
+            password=self.cache_settings.redis_password,
+            use_ssl=self.cache_settings.redis_use_ssl,
+        )
 
     @classmethod
     def from_db(cls, db=None) -> "PlotCacheService":
@@ -89,7 +95,7 @@ class PlotCacheService(BaseService):
 
             # Use default TTL if not specified
             if ttl is None:
-                ttl = self.settings.plot_cache_ttl
+                ttl = self.cache_settings.plot_cache_ttl
                 logger.debug(f"[PlotCacheService] Using default TTL: {ttl}s")
             else:
                 logger.debug(f"[PlotCacheService] Using provided TTL: {ttl}s")

@@ -1,8 +1,117 @@
 "use client";
 
 import React, { useCallback, useEffect } from 'react';
-import { useDashboardLayout, usePlotState, useAppSettings, DebugPanel } from '../../lib/state/examples/DashboardStateExample';
-import type { DashboardWidget } from '../../lib/state/examples/DashboardStateExample';
+import { useModernDashboard } from '../../hooks/useModernDashboard';
+import { useEDFPlot } from '../../contexts/EDFPlotContext';
+import { useSettings } from '../../contexts/SettingsContext';
+
+// Temporary stubs for deleted functionality
+type DashboardWidget = {
+  id: string;
+  type: string;
+  position: { x: number; y: number };
+  size: { width: number; height: number };
+  title: string;
+  isPopOut: boolean;
+};
+
+// Use the proper modern dashboard hook instead of stubs
+const useDashboardLayout = () => {
+  const modernDashboard = useModernDashboard({
+    widgetCallbacks: {
+      // Include any callback functions needed by widgets
+    }
+  });
+
+  // Create a map of widget ID to layout for easy lookup
+  const layoutMap = new Map(modernDashboard.layouts.map(layout => [layout.i, layout]));
+
+  // Convert IDashboardWidget[] to DashboardWidget[] for compatibility
+  const convertedWidgets: DashboardWidget[] = modernDashboard.widgets.map(widget => {
+    const layout = layoutMap.get(widget.id);
+    return {
+      id: widget.id,
+      type: widget.type,
+      // Use actual layout positions/sizes, or defaults if no layout exists
+      position: layout ? { x: layout.x * 100, y: layout.y * 60 } : { x: 0, y: 0 }, // Convert grid units to pixels
+      size: layout ? { width: layout.w * 100, height: layout.h * 60 } : { width: 400, height: 300 }, // Convert grid units to pixels
+      title: widget.title,
+      isPopOut: false
+    };
+  });
+
+  return {
+    widgets: convertedWidgets,
+    selectedWidget: null as string | null,
+    gridSize: 12,
+    enableSnapping: true,
+    isLoading: modernDashboard.isLoading,
+    isInitialized: modernDashboard.isLayoutInitialized,
+    error: modernDashboard.saveError ? new Error(modernDashboard.saveError) : null,
+    addWidget: async (widget: DashboardWidget) => {
+      // Convert DashboardWidget back to the format expected by modern dashboard
+      await modernDashboard.addWidget(widget.type, {
+        title: widget.title,
+        position: widget.position,
+        size: widget.size
+      });
+    },
+    updateWidget: async (id: string, updates: Partial<DashboardWidget>) => {
+      // Update the widget first
+      modernDashboard.updateWidget(id, updates);
+
+      // If position or size changed, update the layout as well
+      if (updates.position || updates.size) {
+        const existingLayout = layoutMap.get(id);
+        const currentWidget = modernDashboard.widgets.find(w => w.id === id);
+
+        if (currentWidget) {
+          // Convert pixel-based position/size back to grid units
+          const gridPosition = {
+            x: updates.position ? Math.round(updates.position.x / 100) : (existingLayout?.x || 0),
+            y: updates.position ? Math.round(updates.position.y / 60) : (existingLayout?.y || 0)
+          };
+          const gridSize = {
+            w: updates.size ? Math.round(updates.size.width / 100) : (existingLayout?.w || 4),
+            h: updates.size ? Math.round(updates.size.height / 60) : (existingLayout?.h || 3)
+          };
+
+          // Update the layout array
+          const newLayouts = modernDashboard.layouts.map(layout =>
+            layout.i === id
+              ? { ...layout, ...gridPosition, ...gridSize }
+              : layout
+          );
+
+          // If layout doesn't exist for this widget, create one
+          if (!existingLayout) {
+            newLayouts.push({
+              i: id,
+              x: gridPosition.x,
+              y: gridPosition.y,
+              w: gridSize.w,
+              h: gridSize.h
+            });
+          }
+
+          // Update the layout, which will trigger auto-save
+          modernDashboard.updateLayout(newLayouts);
+        }
+      }
+    },
+    removeWidget: async (id: string) => {
+      modernDashboard.removeWidget(id);
+    },
+    selectWidget: async (_id: string | null) => {
+      // Modern dashboard doesn't have widget selection yet
+    },
+    resetLayout: async () => {
+      await modernDashboard.clearLayout();
+    }
+  };
+};
+
+const DebugPanel = () => null; // Removed DebugPanel content
 
 /**
  * Integration component that bridges existing dashboard functionality 
@@ -10,8 +119,8 @@ import type { DashboardWidget } from '../../lib/state/examples/DashboardStateExa
  */
 export function DashboardStateIntegration({ children }: { children: React.ReactNode }) {
   const dashboardLayout = useDashboardLayout();
-  const plotState = usePlotState();
-  const appSettings = useAppSettings();
+  const plotState = useEDFPlot(); // Use the actual EDFPlotContext
+  const appSettings = useSettings(); // Use the actual SettingsContext
 
   // Expose state management functions globally for gradual migration
   useEffect(() => {
@@ -39,23 +148,25 @@ export function DashboardStateIntegration({ children }: { children: React.ReactN
   }, [dashboardLayout]);
 
   useEffect(() => {
+    // Get the current plot state for the selected file
+    const currentPlotState = plotState.getPlotState(plotState.selectedFilePath);
     console.log('[DashboardStateIntegration] Plot state:', {
-      currentFile: plotState.currentFilePath,
-      selectedChannels: plotState.selectedChannels,
-      timeWindow: plotState.timeWindow,
-      zoomLevel: plotState.zoomLevel,
-      isLoading: plotState.isLoading,
-      error: plotState.error
+      currentFile: plotState.selectedFilePath,
+      selectedChannels: currentPlotState?.selectedChannels || [],
+      timeWindow: currentPlotState?.timeWindow || [0, 0],
+      zoomLevel: currentPlotState?.zoomLevel || 1,
+      isLoading: plotState.plotStates.size === 0 && !plotState.selectedFilePath,
+      error: plotState.plotStates.size === 0 && plotState.selectedFilePath ? new Error("Plot not loaded") : null,
     });
   }, [plotState]);
 
   useEffect(() => {
     console.log('[DashboardStateIntegration] App settings:', {
-      theme: appSettings.theme,
-      sidebarCollapsed: appSettings.sidebarCollapsed,
-      debugMode: appSettings.debugMode,
-      isLoading: appSettings.isLoading,
-      error: appSettings.error
+      theme: appSettings.userPreferences.theme,
+      sidebarCollapsed: appSettings.userPreferences.sidebarCollapsed,
+      debugMode: appSettings.userPreferences.debugMode,
+      isLoading: false,
+      error: null,
     });
   }, [appSettings]);
 
@@ -73,8 +184,8 @@ export function DashboardStateIntegration({ children }: { children: React.ReactN
  */
 export function useDashboardStateBridge() {
   const dashboardLayout = useDashboardLayout();
-  const plotState = usePlotState();
-  const appSettings = useAppSettings();
+  const plotState = useEDFPlot();
+  const appSettings = useSettings();
 
   // Enhanced widget management with automatic persistence
   const enhancedAddWidget = useCallback(async (
@@ -131,24 +242,36 @@ export function useDashboardStateBridge() {
 
   // Enhanced plot state management
   const enhancedSetCurrentFile = useCallback(async (filePath: string | null) => {
-    await plotState.setCurrentFile(filePath);
+    if (filePath !== null) {
+      plotState.setSelectedFilePath(filePath);
+    } else {
+      // Handle null case, e.g., clear the selected file path
+      plotState.setSelectedFilePath(""); // Or some other default/clear value
+    }
     console.log('[DashboardStateBridge] File path updated to:', filePath);
   }, [plotState]);
 
   const enhancedSetSelectedChannels = useCallback(async (channels: string[]) => {
-    await plotState.setSelectedChannels(channels);
-    console.log('[DashboardStateBridge] Selected channels updated to:', channels);
+    if (plotState.selectedFilePath) {
+      plotState.updatePlotState(plotState.selectedFilePath, { selectedChannels: channels });
+      console.log('[DashboardStateBridge] Selected channels updated to:', channels);
+    }
   }, [plotState]);
 
   // Enhanced app settings management
   const enhancedToggleSidebar = useCallback(async () => {
-    await appSettings.toggleSidebar();
-    console.log('[DashboardStateBridge] Sidebar toggled, collapsed:', !appSettings.sidebarCollapsed);
+    appSettings.updatePreference("sidebarCollapsed", !appSettings.userPreferences.sidebarCollapsed);
+    console.log('[DashboardStateBridge] Sidebar toggled, collapsed:', !appSettings.userPreferences.sidebarCollapsed);
   }, [appSettings]);
 
   const enhancedSetTheme = useCallback(async (theme: 'light' | 'dark' | 'system') => {
-    await appSettings.setTheme(theme);
+    appSettings.updatePreference("theme", theme);
     console.log('[DashboardStateBridge] Theme updated to:', theme);
+  }, [appSettings]);
+
+  const enhancedToggleDebugMode = useCallback(async () => {
+    appSettings.updatePreference("debugMode", !appSettings.userPreferences.debugMode);
+    console.log('[DashboardStateBridge] Debug mode toggled, debugMode:', !appSettings.userPreferences.debugMode);
   }, [appSettings]);
 
   return {
@@ -164,33 +287,44 @@ export function useDashboardStateBridge() {
     resetLayout: dashboardLayout.resetLayout,
 
     // Plot state management
-    currentFilePath: plotState.currentFilePath,
-    selectedChannels: plotState.selectedChannels,
-    timeWindow: plotState.timeWindow,
-    zoomLevel: plotState.zoomLevel,
+    currentFilePath: plotState.selectedFilePath,
+    selectedChannels: plotState.getPlotState(plotState.selectedFilePath)?.selectedChannels || [],
+    timeWindow: plotState.getPlotState(plotState.selectedFilePath)?.timeWindow || [0, 0],
+    zoomLevel: plotState.getPlotState(plotState.selectedFilePath)?.zoomLevel || 1,
     setCurrentFile: enhancedSetCurrentFile,
     setSelectedChannels: enhancedSetSelectedChannels,
-    setTimeWindow: plotState.setTimeWindow,
-    setZoomLevel: plotState.setZoomLevel,
-    resetPlot: plotState.resetPlot,
+    setTimeWindow: (timeWindow: [number, number]) => {
+      if (plotState.selectedFilePath) {
+        plotState.updatePlotState(plotState.selectedFilePath, { timeWindow });
+      }
+    },
+    setZoomLevel: (zoomLevel: number) => {
+      if (plotState.selectedFilePath) {
+        plotState.updatePlotState(plotState.selectedFilePath, { zoomLevel });
+      }
+    },
+    resetPlot: plotState.clearAllPlotStates,
 
     // App settings management
-    theme: appSettings.theme,
-    sidebarCollapsed: appSettings.sidebarCollapsed,
-    debugMode: appSettings.debugMode,
+    theme: appSettings.userPreferences.theme,
+    sidebarCollapsed: appSettings.userPreferences.sidebarCollapsed,
+    debugMode: appSettings.userPreferences.debugMode,
     setTheme: enhancedSetTheme,
     toggleSidebar: enhancedToggleSidebar,
-    toggleDebugMode: appSettings.toggleDebugMode,
-    resetSettings: appSettings.resetSettings,
+    toggleDebugMode: enhancedToggleDebugMode,
+    resetSettings: appSettings.resetChanges,
 
     // Loading states
     isLayoutLoading: dashboardLayout.isLoading,
-    isPlotLoading: plotState.isLoading,
-    isSettingsLoading: appSettings.isLoading,
+    isLayoutInitialized: dashboardLayout.isInitialized,
+    isPlotLoading: plotState.plotStates.size === 0 && !plotState.selectedFilePath,
+    isPlotInitialized: true,
+    isSettingsLoading: false,
+    isSettingsInitialized: true,
 
     // Error states
     layoutError: dashboardLayout.error,
-    plotError: plotState.error,
-    settingsError: appSettings.error
+    plotError: plotState.plotStates.size === 0 && plotState.selectedFilePath ? new Error("Plot not loaded") : null,
+    settingsError: null
   };
 }

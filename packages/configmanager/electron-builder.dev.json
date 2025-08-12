@@ -16,7 +16,11 @@
 		"region": "us-east-1",
 		"channel": "development",
 		"path": "dev",
-		"acl": null
+		"acl": null,
+		"storageClass": "STANDARD",
+		"requestHeaders": {
+			"Cache-Control": "max-age=86400"
+		}
 	},
 	"mac": {
 		"target": [
@@ -30,11 +34,12 @@
 		],
 		"category": "public.app-category.developer-tools",
 		"artifactName": "DDALAB-ConfigManager-Dev-${version}-${arch}.${ext}",
-		"identity": null,
+		"identity": false,
 		"hardenedRuntime": false,
 		"gatekeeperAssess": false,
-		"entitlements": null,
-		"entitlementsInherit": null
+		"entitlements": "entitlements.dev.plist",
+		"entitlementsInherit": "entitlements.dev.plist",
+		"type": "development"
 	},
 	"win": {
 		"target": [
@@ -89,18 +94,6 @@
 		"vendor": "DDALAB",
 		"synopsis": "DDALAB Configuration Manager (Dev)",
 		"description": "A configuration management tool for DDALAB applications (Development Version)"
-	},
-	"nsis": {
-		"oneClick": false,
-		"allowToChangeInstallationDirectory": true,
-		"createDesktopShortcut": true,
-		"createStartMenuShortcut": true
-	},
-	"dmg": {
-		"title": "DDALAB ConfigManager (Dev)"
-	},
-	"appImage": {
-		"category": "Development"
 	},
 	"asar": true,
 	"compression": "normal"

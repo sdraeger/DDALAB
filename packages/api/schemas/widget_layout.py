@@ -20,6 +20,7 @@ class SaveWidgetLayoutRequest(BaseModel):
     """Request to save widget layouts."""
 
     widgets: List[WidgetLayoutData]
+    layout: Optional[List[Dict[str, Union[str, int, float]]]] = None
 
 
 class WidgetLayoutResponse(BaseModel):
@@ -28,6 +29,7 @@ class WidgetLayoutResponse(BaseModel):
     status: str
     message: str
     widgets: Optional[List[WidgetLayoutData]] = None
+    layout: Optional[List[Dict[str, Union[str, int, float]]]] = None
 
 
 class GetWidgetLayoutResponse(BaseModel):

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useTheme } from "next-themes";
 import { useToast } from "./ui/use-toast";
 import { Button } from "./ui/button";
-import { useAppSettings } from "../lib/state/examples/DashboardStateExample";
+// import { useAppSettings } from "../lib/state/examples/DashboardStateExample"; // Removed - file deleted
 import { Moon, Sun, MonitorSmartphone } from "lucide-react";
 import {
   DropdownMenu,
@@ -29,7 +29,9 @@ const getThemeIcon = (theme: string | undefined) => {
 export function ModeToggle() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { toast } = useToast();
-  const { theme: centralizedTheme, setTheme: setCentralizedTheme } = useAppSettings();
+  // const { theme: centralizedTheme, setTheme: setCentralizedTheme } = useAppSettings(); // Temporarily disabled
+  const centralizedTheme = theme;
+  const setCentralizedTheme = setTheme;
   const [mounted, setMounted] = useState(false);
 
   // Prevent hydration mismatch by tracking mounted state
@@ -41,13 +43,9 @@ export function ModeToggle() {
   useEffect(() => {
     if (!mounted) return;
 
-    const syncTheme = async () => {
-      if (centralizedTheme && theme !== centralizedTheme) {
-        setTheme(centralizedTheme);
-      }
-    };
-
-    syncTheme();
+    if (centralizedTheme && theme !== centralizedTheme) {
+      setTheme(centralizedTheme);
+    }
   }, [mounted, theme, centralizedTheme, setTheme]);
 
   const handleThemeChange = useCallback(async (newTheme: Theme) => {

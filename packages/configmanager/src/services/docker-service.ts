@@ -6,14 +6,10 @@ import { getMainWindow } from "../utils/main-window";
 import { SetupService, ConfigManagerState } from "./setup-service";
 import { EnvironmentIsolationService } from "./environment-isolation";
 import { EnvGeneratorService } from "./env-generator-service";
+import { DockerStatus } from "../../preload"; // Import DockerStatus interface
 
-export interface DockerInstallationStatus {
-  dockerInstalled: boolean;
-  dockerComposeInstalled: boolean;
-  dockerVersion?: string;
-  dockerComposeVersion?: string;
-  error?: string;
-}
+// Track the Docker Compose process
+let dockerComposeProcess: any = null;
 
 export class DockerService {
   private static logProcess: ChildProcess | null = null;
@@ -562,210 +558,310 @@ services:
     return stdout;
   }
 
-  static getIsDockerRunning(): boolean {
-    return this.isDockerRunning;
-  }
+  /**
+   * Get the current Docker status (installed, running, etc.)
+   */
+  static async getDockerStatus(): Promise<DockerStatus> {
+    const status: DockerStatus = {
+      isRunning: false,
+      statusMessage: "Checking Docker status...",
+    };
 
-  // New method to actually check if Docker daemon is running
-  static async checkDockerDaemonRunning(): Promise<boolean> {
     try {
-      const result = await this.execCommand("docker info");
-      return result.success;
-    } catch (error) {
-      logger.warn("Docker daemon check failed:", error);
-      return false;
+      const isInstalled = await this.isDockerInstalled();
+      if (!isInstalled.dockerInstalled) {
+        status.statusMessage = "Docker Desktop is not installed.";
+        return status;
+      }
+      status.version = isInstalled.dockerVersion;
+
+      const isRunning = await this.isDockerDaemonRunning();
+      status.isRunning = isRunning;
+      status.statusMessage = isRunning
+        ? "Docker Desktop is running."
+        : "Docker Desktop is not running.";
+
+      return status;
+    } catch (error: any) {
+      logger.error("Error getting Docker status:", error);
+      status.statusMessage = `Failed to get Docker status: ${error.message}`;
+      return status;
     }
   }
 
-  static async startDockerCompose(state: ConfigManagerState): Promise<boolean> {
+  /**
+   * Check if Docker Desktop is installed and get its version.
+   */
+  static async isDockerInstalled(): Promise<{
+    dockerInstalled: boolean;
+    dockerVersion?: string;
+  }> {
+    return new Promise((resolve) => {
+      exec("docker --version", (error, stdout, stderr) => {
+        if (error) {
+          logger.warn(`Docker not installed: ${stderr}`);
+          resolve({ dockerInstalled: false });
+        } else {
+          const versionMatch = stdout.match(/Docker version (\d+\.\d+\.\d+)/);
+          const dockerVersion = versionMatch ? versionMatch[1] : undefined;
+          resolve({ dockerInstalled: true, dockerVersion });
+        }
+      });
+    });
+  }
+
+  /**
+   * Check if Docker daemon is running.
+   */
+  static async isDockerDaemonRunning(): Promise<boolean> {
+    return new Promise((resolve) => {
+      exec("docker info", (error, stdout, stderr) => {
+        if (error) {
+          logger.warn(`Docker daemon not running: ${stderr}`);
+          resolve(false);
+        } else {
+          resolve(true);
+        }
+      });
+    });
+  }
+
+  /**
+   * Start the monolithic Docker container using docker-compose.
+   * Assumes docker-compose.yml and .env are in the setupPath.
+   */
+  static async startMonolithicDocker(state: any): Promise<boolean> {
     const mainWindow = getMainWindow();
-    if (!mainWindow || !state.setupPath) {
-      logger.error(
-        "Cannot start Docker Compose: mainWindow or setupPath not set."
-      );
+    if (!mainWindow) {
+      logger.error("Main window not available for starting Docker.");
       return false;
     }
 
-    try {
-      const projectName = await this.getDockerProjectName();
+    const setupPath = state.setupPath;
+    if (!setupPath) {
+      logger.error("Setup path not defined in config manager state.");
       mainWindow.webContents.send("docker-status-update", {
-        type: "info",
-        message: `Preparing container environment files...`,
+        type: "error",
+        message: "Cannot start Docker: Setup path is not defined.",
       });
+      return false;
+    }
 
-      await this.validateDockerFiles(state.setupPath);
+    logger.info(
+      `Attempting to start monolithic Docker container at: ${setupPath}`
+    );
+    mainWindow.webContents.send("docker-status-update", {
+      type: "info",
+      message: "Starting DDALAB services...",
+    });
 
-      // Generate separate environment files for containers to avoid baking env into images
-      const baseEnvPath =
-        await EnvironmentIsolationService.ensureEnvironmentFileExists(
-          state.setupPath
-        );
-      await EnvGeneratorService.generateContainerEnvFiles(
-        state.setupPath,
-        baseEnvPath
+    try {
+      // Ensure .env file exists and is up to date
+      await SetupService.generateEnvFile(
+        setupPath,
+        state.userSelections?.envVariables || {}
+      );
+      // Generate docker-compose.volumes.yml (ensure bind mounts are correctly set)
+      await SetupService.generateVolumeConfig(
+        setupPath,
+        state.userSelections?.envVariables || {}
+      );
+      // Update docker-compose.yml to ensure it uses the monolithic image
+      await SetupService.updateDockerCompose(
+        setupPath,
+        state.userSelections?.envVariables || {}
       );
 
-      mainWindow.webContents.send("docker-status-update", {
-        type: "info",
-        message: `Generating volume configuration from DDALAB_ALLOWED_DIRS...`,
-      });
-
-      await this.generateDockerVolumes(state.setupPath);
-
-      // Use environment isolation for Docker Compose command
-      const composeCommand =
-        EnvironmentIsolationService.getDockerComposeCommand(state.setupPath);
-      const command = `${composeCommand} up -d`;
-      logger.info(`Executing compose command: ${command}`, {
-        cwd: state.setupPath,
-      });
-
-      return new Promise((resolve) => {
-        exec(
-          command,
-          { cwd: state.setupPath!, env: this.getDockerEnvironment() },
-          async (error, stdout, stderr) => {
+      return new Promise((resolve, reject) => {
+        // Use 'up -d' to start services in detached mode
+        dockerComposeProcess = exec(
+          `docker compose --file ${path.join(setupPath, "docker-compose.yml")} up -d`,
+          { cwd: setupPath },
+          (error, stdout, stderr) => {
             if (error) {
-              logger.error(
-                `Error starting Docker Compose: ${error.message}. Stderr: ${stderr}`
-              );
-              let errorMessage = stderr || error.message;
-              if (
-                errorMessage.includes("mount source path") &&
-                errorMessage.includes("prometheus.yml")
-              ) {
-                errorMessage = `Failed to mount prometheus.yml file. This may be due to Docker Desktop file sharing settings or the file being missing/inaccessible. Original error: ${errorMessage}`;
-              } else if (errorMessage.includes("mount source path")) {
-                errorMessage = `Docker failed to mount a required file or directory. Check that all required files exist and Docker Desktop has access to the setup directory. Original error: ${errorMessage}`;
-              }
+              logger.error(`Error starting Docker Compose: ${error.message}`);
               mainWindow.webContents.send("docker-status-update", {
                 type: "error",
-                message: `Failed to start Docker services: ${errorMessage}`,
+                message: `Failed to start Docker: ${stderr || error.message}`,
               });
-              this.isDockerRunning = false;
-              this.stopLogStream();
-              this.stopPeriodicHealthCheck();
-              resolve(false);
-            } else {
-              logger.info(
-                `'docker-compose up -d' successful. Stdout: ${stdout}`
-              );
-              mainWindow.webContents.send("docker-status-update", {
-                type: "success",
-                message: "Docker services started. Checking services health...",
-              });
-              this.isDockerRunning = true;
-              this.streamDockerLogs(state);
-              this.startPeriodicHealthCheck();
-              const traefikContainerId = await this.getTraefikContainerId(
-                projectName
-              );
-              if (traefikContainerId) {
-                this.checkTraefikHealth(traefikContainerId);
-              } else {
-                logger.error(
-                  "Could not get Traefik container ID after startup."
-                );
-                mainWindow.webContents.send("docker-status-update", {
-                  type: "error",
-                  message:
-                    "Failed to get Traefik ID after startup. Services might not be accessible.",
-                });
-              }
-              resolve(true);
+              return reject(false);
             }
+            logger.info(`Docker Compose started. Stdout: ${stdout}`);
+            mainWindow.webContents.send("docker-status-update", {
+              type: "success",
+              message: "DDALAB services started successfully.",
+            });
+            resolve(true);
           }
         );
       });
     } catch (error: any) {
-      logger.error(`Error generating volumes: ${error.message}`);
+      logger.error(`Pre-start setup failed: ${error.message}`);
       mainWindow.webContents.send("docker-status-update", {
         type: "error",
-        message: `Failed to generate volume configuration: ${error.message}`,
+        message: `Failed to prepare Docker setup: ${error.message}`,
       });
-      this.isDockerRunning = false;
-      this.stopLogStream();
-      this.stopPeriodicHealthCheck();
       return false;
     }
   }
 
-  static async stopDockerCompose(
-    state: ConfigManagerState,
-    deleteVolumes?: boolean
+  /**
+   * Stop the monolithic Docker container using docker-compose.
+   */
+  static async stopMonolithicDocker(
+    state: any,
+    deleteVolumes: boolean
   ): Promise<boolean> {
     const mainWindow = getMainWindow();
-    if (!mainWindow || !state.setupPath) {
-      logger.error(
-        "Cannot stop Docker Compose: mainWindow or setupPath not set."
-      );
+    if (!mainWindow) {
+      logger.error("Main window not available for stopping Docker.");
       return false;
     }
 
-    const projectName = await this.getDockerProjectName();
-    // Use environment isolation for Docker Compose command
-    const composeCommand = EnvironmentIsolationService.getDockerComposeCommand(
-      state.setupPath
-    );
-    let comma = `${composeCommand} down`;
-    if (deleteVolumes) {
-      comma += " --volumes";
+    const setupPath = state.setupPath;
+    if (!setupPath) {
+      logger.error("Setup path not defined in config manager state.");
+      mainWindow.webContents.send("docker-status-update", {
+        type: "error",
+        message: "Cannot stop Docker: Setup path is not defined.",
+      });
+      return false;
     }
 
+    logger.info(
+      `Attempting to stop monolithic Docker container at: ${setupPath}`
+    );
     mainWindow.webContents.send("docker-status-update", {
       type: "info",
-      message: `Stopping Docker services (project: ${projectName}, path: ${state.setupPath})...`,
+      message: "Stopping DDALAB services...",
     });
 
-    return new Promise((resolve) => {
-      exec(
-        comma,
-        { cwd: state.setupPath!, env: this.getDockerEnvironment() },
-        (error, stdout, stderr) => {
+    try {
+      return new Promise((resolve, reject) => {
+        const command = deleteVolumes
+          ? `docker compose --file ${path.join(setupPath, "docker-compose.yml")} down -v` // -v to remove volumes
+          : `docker compose --file ${path.join(setupPath, "docker-compose.yml")} down`;
+
+        exec(command, { cwd: setupPath }, (error, stdout, stderr) => {
           if (error) {
-            logger.error(
-              `Error stopping Docker Compose: ${error.message}. Stderr: ${stderr}`
-            );
+            logger.error(`Error stopping Docker Compose: ${error.message}`);
             mainWindow.webContents.send("docker-status-update", {
               type: "error",
-              message: `Failed to stop Docker services: ${
-                stderr || error.message
-              }`,
+              message: `Failed to stop Docker: ${stderr || error.message}`,
             });
-            resolve(false);
-          } else {
-            logger.info(`'docker compose down' successful. Stdout: ${stdout}`);
-            mainWindow.webContents.send("docker-status-update", {
-              type: "success",
-              message:
-                "Docker services stopped successfully. Cleaning up environment files...",
-            });
-            this.isDockerRunning = false;
-            this.stopLogStream();
-            this.stopPeriodicHealthCheck();
-
-            // Clean up generated environment files
-            EnvGeneratorService.cleanupGeneratedEnvFiles(state.setupPath!)
-              .then(() => {
-                mainWindow.webContents.send("docker-status-update", {
-                  type: "success",
-                  message:
-                    "Docker services stopped and environment files cleaned up successfully.",
-                });
-              })
-              .catch((error) => {
-                logger.warn(`Failed to cleanup env files: ${error.message}`);
-                mainWindow.webContents.send("docker-status-update", {
-                  type: "success",
-                  message: "Docker services stopped successfully.",
-                });
-              });
-
-            resolve(true);
+            return reject(false);
           }
-        }
+          logger.info(`Docker Compose stopped. Stdout: ${stdout}`);
+          mainWindow.webContents.send("docker-status-update", {
+            type: "success",
+            message: deleteVolumes
+              ? "DDALAB services stopped and volumes deleted."
+              : "DDALAB services stopped successfully.",
+          });
+          resolve(true);
+        });
+      });
+    } catch (error: any) {
+      logger.error(`Stop command failed: ${error.message}`);
+      mainWindow.webContents.send("docker-status-update", {
+        type: "error",
+        message: `Failed to execute stop command: ${error.message}`,
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Stream Docker logs.
+   */
+  static startDockerLogStream(state: any): boolean {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return false;
+
+    const setupPath = state.setupPath;
+    if (!setupPath) {
+      logger.error("Setup path not defined for log stream.");
+      return false;
+    }
+
+    logger.info("Starting Docker log stream...");
+    // Kill any existing process
+    if (dockerComposeProcess) {
+      dockerComposeProcess.kill("SIGTERM");
+      dockerComposeProcess = null;
+    }
+
+    try {
+      dockerComposeProcess = spawn(
+        "docker",
+        [
+          "compose",
+          "--file",
+          path.join(setupPath, "docker-compose.yml"),
+          "logs",
+          "-f",
+        ],
+        { cwd: setupPath }
       );
-    });
+
+      dockerComposeProcess.stdout.on("data", (data: Buffer) => {
+        const log = data.toString();
+        mainWindow.webContents.send("docker-logs", {
+          type: "stdout",
+          data: log,
+        });
+      });
+
+      dockerComposeProcess.stderr.on("data", (data: Buffer) => {
+        const log = data.toString();
+        mainWindow.webContents.send("docker-logs", {
+          type: "stderr",
+          data: log,
+        });
+      });
+
+      dockerComposeProcess.on("close", (code: number) => {
+        logger.info(`Docker Compose logs process exited with code ${code}`);
+        mainWindow.webContents.send("docker-logs", {
+          type: "info",
+          data: `Log stream ended with code ${code}`,
+        });
+        dockerComposeProcess = null;
+      });
+
+      dockerComposeProcess.on("error", (err: Error) => {
+        logger.error(`Docker Compose logs process error: ${err.message}`);
+        mainWindow.webContents.send("docker-logs", {
+          type: "error",
+          data: `Log stream error: ${err.message}`,
+        });
+        dockerComposeProcess = null;
+      });
+
+      mainWindow.webContents.send("docker-log-update", {
+        type: "info",
+        message: "Log stream started.",
+      });
+      return true;
+    } catch (error) {
+      logger.error("Failed to start Docker log stream:", error);
+      mainWindow.webContents.send("docker-log-update", {
+        type: "error",
+        message: `Failed to start log stream: ${error}`,
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Remove the Docker log stream.
+   */
+  static removeDockerLogStream(): void {
+    if (dockerComposeProcess) {
+      dockerComposeProcess.kill("SIGTERM");
+      dockerComposeProcess = null;
+      logger.info("Docker log stream removed.");
+    }
   }
 
   static async checkAllServicesHealth(): Promise<boolean> {
@@ -997,5 +1093,15 @@ services:
     } catch (error: any) {
       logger.error("Failed to clear Docker testing resources:", error);
     }
+  }
+
+  // Method to get installation instructions (placeholder for now)
+  static getInstallationInstructions(): string {
+    return "Please install Docker Desktop from https://www.docker.com/products/docker-desktop/";
+  }
+
+  // Method to get config manager state (to avoid circular dependency with SetupService)
+  static async getConfigManagerState(): Promise<ConfigManagerState> {
+    return SetupService.getConfigManagerState();
   }
 }

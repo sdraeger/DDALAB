@@ -43,6 +43,7 @@ export interface UserConfiguration {
   allowedDirs: string;
   webPort?: string;
   apiPort?: string;
+  apiPortMetrics?: string;
   dbPassword?: string;
   minioPassword?: string;
   traefikEmail?: string;
@@ -290,7 +291,8 @@ export class SetupService {
       // Step 1: Clone the setup repository
       const cloneResult = await this.cloneRepository(
         targetDir,
-        userConfig.allowedDirs
+        userConfig.allowedDirs,
+        userConfig
       );
       if (!cloneResult.success) {
         return cloneResult;
@@ -403,8 +405,7 @@ export class SetupService {
 
 # Use Docker Hub images
 DDALAB_USE_DOCKER_HUB=true
-DDALAB_WEB_IMAGE=sdraeger1/ddalab-web:latest
-DDALAB_API_IMAGE=sdraeger1/ddalab-api:latest
+DDALAB_IMAGE=sdraeger1/ddalab-monolith:latest
 
 # Database Configuration
 DDALAB_DB_USER=admin
@@ -428,7 +429,7 @@ DDALAB_REDIS_PASSWORD=
 DDALAB_REDIS_USE_SSL=False
 DDALAB_PLOT_CACHE_TTL=3600
 
-# Web Application Configuration
+# Web Application Configuration (Accessible via Traefik)
 WEB_PORT=${userConfig.webPort || "3000"}
 NEXT_PUBLIC_API_URL=http://localhost:${userConfig.apiPort || "8001"}
 NEXT_PUBLIC_APP_URL=http://localhost:${userConfig.webPort || "3000"}
@@ -459,7 +460,7 @@ DDALAB_ALLOWED_DIRS=${userConfig.allowedDirs}
 # Analysis Configuration
 DDALAB_MAX_CONCURRENT_TASKS=5
 DDALAB_TASK_TIMEOUT=300
-DDALAB_DDA_BINARY_PATH=/app/server/bin/run_DDA_ASCII
+DDALAB_DDA_BINARY_PATH=/app/bin/run_DDA_ASCII
 
 # SSL Configuration
 DDALAB_SSL_ENABLED=False
@@ -487,6 +488,7 @@ VERSION=latest
       MINIO_ROOT_PASSWORD: userConfig.minioPassword || "ddalab_password",
       TRAEFIK_ACME_EMAIL: userConfig.traefikEmail || "admin@ddalab.local",
       DDALAB_AUTH_MODE: userConfig.authMode || "multi-user",
+      DDALAB_IMAGE: "sdraeger1/ddalab-monolith:latest",
     };
 
     let updatedContent = envContent;
@@ -524,11 +526,11 @@ VERSION=latest
         target: ${targetPath}`;
     }
 
-    const volumesContent = `# Auto-generated volume configuration
+    const volumesContent = `# Auto-generated volume configuration for monolithic container
 # Generated from DDALAB_ALLOWED_DIRS: ${userConfig.allowedDirs}
 
 services:
-  api:
+  ddalab:
     volumes:
       - prometheus_data:/tmp/prometheus${bindMounts ? "\n" + bindMounts : ""}
 `;
@@ -551,7 +553,6 @@ services:
 
       // If using Docker Hub, remove build sections to prevent local building
       if (userConfig.useDockerHub) {
-        // Parse the YAML content line by line to avoid regex issues
         const lines = composeContent.split("\n");
         const cleanedLines = [];
         let skipNextLines = 0;
@@ -561,15 +562,12 @@ services:
           const line = lines[i];
           const trimmed = line.trim();
 
-          // Skip lines if we're in a build section
           if (skipNextLines > 0) {
             skipNextLines--;
             continue;
           }
 
-          // Check if this line starts a build section
           if (trimmed === "build:") {
-            // Look ahead to see if this is a build section we want to remove
             let nextLine = "";
             let nextNextLine = "";
             if (i + 1 < lines.length) nextLine = lines[i + 1].trim();
@@ -577,16 +575,13 @@ services:
 
             if (
               nextLine === "context: ." &&
-              (nextNextLine === "dockerfile: ./packages/web/Dockerfile" ||
-                nextNextLine === "dockerfile: ./packages/api/Dockerfile")
+              nextNextLine === "dockerfile: ./Dockerfile"
             ) {
-              // Skip this build section (3 lines: build:, context: ., dockerfile: ...)
               skipNextLines = 2;
               continue;
             }
           }
 
-          // Skip platform lines
           if (trimmed === "platform: linux/amd64") {
             continue;
           }
@@ -597,8 +592,83 @@ services:
         composeContent = cleanedLines.join("\n");
       }
 
+      // Replace individual service images with the monolithic image
+      composeContent = composeContent.replace(
+        /image: sdraeger1\/ddalab-web:.*$/m,
+        "image: sdraeger1/ddalab-monolith:${VERSION:-latest}"
+      );
+      composeContent = composeContent.replace(
+        /image: sdraeger1\/ddalab-api:.*$/m,
+        "# Removed: API service merged into monolith"
+      );
+
+      // Remove web and api service definitions and replace with a single ddalab service
+      const lines = composeContent.split("\n");
+      const updatedLines: string[] = [];
+      let inServiceBlock = false;
+      let currentService = "";
+
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        const indent = line.match(/^(\s*)/)?.[1] || "";
+
+        if (trimmedLine.startsWith("web:") || trimmedLine.startsWith("api:")) {
+          inServiceBlock = true;
+          currentService = trimmedLine.replace(":", "");
+          if (currentService === "web") {
+            updatedLines.push("  ddalab:");
+            updatedLines.push("    build:");
+            updatedLines.push("      context: .");
+            updatedLines.push("      dockerfile: ./Dockerfile");
+            updatedLines.push("    image: ddalab-monolith:latest");
+            updatedLines.push("    env_file:");
+            updatedLines.push("      - ./.env");
+            updatedLines.push("    ports:");
+            updatedLines.push('      - "${WEB_PORT:-3000}:3000"');
+            updatedLines.push('      - "${DDALAB_API_PORT:-8001}:8001"');
+            updatedLines.push(
+              '      - "${DDALAB_API_PORT_METRICS:-8002}:8002"'
+            );
+            updatedLines.push("    healthcheck:");
+            updatedLines.push(
+              '      test: ["CMD", "curl", "-f", "http://localhost:3000"]'
+            );
+            updatedLines.push("      interval: 10s");
+            updatedLines.push("      timeout: 10s");
+            updatedLines.push("      retries: 10");
+            updatedLines.push("      start_period: 60s");
+            updatedLines.push("    depends_on:");
+            updatedLines.push("      postgres:");
+            updatedLines.push("        condition: service_healthy");
+            updatedLines.push("      minio:");
+            updatedLines.push("        condition: service_started");
+            updatedLines.push("      redis:");
+            updatedLines.push("        condition: service_started");
+            updatedLines.push("    networks:");
+            updatedLines.push("      - internal");
+            updatedLines.push("    labels:");
+            updatedLines.push('      - "traefik.enable=true"');
+            updatedLines.push("    restart: unless-stopped");
+            updatedLines.push("");
+          }
+          continue;
+        }
+
+        if (
+          inServiceBlock &&
+          (trimmedLine === "" || /^[a-zA-Z]/.test(trimmedLine))
+        ) {
+          inServiceBlock = false;
+        }
+
+        if (!inServiceBlock) {
+          updatedLines.push(line);
+        }
+      }
+      composeContent = updatedLines.join("\n");
+
       await fs.writeFile(composePath, composeContent, "utf-8");
-      logger.info(`Updated docker-compose.yml for Docker Hub usage`);
+      logger.info(`Updated docker-compose.yml for monolithic usage`);
     } catch (error) {
       logger.warn(`Could not update docker-compose.yml: ${error}`);
     }
@@ -705,7 +775,8 @@ services:
 
   static async cloneRepository(
     targetDir: string,
-    allowedDirsValue: string
+    allowedDirsValue: string,
+    userConfig: UserConfiguration
   ): Promise<SetupResult> {
     const mainWindow = getMainWindow();
     if (!mainWindow) {
@@ -778,26 +849,30 @@ services:
       if (DEBUG_MODE) {
         // Debug mode: build containers locally and create deployment-ready compose file
         mainWindow.webContents.send("setup-progress", {
-          message: `DEBUG MODE: Building containers from ${LOCAL_DDALAB_PATH}...`,
+          message: `DEBUG MODE: Building monolithic container from ${LOCAL_DDALAB_PATH}...`,
         });
 
         logger.info(`DEBUG MODE: Using local files from ${LOCAL_DDALAB_PATH}`);
 
-        // Build containers in the local DDALAB directory
+        // Build the monolithic container in the local DDALAB directory
         await new Promise<void>((resolve, reject) => {
-          const buildCommand = `cd "${LOCAL_DDALAB_PATH}" && docker build -t ddalab-web-debug:latest -f packages/web/Dockerfile . && docker build -t ddalab-api-debug:latest -f packages/api/Dockerfile .`;
+          const buildCommand = `cd "${LOCAL_DDALAB_PATH}" && docker build -t ddalab-monolith:latest -f Dockerfile .`;
           logger.info(`Executing build command: ${buildCommand}`);
           exec(buildCommand, (error, stdout, stderr) => {
             if (error) {
               logger.error(
-                `Error building containers: ${error.message}. Stderr: ${stderr}`
+                `Error building monolithic container: ${error.message}. Stderr: ${stderr}`
               );
               reject(
-                new Error(`Container build failed: ${stderr || error.message}`)
+                new Error(
+                  `Monolithic container build failed: ${stderr || error.message}`
+                )
               );
               return;
             }
-            logger.info(`Container build successful. Stdout: ${stdout}`);
+            logger.info(
+              `Monolithic container build successful. Stdout: ${stdout}`
+            );
             resolve();
           });
         });
@@ -814,169 +889,95 @@ services:
           originalContent.length
         );
 
-        // Instead of regex replacement, create the debug compose content by only changing the web and api services
-        // First, split the original content to extract the non-web/api services
-        const lines = originalContent.split("\n");
-        const debugComposeLines: string[] = [];
-        let skipService = false;
-        let currentService = "";
+        // Generate new docker-compose.yml for the monolithic service
+        const monolithicComposeContent = `version: '3.8'
 
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
+services:
+  ddalab:
+    image: ddalab-monolith:latest
+    env_file:
+      - ./.env
+    ports:
+      - "${userConfig.webPort || "3000"}:3000"
+      - "${userConfig.apiPort || "8001"}:8001"
+      - "${userConfig.apiPortMetrics || "8002"}:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      redis:
+        condition: service_started
+    networks:
+      - internal
+    labels:
+      - "traefik.enable=true"
+    restart: unless-stopped
 
-          // Check if this line starts a service definition
-          if (line.match(/^  \w+:$/)) {
-            const serviceName = line.replace(":", "").trim();
-            currentService = serviceName;
-            skipService = serviceName === "web" || serviceName === "api";
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${process.env.DDALAB_DB_NAME || "ddalab"}
+      POSTGRES_USER: ${process.env.DDALAB_DB_USER || "admin"}
+      POSTGRES_PASSWORD: ${process.env.DDALAB_DB_PASSWORD || "dev_password123"}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal
+    restart: unless-stopped
 
-            if (serviceName === "web") {
-              // Add debug web service
-              debugComposeLines.push("  web:");
-              debugComposeLines.push(
-                "    # DEBUG MODE: Using locally built image"
-              );
-              debugComposeLines.push("    image: ddalab-web-debug:latest");
-              debugComposeLines.push("    env_file:");
-              debugComposeLines.push("      - ./.env");
-              debugComposeLines.push("    environment:");
-              debugComposeLines.push("      # Next.js Environment Variables");
-              debugComposeLines.push(
-                "      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001}"
-              );
-              debugComposeLines.push(
-                "      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}"
-              );
-              debugComposeLines.push("      NODE_ENV: production");
-              debugComposeLines.push("      # Session Configuration");
-              debugComposeLines.push(
-                "      SESSION_EXPIRATION: ${SESSION_EXPIRATION:-10080}"
-              );
-              debugComposeLines.push(
-                "      # Debug mode to patch Next.js filter error"
-              );
-              debugComposeLines.push('      DDALAB_DEBUG_NEXTJS: "true"');
-              debugComposeLines.push("    ports:");
-              debugComposeLines.push('      - "${WEB_PORT:-3000}:3000"');
-              debugComposeLines.push("    healthcheck:");
-              debugComposeLines.push(
-                '      test: ["CMD", "curl", "-f", "http://localhost:3000"]'
-              );
-              debugComposeLines.push("      interval: 10s");
-              debugComposeLines.push("      timeout: 10s");
-              debugComposeLines.push("      retries: 10");
-              debugComposeLines.push("      start_period: 60s");
-              debugComposeLines.push("    depends_on:");
-              debugComposeLines.push("      api:");
-              debugComposeLines.push("        condition: service_healthy");
-              debugComposeLines.push("    networks:");
-              debugComposeLines.push("      - internal");
-              debugComposeLines.push("    labels:");
-              debugComposeLines.push('      - "traefik.enable=true"');
-              debugComposeLines.push("    restart: unless-stopped");
-              debugComposeLines.push("");
-              continue;
-            } else if (serviceName === "api") {
-              // Add debug api service
-              debugComposeLines.push("  api:");
-              debugComposeLines.push(
-                "    # DEBUG MODE: Using locally built image"
-              );
-              debugComposeLines.push("    image: ddalab-api-debug:latest");
-              debugComposeLines.push("    platform: linux/amd64");
-              debugComposeLines.push("    healthcheck:");
-              debugComposeLines.push(
-                '      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]'
-              );
-              debugComposeLines.push("      interval: 5s");
-              debugComposeLines.push("      timeout: 3s");
-              debugComposeLines.push("      retries: 5");
-              debugComposeLines.push("    expose:");
-              debugComposeLines.push('      - "8001"');
-              debugComposeLines.push('      - "8002"');
-              debugComposeLines.push("    env_file:");
-              debugComposeLines.push("      - ./.env");
-              debugComposeLines.push("    environment:");
-              debugComposeLines.push('      DDALAB_MINIO_HOST: "minio:9000"');
-              debugComposeLines.push(
-                "      DDALAB_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}"
-              );
-              debugComposeLines.push(
-                "      DDALAB_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}"
-              );
-              debugComposeLines.push(
-                '      DDALAB_MINIO_BUCKET_NAME: "dda-results"'
-              );
-              debugComposeLines.push(
-                "      DDALAB_ALLOWED_DIRS: ${DDALAB_ALLOWED_DIRS}"
-              );
-              debugComposeLines.push(
-                "      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus"
-              );
-              debugComposeLines.push("      DDALAB_REDIS_HOST: redis");
-              debugComposeLines.push("      DDALAB_REDIS_PORT: 6379");
-              debugComposeLines.push("      DDALAB_REDIS_DB: 0");
-              debugComposeLines.push(
-                "      DDALAB_REDIS_PASSWORD: ${DDALAB_REDIS_PASSWORD:-}"
-              );
-              debugComposeLines.push(
-                "      DDALAB_REDIS_USE_SSL: ${DDALAB_REDIS_USE_SSL:-False}"
-              );
-              debugComposeLines.push(
-                "      DDALAB_PLOT_CACHE_TTL: ${DDALAB_PLOT_CACHE_TTL:-3600}"
-              );
-              debugComposeLines.push("      DDALAB_OTLP_HOST: jaeger");
-              debugComposeLines.push("    volumes:");
-              debugComposeLines.push("      - type: bind");
-              debugComposeLines.push("        source: ./prometheus-metrics");
-              debugComposeLines.push("        target: /tmp/prometheus");
-              debugComposeLines.push("      - type: bind");
-              debugComposeLines.push(
-                "        source: ${DDALAB_DATA_DIR:-./data}"
-              );
-              debugComposeLines.push("        target: /app/data");
-              debugComposeLines.push("    depends_on:");
-              debugComposeLines.push("      postgres:");
-              debugComposeLines.push("        condition: service_healthy");
-              debugComposeLines.push("      minio:");
-              debugComposeLines.push("        condition: service_started");
-              debugComposeLines.push("      redis:");
-              debugComposeLines.push("        condition: service_started");
-              debugComposeLines.push("    networks:");
-              debugComposeLines.push("      - internal");
-              debugComposeLines.push("    labels:");
-              debugComposeLines.push('      - "traefik.enable=true"');
-              debugComposeLines.push("    restart: unless-stopped");
-              debugComposeLines.push("");
-              continue;
-            }
-          }
+  minio:
+    image: quay.io/minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: ${process.env.MINIO_ROOT_USER || "admin"}
+      MINIO_ROOT_PASSWORD: ${process.env.MINIO_ROOT_PASSWORD || "dev_password123"}
+      MINIO_SERVER_URL: http://localhost:9000 # For internal use only
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - internal
+    restart: unless-stopped
 
-          // Check if we're starting a new top-level section (volumes, networks)
-          if (line.match(/^[a-zA-Z]/)) {
-            skipService = false;
-            currentService = "";
-          }
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - internal
+    restart: unless-stopped
 
-          // Add line if we're not skipping this service
-          if (!skipService) {
-            debugComposeLines.push(line);
-          }
-        }
+networks:
+  internal:
+    driver: bridge
 
-        const composeContent = debugComposeLines.join("\n");
-        await fs.writeFile(targetPath, composeContent);
+volumes:
+  postgres_data:
+  minio_data:
+  prometheus_data:
+`;
+
+        await fs.writeFile(targetPath, monolithicComposeContent);
         logger.info(
-          `Debug docker-compose.yml saved to ${targetPath}, final length: ${composeContent.length}`
+          `Debug docker-compose.yml saved to ${targetPath}, final length: ${monolithicComposeContent.length}`
         );
 
         // Copy all essential files
-        const filesToCopy = [
-          "traefik.yml",
-          ".env.example",
-          "prometheus.yml",
-          "acme.json",
-        ];
+        const filesToCopy = ["traefik.yml", "prometheus.yml", "acme.json"];
 
         for (const file of filesToCopy) {
           const sourceFile = path.join(LOCAL_DDALAB_PATH, file);
@@ -1043,8 +1044,8 @@ services:
         });
       }
 
-      // Fix Docker Compose file syntax errors after cloning
-      await this.fixDockerComposeFile(targetDir);
+      // No longer need to fix Docker Compose file syntax errors after cloning
+      // await this.fixDockerComposeFile(targetDir);
 
       return {
         success: true,

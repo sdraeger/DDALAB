@@ -103,11 +103,11 @@ export function useModernDashboard(
 
   // Load initial layout
   useEffect(() => {
-    if (!hasInitialized.current) {
+    if (!hasInitialized.current && (authToken || !isMultiUserMode)) {
       hasInitialized.current = true;
       loadLayout();
     }
-  }, []);
+  }, [authToken, isMultiUserMode]);
 
   const loadLayout = useCallback(async () => {
     // In local mode, always work with local storage

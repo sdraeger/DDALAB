@@ -16,6 +16,10 @@
     "./lib/utils/logger": {
       "import": "./dist/lib/utils/logger.js",
       "types": "./dist/lib/utils/logger.d.ts"
+    },
+    "./lib/utils/misc": {
+      "import": "./dist/lib/utils/misc.js",
+      "types": "./dist/lib/utils/misc.d.ts"
     }
   },
   "scripts": {

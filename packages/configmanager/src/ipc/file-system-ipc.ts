@@ -1,5 +1,6 @@
 import { ipcMain, IpcMainInvokeEvent } from "electron";
 import fs from "fs";
+import { app } from "electron";
 
 export function registerFileSystemIpcHandlers(): void {
   ipcMain.handle(
@@ -91,4 +92,8 @@ export function registerFileSystemIpcHandlers(): void {
       }
     }
   );
+
+  ipcMain.handle("get-user-data-path", async () => {
+    return app.getPath("userData");
+  });
 }

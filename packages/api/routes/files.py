@@ -4,17 +4,43 @@ import shutil
 from pathlib import Path
 
 from core.auth import get_current_user
-from core.config import get_data_settings
 from core.dependencies import get_service
 from core.services import FavoriteFilesService, FileService
 from core.utils import calculate_file_hash, is_path_allowed
+from core.environment import get_config_service
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from loguru import logger
 from schemas.files import FileListResponse, FileUploadResponse
 from schemas.user import User
 
 router = APIRouter()
-settings = get_data_settings()
+
+
+@router.get("/roots")
+async def get_allowed_roots():
+    """Return the list of allowed root directories (relative to the data directory)."""
+    storage_settings = get_config_service().get_storage_settings()
+    data_dir = Path(storage_settings.data_dir).resolve()
+
+    roots: list[dict] = []
+    for raw_path in storage_settings.allowed_dirs:
+        try:
+            abs_path = Path(raw_path).resolve()
+            rel_path = str(abs_path.relative_to(data_dir))
+            name = abs_path.name
+            roots.append(
+                {
+                    "name": name,
+                    "relative_path": rel_path,
+                }
+            )
+        except Exception:
+            # Skip paths not under data_dir
+            continue
+
+    roots = sorted(roots, key=lambda r: r["name"].lower())
+    default_relative_path = roots[0]["relative_path"] if roots else ""
+    return {"roots": roots, "default_relative_path": default_relative_path}
 
 
 @router.get("/{file_path:path}/exists")
@@ -60,7 +86,7 @@ async def get_file_hash(
 
 @router.get("/list", response_model=FileListResponse)
 async def list_directory(
-    path: str = "/",
+    path: str = "",
     user: User = Depends(get_current_user),
     file_service: FileService = Depends(get_service(FileService)),
     favorite_files_service: FavoriteFilesService = Depends(
@@ -79,6 +105,12 @@ async def list_directory(
         List of files and directories
     """
     try:
+        if not path or path == "/":
+            raise HTTPException(
+                status_code=403,
+                detail="Root listing is not allowed; provide a relative subdirectory under the allowed roots",
+            )
+
         items = await file_service.list_directory(path)
         favorite_files = []
 
@@ -88,10 +120,20 @@ async def list_directory(
         except Exception as e:
             logger.error(f"Error fetching favorite files: {e}")
 
+        storage_settings = get_config_service().get_storage_settings()
+        data_dir = Path(storage_settings.data_dir).resolve()
+
         file_info_list = []
         for item in items:
+            # Convert absolute container path to relative path under data_dir
+            try:
+                relative_path = str(Path(item.path).resolve().relative_to(data_dir))
+            except Exception:
+                # If not under data_dir, skip (should not happen with proper mounts)
+                continue
             is_favorite = item.path in favorite_files
             file_info = item
+            file_info.path = relative_path
             file_info.is_favorite = is_favorite
             file_info_list.append(file_info)
 

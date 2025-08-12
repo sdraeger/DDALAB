@@ -1,5 +1,5 @@
 import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
-import { apiRequest, ApiRequestOptions } from "../../lib/utils/request";
+import { get, put } from "../../lib/utils/request";
 import { EdfFileInfo } from "../../lib/schemas/edf";
 import { Annotation } from "../../types/annotation";
 import { EEGData } from "../../types/EEGData";
@@ -152,15 +152,9 @@ export const initializePlot = createAsyncThunk(
       }
 
       logger.info(`[Thunk] Initializing plot for: ${filePath}`);
-      const infoRequestOptions: ApiRequestOptions & { responseType: "json" } = {
-        url: `/api/edf/info?file_path=${encodeURIComponent(filePath)}`,
-        method: "GET",
-        token,
-        responseType: "json",
-        contentType: "application/json",
-      };
-
-      const fileInfo = await apiRequest<EdfFileInfo>(infoRequestOptions);
+      const fileInfo = await get<EdfFileInfo>(
+        `/api/edf/info?file_path=${encodeURIComponent(filePath)}`
+      );
       if (!fileInfo) {
         throw new Error(
           "Failed to fetch file info (response was null/undefined)"
@@ -261,16 +255,17 @@ export const loadChunk = createAsyncThunk(
         }`
       );
 
-      // Use REST API to fetch EDF data (fallback from GraphQL)
-      const edfDataRequestOptions: ApiRequestOptions & { responseType: "json" } = {
-        url: `/api/edf/data?file_path=${encodeURIComponent(filePath)}&chunk_start=${chunkStartSample}&chunk_size=${chunkSizeInSamples}`,
-        method: "GET",
-        token,
-        responseType: "json",
-        contentType: "application/json",
-      };
-
-      const rawEdfData = await apiRequest<any>(edfDataRequestOptions);
+      // Use REST API to fetch EDF data, pass preprocessing options when provided
+      const preprocessingQuery = preprocessingOptions
+        ? `&preprocessing_options=${encodeURIComponent(
+            JSON.stringify(preprocessingOptions)
+          )}`
+        : "";
+      const rawEdfData = await get<any>(
+        `/api/edf/data?file_path=${encodeURIComponent(
+          filePath
+        )}&chunk_start=${chunkStartSample}&chunk_size=${chunkSizeInSamples}${preprocessingQuery}`
+      );
 
       if (!rawEdfData) {
         throw new Error("No data returned from REST API");
@@ -282,7 +277,7 @@ export const loadChunk = createAsyncThunk(
         hasSamplingFrequency: !!rawEdfData.sampling_frequency,
         dataStructure: typeof rawEdfData.data,
         channelCount: rawEdfData.channel_labels?.length,
-        sampleCount: rawEdfData.data?.[0]?.length
+        sampleCount: rawEdfData.data?.[0]?.length,
       });
 
       // Update progress as we process the data
@@ -297,28 +292,39 @@ export const loadChunk = createAsyncThunk(
       // Transform REST API response to EEGData format
       const eegData: EEGData = {
         channels: rawEdfData.channel_labels || rawEdfData.channelLabels || [],
-        sampleRate: rawEdfData.sampling_frequency || rawEdfData.samplingFrequency || 256,
+        sampleRate:
+          rawEdfData.sampling_frequency || rawEdfData.samplingFrequency || 256,
         data: rawEdfData.data || [],
         startTime: new Date().toISOString(), // Convert to ISO string for Redux serialization
         duration: rawEdfData.chunk_size
-          ? rawEdfData.chunk_size / (rawEdfData.sampling_frequency || rawEdfData.samplingFrequency || 256)
+          ? rawEdfData.chunk_size /
+            (rawEdfData.sampling_frequency ||
+              rawEdfData.samplingFrequency ||
+              256)
           : chunkSizeSeconds,
         samplesPerChannel: rawEdfData.data?.[0]?.length || 0,
         totalSamples: rawEdfData.total_samples || rawEdfData.totalSamples || 0,
-        chunkSize: rawEdfData.chunk_size || rawEdfData.chunkSize || chunkSizeInSamples,
-        chunkStart: rawEdfData.chunk_start || rawEdfData.chunkStart || chunkStartSample,
+        chunkSize:
+          rawEdfData.chunk_size || rawEdfData.chunkSize || chunkSizeInSamples,
+        chunkStart:
+          rawEdfData.chunk_start || rawEdfData.chunkStart || chunkStartSample,
         absoluteStartTime: 0,
         annotations: [],
       };
 
       // Add comprehensive debugging to understand the data structure
       logger.info(`[Thunk] Raw EDF data structure:`, {
-        hasChannelLabels: !!(rawEdfData.channel_labels || rawEdfData.channelLabels),
-        channelLabelsLength: (rawEdfData.channel_labels || rawEdfData.channelLabels)?.length,
+        hasChannelLabels: !!(
+          rawEdfData.channel_labels || rawEdfData.channelLabels
+        ),
+        channelLabelsLength: (
+          rawEdfData.channel_labels || rawEdfData.channelLabels
+        )?.length,
         hasData: !!rawEdfData.data,
         dataLength: rawEdfData.data?.length,
         firstChannelDataLength: rawEdfData.data?.[0]?.length,
-        samplingFrequency: rawEdfData.sampling_frequency || rawEdfData.samplingFrequency,
+        samplingFrequency:
+          rawEdfData.sampling_frequency || rawEdfData.samplingFrequency,
         chunkSize: rawEdfData.chunk_size || rawEdfData.chunkSize,
         totalSamples: rawEdfData.total_samples || rawEdfData.totalSamples,
         // Add more detailed data inspection
@@ -412,28 +418,15 @@ export const fetchDdaHeatmapData = createAsyncThunk(
     }
     logger.info(`[Thunk] Fetching DDA heatmap data for: ${filePath}`);
     // Example using apiRequest, adjust as needed
-    const heatmapRequestOptions: ApiRequestOptions & { responseType: "json" } =
-      {
-        url: `/api/dda/heatmap?file_path=${encodeURIComponent(filePath)}`, // Example URL
-        method: "GET", // or POST with body
-        token,
-        responseType: "json",
-        // body: { taskId, Q_value, ... } // if POST
-      };
-    try {
-      const heatmapData = await apiRequest<any[]>(heatmapRequestOptions); // Define a specific type for heatmapData
-      if (!heatmapData) {
-        return rejectWithValue(
-          "Failed to fetch DDA heatmap data (response was null/undefined)"
-        );
-      }
-      return { filePath, heatmapData };
-    } catch (error: any) {
-      logger.error("[Thunk] Error fetching DDA heatmap data:", error);
+    const heatmapData = await get<any[]>(
+      `/api/dda/heatmap?file_path=${encodeURIComponent(filePath)}`
+    ); // Define a specific type for heatmapData
+    if (!heatmapData) {
       return rejectWithValue(
-        error.message || "Could not load DDA heatmap data."
+        "Failed to fetch DDA heatmap data (response was null/undefined)"
       );
     }
+    return { filePath, heatmapData };
   }
 );
 
@@ -648,6 +641,91 @@ const plotsSlice = createSlice({
       state.byFilePath = {};
       state.currentFilePath = null;
     },
+    // Restore plot state from popout data transfer
+    restorePlotState: (
+      state,
+      action: PayloadAction<{ filePath: string; plotState: PlotState }>
+    ) => {
+      const { filePath, plotState } = action.payload;
+      const normalizedFilePath = normalizeFilePath(filePath);
+
+      // Ensure plot state exists
+      if (!state.byFilePath[normalizedFilePath]) {
+        state.byFilePath[normalizedFilePath] = { ...initialPlotState };
+      }
+
+      // Restore the plot state
+      state.byFilePath[normalizedFilePath] = {
+        ...state.byFilePath[normalizedFilePath],
+        ...plotState,
+      };
+
+      console.log("[plotSlice] Restored plot state for:", normalizedFilePath);
+    },
+    // Sync reducer for popout window synchronization
+    syncFromRemote: (state, action: PayloadAction<PlotsState>) => {
+      const incomingState = action.payload;
+
+      // Validate incoming state structure
+      if (!incomingState || typeof incomingState.byFilePath !== "object") {
+        console.warn("[PlotSync] Invalid plots state received, ignoring sync");
+        return;
+      }
+
+      // Selective merge strategy - only update specific fields to avoid overwriting local UI state
+      state.currentFilePath = incomingState.currentFilePath;
+
+      // Merge plot states selectively
+      Object.entries(incomingState.byFilePath).forEach(
+        ([filePath, incomingPlot]) => {
+          const existingPlot = state.byFilePath[filePath];
+
+          if (!existingPlot) {
+            // New plot - add it completely
+            state.byFilePath[filePath] = incomingPlot;
+            console.debug(`[PlotSync] Added new plot state for: ${filePath}`);
+          } else {
+            // Existing plot - merge selectively
+            const updatedPlot = {
+              ...existingPlot,
+              // Sync data-related fields
+              metadata: incomingPlot.metadata,
+              edfData: incomingPlot.edfData,
+              ddaResults: incomingPlot.ddaResults,
+              ddaHeatmapData: incomingPlot.ddaHeatmapData,
+              annotations: incomingPlot.annotations,
+              preprocessingOptions: incomingPlot.preprocessingOptions,
+
+              // Sync display settings
+              selectedChannels: incomingPlot.selectedChannels,
+              timeWindow: incomingPlot.timeWindow,
+              absoluteTimeWindow: incomingPlot.absoluteTimeWindow,
+              zoomLevel: incomingPlot.zoomLevel,
+              showHeatmap: incomingPlot.showHeatmap,
+
+              // Sync chunking state
+              chunkSizeSeconds: incomingPlot.chunkSizeSeconds,
+              currentChunkNumber: incomingPlot.currentChunkNumber,
+              totalChunks: incomingPlot.totalChunks,
+              chunkStart: incomingPlot.chunkStart,
+
+              // Keep local UI state (don't sync these)
+              showSettingsDialog: existingPlot.showSettingsDialog,
+              showZoomSettingsDialog: existingPlot.showZoomSettingsDialog,
+
+              // Sync loading states but be careful about race conditions
+              isLoading: incomingPlot.isLoading,
+              isMetadataLoading: incomingPlot.isMetadataLoading,
+              isHeatmapProcessing: incomingPlot.isHeatmapProcessing,
+              error: incomingPlot.error,
+            };
+
+            state.byFilePath[filePath] = updatedPlot;
+            console.debug(`[PlotSync] Updated plot state for: ${filePath}`);
+          }
+        }
+      );
+    },
   },
   extraReducers: (builder) => {
     // Initialize Plot
@@ -828,6 +906,7 @@ export const {
   setShowSettingsDialog,
   cleanupPlotState,
   clearAllPlots,
+  restorePlotState,
 } = plotsSlice.actions;
 
 export default plotsSlice.reducer;

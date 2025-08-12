@@ -6,6 +6,7 @@ import numpy as np
 from core.edf.edf_file import EDFFile
 from loguru import logger
 from pyedflib import FILETYPE_EDF, EdfReader
+from scipy import signal
 
 
 def read_edf_chunk_cached(
@@ -68,9 +69,17 @@ def _read_signal_parallel(args):
                 signal_idx, effective_chunk_start, signal_length
             )
 
-        # Apply preprocessing if requested
+        # Apply preprocessing if requested (attach sampling rate for filters)
         if preprocessing_options:
-            signal_data = apply_preprocessing(signal_data, preprocessing_options)
+            try:
+                options_with_fs = dict(preprocessing_options)
+            except Exception:
+                options_with_fs = {"__raw": preprocessing_options}
+            try:
+                options_with_fs["sampling_rate"] = reader.getSampleFrequency(signal_idx)
+            except Exception:
+                pass
+            signal_data = apply_preprocessing(signal_data, options_with_fs)
 
         return signal_idx, EDFFile.Signal(
             data=signal_data,
@@ -245,6 +254,36 @@ def apply_preprocessing(data: np.ndarray, options: Dict) -> np.ndarray:
         # Simple moving average
         kernel = np.ones(window_size) / window_size
         processed_data = np.convolve(processed_data, kernel, mode="same")
+
+    # Frequency-domain filters and detrending
+    try:
+        sampling_rate = float(options.get("sampling_rate", 256))
+        nyquist = max(1e-6, sampling_rate / 2.0)
+
+        if options.get("lowpassFilter"):
+            wn = min(max(40.0 / nyquist, 1e-6), 0.999)
+            b, a = signal.butter(4, wn, btype="low")
+            processed_data = signal.filtfilt(b, a, processed_data)
+
+        if options.get("highpassFilter"):
+            wn = min(max(0.5 / nyquist, 1e-6), 0.999)
+            b, a = signal.butter(4, wn, btype="high")
+            processed_data = signal.filtfilt(b, a, processed_data)
+
+        notch_freq = options.get("notchFilter")
+        if notch_freq:
+            try:
+                notch_freq = float(notch_freq)
+                b, a = signal.iirnotch(notch_freq, 30.0, sampling_rate)
+                processed_data = signal.filtfilt(b, a, processed_data)
+            except Exception:
+                pass
+
+        if options.get("detrend"):
+            processed_data = signal.detrend(processed_data)
+    except Exception:
+        # Filtering errors should not crash processing
+        pass
 
     # Apply normalization
     normalization = options.get("normalization", "none")

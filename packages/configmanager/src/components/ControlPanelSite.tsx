@@ -74,14 +74,12 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
   }, [electronAPI, userSelections.cloneLocation, addErrorLog]);
 
   const handleStartDDALAB = async () => {
-    if (!electronAPI || !electronAPI.startDockerCompose) return;
-
-    // Transition state machine to starting state
+    if (!electronAPI || !electronAPI.startMonolithicDocker) return;
     startDocker();
     addActionLog("Attempting to start DDALAB services...");
 
     try {
-      const result = await electronAPI.startDockerCompose();
+      const result = await electronAPI.startMonolithicDocker();
       console.log("[ControlPanelSite] Start result:", result);
       if (!result) {
         addErrorLog("Start operation failed");
@@ -117,9 +115,9 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
         : "window.electronAPI is null/undefined"
     );
 
-    if (!electronAPI || !electronAPI.stopDockerCompose) {
+    if (!electronAPI || !electronAPI.stopMonolithicDocker) {
       console.error(
-        "[ControlPanelSite] electronAPI or stopDockerCompose not available"
+        "[ControlPanelSite] electronAPI or stopMonolithicDocker not available"
       );
       return;
     }
@@ -129,7 +127,7 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
     addActionLog("Attempting to stop DDALAB services...");
 
     try {
-      const result = await electronAPI.stopDockerCompose();
+      const result = await electronAPI.stopMonolithicDocker(false);
 
       if (!result) {
         addErrorLog("Stop operation failed");

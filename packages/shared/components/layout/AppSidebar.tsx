@@ -46,7 +46,7 @@ import { useUnifiedSession, useUnifiedLogout } from "../../hooks/useUnifiedSessi
 import { ModeToggle } from "../ModeToggle";
 import { HelpButton } from "../ui/help-button";
 import { OpenPlotsIndicator } from "../ui/open-plots-indicator";
-import { useAppSettings } from "../../lib/state/examples/DashboardStateExample";
+// import { useAppSettings } from "../../lib/state/examples/DashboardStateExample"; // Removed - file deleted
 
 const mainNavigationItems = [
 	{
@@ -99,9 +99,11 @@ export function AppSidebar({ className }: AppSidebarProps) {
 	const { state } = useSidebar();
 	const isLoggedIn = !!user;
 	const isLoading = status === "loading";
-	
-	// Use centralized state for sidebar preferences
-	const { sidebarCollapsed, toggleSidebar } = useAppSettings();
+
+	// Use centralized state for sidebar preferences - temporarily disabled
+	// const { sidebarCollapsed, toggleSidebar } = useAppSettings();
+	const sidebarCollapsed = false;
+	const toggleSidebar = () => { };
 
 	const { logout } = useUnifiedLogout();
 

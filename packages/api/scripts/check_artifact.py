@@ -3,18 +3,18 @@
 import asyncio
 import sys
 
-from core.config import get_server_settings
+from core.environment import get_config_service
 from core.models import Artifact
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-settings = get_server_settings()
+db_settings = get_config_service().get_database_settings()
 
 # Database connection
 engine = create_async_engine(
-    f"postgresql+asyncpg://{settings.db_user}:{settings.db_password}"
-    f"@{settings.db_host}:{settings.db_port}/{settings.db_name}"
+    f"postgresql+asyncpg://{db_settings.db_user}:{db_settings.db_password}"
+    f"@{db_settings.db_host}:{db_settings.db_port}/{db_settings.db_name}"
 )
 
 

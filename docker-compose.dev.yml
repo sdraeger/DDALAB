@@ -25,19 +25,11 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: ${DDALAB_DB_USER}
-      POSTGRES_PASSWORD: ${DDALAB_DB_PASSWORD}
-      POSTGRES_DB: ${DDALAB_DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     healthcheck:
-      test:
-        [
-          "CMD",
-          "pg_isready",
-          "-U",
-          "${DDALAB_DB_USER}",
-          "-d",
-          "${DDALAB_DB_NAME}",
-        ]
+      test: ["CMD", "pg_isready", "-U", "${DB_USER}", "-d", "${DB_NAME}"]
       interval: 5s
       timeout: 3s
       retries: 10

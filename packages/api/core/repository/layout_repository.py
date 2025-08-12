@@ -12,18 +12,21 @@ class LayoutRepository(BaseRepository[UserLayout]):
     def __init__(self, db: AsyncSession):
         super().__init__(db, UserLayout)
 
-    async def get_by_user_id(self, user_id: int):
-        """Get all layouts for a user."""
-        return await self.get_by_field("user_id", user_id)
+    async def get_by_user_id(self, user_id: int) -> UserLayout | None:
+        """Get a single layout for a user (there should be at most one)."""
+        result = await self.db.execute(
+            select(UserLayout).filter(UserLayout.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
 
     async def create_or_update_layout(
-        self, user_id: int, layout_data: list
+        self, user_id: int, layout_data: dict
     ) -> UserLayout:
         """Create or update a layout for a user.
 
         Args:
             user_id: The user ID
-            layout_data: List of layout items
+            layout_data: Dictionary containing layout and widgets
 
         Returns:
             The created or updated layout

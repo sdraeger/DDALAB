@@ -52,7 +52,7 @@ const nextConfig = {
     //               if (filename.endsWith('.js')) {
     //                 const asset = assets[filename];
     //                 let source = asset.source();
-                    
+
     //                 if (typeof source === 'string' && source.includes('createClientModuleProxy')) {
     //                   // Add createClientModuleProxy polyfill at the top
     //                   const polyfill = `
@@ -62,15 +62,15 @@ const nextConfig = {
     //   };
     // }
     // `;
-                      
+
     //                   // Replace problematic patterns
     //                   source = source.replace(
     //                     /(\w+)\.createClientModuleProxy\s*\(/g,
     //                     '(($1 && $1.createClientModuleProxy) || createClientModuleProxy)('
     //                   );
-                      
+
     //                   const newSource = polyfill + source;
-                      
+
     //                   compilation.updateAsset(filename, {
     //                     source: () => newSource,
     //                     size: () => newSource.length

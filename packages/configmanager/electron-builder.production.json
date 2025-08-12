@@ -17,7 +17,11 @@
 		"region": "us-east-1",
 		"channel": "latest",
 		"path": "production",
-		"acl": null
+		"acl": null,
+		"storageClass": "STANDARD",
+		"requestHeaders": {
+			"Cache-Control": "max-age=86400"
+		}
 	},
 	"mac": {
 		"target": [
@@ -36,7 +40,6 @@
 		"entitlements": "entitlements.mac.plist",
 		"entitlementsInherit": "entitlements.mac.plist",
 		"type": "distribution",
-		"icon": "build/icon.icns",
 		"notarize": {
 			"teamId": "YOUR_TEAM_ID",
 			"appleId": "your-apple-id@domain.com",
@@ -53,7 +56,6 @@
 				]
 			}
 		],
-		"icon": "build/icon.ico",
 		"artifactName": "DDALAB-ConfigManager-${version}-${arch}.${ext}",
 		"certificateFile": "win-certificate.pfx",
 		"certificatePassword": "${env.WIN_CERT_PASSWORD}",
@@ -98,8 +100,6 @@
 				]
 			}
 		],
-		"icon": "build/icon.png",
-		"artifactName": "DDALAB-ConfigManager-${version}-${arch}.${ext}",
 		"category": "Development",
 		"maintainer": "DDALAB Team",
 		"vendor": "DDALAB",
@@ -112,15 +112,10 @@
 		"allowToChangeInstallationDirectory": true,
 		"createDesktopShortcut": true,
 		"createStartMenuShortcut": true,
-		"perMachine": false,
-		"installerIcon": "build/icon.ico",
-		"uninstallerIcon": "build/icon.ico",
-		"installerHeaderIcon": "build/icon.ico",
-		"deleteAppDataOnUninstall": true
+		"perMachine": false
 	},
 	"dmg": {
 		"title": "DDALAB ConfigManager",
-		"icon": "build/icon.icns",
 		"background": "build/dmg-background.png",
 		"window": {
 			"width": 540,

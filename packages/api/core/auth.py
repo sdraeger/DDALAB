@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from core.config import get_server_settings
+from core.environment import get_config_service
 from core.dependencies import get_service
 from core.models import User
 from core.security import verify_password
@@ -47,9 +47,9 @@ async def get_current_user(
     request: Request,
     user_service: UserService = Depends(get_service(UserService)),
 ) -> User:
-    settings = get_server_settings()
+    auth_settings = get_config_service().get_auth_settings()
     # Check if we're in local mode and user is already injected by middleware
-    if settings.auth_mode == "local":
+    if auth_settings.auth_mode == "local":
         if hasattr(request.state, "current_user") and request.state.current_user:
             logger.debug(
                 f"Local mode: Using injected user '{request.state.current_user.username}'"
@@ -68,7 +68,9 @@ async def get_current_user(
 
     try:
         payload = jwt.decode(
-            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+            token,
+            auth_settings.jwt_secret_key,
+            algorithms=[auth_settings.jwt_algorithm],
         )
         username = payload.get("sub")
 
@@ -114,8 +116,8 @@ async def get_local_user(request: Request) -> User:
     Raises:
         HTTPException: If not in local mode or user not available
     """
-    settings = get_server_settings()
-    if settings.auth_mode != "local":
+    auth_settings = get_config_service().get_auth_settings()
+    if auth_settings.auth_mode != "local":
         raise HTTPException(
             status_code=400,
             detail="Local mode user only available in local authentication mode",
@@ -197,9 +199,9 @@ def _decode_jwt_token(token: str) -> dict:
     Returns:
         dict: Decoded JWT payload
     """
-    settings = get_server_settings()
+    auth_settings = get_config_service().get_auth_settings()
     return jwt.decode(
-        token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+        token, auth_settings.jwt_secret_key, algorithms=[auth_settings.jwt_algorithm]
     )
 
 
@@ -281,17 +283,18 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
     to_encode = data.copy()
 
+    auth_settings = get_config_service().get_auth_settings()
     expire = datetime.now(timezone.utc) + (
         expires_delta
         if expires_delta
-        else timedelta(minutes=get_server_settings().token_expiration_minutes)
+        else timedelta(minutes=auth_settings.token_expiration_minutes)
     )
 
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(
         to_encode,
-        get_server_settings().jwt_secret_key,
-        algorithm=get_server_settings().jwt_algorithm,
+        auth_settings.jwt_secret_key,
+        algorithm=auth_settings.jwt_algorithm,
     )
     return encoded_jwt
 

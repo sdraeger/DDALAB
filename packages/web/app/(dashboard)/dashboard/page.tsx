@@ -21,7 +21,7 @@ import {
   setSelectedChannels,
   clearAllPlots,
 } from "shared/store/slices/plotSlice";
-import { apiRequest } from "shared/lib/utils/request";
+import { post } from "shared/lib/utils/request";
 import { DashboardStateManager } from "shared/components/ui/dashboard-state-manager";
 import { useSelector } from "react-redux";
 import {
@@ -36,10 +36,89 @@ import {
   DashboardStateIntegration,
   useDashboardStateBridge,
 } from "shared/components/state/DashboardStateIntegration";
-import { DashboardWidget } from "shared/lib/state/examples/DashboardStateExample";
+// import { DashboardWidget } from "shared/lib/state/examples/DashboardStateExample"; // Removed - file deleted
+// Using DashboardWidget type from DashboardStateIntegration instead
+type DashboardWidget = {
+  id: string;
+  type: string;
+  position: { x: number; y: number };
+  size: { width: number; height: number };
+  title: string;
+  isPopOut: boolean;
+};
 import { ChartWidget } from "shared/components/dashboard/widgets/ChartWidget";
 import { DDAHeatmapWidget } from "shared/components/dashboard/widgets/DDAHeatmapWidget";
 import { DDALinePlotWidget } from "shared/components/dashboard/widgets/DDALinePlotWidget";
+import { DDAWidget } from "shared/components/dashboard/widgets/DDAWidget";
+
+// Data compression utility for large EDF datasets
+async function compressWidgetData(data: any): Promise<any> {
+  try {
+    // Create a compressed version of the data
+    const compressed = {
+      ...data,
+      _compressed: true,
+      _timestamp: Date.now(),
+    };
+
+    // Handle EDF data compression
+    if (data.plotsState?.byFilePath) {
+      compressed.plotsState = {
+        ...data.plotsState,
+        byFilePath: {},
+      };
+
+      // Compress each plot's EDF data
+      Object.entries(data.plotsState.byFilePath).forEach(
+        ([filePath, plotState]: [string, any]) => {
+          if (plotState.edfData) {
+            // Store essential metadata but compress actual data
+            compressed.plotsState.byFilePath[filePath] = {
+              ...plotState,
+              edfData: {
+                // Essential metadata
+                channels: plotState.edfData.channels,
+                sampleRate: plotState.edfData.sampleRate,
+                duration: plotState.edfData.duration,
+                samplesPerChannel: plotState.edfData.samplesPerChannel,
+                startTime: plotState.edfData.startTime,
+                annotations: plotState.edfData.annotations,
+
+                // Compressed data indicator
+                _compressed: true,
+                _originalDataSize: plotState.edfData.data?.length || 0,
+                _hasData: !!plotState.edfData.data,
+
+                // Store a sample of data for immediate display (first 1000 samples per channel)
+                _sampleData: plotState.edfData.data
+                  ? plotState.edfData.data.map((channelData: number[]) =>
+                    channelData.slice(0, 1000)
+                  )
+                  : null,
+              },
+            };
+          } else {
+            compressed.plotsState.byFilePath[filePath] = plotState;
+          }
+        }
+      );
+    }
+
+    // Calculate compressed size
+    const compressedSize = JSON.stringify(compressed).length;
+    const originalSize = JSON.stringify(data).length;
+
+    console.log(
+      `[Data Compression] Original: ${originalSize} bytes, Compressed: ${compressedSize} bytes, Ratio: ${((compressedSize / originalSize) * 100).toFixed(1)}%`
+    );
+
+    return compressed;
+  } catch (error) {
+    console.error("Error compressing widget data:", error);
+    // Return original data if compression fails
+    return data;
+  }
+}
 
 interface Segment {
   start: { days: number; hours: number; minutes: number; seconds: number };
@@ -274,13 +353,11 @@ export default function Dashboard() {
 
         if (needsSegmenting) {
           console.log("[handleDialogConfirm] segmenting file");
-          filePath = await apiRequest<string>({
-            url: `/api/edf/segment?file_path=${encodeURIComponent(filePath)}`,
-            method: "POST",
-            token,
-            body: processedSegment,
-            responseType: "json",
-          });
+          filePath = await post<string>(
+            `/api/edf/segment?file_path=${encodeURIComponent(filePath)}`,
+            processedSegment,
+            token
+          );
 
           // After segmenting, initialize plot for the new filePath
           if (filePath) {
@@ -369,16 +446,16 @@ export default function Dashboard() {
                 finalState.plots.byFilePath?.[filePath]?.selectedChannels,
               edfDataStructure: finalState.plots.byFilePath?.[filePath]?.edfData
                 ? {
-                    channels:
-                      finalState.plots.byFilePath?.[filePath]?.edfData?.channels
-                        ?.length,
-                    dataLength:
-                      finalState.plots.byFilePath?.[filePath]?.edfData?.data
-                        ?.length,
-                    sampleRate:
-                      finalState.plots.byFilePath?.[filePath]?.edfData
-                        ?.sampleRate,
-                  }
+                  channels:
+                    finalState.plots.byFilePath?.[filePath]?.edfData?.channels
+                      ?.length,
+                  dataLength:
+                    finalState.plots.byFilePath?.[filePath]?.edfData?.data
+                      ?.length,
+                  sampleRate:
+                    finalState.plots.byFilePath?.[filePath]?.edfData
+                      ?.sampleRate,
+                }
                 : "No EDF data",
             });
           }
@@ -417,6 +494,9 @@ export default function Dashboard() {
   const isLoading = dashboardState.isLayoutLoading;
   const isSaving = false; // Auto-saving is handled by centralized state
 
+  // Remove the problematic loading overlay - just use the basic loading state
+  const isActuallyLoading = false; // Disabled the infinite loading overlay
+
   // Widget management functions using centralized state
   const addWidget = (widget: any) => {
     // DashboardToolbar passes a Widget object, we need to convert it
@@ -425,13 +505,128 @@ export default function Dashboard() {
   const updateWidget = dashboardState.updateWidget;
   const removeWidget = dashboardState.removeWidget;
 
-  // Legacy functions for popout/swapin - implement using centralized state
+  // Enhanced popout/swapin functions with proper data transfer
   const popOutWidget = async (id: string) => {
-    await dashboardState.updateWidget(id, { isPopOut: true });
+    const widget = dashboardState.widgets.find((w) => w.id === id);
+    if (!widget) return;
+
+    try {
+      // Get current Redux state for data transfer
+      const reduxStore = (window as any).__REDUX_STORE__;
+      const state = reduxStore?.getState();
+
+      if (!state) {
+        toast({
+          title: "Error",
+          description: "Unable to access application state for pop-out",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Get authentication data
+      const authToken =
+        session?.data?.accessToken || session?.accessToken || null;
+      const sessionData = {
+        user: session?.user,
+        accessToken: authToken,
+        expires: session?.expires,
+      };
+
+      // Prepare complete widget data for transfer
+      const completeWidgetData = {
+        // Basic widget info
+        id: widget.id,
+        title: widget.title,
+        type: widget.type,
+        position: widget.position,
+        size: widget.size,
+        isPopOut: true,
+
+        // Complete plot state
+        plotsState: state.plots,
+        currentFilePath: state.plots.currentFilePath,
+
+        // Authentication context
+        authToken,
+        sessionData,
+
+        // Additional context
+        timestamp: Date.now(),
+        userPreferences: {
+          theme: localStorage.getItem("theme"),
+          language: localStorage.getItem("language"),
+        },
+      };
+
+      // Compress and store data in localStorage
+      const compressedData = await compressWidgetData(completeWidgetData);
+      localStorage.setItem(
+        `popped-widget-${id}`,
+        JSON.stringify(compressedData)
+      );
+
+      // Open the pop-out window
+      const windowFeatures = `width=${widget.size.width + 100},height=${widget.size.height + 200},scrollbars=yes,resizable=yes,menubar=no,toolbar=no,location=no,status=no`;
+      const newWindow = window.open(
+        `/widget/${id}`,
+        `widget-${id}`,
+        windowFeatures
+      );
+
+      if (newWindow) {
+        // Update widget state to mark as popped out
+        await dashboardState.updateWidget(id, { isPopOut: true });
+
+        // Monitor window closure
+        const checkClosed = setInterval(() => {
+          if (newWindow.closed) {
+            clearInterval(checkClosed);
+            swapInWidget(id);
+          }
+        }, 1000);
+
+        toast({
+          title: "Widget Popped Out",
+          description: `${widget.title} opened in new window`,
+        });
+      } else {
+        toast({
+          title: "Pop-out Failed",
+          description:
+            "Unable to open new window. Please check popup blocker settings.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error popping out widget:", error);
+      toast({
+        title: "Pop-out Error",
+        description: "Failed to pop out widget. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const swapInWidget = async (id: string) => {
-    await dashboardState.updateWidget(id, { isPopOut: false });
+    try {
+      await dashboardState.updateWidget(id, { isPopOut: false });
+
+      // Clean up localStorage
+      localStorage.removeItem(`popped-widget-${id}`);
+
+      toast({
+        title: "Widget Swapped In",
+        description: "Widget returned to dashboard",
+      });
+    } catch (error) {
+      console.error("Error swapping in widget:", error);
+      toast({
+        title: "Swap-in Error",
+        description: "Failed to swap widget back to dashboard",
+        variant: "destructive",
+      });
+    }
   };
 
   // Layout save/load using centralized state (automatic persistence)
@@ -546,7 +741,7 @@ export default function Dashboard() {
                 variant="outline"
                 size="sm"
                 onClick={handleManualSave}
-                disabled={isSaving || !session}
+                disabled={isSaving || !session || isActuallyLoading}
                 className="gap-1"
               >
                 <Save className="h-3 w-3" />
@@ -556,7 +751,7 @@ export default function Dashboard() {
                 variant="outline"
                 size="sm"
                 onClick={handleManualLoad}
-                disabled={isLoading}
+                disabled={isActuallyLoading}
                 className="gap-1"
               >
                 <RefreshCw className="h-3 w-3" />
@@ -585,13 +780,19 @@ export default function Dashboard() {
 
         <div className="flex-1 overflow-auto relative p-6">
           {/* Loading overlay */}
-          {isLoading && (
+          {isActuallyLoading && (
             <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
               <div className="text-center">
                 <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-2" />
                 <p className="text-sm text-muted-foreground">
                   Loading dashboard layout...
                 </p>
+                {process.env.NODE_ENV === "development" && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Hook loading: {isLoading ? "true" : "false"},
+                    Storage initialized: {dashboardState.isLayoutInitialized ? "true" : "false"}
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -644,6 +845,10 @@ export default function Dashboard() {
                     widgetId={widget.id}
                     isPopout={widget.isPopOut}
                   />
+                );
+              } else if (widget.type === "dda-form") {
+                gridWidget.content = (
+                  <DDAWidget widgetId={widget.id} isPopout={widget.isPopOut} />
                 );
               } else if (widget.type === "test-widget") {
                 gridWidget.content = (

@@ -115,7 +115,7 @@ export const ServiceManagementModal: React.FC<ServiceManagementModalProps> = ({
 
     try {
       if (serviceName === 'DDALAB Services') {
-        const result = await electronAPI.startDockerCompose();
+        const result = await electronAPI.startMonolithicDocker();
         if (result) {
           setStatusMessage('DDALAB services started successfully');
         } else {
@@ -140,7 +140,7 @@ export const ServiceManagementModal: React.FC<ServiceManagementModalProps> = ({
 
     try {
       if (serviceName === 'DDALAB Services') {
-        const result = await electronAPI.stopDockerCompose(false);
+        const result = await electronAPI.stopMonolithicDocker(false);
         if (result) {
           setStatusMessage('DDALAB services stopped successfully');
         } else {
@@ -165,7 +165,7 @@ export const ServiceManagementModal: React.FC<ServiceManagementModalProps> = ({
 
     try {
       // Stop first
-      const stopResult = await electronAPI.stopDockerCompose(false);
+      const stopResult = await electronAPI.stopMonolithicDocker(false);
       if (!stopResult) {
         throw new Error('Failed to stop services');
       }
@@ -176,7 +176,7 @@ export const ServiceManagementModal: React.FC<ServiceManagementModalProps> = ({
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       // Start again
-      const startResult = await electronAPI.startDockerCompose();
+      const startResult = await electronAPI.startMonolithicDocker();
       if (startResult) {
         setStatusMessage('DDALAB services restarted successfully');
       } else {

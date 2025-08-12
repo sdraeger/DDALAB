@@ -182,8 +182,7 @@ export function registerDockerDeploymentIpcHandlers() {
 # This file configures DDALAB to use Docker Hub images
 
 # Use Docker Hub images instead of building locally
-DDALAB_WEB_IMAGE=sdraeger1/ddalab-web:latest
-DDALAB_API_IMAGE=sdraeger1/ddalab-api:latest
+DDALAB_IMAGE=sdraeger1/ddalab-monolith:latest
 
 # Database Configuration
 DDALAB_DB_USER=admin
@@ -222,8 +221,8 @@ GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=admin
 
 # Next.js Environment Variables
-NEXT_PUBLIC_API_URL=http://localhost:8001
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_API_URL=https://localhost
+NEXT_PUBLIC_APP_URL=https://localhost
 `;
         await fs.writeFile(path.join(setupLocation, ".env"), envContent);
 
@@ -312,8 +311,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 # This file configures DDALAB to use Docker Hub images
 
 # Use Docker Hub images instead of building locally
-DDALAB_WEB_IMAGE=sdraeger1/ddalab-web:latest
-DDALAB_API_IMAGE=sdraeger1/ddalab-api:latest
+DDALAB_IMAGE=sdraeger1/ddalab-monolith:latest
 
 # Database Configuration
 DDALAB_DB_USER=admin
@@ -352,8 +350,8 @@ GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=admin
 
 # Next.js Environment Variables
-NEXT_PUBLIC_API_URL=http://localhost:8001
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_API_URL=https://localhost
+NEXT_PUBLIC_APP_URL=https://localhost
 `;
         await fs.writeFile(path.join(targetDirectory, ".env"), envContent);
 

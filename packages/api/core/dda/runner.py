@@ -2,15 +2,86 @@ from pathlib import Path
 
 import dda_py
 import numpy as np
-from core.config import get_server_settings
 from core.dda.binary_validation import validate_dda_binary
 from core.dda_ape_patch import patch_dda_py
 from core.edf.edf_cache import get_cache_manager
 from core.files import read_edf_header
 from loguru import logger
 from schemas.dda import DDAResponse
+import matplotlib.pyplot as plt
+from core.environment import get_config_service
 
 patch_dda_py()
+
+
+def plot_matrix_rows(
+    matrix,
+    labels=None,
+    title="Time Series Plot",
+    xlabel="Time",
+    ylabel="Value",
+    figsize=(10, 6),
+):
+    """
+    Plot a 2D matrix with line plots where columns are individual time series.
+
+    Parameters:
+    -----------
+    matrix : array-like
+        2D array/matrix where each column is a time series
+    labels : list, optional
+        List of labels for each time series (column)
+    title : str, optional
+        Title of the plot
+    xlabel : str, optional
+        Label for x-axis
+    ylabel : str, optional
+        Label for y-axis
+    figsize : tuple, optional
+        Figure size (width, height)
+
+    Returns:
+    --------
+    fig, ax : matplotlib figure and axes objects
+    """
+
+    # Convert to numpy array for consistency
+    matrix = np.array(matrix)
+
+    # Check if matrix is 2D
+    if matrix.ndim != 2:
+        raise ValueError("Matrix must be 2-dimensional")
+
+    # Get dimensions
+    n_series, n_time_points = matrix.shape
+
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Generate x-axis values (time points)
+    x = np.arange(n_time_points)
+
+    # Plot each column as a separate line
+    for i in range(n_series):
+        if labels and i < len(labels):
+            ax.plot(x, matrix[i, :], label=labels[i], linewidth=2)
+        else:
+            ax.plot(x, matrix[i, :], label=f"Series {i + 1}", linewidth=2)
+
+    # Customize the plot
+    ax.set_title(title, fontsize=14, fontweight="bold")
+    ax.set_xlabel(xlabel, fontsize=12)
+    ax.set_ylabel(ylabel, fontsize=12)
+    ax.grid(True, alpha=0.3)
+
+    # Add legend if there are multiple series or labels provided
+    if n_series > 1 or (labels and len(labels) > 0):
+        ax.legend()
+
+    # Adjust layout to prevent label cutoff
+    plt.tight_layout()
+
+    return fig, ax
 
 
 def validate_dda_command_args(effective_channel_list, bounds):
@@ -42,8 +113,10 @@ async def run_dda(
     channel_list: list[int] = None,
     preprocessing_options: dict = None,
 ) -> DDAResponse:
-    settings = get_server_settings()
-    is_valid, error_message = validate_dda_binary(settings)
+    dda_settings = get_config_service().get_dda_settings()
+    storage_settings = get_config_service().get_storage_settings()
+
+    is_valid, error_message = validate_dda_binary(dda_settings)
 
     if not is_valid:
         logger.warning(f"DDA binary validation failed: {error_message}")
@@ -55,7 +128,7 @@ async def run_dda(
             error_message=error_message,
         ).model_dump()
 
-    file_path_str = str(Path(settings.data_dir) / file_path)
+    file_path_str = str(Path(storage_settings.data_dir) / file_path)
     logger.info(f"Running DDA on file: {file_path_str}")
     logger.info(f"Original preprocessing options: {preprocessing_options}")
 
@@ -134,7 +207,7 @@ async def run_dda(
             ).model_dump()
 
         logger.info(
-            f"DDA command: binary={settings.dda_binary_path}, channels={effective_channel_list}, bounds={bounds}"
+            f"DDA command: binary={dda_settings.dda_binary_path}, channels={effective_channel_list}, bounds={bounds}"
         )
 
         Q, metadata = await dda_py.run_dda_async(
@@ -145,6 +218,7 @@ async def run_dda(
             cpu_time=False,
             raise_on_error=True,
         )
+        Q = Q[:, 2:]
 
         logger.info(f"Raw Q matrix shape: {Q.shape}, dtype: {Q.dtype}")
         nan_count = np.isnan(Q).sum()
@@ -159,7 +233,9 @@ async def run_dda(
         if nan_count > 0:
             logger.info(f"Replacing {nan_count} NaN values with 0.")
             np.nan_to_num(Q, copy=False, nan=0.0)
-        Q = np.where(np.isnan(Q), None, Q).tolist()
+
+        Q = np.where(np.isnan(Q), None, Q).T.tolist()
+
         if isinstance(metadata, dict):
             result_metadata = metadata
         elif hasattr(metadata, "__dict__"):

@@ -106,6 +106,16 @@ export function useDashboard(initialWidgets: Widget[] = []) {
         // Track the window
         setPoppedOutWindows((prev) => new Map(prev).set(id, newWindow));
 
+        // Register with popout auth manager
+        import("../services/PopoutAuthManager").then(
+          ({ getPopoutAuthManager }) => {
+            const authManager = getPopoutAuthManager();
+            if (authManager) {
+              authManager.registerPopoutWindow(id, newWindow);
+            }
+          }
+        );
+
         // Update widget state to mark as popped out
         updateWidget(id, { isPopOut: true });
 
@@ -113,6 +123,17 @@ export function useDashboard(initialWidgets: Widget[] = []) {
         const checkClosed = setInterval(() => {
           if (newWindow.closed) {
             clearInterval(checkClosed);
+
+            // Unregister from auth manager
+            import("../services/PopoutAuthManager").then(
+              ({ getPopoutAuthManager }) => {
+                const authManager = getPopoutAuthManager();
+                if (authManager) {
+                  authManager.unregisterPopoutWindow(id);
+                }
+              }
+            );
+
             // Swap widget back in when window is closed
             swapInWidget(id);
           }

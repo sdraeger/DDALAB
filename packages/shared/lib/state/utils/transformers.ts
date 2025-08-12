@@ -1,4 +1,4 @@
-import type { StateTransformer } from '../core/interfaces';
+import type { StateTransformer, StateValue } from "../core/interfaces";
 
 /**
  * Common state transformers for serialization/deserialization
@@ -9,7 +9,7 @@ import type { StateTransformer } from '../core/interfaces';
  */
 export const identityTransformer: StateTransformer = {
   serialize: (value: any) => value,
-  deserialize: (value: any) => value
+  deserialize: (value: any) => value,
 };
 
 /**
@@ -17,7 +17,7 @@ export const identityTransformer: StateTransformer = {
  */
 export const dateTransformer: StateTransformer<Date, string> = {
   serialize: (date: Date) => date.toISOString(),
-  deserialize: (isoString: string) => new Date(isoString)
+  deserialize: (isoString: string) => new Date(isoString),
 };
 
 /**
@@ -25,15 +25,18 @@ export const dateTransformer: StateTransformer<Date, string> = {
  */
 export const setTransformer: StateTransformer<Set<any>, any[]> = {
   serialize: (set: Set<any>) => Array.from(set),
-  deserialize: (array: any[]) => new Set(array)
+  deserialize: (array: any[]) => new Set(array),
 };
 
 /**
  * Map transformer for Map objects
  */
-export const mapTransformer: StateTransformer<Map<any, any>, Array<[any, any]>> = {
+export const mapTransformer: StateTransformer<
+  Map<any, any>,
+  Array<[any, any]>
+> = {
   serialize: (map: Map<any, any>) => Array.from(map.entries()),
-  deserialize: (entries: Array<[any, any]>) => new Map(entries)
+  deserialize: (entries: Array<[any, any]>) => new Map(entries),
 };
 
 /**
@@ -41,19 +44,22 @@ export const mapTransformer: StateTransformer<Map<any, any>, Array<[any, any]>> 
  */
 export const bigIntTransformer: StateTransformer<bigint, string> = {
   serialize: (value: bigint) => value.toString(),
-  deserialize: (str: string) => BigInt(str)
+  deserialize: (str: string) => BigInt(str),
 };
 
 /**
  * RegExp transformer for regular expressions
  */
-export const regExpTransformer: StateTransformer<RegExp, { source: string; flags: string }> = {
+export const regExpTransformer: StateTransformer<
+  RegExp,
+  { source: string; flags: string }
+> = {
   serialize: (regex: RegExp) => ({
     source: regex.source,
-    flags: regex.flags
+    flags: regex.flags,
   }),
-  deserialize: (obj: { source: string; flags: string }) => 
-    new RegExp(obj.source, obj.flags)
+  deserialize: (obj: { source: string; flags: string }) =>
+    new RegExp(obj.source, obj.flags),
 };
 
 /**
@@ -68,14 +74,14 @@ export function classTransformer<T>(
   return {
     serialize: (instance: T) => ({
       __className: className,
-      data: serializer(instance)
+      data: serializer(instance),
     }),
     deserialize: (obj: { __className: string; data: any }) => {
       if (obj.__className !== className) {
         throw new Error(`Expected class ${className}, got ${obj.__className}`);
       }
       return deserializer(obj.data);
-    }
+    },
   };
 }
 
@@ -88,7 +94,7 @@ export function compressionTransformer<T>(): StateTransformer<T, string> {
       try {
         return JSON.stringify(value);
       } catch (error) {
-        console.error('Compression serialization failed:', error);
+        console.error("Compression serialization failed:", error);
         throw error;
       }
     },
@@ -96,10 +102,10 @@ export function compressionTransformer<T>(): StateTransformer<T, string> {
       try {
         return JSON.parse(json) as T;
       } catch (error) {
-        console.error('Compression deserialization failed:', error);
+        console.error("Compression deserialization failed:", error);
         throw error;
       }
-    }
+    },
   };
 }
 
@@ -117,7 +123,7 @@ export function encryptionTransformer<T>(
         const json = JSON.stringify(value);
         return encryptFn(json);
       } catch (error) {
-        console.error('Encryption serialization failed:', error);
+        console.error("Encryption serialization failed:", error);
         throw error;
       }
     },
@@ -126,10 +132,10 @@ export function encryptionTransformer<T>(
         const json = decryptFn(encrypted);
         return JSON.parse(json) as T;
       } catch (error) {
-        console.error('Encryption deserialization failed:', error);
+        console.error("Encryption deserialization failed:", error);
         throw error;
       }
-    }
+    },
   };
 }
 
@@ -143,7 +149,7 @@ export function versionedTransformer<T>(
   return {
     serialize: (value: T) => ({
       version: currentVersion,
-      data: value
+      data: value,
     }),
     deserialize: (obj: { version: number; data: any }) => {
       let { version, data } = obj;
@@ -159,11 +165,13 @@ export function versionedTransformer<T>(
       }
 
       if (version > currentVersion) {
-        throw new Error(`Data version ${version} is newer than current version ${currentVersion}`);
+        throw new Error(
+          `Data version ${version} is newer than current version ${currentVersion}`
+        );
       }
 
       return data as T;
-    }
+    },
   };
 }
 
@@ -176,7 +184,10 @@ export function deepCloneTransformer<T>(): StateTransformer<T, T> {
       try {
         return JSON.parse(JSON.stringify(value));
       } catch (error) {
-        console.warn('Deep clone serialization failed, using original value:', error);
+        console.warn(
+          "Deep clone serialization failed, using original value:",
+          error
+        );
         return value;
       }
     },
@@ -184,10 +195,13 @@ export function deepCloneTransformer<T>(): StateTransformer<T, T> {
       try {
         return JSON.parse(JSON.stringify(value));
       } catch (error) {
-        console.warn('Deep clone deserialization failed, using original value:', error);
+        console.warn(
+          "Deep clone deserialization failed, using original value:",
+          error
+        );
         return value;
       }
-    }
+    },
   };
 }
 
@@ -200,21 +214,29 @@ export function composeTransformers<TInput, TIntermediate, TOutput>(
 ): StateTransformer<TInput, TOutput> {
   return {
     serialize: (value: TInput) => second.serialize(first.serialize(value)),
-    deserialize: (value: TOutput) => first.deserialize(second.deserialize(value))
+    deserialize: (value: TOutput) =>
+      first.deserialize(second.deserialize(value)),
   };
 }
 
 /**
  * Create a conditional transformer that applies transformation based on a predicate
  */
-export function conditionalTransformer<T>(
+export function conditionalTransformer<T extends StateValue>(
   predicate: (value: T) => boolean,
   transformer: StateTransformer<T>,
-  fallback: StateTransformer<T> = identityTransformer
+  fallback?: StateTransformer<T>
 ): StateTransformer<T> {
+  const defaultFallback: StateTransformer<T> = {
+    serialize: (value: T) => value as T,
+    deserialize: (value: T) => value,
+  };
+
+  const activeFallback = fallback || defaultFallback;
+
   return {
     serialize: (value: T) => {
-      const activeTransformer = predicate(value) ? transformer : fallback;
+      const activeTransformer = predicate(value) ? transformer : activeFallback;
       return activeTransformer.serialize(value);
     },
     deserialize: (value: any) => {
@@ -223,8 +245,8 @@ export function conditionalTransformer<T>(
       try {
         return transformer.deserialize(value);
       } catch {
-        return fallback.deserialize(value);
+        return activeFallback.deserialize(value);
       }
-    }
+    },
   };
 }

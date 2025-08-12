@@ -7,6 +7,7 @@ describe("Next.js Configuration", () => {
     it("should have test environment variables set", () => {
       expect(process.env.NODE_ENV).toBe("test");
       expect(process.env.API_URL).toBe("http://localhost:8001");
+      // Public env is optional at runtime; server-side API_URL is primary
       expect(process.env.NEXT_PUBLIC_API_URL).toBe("http://localhost:8001");
       expect(process.env.SESSION_EXPIRATION).toBe("30");
     });
@@ -28,8 +29,8 @@ describe("Next.js Configuration", () => {
       expect(apiUrl).toMatch(/^https?:\/\//);
     });
 
-    it("should have matching public and private API URLs", () => {
-      expect(process.env.API_URL).toBe(process.env.NEXT_PUBLIC_API_URL);
+    it("should have a valid private API URL configured", () => {
+      expect(process.env.API_URL).toMatch(/^https?:\/\//);
     });
   });
 

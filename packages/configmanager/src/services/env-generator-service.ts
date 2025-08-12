@@ -83,10 +83,12 @@ export class EnvGeneratorService {
 
     // Ensure consistent MinIO credentials between DDALAB_ and MINIO_ prefixes
     if (processedVars["DDALAB_MINIO_ACCESS_KEY"]) {
-      processedVars["MINIO_ROOT_USER"] = processedVars["DDALAB_MINIO_ACCESS_KEY"];
+      processedVars["MINIO_ROOT_USER"] =
+        processedVars["DDALAB_MINIO_ACCESS_KEY"];
     }
     if (processedVars["DDALAB_MINIO_SECRET_KEY"]) {
-      processedVars["MINIO_ROOT_PASSWORD"] = processedVars["DDALAB_MINIO_SECRET_KEY"];
+      processedVars["MINIO_ROOT_PASSWORD"] =
+        processedVars["DDALAB_MINIO_SECRET_KEY"];
     }
 
     // Set production paths
@@ -95,10 +97,9 @@ export class EnvGeneratorService {
     // Ensure observability services use Docker hostnames
     processedVars["DDALAB_OTLP_HOST"] = "jaeger";
 
-    // Set production Next.js URLs (will be overridden by docker-compose environment)
-    if (!processedVars["NEXT_PUBLIC_API_URL"]?.includes("http")) {
-      processedVars["NEXT_PUBLIC_API_URL"] = "http://api:8001";
-    }
+    // Set production Next.js URLs to point to Traefik proxy
+    processedVars["NEXT_PUBLIC_API_URL"] = "https://localhost";
+    processedVars["NEXT_PUBLIC_APP_URL"] = "https://localhost";
 
     logger.info("Processed environment variables for production deployment");
     return processedVars;

@@ -10,25 +10,36 @@ class EDFFile:
 
     def __init__(
         self,
-        signals: List[np.ndarray] = [],
-        labels: List[str] = [],
-        sampling_frequencies: List[float] = [],
-        start_datetime: datetime = datetime.now(),
-        physical_maximum: List[float] = [],
-        physical_minimum: List[float] = [],
-        digital_maximum: List[float] = [],
-        digital_minimum: List[float] = [],
+        signals: List[np.ndarray] | None = None,
+        labels: List[str] | None = None,
+        sampling_frequencies: List[float] | None = None,
+        start_datetime: datetime | None = None,
+        physical_maximum: List[float] | None = None,
+        physical_minimum: List[float] | None = None,
+        digital_maximum: List[float] | None = None,
+        digital_minimum: List[float] | None = None,
         edf_type: int = FILETYPE_EDF,
     ):
         """Initialize an empty EDF file object."""
-        self.signals = signals
-        self.labels = labels
-        self.sampling_frequencies = sampling_frequencies
-        self.start_datetime = start_datetime
-        self.physical_maximum = physical_maximum
-        self.physical_minimum = physical_minimum
-        self.digital_maximum = digital_maximum
-        self.digital_minimum = digital_minimum
+        # Avoid shared mutable defaults by constructing fresh lists/values
+        self.signals = list(signals) if signals is not None else []
+        self.labels = list(labels) if labels is not None else []
+        self.sampling_frequencies = (
+            list(sampling_frequencies) if sampling_frequencies is not None else []
+        )
+        self.start_datetime = start_datetime or datetime.now()
+        self.physical_maximum = (
+            list(physical_maximum) if physical_maximum is not None else []
+        )
+        self.physical_minimum = (
+            list(physical_minimum) if physical_minimum is not None else []
+        )
+        self.digital_maximum = (
+            list(digital_maximum) if digital_maximum is not None else []
+        )
+        self.digital_minimum = (
+            list(digital_minimum) if digital_minimum is not None else []
+        )
         self.edf_type = edf_type
 
     class Signal:

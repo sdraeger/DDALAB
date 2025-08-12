@@ -6,304 +6,278 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from core.config import ConfigManager, Settings, get_server_settings
+from core.environment import (  # Updated import
+    APISettings,
+    AuthSettings,
+    CacheSettings,
+    DDASettings,
+    DatabaseSettings,
+    EnvironmentConfigProvider,
+    ObservabilitySettings,
+    ServiceSettings,
+    StorageSettings,
+    get_config_service,
+)
+from pydantic import ValidationError
 
 
-class TestSettings:
-    """Test settings configuration."""
+@pytest.fixture(autouse=True)
+def clear_config_cache():
+    """Fixture to clear the configuration service cache before each test."""
+    get_config_service().reload_settings()
 
-    def test_settings_creation_with_defaults(self):
-        """Test creating settings with default values."""
-        with patch.dict(
-            os.environ,
-            {
-                "DDALAB_RELOAD": "false",
-                "DDALAB_API_HOST": "localhost",
-                "DDALAB_API_PORT": "8000",
-                "DDALAB_INSTITUTION_NAME": "Test Institution",
-                "DDALAB_DATA_DIR": "/tmp/data",
-                "DDALAB_DDA_BINARY_PATH": "/usr/bin/dda",
-                "DDALAB_DB_HOST": "localhost",
-                "DDALAB_DB_PORT": "5432",
-                "DDALAB_DB_NAME": "test_db",
-                "DDALAB_DB_USER": "test_user",
-                "DDALAB_DB_PASSWORD": "test_password",
-                "DDALAB_JWT_SECRET_KEY": "test_secret",
-                "DDALAB_JWT_ALGORITHM": "HS256",
-                "DDALAB_AUTH_ENABLED": "true",
-                "DDALAB_TOKEN_EXPIRATION_MINUTES": "30",
-                "DDALAB_ALLOWED_DIRS": "/tmp,/data",
-                "DDALAB_MINIO_HOST": "localhost:9000",
-                "DDALAB_MINIO_ACCESS_KEY": "testkey",
-                "DDALAB_MINIO_SECRET_KEY": "testsecret",
-                "DDALAB_MINIO_BUCKET_NAME": "test-bucket",
-                "DDALAB_OTLP_HOST": "localhost",
-            },
-        ):
-            settings = Settings()
 
-            assert settings.api_host == "localhost"
-            assert settings.api_port == 8000
-            assert settings.institution_name == "Test Institution"
-            assert settings.auth_enabled is True
-            assert settings.jwt_algorithm == "HS256"
+class TestSettingsClasses:
+    """Test individual settings classes for proper environment variable loading and validation."""
 
-    def test_allowed_dirs_parsing_development_mode(self):
-        """Test allowed_dirs parsing in development mode."""
-        with patch.dict(
-            os.environ,
-            {
-                "DDALAB_RELOAD": "true",
-                "DDALAB_ALLOWED_DIRS": "/tmp,/data,/home",
-            },
-        ):
-            # Test parsing with reload=True (development mode)
-            parsed = Settings.parse_allowed_dirs("/tmp,/data,/home")
-            assert parsed == ["/tmp", "/data", "/home"]
+    @pytest.mark.parametrize(
+        "env_vars,expected_api_host,expected_api_port,expected_reload",
+        [
+            (
+                {
+                    "DDALAB_API_HOST": "localhost",
+                    "DDALAB_API_PORT": "8000",
+                    "DDALAB_RELOAD": "true",
+                },
+                "localhost",
+                8000,
+                True,
+            ),
+            (
+                {"DDALAB_API_HOST": "127.0.0.1", "DDALAB_API_PORT": "9000"},
+                "127.0.0.1",
+                9000,
+                False,  # Default value
+            ),
+        ],
+    )
+    def test_api_settings(
+        self, env_vars, expected_api_host, expected_api_port, expected_reload
+    ):
+        with patch.dict(os.environ, env_vars, clear=True):
+            settings = APISettings()
+            assert settings.api_host == expected_api_host
+            assert settings.api_port == expected_api_port
+            assert settings.reload == expected_reload
 
-    def test_allowed_dirs_parsing_production_mode(self):
-        """Test allowed_dirs parsing in production mode."""
-        with patch.dict(
-            os.environ,
-            {
-                "DDALAB_RELOAD": "false",
-            },
-        ):
-            # Test parsing with reload=False (production mode)
-            parsed = Settings.parse_allowed_dirs(
-                "host1:/container1:rw,host2:/container2:ro"
-            )
-            # In production mode, it returns a set due to set comprehension
-            assert parsed == {"/container1", "/container2"}
+    @pytest.mark.parametrize(
+        "env_vars,expected_db_host",
+        [
+            (
+                {
+                    "DDALAB_DB_HOST": "db",
+                    "DDALAB_DB_USER": "u",
+                    "DDALAB_DB_PASSWORD": "p",
+                },
+                "db",
+            ),
+        ],
+    )
+    def test_database_settings(self, env_vars, expected_db_host):
+        with patch.dict(os.environ, env_vars, clear=True):
+            settings = DatabaseSettings()
+            assert settings.db_host == expected_db_host
+            assert "u:p@db:5432/ddalab" in settings.connection_url
 
-    def test_allowed_dirs_parsing_empty_string(self):
-        """Test allowed_dirs parsing with empty string."""
-        with patch.dict(
-            os.environ,
-            {
-                "DDALAB_RELOAD": "true",
-            },
-        ):
-            parsed = Settings.parse_allowed_dirs("")
-            assert parsed == []
-
-    def test_allowed_dirs_parsing_invalid_format_production(self):
-        """Test allowed_dirs parsing with simple format in production mode."""
-        with patch.dict(
-            os.environ,
-            {
-                "DDALAB_RELOAD": "false",
-            },
-        ):
-            # Simple paths are now accepted as fallback in production mode
-            parsed = Settings.parse_allowed_dirs("no_colons_here")
-            assert parsed == {"no_colons_here"}
-
-    def test_anonymize_edf_default(self):
-        """Test that anonymize_edf defaults to False."""
+    def test_database_settings_missing_required(self):
         with patch.dict(os.environ, {}, clear=True):
-            # Add minimum required environment variables
+            with pytest.raises(ValidationError):
+                DatabaseSettings()
+
+    @pytest.mark.parametrize(
+        "env_vars,expected_auth_mode,expected_token_exp",
+        [
+            (
+                {
+                    "DDALAB_JWT_SECRET_KEY": "s",
+                    "DDALAB_AUTH_MODE": "local",
+                    "DDALAB_TOKEN_EXPIRATION_MINUTES": "60",
+                },
+                "local",
+                60,
+            ),
+            ({"DDALAB_JWT_SECRET_KEY": "s"}, "multi-user", 10080),  # Default values
+        ],
+    )
+    def test_auth_settings(self, env_vars, expected_auth_mode, expected_token_exp):
+        with patch.dict(os.environ, env_vars, clear=True):
+            settings = AuthSettings()
+            assert settings.auth_mode == expected_auth_mode
+            assert settings.token_expiration_minutes == expected_token_exp
+            assert settings.jwt_algorithm == "HS256"  # Default
+
+    def test_auth_settings_missing_secret_key(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(ValidationError):
+                AuthSettings()
+
+    @pytest.mark.parametrize(
+        "env_vars,expected_data_dir,expected_allowed_dirs",
+        [
+            (
+                {
+                    "DDALAB_MINIO_HOST": "m",
+                    "DDALAB_MINIO_ACCESS_KEY": "a",
+                    "DDALAB_MINIO_SECRET_KEY": "s",
+                    "DDALAB_DATA_DIR": "/data",
+                    "DDALAB_ALLOWED_DIRS": "/a,/b",
+                },
+                "/data",
+                ["/a", "/b"],
+            ),
+            (
+                {
+                    "DDALAB_MINIO_HOST": "m",
+                    "DDALAB_MINIO_ACCESS_KEY": "a",
+                    "DDALAB_MINIO_SECRET_KEY": "s",
+                    "DDALAB_ALLOWED_DIRS": "",
+                },
+                "data",
+                [],
+            ),  # Default data_dir
+        ],
+    )
+    def test_storage_settings(self, env_vars, expected_data_dir, expected_allowed_dirs):
+        with patch.dict(os.environ, env_vars, clear=True):
+            settings = StorageSettings()
+            assert settings.data_dir == expected_data_dir
+            assert settings.allowed_dirs == expected_allowed_dirs
+            assert settings.minio_bucket_name == "dda-results"  # Default
+
+    def test_storage_settings_allowed_dirs_parsing(self):
+        with patch.dict(os.environ, {}, clear=True):
+            # Need to provide required env vars to avoid ValidationError during init
             with patch.dict(
                 os.environ,
                 {
-                    "DDALAB_RELOAD": "false",
-                    "DDALAB_API_HOST": "localhost",
-                    "DDALAB_API_PORT": "8000",
-                    "DDALAB_INSTITUTION_NAME": "Test",
-                    "DDALAB_DATA_DIR": "/tmp",
-                    "DDALAB_DDA_BINARY_PATH": "/usr/bin/dda",
-                    "DDALAB_DB_HOST": "localhost",
-                    "DDALAB_DB_PORT": "5432",
-                    "DDALAB_DB_NAME": "test",
-                    "DDALAB_DB_USER": "test",
-                    "DDALAB_DB_PASSWORD": "test",
-                    "DDALAB_JWT_SECRET_KEY": "test",
-                    "DDALAB_JWT_ALGORITHM": "HS256",
-                    "DDALAB_AUTH_ENABLED": "true",
-                    "DDALAB_TOKEN_EXPIRATION_MINUTES": "30",
-                    "DDALAB_ALLOWED_DIRS": "",
-                    "DDALAB_MINIO_HOST": "localhost:9000",
-                    "DDALAB_MINIO_ACCESS_KEY": "test",
-                    "DDALAB_MINIO_SECRET_KEY": "test",
-                    "DDALAB_MINIO_BUCKET_NAME": "test",
-                    "DDALAB_OTLP_HOST": "localhost",
+                    "DDALAB_MINIO_HOST": "m",
+                    "DDALAB_MINIO_ACCESS_KEY": "a",
+                    "DDALAB_MINIO_SECRET_KEY": "s",
+                    "DDALAB_ALLOWED_DIRS": "/path/to/data, /another/path",
                 },
             ):
-                settings = Settings()
-                assert settings.anonymize_edf is False
+                settings = StorageSettings()
+                assert settings.allowed_dirs == ["/path/to/data", "/another/path"]
+
+    @pytest.mark.parametrize(
+        "env_vars,expected_host",
+        [
+            ({"DDALAB_OTLP_HOST": "collector"}, "collector"),
+            ({}, "jaeger"),  # Default
+        ],
+    )
+    def test_observability_settings(self, env_vars, expected_host):
+        with patch.dict(os.environ, env_vars, clear=True):
+            settings = ObservabilitySettings()
+            assert settings.otlp_host == expected_host
+            assert settings.otlp_port == 4318  # Default
+
+    @pytest.mark.parametrize(
+        "env_vars,expected_binary_path",
+        [
+            ({"DDALAB_DDA_BINARY_PATH": "/usr/bin/dda"}, "/usr/bin/dda"),
+        ],
+    )
+    def test_dda_settings(self, env_vars, expected_binary_path):
+        with patch.dict(os.environ, env_vars, clear=True):
+            settings = DDASettings()
+            assert settings.dda_binary_path == expected_binary_path
+
+    def test_dda_settings_missing_required(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(ValidationError):
+                DDASettings()
 
 
-class TestConfigManager:
-    """Test configuration manager."""
+class TestConfigurationService:
+    """Test the ConfigurationService that aggregates settings."""
 
-    def test_config_manager_initialization(self):
-        """Test config manager initialization."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            config_dir = Path(temp_dir) / "config"
-            manager = ConfigManager(str(config_dir))
-
-            assert manager.config_dir == config_dir
-            assert config_dir.exists()
-
-    def test_save_and_load_config(self):
-        """Test saving and loading configuration."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            manager = ConfigManager(temp_dir)
-
-            # Create test settings
-            test_config = {
-                "reload": False,
-                "api_host": "localhost",
-                "api_port": 8000,
-                "institution_name": "Test Institution",
-                "data_dir": "/tmp/data",
-                "anonymize_edf": False,
-                "dda_binary_path": "/usr/bin/dda",
-                "db_host": "localhost",
-                "db_port": 5432,
-                "db_name": "test_db",
-                "db_user": "test_user",
-                "db_password": "test_password",
-                "jwt_secret_key": "test_secret",
-                "jwt_algorithm": "HS256",
-                "auth_enabled": True,
-                "token_expiration_minutes": 30,
-                "allowed_dirs": ["/tmp", "/data"],
-                "minio_host": "localhost:9000",
-                "minio_access_key": "testkey",
-                "minio_secret_key": "testsecret",
-                "minio_bucket_name": "test-bucket",
-                "otlp_host": "localhost",
-                "otlp_port": 4317,
-            }
-
-            # Save config
-            settings = Settings(**test_config)
-            manager.save_config(settings, "test_settings")
-
-            # Load config
-            loaded_settings = manager.load_config(Settings, "test_settings")
-
-            assert loaded_settings is not None
-            assert loaded_settings.api_host == "localhost"
-            assert loaded_settings.api_port == 8000
-            assert loaded_settings.auth_enabled is True
-
-    def test_load_nonexistent_config(self):
-        """Test loading a configuration that doesn't exist."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            manager = ConfigManager(temp_dir)
-
-            result = manager.load_config(Settings, "nonexistent")
-            assert result is None
-
-    def test_update_config(self):
-        """Test updating an existing configuration."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            manager = ConfigManager(temp_dir)
-
-            # Create initial config
-            initial_config = {
-                "reload": False,
-                "api_host": "localhost",
-                "api_port": 8000,
-                "institution_name": "Test Institution",
-                "data_dir": "/tmp/data",
-                "anonymize_edf": False,
-                "dda_binary_path": "/usr/bin/dda",
-                "db_host": "localhost",
-                "db_port": 5432,
-                "db_name": "test_db",
-                "db_user": "test_user",
-                "db_password": "test_password",
-                "jwt_secret_key": "test_secret",
-                "jwt_algorithm": "HS256",
-                "auth_enabled": True,
-                "token_expiration_minutes": 30,
-                "allowed_dirs": ["/tmp"],
-                "minio_host": "localhost:9000",
-                "minio_access_key": "testkey",
-                "minio_secret_key": "testsecret",
-                "minio_bucket_name": "test-bucket",
-                "otlp_host": "localhost",
-                "otlp_port": 4317,
-            }
-
-            settings = Settings(**initial_config)
-            manager.save_config(settings, "test_settings")
-
-            # Update config
-            updates = {"api_port": 9000, "auth_enabled": False}
-            updated_settings = manager.update_config(settings, "test_settings", updates)
-
-            assert updated_settings.api_port == 9000
-            assert updated_settings.auth_enabled is False
-            assert updated_settings.api_host == "localhost"  # Unchanged
-
-    def test_get_config_path(self):
-        """Test getting configuration file path."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            manager = ConfigManager(temp_dir)
-
-            config_path = manager._get_config_path("test_config")
-            expected_path = Path(temp_dir) / "test_config.json"
-
-            assert config_path == expected_path
-
-
-@pytest.mark.unit
-class TestConfigurationIntegration:
-    """Test configuration integration with the application."""
-
-    @patch("core.config.Settings")
-    def test_get_server_settings_caching(self, mock_settings):
-        """Test that get_server_settings uses caching."""
-        # Clear the cache
-        get_server_settings.cache_clear()
-
-        # Call twice
-        get_server_settings()
-        get_server_settings()
-
-        # Should only instantiate Settings once due to caching
-        assert mock_settings.call_count == 1
-
-    def test_config_with_environment_variables(self):
-        """Test configuration loading with environment variables."""
+    @pytest.fixture(autouse=True)
+    def setup_env(self):
+        # Set up a minimal set of environment variables for tests that need a full config service
         with patch.dict(
             os.environ,
             {
-                "DDALAB_API_HOST": "test.example.com",
-                "DDALAB_API_PORT": "9999",
-                "DDALAB_AUTH_ENABLED": "false",
-            },
-            clear=False,
-        ):
-            # Ensure we have minimum required env vars
-            required_env = {
                 "DDALAB_RELOAD": "false",
-                "DDALAB_INSTITUTION_NAME": "Test",
-                "DDALAB_DATA_DIR": "/tmp",
-                "DDALAB_DDA_BINARY_PATH": "/usr/bin/dda",
-                "DDALAB_DB_HOST": "localhost",
+                "DDALAB_API_HOST": "testhost",
+                "DDALAB_API_PORT": "1234",
+                "DDALAB_INSTITUTION_NAME": "TestOrg",
+                "DDALAB_DATA_DIR": "/test_data",
+                "DDALAB_DDA_BINARY_PATH": "/test_bin/dda",
+                "DDALAB_DB_HOST": "testdb",
                 "DDALAB_DB_PORT": "5432",
-                "DDALAB_DB_NAME": "test",
-                "DDALAB_DB_USER": "test",
-                "DDALAB_DB_PASSWORD": "test",
-                "DDALAB_JWT_SECRET_KEY": "test",
+                "DDALAB_DB_NAME": "test_db",
+                "DDALAB_DB_USER": "test_user",
+                "DDALAB_DB_PASSWORD": "test_pass",
+                "DDALAB_JWT_SECRET_KEY": "test_jwt_secret",
                 "DDALAB_JWT_ALGORITHM": "HS256",
-                "DDALAB_TOKEN_EXPIRATION_MINUTES": "30",
-                "DDALAB_ALLOWED_DIRS": "",
-                "DDALAB_MINIO_HOST": "localhost:9000",
-                "DDALAB_MINIO_ACCESS_KEY": "test",
-                "DDALAB_MINIO_SECRET_KEY": "test",
-                "DDALAB_MINIO_BUCKET_NAME": "test",
-                "DDALAB_OTLP_HOST": "localhost",
-            }
+                "DDALAB_TOKEN_EXPIRATION_MINUTES": "120",
+                "DDALAB_ALLOWED_DIRS": "/allowed1,/allowed2",
+                "DDALAB_MINIO_HOST": "testminio",
+                "DDALAB_MINIO_ACCESS_KEY": "minio_access",
+                "DDALAB_MINIO_SECRET_KEY": "minio_secret",
+                "DDALAB_MINIO_BUCKET_NAME": "test_bucket",
+                "DDALAB_REDIS_HOST": "testredis",
+                "DDALAB_REDIS_PORT": "6379",
+                "DDALAB_OTLP_HOST": "testjaeger",
+                "DDALAB_OTLP_PORT": "4317",
+            },
+            clear=True,
+        ):
+            yield
+            # Clear cache after test
+            get_config_service().reload_settings()
 
-            with patch.dict(os.environ, required_env):
-                settings = Settings()
+    def test_get_config_service_caching(self):
+        # Ensure environment variables are set up (handled by fixture)
+        # Clear cache before this specific test
+        get_config_service().reload_settings()
 
-                assert settings.api_host == "test.example.com"
-                assert settings.api_port == 9999
-                assert settings.auth_enabled is False
+        # Use mock to count provider instantiations
+        with patch("core.environment.EnvironmentConfigProvider") as mock_provider_class:
+            # Call twice
+            service1 = get_config_service()
+            service2 = get_config_service()
+
+            # Should only instantiate EnvironmentConfigProvider once due to caching in get_config_service
+            assert mock_provider_class.call_count == 1
+            assert service1 is service2
+
+    def test_config_service_gets_correct_settings(self):
+        config = get_config_service()
+
+        api_settings = config.get_api_settings()
+        assert api_settings.api_host == "testhost"
+        assert api_settings.api_port == 1234
+
+        db_settings = config.get_database_settings()
+        assert db_settings.db_host == "testdb"
+        assert db_settings.db_user == "test_user"
+
+        auth_settings = config.get_auth_settings()
+        assert auth_settings.jwt_secret_key == "test_jwt_secret"
+        assert auth_settings.auth_mode == "multi-user"  # Default if not set in fixture
+        assert auth_settings.token_expiration_minutes == 120
+
+        storage_settings = config.get_storage_settings()
+        assert storage_settings.data_dir == "/test_data"
+        assert storage_settings.minio_bucket_name == "test_bucket"
+        assert storage_settings.allowed_dirs == ["/allowed1", "/allowed2"]
+
+        cache_settings = config.get_cache_settings()
+        assert cache_settings.redis_host == "testredis"
+
+        dda_settings = config.get_dda_settings()
+        assert dda_settings.dda_binary_path == "/test_bin/dda"
+
+        observability_settings = config.get_observability_settings()
+        assert observability_settings.otlp_host == "testjaeger"
+        assert observability_settings.otlp_port == 4317
+
+    def test_environment_config_provider_validation(self):
+        # Test that missing required env vars raises ValueError
+        with patch.dict(os.environ, {}, clear=True):  # Clear all env vars
+            with pytest.raises(
+                ValueError, match="Missing required environment variables"
+            ):
+                EnvironmentConfigProvider()
