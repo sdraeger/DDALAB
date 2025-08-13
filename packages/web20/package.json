@@ -91,7 +91,8 @@
 		"vaul": "^0.9.6",
 		"zod": "3.22.4",
 		"@tanstack/react-query": "^5.17.0",
-		"immer": "^10.0.3"
+		"immer": "^10.0.3",
+		"uplot": "^1.6.30"
 	},
 	"devDependencies": {
 		"@testing-library/dom": "^10.4.0",
