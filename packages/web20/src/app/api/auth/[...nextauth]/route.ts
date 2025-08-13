@@ -57,7 +57,7 @@ declare module "next-auth/jwt" {
   }
 }
 
-export const authOptions: NextAuthOptions = {
+const authOptions: NextAuthOptions = {
   debug: process.env.NODE_ENV === "development",
   logger: {
     error(code, metadata) {
