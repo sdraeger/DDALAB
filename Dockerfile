@@ -9,6 +9,8 @@ COPY packages/api/requirements.txt .
 RUN apk update && apk add --no-cache \
 	build-base \
 	gcc \
+	musl-dev \
+	linux-headers \
 	openssl \
 	openssl-dev \
 	libpq-dev \
