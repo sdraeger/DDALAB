@@ -1,5 +1,6 @@
 """Service for managing file operations."""
 
+import datetime
 from pathlib import Path
 from typing import List
 
@@ -55,7 +56,7 @@ class FileService(BaseService):
             items = []
             for item in target_dir.iterdir():
                 file_stat = item.stat()
-                last_modified = file_stat.st_mtime
+                last_modified = datetime.datetime.fromtimestamp(file_stat.st_mtime).isoformat()
                 file_size = file_stat.st_size if item.is_file() else None
 
                 file_info = FileInfo(
@@ -64,7 +65,7 @@ class FileService(BaseService):
                     is_directory=item.is_dir(),
                     size=file_size,
                     is_favorite=False,  # This will be set by the route handler
-                    last_modified=str(last_modified),
+                    last_modified=last_modified,
                 )
                 items.append(file_info)
 

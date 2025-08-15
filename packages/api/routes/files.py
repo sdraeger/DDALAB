@@ -8,10 +8,11 @@ from core.dependencies import get_service
 from core.services import FavoriteFilesService, FileService
 from core.utils import calculate_file_hash, is_path_allowed
 from core.environment import get_config_service
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from loguru import logger
 from schemas.files import FileListResponse, FileUploadResponse
 from schemas.user import User
+from typing import List
 
 router = APIRouter()
 
@@ -216,4 +217,74 @@ async def upload_file(
 
     except Exception as e:
         logger.error(f"Error uploading file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/search")
+async def search_files(
+    q: str = Query(..., description="Search query"),
+    limit: int = Query(10, description="Maximum number of results"),
+    user: User = Depends(get_current_user),
+    file_service: FileService = Depends(get_service(FileService)),
+):
+    """Search for files and directories.
+    
+    Args:
+        q: Search query
+        limit: Maximum number of results to return
+        user: Current authenticated user
+        file_service: File service
+        
+    Returns:
+        List of matching files and directories
+    """
+    try:
+        storage_settings = get_config_service().get_storage_settings()
+        data_dir = Path(storage_settings.data_dir).resolve()
+        
+        results = []
+        
+        # Search in all allowed directories
+        for allowed_dir in storage_settings.allowed_dirs:
+            try:
+                search_dir = Path(allowed_dir).resolve()
+                if not search_dir.exists() or not search_dir.is_dir():
+                    continue
+                    
+                # Recursively search for files matching the query
+                for file_path in search_dir.rglob("*"):
+                    if len(results) >= limit:
+                        break
+                        
+                    # Skip if filename doesn't contain the search query
+                    if q.lower() not in file_path.name.lower():
+                        continue
+                        
+                    try:
+                        # Convert to relative path
+                        relative_path = str(file_path.relative_to(data_dir))
+                        
+                        results.append({
+                            "name": file_path.name,
+                            "path": relative_path,
+                            "is_directory": file_path.is_dir()
+                        })
+                    except ValueError:
+                        # Skip files not under data_dir
+                        continue
+                        
+            except Exception as e:
+                logger.warning(f"Error searching in directory {allowed_dir}: {e}")
+                continue
+                
+        # Sort results by relevance (exact matches first, then partial matches)
+        results.sort(key=lambda x: (
+            not x["name"].lower().startswith(q.lower()),  # Exact prefix matches first
+            x["name"].lower()
+        ))
+        
+        return {"files": results[:limit]}
+        
+    except Exception as e:
+        logger.error(f"Error searching files: {e}")
         raise HTTPException(status_code=500, detail=str(e))

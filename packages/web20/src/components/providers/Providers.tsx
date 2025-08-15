@@ -3,6 +3,8 @@
 import React from 'react';
 import { SessionProvider } from 'next-auth/react';
 import { AuthModeProvider } from '@/contexts/AuthModeContext';
+import { ThemeProvider } from './ThemeProvider';
+import { SearchProvider } from '@/contexts/SearchContext';
 
 interface ProvidersProps {
 	children: React.ReactNode;
@@ -11,9 +13,13 @@ interface ProvidersProps {
 export function Providers({ children }: ProvidersProps) {
 	return (
 		<SessionProvider>
-			<AuthModeProvider>
-				{children}
-			</AuthModeProvider>
+			<ThemeProvider>
+				<SearchProvider>
+					<AuthModeProvider>
+						{children}
+					</AuthModeProvider>
+				</SearchProvider>
+			</ThemeProvider>
 		</SessionProvider>
 	);
 } 
