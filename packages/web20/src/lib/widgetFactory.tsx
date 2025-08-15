@@ -15,7 +15,8 @@ export function createWidgetContent(
 	type: string,
 	widgetId?: string,
 	isPopout?: boolean,
-	onFileSelect?: (filePath: string) => void
+	onFileSelect?: (filePath: string) => void,
+	widgetData?: any
 ): React.ReactNode {
 	switch (type) {
 		case 'file-browser':
@@ -28,10 +29,10 @@ export function createWidgetContent(
 			return <ChartWidget widgetId={widgetId} isPopout={isPopout} />;
 
 		case 'dda-heatmap':
-			return <DDAHeatmapWidget widgetId={widgetId} isPopout={isPopout} />;
+			return <DDAHeatmapWidget widgetId={widgetId} isPopout={isPopout} widgetData={widgetData} />;
 
 		case 'dda-line-plot':
-			return <DDALinePlotWidget widgetId={widgetId} isPopout={isPopout} />;
+			return <DDALinePlotWidget widgetId={widgetId} isPopout={isPopout} widgetData={widgetData} />;
 
 		case 'table':
 			return (

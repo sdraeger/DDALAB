@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui';
 import { Alert, AlertDescription } from '@/components/ui';
 import { Activity, Database, Users, BarChart3 } from 'lucide-react';
+import { useSearchable, useSearchableItems } from '@/hooks/useSearchable';
 
 export function DashboardStats() {
 	const dispatch = useAppDispatch();
@@ -17,6 +18,60 @@ export function DashboardStats() {
 	useEffect(() => {
 		dispatch(fetchDashboardStats());
 	}, [dispatch]);
+
+	// Make dashboard stats searchable
+	const statsItems = useSearchableItems(
+		'dashboard-stats',
+		'metrics',
+		stats ? [
+			{ 
+				title: 'Total Artifacts',
+				value: stats.totalArtifacts,
+				description: 'Data artifacts in the system',
+				icon: 'database'
+			},
+			{
+				title: 'Total Analyses', 
+				value: stats.totalAnalyses,
+				description: 'Completed analyses',
+				icon: 'chart'
+			},
+			{
+				title: 'Active Users',
+				value: stats.activeUsers, 
+				description: 'Users active in last 30 minutes',
+				icon: 'users'
+			},
+			{
+				title: 'System Health',
+				value: stats.systemHealth,
+				description: 'Overall system status',
+				icon: 'activity'
+			}
+		] : [],
+		(item, index) => ({
+			title: `${item.title}: ${item.value}`,
+			description: item.description,
+			keywords: [item.title.toLowerCase(), 'dashboard', 'metrics', 'stats', item.icon],
+			onSelect: () => {
+				// Could scroll to the specific metric or show details
+				console.log(`Selected metric: ${item.title}`);
+			},
+			icon: React.createElement(
+				item.icon === 'database' ? Database :
+				item.icon === 'chart' ? BarChart3 :
+				item.icon === 'users' ? Users : Activity,
+				{ className: 'h-4 w-4' }
+			),
+		})
+	);
+
+	useSearchable({
+		id: 'dashboard-stats',
+		category: 'metrics',
+		items: statsItems,
+		priority: 7,
+	});
 
 	if (isLoading) {
 		return (

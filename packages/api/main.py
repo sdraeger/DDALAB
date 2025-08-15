@@ -141,6 +141,13 @@ async def lifespan(app: FastAPI):
         # Initialize local mode if needed
         await _initialize_local_mode()
 
+        # Initialize notification monitoring
+        try:
+            from core.startup import initialize_services
+            await initialize_services()
+        except Exception as e:
+            logger.warning(f"Failed to initialize notification services: {e}")
+
         logger.info("DDALAB API server startup complete!")
 
         yield
@@ -160,7 +167,7 @@ app = FastAPI(
     title=service_settings.service_name,
     debug=service_settings.debug,
     version="0.0.1",
-    on_startup=[],
+    lifespan=lifespan,
 )
 
 app_metrics = FastAPI(

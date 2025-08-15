@@ -1,113 +1,42 @@
-"use client";
-
-import { useState, useEffect, useRef, useMemo } from "react";
-import { useAppSelector, useAppDispatch } from "../../../store";
-import { TrendingUp, Settings, RotateCcw, Plus, Minus } from "lucide-react";
-import { Button } from "../../ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
-import { Badge } from "../../ui/badge";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "../../ui/select";
-import { useLoadingManager } from "../../../hooks/useLoadingManager";
-import { LoadingOverlay } from "../../ui/loading-overlay";
+} from "@/components/ui/select";
+import { TrendingUp, Download, RefreshCw, ZoomIn, ZoomOut } from "lucide-react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
-import { PlotState } from "../../../store/slices/plotSlice";
-import { isEqual } from "lodash";
-import { useWidgetState } from "../../../hooks/useWidgetState";
-import { useCurrentEdfFile } from "../../../hooks/useCurrentEdfFile";
-import { usePopoutAuth } from "../../../hooks/usePopoutAuth";
-import { startLoading, stopLoading } from "../../../store/slices/loadingSlice";
+import { dataPersistenceService } from "@/services/DataPersistenceService";
 
 interface DDALinePlotWidgetProps {
   widgetId?: string;
   isPopout?: boolean;
 }
 
-interface DDALinePlotState {
-  plotMode: "all" | "average" | "individual";
-  selectedRow: number;
-  maxDisplayRows: number;
-}
-
 export function DDALinePlotWidget({
-  widgetId = "dda-lineplot-widget-default",
+  widgetId = "dda-line-plot-widget",
   isPopout = false,
-}: DDALinePlotWidgetProps = {}) {
-  console.log("[DDALinePlotWidget] Component rendered");
+}: DDALinePlotWidgetProps) {
+  const [Q, setQ] = useState<number[][]>([]);
+  const [lineType, setLineType] = useState<"linear" | "step">("linear");
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [isLoading, setIsLoading] = useState(false);
+  const [normalize, setNormalize] = useState<boolean>(true);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const uplotRef = useRef<uPlot | null>(null);
+  const dataKeyRef = useRef<string | null>(null);
 
-  const {
-    currentFilePath,
-    currentPlotState,
-    currentEdfData,
-    currentChunkMetadata,
-    selectFile,
-    selectChannels,
-  } = useCurrentEdfFile();
-
-  const loadingManager = useLoadingManager();
-  const workerRef = useRef<Worker | null>(null);
-  const chartRef = useRef<HTMLDivElement | null>(null);
-  const uplotInstance = useRef<uPlot | null>(null);
-  const lastProcessedQRef = useRef<any>(null);
-
-  // Use popout authentication hook
-  const { isAuthenticated } = usePopoutAuth({
-    widgetId,
-    isPopout,
-  });
-
-  // Use centralized loading state instead of local state
-  const dispatch = useAppDispatch();
-  const loadingState = useAppSelector((state) => state.loading);
-  const widgetLoadingId = `lineplot-widget-${widgetId}`;
-  const isProcessing = loadingState.operations[widgetLoadingId]?.type === "dda-processing";
-  const error = loadingState.operations[widgetLoadingId]?.metadata?.error || null;
-
-  // Synchronized widget state
-  const { state: widgetState, updateState: setWidgetState } =
-    useWidgetState<DDALinePlotState>(
-      widgetId,
-      {
-        plotMode: "average",
-        selectedRow: 0,
-        maxDisplayRows: 5,
-      },
-      isPopout
-    );
-  const { plotMode, selectedRow, maxDisplayRows } = widgetState;
-
-  // Use currentPlotState only if it exists and has the required properties
-  const plotWithDDA =
-    currentPlotState &&
-      currentPlotState.ddaResults &&
-      currentPlotState.ddaResults.Q &&
-      Array.isArray(currentPlotState.ddaResults.Q) &&
-      currentPlotState.ddaResults.Q.length > 0
-      ? currentPlotState
-      : null;
-  const Q = plotWithDDA?.ddaResults?.Q;
-  const hasData = Q && Array.isArray(Q) && Q.length > 0;
-
-  console.log("[DDALinePlotWidget] DDA data check:", {
-    currentFilePath,
-    currentPlotState: !!currentPlotState,
-    hasDdaResults: !!currentPlotState?.ddaResults,
-    ddaResultsQ: currentPlotState?.ddaResults?.Q,
-    plotWithDDA: !!plotWithDDA,
-    Q: Q,
-    hasData: hasData,
-    QLength: Q?.length,
-    QFirstRowLength: Q?.[0]?.length,
-    // Check if file paths match
-    storedFilePath: currentPlotState?.ddaResults?.file_path,
-    pathMatch: currentFilePath === currentPlotState?.ddaResults?.file_path,
-  });
+  // Persist/restore across unmounts (minimize/maximize)
+  const storageKey = useMemo(
+    () => `dda:line-plot-widget:v1:${widgetId}`,
+    [widgetId]
+  );
+  const restoredRef = useRef(false);
   const hasPlottableData = useMemo(() => {
     if (!hasData || !Q) return false;
     return Q.some((row) => row.some((val) => val !== null));

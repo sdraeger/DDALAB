@@ -46,7 +46,7 @@ async def get_users(
     """Get all users."""
 
     try:
-        users = await user_service.get_all_users()
+        users = await user_service.get_all()
         logger.debug(f"Users: {users}")
         return users
     except ServiceError as e:

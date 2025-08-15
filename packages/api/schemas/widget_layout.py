@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel
 
@@ -8,12 +8,16 @@ class WidgetLayoutData(BaseModel):
 
     id: str
     title: str
+    type: str
     position: Dict[str, Union[int, float]]  # {x: number, y: number}
     size: Dict[str, Union[int, float]]  # {width: number, height: number}
     minSize: Optional[Dict[str, Union[int, float]]] = None
     maxSize: Optional[Dict[str, Union[int, float]]] = None
     isPopOut: Optional[bool] = False
-    type: Optional[str] = None
+    isMinimized: Optional[bool] = False
+    isMaximized: Optional[bool] = False
+    data: Optional[Any] = None
+    settings: Optional[Dict[str, Any]] = None
 
 
 class SaveWidgetLayoutRequest(BaseModel):

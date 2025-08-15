@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
-import { BarChart3, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
+import { BarChart3, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Loader2 } from 'lucide-react';
 // Use shared EEGChart2 uPlot-based chart
 import { EEGChart2 } from '../plot/EEGChart2';
 import { apiService } from '../../lib/api';
@@ -31,10 +31,13 @@ export function ChartWidget({ widgetId = "chart-widget", isPopout = false }: Cha
 	const [timeWindow, setTimeWindow] = useState<[number, number]>([0, 2]);
 	const [zoomLevel, setZoomLevel] = useState<number>(1);
 
-	// Persist/restore across unmounts (minimize/maximize)
+	// Database persistence for widget state
 	const storageKey = useMemo(() => `dda:chart-widget:v1:${widgetId}`, [widgetId]);
 	const restoredRef = useRef(false);
 	const pendingFetchRef = useRef(false);
+	const [isLoadingState, setIsLoadingState] = useState(false);
+	const [isSavingState, setIsSavingState] = useState(false);
+	const [stateError, setStateError] = useState<string | null>(null);
 
 	// Preprocessing options (sent to backend)
 	const [preproc, setPreproc] = useState<{
@@ -248,26 +251,40 @@ export function ChartWidget({ widgetId = "chart-widget", isPopout = false }: Cha
 		}
 	}, [filePath, chunkSize, sampleRate, channelLabels, selectedChannels, preproc]);
 
-	// Restore state from storage on mount
+	// Restore state from database on mount
 	useEffect(() => {
 		if (restoredRef.current) return;
 		restoredRef.current = true;
-		try {
-			const raw = localStorage.getItem(storageKey);
-			if (raw) {
-				const snap = JSON.parse(raw);
-				if (snap) {
-					setFilePath(snap.filePath ?? null);
-					setSelectedChannels(Array.isArray(snap.selectedChannels) ? snap.selectedChannels : []);
-					setSampleRate(typeof snap.sampleRate === 'number' ? snap.sampleRate : 256);
-					setChunkStart(typeof snap.chunkStart === 'number' ? snap.chunkStart : 0);
-					setChunkSize(typeof snap.chunkSize === 'number' ? snap.chunkSize : 0);
-					setTotalSamples(typeof snap.totalSamples === 'number' ? snap.totalSamples : 0);
-					if (snap.preproc) setPreproc((p) => ({ ...p, ...snap.preproc }));
-					if (Array.isArray(snap.timeWindow) && snap.timeWindow.length === 2) setTimeWindow([Number(snap.timeWindow[0]) || 0, Number(snap.timeWindow[1]) || 2]);
+		
+		const restoreState = async () => {
+			setIsLoadingState(true);
+			setStateError(null);
+			try {
+				const response = await apiService.getWidgetData(storageKey);
+				if (response.data?.data?.data) {
+					const snap = response.data.data.data;
+					if (snap) {
+						setFilePath(snap.filePath ?? null);
+						setSelectedChannels(Array.isArray(snap.selectedChannels) ? snap.selectedChannels : []);
+						setSampleRate(typeof snap.sampleRate === 'number' ? snap.sampleRate : 256);
+						setChunkStart(typeof snap.chunkStart === 'number' ? snap.chunkStart : 0);
+						setChunkSize(typeof snap.chunkSize === 'number' ? snap.chunkSize : 0);
+						setTotalSamples(typeof snap.totalSamples === 'number' ? snap.totalSamples : 0);
+						if (snap.preproc) setPreproc((p) => ({ ...p, ...snap.preproc }));
+						if (Array.isArray(snap.timeWindow) && snap.timeWindow.length === 2) setTimeWindow([Number(snap.timeWindow[0]) || 0, Number(snap.timeWindow[1]) || 2]);
+					}
+				} else if (response.error && !response.error.includes('not found')) {
+					// Only show error if it's not a 404 (no saved state)
+					setStateError(`Failed to load widget state: ${response.error}`);
 				}
+			} catch (err) {
+				setStateError('Failed to load widget state from database');
+			} finally {
+				setIsLoadingState(false);
 			}
-		} catch { /* noop */ }
+		};
+		
+		restoreState();
 	}, [storageKey]);
 
 	// After restore, trigger a fetch to repopulate chart (without resetting the window)
@@ -280,11 +297,37 @@ export function ChartWidget({ widgetId = "chart-widget", isPopout = false }: Cha
 		}
 	}, [eegData, filePath, chunkSize, chunkStart, fetchChunk]);
 
-	// Persist state snapshot when key inputs change
+	// Persist state snapshot to database when key inputs change
 	useEffect(() => {
+		if (!restoredRef.current || isLoadingState) return; // Don't save during initial load
+		
 		const snapshot = { filePath, selectedChannels, sampleRate, chunkStart, chunkSize, totalSamples, preproc, timeWindow };
-		try { localStorage.setItem(storageKey, JSON.stringify(snapshot)); } catch { /* noop */ }
-	}, [storageKey, filePath, selectedChannels, sampleRate, chunkStart, chunkSize, totalSamples, preproc, timeWindow]);
+		
+		const saveState = async () => {
+			setIsSavingState(true);
+			try {
+				const response = await apiService.storeWidgetData({
+					key: storageKey,
+					data: snapshot,
+					widgetId: widgetId,
+					metadata: { type: 'chart-widget', version: 'v1' }
+				});
+				if (response.error) {
+					setStateError(`Failed to save widget state: ${response.error}`);
+				} else {
+					setStateError(null); // Clear any previous errors on successful save
+				}
+			} catch (err) {
+				setStateError('Failed to save widget state to database');
+			} finally {
+				setIsSavingState(false);
+			}
+		};
+		
+		// Debounce saves to avoid excessive API calls
+		const timeoutId = setTimeout(saveState, 500);
+		return () => clearTimeout(timeoutId);
+	}, [storageKey, filePath, selectedChannels, sampleRate, chunkStart, chunkSize, totalSamples, preproc, timeWindow, widgetId, isLoadingState]);
 
 	const canGoPrev = useMemo(() => chunkStart > 0 && chunkSize > 0, [chunkStart, chunkSize]);
 	const canGoNext = useMemo(() => {
@@ -408,17 +451,23 @@ export function ChartWidget({ widgetId = "chart-widget", isPopout = false }: Cha
 	};
 
 	return (
-		<div className="flex flex-col h-full p-4 space-y-4">
+		<div className="flex flex-col h-full p-1 space-y-1">
 			<Card className="flex flex-col h-full">
-				<CardHeader className="flex-shrink-0">
-					<CardTitle className="flex items-center gap-2">
+				<CardHeader className="flex-shrink-0 pb-2">
+					<CardTitle className="flex items-center gap-2 text-sm">
 						<BarChart3 className="h-4 w-4" />
 						Data Visualization
+						{(isLoadingState || isSavingState) && (
+							<Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+						)}
 					</CardTitle>
+					{stateError && (
+						<p className="text-xs text-red-600 mt-1">{stateError}</p>
+					)}
 				</CardHeader>
-				<CardContent className="flex flex-col flex-1 min-h-0 space-y-3">
+				<CardContent className="flex flex-col flex-1 min-h-0 space-y-2 pt-0">
 					{/* Info + Navigation */}
-					<div className="flex flex-col gap-2 text-xs">
+					<div className="flex flex-col gap-1 text-xs">
 						{/* File + Channels + Points + Window */}
 						<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
 							<span><span className="text-foreground">File:</span> {basename}</span>
@@ -440,7 +489,7 @@ export function ChartWidget({ widgetId = "chart-widget", isPopout = false }: Cha
 						</div>
 
 						{/* Preprocessing Controls */}
-						<div className="flex flex-wrap items-center gap-3 p-2 rounded border bg-card/50">
+						<div className="flex flex-wrap items-center gap-2 p-1 rounded border bg-card/50">
 							<div className="flex items-center gap-2">
 								<Checkbox id="lp" checked={preproc.lowpassFilter} onCheckedChange={(v) => setPreproc(p => ({ ...p, lowpassFilter: Boolean(v) }))} />
 								<Label htmlFor="lp">Low-pass (40 Hz)</Label>
@@ -522,8 +571,15 @@ export function ChartWidget({ widgetId = "chart-widget", isPopout = false }: Cha
 
 					{/* Chart Container - Fill widget area */}
 					<div className="flex-1 min-h-0 overflow-hidden">
-						<div ref={containerRef} className="w-full h-full">
-							{eegData ? (
+						<div ref={containerRef} className="w-full h-full relative">
+							{isLoadingState ? (
+								<div className="h-full flex items-center justify-center">
+									<div className="flex items-center gap-2 text-muted-foreground">
+										<Loader2 className="h-5 w-5 animate-spin" />
+										<span className="text-sm">Loading widget state...</span>
+									</div>
+								</div>
+							) : eegData ? (
 								<EEGChart2
 									key={`${filePath || 'file'}:${eegData?.chunkStart ?? 0}:${selectedChannels.join(',')}`}
 									eegData={eegData}
@@ -535,13 +591,23 @@ export function ChartWidget({ widgetId = "chart-widget", isPopout = false }: Cha
 									height="100%"
 								/>
 							) : (
-								<div className="text-xs text-muted-foreground h-full flex items-center">No data</div>
+								<div className="text-xs text-muted-foreground h-full flex items-center justify-center">
+									<span>No data loaded</span>
+								</div>
 							)}
 						</div>
 					</div>
 
-					<div className="text-xs text-muted-foreground flex-shrink-0">
-						{pointsPlotted.toLocaleString()} points displayed • {Math.max(1, selectedChannels.length || 0)} channel(s) • {chunkDurationSec > 0 ? `${chunkDurationSec.toFixed(2)}s chunk` : '—'}
+					<div className="text-xs text-muted-foreground flex-shrink-0 flex items-center justify-between">
+						<span>
+							{pointsPlotted.toLocaleString()} points displayed • {Math.max(1, selectedChannels.length || 0)} channel(s) • {chunkDurationSec > 0 ? `${chunkDurationSec.toFixed(2)}s chunk` : '—'}
+						</span>
+						{isSavingState && (
+							<span className="flex items-center gap-1">
+								<Loader2 className="h-3 w-3 animate-spin" />
+								<span>Saving...</span>
+							</span>
+						)}
 					</div>
 				</CardContent>
 			</Card>

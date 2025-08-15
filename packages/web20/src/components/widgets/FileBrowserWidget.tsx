@@ -188,7 +188,7 @@ export function FileBrowserWidget({ onFileSelect, maxHeight = "400px" }: FileBro
 
 	return (
 		<div className="flex flex-col h-full min-h-0" style={{ maxHeight }}>
-			<div className="flex items-center gap-2 p-2 border-b">
+			<div className="flex items-center gap-2 p-1 border-b">
 				<Input
 					value={currentPath}
 					onChange={(e) => setCurrentPath(e.target.value)}
@@ -201,7 +201,7 @@ export function FileBrowserWidget({ onFileSelect, maxHeight = "400px" }: FileBro
 			</div>
 
 			<ScrollArea className="flex-1 min-h-0">
-				<div className="p-2">
+				<div className="p-1">
 					{error && (
 						<div className="text-xs text-destructive mb-2">{error}</div>
 					)}

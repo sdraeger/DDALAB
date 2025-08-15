@@ -262,6 +262,94 @@ class ApiService {
   async healthCheck(): Promise<ApiResponse<{ status: string }>> {
     return this.request<{ status: string }>("/api/health");
   }
+
+  // Widget data persistence methods
+  async storeWidgetData(payload: {
+    key: string;
+    data: any;
+    widgetId: string;
+    metadata?: any;
+  }): Promise<ApiResponse<{ status: string; message: string; dataKey: string }>> {
+    return this.request<{ status: string; message: string; dataKey: string }>(
+      "/api/widget-data",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  async getWidgetData(
+    dataKey: string
+  ): Promise<ApiResponse<{ status: string; message: string; data: any }>> {
+    return this.request<{ status: string; message: string; data: any }>(
+      `/api/widget-data/${dataKey}`
+    );
+  }
+
+  async deleteWidgetData(
+    dataKey: string
+  ): Promise<ApiResponse<{ status: string; message: string }>> {
+    return this.request<{ status: string; message: string }>(
+      `/api/widget-data/${dataKey}`,
+      {
+        method: "DELETE",
+      }
+    );
+  }
+
+  // Notification methods
+  async getNotifications(): Promise<ApiResponse<any[]>> {
+    return this.request<any[]>("/api/notifications");
+  }
+
+  async getUnreadNotificationsCount(): Promise<ApiResponse<{ count: number }>> {
+    return this.request<{ count: number }>("/api/notifications/unread-count");
+  }
+
+  async markNotificationAsRead(notificationId: string): Promise<ApiResponse<{ success: boolean }>> {
+    return this.request<{ success: boolean }>("/api/notifications/mark-read", {
+      method: "POST",
+      body: JSON.stringify({ notification_id: notificationId }),
+    });
+  }
+
+  async markAllNotificationsAsRead(): Promise<ApiResponse<{ success: boolean; marked_count: number }>> {
+    return this.request<{ success: boolean; marked_count: number }>("/api/notifications/mark-all-read", {
+      method: "POST",
+    });
+  }
+
+  async deleteNotification(notificationId: string): Promise<ApiResponse<{ success: boolean }>> {
+    return this.request<{ success: boolean }>(`/api/notifications/${notificationId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async startNotificationMonitoring(): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    return this.request<{ success: boolean; message: string }>("/api/notifications/start-monitoring", {
+      method: "POST",
+    });
+  }
+
+  async stopNotificationMonitoring(): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    return this.request<{ success: boolean; message: string }>("/api/notifications/stop-monitoring", {
+      method: "POST",
+    });
+  }
+
+  async getSystemStatus(): Promise<ApiResponse<{
+    cpu_percent: number;
+    memory_percent: number;
+    disk_percent: number;
+    uptime_seconds: number;
+    db_status: string;
+    network_status: string;
+    status: string;
+    timestamp: string;
+  }>> {
+    return this.request("/api/notifications/system-status");
+  }
 }
 
 // Create singleton instance

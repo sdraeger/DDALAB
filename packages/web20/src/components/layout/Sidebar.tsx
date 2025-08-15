@@ -188,16 +188,18 @@ export function Sidebar({ className }: SidebarProps) {
 						{!sidebarCollapsed && (
 							<h3 className="text-sm font-medium text-muted-foreground">Settings</h3>
 						)}
-						<Button
-							variant="ghost"
-							className={cn(
-								'w-full justify-start',
-								sidebarCollapsed && 'justify-center px-2'
-							)}
-						>
-							<Settings className={cn('h-4 w-4', !sidebarCollapsed && 'mr-2')} />
-							{!sidebarCollapsed && 'Settings'}
-						</Button>
+						<Link href="/settings" className="block">
+							<Button
+								variant="ghost"
+								className={cn(
+									'w-full justify-start',
+									sidebarCollapsed && 'justify-center px-2'
+								)}
+							>
+								<Settings className={cn('h-4 w-4', !sidebarCollapsed && 'mr-2')} />
+								{!sidebarCollapsed && 'Settings'}
+							</Button>
+						</Link>
 					</div>
 				</div>
 			</ScrollArea>

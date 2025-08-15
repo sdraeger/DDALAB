@@ -27,6 +27,7 @@ TABLE_EXECUTION_ORDER = [
     "tables/edf/edf_configs.sql",
     "tables/artifacts/artifacts.sql",
     "tables/layouts/user_layouts.sql",
+    "tables/core/widget_data.sql",
     # Tables that depend on other tables (besides users)
     "tables/edf/edf_config_channels.sql",  # depends on edf_configs
     "tables/artifacts/artifact_shares.sql",  # depends on artifacts
@@ -47,6 +48,7 @@ TABLE_FILE_MAP = {
     "artifacts": "tables/artifacts/artifacts.sql",
     "artifact_shares": "tables/artifacts/artifact_shares.sql",
     "user_layouts": "tables/layouts/user_layouts.sql",
+    "widget_data": "tables/core/widget_data.sql",
 }
 
 

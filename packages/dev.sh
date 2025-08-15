@@ -32,17 +32,17 @@ set -a
 source "$ENV_FILE"
 set +a
 
-# Override with development-specific values (if not already set in .env)
-# These should typically be commented out in .env if production is default
-export ENVIRONMENT=${ENVIRONMENT:-development}
-export DEBUG=${DEBUG:-true}
-export RELOAD=${RELOAD:-true}
-export AUTH_MODE=${AUTH_MODE:-local}
-export DB_HOST=${DB_HOST:-localhost}
-export MINIO_HOST=${MINIO_HOST:-localhost:9000}
-export MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-admin}
-export MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-dev_password123}
-export REDIS_HOST=${REDIS_HOST:-localhost}
+# Override with development-specific values (force development settings)
+# These override .env values for local development
+export ENVIRONMENT=development
+export DEBUG=true
+export RELOAD=true
+export AUTH_MODE=local
+export DB_HOST=localhost
+export MINIO_HOST=localhost:9000
+export MINIO_ACCESS_KEY=admin
+export MINIO_SECRET_KEY=dev_password123
+export REDIS_HOST=localhost
 export DATA_DIR=${DATA_DIR:-data}
 export ALLOWED_DIRS=${ALLOWED_DIRS:-/Users/$(whoami)/Desktop}
 export DDA_BINARY_PATH=${DDA_BINARY_PATH:-/Users/$(whoami)/Desktop/DDALAB/bin/run_DDA_ASCII}

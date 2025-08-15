@@ -84,3 +84,11 @@ export const useSelectedWidget = () => {
   const selectedWidgetId = useSelectedWidgetId();
   return useWidgetById(selectedWidgetId || "");
 };
+
+// Notification selectors
+export const useNotifications = () =>
+  useAppSelector((state) => state.notifications.notifications);
+export const useUnreadNotificationsCount = () =>
+  useAppSelector((state) => state.notifications.unreadCount);
+export const useNotificationsLoading = () =>
+  useAppSelector((state) => state.notifications.isLoading);

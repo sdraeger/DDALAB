@@ -17,6 +17,7 @@ from .favorite_files_service import FavoriteFilesService
 from .file_service import FileService
 from .layout_service import LayoutService
 from .local_user_service import LocalUserService
+from .notification_service import NotificationService
 from .plot_cache_service import PlotCacheService
 from .plot_service import PlotService
 from .redis_service import RedisService
@@ -47,6 +48,7 @@ __all__ = [
     "FavoriteFilesService",
     "FileService",
     "LayoutService",
+    "NotificationService",
     "PlotCacheService",
     "PlotService",
     "RedisService",

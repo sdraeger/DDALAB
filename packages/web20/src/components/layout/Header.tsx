@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAppDispatch, useAuthUser, useAuthMode, useIsAuthAuthenticated } from '@/store/hooks';
 import { logout } from '@/store/slices/authSlice';
 import { toggleSidebar, toggleHeader, setTheme } from '@/store/slices/userSlice';
@@ -15,18 +15,32 @@ import {
 	Monitor,
 	LayoutGrid,
 	Plus,
-	LogOut
+	LogOut,
+	FileText,
+	Folder,
+	Clock
 } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { Avatar, AvatarFallback, AvatarImage, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, Input } from '@/components/ui';
-import { useTheme } from '@/store/hooks';
+import { useTheme as useReduxTheme } from '@/store/hooks';
+import { useTheme } from 'next-themes';
+import { cn } from '@/lib/utils';
+import { NotificationDropdown } from '@/components/notifications/NotificationDropdown';
+import { useGlobalSearch } from '@/hooks/useGlobalSearch';
+import { SearchProviderRegistry } from '@/components/search/SearchProviderRegistry';
 
 export function Header() {
 	const dispatch = useAppDispatch();
 	const authUser = useAuthUser();
 	const authMode = useAuthMode();
 	const isAuthenticated = useIsAuthAuthenticated();
-	const theme = useTheme();
+	const { theme, setTheme: setNextTheme } = useTheme();
+	
+	// Global search
+	const { query, results, isSearching, search, clearSearch, selectResult } = useGlobalSearch();
+	const [isSearchOpen, setIsSearchOpen] = useState(false);
+	const searchRef = useRef<HTMLDivElement>(null);
+	const inputRef = useRef<HTMLInputElement>(null);
 
 	const handleLogout = () => {
 		dispatch(logout());
@@ -34,6 +48,49 @@ export function Header() {
 
 	const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
 		dispatch(setTheme(newTheme));
+		setNextTheme(newTheme);
+	};
+
+	// Handle search input change
+	const handleSearchChange = (value: string) => {
+		search(value);
+		setIsSearchOpen(true);
+	};
+
+	// Handle search input focus/blur
+	useEffect(() => {
+		const handleClickOutside = (event: MouseEvent) => {
+			if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+				setIsSearchOpen(false);
+			}
+		};
+
+		document.addEventListener('mousedown', handleClickOutside);
+		return () => document.removeEventListener('mousedown', handleClickOutside);
+	}, []);
+
+	// Handle keyboard shortcuts
+	useEffect(() => {
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+				event.preventDefault();
+				inputRef.current?.focus();
+				setIsSearchOpen(true);
+			}
+			if (event.key === 'Escape') {
+				setIsSearchOpen(false);
+				clearSearch();
+				inputRef.current?.blur();
+			}
+		};
+
+		document.addEventListener('keydown', handleKeyDown);
+		return () => document.removeEventListener('keydown', handleKeyDown);
+	}, []);
+
+	const handleSearchResultClick = (item: any) => {
+		setIsSearchOpen(false);
+		selectResult(item);
 	};
 
 	const getThemeIcon = () => {
@@ -54,6 +111,7 @@ export function Header() {
 
 	return (
 		<header className="flex h-16 items-center justify-between border-b bg-background px-4 shadow-sm">
+			<SearchProviderRegistry />
 			<div className="flex items-center gap-4">
 				<Button
 					variant="ghost"
@@ -72,12 +130,73 @@ export function Header() {
 
 			<div className="flex items-center gap-4">
 				{/* Search */}
-				<div className="relative hidden md:block">
+				<div className="relative hidden md:block" ref={searchRef}>
 					<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 					<Input
-						placeholder="Search..."
+						ref={inputRef}
+						placeholder="Search anything... (⌘K)"
 						className="pl-9 w-64"
+						value={query}
+						onChange={(e) => handleSearchChange(e.target.value)}
+						onFocus={() => setIsSearchOpen(true)}
 					/>
+					
+					{/* Search Results Dropdown */}
+					{isSearchOpen && (query || results.length > 0) && (
+						<div className="absolute top-full left-0 right-0 mt-1 bg-background border border-border rounded-md shadow-lg z-50 max-h-96 overflow-y-auto">
+							{isSearching && (
+								<div className="p-4 text-center text-muted-foreground">
+									<Search className="h-4 w-4 animate-pulse mx-auto mb-2" />
+									Searching...
+								</div>
+							)}
+							
+							{!isSearching && results.length === 0 && query && (
+								<div className="p-4 text-center text-muted-foreground">
+									No results found for "{query}"
+								</div>
+							)}
+							
+							{!isSearching && results.length > 0 && (
+								<div className="py-2">
+									{results.map((result) => (
+										<button
+											key={result.id}
+											onClick={() => handleSearchResultClick(result)}
+											className="w-full px-4 py-3 text-left hover:bg-muted flex items-start gap-3 border-none bg-transparent"
+										>
+											<div className="mt-0.5 text-muted-foreground">
+												{result.icon}
+											</div>
+											<div className="flex-1 min-w-0">
+												<div className="font-medium text-sm truncate">
+													{result.title}
+												</div>
+												<div className="text-xs text-muted-foreground truncate">
+													{result.description}
+												</div>
+											</div>
+											<div className="text-xs text-muted-foreground mt-0.5 capitalize">
+												{result.category}
+											</div>
+										</button>
+									))}
+								</div>
+							)}
+							
+							{!query && (
+								<div className="p-4 text-center text-muted-foreground text-sm">
+									<div className="mb-2">Search across:</div>
+									<div className="text-xs space-y-1">
+										<div>• Files and documents</div>
+										<div>• Pages and navigation</div>
+										<div>• Notifications and alerts</div>
+										<div>• Use ⌘K or Ctrl+K to focus</div>
+									</div>
+								</div>
+							)}
+						</div>
+					)}
 				</div>
 
 				{/* Actions */}
@@ -86,9 +205,7 @@ export function Header() {
 						<Plus className="h-4 w-4" />
 					</Button>
 
-					<Button variant="ghost" size="sm">
-						<Bell className="h-4 w-4" />
-					</Button>
+					<NotificationDropdown />
 
 					{/* Theme Toggle */}
 					<DropdownMenu>
