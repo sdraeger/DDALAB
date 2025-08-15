@@ -1,18 +1,17 @@
-"use client";
-
-import { useState, useEffect, useMemo } from "react";
-import { useCurrentEdfFile } from "../../../hooks/useCurrentEdfFile";
-import { Activity, Settings, RotateCcw } from "lucide-react";
-import { SimpleDDAHeatmap } from "../../plot/SimpleDDAHeatmap";
-import { Button } from "../../ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
-import { Badge } from "../../ui/badge";
-import { useLoadingManager } from "../../../hooks/useLoadingManager";
-import { LoadingOverlay } from "../../ui/loading-overlay";
-import logger from "../../../lib/utils/logger";
-import { usePopoutAuth } from "../../../hooks/usePopoutAuth";
-import { useAppSelector, useAppDispatch } from "../../../store";
-import { startLoading, stopLoading } from "../../../store/slices/loadingSlice";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Activity, Download, RefreshCw } from "lucide-react";
+import uPlot from "uplot";
+import "uplot/dist/uPlot.min.css";
+import { dataPersistenceService } from "@/services/DataPersistenceService";
 
 interface DDAHeatmapWidgetProps {
   widgetId?: string;
@@ -20,69 +19,24 @@ interface DDAHeatmapWidgetProps {
 }
 
 export function DDAHeatmapWidget({
-  widgetId = "dda-heatmap-widget-default",
+  widgetId = "dda-heatmap-widget",
   isPopout = false,
-}: DDAHeatmapWidgetProps = {}) {
-  console.log("[DDAHeatmapWidget] Component rendered with widgetId:", widgetId);
+}: DDAHeatmapWidgetProps) {
+  const [Q, setQ] = useState<number[][]>([]);
+  const [colorScheme, setColorScheme] = useState<
+    "viridis" | "plasma" | "inferno" | "jet"
+  >("viridis");
+  const [isLoading, setIsLoading] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const uplotRef = useRef<uPlot | null>(null);
+  const dataKeyRef = useRef<string | null>(null);
 
-  // Use popout authentication hook
-  const { isAuthenticated } = usePopoutAuth({
-    widgetId,
-    isPopout,
-  });
-
-  const {
-    currentFilePath,
-    currentPlotState,
-    currentEdfData,
-    currentChunkMetadata,
-    selectFile,
-    selectChannels,
-  } = useCurrentEdfFile();
-
-  const loadingManager = useLoadingManager();
-
-  // Use currentPlotState only if it exists and has the required properties
-  const plotWithDDA =
-    currentPlotState &&
-      currentPlotState.ddaResults &&
-      Array.isArray(currentPlotState.ddaResults.Q) &&
-      currentPlotState.ddaResults.Q.length > 0
-      ? currentPlotState
-      : null;
-
-  // Use plotWithDDA directly as a PlotState or null
-  const ddaResults = plotWithDDA?.ddaResults;
-  const Q = ddaResults?.Q;
-  const hasData = Q && Array.isArray(Q) && Q.length > 0;
-
-  console.log("[DDAHeatmapWidget] DDA data check:", {
-    currentFilePath,
-    currentPlotState: !!currentPlotState,
-    hasDdaResults: !!currentPlotState?.ddaResults,
-    ddaResultsQ: currentPlotState?.ddaResults?.Q,
-    plotWithDDA: !!plotWithDDA,
-    Q: Q,
-    hasData: hasData,
-    QLength: Q?.length,
-    QFirstRowLength: Q?.[0]?.length,
-    // Check if file paths match
-    storedFilePath: currentPlotState?.ddaResults?.file_path,
-    pathMatch: currentFilePath === currentPlotState?.ddaResults?.file_path,
-  });
-
-  const hasPlottableData = useMemo(() => {
-    if (!hasData || !Q) return false;
-    return Q.some((row) => row.some((val) => val !== null));
-  }, [Q, hasData]);
-
-  // Use centralized loading state instead of local state
-  const dispatch = useAppDispatch();
-  const loadingState = useAppSelector((state) => state.loading);
-  const widgetLoadingId = `heatmap-widget-${widgetId}`;
-  const isProcessing = loadingState.operations[widgetLoadingId]?.type === "dda-processing";
-  const [heatmapData, setHeatmapData] = useState<any[]>([]);
-  const error = loadingState.operations[widgetLoadingId]?.metadata?.error || null;
+  // Persist/restore across unmounts (minimize/maximize)
+  const storageKey = useMemo(
+    () => `dda:heatmap-widget:v1:${widgetId}`,
+    [widgetId]
+  );
+  const restoredRef = useRef(false);
 
   // Process Q matrix into heatmap data
   const processQMatrix = async (matrix: any[][]) => {

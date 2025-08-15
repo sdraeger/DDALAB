@@ -5,6 +5,7 @@ import { Header } from '@/components/layout/Header';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Footer } from '@/components/layout/Footer';
 import { UserPreferences } from '@/components/settings/UserPreferences';
+import { NotificationSettings } from '@/components/settings/NotificationSettings';
 import { AuthProvider } from '@/components/auth/AuthProvider';
 import { useHeaderVisible, useFooterVisible } from '@/store/hooks';
 
@@ -28,7 +29,10 @@ export default function SettingsPage() {
 											Manage your application preferences and settings
 										</p>
 									</div>
-									<UserPreferences />
+									<div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+										<UserPreferences />
+										<NotificationSettings />
+									</div>
 								</div>
 							</div>
 						</main>

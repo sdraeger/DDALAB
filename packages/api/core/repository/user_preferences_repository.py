@@ -13,7 +13,7 @@ class UserPreferencesRepository(BaseRepository[UserPreferences]):
 
     async def get_by_user_id(self, user_id: int):
         """Get preferences for a user."""
-        return await self.get_by_field("user_id", user_id)
+        return await self.get_by_fields({"user_id": user_id})
 
     async def update_preferences(
         self, user_id: int, preferences: dict

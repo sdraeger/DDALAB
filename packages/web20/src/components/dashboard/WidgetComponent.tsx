@@ -3,7 +3,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Widget } from '@/types/dashboard';
 import { useAppDispatch } from '@/store/hooks';
-import { minimizeWidget, maximizeWidget, restoreWidget, popOutWidget, popInWidget, setResizeState, setIsResizing as setIsResizingAction } from '@/store/slices/dashboardSlice';
+import { minimizeWidget, maximizeWidget, restoreWidget, popOutWidget, popInWidget, setResizeState, setIsResizing as setIsResizingAction, updateWidget } from '@/store/slices/dashboardSlice';
 import { cn } from '@/lib/utils';
 import { createWidgetContent } from '@/lib/widgetFactory';
 import { useUnifiedSessionData } from '@/hooks/useUnifiedSession';
@@ -111,6 +111,8 @@ export function WidgetComponent({
 		console.log('[web20] File selected:', filePath);
 	}, []);
 
+	// Listen for widget data updates
+
 	if (widget.isMinimized) {
 		return (
 			<div
@@ -161,7 +163,7 @@ export function WidgetComponent({
 		>
 			{/* Widget Header */}
 			<div
-				className="flex items-center justify-between h-10 px-3 border-b bg-muted/50 cursor-move"
+				className="flex items-center justify-between h-8 px-2 border-b bg-muted/50 cursor-move"
 				onMouseDown={handleMouseDown}
 			>
 				<div className="flex items-center gap-2">
@@ -221,8 +223,8 @@ export function WidgetComponent({
 			</div>
 
 			{/* Widget Content */}
-			<div className="flex-1 min-h-0 p-3 overflow-hidden">
-				{createWidgetContent(widget.type, widget.id, widget.isPopOut, handleFileSelect)}
+			<div className="flex-1 min-h-0 p-1 overflow-hidden">
+				{createWidgetContent(widget.type, widget.id, widget.isPopOut, handleFileSelect, widget.data)}
 			</div>
 
 			{/* Resize Handles */}

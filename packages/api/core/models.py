@@ -318,3 +318,30 @@ class UserLayout(Base):
             self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     user = relationship("User", back_populates="layouts")
+
+
+class WidgetData(Base):
+    __tablename__ = "widget_data"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    data_key = Column(String, unique=True, index=True, nullable=False)
+    widget_id = Column(String, index=True, nullable=False)
+    widget_data = Column(JSON, nullable=False)
+    widget_metadata = Column(JSON, nullable=True)
+    created_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
+    )
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.created_at is None:
+            self.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        if self.updated_at is None:
+            self.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    user = relationship("User", backref="widget_data")

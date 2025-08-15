@@ -18,7 +18,9 @@ from .plots import router as plots_router
 from .tickets import router as tickets_router
 from .user_preferences import router as user_preferences_router
 from .users import router as users_router
+from .widget_data import router as widget_data_router
 from .widget_layouts import router as widget_layouts_router
+from .notifications import router as notifications_router
 
 # Create router with trailing slash config
 router = APIRouter()
@@ -48,7 +50,9 @@ router.include_router(layouts_router, prefix="/layouts", tags=["layouts"])
 router.include_router(
     widget_layouts_router, prefix="/widget-layouts", tags=["widget-layouts"]
 )
+router.include_router(widget_data_router, prefix="/widget-data", tags=["widget-data"])
 router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
+router.include_router(notifications_router, prefix="/notifications", tags=["notifications"])
 
 
 def include_routers(app):
