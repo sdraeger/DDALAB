@@ -297,7 +297,21 @@ export function DDAHeatmapWidget({
       uplotRef.current.setData(data);
       uplotRef.current.redraw();
     } else {
-      uplotRef.current = new uPlot(opts, data, containerRef.current);
+      try {
+        // Get the appropriate uPlot constructor based on context
+        let uPlotConstructor = uPlot;
+        
+        // Check if we're in a popup window context and use global uPlot if available
+        if (typeof window !== 'undefined' && window.opener && (window as any).uPlot) {
+          console.log('[DDAHeatmapWidget] Using popup window uPlot');
+          uPlotConstructor = (window as any).uPlot;
+        }
+        
+        uplotRef.current = new uPlotConstructor(opts, data, containerRef.current);
+      } catch (error) {
+        console.error('[DDAHeatmapWidget] Error creating uPlot instance:', error);
+        // Don't throw - just log the error to prevent component crash
+      }
     }
   }, [Q, colorScheme]);
 

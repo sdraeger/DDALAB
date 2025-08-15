@@ -538,17 +538,19 @@ export function DashboardGrid({
           </div>
         </div>
       ) : (
-        widgets.map((widget: any) => {
-          return (
-            <WidgetComponent
-              key={widget.id}
-              widget={widget}
-              isSelected={selectedWidgetId === widget.id}
-              onMouseDown={handleMouseDown}
-              onSelect={() => dispatch(setSelectedWidget(widget.id))}
-            />
-          );
-        })
+        widgets
+          .filter((widget: any) => !widget.isPopOut) // Don't render popped-out widgets in main dashboard
+          .map((widget: any) => {
+            return (
+              <WidgetComponent
+                key={widget.id}
+                widget={widget}
+                isSelected={selectedWidgetId === widget.id}
+                onMouseDown={handleMouseDown}
+                onSelect={() => dispatch(setSelectedWidget(widget.id))}
+              />
+            );
+          })
       )}
     </div>
   );
