@@ -15,6 +15,7 @@ import {
 	GripVertical
 } from 'lucide-react';
 import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
+import { usePopOutWindows } from '@/hooks/usePopOutWindows';
 
 interface WidgetComponentProps {
 	widget: Widget;
@@ -32,6 +33,7 @@ export function WidgetComponent({
 	const dispatch = useAppDispatch();
 	const { data: session } = useUnifiedSessionData();
 	const { removeWidget } = useLayoutPersistence();
+	const { openPopOutWindow, closePopOutWindow } = usePopOutWindows();
 
 	const [isResizing, setIsResizing] = useState(false);
 	const [showDropdown, setShowDropdown] = useState(false);
@@ -97,13 +99,19 @@ export function WidgetComponent({
 
 	const handlePopOut = useCallback(() => {
 		dispatch(popOutWidget(widget.id));
+		// Open the actual popup window
+		const popupWindow = openPopOutWindow(widget.id);
+		if (popupWindow) {
+			console.log(`Widget ${widget.id} popped out to new window`);
+		}
 		setShowDropdown(false);
-	}, [dispatch, widget.id]);
+	}, [dispatch, widget.id, openPopOutWindow]);
 
 	const handlePopIn = useCallback(() => {
-		dispatch(popInWidget(widget.id));
+		// Close popup window and pop widget back in
+		closePopOutWindow(widget.id);
 		setShowDropdown(false);
-	}, [dispatch, widget.id]);
+	}, [widget.id, closePopOutWindow]);
 
 	// Provide file selection callback to file-browser widgets
 	const handleFileSelect = useCallback((filePath: string) => {
@@ -198,12 +206,21 @@ export function WidgetComponent({
 
 						{showDropdown && (
 							<div className="absolute right-0 top-full mt-1 bg-background border rounded-md shadow-lg z-50 min-w-[120px]">
-								<button
-									onClick={handlePopOut}
-									className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
-								>
-									Pop Out
-								</button>
+								{widget.isPopOut ? (
+									<button
+										onClick={handlePopIn}
+										className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
+									>
+										Pop In
+									</button>
+								) : (
+									<button
+										onClick={handlePopOut}
+										className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
+									>
+										Pop Out
+									</button>
+								)}
 								<button
 									onClick={handleMinimize}
 									className="w-full px-3 py-2 text-left text-sm hover:bg-muted"

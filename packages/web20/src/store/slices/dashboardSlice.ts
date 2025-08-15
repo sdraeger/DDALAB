@@ -177,17 +177,34 @@ const dashboardSlice = createSlice({
 
     popOutWidget: (state, action: PayloadAction<string>) => {
       const widget = state.widgets.find((w) => w.id === action.payload);
-      if (widget) {
+      if (widget && !widget.isPopOut) {
+        // Store current position and size for restoration
+        widget.previousPosition = { ...widget.position };
+        widget.previousSize = { ...widget.size };
         widget.isPopOut = true;
+        // Reset minimized/maximized states for pop-out
+        widget.isMinimized = false;
+        widget.isMaximized = false;
       }
     },
 
     popInWidget: (state, action: PayloadAction<string>) => {
       const widget = state.widgets.find((w) => w.id === action.payload);
-      if (widget) {
+      if (widget && widget.isPopOut) {
         widget.isPopOut = false;
+        // Restore previous position and size if available
+        if (widget.previousPosition) {
+          widget.position = { ...widget.previousPosition };
+        }
+        if (widget.previousSize) {
+          widget.size = { ...widget.previousSize };
+        }
+        // Clear the stored values
+        widget.previousPosition = undefined;
+        widget.previousSize = undefined;
       }
     },
+
   },
 });
 

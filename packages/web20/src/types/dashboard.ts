@@ -11,6 +11,9 @@ export interface Widget {
   isMaximized?: boolean;
   data?: any;
   settings?: Record<string, any>;
+  // Position and size before popping out (for restoration)
+  previousPosition?: { x: number; y: number };
+  previousSize?: { width: number; height: number };
 }
 
 export interface DashboardLayout {

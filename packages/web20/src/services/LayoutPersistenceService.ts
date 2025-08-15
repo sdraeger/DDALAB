@@ -65,8 +65,9 @@ export class LayoutPersistenceService {
 
       if (this.isLocalMode) {
         // Local mode - save to localStorage
+        const cleanWidgets = this.cleanWidgetsForSerialization(widgets);
         localStorage.setItem("web20-layouts", JSON.stringify(layouts));
-        localStorage.setItem("web20-widgets", JSON.stringify(widgets));
+        localStorage.setItem("web20-widgets", JSON.stringify(cleanWidgets));
         logger.info("[LocalMode] Saved dashboard layout to localStorage");
         return;
       }
@@ -86,6 +87,8 @@ export class LayoutPersistenceService {
         isPopOut: widget.isPopOut || false,
         isMinimized: widget.isMinimized || false,
         isMaximized: widget.isMaximized || false,
+        previousPosition: widget.previousPosition,
+        previousSize: widget.previousSize,
         data: widget.data,
         settings: widget.settings || {},
       }));
@@ -127,8 +130,12 @@ export class LayoutPersistenceService {
 
         if (savedWidgets) {
           const widgets = JSON.parse(savedWidgets);
+          
+          // Return loaded widgets as-is since we no longer store window references
+          const cleanedWidgets = widgets;
+          
           logger.info("[LocalMode] Loaded dashboard layout from localStorage");
-          return widgets;
+          return cleanedWidgets;
         }
         return [];
       }
@@ -150,15 +157,24 @@ export class LayoutPersistenceService {
 
       const loadedWidgets = response.data?.widgets || [];
 
+      // Return loaded widgets as-is since we no longer store window references
+      const cleanedWidgets = loadedWidgets;
+
       // Update last saved reference
-      this.lastSavedLayout = JSON.stringify(loadedWidgets);
+      this.lastSavedLayout = JSON.stringify(this.cleanWidgetsForSerialization(cleanedWidgets));
 
       logger.info("Loaded dashboard layout from database");
-      return loadedWidgets;
+      return cleanedWidgets;
     } catch (error) {
       logger.error("Failed to load layout:", error);
       return [];
     }
+  }
+
+  // Clean widgets for serialization by removing non-serializable properties
+  private cleanWidgetsForSerialization(widgets: Widget[]): any[] {
+    // No non-serializable properties to remove anymore
+    return widgets;
   }
 
   // Auto-save functionality
@@ -167,8 +183,11 @@ export class LayoutPersistenceService {
       clearTimeout(this.autoSaveTimer);
     }
 
+    // Clean widgets for JSON serialization
+    const cleanWidgets = this.cleanWidgetsForSerialization(widgets);
+    
     // Check if layout has actually changed
-    const currentLayoutString = JSON.stringify(widgets);
+    const currentLayoutString = JSON.stringify(cleanWidgets);
     if (currentLayoutString === this.lastSavedLayout) {
       return; // No changes to save
     }

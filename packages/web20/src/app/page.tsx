@@ -8,6 +8,7 @@ import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ThemeSyncProvider } from "@/components/providers/ThemeSyncProvider";
+import { PopOutManager } from "@/components/popout/PopOutManager";
 import {
   useAppDispatch,
   useHeaderVisible,
@@ -73,6 +74,7 @@ export default function DashboardPage() {
   return (
     <AuthProvider>
       <ThemeSyncProvider>
+        <PopOutManager />
         <div className="min-h-screen w-full bg-background">
           <div className="flex h-screen">
             <Sidebar />
