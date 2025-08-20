@@ -11,7 +11,9 @@ async function checkAuthMode(): Promise<{
   auth_mode: string;
 }> {
   try {
-    const response = await fetch("/api/config");
+    // Use absolute URL for server-side requests
+    const apiUrl = process.env.API_URL || 'http://localhost:8001';
+    const response = await fetch(`${apiUrl}/api/auth/mode`);
     if (response.ok) {
       const data = await response.json();
       return data;
@@ -58,6 +60,7 @@ declare module "next-auth/jwt" {
 }
 
 const authOptions: NextAuthOptions = {
+  secret: process.env.NEXTAUTH_SECRET || "dev-nextauth-secret-key-for-development-only",
   debug: process.env.NODE_ENV === "development",
   logger: {
     error(code, metadata) {
@@ -108,7 +111,8 @@ const authOptions: NextAuthOptions = {
         }
 
         try {
-          const res = await fetch("/api/auth/token", {
+          const apiUrl = process.env.API_URL || 'http://localhost:8001';
+          const res = await fetch(`${apiUrl}/api/auth/token`, {
             method: "POST",
             headers: {
               "Content-Type": "application/x-www-form-urlencoded",

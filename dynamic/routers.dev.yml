@@ -120,11 +120,11 @@ http:
     web:
       loadBalancer:
         servers:
-          - url: "http://host.docker.internal:3000"
+          - url: "http://ddalab:3000"
     api:
       loadBalancer:
         servers:
-          - url: "http://host.docker.internal:8001"
+          - url: "http://ddalab:8001"
 
   middlewares:
     auth:

@@ -1,6 +1,7 @@
 import { ipcMain, IpcMainInvokeEvent } from "electron";
 import fs from "fs";
 import { app } from "electron";
+import { logger } from "../utils/logger";
 
 export function registerFileSystemIpcHandlers(): void {
   ipcMain.handle(
@@ -13,7 +14,7 @@ export function registerFileSystemIpcHandlers(): void {
         const content = await fs.promises.readFile(filePath, "utf-8");
         return content;
       } catch (error: any) {
-        console.error("[fs-ipc] Failed to read file:", filePath, error);
+        logger.error("Failed to read file", error, { filePath });
         return { error: error.message || "Unknown error" };
       }
     }
@@ -30,7 +31,7 @@ export function registerFileSystemIpcHandlers(): void {
         await fs.promises.writeFile(filePath, content, "utf-8");
         return { success: true };
       } catch (error: any) {
-        console.error("[fs-ipc] Failed to write file:", filePath, error);
+        logger.error("Failed to write file", error, { filePath });
         return { success: false, error: error.message || "Unknown error" };
       }
     }
@@ -87,7 +88,7 @@ export function registerFileSystemIpcHandlers(): void {
         else if (error.code === "EACCES") message = "Permission denied";
         else if (error.code === "ENOTDIR")
           message = "A part of the path is not a directory";
-        else console.error("[fs-ipc] Failed to check path:", filePath, error);
+        else logger.error("Failed to check path", error, { filePath });
         return { exists: false, isFile: false, isDirectory: false, message };
       }
     }

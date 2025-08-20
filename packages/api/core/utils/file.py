@@ -12,32 +12,48 @@ def is_path_allowed(requested_path: str | Path) -> Path:
     """Validate that the requested path is within an allowed directory.
 
     Contract:
-    - requested_path must be a path relative to data_dir or a full path within one of the mounted allowed_dirs
-    - Root ("" or "/") is forbidden to prevent leaking host paths
+    - requested_path can be empty string (represents data_dir root) or a relative path under data_dir
+    - Absolute root paths like "/" are forbidden to prevent leaking host paths
     - Returns a resolved absolute Path within the container
     """
     # Skip validation for MinIO paths
     if str(requested_path).startswith("dda_results/"):
         return Path(requested_path)
 
-    # Disallow empty, root, or current-dir marker
-    if str(requested_path).strip() in {"", "/", "."}:
+    data_dir = Path(storage_settings.data_dir).resolve()
+    requested_str = str(requested_path).strip()
+    
+    # Disallow absolute root paths that could leak host filesystem
+    if requested_str == "/":
         raise HTTPException(
-            status_code=403, detail="Path not allowed: root is forbidden"
+            status_code=403, detail="Path not allowed: absolute root is forbidden"
         )
 
-    data_dir = Path(storage_settings.data_dir).resolve()
+    # Handle empty string and "." as requests for the data_dir root
+    if requested_str in {"", "."}:
+        # Check if data_dir itself is in allowed_dirs (common case)
+        for allowed_dir in storage_settings.allowed_dirs:
+            allowed_path = Path(allowed_dir).resolve()
+            if allowed_path == data_dir:
+                if not data_dir.exists():
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Data directory not found: {data_dir}",
+                    )
+                return data_dir
+        
+        # If data_dir is not directly allowed, forbid root access
+        raise HTTPException(
+            status_code=403, 
+            detail="Root directory access not allowed. Use a specific subdirectory."
+        )
 
-    # Always interpret requested_path relative to data_dir first
-    rel = str(requested_path).strip()
-    # Normalize leading './'
+    # Normalize the path - remove leading './' and extra slashes
+    rel = requested_str
     if rel.startswith("./"):
         rel = rel[2:]
-    # Normalize '.' alone
-    if rel == ".":
-        raise HTTPException(
-            status_code=403, detail="Path not allowed: '.' is forbidden"
-        )
+    
+    # Build candidate path relative to data_dir
     candidate = (data_dir / rel.lstrip("/ ")).resolve()
 
     # Validate candidate is under one of the allowed directories
@@ -49,10 +65,11 @@ def is_path_allowed(requested_path: str | Path) -> Path:
             if not candidate.exists():
                 raise HTTPException(
                     status_code=404,
-                    detail=f"File not found at path: {candidate}",
+                    detail=f"Path not found: {requested_path}",
                 )
             return candidate
-        except Exception:
+        except ValueError:
+            # Not under this allowed directory, try next
             continue
 
     raise HTTPException(

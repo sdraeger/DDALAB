@@ -1,12 +1,34 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-console.log("=== PRELOAD SCRIPT STARTING ===");
-console.log(
-  "[preload.ts] Script execution started at:",
-  new Date().toISOString()
-);
-console.log("[preload.ts] contextBridge available:", !!contextBridge);
-console.log("[preload.ts] ipcRenderer available:", !!ipcRenderer);
+// Simple preload-specific logger that respects NODE_ENV
+const isDev = process.env.NODE_ENV === 'development';
+
+const preloadLog = {
+  info: (message: string, ...args: any[]) => {
+    if (isDev) {
+      console.log(`[preload.ts] ${message}`, ...args);
+    }
+  },
+  warn: (message: string, ...args: any[]) => {
+    if (isDev) {
+      console.warn(`[preload.ts] ${message}`, ...args);
+    }
+  },
+  error: (message: string, ...args: any[]) => {
+    // Always log errors, even in production
+    console.error(`[preload.ts] ${message}`, ...args);
+  },
+  debug: (message: string, ...args: any[]) => {
+    if (isDev) {
+      console.log(`[preload.ts] DEBUG: ${message}`, ...args);
+    }
+  }
+};
+
+preloadLog.info("=== PRELOAD SCRIPT STARTING ===");
+preloadLog.info("Script execution started at:", new Date().toISOString());
+preloadLog.debug("contextBridge available:", !!contextBridge);
+preloadLog.debug("ipcRenderer available:", !!ipcRenderer);
 
 export interface DockerStatus {
   isRunning: boolean;
@@ -45,6 +67,9 @@ export interface ElectronAPI {
   loadEnvVars: (dataDir?: string) => Promise<ParsedEnvEntry[] | undefined>;
   saveEnvConfig: (targetDir: string | null, content: string) => void;
   quitApp: () => void;
+  
+  // Logging
+  log: (level: string, context: string, message: string, args: any[]) => void;
 
   // Monolithic Docker Commands
   startMonolithicDocker: () => Promise<boolean>;
@@ -54,6 +79,7 @@ export interface ElectronAPI {
   getDockerLogs: () => Promise<string>;
   startDockerLogStream: () => Promise<boolean>;
   removeDockerLogStream: () => Promise<void>;
+  checkDdalabServicesHealth: () => Promise<boolean>;
   onDockerLogs: (
     callback: (log: { type: string; data: string }) => void
   ) => () => void;
@@ -96,6 +122,23 @@ export interface ElectronAPI {
     error?: string;
   }>;
   getDockerInstallationInstructions: () => Promise<string>;
+
+  // Certificate Management
+  checkMkcertAvailable: () => Promise<boolean>;
+  installMkcert: () => Promise<{ success: boolean; error?: string }>;
+  getCertificateInfo: (certsDir: string) => Promise<{
+    exists: boolean;
+    valid: boolean;
+    expiresAt?: Date;
+    daysUntilExpiry?: number;
+    subjects: string[];
+    isSelfSigned: boolean;
+    isTrusted: boolean;
+    error?: string;
+  }>;
+  generateTrustedCertificates: (certsDir: string) => Promise<{ success: boolean; error?: string }>;
+  generateSelfSignedCertificates: (certsDir: string) => Promise<{ success: boolean; error?: string }>;
+  checkCertificatesNeedRenewal: (certsDir: string) => Promise<boolean>;
   onDockerInstallationCheck: (
     callback: (data: {
       status: {
@@ -117,7 +160,7 @@ export interface ElectronAPI {
   ) => Promise<void>;
   runInitialSetup: (
     dataLocation: string,
-    cloneLocation: string
+    projectLocation: string
   ) => Promise<{
     success: boolean;
     message: string;
@@ -127,7 +170,7 @@ export interface ElectronAPI {
     setupComplete: boolean;
     setupPath: string | null;
     dataLocation?: string;
-    cloneLocation?: string;
+    projectLocation?: string;
     userSelections?: any;
     currentSite?: string;
     parsedEnvEntries?: any[];
@@ -136,6 +179,11 @@ export interface ElectronAPI {
     version?: string;
     error?: boolean;
   }>;
+  getUserDataPath: () => Promise<string>;
+  getHomeDirectory: () => Promise<string>;
+  getPlatform: () => Promise<string>;
+  checkDirectoryExists: (path: string) => Promise<boolean>;
+  checkFileExists: (path: string) => Promise<boolean>;
   saveUserState: (
     userSelections: any,
     currentSite: string,
@@ -144,7 +192,7 @@ export interface ElectronAPI {
   ) => Promise<void>;
   saveFullState: (
     setupPathOrDataLocation: string | null,
-    cloneLocation: string | null,
+    projectLocation: string | null,
     userSelections: any,
     currentSite: string,
     parsedEnvEntries: any[],
@@ -196,7 +244,6 @@ export interface ElectronAPI {
   }>;
   downloadUpdate: () => Promise<void>;
   testUpdateCheck: () => Promise<void>;
-  getUserDataPath: () => Promise<string>;
 
   // Enhanced update methods
   enhancedCheckForUpdates: () => Promise<{
@@ -264,6 +311,9 @@ export interface ElectronAPI {
   // Quit confirmation methods
   onQuitRequest: (callback: () => void) => () => void;
   confirmQuit: () => void;
+  
+  // General utilities
+  openExternalUrl: (url: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 interface ParsedEnvEntry {
@@ -288,15 +338,16 @@ const exposedAPI: ElectronAPI = {
   saveEnvConfig: (targetDir: string | null, content: string) =>
     ipcRenderer.send("configmanager:save-env-config", targetDir, content),
   quitApp: () => ipcRenderer.send("configmanager:quit-app"),
+  
+  // Logging
+  log: (level: string, context: string, message: string, args: any[]) =>
+    ipcRenderer.send("log:message", { level, context, message, args }),
 
   // Monolithic Docker Commands
   startMonolithicDocker: () => ipcRenderer.invoke("start-monolithic-docker"),
   stopMonolithicDocker: (deleteVolumes?: boolean) => {
-    console.log(
-      "[preload.ts] stopMonolithicDocker called with:",
-      deleteVolumes
-    );
-    console.log("[preload.ts] About to invoke stop-monolithic-docker");
+    preloadLog.debug("stopMonolithicDocker called with:", deleteVolumes);
+    preloadLog.debug("About to invoke stop-monolithic-docker");
     return ipcRenderer.invoke("stop-monolithic-docker", deleteVolumes);
   },
   getDockerStatus: () => ipcRenderer.invoke("get-docker-status"),
@@ -304,15 +355,16 @@ const exposedAPI: ElectronAPI = {
   getDockerLogs: () => ipcRenderer.invoke("fetch-current-docker-logs"),
   startDockerLogStream: () => ipcRenderer.invoke("start-docker-log-stream"),
   removeDockerLogStream: () => ipcRenderer.invoke("remove-docker-log-stream"),
+  checkDdalabServicesHealth: () => ipcRenderer.invoke("check-ddalab-services-health"),
   onDockerLogs: (callback) => {
-    console.log("[preload.ts] Setting up onDockerLogs listener");
+    preloadLog.debug("Setting up onDockerLogs listener");
     const handler = (_event: any, log: { type: string; data: string }) => {
-      console.log("[preload.ts] Received docker-logs event:", log);
+      preloadLog.debug("Received docker-logs event:", log);
       callback(log);
     };
     ipcRenderer.on("docker-logs", handler);
     return () => {
-      console.log("[preload.ts] Removing docker-logs listener");
+      preloadLog.debug("Removing docker-logs listener");
       ipcRenderer.removeListener("docker-logs", handler);
     };
   },
@@ -353,12 +405,26 @@ const exposedAPI: ElectronAPI = {
   setupDockerDeployment: (dataLocation: string, setupLocation: string) =>
     ipcRenderer.invoke("setup-docker-deployment", dataLocation, setupLocation),
   setupDockerDirectory: (targetDirectory: string) =>
-    ipcRenderer.invoke("setup-docker-directory", targetDirectory),
+    ipcRenderer.invoke("setup-docker-directory-legacy", targetDirectory),
 
   checkDockerInstallation: () =>
     ipcRenderer.invoke("check-docker-installation"),
   getDockerInstallationInstructions: () =>
     ipcRenderer.invoke("get-docker-installation-instructions"),
+
+  // Certificate Management
+  checkMkcertAvailable: () =>
+    ipcRenderer.invoke("check-mkcert-available"),
+  installMkcert: () =>
+    ipcRenderer.invoke("install-mkcert"),
+  getCertificateInfo: (certsDir: string) =>
+    ipcRenderer.invoke("get-certificate-info", certsDir),
+  generateTrustedCertificates: (certsDir: string) =>
+    ipcRenderer.invoke("generate-trusted-certificates", certsDir),
+  generateSelfSignedCertificates: (certsDir: string) =>
+    ipcRenderer.invoke("generate-self-signed-certificates", certsDir),
+  checkCertificatesNeedRenewal: (certsDir: string) =>
+    ipcRenderer.invoke("check-certificates-need-renewal", certsDir),
   onDockerInstallationCheck: (
     callback: (data: {
       status: {
@@ -401,8 +467,8 @@ const exposedAPI: ElectronAPI = {
     ipcRenderer.invoke("get-env-details", envPath),
   saveEnvFile: (envPath: string, envData: Record<string, string>) =>
     ipcRenderer.invoke("save-env-file", envPath, envData),
-  runInitialSetup: (dataLocation: string, cloneLocation: string) =>
-    ipcRenderer.invoke("run-initial-setup", dataLocation, cloneLocation),
+  runInitialSetup: (dataLocation: string, projectLocation: string) =>
+    ipcRenderer.invoke("run-initial-setup", dataLocation, projectLocation),
   getConfigManagerState: () => ipcRenderer.invoke("configmanager:get-state"),
   saveUserState: (
     userSelections: any,
@@ -419,7 +485,7 @@ const exposedAPI: ElectronAPI = {
     ),
   saveFullState: (
     setupPathOrDataLocation: string | null,
-    cloneLocation: string | null,
+    projectLocation: string | null,
     userSelections: any,
     currentSite: string,
     parsedEnvEntries: any[],
@@ -428,7 +494,7 @@ const exposedAPI: ElectronAPI = {
     ipcRenderer.invoke(
       "configmanager:save-full-state",
       setupPathOrDataLocation,
-      cloneLocation,
+      projectLocation,
       userSelections,
       currentSite,
       parsedEnvEntries,
@@ -475,6 +541,10 @@ const exposedAPI: ElectronAPI = {
   downloadUpdate: () => ipcRenderer.invoke("download-update"),
   testUpdateCheck: () => ipcRenderer.invoke("test-update-check"),
   getUserDataPath: () => ipcRenderer.invoke("get-user-data-path"),
+  getHomeDirectory: () => ipcRenderer.invoke("get-home-directory"),
+  getPlatform: () => ipcRenderer.invoke("get-platform"),
+  checkDirectoryExists: (path: string) => ipcRenderer.invoke("check-directory-exists", path),
+  checkFileExists: (path: string) => ipcRenderer.invoke("check-file-exists", path),
 
   // Enhanced update methods
   enhancedCheckForUpdates: () =>
@@ -527,19 +597,22 @@ const exposedAPI: ElectronAPI = {
     };
   },
   confirmQuit: () => ipcRenderer.invoke("app:confirmQuit"),
+  
+  // General utilities
+  openExternalUrl: (url: string) => ipcRenderer.invoke("open-external-url", url),
 };
 
-console.log("[preload.ts] About to expose electronAPI to main world");
-console.log("[preload.ts] exposedAPI keys:", Object.keys(exposedAPI));
-console.log(
-  "[preload.ts] stopMonolithicDocker type:",
+preloadLog.debug("About to expose electronAPI to main world");
+preloadLog.debug("exposedAPI keys:", Object.keys(exposedAPI));
+preloadLog.debug(
+  "stopMonolithicDocker type:",
   typeof exposedAPI.stopMonolithicDocker
 );
 
 contextBridge.exposeInMainWorld("electronAPI", exposedAPI);
 
-console.log("[preload.ts] electronAPI exposed to main world");
-console.log(
-  "[preload.ts] Checking if electronAPI is available in window:",
+preloadLog.info("electronAPI exposed to main world");
+preloadLog.debug(
+  "Checking if electronAPI is available in window:",
   typeof window !== "undefined" && "electronAPI" in window
 );

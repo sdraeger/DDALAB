@@ -27,7 +27,7 @@ export const siteNavigationMachine = createMachine<
     userSelections: {
       setupType: "docker",
       dataLocation: "",
-      cloneLocation: "",
+      projectLocation: "",
       envVariables: {},
       installationLog: [],
     },

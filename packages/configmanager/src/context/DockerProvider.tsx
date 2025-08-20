@@ -13,13 +13,11 @@ export const DockerProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     if (!window.electronAPI) {
       logger.error("electronAPI not available in window");
-      console.log("[DockerProvider] electronAPI not available in window");
-      console.log("[DockerProvider] window keys:", Object.keys(window));
+      logger.debug('DockerProvider window keys', Object.keys(window));
       return;
     }
 
-    console.log("[DockerProvider] electronAPI is available:", !!window.electronAPI);
-    console.log("[DockerProvider] electronAPI keys:", Object.keys(window.electronAPI));
+    logger.debug('DockerProvider electronAPI available', { available: !!window.electronAPI, keys: Object.keys(window.electronAPI) });
 
     const handleStatusUpdate = (statusUpdate: { type: string; message: string }) => {
       logger.info("Received status update:", statusUpdate);
@@ -38,18 +36,20 @@ export const DockerProvider: React.FC<{ children: React.ReactNode }> = ({
     const handleStateUpdate = (stateUpdate: { type: string }) => {
       logger.info("Received state update:", stateUpdate);
       // Map the state update type to the expected docker machine event types
-      if (stateUpdate.type === "SERVICES_READY" || stateUpdate.type === "SERVICES_UNHEALTHY") {
-        service.send({ type: stateUpdate.type as "SERVICES_READY" | "SERVICES_UNHEALTHY" });
+      if (stateUpdate.type === "SERVICES_READY" || 
+          stateUpdate.type === "SERVICES_UNHEALTHY" ||
+          stateUpdate.type === "DOCKER_STARTED" ||
+          stateUpdate.type === "DOCKER_STOPPED") {
+        service.send({ type: stateUpdate.type as "SERVICES_READY" | "SERVICES_UNHEALTHY" | "DOCKER_STARTED" | "DOCKER_STOPPED" });
       }
     };
 
     const handleDockerLogs = (log: { type: string; data: string }) => {
       logger.info("Received docker log event:", log);
-      console.log("[DockerProvider] Received docker log event:", log);
+      logger.debug('DockerProvider received docker log event', log);
 
       // Add more detailed logging
-      console.log("[DockerProvider] Current state before LOG_UPDATE:", service.state.value);
-      console.log("[DockerProvider] Log type:", log.type, "Data length:", log.data?.length);
+      logger.debug('DockerProvider state before LOG_UPDATE', { state: service.state.value, logType: log.type, dataLength: log.data?.length });
 
       service.send({
         type: "LOG_UPDATE",
@@ -59,7 +59,7 @@ export const DockerProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       });
 
-      console.log("[DockerProvider] State after LOG_UPDATE:", service.state.value);
+      logger.debug('DockerProvider state after LOG_UPDATE', service.state.value);
     };
 
     // Initial status check with delay to ensure IPC is ready
@@ -75,28 +75,36 @@ export const DockerProvider: React.FC<{ children: React.ReactNode }> = ({
         }
 
         logger.info("Calling getDockerStatus...");
-        const isRunning = await window.electronAPI.getDockerStatus();
-        logger.info("Initial Docker status check result:", isRunning);
+        const dockerStatus = await window.electronAPI.getDockerStatus();
+        logger.info("Initial Docker status check result:", dockerStatus);
 
-        if (isRunning) {
-          logger.info("Sending DOCKER_STARTED event to state machine");
-          console.log("[DockerProvider] Sending DOCKER_STARTED, current state:", service.state.value);
-          service.send({ type: "DOCKER_STARTED" });
-          console.log("[DockerProvider] After DOCKER_STARTED, new state:", service.state.value);
-
-          // Start log streaming for already running containers
+        // Check if Docker daemon is running
+        if (dockerStatus && dockerStatus.isRunning) {
+          logger.info("Docker daemon is running, checking DDALAB containers...");
+          
+          // Check if DDALAB services are actually healthy
           try {
-            logger.info("Starting log streaming for running containers...");
-            await window.electronAPI.getDockerLogs();
-            logger.info("Log streaming started successfully");
+            const servicesHealthy = await window.electronAPI.checkDdalabServicesHealth();
+            logger.info("DDALAB services health check result:", servicesHealthy);
+            
+            if (servicesHealthy) {
+              logger.info("DDALAB services are healthy, updating state");
+              service.send({ type: "DOCKER_STARTED" });
+              // Small delay to ensure state transition
+              await new Promise(resolve => setTimeout(resolve, 100));
+              service.send({ type: "SERVICES_READY" });
+            } else {
+              logger.info("Docker is running but DDALAB services are not healthy");
+              // Leave in unknown state
+            }
           } catch (error) {
-            logger.warn("Failed to start log streaming:", error);
+            logger.error("Failed to check DDALAB services health:", error);
           }
         } else {
-          logger.info("Sending DOCKER_STOPPED event to state machine");
-          console.log("[DockerProvider] Sending DOCKER_STOPPED, current state:", service.state.value);
+          logger.info("Docker daemon is not running");
+          logger.debug('DockerProvider sending DOCKER_STOPPED', service.state.value);
           service.send({ type: "DOCKER_STOPPED" });
-          console.log("[DockerProvider] After DOCKER_STOPPED, new state:", service.state.value);
+          logger.debug('DockerProvider after DOCKER_STOPPED', service.state.value);
         }
       } catch (error) {
         logger.error("Failed to check initial Docker status:", error);
@@ -110,7 +118,7 @@ export const DockerProvider: React.FC<{ children: React.ReactNode }> = ({
     const removeStateListener = window.electronAPI.onDockerStateUpdate(handleStateUpdate);
     const removeDockerLogsListener = window.electronAPI.onDockerLogs(handleDockerLogs);
 
-    console.log("[DockerProvider] Event listeners set up:", {
+    logger.debug('DockerProvider event listeners set up', {
       hasElectronAPI: !!window.electronAPI,
       hasOnDockerLogs: !!window.electronAPI?.onDockerLogs,
       hasOnDockerStatusUpdate: !!window.electronAPI?.onDockerStatusUpdate,

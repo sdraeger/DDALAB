@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import type { ElectronAPI, UserSelections } from "../utils/electron";
+import { useSystemStatusContext } from "../context/SystemStatusProvider";
 
 interface SimplifiedControlSidebarProps {
   isExpanded: boolean;
@@ -31,6 +32,9 @@ export const SimplifiedControlSidebar: React.FC<SimplifiedControlSidebarProps> =
     version: string;
     environment: string;
   } | null>(null);
+  
+  // Use centralized system status
+  const systemStatus = useSystemStatusContext();
 
   useEffect(() => {
     const fetchBuildInfo = async () => {
@@ -47,56 +51,19 @@ export const SimplifiedControlSidebar: React.FC<SimplifiedControlSidebarProps> =
     fetchBuildInfo();
   }, [electronAPI]);
 
+  // Update service status from centralized status
   useEffect(() => {
-    const checkServiceStatus = async () => {
-      if (electronAPI) {
-        try {
-          const dockerInstallStatus = await electronAPI.checkDockerInstallation();
-          const dockerDaemonRunning = await electronAPI.getIsDockerRunning();
-          const ddalabRunning = await electronAPI.getDockerStatus();
-
-          let dockerEngineStatus = "Not installed";
-          if (dockerInstallStatus.dockerInstalled) {
-            if (dockerDaemonRunning) {
-              dockerEngineStatus = "Running";
-            } else {
-              dockerEngineStatus = "Installed but not running";
-            }
-          } else if (dockerInstallStatus.error) {
-            dockerEngineStatus = `Error: ${dockerInstallStatus.error}`;
-          }
-
-          let ddalabServicesStatus = "Docker not running";
-          if (dockerDaemonRunning) {
-            ddalabServicesStatus = ddalabRunning ? "Running" : "Stopped";
-          }
-
-          setServiceStatus({
-            running: dockerDaemonRunning,
-            healthy: dockerDaemonRunning && ddalabRunning,
-            services: {
-              "Docker Engine": dockerEngineStatus,
-              "DDALAB Services": ddalabServicesStatus
-            }
-          });
-        } catch (error) {
-          console.error("Failed to check service status:", error);
-          setServiceStatus({
-            running: false,
-            healthy: false,
-            services: {
-              "Docker Engine": "Error checking status",
-              "DDALAB Services": "Error checking status"
-            }
-          });
-        }
+    const detailedServices = systemStatus.getDetailedServiceStatus();
+    
+    setServiceStatus({
+      running: systemStatus.isDockerRunning,
+      healthy: systemStatus.isDdalabHealthy,
+      services: {
+        "Docker Engine": detailedServices[0]?.description || "Unknown",
+        "DDALAB Services": detailedServices[1]?.description || "Unknown"
       }
-    };
-
-    checkServiceStatus();
-    const interval = setInterval(checkServiceStatus, 15000); // Check every 15 seconds
-    return () => clearInterval(interval);
-  }, [electronAPI]);
+    });
+  }, [systemStatus]);
 
   const handleCheckForUpdates = async () => {
     if (!electronAPI || isCheckingUpdate) return;

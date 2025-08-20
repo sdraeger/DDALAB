@@ -121,15 +121,15 @@ class NotificationService(BaseService):
             # Get current image info
             client = docker.from_env()
             try:
-                current_image = client.images.get("ddalab-monolith:latest")
-                current_id = current_image.id
+                current_image = client.images.get("ddalab:latest")
+                _ = current_image.id
             except docker.errors.ImageNotFound:
-                logger.warning("ddalab-monolith image not found locally")
+                logger.warning("ddalab image not found locally")
                 return
 
             # Check Docker Hub for updates
             response = requests.get(
-                "https://registry.hub.docker.com/v2/repositories/ddalab/ddalab-monolith/tags/latest",
+                "https://registry.hub.docker.com/v2/repositories/ddalab/ddalab/tags/latest",
                 timeout=10,
             )
 
@@ -144,7 +144,7 @@ class NotificationService(BaseService):
                     if registry_digest != local_digest:
                         await self._create_notification(
                             title="Docker Image Update Available",
-                            message="A new version of ddalab-monolith is available on Docker Hub. Consider updating your deployment.",
+                            message="A new version of ddalab is available on Docker Hub. Consider updating your deployment.",
                             type="info",
                             category="system",
                             action_text="View Updates",
@@ -152,7 +152,7 @@ class NotificationService(BaseService):
                             metadata={
                                 "current_digest": local_digest,
                                 "new_digest": registry_digest,
-                                "image": "ddalab-monolith:latest",
+                                "image": "ddalab:latest",
                             },
                         )
 
@@ -310,24 +310,24 @@ class NotificationService(BaseService):
             # Memory usage
             memory = psutil.virtual_memory()
             memory_percent = round(memory.percent, 1)
-            
+
             # CPU usage
             cpu_percent = round(psutil.cpu_percent(interval=0.1), 1)
-            
+
             # Disk usage
-            disk = psutil.disk_usage('/')
+            disk = psutil.disk_usage("/")
             disk_percent = round((disk.used / disk.total) * 100, 1)
-            
+
             # System uptime
             boot_time = psutil.boot_time()
             uptime_seconds = int(datetime.now().timestamp() - boot_time)
-            
+
             # Database connection status (simplified)
             db_status = "active"  # Since we're using the service, DB is likely active
-            
+
             # Network status (simplified)
             network_status = "connected"  # If we're responding, network is connected
-            
+
             return {
                 "cpu_percent": cpu_percent,
                 "memory_percent": memory_percent,
@@ -336,7 +336,7 @@ class NotificationService(BaseService):
                 "db_status": db_status,
                 "network_status": network_status,
                 "status": "online",
-                "timestamp": datetime.now(timezone.utc).isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         except Exception as e:
             logger.error(f"Error getting system status: {e}")
@@ -348,7 +348,7 @@ class NotificationService(BaseService):
                 "db_status": "unknown",
                 "network_status": "unknown",
                 "status": "error",
-                "timestamp": datetime.now(timezone.utc).isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
     async def health_check(self) -> bool:
