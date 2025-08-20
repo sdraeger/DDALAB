@@ -128,7 +128,7 @@ export function NotificationSettings() {
               <div>
                 <Label>Docker Updates</Label>
                 <p className="text-sm text-muted-foreground">
-                  Checks Docker Hub for ddalab-monolith updates
+                  Checks Docker Hub for ddalab updates
                 </p>
               </div>
               <Badge variant="outline">External</Badge>

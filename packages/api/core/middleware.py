@@ -154,6 +154,7 @@ def _should_skip_auth(path: str) -> bool:
         "/api/auth/reset-password",  # Password reset endpoint
         "/api/auth/verify-reset-token",  # Password reset token verification
         "/api/auth/mode",  # Authentication mode detection endpoint
+        "/api/config",  # Configuration endpoint for auth mode detection
         "/metrics",  # Prometheus metrics endpoint
         "/docs",  # API documentation
         "/redoc",  # API documentation

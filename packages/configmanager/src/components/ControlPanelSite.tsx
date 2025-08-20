@@ -53,11 +53,11 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
   // Validate setup when control panel loads
   useEffect(() => {
     const validateSetup = async () => {
-      if (!electronAPI?.validateDockerSetup || !userSelections.cloneLocation) return;
+      if (!electronAPI?.validateDockerSetup || !userSelections.projectLocation) return;
 
       try {
         console.log("[ControlPanelSite] Validating setup on load...");
-        const result = await electronAPI.validateDockerSetup(userSelections.cloneLocation);
+        const result = await electronAPI.validateDockerSetup(userSelections.projectLocation);
         if (!result.success && result.needsSetup) {
           console.warn("[ControlPanelSite] Setup validation failed, needs setup:", result.message);
           addErrorLog(`Setup validation failed: ${result.message}`);
@@ -71,7 +71,7 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
     };
 
     validateSetup();
-  }, [electronAPI, userSelections.cloneLocation, addErrorLog]);
+  }, [electronAPI, userSelections.projectLocation]); // Removed addErrorLog from dependencies
 
   const handleStartDDALAB = async () => {
     if (!electronAPI || !electronAPI.startMonolithicDocker) return;
@@ -144,13 +144,33 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
     }
   };
 
+  const handleOpenDDALAB = async () => {
+    if (!electronAPI || !electronAPI.openExternalUrl) {
+      console.error("[ControlPanelSite] openExternalUrl not available");
+      return;
+    }
+
+    try {
+      const url = "https://localhost";
+      const result = await electronAPI.openExternalUrl(url);
+      if (result.success) {
+        addActionLog(`Opened DDALAB in browser at ${url}`);
+      } else {
+        addErrorLog(`Failed to open DDALAB: ${result.error}`);
+      }
+    } catch (error: any) {
+      console.error("[ControlPanelSite] Error opening DDALAB:", error);
+      addErrorLog(`Failed to open DDALAB: ${error.message}`);
+    }
+  };
+
   return (
     <div className="container mt-4 site-container">
       <h2 className="mb-3">DDALAB Control Panel</h2>
       <p>
         Manage your DDALAB instance, configured at:{" "}
         <small>
-          <code>{userSelections.cloneLocation || "Unknown path"}</code>
+          <code>{userSelections.projectLocation || "Unknown path"}</code>
         </small>
       </p>
 
@@ -185,6 +205,14 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
               <></>
             )}
             Stop DDALAB
+          </button>
+          <button 
+            className="btn btn-primary" 
+            onClick={handleOpenDDALAB} 
+            disabled={!isTraefikHealthy || dockerStatus !== "Running"}
+            title={!isTraefikHealthy || dockerStatus !== "Running" ? "DDALAB must be running to open" : "Open DDALAB in browser"}
+          >
+            Open DDALAB
           </button>
         </div>
       </div>

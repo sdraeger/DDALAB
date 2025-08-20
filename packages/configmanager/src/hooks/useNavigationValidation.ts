@@ -29,23 +29,28 @@ export const useNavigationValidation = (
               : undefined,
           };
         case "data-location":
+          const hasDataLocation = !!userSelections.dataLocation;
+          const hasAllowedDirs = !!userSelections.envVariables?.DDALAB_ALLOWED_DIRS;
+          const hasValidDirectories = hasDataLocation && hasAllowedDirs;
           return {
-            enabled: !!userSelections.dataLocation,
-            message: !userSelections.dataLocation
+            enabled: hasValidDirectories,
+            message: !hasDataLocation
               ? "Please select a data location"
+              : !hasAllowedDirs
+              ? "Please configure allowed directories"
               : undefined,
           };
         case "clone-location":
           return {
-            enabled: !!userSelections.cloneLocation,
-            message: !userSelections.cloneLocation
-              ? "Please select a clone location"
+            enabled: !!userSelections.projectLocation,
+            message: !userSelections.projectLocation
+              ? "Please select a project location"
               : undefined,
           };
         case "docker-config":
           // For Docker config, we can proceed as long as we have the basic setup
           const hasBasicSetup =
-            !!userSelections.dataLocation && !!userSelections.cloneLocation;
+            !!userSelections.dataLocation && !!userSelections.projectLocation;
           return {
             enabled: hasBasicSetup,
             message: !hasBasicSetup
@@ -67,20 +72,20 @@ export const useNavigationValidation = (
           };
         case "summary":
           const hasSetupType = !!userSelections.setupType;
-          const hasDataLocation = !!userSelections.dataLocation;
-          const hasCloneLocation =
+          const hasSummaryDataLocation = !!userSelections.dataLocation;
+          const hasProjectLocation =
             userSelections.setupType === "docker"
-              ? !!userSelections.cloneLocation
+              ? !!userSelections.projectLocation
               : userSelections.setupType === "manual"
               ? true
-              : !!userSelections.cloneLocation;
+              : !!userSelections.projectLocation;
           const hasEnvConfig =
             userSelections.setupType === "manual"
               ? Object.keys(userSelections.envVariables).length > 0 ||
                 parsedEnvEntries.length > 0
               : true;
           const allValid =
-            hasSetupType && hasDataLocation && hasCloneLocation && hasEnvConfig;
+            hasSetupType && hasSummaryDataLocation && hasProjectLocation && hasEnvConfig;
           return {
             enabled: allValid,
             message: !allValid

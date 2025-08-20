@@ -263,19 +263,19 @@ export function EEGChart2({
 				
 				// Check if any data items are Promises or have unexpected properties
 				for (let i = 0; i < plotData.length; i++) {
-					if (plotData[i] && typeof plotData[i].then === 'function') {
+					if (plotData[i] && typeof (plotData[i] as any).then === 'function') {
 						console.error('[EEGChart2] Found Promise in plotData at index', i, plotData[i]);
 						return;
 					}
 					// Check for other unexpected properties that might have 'then'
-					if (plotData[i] && plotData[i].then !== undefined) {
-						console.error('[EEGChart2] Found unexpected "then" property in plotData at index', i, 'value:', plotData[i].then);
+					if (plotData[i] && (plotData[i] as any).then !== undefined) {
+						console.error('[EEGChart2] Found unexpected "then" property in plotData at index', i, 'value:', (plotData[i] as any).then);
 						return;
 					}
 				}
 				
 				// Deep check the options object for any unexpected 'then' properties
-				const checkForThenProperty = (obj, path = '') => {
+				const checkForThenProperty = (obj: any, path = '') => {
 					if (obj && typeof obj === 'object') {
 						for (const key in obj) {
 							if (obj.hasOwnProperty(key)) {
@@ -310,15 +310,17 @@ export function EEGChart2({
 					// ALWAYS use simplified data to avoid issues (for both main and popup windows)
 					console.log('[EEGChart2] Using simplified data/options for safety');
 					
-					// Create simplified data - convert all arrays to plain arrays with numbers only
+					// Create simplified data - convert all arrays to typed arrays for uPlot
 					const simplifiedData = plotData.map((series, index) => {
 						if (Array.isArray(series)) {
 							console.log(`[EEGChart2] Processing series ${index}, length: ${series.length}`);
-							// Convert to plain array and ensure all values are numbers
-							const cleaned = series.map(val => {
+							// Convert to Float64Array and ensure all values are numbers
+							const cleaned = new Float64Array(series.length);
+							for (let i = 0; i < series.length; i++) {
+								const val = series[i];
 								const num = typeof val === 'number' ? val : 0;
-								return Number.isFinite(num) ? num : 0;
-							});
+								cleaned[i] = Number.isFinite(num) ? num : 0;
+							}
 							console.log(`[EEGChart2] Series ${index} cleaned, first few values:`, cleaned.slice(0, 3));
 							return cleaned;
 						}
@@ -333,7 +335,7 @@ export function EEGChart2({
 						padding: opts.padding,
 						scales: opts.scales,
 						axes: opts.axes,
-						series: opts.series?.map(s => ({
+						series: opts.series?.map((s: any) => ({
 							label: s.label,
 							stroke: s.stroke,
 							width: typeof s.width === 'number' ? s.width : 1,
@@ -351,12 +353,22 @@ export function EEGChart2({
 					});
 					
 					console.log('[EEGChart2] Using simplified constructor with module version');
+					if (!chartRef.current) {
+						console.error('[EEGChart2] Chart ref is null');
+						return;
+					}
 					return new uPlotConstructor(simplifiedOpts, simplifiedData, chartRef.current);
 				};
 				
 				try {
-					uplotInstance.current = createUPlotSafely();
-					console.log('[EEGChart2] uPlot instance created successfully');
+					const instance = createUPlotSafely();
+					if (instance) {
+						uplotInstance.current = instance;
+						console.log('[EEGChart2] uPlot instance created successfully');
+					} else {
+						uplotInstance.current = null;
+						console.error('[EEGChart2] Failed to create uPlot instance');
+					}
 				} catch (uplotError) {
 					console.error('[EEGChart2] uPlot failed completely, creating fallback chart:', uplotError);
 					

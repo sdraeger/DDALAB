@@ -27,8 +27,15 @@ async def get_allowed_roots():
     for raw_path in storage_settings.allowed_dirs:
         try:
             abs_path = Path(raw_path).resolve()
-            rel_path = str(abs_path.relative_to(data_dir))
-            name = abs_path.name
+            
+            # Calculate relative path, using empty string for data_dir itself
+            if abs_path == data_dir:
+                rel_path = ""
+                name = "data"  # Use a friendly name for the root
+            else:
+                rel_path = str(abs_path.relative_to(data_dir))
+                name = abs_path.name
+                
             roots.append(
                 {
                     "name": name,
@@ -106,12 +113,8 @@ async def list_directory(
         List of files and directories
     """
     try:
-        if not path or path == "/":
-            raise HTTPException(
-                status_code=403,
-                detail="Root listing is not allowed; provide a relative subdirectory under the allowed roots",
-            )
-
+        # Let the file service and permission logic handle path validation
+        # Empty string is now allowed and represents the data directory root
         items = await file_service.list_directory(path)
         favorite_files = []
 

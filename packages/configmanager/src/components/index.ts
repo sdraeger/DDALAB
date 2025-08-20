@@ -1,5 +1,5 @@
 export * from "./DataLocationSite";
-export * from "./CloneLocationSite";
+export * from "./ProjectLocationSite";
 export * from "./ManualConfigSite";
 export * from "./SummarySite";
 export * from "./WelcomeSite";

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import type { ElectronAPI, UserSelections, ParsedEnvEntry } from "../utils/electron";
+import { logger } from '../utils/logger-client';
 
 interface ConfigurationEditorProps {
   userSelections: UserSelections;
@@ -70,7 +71,7 @@ export const ConfigurationEditor: React.FC<ConfigurationEditorProps> = ({
 
       await onSave(updatedSelections, editedEnvEntries);
     } catch (error) {
-      console.error('Failed to save configuration:', error);
+      logger.error('Failed to save configuration', error);
     } finally {
       setIsSaving(false);
     }
@@ -122,8 +123,8 @@ export const ConfigurationEditor: React.FC<ConfigurationEditorProps> = ({
             <input
               type="text"
               className="form-control"
-              value={editedSelections.cloneLocation}
-              onChange={(e) => handleBasicChange('cloneLocation', e.target.value)}
+              value={editedSelections.projectLocation}
+              onChange={(e) => handleBasicChange('projectLocation', e.target.value)}
               placeholder="/path/to/setup"
             />
             <button
@@ -132,7 +133,7 @@ export const ConfigurationEditor: React.FC<ConfigurationEditorProps> = ({
               onClick={async () => {
                 if (electronAPI?.selectDirectory) {
                   const path = await electronAPI.selectDirectory();
-                  if (path) handleBasicChange('cloneLocation', path);
+                  if (path) handleBasicChange('projectLocation', path);
                 }
               }}
             >
