@@ -42,7 +42,7 @@ export interface ParsedEnvEntry {
 export interface UserSelections {
   setupType: "" | "automatic" | "manual" | "docker";
   dataLocation: string;
-  cloneLocation: string;
+  projectLocation: string;
   envVariables: { [key: string]: string };
   // Docker configuration fields
   webPort?: string;

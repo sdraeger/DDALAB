@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ElectronAPI, UserSelections } from "../utils/electron";
 import { useDockerState } from "../hooks/useDockerState";
+import { useSystemStatusContext } from "../context/SystemStatusProvider";
+import { CertificateManagerModal } from "./CertificateManagerModal";
 
 interface EnhancedControlPanelProps {
   electronAPI?: ElectronAPI;
@@ -57,6 +59,10 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
   const [filterLevel, setFilterLevel] = useState<string>('all');
   const [filterService, setFilterService] = useState<string>('all');
   const [autoScroll, setAutoScroll] = useState(true);
+  const [showCertificateModal, setShowCertificateModal] = useState(false);
+
+  // Use centralized system status
+  const systemStatus = useSystemStatusContext();
 
   const logsEndRef = useRef<HTMLDivElement>(null);
   const detailedLogsEndRef = useRef<HTMLDivElement>(null);
@@ -71,77 +77,15 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
 
   useEffect(scrollToBottom, [dockerLogs, detailedLogs, activeTab]);
 
-  // Service status checking
+  // Service status checking - now uses centralized status
   useEffect(() => {
-    const checkServiceStatus = async (isInitial = false) => {
-      if (!isInitial && operationInProgress) return;
-
-      if (!isInitial) {
-        setIsRefreshing(true);
-      }
-
-      if (!electronAPI) {
-        setServices([{
-          name: 'Docker Services',
-          status: 'error',
-          description: 'Electron API not available',
-          canStart: false,
-          canStop: false
-        }]);
-        if (!isInitial) {
-          setTimeout(() => setIsRefreshing(false), 500);
-        }
-        return;
-      }
-
-      try {
-        const dockerInstalled = await electronAPI.checkDockerInstallation();
-        const dockerRunning = await electronAPI.getIsDockerRunning();
-        const ddalabRunning = await electronAPI.getDockerStatus();
-
-        const serviceList: ServiceStatus[] = [
-          {
-            name: 'Docker Engine',
-            status: dockerInstalled.dockerInstalled ?
-              (dockerRunning ? 'running' : 'stopped') : 'error',
-            description: dockerInstalled.dockerInstalled ?
-              (dockerRunning ? 'Docker daemon is running' : 'Docker daemon is not running') :
-              'Docker is not installed',
-            canStart: false,
-            canStop: false
-          },
-          {
-            name: 'DDALAB Services',
-            status: dockerRunning ? (ddalabRunning ? 'running' : 'stopped') : 'error',
-            description: dockerRunning ?
-              (ddalabRunning ? 'All DDALAB containers are running' : 'DDALAB containers are stopped') :
-              'Docker daemon is not running',
-            canStart: dockerRunning && !ddalabRunning,
-            canStop: dockerRunning && ddalabRunning
-          }
-        ];
-
-        setServices(serviceList);
-      } catch (error) {
-        console.error('Failed to check service status:', error);
-        setServices([{
-          name: 'Service Check',
-          status: 'error',
-          description: `Failed to check service status: ${error}`,
-          canStart: false,
-          canStop: false
-        }]);
-      } finally {
-        if (!isInitial) {
-          setTimeout(() => setIsRefreshing(false), 500);
-        }
-      }
-    };
-
-    checkServiceStatus(true);
-    const interval = setInterval(() => checkServiceStatus(false), 8000);
-    return () => clearInterval(interval);
-  }, [electronAPI, operationInProgress]);
+    // Update services from centralized status
+    const serviceList = systemStatus.getDetailedServiceStatus();
+    setServices(serviceList);
+    
+    // Update refreshing state
+    setIsRefreshing(systemStatus.isChecking);
+  }, [systemStatus.status, systemStatus.isChecking, systemStatus]);
 
   // Other useEffects from original ControlPanelSite
   useEffect(() => {
@@ -159,11 +103,11 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
 
   useEffect(() => {
     const validateSetup = async () => {
-      if (!electronAPI?.validateDockerSetup || !userSelections.cloneLocation) return;
+      if (!electronAPI?.validateDockerSetup || !userSelections.projectLocation) return;
 
       try {
         console.log("[EnhancedControlPanel] Validating setup on load...");
-        const result = await electronAPI.validateDockerSetup(userSelections.cloneLocation);
+        const result = await electronAPI.validateDockerSetup(userSelections.projectLocation);
         if (!result.success && result.needsSetup) {
           console.warn("[EnhancedControlPanel] Setup validation failed, needs setup:", result.message);
           addErrorLog(`Setup validation failed: ${result.message}`);
@@ -177,7 +121,7 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
     };
 
     validateSetup();
-  }, [electronAPI, userSelections.cloneLocation, addErrorLog]);
+  }, [electronAPI, userSelections.projectLocation]); // Removed addErrorLog from dependencies
 
   // Service control handlers
   const handleStartServices = async () => {
@@ -188,7 +132,7 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
     addActionLog("Attempting to start DDALAB services...");
 
     try {
-      const result = await electronAPI.startDockerCompose();
+      const result = await electronAPI.startMonolithicDocker();
       if (!result) {
         addErrorLog("Start operation failed");
       } else {
@@ -215,7 +159,7 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
     addActionLog("Attempting to stop DDALAB services...");
 
     try {
-      const result = await electronAPI.stopDockerCompose();
+      const result = await electronAPI.stopMonolithicDocker(false);
       if (!result) {
         addErrorLog("Stop operation failed");
       } else {
@@ -236,7 +180,7 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
     addActionLog('Restarting DDALAB services...');
 
     try {
-      const stopResult = await electronAPI.stopDockerCompose(false);
+      const stopResult = await electronAPI.stopMonolithicDocker(false);
       if (!stopResult) {
         throw new Error('Failed to stop services');
       }
@@ -244,7 +188,7 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
       addActionLog('Services stopped, starting again...');
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      const startResult = await electronAPI.startDockerCompose();
+      const startResult = await electronAPI.startMonolithicDocker();
       if (startResult) {
         addActionLog('DDALAB services restarted successfully');
       } else {
@@ -255,6 +199,26 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
       addErrorLog(`Failed to restart services: ${error}`);
     } finally {
       setOperationInProgress(null);
+    }
+  };
+
+  const handleOpenDDALAB = async () => {
+    if (!electronAPI || !electronAPI.openExternalUrl) {
+      console.error("[EnhancedControlPanel] openExternalUrl not available");
+      return;
+    }
+
+    try {
+      const url = "https://localhost";
+      const result = await electronAPI.openExternalUrl(url);
+      if (result.success) {
+        addActionLog(`Opened DDALAB in browser at ${url}`);
+      } else {
+        addErrorLog(`Failed to open DDALAB: ${result.error}`);
+      }
+    } catch (error: any) {
+      console.error("[EnhancedControlPanel] Error opening DDALAB:", error);
+      addErrorLog(`Failed to open DDALAB: ${error.message}`);
     }
   };
 
@@ -390,8 +354,8 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
               {(dockerStatus.includes("Running") || dockerStatus.includes("Checking Health")) && (
                 <div className="col-md-6">
                   <strong>Services Health:</strong>
-                  <span className={`ms-2 badge ${isTraefikHealthy ? 'bg-success' : 'bg-warning'}`}>
-                    {isTraefikHealthy ? 'Healthy' : 'Pending'}
+                  <span className={`ms-2 badge ${systemStatus.isDdalabHealthy ? 'bg-success' : 'bg-warning'}`}>
+                    {systemStatus.isDdalabHealthy ? 'All Services Healthy' : 'Checking Health...'}
                   </span>
                 </div>
               )}
@@ -406,6 +370,15 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
           <div className="card-body">
             <h6 className="card-title">Quick Actions</h6>
             <div className="d-grid gap-2">
+              <button 
+                className="btn btn-primary btn-sm" 
+                onClick={handleOpenDDALAB} 
+                disabled={!systemStatus.isDdalabHealthy}
+                title={!systemStatus.isDdalabHealthy ? "DDALAB must be healthy and running to open" : "Open DDALAB in browser"}
+              >
+                🌐 Open DDALAB
+                {systemStatus.isDdalabHealthy && <span className="ms-1">✓</span>}
+              </button>
               <button className="btn btn-outline-primary btn-sm" onClick={onEditConfig}>
                 ⚙️ Edit Configuration
               </button>
@@ -414,6 +387,13 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
               </button>
               <button className="btn btn-outline-secondary btn-sm" onClick={onBugReport}>
                 🐛 Report Bug
+              </button>
+              <button 
+                className="btn btn-outline-warning btn-sm" 
+                onClick={() => setShowCertificateModal(true)}
+                title="Manage SSL certificates to avoid browser security warnings"
+              >
+                🔒 SSL Certificates
               </button>
             </div>
           </div>
@@ -665,6 +645,12 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
               <button className="btn btn-primary btn-sm" onClick={onEditConfig}>
                 ⚙️ Edit Configuration
               </button>
+              <button 
+                className="btn btn-outline-primary btn-sm mt-2" 
+                onClick={() => setShowCertificateModal(true)}
+              >
+                🔒 Manage SSL Certificates
+              </button>
             </div>
           </div>
         </div>
@@ -698,7 +684,7 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
         <div>
           <h2 className="mb-1">DDALAB Control Panel</h2>
           <p className="text-muted mb-0">
-            Managing: <code className="small">{userSelections.cloneLocation || "Unknown path"}</code>
+            Managing: <code className="small">{userSelections.projectLocation || "Unknown path"}</code>
           </p>
         </div>
       </div>
@@ -750,6 +736,18 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
         {activeTab === 'logs' && renderLogsTab()}
         {activeTab === 'config' && renderConfigTab()}
       </div>
+
+      {/* Certificate Management Modal */}
+      <CertificateManagerModal
+        isOpen={showCertificateModal}
+        onClose={() => setShowCertificateModal(false)}
+        electronAPI={electronAPI}
+        certsDir={userSelections.dataLocation ? `${userSelections.dataLocation}/certs` : ''}
+        onCertificatesUpdated={() => {
+          // Optionally refresh status or show success message
+          addActionLog('SSL certificates updated - restart services to apply changes');
+        }}
+      />
     </div>
   );
 };

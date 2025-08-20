@@ -16,7 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Settings, Play, Download } from "lucide-react";
 import { useUnifiedSessionData } from "@/hooks/useUnifiedSession";
 import apiService from "@/lib/api";
-import { useCurrentFileSubscription } from "@/hooks/useCurrentFileSubscription";
+import { useCurrentFileSubscription, useCurrentFileInfo } from "@/hooks/useCurrentFileSubscription";
 
 interface DDAWidgetProps {
   widgetId?: string;
@@ -28,6 +28,7 @@ export function DDAWidget({
   isPopout = false,
 }: DDAWidgetProps) {
   const { data: session } = useUnifiedSessionData();
+  const { currentFilePath, currentPlotState } = useCurrentFileInfo();
   const [formData, setFormData] = useState({
     windowSize: 1.0,
     stepSize: 0.5,
@@ -53,7 +54,25 @@ export function DDAWidget({
     }));
   };
 
-  // Auto-populate from current file selection
+  // Initialize widget with current file state when component mounts
+  useEffect(() => {
+    if (currentFilePath && currentPlotState) {
+      setFilePath(currentFilePath);
+      if (Array.isArray(currentPlotState.selectedChannels)) {
+        setSelectedChannels(currentPlotState.selectedChannels);
+      }
+      
+      const channelLabels =
+        currentPlotState.edfData?.channel_labels ||
+        currentPlotState.metadata?.channels ||
+        currentPlotState.metadata?.availableChannels ||
+        [];
+      if (Array.isArray(channelLabels)) setAvailableChannels(channelLabels);
+      if (currentPlotState.metadata) setMetadata(currentPlotState.metadata);
+    }
+  }, [currentFilePath, currentPlotState]);
+
+  // Auto-populate from current file selection changes
   useCurrentFileSubscription((event) => {
     if (event.filePath) setFilePath(event.filePath);
     if (Array.isArray(event.selectedChannels))

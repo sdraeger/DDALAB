@@ -46,13 +46,16 @@ export function AuthModeProvider({ children, initialMode = 'multi-user' }: AuthM
 		const detectAuthMode = async () => {
 			try {
 				console.log("[AuthModeContext] Detecting auth mode...");
-				const response = await fetch('/api/config');
+				// Try to fetch from the backend API auth mode endpoint
+				const response = await fetch('/api-backend/auth/mode');
 
 				if (!isMounted) return; // Prevent state updates if unmounted
 
 				if (response.ok) {
-					console.log("[AuthModeContext] API accessible, using multi-user mode");
-					setAuthModeState('multi-user');
+					const data = await response.json();
+					const mode = data.auth_mode === 'local' ? 'local' : 'multi-user';
+					console.log(`[AuthModeContext] API accessible, auth mode: ${mode}`);
+					setAuthModeState(mode);
 				} else {
 					console.log("[AuthModeContext] API not accessible, using local mode");
 					setAuthModeState('local');

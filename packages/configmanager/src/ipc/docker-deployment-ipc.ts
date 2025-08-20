@@ -182,7 +182,7 @@ export function registerDockerDeploymentIpcHandlers() {
 # This file configures DDALAB to use Docker Hub images
 
 # Use Docker Hub images instead of building locally
-DDALAB_IMAGE=sdraeger1/ddalab-monolith:latest
+DDALAB_IMAGE=sdraeger1/ddalab:latest
 
 # Database Configuration
 DDALAB_DB_USER=admin
@@ -278,7 +278,15 @@ NEXT_PUBLIC_APP_URL=https://localhost
         );
 
         // Create setup directory if it doesn't exist
+        logger.info(`Creating target directory: ${targetDirectory}`);
         await fs.mkdir(targetDirectory, { recursive: true });
+        
+        // Verify directory was created
+        const dirStat = await fs.stat(targetDirectory);
+        if (!dirStat.isDirectory()) {
+          throw new Error(`Failed to create directory: ${targetDirectory}`);
+        }
+        logger.info(`Directory created successfully: ${targetDirectory}`);
 
         // Create data directory
         const dataDir = path.join(targetDirectory, "data");
@@ -297,21 +305,23 @@ NEXT_PUBLIC_APP_URL=https://localhost
         await fs.mkdir(traefikLogsDir, { recursive: true });
 
         // Copy docker-compose.yml
-        const dockerComposeContent = await fs.readFile(
-          path.join(process.cwd(), "docker-compose.yml"),
-          "utf-8"
-        );
-        await fs.writeFile(
-          path.join(targetDirectory, "docker-compose.yml"),
-          dockerComposeContent
-        );
+        const sourcePath = path.join(process.cwd(), "docker-compose.yml");
+        const targetPath = path.join(targetDirectory, "docker-compose.yml");
+        logger.info(`Copying docker-compose.yml from ${sourcePath} to ${targetPath}`);
+        
+        const dockerComposeContent = await fs.readFile(sourcePath, "utf-8");
+        await fs.writeFile(targetPath, dockerComposeContent);
+        
+        // Verify file was copied
+        await fs.access(targetPath);
+        logger.info(`docker-compose.yml copied successfully to ${targetPath}`);
 
         // Create .env file with proper configuration
         const envContent = `# DDALAB Docker Deployment Configuration
 # This file configures DDALAB to use Docker Hub images
 
 # Use Docker Hub images instead of building locally
-DDALAB_IMAGE=sdraeger1/ddalab-monolith:latest
+DDALAB_IMAGE=sdraeger1/ddalab:latest
 
 # Database Configuration
 DDALAB_DB_USER=admin

@@ -9,18 +9,21 @@ services:
       - internal
     restart: unless-stopped
 
-  ddalab-monolith:
-    image: sdraeger1/ddalab-monolith:latest
-    build:
-      context: .
-      dockerfile: ./Dockerfile
+  ddalab:
+    image: sdraeger1/ddalab:latest
     env_file:
       - ./.env
+    environment:
+      DDALAB_AUTH_MODE: ${DDALAB_AUTH_MODE:-local}
     ports:
       - "${WEB_PORT:-3000}:3000"
       - "${API_PORT:-8001}:8001"
+    volumes:
+      - type: bind
+        source: ${ALLOWED_DIR_SOURCE:-./data}
+        target: ${ALLOWED_DIR_TARGET:-/app/data}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      test: ["CMD-SHELL", "curl -f http://0.0.0.0:3000 && curl -f http://0.0.0.0:8001/api/config | grep -q 'auth_mode.*local'"]
       interval: 10s
       timeout: 10s
       retries: 10
@@ -60,7 +63,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${DB_USER}", "-d", "postgres"]
+      test: ["CMD", "pg_isready", "-U", "${DB_USER}", "-d", "${DB_NAME}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -96,7 +99,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ddalab-monolith:
+      ddalab:
         condition: service_started
     restart: unless-stopped
     networks:
@@ -134,9 +137,6 @@ services:
       - "--query.timeout=2m"
       - "--query.max-concurrency=20"
       - "--storage.tsdb.no-lockfile"
-      - "--query.log-file=/tmp/queries.active"
-      - "--query.log-file-mode=0644"
-      - "--query.active-query-tracker-dir=/tmp"
     restart: unless-stopped
     networks:
       - internal

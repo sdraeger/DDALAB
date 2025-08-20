@@ -15,8 +15,18 @@ export function registerDockerIpcHandlers() {
 
   ipcMain.handle("start-monolithic-docker", async (event) => {
     logger.info("IPC: start-monolithic-docker");
-    const state = await DockerService.getConfigManagerState(); // Assuming this method exists and returns state
-    return DockerService.startMonolithicDocker(state);
+    try {
+      const state = await DockerService.getConfigManagerState();
+      logger.info("Retrieved state for start:", JSON.stringify(state));
+      if (!state || !state.setupPath) {
+        logger.error("Invalid state - missing setupPath:", state);
+        return false;
+      }
+      return DockerService.startMonolithicDocker(state);
+    } catch (error: any) {
+      logger.error("Error in start-monolithic-docker handler:", error);
+      return false;
+    }
   });
 
   ipcMain.handle(
@@ -25,8 +35,18 @@ export function registerDockerIpcHandlers() {
       logger.info(
         `IPC: stop-monolithic-docker (deleteVolumes: ${deleteVolumes})`
       );
-      const state = await DockerService.getConfigManagerState();
-      return DockerService.stopMonolithicDocker(state, deleteVolumes);
+      try {
+        const state = await DockerService.getConfigManagerState();
+        logger.info("Retrieved state for stop:", JSON.stringify(state));
+        if (!state || !state.setupPath) {
+          logger.error("Invalid state - missing setupPath:", state);
+          return false;
+        }
+        return DockerService.stopMonolithicDocker(state, deleteVolumes);
+      } catch (error: any) {
+        logger.error("Error in stop-monolithic-docker handler:", error);
+        return false;
+      }
     }
   );
 
@@ -48,13 +68,16 @@ export function registerDockerIpcHandlers() {
     DockerService.removeDockerLogStream();
   });
 
-  ipcMain.handle("check-docker-installation", async () => {
-    logger.info("IPC: check-docker-installation");
-    return DockerService.isDockerInstalled();
+  ipcMain.handle("check-ddalab-services-health", async () => {
+    logger.info("IPC: check-ddalab-services-health");
+    try {
+      return await DockerService.checkAllServicesHealth();
+    } catch (error: any) {
+      logger.error("Error checking DDALAB services health:", error);
+      return false;
+    }
   });
 
-  ipcMain.handle("get-docker-installation-instructions", async () => {
-    logger.info("IPC: get-docker-installation-instructions");
-    return DockerService.getInstallationInstructions();
-  });
+  // Note: check-docker-installation is handled in docker-check-ipc.ts
+  // Note: get-docker-installation-instructions is handled in docker-check-ipc.ts
 }

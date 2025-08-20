@@ -41,14 +41,18 @@ export function FileBrowserWidget({ onFileSelect, maxHeight = "400px" }: FileBro
 				const { data } = await apiService.request<{ roots: Array<{ name: string; relative_path: string }>; default_relative_path: string }>(
 					'/api/files/roots'
 				);
-				const initial = (data?.default_relative_path || '').replace(/^\.?\/?/, '');
-				if (!initial) {
+				const defaultPath = data?.default_relative_path || '';
+				
+				// Check if we have any roots available
+				if (!data?.roots || data.roots.length === 0) {
 					setError('No allowed directories configured');
 					setFiles([]);
 					return;
 				}
-				setCurrentPath(initial);
-				await handleRefresh(initial);
+				
+				// Use the default path as-is (API now returns "" for root, not ".")
+				setCurrentPath(defaultPath);
+				await handleRefresh(defaultPath);
 			} finally {
 				// no-op
 			}
@@ -64,18 +68,16 @@ export function FileBrowserWidget({ onFileSelect, maxHeight = "400px" }: FileBro
 			const token = session?.accessToken || session?.data?.accessToken || null;
 			apiService.setToken(token || null);
 			let effectivePath = (nextPath ?? currentPath).trim();
-			// Normalize './' and leading './'
+			
+			// Normalize './' and leading './' - convert to empty string for root
 			if (effectivePath === '.' || effectivePath === './') {
 				effectivePath = '';
 			}
 			if (effectivePath.startsWith('./')) {
 				effectivePath = effectivePath.slice(2);
 			}
-			if (!effectivePath) {
-				setError('Please select a directory');
-				setFiles([]);
-				return;
-			}
+			
+			// API now accepts empty string for root directory
 			const pathForApi = effectivePath;
 			const query = new URLSearchParams({ path: pathForApi }).toString();
 			const { data, error } = await apiService.request<{ files: Array<{ name: string; path: string; is_directory: boolean; size?: number | null; last_modified?: string | null }> }>(

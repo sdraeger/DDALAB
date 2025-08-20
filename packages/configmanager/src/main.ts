@@ -9,9 +9,11 @@ import { registerSetupIpcHandlers } from "./ipc/setup-ipc";
 import { registerDockerDeploymentIpcHandlers } from "./ipc/docker-deployment-ipc";
 import { registerEnhancedSetupIpcHandlers } from "./ipc/enhanced-setup-ipc";
 import { registerDockerCheckIpcHandlers } from "./ipc/docker-check-ipc";
+import { registerCertificateIpcHandlers } from "./ipc/certificate-ipc";
 import { registerUpdateIpcHandlers } from "./ipc/update-ipc";
 import { registerMinIOUpdateIpcHandlers } from "./ipc/minio-update-ipc";
 import { registerMenuIpcHandlers } from "./ipc/menu-ipc";
+import { setupGeneralIpc } from "./ipc/general-ipc";
 import { logger } from "./utils/logger";
 import { PROJECT_ROOT_ENV_PATH } from "./utils/env-manager";
 import { EnhancedUpdateService } from "./services/enhanced-update-service";
@@ -33,9 +35,11 @@ registerSetupIpcHandlers();
 registerDockerDeploymentIpcHandlers();
 registerEnhancedSetupIpcHandlers();
 registerDockerCheckIpcHandlers();
+registerCertificateIpcHandlers();
 registerUpdateIpcHandlers();
 registerMinIOUpdateIpcHandlers();
 registerMenuIpcHandlers();
+setupGeneralIpc();
 
 // Initialize enhanced update service
 EnhancedUpdateService.getInstance().initialize();

@@ -1,15 +1,19 @@
 import React, { useEffect, useState } from "react";
-import type { ParsedEnvEntry, ElectronAPI, UserSelections } from "./utils/electron";
+import type {
+  ParsedEnvEntry,
+  ElectronAPI,
+  UserSelections,
+} from "./utils/electron";
+import type { DockerStatus } from "../preload";
+import { logger } from './utils/logger-client';
 import {
   WelcomeSite,
   DataLocationSite,
-  CloneLocationSite,
+  ProjectLocationSite,
   ManualConfigSite,
   DockerConfigSite,
   SummarySite,
-  ControlPanelSite,
   ProgressSidebar,
-  ControlPanelSidebar,
   ConfigurationEditor,
   SystemInfoModal,
   BugReportModal,
@@ -20,6 +24,7 @@ import {
 } from "./components";
 import { SiteNavigationProvider } from "./context/SiteNavigationProvider";
 import { DockerProvider } from "./context/DockerProvider";
+import { SystemStatusProvider } from "./context/SystemStatusProvider";
 import { useSiteNavigation } from "./hooks/useSiteNavigation";
 import { useNavigationValidation } from "./hooks/useNavigationValidation";
 
@@ -45,16 +50,25 @@ const CloneDialogModal: React.FC<{
   onClone: () => void;
   onClose: () => void;
 }> = ({ dialog, isLoading, onClone, onClose }) => (
-  <div className="modal fade show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+  <div
+    className="modal fade show d-block"
+    style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+  >
     <div className="modal-dialog">
       <div className="modal-content">
         <div className="modal-header">
           <h5 className="modal-title">Setup Directory</h5>
-          <button type="button" className="btn-close" onClick={onClose}></button>
+          <button
+            type="button"
+            className="btn-close"
+            onClick={onClose}
+          ></button>
         </div>
         <div className="modal-body">
           <p>{dialog.message}</p>
-          <p><strong>Target Path:</strong> {dialog.targetPath}</p>
+          <p>
+            <strong>Target Path:</strong> {dialog.targetPath}
+          </p>
         </div>
         <div className="modal-footer">
           <button type="button" className="btn btn-secondary" onClick={onClose}>
@@ -138,22 +152,24 @@ const AppContent: React.FC = () => {
       updateEnvEntries(entries);
       return entries;
     } catch (error) {
-      alert("Could not load environment variables.");
+      logger.error('Could not load environment variables', error);
+      // TODO: Show user-friendly UI notification instead of alert
       return null;
     }
   };
 
   const validateDockerSetup = async (path: string): Promise<boolean> => {
     if (!electronAPI || !path) {
-      alert("Setup validation not available or no directory selected.");
+      logger.error('Setup validation not available or no directory selected');
+      // TODO: Show user-friendly UI notification instead of alert
       return false;
     }
     try {
       const result = await electronAPI.validateDockerSetup(path);
-      if (result.success && result.setupPath) {
+      if (result.success) {
         updateSelections({
-          dataLocation: result.setupPath,
-          cloneLocation: result.setupPath,
+          dataLocation: path,
+          projectLocation: path,
         });
         return true;
       }
@@ -166,42 +182,36 @@ const AppContent: React.FC = () => {
             `No DDALAB Docker setup found in ${result.targetPath}. Would you like to create the necessary files?`,
         });
       } else {
-        alert(result.message || "Failed to validate Docker setup directory.");
+        logger.error('Docker setup validation failed', result.message || 'Failed to validate Docker setup directory');
+        // TODO: Show user-friendly UI notification instead of alert
       }
       return false;
     } catch (error) {
-      alert(`Failed to validate Docker setup: ${String(error)}`);
+      logger.error('Failed to validate Docker setup', error);
+      // TODO: Show user-friendly UI notification instead of alert
       return false;
     }
   };
 
   const executeDockerInstallation = async (): Promise<boolean> => {
     if (!electronAPI || !userSelections.dataLocation) {
-      alert("Installation interface not available or no directory selected.");
+      logger.error('Installation interface not available or no directory selected');
+      // TODO: Show user-friendly UI notification instead of alert
       return false;
     }
     try {
       if (userSelections.setupType === "docker") {
-        if (!userSelections.cloneLocation) {
-          alert("Setup location not selected for Docker setup.");
+        if (!userSelections.projectLocation) {
+          logger.error('Setup location not selected for Docker setup');
+          // TODO: Show user-friendly UI notification instead of alert
           return false;
         }
 
-        // Construct user configuration from user selections
-        const userConfig = {
-          dataLocation: userSelections.dataLocation,
-          allowedDirs: `${userSelections.dataLocation}:/app/data:rw`,
-          webPort: userSelections.webPort || "3000",
-          apiPort: userSelections.apiPort || "8001",
-          dbPassword: userSelections.dbPassword || "ddalab_password",
-          minioPassword: userSelections.minioPassword || "ddalab_password",
-          traefikEmail: userSelections.traefikEmail || "admin@ddalab.local",
-          useDockerHub: userSelections.useDockerHub !== false, // Default to true
-        };
+        // Setup Docker deployment with user configuration handled internally
 
         await electronAPI.setupDockerDeployment(
           userSelections.dataLocation,
-          userSelections.cloneLocation
+          userSelections.projectLocation
         );
       } else {
         await electronAPI.saveEnvFile(
@@ -215,7 +225,7 @@ const AppContent: React.FC = () => {
       if (electronAPI?.saveFullState) {
         await electronAPI.saveFullState(
           userSelections.dataLocation,
-          userSelections.cloneLocation,
+          userSelections.projectLocation,
           userSelections,
           currentSite,
           parsedEnvEntries,
@@ -226,7 +236,8 @@ const AppContent: React.FC = () => {
       setInstallationSuccess(true);
       return true;
     } catch (error) {
-      alert(`Installation failed: ${String(error)}`);
+      logger.error('Installation failed', error);
+      // TODO: Show user-friendly UI notification instead of alert
       return false;
     }
   };
@@ -244,7 +255,8 @@ const AppContent: React.FC = () => {
       switch (currentSite) {
         case "welcome":
           if (!userSelections.setupType) {
-            alert("Please select a setup type.");
+            logger.warn('Please select a setup type');
+            // TODO: Show user-friendly UI notification instead of alert
             canProceed = false;
           } else if (userSelections.setupType === "docker") {
             updateSelections({ envVariables: {} });
@@ -252,20 +264,27 @@ const AppContent: React.FC = () => {
           break;
         case "data-location":
           if (!userSelections.dataLocation) {
-            alert("Please select a data location.");
+            logger.warn('Please select a data location');
+            // TODO: Show user-friendly UI notification instead of alert
+            canProceed = false;
+          } else if (!userSelections.envVariables?.DDALAB_ALLOWED_DIRS) {
+            logger.warn('Please configure allowed directories before proceeding');
+            // TODO: Show user-friendly UI notification instead of alert
             canProceed = false;
           }
           break;
         case "clone-location":
-          if (!userSelections.cloneLocation) {
-            alert("Please select a setup location.");
+          if (!userSelections.projectLocation) {
+            logger.warn('Please select a setup location');
+            // TODO: Show user-friendly UI notification instead of alert
             canProceed = false;
           }
           break;
         case "docker-config":
           // For Docker config, we can proceed as long as we have the basic setup
-          if (!userSelections.dataLocation || !userSelections.cloneLocation) {
-            alert("Please complete the previous steps first.");
+          if (!userSelections.dataLocation || !userSelections.projectLocation) {
+            logger.warn('Please complete the previous steps first');
+            // TODO: Show user-friendly UI notification instead of alert
             canProceed = false;
           }
           break;
@@ -282,7 +301,8 @@ const AppContent: React.FC = () => {
       }
       if (canProceed) goToNextSite();
     } catch (error) {
-      alert("An error occurred. Please try again.");
+      logger.error('An error occurred during navigation', error);
+      // TODO: Show user-friendly UI notification instead of alert
     } finally {
       setIsLoading(false);
     }
@@ -292,34 +312,26 @@ const AppContent: React.FC = () => {
     if (!cloneDialog?.targetPath || !electronAPI) return;
     setIsLoading(true);
     try {
-      // Construct user configuration with default values
-      const userConfig = {
-        dataLocation: cloneDialog.targetPath,
-        allowedDirs: `${cloneDialog.targetPath}:/app/data:rw`,
-        webPort: "3000",
-        apiPort: "8001",
-        dbPassword: "ddalab_password",
-        minioPassword: "ddalab_password",
-        traefikEmail: "admin@ddalab.local",
-        useDockerHub: true,
-      };
+      // Setup Docker directory with user configuration handled internally
 
       const result = await electronAPI.setupDockerDirectory(
         cloneDialog.targetPath
       );
-      if (result.success && result.setupPath) {
+      if (result.success) {
         updateSelections({
-          dataLocation: result.setupPath,
-          cloneLocation: result.setupPath,
+          dataLocation: cloneDialog.targetPath,
+          projectLocation: cloneDialog.targetPath,
         });
-        await loadEnvVars(result.setupPath);
+        await loadEnvVars(cloneDialog.targetPath);
         setCloneDialog(null);
         goToNextSite();
       } else {
-        alert(result.message || "Failed to setup directory.");
+        logger.error('Failed to setup directory', result.message || 'Failed to setup directory');
+        // TODO: Show user-friendly UI notification instead of alert
       }
     } catch (error) {
-      alert(`Failed to setup directory: ${String(error)}`);
+      logger.error('Failed to setup directory', error);
+      // TODO: Show user-friendly UI notification instead of alert
     } finally {
       setIsLoading(false);
     }
@@ -328,67 +340,73 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     const handleMenuAction = (data: { action: string; path?: string }) => {
       switch (data.action) {
-        case 'new-setup':
-          goToSite('welcome');
+        case "new-setup":
+          goToSite("welcome");
           updateSelections({});
           updateEnvEntries([]);
           setInstallationSuccess(false);
           break;
-        case 'open-setup-directory':
+        case "open-setup-directory":
           if (data.path) {
-            updateSelections({ dataLocation: data.path, cloneLocation: data.path });
+            updateSelections({
+              dataLocation: data.path,
+              projectLocation: data.path,
+            });
           }
           break;
-        case 'restart-setup-wizard':
-          goToSite('welcome');
+        case "restart-setup-wizard":
+          goToSite("welcome");
           break;
-        case 'reset-all-settings':
-          goToSite('welcome');
+        case "reset-all-settings":
+          goToSite("welcome");
           updateSelections({});
           updateEnvEntries([]);
           setInstallationSuccess(false);
           break;
-        case 'validate-current-setup':
+        case "validate-current-setup":
           if (electronAPI?.validateDockerSetup && userSelections.dataLocation) {
             validateDockerSetup(userSelections.dataLocation);
           }
           break;
-        case 'start-docker-services':
+        case "start-docker-services":
           if (electronAPI?.startMonolithicDocker) {
             electronAPI.startMonolithicDocker();
           }
           break;
-        case 'stop-docker-services':
+        case "stop-docker-services":
           if (electronAPI?.stopMonolithicDocker) {
             electronAPI.stopMonolithicDocker(false);
           }
           break;
-        case 'restart-docker-services':
-          if (electronAPI?.stopMonolithicDocker && electronAPI?.startMonolithicDocker) {
+        case "restart-docker-services":
+          if (
+            electronAPI?.stopMonolithicDocker &&
+            electronAPI?.startMonolithicDocker
+          ) {
             electronAPI.stopMonolithicDocker(false).then(() => {
               setTimeout(() => electronAPI.startMonolithicDocker(), 2000);
             });
           }
           break;
-        case 'check-docker-status':
+        case "check-docker-status":
           if (electronAPI?.getDockerStatus) {
             electronAPI.getDockerStatus();
           }
           break;
-        case 'view-docker-logs':
-          goToSite('control-panel');
+        case "view-docker-logs":
+          goToSite("control-panel");
           break;
-        case 'reset-docker-volumes':
+        case "reset-docker-volumes":
           if (electronAPI?.stopMonolithicDocker) {
             electronAPI.stopMonolithicDocker(true);
           }
           break;
-        case 'export-configuration':
-        case 'import-configuration':
+        case "export-configuration":
+        case "import-configuration":
           // These are handled by menu IPC handlers
           break;
         default:
-          console.log('Unhandled menu action:', data.action);
+          logger.warn('Unhandled menu action', { action: data.action });
       }
     };
 
@@ -400,7 +418,15 @@ const AppContent: React.FC = () => {
         removeMenuListener();
       };
     }
-  }, [electronAPI, goToSite, updateSelections, updateEnvEntries, setInstallationSuccess, userSelections.dataLocation, validateDockerSetup]);
+  }, [
+    electronAPI,
+    goToSite,
+    updateSelections,
+    updateEnvEntries,
+    setInstallationSuccess,
+    userSelections.dataLocation,
+    validateDockerSetup,
+  ]);
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -428,7 +454,7 @@ const AppContent: React.FC = () => {
 
         // Restore installation success state
         if (state.installationSuccess !== undefined) {
-          setInstallationSuccess(state.installationSuccess);
+          setInstallationSuccess(state.installationSuccess || false);
         }
 
         if (state.setupComplete) {
@@ -436,8 +462,8 @@ const AppContent: React.FC = () => {
           setIsSetupComplete(true);
           goToSite("control-panel");
           updateSelections({
-            dataLocation: state.dataLocation || state.setupPath,
-            cloneLocation: state.cloneLocation || state.setupPath,
+            dataLocation: state.dataLocation || state.setupPath || "",
+            projectLocation: state.projectLocation || state.setupPath || "",
           });
         } else {
           // Only go to welcome if no current site is set
@@ -464,7 +490,7 @@ const AppContent: React.FC = () => {
             installationSuccess
           );
         } catch (error) {
-          console.error("Failed to save user state:", error);
+          logger.error('Failed to save user state', error);
         }
       }
     };
@@ -472,35 +498,54 @@ const AppContent: React.FC = () => {
     // Debounce state saving to avoid excessive writes
     const timeoutId = setTimeout(saveState, 1000);
     return () => clearTimeout(timeoutId);
-  }, [userSelections, currentSite, parsedEnvEntries, installationSuccess, electronAPI]);
+  }, [
+    userSelections,
+    currentSite,
+    parsedEnvEntries,
+    installationSuccess,
+    electronAPI,
+  ]);
 
   // Listen for quit requests and Docker status updates
   useEffect(() => {
     if (!electronAPI) return;
 
     // Listen for quit confirmation requests
-    const removeQuitListener = electronAPI.onQuitRequest ? electronAPI.onQuitRequest(() => {
-      // Check Docker status before showing quit confirmation
-      if (electronAPI.getDockerStatus) {
-        electronAPI.getDockerStatus().then((isRunning: boolean) => {
-          setIsDDALABRunning(isRunning);
-          setShowQuitConfirmation(true);
-        }).catch(() => {
-          // If we can't check Docker status, assume it's not running
-          setIsDDALABRunning(false);
-          setShowQuitConfirmation(true);
-        });
-      } else {
-        // Fallback if getDockerStatus is not available
-        setIsDDALABRunning(false);
-        setShowQuitConfirmation(true);
-      }
-    }) : null;
+    const removeQuitListener = electronAPI.onQuitRequest
+      ? electronAPI.onQuitRequest(() => {
+          // Check Docker status before showing quit confirmation
+          if (electronAPI.getDockerStatus) {
+            electronAPI
+              .getDockerStatus()
+              .then((status: DockerStatus) => {
+                setIsDDALABRunning(status.isRunning);
+                setShowQuitConfirmation(true);
+              })
+              .catch(() => {
+                // If we can't check Docker status, assume it's not running
+                setIsDDALABRunning(false);
+                setShowQuitConfirmation(true);
+              });
+          } else {
+            // Fallback if getDockerStatus is not available
+            setIsDDALABRunning(false);
+            setShowQuitConfirmation(true);
+          }
+        })
+      : null;
 
     // Listen for Docker status updates
-    const removeDockerListener = electronAPI.onDockerStatusUpdate ? electronAPI.onDockerStatusUpdate((status: { isRunning: boolean }) => {
-      setIsDDALABRunning(status.isRunning);
-    }) : null;
+    const removeDockerListener = electronAPI.onDockerStatusUpdate
+      ? electronAPI.onDockerStatusUpdate((statusUpdate: { type: string; message: string }) => {
+          // For now, we'll parse the message to determine if Docker is running
+          // This should be updated based on the actual status update format
+          if (statusUpdate.type === 'docker-running') {
+            setIsDDALABRunning(true);
+          } else if (statusUpdate.type === 'docker-stopped') {
+            setIsDDALABRunning(false);
+          }
+        })
+      : null;
 
     return () => {
       if (removeQuitListener) removeQuitListener();
@@ -522,7 +567,7 @@ const AppContent: React.FC = () => {
   };
 
   const handleNewSetup = () => {
-    goToSite('welcome');
+    goToSite("welcome");
     updateSelections({});
     updateEnvEntries([]);
     setInstallationSuccess(false);
@@ -533,9 +578,6 @@ const AppContent: React.FC = () => {
     setShowUpdateModal(true);
   };
 
-  const handleQuitRequest = () => {
-    setShowQuitConfirmation(true);
-  };
 
   const handleConfirmQuit = async (stopDDALAB: boolean) => {
     if (!electronAPI) return;
@@ -543,7 +585,7 @@ const AppContent: React.FC = () => {
     try {
       if (stopDDALAB && isDDALABRunning) {
         // Stop DDALAB services before quitting
-        await electronAPI.stopMonolithicDocker();
+        await electronAPI.stopMonolithicDocker(false);
       }
 
       // Close the modal and proceed with quit
@@ -554,7 +596,7 @@ const AppContent: React.FC = () => {
         electronAPI.confirmQuit();
       }
     } catch (error) {
-      console.error('Error during quit process:', error);
+      logger.error('Error during quit process', error);
       // Still proceed with quit even if stopping Docker fails
       setShowQuitConfirmation(false);
       if (electronAPI.confirmQuit) {
@@ -563,7 +605,10 @@ const AppContent: React.FC = () => {
     }
   };
 
-  const handleSaveConfiguration = async (selections: Partial<UserSelections>, envEntries: ParsedEnvEntry[]) => {
+  const handleSaveConfiguration = async (
+    selections: Partial<UserSelections>,
+    envEntries: ParsedEnvEntry[]
+  ) => {
     try {
       updateSelections(selections);
       updateEnvEntries(envEntries);
@@ -587,10 +632,11 @@ const AppContent: React.FC = () => {
       }
 
       setShowConfigEditor(false);
-      alert('Configuration saved successfully!');
+      logger.info('Configuration saved successfully');
+      // TODO: Show user-friendly UI notification instead of alert
     } catch (error) {
-      console.error('Failed to save configuration:', error);
-      alert('Failed to save configuration. Please try again.');
+      logger.error('Failed to save configuration', error);
+      // TODO: Show user-friendly UI notification instead of alert
     }
   };
 
@@ -617,21 +663,22 @@ const AppContent: React.FC = () => {
         onDataLocationChange={(path) =>
           updateSelections({ dataLocation: path })
         }
-      />
-    ),
-    "clone-location": (
-      <CloneLocationSite
-        {...commonProps}
-        onCloneLocationChange={(path) =>
-          updateSelections({ cloneLocation: path })
+        onEnvVariableChange={(key, value) =>
+          updateSelections({
+            envVariables: { ...userSelections.envVariables, [key]: value },
+          })
         }
       />
     ),
-    "docker-config": (
-      <DockerConfigSite
+    "clone-location": (
+      <ProjectLocationSite
         {...commonProps}
+        onProjectLocationChange={(path) =>
+          updateSelections({ projectLocation: path })
+        }
       />
     ),
+    "docker-config": <DockerConfigSite {...commonProps} />,
     "manual-config": (
       <ManualConfigSite
         {...commonProps}
@@ -676,7 +723,9 @@ const AppContent: React.FC = () => {
           isSetupComplete={isSetupComplete}
         />
       )}
-      <div className={`main-content ${sidebarExpanded ? 'with-sidebar' : 'with-collapsed-sidebar'}`}>
+      <div
+        className={`main-content ${sidebarExpanded ? "with-sidebar" : "with-collapsed-sidebar"}`}
+      >
         <div className="installer-container">
           {siteComponents[currentSite] || <div>Loading...</div>}
           {!isSetupComplete && (
@@ -690,8 +739,9 @@ const AppContent: React.FC = () => {
               </button>
               {(shouldShowNextButton || shouldShowFinishButton) && (
                 <button
-                  className={`btn ${shouldShowFinishButton ? "btn-success" : "btn-primary"
-                    }`}
+                  className={`btn ${
+                    shouldShowFinishButton ? "btn-success" : "btn-primary"
+                  }`}
                   onClick={() => handleNavigation("next")}
                   disabled={!isNextButtonEnabled}
                 >
@@ -742,9 +792,7 @@ const AppContent: React.FC = () => {
       )}
 
       {showBugReport && (
-        <BugReportModal
-          onClose={() => setShowBugReport(false)}
-        />
+        <BugReportModal onClose={() => setShowBugReport(false)} />
       )}
 
       {showUpdateModal && (
@@ -760,7 +808,7 @@ const AppContent: React.FC = () => {
           isDDALABRunning={isDDALABRunning}
         />
       )}
-      <style jsx>{`
+      <style>{`
         .app-layout {
           display: flex;
           height: 100vh;
@@ -774,7 +822,7 @@ const AppContent: React.FC = () => {
         }
 
         .main-content.with-sidebar {
-          margin-left: ${isSetupComplete ? '280px' : '280px'};
+          margin-left: ${isSetupComplete ? "280px" : "280px"};
         }
 
         .main-content.with-collapsed-sidebar {
@@ -795,7 +843,11 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => (
   <SiteNavigationProvider>
     <DockerProvider>
-      <AppContent />
+      <SystemStatusProvider
+        electronAPI={window.electronAPI as ElectronAPI | undefined}
+      >
+        <AppContent />
+      </SystemStatusProvider>
     </DockerProvider>
   </SiteNavigationProvider>
 );

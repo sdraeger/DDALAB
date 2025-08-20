@@ -11,6 +11,7 @@ import { Separator } from "./separator";
 import { Select } from "./select";
 import { Slider } from "./slider";
 import { Dialog } from "./dialog";
+import { Switch } from "./switch";
 import { CardContent, CardDescription, CardHeader, CardTitle } from "./card";
 import { AlertDescription } from "./alert";
 import {
@@ -47,6 +48,7 @@ export {
   Select,
   Slider,
   Dialog,
+  Switch,
   CardContent,
   CardDescription,
   CardHeader,

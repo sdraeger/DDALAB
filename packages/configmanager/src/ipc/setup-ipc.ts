@@ -21,12 +21,12 @@ export function registerSetupIpcHandlers() {
     async (
       event,
       dataLocation: string,
-      cloneLocation: string,
+      projectLocation: string,
       userConfig: UserConfiguration
     ): Promise<SetupResult> => {
       logger.info('IPC event "run-initial-setup" received.', {
         dataLocation,
-        cloneLocation,
+        projectLocation,
         userConfig,
       });
       const mainWindow = getMainWindow();
@@ -41,21 +41,21 @@ export function registerSetupIpcHandlers() {
 
       try {
         // Clean the clone location directory
-        await fs.rm(cloneLocation, { recursive: true, force: true });
+        await fs.rm(projectLocation, { recursive: true, force: true });
         logger.info(
-          `Successfully removed existing directory: ${cloneLocation}`
+          `Successfully removed existing directory: ${projectLocation}`
         );
 
         // Use the enhanced setup method
         const result = await SetupService.setupDDALAB(
-          cloneLocation,
+          projectLocation,
           userConfig
         );
 
         if (result.success) {
           await SetupService.saveConfigManagerState(
             dataLocation,
-            cloneLocation
+            projectLocation
           );
           mainWindow.webContents.send("setup-progress", {
             message:
@@ -117,15 +117,15 @@ export function registerSetupIpcHandlers() {
     async (
       event,
       setupPathOrDataLocation: string | null,
-      cloneLocation?: string
+      projectLocation?: string
     ): Promise<void> => {
       logger.info('IPC event "save-configmanager-state" received.', {
         setupPathOrDataLocation,
-        cloneLocation,
+        projectLocation,
       });
       await SetupService.saveConfigManagerState(
         setupPathOrDataLocation,
-        cloneLocation
+        projectLocation
       );
     }
   );

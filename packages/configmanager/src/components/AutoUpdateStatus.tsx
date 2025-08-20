@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { logger } from '../utils/logger-client';
 
 interface UpdateInfo {
 	version: string;
@@ -48,7 +49,7 @@ export const AutoUpdateStatus: React.FC = () => {
 			setIsUpdateAvailable(available);
 			setUpdateInfo(info);
 		} catch (error) {
-			console.error('Error checking update status:', error);
+			logger.error('Error checking update status', error);
 		} finally {
 			setIsChecking(false);
 		}
@@ -59,7 +60,7 @@ export const AutoUpdateStatus: React.FC = () => {
 		try {
 			await window.electronAPI.checkForUpdates();
 		} catch (error) {
-			console.error('Error checking for updates:', error);
+			logger.error('Error checking for updates', error);
 		} finally {
 			setIsChecking(false);
 		}

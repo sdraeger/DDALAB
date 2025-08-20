@@ -2,8 +2,8 @@ import { ipcMain, dialog, app } from "electron";
 import { getMainWindow } from "../utils/window-manager";
 import { SetupService } from "../services/setup-service";
 import { SystemTrayService } from "../services/system-tray-service";
-import { DockerService } from "../services/docker-service";
 import type { UserSelections, ParsedEnvEntry } from "../utils/electron";
+import { logger } from "../utils/logger";
 
 export function registerConfigManagerIpcHandlers(): void {
   ipcMain.handle(
@@ -17,7 +17,7 @@ export function registerConfigManagerIpcHandlers(): void {
       if (canceled || filePaths.length === 0) {
         return undefined;
       }
-      console.log(`[configmanager-ipc] Selected directory: ${filePaths[0]}`);
+      logger.info("Selected directory", { path: filePaths[0] });
       return filePaths[0];
     }
   );
@@ -49,7 +49,7 @@ export function registerConfigManagerIpcHandlers(): void {
     async (
       event,
       setupPathOrDataLocation: string | null,
-      cloneLocation: string | null,
+      projectLocation: string | null,
       userSelections: UserSelections,
       currentSite: string,
       parsedEnvEntries: ParsedEnvEntry[],
@@ -57,7 +57,7 @@ export function registerConfigManagerIpcHandlers(): void {
     ): Promise<void> => {
       await SetupService.saveFullApplicationState(
         setupPathOrDataLocation,
-        cloneLocation,
+        projectLocation,
         userSelections,
         currentSite,
         parsedEnvEntries,

@@ -12,6 +12,8 @@ entryPoints:
 providers:
   file:
     directory: /etc/traefik/dynamic
+    watch: true
+
 
 certificatesResolvers:
   letsencrypt:
@@ -32,12 +34,6 @@ metrics:
     entryPoint: "websecure"
     buckets: [0.1, 0.3, 1.2, 5.0]
 
-tls:
-  stores:
-    default:
-      defaultCertificate:
-        certFile: "/etc/traefik/certs/server.crt"
-        keyFile: "/etc/traefik/certs/server.key"
 
 accessLog:
   filePath: "/traefik.log"

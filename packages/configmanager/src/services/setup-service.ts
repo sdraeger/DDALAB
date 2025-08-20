@@ -1,18 +1,14 @@
 import { app } from "electron";
-import { exec } from "child_process";
 import path from "path";
 import fs from "fs/promises";
 import { logger } from "../utils/logger";
 import { getMainWindow } from "../utils/main-window";
 import { EnvGeneratorService } from "./env-generator-service";
+import { CertificateService } from "./certificate-service";
 import type { UserSelections, ParsedEnvEntry } from "../utils/electron";
 
-const DDALAB_SETUP_REPO_URL = "https://github.com/sdraeger/DDALAB-setup.git";
 const DDALAB_SETUP_DIR_NAME = "ddalab-setup-data";
 const CONFIG_MANAGER_STATE_FILE_NAME = "configmanager-state.json";
-
-// Debug mode: use local DDALAB directory instead of cloning
-const DEBUG_MODE = process.env.DDALAB_DEBUG_LOCAL === "true";
 const LOCAL_DDALAB_PATH =
   process.env.DDALAB_LOCAL_PATH || "/Users/simon/Desktop/DDALAB";
 
@@ -20,7 +16,7 @@ export interface ConfigManagerState {
   setupComplete: boolean;
   setupPath: string | null;
   dataLocation?: string;
-  cloneLocation?: string;
+  projectLocation?: string;
   // Enhanced state persistence
   userSelections?: UserSelections;
   currentSite?: string;
@@ -114,7 +110,7 @@ export class SetupService {
         userSelections: state.userSelections || {
           setupType: "",
           dataLocation: "",
-          cloneLocation: "",
+          projectLocation: "",
           envVariables: {},
         },
         currentSite: state.currentSite || "welcome",
@@ -141,19 +137,19 @@ export class SetupService {
 
   static async saveConfigManagerState(
     setupPathOrDataLocation: string | null,
-    cloneLocation?: string,
+    projectLocation?: string,
     additionalState?: Partial<ConfigManagerState>
   ): Promise<void> {
     const stateFilePath = this.getConfigManagerStateFilePath();
 
     let state: ConfigManagerState;
-    if (cloneLocation !== undefined) {
+    if (projectLocation !== undefined) {
       // New format with separate locations
       state = {
         setupComplete: true,
-        setupPath: cloneLocation, // For backward compatibility, use cloneLocation as setupPath
+        setupPath: projectLocation, // For backward compatibility, use projectLocation as setupPath
         dataLocation: setupPathOrDataLocation || undefined,
-        cloneLocation: cloneLocation,
+        projectLocation: projectLocation,
         version: "2.0.0",
         lastUpdated: Date.now(),
         ...additionalState,
@@ -195,7 +191,7 @@ export class SetupService {
    */
   static async saveFullApplicationState(
     setupPathOrDataLocation: string | null,
-    cloneLocation: string | null,
+    projectLocation: string | null,
     userSelections: UserSelections,
     currentSite: string,
     parsedEnvEntries: ParsedEnvEntry[],
@@ -210,7 +206,7 @@ export class SetupService {
 
     await this.saveConfigManagerState(
       setupPathOrDataLocation,
-      cloneLocation || undefined,
+      projectLocation || undefined,
       additionalState
     );
   }
@@ -405,21 +401,36 @@ export class SetupService {
 
 # Use Docker Hub images
 DDALAB_USE_DOCKER_HUB=true
-DDALAB_IMAGE=sdraeger1/ddalab-monolith:latest
+DDALAB_IMAGE=sdraeger1/ddalab:latest
 
 # Database Configuration
 DDALAB_DB_USER=admin
-DDALAB_DB_PASSWORD=${userConfig.dbPassword || "AdminPassword123"}
+DDALAB_DB_PASSWORD=${userConfig.dbPassword || "ddalab_password"}
 DDALAB_DB_NAME=postgres
 DDALAB_DB_HOST=postgres
 DDALAB_DB_PORT=5432
+# Docker Compose DB variables
+DB_USER=admin
+DB_PASSWORD=${userConfig.dbPassword || "ddalab_password"}
+DB_NAME=postgres
+# PostgreSQL Environment Variables (Primary)
+POSTGRES_USER=admin
+POSTGRES_PASSWORD=${userConfig.dbPassword || "ddalab_password"}
+POSTGRES_DB=postgres
+# Database URL for applications
+DATABASE_URL=postgresql+asyncpg://admin:${userConfig.dbPassword || "ddalab_password"}@postgres:5432/postgres
+# Database connection retry settings
+DB_RETRY_ATTEMPTS=10
+DB_RETRY_DELAY=5
+# Health check configuration
+POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
 
 # MinIO Configuration
-MINIO_ROOT_USER=ddalab
-MINIO_ROOT_PASSWORD=${userConfig.minioPassword || "AdminPassword123"}
+MINIO_ROOT_USER=admin
+MINIO_ROOT_PASSWORD=${userConfig.minioPassword || "ddalab_password"}
 MINIO_HOST=minio:9000
-MINIO_ACCESS_KEY=ddalab
-MINIO_SECRET_KEY=${userConfig.minioPassword || "AdminPassword123"}
+MINIO_ACCESS_KEY=admin
+MINIO_SECRET_KEY=${userConfig.minioPassword || "ddalab_password"}
 
 # Redis Configuration
 DDALAB_REDIS_HOST=redis
@@ -438,6 +449,8 @@ SESSION_EXPIRATION=10080
 # API Configuration
 DDALAB_API_HOST=0.0.0.0
 DDALAB_API_PORT=${userConfig.apiPort || "8001"}
+# Docker Compose API Port
+API_PORT=${userConfig.apiPort || "8001"}
 DDALAB_RELOAD=False
 DDALAB_INSTITUTION_NAME=DDALAB
 DDALAB_DATA_DIR=./data
@@ -448,14 +461,20 @@ DDALAB_JWT_SECRET_KEY=ddalab-auth-secret-key-${
     }
 DDALAB_JWT_ALGORITHM=HS256
 DDALAB_TOKEN_EXPIRATION_MINUTES=60
-DDALAB_AUTH_MODE=${userConfig.authMode || "multi-user"}
+DDALAB_AUTH_MODE=${userConfig.authMode || "local"}
 
 # Traefik Configuration
 TRAEFIK_ACME_EMAIL=${userConfig.traefikEmail || "admin@ddalab.local"}
-TRAEFIK_PASSWORD_HASH=
+TRAEFIK_PASSWORD_HASH='admin:$2y$10$example'
+# Grafana Configuration
+GRAFANA_ADMIN_USER=admin
+GRAFANA_ADMIN_PASSWORD=admin_password
 
 # Allowed Directories for API access
-DDALAB_ALLOWED_DIRS=${userConfig.allowedDirs}
+DDALAB_ALLOWED_DIRS=/app/data
+# Dynamic volume mount configuration (parsed from allowedDirs)
+ALLOWED_DIR_SOURCE=./data
+ALLOWED_DIR_TARGET=/app/data
 
 # Analysis Configuration
 DDALAB_MAX_CONCURRENT_TASKS=5
@@ -465,8 +484,13 @@ DDALAB_DDA_BINARY_PATH=/app/bin/run_DDA_ASCII
 # SSL Configuration
 DDALAB_SSL_ENABLED=False
 
-# Next.js Debug Configuration (enables advanced patch for filter error)
+# Next.js Configuration
 DDALAB_DEBUG_NEXTJS=true
+# Fix for Next.js standalone mode
+NEXT_BUILD_MODE=standalone
+NODE_ENV=production
+# Disable problematic Next.js features for Docker
+NEXT_TELEMETRY_DISABLED=1
 
 # Version
 VERSION=latest
@@ -480,15 +504,39 @@ VERSION=latest
     envContent: string,
     userConfig: UserConfiguration
   ): string {
+    // Parse allowed directories to extract source and target for volume mount
+    let allowedDirSource = "./data";
+    let allowedDirTarget = "/app/data";
+    
+    if (userConfig.allowedDirs) {
+      const allowedDirsParts = userConfig.allowedDirs.split(":");
+      if (allowedDirsParts.length >= 2) {
+        allowedDirSource = allowedDirsParts[0];
+        allowedDirTarget = allowedDirsParts[1];
+      }
+    }
+    
     const updates = {
-      DDALAB_ALLOWED_DIRS: userConfig.allowedDirs,
+      DDALAB_ALLOWED_DIRS: allowedDirTarget, // API should only know about container paths
+      ALLOWED_DIR_SOURCE: allowedDirSource, // For docker-compose volume mount
+      ALLOWED_DIR_TARGET: allowedDirTarget, // For docker-compose volume mount
       WEB_PORT: userConfig.webPort || "3000",
       DDALAB_API_PORT: userConfig.apiPort || "8001",
+      API_PORT: userConfig.apiPort || "8001", // For Docker Compose
       DDALAB_DB_PASSWORD: userConfig.dbPassword || "ddalab_password",
+      DB_USER: "admin", // For Docker Compose
+      DB_PASSWORD: userConfig.dbPassword || "ddalab_password", // For Docker Compose
+      DB_NAME: "postgres", // For Docker Compose
+      POSTGRES_USER: "admin", // Primary PostgreSQL environment variable
+      POSTGRES_PASSWORD: userConfig.dbPassword || "ddalab_password", // Primary PostgreSQL environment variable
+      POSTGRES_DB: "postgres", // Primary PostgreSQL environment variable
       MINIO_ROOT_PASSWORD: userConfig.minioPassword || "ddalab_password",
       TRAEFIK_ACME_EMAIL: userConfig.traefikEmail || "admin@ddalab.local",
-      DDALAB_AUTH_MODE: userConfig.authMode || "multi-user",
-      DDALAB_IMAGE: "sdraeger1/ddalab-monolith:latest",
+      TRAEFIK_PASSWORD_HASH: "'admin:$2y$10$example'", // Basic placeholder
+      GRAFANA_ADMIN_USER: "admin", // For Docker Compose
+      GRAFANA_ADMIN_PASSWORD: "admin_password", // For Docker Compose
+      DDALAB_AUTH_MODE: userConfig.authMode || "local",
+      DDALAB_IMAGE: "sdraeger1/ddalab:latest",
     };
 
     let updatedContent = envContent;
@@ -513,21 +561,26 @@ VERSION=latest
     userConfig: UserConfiguration
   ): Promise<void> {
     // Parse allowedDirs to create bind mounts
-    const allowedDirsParts = userConfig.allowedDirs.split(":");
     let bindMounts = "";
+    let allowedDirsString = "";
 
-    if (allowedDirsParts.length >= 2) {
-      const sourcePath = allowedDirsParts[0];
-      const targetPath = allowedDirsParts[1];
-      const permissions = allowedDirsParts[2] || "rw";
+    if (userConfig && userConfig.allowedDirs) {
+      allowedDirsString = userConfig.allowedDirs;
+      const allowedDirsParts = userConfig.allowedDirs.split(":");
+      
+      if (allowedDirsParts.length >= 2) {
+        const sourcePath = allowedDirsParts[0];
+        const targetPath = allowedDirsParts[1];
+        const permissions = allowedDirsParts[2] || "rw";
 
-      bindMounts = `      - type: bind
+        bindMounts = `      - type: bind
         source: ${sourcePath}
         target: ${targetPath}`;
+      }
     }
 
     const volumesContent = `# Auto-generated volume configuration for monolithic container
-# Generated from DDALAB_ALLOWED_DIRS: ${userConfig.allowedDirs}
+# Generated from DDALAB_ALLOWED_DIRS: ${allowedDirsString || 'none'}
 
 services:
   ddalab:
@@ -537,6 +590,33 @@ services:
 
     const volumesFilePath = path.join(targetDir, "docker-compose.volumes.yml");
     await fs.writeFile(volumesFilePath, volumesContent, "utf-8");
+  }
+
+  /**
+   * Fix PostgreSQL health check configuration to match working version
+   */
+  static fixPostgreSQLHealthCheck(composeContent: string): string {
+    // Update PostgreSQL environment variables to match working configuration
+    composeContent = composeContent.replace(
+      /POSTGRES_USER: \$\{DB_USER:-admin\}/g,
+      "POSTGRES_USER: ${POSTGRES_USER:-admin}"
+    );
+    composeContent = composeContent.replace(
+      /POSTGRES_PASSWORD: \$\{DB_PASSWORD:-ddalab_password\}/g,
+      "POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ddalab_password}"
+    );
+    composeContent = composeContent.replace(
+      /POSTGRES_DB: \$\{DB_NAME:-postgres\}/g,
+      "POSTGRES_DB: ${POSTGRES_DB:-postgres}"
+    );
+
+    // Fix PostgreSQL health check command to use environment variables properly
+    composeContent = composeContent.replace(
+      /test: \["CMD-SHELL", "pg_isready -U admin -d postgres"\]/g,
+      'test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-postgres}"]'
+    );
+
+    return composeContent;
   }
 
   /**
@@ -595,12 +675,15 @@ services:
       // Replace individual service images with the monolithic image
       composeContent = composeContent.replace(
         /image: sdraeger1\/ddalab-web:.*$/m,
-        "image: sdraeger1/ddalab-monolith:${VERSION:-latest}"
+        "image: sdraeger1/ddalab:${VERSION:-latest}"
       );
       composeContent = composeContent.replace(
         /image: sdraeger1\/ddalab-api:.*$/m,
         "# Removed: API service merged into monolith"
       );
+
+      // Fix PostgreSQL health check configuration to match working version
+      composeContent = this.fixPostgreSQLHealthCheck(composeContent);
 
       // Remove web and api service definitions and replace with a single ddalab service
       const lines = composeContent.split("\n");
@@ -617,26 +700,20 @@ services:
           currentService = trimmedLine.replace(":", "");
           if (currentService === "web") {
             updatedLines.push("  ddalab:");
-            updatedLines.push("    build:");
-            updatedLines.push("      context: .");
-            updatedLines.push("      dockerfile: ./Dockerfile");
-            updatedLines.push("    image: ddalab-monolith:latest");
+            updatedLines.push("    image: ${DDALAB_IMAGE:-sdraeger1/ddalab:latest}");
             updatedLines.push("    env_file:");
             updatedLines.push("      - ./.env");
             updatedLines.push("    ports:");
             updatedLines.push('      - "${WEB_PORT:-3000}:3000"');
-            updatedLines.push('      - "${DDALAB_API_PORT:-8001}:8001"');
-            updatedLines.push(
-              '      - "${DDALAB_API_PORT_METRICS:-8002}:8002"'
-            );
+            updatedLines.push('      - "${API_PORT:-8001}:8001"');
             updatedLines.push("    healthcheck:");
             updatedLines.push(
-              '      test: ["CMD", "curl", "-f", "http://localhost:3000"]'
+              '      test: ["CMD-SHELL", "curl -f http://localhost:3000 || exit 1"]'
             );
-            updatedLines.push("      interval: 10s");
+            updatedLines.push("      interval: 15s");
             updatedLines.push("      timeout: 10s");
-            updatedLines.push("      retries: 10");
-            updatedLines.push("      start_period: 60s");
+            updatedLines.push("      retries: 20");
+            updatedLines.push("      start_period: 120s");
             updatedLines.push("    depends_on:");
             updatedLines.push("      postgres:");
             updatedLines.push("        condition: service_healthy");
@@ -729,9 +806,189 @@ services:
       logger.warn(`Could not set acme.json permissions: ${error.message}`);
     }
 
+    // Setup SSL certificates
+    await this.setupSSLCertificates(targetDir);
+
     mainWindow.webContents.send("setup-progress", {
       message: "Security files configured.",
     });
+  }
+
+  /**
+   * Setup SSL certificates - tries trusted certificates first, falls back to self-signed
+   */
+  static async setupSSLCertificates(targetDir: string): Promise<void> {
+    const mainWindow = getMainWindow();
+    const certsDir = path.join(targetDir, "certs");
+
+    try {
+      // Ensure certs directory exists
+      await fs.mkdir(certsDir, { recursive: true });
+
+      if (mainWindow) {
+        mainWindow.webContents.send("setup-progress", {
+          message: "Setting up SSL certificates...",
+          step: "certificates"
+        });
+      }
+
+      logger.info("Setting up SSL certificates for DDALAB");
+
+      // Check if mkcert is available
+      const mkcertAvailable = await CertificateService.isMkcertAvailable();
+      
+      if (mkcertAvailable) {
+        logger.info("mkcert is available, generating trusted certificates");
+        
+        if (mainWindow) {
+          mainWindow.webContents.send("setup-progress", {
+            message: "Generating trusted SSL certificates (no browser warnings)...",
+            step: "certificates"
+          });
+        }
+
+        const result = await CertificateService.generateTrustedCertificates(certsDir);
+        
+        if (result.success) {
+          logger.info("Trusted SSL certificates generated successfully");
+          
+          if (mainWindow) {
+            mainWindow.webContents.send("setup-progress", {
+              message: "✅ Trusted SSL certificates generated successfully",
+              step: "certificates",
+              type: "success"
+            });
+          }
+          return;
+        } else {
+          // Check if it's a Firefox-related error but certificates were actually generated
+          if (result.error && result.error.includes("Firefox") && result.error.includes("certutil")) {
+            logger.info("Firefox database error detected, checking if certificates were generated anyway...");
+            
+            // Check if certificates actually exist despite the error
+            const certInfo = await CertificateService.getCertificateInfo(certsDir);
+            if (certInfo.exists && certInfo.valid) {
+              logger.info("Certificates were generated successfully despite Firefox database error");
+              
+              if (mainWindow) {
+                mainWindow.webContents.send("setup-progress", {
+                  message: "✅ Trusted certificates generated (Firefox database warning ignored)",
+                  step: "certificates",
+                  type: "success"
+                });
+              }
+              return;
+            }
+          }
+          
+          logger.warn("Failed to generate trusted certificates, falling back to self-signed:", result.error);
+        }
+      } else {
+        logger.info("mkcert not available, will try to install it");
+        
+        if (mainWindow) {
+          mainWindow.webContents.send("setup-progress", {
+            message: "Installing mkcert for trusted certificates...",
+            step: "certificates"
+          });
+        }
+
+        // Try to install mkcert automatically
+        const installResult = await CertificateService.installMkcert();
+        if (installResult.success) {
+          logger.info("mkcert installed successfully, generating trusted certificates");
+          
+          const result = await CertificateService.generateTrustedCertificates(certsDir);
+          if (result.success) {
+            logger.info("Trusted SSL certificates generated after mkcert installation");
+            
+            if (mainWindow) {
+              mainWindow.webContents.send("setup-progress", {
+                message: "✅ mkcert installed and trusted certificates generated",
+                step: "certificates",
+                type: "success"
+              });
+            }
+            return;
+          } else {
+            // Check if it's a Firefox-related error but certificates were actually generated
+            if (result.error && result.error.includes("Firefox") && result.error.includes("certutil")) {
+              logger.info("Firefox database error detected, checking if certificates were generated anyway...");
+              
+              // Check if certificates actually exist despite the error
+              const certInfo = await CertificateService.getCertificateInfo(certsDir);
+              if (certInfo.exists && certInfo.valid) {
+                logger.info("Certificates were generated successfully despite Firefox database error");
+                
+                if (mainWindow) {
+                  mainWindow.webContents.send("setup-progress", {
+                    message: "✅ Trusted certificates generated (Firefox database warning ignored)",
+                    step: "certificates",
+                    type: "success"
+                  });
+                }
+                return;
+              }
+            }
+            
+            logger.warn("Failed to generate trusted certificates after installation:", result.error);
+          }
+        } else {
+          logger.info("Could not install mkcert automatically:", installResult.error);
+        }
+      }
+
+      // Fallback to self-signed certificates
+      logger.info("Generating self-signed SSL certificates as fallback");
+      
+      if (mainWindow) {
+        mainWindow.webContents.send("setup-progress", {
+          message: "Generating self-signed SSL certificates (browsers will show warnings)...",
+          step: "certificates"
+        });
+      }
+
+      const fallbackResult = await CertificateService.generateSelfSignedCertificates(certsDir);
+      
+      if (fallbackResult.success) {
+        logger.info("Self-signed SSL certificates generated successfully");
+        
+        if (mainWindow) {
+          mainWindow.webContents.send("setup-progress", {
+            message: "⚠️ Self-signed certificates generated (browsers will show security warnings)",
+            step: "certificates",
+            type: "warning"
+          });
+        }
+      } else {
+        logger.error("Failed to generate SSL certificates:", fallbackResult.error);
+        
+        if (mainWindow) {
+          mainWindow.webContents.send("setup-progress", {
+            message: "❌ Failed to generate SSL certificates",
+            step: "certificates",
+            type: "error"
+          });
+        }
+        
+        // Don't fail the entire setup, but log the error
+        logger.warn("Continuing setup without SSL certificates");
+      }
+
+    } catch (error) {
+      logger.error("Error setting up SSL certificates:", error);
+      
+      if (mainWindow) {
+        mainWindow.webContents.send("setup-progress", {
+          message: "❌ Error setting up SSL certificates",
+          step: "certificates",
+          type: "error"
+        });
+      }
+      
+      // Don't fail the entire setup
+      logger.warn("Continuing setup without SSL certificates");
+    }
   }
 
   /**
@@ -768,9 +1025,63 @@ services:
       }
     }
 
+    // Validate SSL certificates
+    await this.validateSSLCertificates(targetDir);
+
     mainWindow.webContents.send("setup-progress", {
       message: "Setup validation completed successfully.",
     });
+  }
+
+  /**
+   * Validate SSL certificates and generate if missing or invalid
+   */
+  static async validateSSLCertificates(targetDir: string): Promise<void> {
+    const mainWindow = getMainWindow();
+    const certsDir = path.join(targetDir, "certs");
+    
+    try {
+      // Check if certificates exist and are valid
+      const certInfo = await CertificateService.getCertificateInfo(certsDir);
+      
+      if (!certInfo.exists || !certInfo.valid) {
+        logger.warn("SSL certificates are missing or invalid, generating new ones");
+        
+        if (mainWindow) {
+          mainWindow.webContents.send("setup-progress", {
+            message: "SSL certificates missing or invalid, generating new ones...",
+            step: "certificate-validation"
+          });
+        }
+        
+        // Generate new certificates
+        await this.setupSSLCertificates(targetDir);
+      } else {
+        logger.info("SSL certificates are valid");
+        
+        if (mainWindow) {
+          const trustMessage = certInfo.isTrusted 
+            ? "SSL certificates are valid and trusted (no browser warnings)"
+            : "SSL certificates are valid but self-signed (browsers will show warnings)";
+            
+          mainWindow.webContents.send("setup-progress", {
+            message: trustMessage,
+            step: "certificate-validation",
+            type: certInfo.isTrusted ? "success" : "warning"
+          });
+        }
+      }
+    } catch (error: any) {
+      logger.error("Error validating SSL certificates:", error);
+      
+      if (mainWindow) {
+        mainWindow.webContents.send("setup-progress", {
+          message: "Warning: Could not validate SSL certificates",
+          step: "certificate-validation",
+          type: "warning"
+        });
+      }
+    }
   }
 
   static async cloneRepository(
@@ -846,203 +1157,71 @@ services:
         };
       }
 
-      if (DEBUG_MODE) {
-        // Debug mode: build containers locally and create deployment-ready compose file
-        mainWindow.webContents.send("setup-progress", {
-          message: `DEBUG MODE: Building monolithic container from ${LOCAL_DDALAB_PATH}...`,
-        });
+      // Always copy essential files from local DDALAB installation
+      // This ensures all necessary configuration files are available
+      mainWindow.webContents.send("setup-progress", {
+        message: `Copying DDALAB configuration files from ${LOCAL_DDALAB_PATH}...`,
+      });
 
-        logger.info(`DEBUG MODE: Using local files from ${LOCAL_DDALAB_PATH}`);
+      logger.info(`Copying essential files from local DDALAB directory: ${LOCAL_DDALAB_PATH}`);
 
-        // Build the monolithic container in the local DDALAB directory
-        await new Promise<void>((resolve, reject) => {
-          const buildCommand = `cd "${LOCAL_DDALAB_PATH}" && docker build -t ddalab-monolith:latest -f Dockerfile .`;
-          logger.info(`Executing build command: ${buildCommand}`);
-          exec(buildCommand, (error, stdout, stderr) => {
-            if (error) {
-              logger.error(
-                `Error building monolithic container: ${error.message}. Stderr: ${stderr}`
-              );
-              reject(
-                new Error(
-                  `Monolithic container build failed: ${stderr || error.message}`
-                )
-              );
-              return;
-            }
-            logger.info(
-              `Monolithic container build successful. Stdout: ${stdout}`
-            );
-            resolve();
-          });
-        });
-
-        // Create a debug-specific docker-compose.yml with image references
-        const targetPath = path.join(targetDir, "docker-compose.yml");
-
-        let originalContent = await fs.readFile(
-          path.join(LOCAL_DDALAB_PATH, "docker-compose.yml"),
-          "utf8"
-        );
-        logger.info(
-          "Original docker-compose.yml length:",
-          originalContent.length
-        );
-
-        // Generate new docker-compose.yml for the monolithic service
-        const monolithicComposeContent = `version: '3.8'
-
-services:
-  ddalab:
-    image: ddalab-monolith:latest
-    env_file:
-      - ./.env
-    ports:
-      - "${userConfig.webPort || "3000"}:3000"
-      - "${userConfig.apiPort || "8001"}:8001"
-      - "${userConfig.apiPortMetrics || "8002"}:8002"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_started
-      redis:
-        condition: service_started
-    networks:
-      - internal
-    labels:
-      - "traefik.enable=true"
-    restart: unless-stopped
-
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_DB: ${process.env.DDALAB_DB_NAME || "ddalab"}
-      POSTGRES_USER: ${process.env.DDALAB_DB_USER || "admin"}
-      POSTGRES_PASSWORD: ${process.env.DDALAB_DB_PASSWORD || "dev_password123"}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
-    networks:
-      - internal
-    restart: unless-stopped
-
-  minio:
-    image: quay.io/minio/minio:latest
-    environment:
-      MINIO_ROOT_USER: ${process.env.MINIO_ROOT_USER || "admin"}
-      MINIO_ROOT_PASSWORD: ${process.env.MINIO_ROOT_PASSWORD || "dev_password123"}
-      MINIO_SERVER_URL: http://localhost:9000 # For internal use only
-    command: server /data --console-address ":9001"
-    volumes:
-      - minio_data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-    networks:
-      - internal
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    networks:
-      - internal
-    restart: unless-stopped
-
-networks:
-  internal:
-    driver: bridge
-
-volumes:
-  postgres_data:
-  minio_data:
-  prometheus_data:
-`;
-
-        await fs.writeFile(targetPath, monolithicComposeContent);
-        logger.info(
-          `Debug docker-compose.yml saved to ${targetPath}, final length: ${monolithicComposeContent.length}`
-        );
-
-        // Copy all essential files
-        const filesToCopy = ["traefik.yml", "prometheus.yml", "acme.json"];
-
-        for (const file of filesToCopy) {
-          const sourceFile = path.join(LOCAL_DDALAB_PATH, file);
-          const targetFile = path.join(targetDir, file);
-
-          try {
-            await fs.copyFile(sourceFile, targetFile);
-            logger.info(`Copied ${file} to ${targetFile}`);
-          } catch (error: any) {
-            logger.warn(`Could not copy ${file}: ${error.message}`);
-          }
-        }
-
-        // Copy essential directories
-        const directoriesToCopy = ["dynamic", "certs"];
-
-        for (const dir of directoriesToCopy) {
-          const sourceDir = path.join(LOCAL_DDALAB_PATH, dir);
-          const targetDirPath = path.join(targetDir, dir);
-
-          try {
-            // Create target directory
-            await fs.mkdir(targetDirPath, { recursive: true });
-
-            // Copy all files from source directory
-            const files = await fs.readdir(sourceDir);
-            for (const file of files) {
-              const sourceFilePath = path.join(sourceDir, file);
-              const targetFilePath = path.join(targetDirPath, file);
-              await fs.copyFile(sourceFilePath, targetFilePath);
-            }
-            logger.info(`Copied directory ${dir} to ${targetDirPath}`);
-          } catch (error: any) {
-            logger.warn(`Could not copy directory ${dir}: ${error.message}`);
-          }
-        }
-
-        mainWindow.webContents.send("setup-progress", {
-          message:
-            "DEBUG MODE: Containers built and files copied successfully.",
-        });
-      } else {
-        // Normal mode: clone from repository
-        mainWindow.webContents.send("setup-progress", {
-          message: `Cloning ${DDALAB_SETUP_REPO_URL} into ${targetDir}...`,
-        });
-        await new Promise<void>((resolve, reject) => {
-          const cloneCommand = `git clone --depth 1 ${DDALAB_SETUP_REPO_URL} "${targetDir}"`;
-          logger.info(`Executing clone command: ${cloneCommand}`);
-          exec(cloneCommand, (error, stdout, stderr) => {
-            if (error) {
-              logger.error(
-                `Error cloning repository: ${error.message}. Stderr: ${stderr}`
-              );
-              reject(new Error(`Git clone failed: ${stderr || error.message}`));
-              return;
-            }
-            logger.info(`Git clone successful. Stdout: ${stdout}`);
-            resolve();
-          });
-        });
-        mainWindow.webContents.send("setup-progress", {
-          message: "Repository cloned successfully.",
-        });
+      // Copy the main docker-compose.yml file
+      const sourceComposePath = path.join(LOCAL_DDALAB_PATH, "docker-compose.yml");
+      const targetComposePath = path.join(targetDir, "docker-compose.yml");
+      
+      try {
+        await fs.copyFile(sourceComposePath, targetComposePath);
+        logger.info(`Copied docker-compose.yml to ${targetComposePath}`);
+      } catch (error: any) {
+        logger.error(`Could not copy docker-compose.yml: ${error.message}`);
+        throw new Error(`Failed to copy docker-compose.yml: ${error.message}`);
       }
+
+      // Copy all essential files
+      const filesToCopy = ["traefik.yml", "prometheus.yml", "acme.json"];
+
+      for (const file of filesToCopy) {
+        const sourceFile = path.join(LOCAL_DDALAB_PATH, file);
+        const targetFile = path.join(targetDir, file);
+
+        try {
+          await fs.copyFile(sourceFile, targetFile);
+          logger.info(`Copied ${file} to ${targetFile}`);
+        } catch (error: any) {
+          logger.warn(`Could not copy ${file}: ${error.message}`);
+        }
+      }
+
+      // Copy essential directories (except certs - we'll generate those)
+      const directoriesToCopy = ["dynamic"];
+
+      for (const dir of directoriesToCopy) {
+        const sourceDir = path.join(LOCAL_DDALAB_PATH, dir);
+        const targetDirPath = path.join(targetDir, dir);
+
+        try {
+          // Create target directory
+          await fs.mkdir(targetDirPath, { recursive: true });
+
+          // Copy all files from source directory
+          const files = await fs.readdir(sourceDir);
+          for (const file of files) {
+            const sourceFilePath = path.join(sourceDir, file);
+            const targetFilePath = path.join(targetDirPath, file);
+            await fs.copyFile(sourceFilePath, targetFilePath);
+          }
+          logger.info(`Copied directory ${dir} to ${targetDirPath}`);
+        } catch (error: any) {
+          logger.warn(`Could not copy directory ${dir}: ${error.message}`);
+        }
+      }
+
+      // Generate SSL certificates instead of copying them
+      await this.setupSSLCertificates(targetDir);
+
+      mainWindow.webContents.send("setup-progress", {
+        message: "Essential DDALAB files copied successfully.",
+      });
 
       // No longer need to fix Docker Compose file syntax errors after cloning
       // await this.fixDockerComposeFile(targetDir);
@@ -1097,5 +1276,88 @@ volumes:
     } catch (error: any) {
       logger.warn("Failed to fix Docker Compose file:", error);
     }
+  }
+
+  /**
+   * Validate that a setup is complete and all required files exist
+   */
+  static async validateSetup(setupPath: string): Promise<boolean> {
+    try {
+      logger.info(`Validating setup at: ${setupPath}`);
+      
+      // Check if setup directory exists
+      const setupDir = await fs.stat(setupPath);
+      if (!setupDir.isDirectory()) {
+        logger.warn(`Setup directory does not exist: ${setupPath}`);
+        return false;
+      }
+
+      // Check for essential files
+      const requiredFiles = ["docker-compose.yml", ".env"];
+      for (const file of requiredFiles) {
+        const filePath = path.join(setupPath, file);
+        try {
+          await fs.access(filePath);
+          logger.info(`Required file found: ${filePath}`);
+        } catch {
+          logger.warn(`Required file missing: ${filePath}`);
+          return false;
+        }
+      }
+
+      // Check for essential directories
+      const requiredDirs = ["data"];
+      for (const dir of requiredDirs) {
+        const dirPath = path.join(setupPath, dir);
+        try {
+          const dirStat = await fs.stat(dirPath);
+          if (!dirStat.isDirectory()) {
+            logger.warn(`Required directory is not a directory: ${dirPath}`);
+            return false;
+          }
+          logger.info(`Required directory found: ${dirPath}`);
+        } catch {
+          logger.warn(`Required directory missing: ${dirPath}`);
+          return false;
+        }
+      }
+
+      logger.info(`Setup validation successful: ${setupPath}`);
+      return true;
+    } catch (error) {
+      logger.error(`Setup validation failed: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Re-run setup if validation fails
+   */
+  static async ensureValidSetup(projectLocation: string, userConfig?: UserConfiguration): Promise<SetupResult> {
+    const isValid = await this.validateSetup(projectLocation);
+    
+    if (!isValid) {
+      logger.warn(`Setup validation failed for ${projectLocation}, re-running setup`);
+      
+      // Use default config if none provided
+      const defaultConfig: UserConfiguration = userConfig || {
+        dataLocation: path.join(projectLocation, "data"),
+        allowedDirs: `${path.join(projectLocation, "data")}:/app/data:rw`,
+        webPort: "3000",
+        apiPort: "8001",
+        dbPassword: "ddalab_password",
+        minioPassword: "ddalab_password",
+        traefikEmail: "admin@ddalab.local",
+        useDockerHub: true
+      };
+      
+      return await this.setupDDALAB(projectLocation, defaultConfig);
+    }
+    
+    return {
+      success: true,
+      message: "Setup validation passed",
+      setupPath: projectLocation
+    };
   }
 }

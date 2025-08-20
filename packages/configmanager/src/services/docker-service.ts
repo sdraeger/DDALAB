@@ -183,17 +183,149 @@ Please visit https://www.docker.com/products/docker-desktop to download and inst
     }
   }
 
+  /**
+   * Ensure all essential DDALAB files are present in the setup directory
+   * Copies missing files from the local DDALAB installation
+   */
+  static async ensureEssentialFiles(setupPath: string, userConfig: any): Promise<void> {
+    const LOCAL_DDALAB_PATH = process.env.DDALAB_LOCAL_PATH || "/Users/simon/Desktop/DDALAB";
+    
+    logger.info(`Ensuring essential files are present in: ${setupPath}`);
+    logger.info(`Using local DDALAB installation at: ${LOCAL_DDALAB_PATH}`);
+
+    // First, validate if the setup exists and is complete
+    const isSetupValid = await SetupService.validateSetup(setupPath);
+    if (!isSetupValid) {
+      logger.warn(`Setup validation failed for ${setupPath}, running setup now`);
+      
+      // Ensure the setup directory exists first
+      await fs.mkdir(setupPath, { recursive: true });
+      logger.info(`Created setup directory: ${setupPath}`);
+      
+      // Run the full setup process
+      const setupResult = await SetupService.ensureValidSetup(setupPath, userConfig);
+      if (!setupResult.success) {
+        throw new Error(`Failed to create setup: ${setupResult.message}`);
+      }
+      logger.info(`Setup validation and creation completed for: ${setupPath}`);
+      return; // Setup process handles all file creation
+    }
+
+    // Copy the main docker-compose.yml file if missing
+    const targetComposePath = path.join(setupPath, "docker-compose.yml");
+    try {
+      await fs.access(targetComposePath);
+      logger.info("✓ docker-compose.yml already exists");
+    } catch {
+      logger.info("Copying docker-compose.yml from local DDALAB installation");
+      const sourceComposePath = path.join(LOCAL_DDALAB_PATH, "docker-compose.yml");
+      try {
+        await fs.copyFile(sourceComposePath, targetComposePath);
+        logger.info(`✓ Copied docker-compose.yml to ${targetComposePath}`);
+      } catch (error: any) {
+        logger.error(`Could not copy docker-compose.yml: ${error.message}`);
+        throw new Error(`Failed to copy docker-compose.yml: ${error.message}`);
+      }
+    }
+
+    // Copy all other essential files
+    const filesToCopy = ["traefik.yml", "prometheus.yml", "acme.json"];
+
+    for (const file of filesToCopy) {
+      const targetFile = path.join(setupPath, file);
+      try {
+        await fs.access(targetFile);
+        logger.info(`✓ ${file} already exists`);
+      } catch {
+        logger.info(`Copying ${file} from local DDALAB installation`);
+        const sourceFile = path.join(LOCAL_DDALAB_PATH, file);
+        try {
+          await fs.copyFile(sourceFile, targetFile);
+          logger.info(`✓ Copied ${file} to ${targetFile}`);
+        } catch (error: any) {
+          logger.warn(`Could not copy ${file}: ${error.message}`);
+        }
+      }
+    }
+
+    // Copy essential directories
+    const directoriesToCopy = ["dynamic", "certs"];
+
+    for (const dir of directoriesToCopy) {
+      const targetDirPath = path.join(setupPath, dir);
+      try {
+        const stat = await fs.stat(targetDirPath);
+        if (stat.isDirectory()) {
+          logger.info(`✓ Directory ${dir} already exists`);
+          continue;
+        }
+      } catch {
+        // Directory doesn't exist, copy it
+      }
+
+      logger.info(`Copying directory ${dir} from local DDALAB installation`);
+      const sourceDir = path.join(LOCAL_DDALAB_PATH, dir);
+
+      try {
+        // Create target directory
+        await fs.mkdir(targetDirPath, { recursive: true });
+
+        // Copy all files from source directory
+        const files = await fs.readdir(sourceDir);
+        for (const file of files) {
+          const sourceFilePath = path.join(sourceDir, file);
+          const targetFilePath = path.join(targetDirPath, file);
+          await fs.copyFile(sourceFilePath, targetFilePath);
+        }
+        logger.info(`✓ Copied directory ${dir} to ${targetDirPath}`);
+      } catch (error: any) {
+        logger.warn(`Could not copy directory ${dir}: ${error.message}`);
+      }
+    }
+
+    // Create additional required directories if they don't exist
+    const requiredDirs = ["prometheus-metrics", "traefik-logs"];
+    for (const dir of requiredDirs) {
+      const dirPath = path.join(setupPath, dir);
+      try {
+        await fs.mkdir(dirPath, { recursive: true });
+        logger.info(`✓ Ensured directory exists: ${dir}`);
+      } catch (error: any) {
+        logger.warn(`Could not create directory ${dir}: ${error.message}`);
+      }
+    }
+
+    logger.info("Essential files check completed");
+  }
+
   static async generateDockerVolumes(setupPath: string): Promise<void> {
     // Use environment-specific env file
     const envFilePath =
       await EnvironmentIsolationService.ensureEnvironmentFileExists(setupPath);
     const envContent = await fs.readFile(envFilePath, "utf-8");
     const allowedDirsMatch = envContent.match(/^DDALAB_ALLOWED_DIRS=(.*)$/m);
-    if (!allowedDirsMatch) {
-      throw new Error("DDALAB_ALLOWED_DIRS not found in .env file");
-    }
+    const allowedDirs = allowedDirsMatch ? allowedDirsMatch[1].trim() : "";
+    
+    if (!allowedDirs) {
+      logger.warn("DDALAB_ALLOWED_DIRS is empty or not found, using default configuration");
+      // Create a minimal volumes file without bind mounts
+      const minimalVolumesContent = `# Auto-generated file - do not edit manually
+# No DDALAB_ALLOWED_DIRS configured
 
-    const allowedDirs = allowedDirsMatch[1].trim();
+services:
+  api:
+    volumes:
+      - prometheus_data:/tmp/prometheus
+
+volumes:
+  prometheus_data:
+`;
+      const volumesFilePath = path.join(setupPath, "docker-compose.volumes.yml");
+      await fs.writeFile(volumesFilePath, minimalVolumesContent, "utf-8");
+      logger.info(`Generated minimal ${volumesFilePath}`);
+      return;
+    }
+    
     logger.info(`Found DDALAB_ALLOWED_DIRS: ${allowedDirs}`);
 
     let volumesContent = `# Auto-generated file - do not edit manually
@@ -459,15 +591,15 @@ services:
     this.logProcess.stdout?.on("data", (data) => {
       const logData = data.toString();
       logger.info(`Docker log (stdout): ${logData.trim()}`);
-      console.log("[DockerService] Sending docker-logs event to renderer:", {
+      logger.debug("[DockerService] Sending docker-logs event to renderer:", {
         type: "stdout",
         data: logData.trim(),
       });
 
       const mainWindow = getMainWindow();
-      console.log("[DockerService] Main window available:", !!mainWindow);
+      logger.debug("[DockerService] Main window available:", !!mainWindow);
       if (!mainWindow) {
-        console.log(
+        logger.error(
           "[DockerService] ERROR: Main window is null, cannot send event"
         );
         return;
@@ -482,15 +614,15 @@ services:
     this.logProcess.stderr?.on("data", (data) => {
       const logData = data.toString();
       logger.info(`Docker log (stderr): ${logData.trim()}`);
-      console.log("[DockerService] Sending docker-logs event to renderer:", {
+      logger.debug("[DockerService] Sending docker-logs event to renderer:", {
         type: "stderr",
         data: logData.trim(),
       });
 
       const mainWindow = getMainWindow();
-      console.log("[DockerService] Main window available:", !!mainWindow);
+      logger.debug("[DockerService] Main window available:", !!mainWindow);
       if (!mainWindow) {
-        console.log(
+        logger.error(
           "[DockerService] ERROR: Main window is null, cannot send event"
         );
         return;
@@ -656,21 +788,34 @@ services:
     });
 
     try {
+      // Create a proper UserConfiguration object from the state
+      // For allowed dirs, construct from dataLocation if not already set
+      const dataLocation = state.userSelections?.dataLocation || state.dataLocation || "";
+      const allowedDirs = state.userSelections?.envVariables?.DDALAB_ALLOWED_DIRS || 
+                          (dataLocation ? `${dataLocation}:/app/data:rw` : "");
+      
+      const userConfig = {
+        dataLocation: dataLocation,
+        allowedDirs: allowedDirs,
+        webPort: state.userSelections?.envVariables?.WEB_PORT || "3000",
+        apiPort: state.userSelections?.envVariables?.DDALAB_API_PORT || "8001",
+        apiPortMetrics: state.userSelections?.envVariables?.DDALAB_API_PORT_METRICS || "8002",
+        dbPassword: state.userSelections?.envVariables?.POSTGRES_PASSWORD || "ddalab_password",
+        minioPassword: state.userSelections?.envVariables?.MINIO_ROOT_PASSWORD || "ddalab_password",
+        traefikEmail: state.userSelections?.envVariables?.TRAEFIK_ACME_EMAIL || "admin@ddalab.local",
+        useDockerHub: state.userSelections?.useDockerHub !== false, // Default to true
+        authMode: state.userSelections?.authMode || "local"
+      };
+
+      // Ensure all essential files are present before starting
+      await this.ensureEssentialFiles(setupPath, userConfig);
+
       // Ensure .env file exists and is up to date
-      await SetupService.generateEnvFile(
-        setupPath,
-        state.userSelections?.envVariables || {}
-      );
+      await SetupService.generateEnvFile(setupPath, userConfig);
       // Generate docker-compose.volumes.yml (ensure bind mounts are correctly set)
-      await SetupService.generateVolumeConfig(
-        setupPath,
-        state.userSelections?.envVariables || {}
-      );
+      await SetupService.generateVolumeConfig(setupPath, userConfig);
       // Update docker-compose.yml to ensure it uses the monolithic image
-      await SetupService.updateDockerCompose(
-        setupPath,
-        state.userSelections?.envVariables || {}
-      );
+      await SetupService.updateDockerCompose(setupPath, userConfig);
 
       return new Promise((resolve, reject) => {
         // Use 'up -d' to start services in detached mode
@@ -872,6 +1017,13 @@ services:
     }
 
     try {
+      // First, try a quick docker ps check to see if DDALAB containers are running
+      const quickCheckResult = await this.quickDockerHealthCheck();
+      if (quickCheckResult !== null) {
+        logger.info(`Quick health check result: ${quickCheckResult}`);
+        return quickCheckResult;
+      }
+
       const state = await SetupService.getConfigManagerState();
       if (!state.setupPath) {
         logger.error("Cannot check services health: setupPath not available.");
@@ -883,6 +1035,33 @@ services:
       const composeCommand =
         EnvironmentIsolationService.getDockerComposeCommand(state.setupPath);
       const command = `${composeCommand} ps --format json`;
+      
+      logger.info(`Checking services health with command: ${command}`);
+      logger.info(`Working directory: ${state.setupPath}`);
+      
+      // Also check if Docker compose files exist in the current directory
+      const composeFilePath = path.join(state.setupPath, 'docker-compose.yml');
+      try {
+        await fs.access(composeFilePath);
+        logger.info(`docker-compose.yml found at: ${composeFilePath}`);
+      } catch (err) {
+        logger.warn(`docker-compose.yml not found at: ${composeFilePath}`);
+        // Try alternative common locations
+        const alternativePaths = [
+          path.join(process.cwd(), 'docker-compose.yml'),
+          path.join(state.setupPath, '..', 'docker-compose.yml'),
+          '/Users/simon/Desktop/DDALAB/docker-compose.yml'
+        ];
+        for (const altPath of alternativePaths) {
+          try {
+            await fs.access(altPath);
+            logger.info(`Found docker-compose.yml at alternative location: ${altPath}`);
+            break;
+          } catch (e) {
+            // Continue checking
+          }
+        }
+      }
 
       return new Promise((resolve) => {
         exec(
@@ -921,18 +1100,151 @@ services:
                 })
                 .filter((service) => service !== null);
 
+              logger.info(`Found ${services.length} services from docker-compose ps`);
+              services.forEach(service => {
+                logger.info(`Service: ${service.Service}, State: ${service.State}, Health: ${service.Health || 'N/A'}`);
+              });
+
+              // If no services found, try direct docker ps as fallback
+              if (services.length === 0) {
+                logger.warn("No services found by docker-compose ps, trying docker ps as fallback");
+                
+                // Try direct docker ps to check if containers are running
+                // First try with project label, then without if that fails
+                exec(
+                  `docker ps --filter "label=com.docker.compose.project=${projectName}" --format "{{.Names}}|{{.State}}|{{.Status}}"`,
+                  { env: this.getDockerEnvironment() },
+                  (dockerError, dockerStdout, dockerStderr) => {
+                    if (dockerError) {
+                      logger.error(`Docker ps with label filter failed: ${dockerError.message}`);
+                    }
+                    
+                    let runningContainers = dockerStdout ? dockerStdout.trim().split('\n').filter(line => line.trim()) : [];
+                    logger.info(`Docker ps with label found ${runningContainers.length} containers`);
+                    
+                    // If no containers found with label, try without filter
+                    if (runningContainers.length === 0) {
+                      logger.info("Trying docker ps without label filter");
+                      exec(
+                        `docker ps --format "{{.Names}}|{{.State}}|{{.Status}}"`,
+                        { env: this.getDockerEnvironment() },
+                        (dockerError2, dockerStdout2, dockerStderr2) => {
+                          if (dockerError2) {
+                            logger.error(`Docker ps without filter failed: ${dockerError2.message}`);
+                            mainWindow.webContents.send("docker-status-update", {
+                              type: "warning",
+                              message: "No DDALAB services found",
+                            });
+                            resolve(false);
+                            return;
+                          }
+                          
+                          const allContainers = dockerStdout2.trim().split('\n').filter(line => line.trim());
+                          logger.info(`Docker ps without filter found ${allContainers.length} total containers`);
+                          
+                          // Filter for DDALAB-related containers
+                          const requiredServices = ["ddalab", "minio", "postgres", "traefik"];
+                          const ddalabContainers = allContainers.filter(container => {
+                            const containerName = container.toLowerCase();
+                            // Check for various naming patterns
+                            return requiredServices.some(service => 
+                              containerName.includes(service) || 
+                              containerName.includes(`_${service}_`) ||
+                              containerName.includes(`-${service}-`) ||
+                              containerName.includes(`${service}-`) ||
+                              containerName.includes(`-${service}`)
+                            );
+                          });
+                          
+                          logger.info(`Found ${ddalabContainers.length} DDALAB-related containers`);
+                          ddalabContainers.forEach(container => {
+                            logger.info(`DDALAB container: ${container}`);
+                          });
+                          
+                          if (ddalabContainers.length > 0) {
+                            // Check if all required services are present
+                            const foundServices = requiredServices.filter(service => 
+                              ddalabContainers.some(container => container.toLowerCase().includes(service))
+                            );
+                            
+                            logger.info(`Found services: ${foundServices.join(', ')}`);
+                            
+                            if (foundServices.length === requiredServices.length) {
+                              logger.info("All required services found via docker ps");
+                              mainWindow.webContents.send("docker-status-update", {
+                                type: "success",
+                                message: "All services are healthy",
+                              });
+                              resolve(true);
+                              return;
+                            } else {
+                              const missingServices = requiredServices.filter(s => !foundServices.includes(s));
+                              logger.warn(`Missing services: ${missingServices.join(', ')}`);
+                              mainWindow.webContents.send("docker-status-update", {
+                                type: "warning",
+                                message: `Missing services: ${missingServices.join(', ')}`,
+                              });
+                              resolve(false);
+                              return;
+                            }
+                          }
+                          
+                          mainWindow.webContents.send("docker-status-update", {
+                            type: "warning",
+                            message: "No DDALAB services found",
+                          });
+                          resolve(false);
+                        }
+                      );
+                    } else {
+                      // Process containers found with label
+                      const requiredServices = ["ddalab", "minio", "postgres", "traefik"];
+                      const foundServices = requiredServices.filter(service => 
+                        runningContainers.some(container => container.toLowerCase().includes(service))
+                      );
+                      
+                      if (foundServices.length === requiredServices.length) {
+                        logger.info("All required services found via docker ps with label");
+                        mainWindow.webContents.send("docker-status-update", {
+                          type: "success",
+                          message: "All services are healthy",
+                        });
+                        resolve(true);
+                      } else {
+                        mainWindow.webContents.send("docker-status-update", {
+                          type: "warning",
+                          message: "Not all DDALAB services found",
+                        });
+                        resolve(false);
+                      }
+                    }
+                  }
+                );
+                return;
+              }
+
               const requiredServices = [
-                "web",
-                "api",
-                "minio",
+                "ddalab",
+                "minio", 
                 "postgres",
                 "traefik",
               ];
               let allHealthy = true;
               const unhealthyServices: string[] = [];
+              const runningServices: string[] = [];
 
+              // Check which required services are running
               for (const service of services) {
-                if (requiredServices.includes(service.Service)) {
+                // Check if the service name contains any of the required service names
+                // This handles cases where the service might be prefixed with project name
+                const matchedService = requiredServices.find(required => 
+                  service.Service.includes(required) || 
+                  service.Service.endsWith(`_${required}_1`) ||
+                  service.Service === required
+                );
+                
+                if (matchedService) {
+                  runningServices.push(matchedService);
                   const isHealthy =
                     service.State === "running" &&
                     (!service.Health ||
@@ -941,18 +1253,28 @@ services:
 
                   if (!isHealthy) {
                     allHealthy = false;
-                    unhealthyServices.push(service.Service);
+                    unhealthyServices.push(matchedService);
                   }
                 }
               }
 
+              // Check if any required services are missing (not in the running list)
+              const missingServices = requiredServices.filter(
+                service => !runningServices.includes(service)
+              );
+
+              if (missingServices.length > 0) {
+                allHealthy = false;
+                unhealthyServices.push(...missingServices);
+              }
+
               if (!allHealthy) {
                 logger.warn(
-                  `Unhealthy services detected: ${unhealthyServices.join(", ")}`
+                  `Unhealthy/missing services detected: ${unhealthyServices.join(", ")}`
                 );
                 mainWindow.webContents.send("docker-status-update", {
-                  type: "warning",
-                  message: `Services unhealthy: ${unhealthyServices.join(
+                  type: "warning", 
+                  message: `Services not running: ${unhealthyServices.join(
                     ", "
                   )}`,
                 });
@@ -1015,6 +1337,88 @@ services:
       clearInterval(this.healthCheckInterval);
       this.healthCheckInterval = null;
     }
+  }
+
+  /**
+   * Quick Docker health check that doesn't rely on docker-compose
+   * Returns true if all services are healthy, false if not, null if inconclusive
+   */
+  static async quickDockerHealthCheck(): Promise<boolean | null> {
+    return new Promise((resolve) => {
+      exec(
+        `docker ps --format "{{.Names}}|{{.State}}|{{.Status}}"`,
+        { env: this.getDockerEnvironment() },
+        (error, stdout, stderr) => {
+          if (error) {
+            logger.error(`Quick docker health check failed: ${error.message}`);
+            resolve(null);
+            return;
+          }
+
+          const containers = stdout.trim().split('\n').filter(line => line.trim());
+          if (containers.length === 0) {
+            resolve(null);
+            return;
+          }
+
+          const requiredServices = ["ddalab", "minio", "postgres", "traefik"];
+          const foundServices: string[] = [];
+          
+          // Look for DDALAB-related containers
+          for (const container of containers) {
+            const [name, state, status] = container.split('|');
+            const lowerName = name.toLowerCase();
+            
+            for (const service of requiredServices) {
+              if (lowerName.includes(service) && !foundServices.includes(service)) {
+                if (state === 'running') {
+                  foundServices.push(service);
+                  logger.info(`Found running ${service} container: ${name}`);
+                } else {
+                  logger.warn(`Found ${service} container but not running: ${name} (${state})`);
+                }
+              }
+            }
+          }
+
+          if (foundServices.length === requiredServices.length) {
+            logger.info("Quick health check: All required services found and running");
+            const mainWindow = getMainWindow();
+            if (mainWindow) {
+              // First, notify that Docker is running
+              mainWindow.webContents.send("docker-state-update", {
+                type: "DOCKER_STARTED"
+              });
+              // Then send the status update
+              mainWindow.webContents.send("docker-status-update", {
+                type: "success",
+                message: "All services are healthy",
+              });
+              // Finally, notify that services are ready
+              mainWindow.webContents.send("ddalab-services-ready");
+            }
+            resolve(true);
+          } else if (foundServices.length > 0) {
+            const missing = requiredServices.filter(s => !foundServices.includes(s));
+            logger.warn(`Quick health check: Missing services: ${missing.join(', ')}`);
+            const mainWindow = getMainWindow();
+            if (mainWindow) {
+              // Notify that Docker is running but not all services are healthy
+              mainWindow.webContents.send("docker-state-update", {
+                type: "DOCKER_STARTED"
+              });
+              mainWindow.webContents.send("docker-status-update", {
+                type: "warning",
+                message: `Missing services: ${missing.join(', ')}`,
+              });
+            }
+            resolve(false);
+          } else {
+            resolve(null); // No DDALAB containers found, fall back to compose check
+          }
+        }
+      );
+    });
   }
 
   /**

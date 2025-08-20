@@ -44,10 +44,10 @@ export const SummarySite: React.FC<SummarySiteProps> = ({
 
       {userSelections.setupType === "automatic" && (
         <div className="card mb-3">
-          <div className="card-header">Clone Location</div>
+          <div className="card-header">Project Location</div>
           <div className="card-body">
             <p className="card-text">
-              <code>{userSelections.cloneLocation || "Not specified"}</code>
+              <code>{userSelections.projectLocation || "Not specified"}</code>
             </p>
             <small className="text-muted">
               This is where the DDALAB setup repository will be cloned (contains

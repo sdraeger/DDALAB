@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import type { ElectronAPI } from "../utils/electron";
+import { logger } from '../utils/logger-client';
 
 interface SystemInfoModalProps {
   electronAPI?: ElectronAPI;
@@ -22,7 +23,7 @@ interface SystemInfo {
   };
   paths: {
     dataLocation?: string;
-    cloneLocation?: string;
+    projectLocation?: string;
     userDataPath: string;
   };
 }
@@ -36,7 +37,7 @@ export const SystemInfoModal: React.FC<SystemInfoModalProps> = ({
 
   useEffect(() => {
     const fetchSystemInfo = async () => {
-      console.log('SystemInfoModal: Starting to fetch system info...');
+      logger.info('SystemInfoModal: Starting to fetch system info');
       setIsLoading(true);
 
       try {
@@ -52,26 +53,26 @@ export const SystemInfoModal: React.FC<SystemInfoModalProps> = ({
           }
         };
 
-        console.log('SystemInfoModal: Basic info initialized:', info);
+        logger.debug('SystemInfoModal: Basic info initialized', info);
 
         if (!electronAPI) {
-          console.warn('SystemInfoModal: electronAPI not available, using basic info only');
+          logger.warn('SystemInfoModal: electronAPI not available, using basic info only');
           setSystemInfo(info);
           return;
         }
 
-        console.log('SystemInfoModal: electronAPI available, fetching detailed info...');
+        logger.info('SystemInfoModal: electronAPI available, fetching detailed info');
 
         // Get system info (platform, versions, etc.)
         try {
-          console.log('SystemInfoModal: Getting system info...');
+          logger.debug('SystemInfoModal: Getting system info');
           const systemData = await electronAPI.getSystemInfo();
           info.platform = systemData.platform || 'Unknown';
           info.nodeVersion = systemData.nodeVersion || 'Unknown';
           info.electronVersion = systemData.electronVersion || 'Unknown';
-          console.log('SystemInfoModal: System data:', systemData);
+          logger.debug('SystemInfoModal: System data', systemData);
         } catch (error) {
-          console.error('SystemInfoModal: Failed to get system info:', error);
+          logger.error('SystemInfoModal: Failed to get system info', error);
           info.platform = 'Error getting platform';
           info.nodeVersion = 'Error getting Node version';
           info.electronVersion = 'Error getting Electron version';
@@ -79,23 +80,23 @@ export const SystemInfoModal: React.FC<SystemInfoModalProps> = ({
 
         // Get version - this should be safe
         try {
-          console.log('SystemInfoModal: Getting version...');
+          logger.debug('SystemInfoModal: Getting version');
           const version = await electronAPI.getCurrentVersion();
           info.version = version || 'Unknown';
-          console.log('SystemInfoModal: Version:', info.version);
+          logger.debug('SystemInfoModal: Version', info.version);
         } catch (error) {
-          console.error('SystemInfoModal: Failed to get version:', error);
+          logger.error('SystemInfoModal: Failed to get version', error);
           info.version = 'Error getting version';
         }
 
         // Get environment - this should be safe
         try {
-          console.log('SystemInfoModal: Getting environment...');
+          logger.debug('SystemInfoModal: Getting environment');
           const environment = await electronAPI.getEnvironment();
           info.environment = environment || 'Unknown';
-          console.log('SystemInfoModal: Environment:', info.environment);
+          logger.debug('SystemInfoModal: Environment', info.environment);
         } catch (error) {
-          console.error('SystemInfoModal: Failed to get environment:', error);
+          logger.error('SystemInfoModal: Failed to get environment', error);
           info.environment = 'Error getting environment';
         }
 
@@ -109,9 +110,9 @@ export const SystemInfoModal: React.FC<SystemInfoModalProps> = ({
 
         // Get Docker installation info
         try {
-          console.log('SystemInfoModal: Checking Docker installation...');
+          logger.debug('SystemInfoModal: Checking Docker installation');
           const dockerStatus = await electronAPI.checkDockerInstallation();
-          console.log('SystemInfoModal: Docker installation status:', dockerStatus);
+          logger.debug('SystemInfoModal: Docker installation status', dockerStatus);
 
           info.dockerInfo = {
             dockerInstalled: dockerStatus?.dockerInstalled || false,
@@ -121,21 +122,21 @@ export const SystemInfoModal: React.FC<SystemInfoModalProps> = ({
             error: dockerStatus?.error
           };
         } catch (error) {
-          console.error('SystemInfoModal: Failed to get Docker installation info:', error);
+          logger.error('SystemInfoModal: Failed to get Docker installation info', error);
           info.dockerInfo.error = `Failed to check Docker: ${error}`;
         }
 
         // Get Docker daemon status
         try {
-          console.log('SystemInfoModal: Checking Docker daemon status...');
+          logger.debug('SystemInfoModal: Checking Docker daemon status');
           const dockerRunning = await electronAPI.getIsDockerRunning();
-          console.log('SystemInfoModal: Docker running:', dockerRunning);
+          logger.debug('SystemInfoModal: Docker running', dockerRunning);
 
           if (info.dockerInfo) {
             info.dockerInfo.dockerRunning = dockerRunning;
           }
         } catch (error) {
-          console.error('SystemInfoModal: Failed to get Docker running status:', error);
+          logger.error('SystemInfoModal: Failed to get Docker running status', error);
           if (info.dockerInfo) {
             info.dockerInfo.dockerRunning = false;
           }
@@ -143,37 +144,37 @@ export const SystemInfoModal: React.FC<SystemInfoModalProps> = ({
 
         // Get DDALAB service status
         try {
-          console.log('SystemInfoModal: Checking DDALAB service status...');
+          logger.debug('SystemInfoModal: Checking DDALAB service status');
           const ddalabRunning = await electronAPI.getDockerStatus();
-          console.log('SystemInfoModal: DDALAB running:', ddalabRunning);
+          logger.debug('SystemInfoModal: DDALAB running', ddalabRunning);
 
           if (info.dockerInfo) {
             (info.dockerInfo as any).ddalabRunning = ddalabRunning;
           }
         } catch (error) {
-          console.error('SystemInfoModal: Failed to get DDALAB status:', error);
+          logger.error('SystemInfoModal: Failed to get DDALAB status', error);
           // Not critical, continue
         }
 
         // Get setup paths
         try {
-          console.log('SystemInfoModal: Getting setup paths...');
+          logger.debug('SystemInfoModal: Getting setup paths');
           const state = await electronAPI.getConfigManagerState();
-          console.log('SystemInfoModal: Config manager state:', state);
+          logger.debug('SystemInfoModal: Config manager state', state);
 
           info.paths.dataLocation = state?.dataLocation || 'Not configured';
-          info.paths.cloneLocation = state?.cloneLocation || 'Not configured';
+          info.paths.projectLocation = state?.projectLocation || 'Not configured';
         } catch (error) {
-          console.error('SystemInfoModal: Failed to get setup paths:', error);
+          logger.error('SystemInfoModal: Failed to get setup paths', error);
           info.paths.dataLocation = 'Error loading paths';
-          info.paths.cloneLocation = 'Error loading paths';
+          info.paths.projectLocation = 'Error loading paths';
         }
 
-        console.log('SystemInfoModal: Final system info:', info);
+        logger.debug('SystemInfoModal: Final system info', info);
         setSystemInfo(info);
 
       } catch (error) {
-        console.error('SystemInfoModal: Critical error in fetchSystemInfo:', error);
+        logger.error('SystemInfoModal: Critical error in fetchSystemInfo', error);
 
         // Fallback: create minimal system info
         const fallbackInfo: SystemInfo = {
@@ -190,14 +191,14 @@ export const SystemInfoModal: React.FC<SystemInfoModalProps> = ({
           },
           paths: {
             dataLocation: 'Error',
-            cloneLocation: 'Error',
+            projectLocation: 'Error',
             userDataPath: 'Error'
           }
         };
 
         setSystemInfo(fallbackInfo);
       } finally {
-        console.log('SystemInfoModal: Finished fetching system info');
+        logger.info('SystemInfoModal: Finished fetching system info');
         setIsLoading(false);
       }
     };
@@ -224,14 +225,15 @@ Docker Information:
 
 Setup Paths:
 - Data Location: ${systemInfo.paths.dataLocation || 'Not configured'}
-- Clone Location: ${systemInfo.paths.cloneLocation || 'Not configured'}`;
+- Project Location: ${systemInfo.paths.projectLocation || 'Not configured'}`;
 
     try {
       await navigator.clipboard.writeText(text);
-      alert('System information copied to clipboard!');
+      logger.info('System information copied to clipboard');
+      // TODO: Show user-friendly UI notification instead of alert
     } catch (error) {
-      console.error('Failed to copy to clipboard:', error);
-      alert('Failed to copy to clipboard');
+      logger.error('Failed to copy to clipboard', error);
+      // TODO: Show user-friendly UI notification instead of alert
     }
   };
 
@@ -359,8 +361,8 @@ Setup Paths:
                         <span className="info-value path-value">{systemInfo.paths.dataLocation || 'Not configured'}</span>
                       </div>
                       <div className="info-item">
-                        <span className="info-label">Clone Location:</span>
-                        <span className="info-value path-value">{systemInfo.paths.cloneLocation || 'Not configured'}</span>
+                        <span className="info-label">Project Location:</span>
+                        <span className="info-value path-value">{systemInfo.paths.projectLocation || 'Not configured'}</span>
                       </div>
                     </div>
                   </div>
