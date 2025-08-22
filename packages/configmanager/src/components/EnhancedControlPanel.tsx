@@ -3,6 +3,7 @@ import { ElectronAPI, UserSelections } from "../utils/electron";
 import { useDockerState } from "../hooks/useDockerState";
 import { useSystemStatusContext } from "../context/SystemStatusProvider";
 import { CertificateManagerModal } from "./CertificateManagerModal";
+import { logger } from '../utils/logger-client';
 
 interface EnhancedControlPanelProps {
   electronAPI?: ElectronAPI;
@@ -92,7 +93,7 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
     if (!electronAPI) return;
 
     const removeReadyListener = electronAPI.onAllServicesReady?.(() => {
-      console.log("[EnhancedControlPanel] Received ddalab-services-ready.");
+      logger.info("[EnhancedControlPanel] Received ddalab-services-ready.");
       servicesReady();
     });
 
@@ -106,16 +107,16 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
       if (!electronAPI?.validateDockerSetup || !userSelections.projectLocation) return;
 
       try {
-        console.log("[EnhancedControlPanel] Validating setup on load...");
+        logger.info("[EnhancedControlPanel] Validating setup on load...");
         const result = await electronAPI.validateDockerSetup(userSelections.projectLocation);
         if (!result.success && result.needsSetup) {
-          console.warn("[EnhancedControlPanel] Setup validation failed, needs setup:", result.message);
+          logger.warn("[EnhancedControlPanel] Setup validation failed, needs setup:", result.message);
           addErrorLog(`Setup validation failed: ${result.message}`);
         } else {
-          console.log("[EnhancedControlPanel] Setup validation successful");
+          logger.info("[EnhancedControlPanel] Setup validation successful");
         }
       } catch (error) {
-        console.error("[EnhancedControlPanel] Setup validation error:", error);
+        logger.error("[EnhancedControlPanel] Setup validation error:", error);
         addErrorLog(`Setup validation error: ${error}`);
       }
     };
@@ -140,11 +141,11 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
           await electronAPI.getDockerLogs();
           addActionLog("Log streaming started");
         } catch (error) {
-          console.warn("[EnhancedControlPanel] Failed to start log streaming:", error);
+          logger.warn("[EnhancedControlPanel] Failed to start log streaming:", error);
         }
       }
     } catch (error: any) {
-      console.error("[EnhancedControlPanel] Error starting services:", error);
+      logger.error("[EnhancedControlPanel] Error starting services:", error);
       addErrorLog(`Failed to start services: ${error.message}`);
     } finally {
       setOperationInProgress(null);
@@ -166,7 +167,7 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
         addActionLog("Services stopped successfully");
       }
     } catch (error: any) {
-      console.error("[EnhancedControlPanel] Error stopping services:", error);
+      logger.error("[EnhancedControlPanel] Error stopping services:", error);
       addErrorLog(`Failed to stop services: ${error.message}`);
     } finally {
       setOperationInProgress(null);
@@ -195,7 +196,7 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
         addActionLog('Failed to restart services - start operation failed');
       }
     } catch (error) {
-      console.error('Failed to restart services:', error);
+      logger.error('Failed to restart services:', error);
       addErrorLog(`Failed to restart services: ${error}`);
     } finally {
       setOperationInProgress(null);
@@ -204,7 +205,7 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
 
   const handleOpenDDALAB = async () => {
     if (!electronAPI || !electronAPI.openExternalUrl) {
-      console.error("[EnhancedControlPanel] openExternalUrl not available");
+      logger.error("[EnhancedControlPanel] openExternalUrl not available");
       return;
     }
 
@@ -217,7 +218,7 @@ export const EnhancedControlPanel: React.FC<EnhancedControlPanelProps> = ({
         addErrorLog(`Failed to open DDALAB: ${result.error}`);
       }
     } catch (error: any) {
-      console.error("[EnhancedControlPanel] Error opening DDALAB:", error);
+      logger.error("[EnhancedControlPanel] Error opening DDALAB:", error);
       addErrorLog(`Failed to open DDALAB: ${error.message}`);
     }
   };

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import type { ElectronAPI, UserSelections } from "../utils/electron";
+import { logger } from '../utils/logger-client';
 
 interface ControlPanelSidebarProps {
   isExpanded: boolean;
@@ -46,7 +47,7 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
           const environment = await electronAPI.getEnvironment();
           setBuildInfo({ version, environment });
         } catch (error) {
-          console.error("Failed to fetch build info:", error);
+          logger.error("Failed to fetch build info:", error);
         }
       }
     };
@@ -59,15 +60,15 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
         try {
           // Check Docker installation status
           const dockerInstallStatus = await electronAPI.checkDockerInstallation();
-          console.log('Docker installation status:', dockerInstallStatus);
+          logger.debug('Docker installation status:', dockerInstallStatus);
 
           // Check if Docker daemon is running
           const dockerDaemonRunning = await electronAPI.getIsDockerRunning();
-          console.log('Docker daemon running:', dockerDaemonRunning);
+          logger.debug('Docker daemon running:', dockerDaemonRunning);
 
           // Check if DDALAB containers are running
           const ddalabRunning = await electronAPI.getDockerStatus();
-          console.log('DDALAB containers running:', ddalabRunning);
+          logger.debug('DDALAB containers running:', ddalabRunning);
 
           let dockerEngineStatus = "Not installed";
           if (dockerInstallStatus.dockerInstalled) {
@@ -94,7 +95,7 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
             }
           });
         } catch (error) {
-          console.error("Failed to check service status:", error);
+          logger.error("Failed to check service status:", error);
           setServiceStatus({
             running: false,
             healthy: false,
@@ -121,7 +122,7 @@ export const ControlPanelSidebar: React.FC<ControlPanelSidebarProps> = ({
       const info = await electronAPI.getUpdateInfo();
       setUpdateInfo(info);
     } catch (error) {
-      console.error("Failed to check for updates:", error);
+      logger.error("Failed to check for updates:", error);
     } finally {
       setIsCheckingUpdate(false);
     }
