@@ -48,6 +48,22 @@ const rendererConfig = {
   define: {
     "process.env.NODE_ENV": '"development"',
   },
+  plugins: [{
+    name: 'node-modules-external',
+    setup(build) {
+      // Mark Node.js built-in modules as external to prevent bundling errors
+      build.onResolve({ filter: /^(fs|path|os|crypto|stream|util|buffer|events|child_process)$/ }, args => {
+        return { external: true };
+      });
+      
+      // Redirect logger imports to the shim for browser environment
+      build.onResolve({ filter: /\/utils\/logger$/ }, args => {
+        if (args.path.endsWith('/utils/logger')) {
+          return { path: args.path + '-shim.ts' };
+        }
+      });
+    },
+  }],
 };
 
 const mainConfig = {

@@ -2,6 +2,7 @@ import { exec, spawn, ChildProcess } from "child_process";
 import path from "path";
 import fs from "fs/promises";
 import { logger } from "../utils/logger";
+import { shellUtils } from "../utils/shell-utils";
 import { getMainWindow } from "../utils/main-window";
 import { SetupService, ConfigManagerState } from "./setup-service";
 import { EnvironmentIsolationService } from "./environment-isolation";
@@ -77,19 +78,19 @@ export class DockerService {
   private static async execCommand(
     command: string
   ): Promise<{ success: boolean; stdout: string; stderr: string }> {
-    return new Promise((resolve) => {
-      exec(
-        command,
-        { env: this.getDockerEnvironment() },
-        (error, stdout, stderr) => {
-          resolve({
-            success: !error,
-            stdout: stdout || "",
-            stderr: stderr || "",
-          });
-        }
-      );
-    });
+    try {
+      const result = await shellUtils.execCommand(command, {
+        env: this.getDockerEnvironment()
+      });
+      return result;
+    } catch (error: any) {
+      logger.error(`execCommand failed for: ${command}`, error);
+      return {
+        success: false,
+        stdout: "",
+        stderr: error.message || "Command execution failed"
+      };
+    }
   }
 
   static getDockerInstallationInstructions(): string {
@@ -395,9 +396,12 @@ services:
     logger.info(`Executing command to get Traefik ID: ${command}`);
 
     return new Promise((resolve) => {
-      exec(
+      shellUtils.exec(
         command,
-        { cwd: state.setupPath!, env: this.getDockerEnvironment() },
+        { 
+          cwd: state.setupPath!, 
+          env: this.getDockerEnvironment()
+        },
         (error, stdout, stderr) => {
           if (error) {
             logger.error(
@@ -458,9 +462,11 @@ services:
     }
 
     const command = `docker inspect --format='{{json .State}}' ${containerId}`;
-    exec(
+    shellUtils.exec(
       command,
-      { env: this.getDockerEnvironment() },
+      { 
+        env: this.getDockerEnvironment()
+      },
       (error, stdout, stderr) => {
         if (error) {
           logger.error(`Error inspecting Traefik (${containerId}): ${stderr}`);
@@ -675,9 +681,12 @@ services:
         EnvironmentIsolationService.getDockerComposeCommand(setupPath);
       const command = `${composeCommand} logs --tail=50`;
 
-      exec(
+      shellUtils.exec(
         command,
-        { cwd: setupPath, env: this.getDockerEnvironment() },
+        { 
+          cwd: setupPath, 
+          env: this.getDockerEnvironment()
+        },
         (error: Error | null, stdout: string, stderr: string) => {
           resolve({ stdout, stderr });
         }
@@ -729,7 +738,7 @@ services:
     dockerVersion?: string;
   }> {
     return new Promise((resolve) => {
-      exec("docker --version", (error, stdout, stderr) => {
+      shellUtils.exec("docker --version", {}, (error, stdout, stderr) => {
         if (error) {
           logger.warn(`Docker not installed: ${stderr}`);
           resolve({ dockerInstalled: false });
@@ -747,7 +756,7 @@ services:
    */
   static async isDockerDaemonRunning(): Promise<boolean> {
     return new Promise((resolve) => {
-      exec("docker info", (error, stdout, stderr) => {
+      shellUtils.exec("docker info", {}, (error, stdout, stderr) => {
         if (error) {
           logger.warn(`Docker daemon not running: ${stderr}`);
           resolve(false);
@@ -819,9 +828,12 @@ services:
 
       return new Promise((resolve, reject) => {
         // Use 'up -d' to start services in detached mode
-        dockerComposeProcess = exec(
-          `docker compose --file ${path.join(setupPath, "docker-compose.yml")} up -d`,
-          { cwd: setupPath },
+        const composeCommand = EnvironmentIsolationService.getDockerComposeCommand(setupPath);
+        dockerComposeProcess = shellUtils.exec(
+          `${composeCommand} up -d`,
+          { 
+            cwd: setupPath
+          },
           (error, stdout, stderr) => {
             if (error) {
               logger.error(`Error starting Docker Compose: ${error.message}`);
@@ -883,11 +895,14 @@ services:
 
     try {
       return new Promise((resolve, reject) => {
+        const composeCommand = EnvironmentIsolationService.getDockerComposeCommand(setupPath);
         const command = deleteVolumes
-          ? `docker compose --file ${path.join(setupPath, "docker-compose.yml")} down -v` // -v to remove volumes
-          : `docker compose --file ${path.join(setupPath, "docker-compose.yml")} down`;
+          ? `${composeCommand} down -v` // -v to remove volumes
+          : `${composeCommand} down`;
 
-        exec(command, { cwd: setupPath }, (error, stdout, stderr) => {
+        shellUtils.exec(command, { 
+          cwd: setupPath
+        }, (error, stdout, stderr) => {
           if (error) {
             logger.error(`Error stopping Docker Compose: ${error.message}`);
             mainWindow.webContents.send("docker-status-update", {
@@ -1064,9 +1079,12 @@ services:
       }
 
       return new Promise((resolve) => {
-        exec(
+        shellUtils.exec(
           command,
-          { cwd: state.setupPath!, env: this.getDockerEnvironment() },
+          { 
+            cwd: state.setupPath!, 
+            env: this.getDockerEnvironment()
+          },
           async (error, stdout, stderr) => {
             if (error) {
               logger.error(
@@ -1111,9 +1129,11 @@ services:
                 
                 // Try direct docker ps to check if containers are running
                 // First try with project label, then without if that fails
-                exec(
+                shellUtils.exec(
                   `docker ps --filter "label=com.docker.compose.project=${projectName}" --format "{{.Names}}|{{.State}}|{{.Status}}"`,
-                  { env: this.getDockerEnvironment() },
+                  { 
+                    env: this.getDockerEnvironment()
+                  },
                   (dockerError, dockerStdout, dockerStderr) => {
                     if (dockerError) {
                       logger.error(`Docker ps with label filter failed: ${dockerError.message}`);
@@ -1125,9 +1145,11 @@ services:
                     // If no containers found with label, try without filter
                     if (runningContainers.length === 0) {
                       logger.info("Trying docker ps without label filter");
-                      exec(
+                      shellUtils.exec(
                         `docker ps --format "{{.Names}}|{{.State}}|{{.Status}}"`,
-                        { env: this.getDockerEnvironment() },
+                        { 
+                          env: this.getDockerEnvironment()
+                        },
                         (dockerError2, dockerStdout2, dockerStderr2) => {
                           if (dockerError2) {
                             logger.error(`Docker ps without filter failed: ${dockerError2.message}`);
@@ -1345,9 +1367,11 @@ services:
    */
   static async quickDockerHealthCheck(): Promise<boolean | null> {
     return new Promise((resolve) => {
-      exec(
+      shellUtils.exec(
         `docker ps --format "{{.Names}}|{{.State}}|{{.Status}}"`,
-        { env: this.getDockerEnvironment() },
+        { 
+          env: this.getDockerEnvironment()
+        },
         (error, stdout, stderr) => {
           if (error) {
             logger.error(`Quick docker health check failed: ${error.message}`);

@@ -11,6 +11,7 @@ services:
 
   ddalab:
     image: sdraeger1/ddalab:latest
+    platform: linux/amd64
     env_file:
       - ./.env
     environment:
@@ -110,10 +111,10 @@ services:
   jaeger:
     image: jaegertracing/jaeger:2.0.0
     ports:
-      - "4317:4317" # OTLP gRPC receiver
-      - "4318:4318" # OTLP HTTP receiver
-      - "16686:16686" # Jaeger UI
-      - "14268:14268" # Legacy HTTP collector
+      - "4317:4317"
+      - "4318:4318"
+      - "16686:16686"
+      - "14268:14268"
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     networks:

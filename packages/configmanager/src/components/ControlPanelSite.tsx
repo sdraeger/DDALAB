@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import { ElectronAPI, UserSelections } from "../utils/electron";
 import { useDockerState } from "../hooks/useDockerState";
+import { logger } from '../utils/logger-client';
 
 interface ControlPanelSiteProps {
   electronAPI?: ElectronAPI;
@@ -41,7 +42,7 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
 
     // Listener for Traefik/all services ready
     const removeReadyListener = electronAPI.onAllServicesReady?.(() => {
-      console.log("[ControlPanelSite] Received ddalab-services-ready.");
+      logger.info("[ControlPanelSite] Received ddalab-services-ready.");
       servicesReady();
     });
 
@@ -56,16 +57,16 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
       if (!electronAPI?.validateDockerSetup || !userSelections.projectLocation) return;
 
       try {
-        console.log("[ControlPanelSite] Validating setup on load...");
+        logger.info("[ControlPanelSite] Validating setup on load...");
         const result = await electronAPI.validateDockerSetup(userSelections.projectLocation);
         if (!result.success && result.needsSetup) {
-          console.warn("[ControlPanelSite] Setup validation failed, needs setup:", result.message);
+          logger.warn("[ControlPanelSite] Setup validation failed, needs setup:", result.message);
           addErrorLog(`Setup validation failed: ${result.message}`);
         } else {
-          console.log("[ControlPanelSite] Setup validation successful");
+          logger.info("[ControlPanelSite] Setup validation successful");
         }
       } catch (error) {
-        console.error("[ControlPanelSite] Setup validation error:", error);
+        logger.error("[ControlPanelSite] Setup validation error:", error);
         addErrorLog(`Setup validation error: ${error}`);
       }
     };
@@ -80,7 +81,7 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
 
     try {
       const result = await electronAPI.startMonolithicDocker();
-      console.log("[ControlPanelSite] Start result:", result);
+      logger.info("[ControlPanelSite] Start result:", result);
       if (!result) {
         addErrorLog("Start operation failed");
       } else {
@@ -89,11 +90,11 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
           await electronAPI.getDockerLogs();
           addActionLog("Log streaming started");
         } catch (error) {
-          console.warn("[ControlPanelSite] Failed to start log streaming:", error);
+          logger.warn("[ControlPanelSite] Failed to start log streaming:", error);
         }
       }
     } catch (error: any) {
-      console.error(
+      logger.error(
         "[ControlPanelSite] Error sending startDDALAB command:",
         error
       );
@@ -102,13 +103,13 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
   };
 
   const handleStopDDALAB = async () => {
-    console.log("[ControlPanelSite] electronAPI:", electronAPI);
-    console.log(
+    logger.debug("[ControlPanelSite] electronAPI:", electronAPI);
+    logger.debug(
       "[ControlPanelSite] electronAPI keys:",
       electronAPI ? Object.keys(electronAPI) : "electronAPI is null/undefined"
     );
-    console.log("[ControlPanelSite] window.electronAPI:", window.electronAPI);
-    console.log(
+    logger.debug("[ControlPanelSite] window.electronAPI:", window.electronAPI);
+    logger.debug(
       "[ControlPanelSite] window.electronAPI keys:",
       window.electronAPI
         ? Object.keys(window.electronAPI)
@@ -116,7 +117,7 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
     );
 
     if (!electronAPI || !electronAPI.stopMonolithicDocker) {
-      console.error(
+      logger.error(
         "[ControlPanelSite] electronAPI or stopMonolithicDocker not available"
       );
       return;
@@ -132,11 +133,11 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
       if (!result) {
         addErrorLog("Stop operation failed");
       } else {
-        console.log("[ControlPanelSite] Stop operation succeeded");
+        logger.info("[ControlPanelSite] Stop operation succeeded");
         addActionLog("Services stopped successfully");
       }
     } catch (error: any) {
-      console.error(
+      logger.error(
         "[ControlPanelSite] Error sending stopDDALAB command:",
         error
       );
@@ -146,7 +147,7 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
 
   const handleOpenDDALAB = async () => {
     if (!electronAPI || !electronAPI.openExternalUrl) {
-      console.error("[ControlPanelSite] openExternalUrl not available");
+      logger.error("[ControlPanelSite] openExternalUrl not available");
       return;
     }
 
@@ -159,7 +160,7 @@ export const ControlPanelSite: React.FC<ControlPanelSiteProps> = ({
         addErrorLog(`Failed to open DDALAB: ${result.error}`);
       }
     } catch (error: any) {
-      console.error("[ControlPanelSite] Error opening DDALAB:", error);
+      logger.error("[ControlPanelSite] Error opening DDALAB:", error);
       addErrorLog(`Failed to open DDALAB: ${error.message}`);
     }
   };

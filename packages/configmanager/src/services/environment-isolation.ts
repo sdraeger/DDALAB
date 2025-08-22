@@ -184,8 +184,20 @@ export class EnvironmentIsolationService {
     const config = this.getCurrentConfig();
     const projectName = this.getDockerProjectName(setupPath);
 
+    // Check if volumes file exists
+    const volumesFilePath = path.join(setupPath, "docker-compose.volumes.yml");
+    let composeFiles = "-f docker-compose.yml";
+    
+    try {
+      if (fs.existsSync(volumesFilePath)) {
+        composeFiles += " -f docker-compose.volumes.yml";
+      }
+    } catch (error) {
+      // If we can't check, just use the base file
+    }
+
     // Use -p flag for project name isolation with Docker Compose V2
-    return `docker compose -p ${projectName} -f docker-compose.yml -f docker-compose.volumes.yml`;
+    return `docker compose -p ${projectName} ${composeFiles}`;
   }
 
   static getEnvironmentFilePath(setupPath: string): string {

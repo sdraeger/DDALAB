@@ -1,7 +1,7 @@
 import React, { createContext, useEffect } from "react";
 import { useInterpret } from "@xstate/react";
 import { dockerMachine } from "../machines/docker-machine";
-import { logger } from "../utils/logger";
+import { logger } from "../utils/logger-client";
 
 export const DockerContext = createContext({} as any);
 

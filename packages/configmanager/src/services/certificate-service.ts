@@ -1,7 +1,7 @@
-import { exec } from "child_process";
 import { promises as fs } from "fs";
 import path from "path";
 import { logger } from "../utils/logger";
+import { shellUtils } from "../utils/shell-utils";
 import { getMainWindow } from "../utils/main-window";
 
 export interface CertificateInfo {
@@ -20,7 +20,7 @@ export class CertificateService {
    */
   static async isMkcertAvailable(): Promise<boolean> {
     return new Promise((resolve) => {
-      exec("which mkcert", (error) => {
+      shellUtils.exec("which mkcert", {}, (error) => {
         resolve(!error);
       });
     });
@@ -32,7 +32,7 @@ export class CertificateService {
   static async installMkcert(): Promise<{ success: boolean; error?: string }> {
     return new Promise((resolve) => {
       // First check if brew is available
-      exec("which brew", (brewError) => {
+      shellUtils.exec("which brew", {}, (brewError) => {
         if (brewError) {
           resolve({
             success: false,
@@ -42,7 +42,7 @@ export class CertificateService {
         }
 
         // Install mkcert using brew
-        exec("brew install mkcert", (error, stdout, stderr) => {
+        shellUtils.exec("brew install mkcert", {}, (error, stdout, stderr) => {
           if (error) {
             logger.error("Failed to install mkcert:", error.message);
             resolve({
@@ -81,7 +81,7 @@ export class CertificateService {
 
     return new Promise((resolve) => {
       // Get certificate details
-      exec(`openssl x509 -in "${certPath}" -text -noout`, (error, stdout) => {
+      shellUtils.exec(`openssl x509 -in "${certPath}" -text -noout`, {}, (error, stdout) => {
         if (error) {
           logger.error("Failed to read certificate:", error.message);
           resolve({
@@ -237,7 +237,16 @@ export class CertificateService {
         "host.docker.internal"
       ];
 
-      const command = `cd "${certsDir}" && mkcert -cert-file server.crt -key-file server.key ${domains.join(" ")}`;
+      // Properly escape domains for shell execution
+      const escapedDomains = domains.map(domain => {
+        if (domain.includes('*')) {
+          // Quote wildcard domains to prevent shell expansion
+          return `"${domain}"`;
+        }
+        return domain;
+      });
+
+      const command = `cd "${certsDir}" && mkcert -cert-file server.crt -key-file server.key ${escapedDomains.join(" ")}`;
       await this.executeCommand(command);
 
       // Verify certificates were created
@@ -304,14 +313,18 @@ OU = Development
 CN = localhost
 
 [v3_req]
-keyUsage = keyEncipherment, dataEncipherment
-extendedKeyUsage = serverAuth
+basicConstraints = CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth, clientAuth
 subjectAltName = @alt_names
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
 
 [alt_names]
 DNS.1 = localhost
 DNS.2 = ddalab.local
 DNS.3 = *.ddalab.local
+DNS.4 = host.docker.internal
 IP.1 = 127.0.0.1
 IP.2 = ::1
 `;
@@ -354,7 +367,7 @@ IP.2 = ::1
    */
   private static executeCommand(command: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      exec(command, (error, stdout, stderr) => {
+      shellUtils.exec(command, {}, (error, stdout, stderr) => {
         if (error) {
           logger.error(`Command failed: ${command}`, error);
           reject(new Error(`${error.message}\n${stderr}`));

@@ -5,6 +5,7 @@ import type {
   ElectronAPI,
 } from "../utils/electron";
 import { getFormattedCommentsHtml } from "../utils/electron";
+import { logger } from '../utils/logger-client';
 
 interface ManualConfigSiteProps {
   userSelections: UserSelections;
@@ -46,14 +47,14 @@ export const ManualConfigSite: React.FC<ManualConfigSiteProps> = ({
         onUpdateSelections({ dataLocation: result });
 
         // Load environment variables from the selected directory
-        console.log(
+        logger.info(
           "[ManualConfigSite] Loading ENV vars from selected directory:",
           result
         );
         try {
           const entries = await api.loadEnvVars(result);
           if (entries) {
-            console.log(
+            logger.info(
               "[ManualConfigSite] Loaded ENV vars from manual setup directory:",
               entries
             );
@@ -66,11 +67,11 @@ export const ManualConfigSite: React.FC<ManualConfigSiteProps> = ({
             });
 
             // Update all variables at once to avoid race conditions
-            console.log(
+            logger.debug(
               "[ManualConfigSite] Loading variables:",
               Object.keys(loadedVars)
             );
-            console.log(
+            logger.debug(
               "[ManualConfigSite] Current envVariables:",
               userSelections.envVariables
             );
@@ -80,7 +81,7 @@ export const ManualConfigSite: React.FC<ManualConfigSiteProps> = ({
               envVariables: { ...userSelections.envVariables, ...loadedVars },
             });
 
-            console.log(
+            logger.debug(
               "[ManualConfigSite] Updated envVariables with:",
               loadedVars
             );
@@ -90,7 +91,7 @@ export const ManualConfigSite: React.FC<ManualConfigSiteProps> = ({
               text: `Environment variables loaded from ${result}/.env`,
             });
           } else {
-            console.log(
+            logger.info(
               "[ManualConfigSite] No .env file found in selected directory"
             );
             setFeedbackMessage({
@@ -99,7 +100,7 @@ export const ManualConfigSite: React.FC<ManualConfigSiteProps> = ({
             });
           }
         } catch (envError: any) {
-          console.error(
+          logger.error(
             "[ManualConfigSite] Error loading env vars from selected directory:",
             envError
           );
@@ -109,10 +110,10 @@ export const ManualConfigSite: React.FC<ManualConfigSiteProps> = ({
           });
         }
       } else {
-        console.log("Directory selection cancelled or no directory selected.");
+        logger.info("Directory selection cancelled or no directory selected.");
       }
     } catch (error) {
-      console.error("Error showing open dialog:", error);
+      logger.error("Error showing open dialog:", error);
       setFeedbackMessage({
         type: "error",
         text: "Could not open directory dialog. See console for details.",
