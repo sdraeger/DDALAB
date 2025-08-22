@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import type { ElectronAPI, UserSelections } from "../utils/electron";
 import { useSystemStatusContext } from "../context/SystemStatusProvider";
+import { logger } from '../utils/logger-client';
 
 interface SimplifiedControlSidebarProps {
   isExpanded: boolean;
@@ -44,7 +45,7 @@ export const SimplifiedControlSidebar: React.FC<SimplifiedControlSidebarProps> =
           const environment = await electronAPI.getEnvironment();
           setBuildInfo({ version, environment });
         } catch (error) {
-          console.error("Failed to fetch build info:", error);
+          logger.error("Failed to fetch build info:", error);
         }
       }
     };

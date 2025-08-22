@@ -359,6 +359,9 @@ export class SetupService {
 
     // Update docker-compose.yml if needed
     await this.updateDockerCompose(targetDir, userConfig);
+    
+    // Ensure platform specification is present to prevent SIGTRAP errors
+    await this.applyPlatformFix(targetDir);
 
     mainWindow.webContents.send("setup-progress", {
       message: "Configuration files generated successfully.",
@@ -554,6 +557,135 @@ VERSION=latest
   }
 
   /**
+   * Ensure the ddalab service has platform: linux/amd64 to prevent SIGTRAP errors
+   */
+  private static ensureDdalabPlatform(composeContent: string): string {
+    // Simple regex-based approach to ensure platform exists only for ddalab service
+    
+    // Check if ddalab service already has platform specification
+    const ddalabServiceMatch = composeContent.match(/(\s*)ddalab:\s*\n((?:\1\s+.*\n)*)/);
+    if (!ddalabServiceMatch) {
+      // No ddalab service found, return unchanged
+      return composeContent;
+    }
+    
+    const serviceIndent = ddalabServiceMatch[1];
+    const serviceContent = ddalabServiceMatch[2];
+    const propertyIndent = serviceIndent + '    '; // Standard 4 spaces for service properties
+    
+    // Check if platform already exists in the ddalab service
+    if (serviceContent.includes('platform:')) {
+      // Platform already exists, return unchanged
+      return composeContent;
+    }
+    
+    // Add platform after the image line in ddalab service
+    const imageLinePattern = new RegExp(`(${serviceIndent}ddalab:\\s*\\n(?:${propertyIndent}.*\\n)*?${propertyIndent}image:[^\\n]*\\n)`, 'g');
+    const replacement = `$1${propertyIndent}platform: linux/amd64\n`;
+    
+    return composeContent.replace(imageLinePattern, replacement);
+  }
+
+  /**
+   * Clean up malformed docker-compose.yml files (remove duplicates, fix indentation)
+   */
+  static async cleanupDockerCompose(setupPath: string): Promise<void> {
+    const composePath = path.join(setupPath, "docker-compose.yml");
+    
+    try {
+      // Check if the file exists
+      await fs.access(composePath);
+      
+      // Read the current content
+      let composeContent = await fs.readFile(composePath, "utf-8");
+      
+      // Clean up the content
+      const lines = composeContent.split('\n');
+      const cleanedLines: string[] = [];
+      const seenPlatforms = new Set<string>();
+      let currentService = '';
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        
+        // Detect service sections (top-level services under 'services:')
+        if (trimmed.endsWith(':') && line.match(/^  \w+:$/)) {
+          currentService = trimmed.replace(':', '');
+          seenPlatforms.clear();
+          cleanedLines.push(line);
+          continue;
+        }
+        
+        // Handle platform lines
+        if (trimmed.startsWith('platform:')) {
+          const serviceKey = `${currentService}:platform`;
+          if (!seenPlatforms.has(serviceKey) && currentService === 'ddalab') {
+            // Only add platform for ddalab service (to prevent SIGTRAP)
+            // Fix indentation - platform should be at service property level
+            const serviceIndent = '  '; // Standard YAML indent
+            cleanedLines.push(`${serviceIndent}platform: linux/amd64`);
+            seenPlatforms.add(serviceKey);
+          }
+          // Skip all platform lines (duplicates and non-ddalab services)
+          continue;
+        }
+        
+        cleanedLines.push(line);
+      }
+      
+      const cleanedContent = cleanedLines.join('\n');
+      
+      // Write back the cleaned content
+      await fs.writeFile(composePath, cleanedContent, "utf-8");
+      
+      logger.info(`Cleaned up malformed docker-compose.yml at ${composePath}`);
+    } catch (error) {
+      logger.warn(`Could not cleanup docker-compose.yml at ${composePath}:`, error);
+    }
+  }
+
+  /**
+   * Apply platform fix to existing docker-compose.yml files
+   */
+  static async applyPlatformFix(setupPath: string): Promise<void> {
+    try {
+      const composePath = path.join(setupPath, "docker-compose.yml");
+      
+      // Check if this is already a monolithic setup with ddalab service
+      const initialComposeContent = await fs.readFile(composePath, "utf-8");
+      const hasDdalabServiceFix = initialComposeContent.includes('  ddalab:');
+      const hasWebServiceFix = initialComposeContent.includes('  web:');
+      const hasApiServiceFix = initialComposeContent.includes('  api:');
+      
+      // If we already have ddalab service and no web/api, skip platform fix
+      if (hasDdalabServiceFix && !hasWebServiceFix && !hasApiServiceFix) {
+        logger.info(`Docker compose already configured for monolithic ddalab service, skipping platform fix`);
+        return;
+      }
+      
+      // First clean up any malformed YAML (duplicates, bad indentation)
+      await this.cleanupDockerCompose(setupPath);
+      
+      // Check if the file exists
+      await fs.access(composePath);
+      
+      // Read the current content
+      let composeContent = await fs.readFile(composePath, "utf-8");
+      
+      // Apply the platform fix (only for ddalab service to prevent over-application)
+      composeContent = this.ensureDdalabPlatform(composeContent);
+      
+      // Write back the updated content
+      await fs.writeFile(composePath, composeContent, "utf-8");
+      
+      logger.info(`Applied platform fix to ${composePath}`);
+    } catch (error) {
+      logger.warn(`Could not apply platform fix to ${setupPath}:`, error);
+    }
+  }
+
+  /**
    * Generate docker-compose.volumes.yml based on allowed directories
    */
   static async generateVolumeConfig(
@@ -629,7 +761,9 @@ services:
     const composePath = path.join(targetDir, "docker-compose.yml");
 
     try {
-      let composeContent = await fs.readFile(composePath, "utf-8");
+      // Use static template instead of dynamic generation
+      await this.copyDockerComposeTemplate(targetDir);
+      logger.info(`Updated docker-compose.yml from static template`);
 
       // If using Docker Hub, remove build sections to prevent local building
       if (userConfig.useDockerHub) {
@@ -662,9 +796,7 @@ services:
             }
           }
 
-          if (trimmed === "platform: linux/amd64") {
-            continue;
-          }
+          // Keep platform specifications to prevent architecture issues
 
           cleanedLines.push(line);
         }
@@ -685,11 +817,21 @@ services:
       // Fix PostgreSQL health check configuration to match working version
       composeContent = this.fixPostgreSQLHealthCheck(composeContent);
 
-      // Remove web and api service definitions and replace with a single ddalab service
-      const lines = composeContent.split("\n");
-      const updatedLines: string[] = [];
-      let inServiceBlock = false;
-      let currentService = "";
+      // Ensure the ddalab service has platform specification to prevent SIGTRAP
+      composeContent = this.ensureDdalabPlatform(composeContent);
+
+      // Check if ddalab service already exists - if so, skip the web/api conversion
+      const hasDdalabService = composeContent.includes('  ddalab:');
+      const hasWebService = composeContent.includes('  web:');
+      const hasApiService = composeContent.includes('  api:');
+      
+      // Only convert web/api to ddalab if we have web/api services but no ddalab service
+      if ((hasWebService || hasApiService) && !hasDdalabService) {
+        // Remove web and api service definitions and replace with a single ddalab service
+        const lines = composeContent.split("\n");
+        const updatedLines: string[] = [];
+        let inServiceBlock = false;
+        let currentService = "";
 
       for (const line of lines) {
         const trimmedLine = line.trim();
@@ -701,6 +843,7 @@ services:
           if (currentService === "web") {
             updatedLines.push("  ddalab:");
             updatedLines.push("    image: ${DDALAB_IMAGE:-sdraeger1/ddalab:latest}");
+            updatedLines.push("    platform: linux/amd64");
             updatedLines.push("    env_file:");
             updatedLines.push("      - ./.env");
             updatedLines.push("    ports:");
@@ -743,11 +886,53 @@ services:
         }
       }
       composeContent = updatedLines.join("\n");
+      
+      // Debug: Log lines around where the error occurs
+      const debugLines = composeContent.split('\n');
+      logger.info(`DEBUG - Generated line 14: "${debugLines[13] || 'undefined'}"`);
+      logger.info(`DEBUG - Generated line 15: "${debugLines[14] || 'undefined'}"`);
+      logger.info(`DEBUG - Generated line 16: "${debugLines[15] || 'undefined'}"`);
+      
+      logger.info(`Converted web/api services to monolithic ddalab service`);
+      } else {
+        logger.info(`Ddalab service already exists, skipping web/api conversion`);
+      }
 
       await fs.writeFile(composePath, composeContent, "utf-8");
       logger.info(`Updated docker-compose.yml for monolithic usage`);
     } catch (error) {
       logger.warn(`Could not update docker-compose.yml: ${error}`);
+    }
+  }
+
+  /**
+   * Copy the static docker-compose template to the target directory
+   */
+  static async copyDockerComposeTemplate(targetDir: string): Promise<void> {
+    // Use app.getAppPath() to get the correct path to bundled assets
+    const { app } = require('electron');
+    const appPath = app.getAppPath();
+    const templatePath = path.join(appPath, 'src/assets/docker-compose.template.yml');
+    const composePath = path.join(targetDir, 'docker-compose.yml');
+    
+    try {
+      logger.info(`Looking for template at: ${templatePath}`);
+      const templateContent = await fs.readFile(templatePath, 'utf-8');
+      await fs.writeFile(composePath, templateContent, 'utf-8');
+      logger.info(`Copied docker-compose template to ${composePath}`);
+    } catch (error) {
+      logger.error(`Failed to copy docker-compose template from ${templatePath}: ${error}`);
+      // Fallback: try relative to current working directory
+      try {
+        const fallbackPath = path.join(process.cwd(), 'packages/configmanager/src/assets/docker-compose.template.yml');
+        logger.info(`Trying fallback path: ${fallbackPath}`);
+        const templateContent = await fs.readFile(fallbackPath, 'utf-8');
+        await fs.writeFile(composePath, templateContent, 'utf-8');
+        logger.info(`Copied docker-compose template from fallback path to ${composePath}`);
+      } catch (fallbackError) {
+        logger.error(`Fallback also failed: ${fallbackError}`);
+        throw error;
+      }
     }
   }
 
@@ -1352,6 +1537,13 @@ services:
       };
       
       return await this.setupDDALAB(projectLocation, defaultConfig);
+    }
+    
+    // Always apply platform fix to ensure ddalab container uses AMD64 (prevents SIGTRAP)
+    try {
+      await this.applyPlatformFix(projectLocation);
+    } catch (error) {
+      logger.warn(`Failed to apply platform fix: ${error}`);
     }
     
     return {

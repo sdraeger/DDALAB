@@ -1,31 +1,21 @@
-# Use a multi-stage build for efficiency
-# Stage 1: Build the API
-FROM python:3.10-alpine AS api-builder
+# Stage 1: Build the API dependencies
+FROM python:3.10-slim AS api-builder
 
 WORKDIR /app/api
 
-# Install API dependencies
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc \
+    libpq-dev \
+    curl \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy and install Python requirements
 COPY packages/api/requirements.txt .
-RUN apk update && apk add --no-cache \
-	build-base \
-	gcc \
-	musl-dev \
-	linux-headers \
-	openssl \
-	openssl-dev \
-	libpq-dev \
-	curl \
-	netcat-openbsd \
-	wget \
-	bash \
-	&& rm -rf /var/cache/apk/*
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy API source code
-COPY packages/api .
-# Make start script executable
-RUN chmod +x start.sh
 
 # Stage 2: Build the Web20 app
 FROM node:20-alpine AS web-builder
@@ -55,61 +45,72 @@ COPY packages/web20 .
 # Build Next.js app (standalone output for lean runtime)
 RUN npm run build
 
-# Stage 3: Final Monolithic Image
-FROM python:3.10-alpine
+# Stage 3: Final runtime image
+FROM python:3.10-slim
 
 WORKDIR /app
 
-# Copy Python packages from builder
-COPY --from=api-builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
-
-# Copy API build artifacts
-COPY --from=api-builder /app/api /app/api
-
 # Install runtime dependencies
-RUN apk update && apk add --no-cache \
-    nodejs-current \
+RUN apt-get update && apt-get install -y \
+    nodejs \
     npm \
-    libpq \
+    libpq5 \
     curl \
     bash \
-    && rm -rf /var/cache/apk/*
+    wget \
+    netcat-openbsd \
+    # Libraries for DDA binary
+    libc6 \
+    libstdc++6 \
+    libgcc-s1 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Python packages from builder (using pip install location)
+COPY --from=api-builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=api-builder /usr/local/bin /usr/local/bin
+
+# Copy API source code
+COPY packages/api /app/api
+RUN chmod +x /app/api/start.sh
 
 # Copy web20 build artifacts
 COPY --from=web-builder /app/web20 /app/web20
 
-# Copy static assets to standalone build directory for proper Next.js standalone operation
+# Copy static assets to standalone build directory
 RUN if [ -d "/app/web20/.next/standalone" ]; then \
-        cp -R /app/web20/.next/static /app/web20/.next/standalone/.next/static; \
+        cp -R /app/web20/.next/static /app/web20/.next/standalone/.next/static 2>/dev/null || true; \
         if [ -d "/app/web20/public" ]; then \
-            cp -R /app/web20/public /app/web20/.next/standalone/public; \
+            cp -R /app/web20/public /app/web20/.next/standalone/public 2>/dev/null || true; \
         fi; \
     fi
 
-# Install DDA binary (if needed)
-RUN mkdir -p /app/bin
-RUN wget https://snl.salk.edu/~sfdraeger/dda/downloads/run_DDA_EPILEPSY -O /app/bin/run_DDA_ASCII
-RUN chmod +x /app/bin/run_DDA_ASCII
+# Download and install DDA binary
+RUN mkdir -p /app/bin && \
+    wget https://snl.salk.edu/~sfdraeger/dda/downloads/run_DDA_EPILEPSY -O /app/bin/run_DDA_ASCII && \
+    chmod +x /app/bin/run_DDA_ASCII
+
+# Check binary dependencies
+RUN ldd /app/bin/run_DDA_ASCII || echo "Binary check completed"
+
+# Create necessary directories
+RUN mkdir -p /tmp/.dda /tmp/prometheus /app/data /app/api/.config && \
+    chmod 777 /tmp/.dda
 
 # Create non-root user
-RUN adduser -D -s /bin/sh ddalabuser \
-    && chown -R ddalabuser:ddalabuser /app \
-    && mkdir -p /tmp/prometheus \
-    && chown -R ddalabuser:ddalabuser /tmp/prometheus \
-    && chmod 755 /tmp/prometheus \
-    && mkdir -p /app/data \
-    && chown -R ddalabuser:ddalabuser /app/data \
-    && mkdir -p /app/api/.config \
-    && chown -R ddalabuser:ddalabuser /app/api/.config
-# Expose ports
-EXPOSE 8001
-EXPOSE 3000
+RUN useradd -m -s /bin/bash ddalabuser && \
+    chown -R ddalabuser:ddalabuser /app /tmp/.dda /tmp/prometheus
 
-# Create a start script
+# Copy start script
 COPY start.sh /usr/local/bin/start.sh
 RUN chmod +x /usr/local/bin/start.sh
 
-# Default workdir for API (start script will cd as needed)
+# Expose ports
+EXPOSE 8001 3000
+
+# Switch to non-root user
+USER ddalabuser
+
 WORKDIR /app
 
 CMD ["/usr/local/bin/start.sh"]
