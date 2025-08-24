@@ -21,10 +21,13 @@ jobs:
           name: Install root dependencies
           command: npm install
       - run:
-          name: Build all packages
-          command: npm run build
+          name: Build ConfigManager only
+          command: |
+            cd packages/configmanager
+            npm install
+            npm run build
       - run:
-          name: Navigate to configmanager and publish
+          name: Publish ConfigManager
           command: |
             cd packages/configmanager
             npm run publish:dev:win
