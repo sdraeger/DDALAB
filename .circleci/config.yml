@@ -27,18 +27,31 @@ jobs:
             npm install
             npm run build
       - run:
+          name: Verify and Set AWS Credentials
+          command: |
+            echo "Checking AWS credentials..."
+            if ([string]::IsNullOrEmpty($env:AWS_ACCESS_KEY_ID)) {
+              echo "ERROR: AWS_ACCESS_KEY_ID is not set"
+              exit 1
+            }
+            if ([string]::IsNullOrEmpty($env:AWS_SECRET_ACCESS_KEY)) {
+              echo "ERROR: AWS_SECRET_ACCESS_KEY is not set"
+              exit 1
+            }
+            echo "AWS credentials are set"
+          shell: powershell.exe
+      - run:
           name: Publish ConfigManager
           command: |
             cd packages/configmanager
+            set AWS_DEFAULT_REGION=us-east-1
             npm run publish:dev:win
-          environment:
-            AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-            AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
 
 workflows:
   build-and-publish:
     jobs:
       - build-windows:
+          context: aws-credentials
           filters:
             branches:
               only:
