@@ -1,0 +1,42 @@
+version: 2.1
+
+executors:
+  windows:
+    machine:
+      image: windows-server-2019-vs2019:stable
+    resource_class: windows.medium
+
+jobs:
+  build-windows:
+    executor: windows
+    working_directory: ~/project
+    steps:
+      - checkout
+      - run:
+          name: Install Node.js
+          command: |
+            nvm install 18
+            nvm use 18
+      - run:
+          name: Install root dependencies
+          command: npm install
+      - run:
+          name: Build all packages
+          command: npm run build
+      - run:
+          name: Navigate to configmanager and publish
+          command: |
+            cd packages/configmanager
+            npm run publish:dev:win
+          environment:
+            AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+            AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+
+workflows:
+  build-and-publish:
+    jobs:
+      - build-windows:
+          filters:
+            branches:
+              only:
+                - main
