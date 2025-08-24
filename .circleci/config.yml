@@ -22,7 +22,7 @@ jobs:
           command: npm install
       - run:
           name: Build & publish Windows app
-          command: npm run publish:dev:windows
+          command: npm run publish:dev:win
 
 workflows:
   build-and-publish:
