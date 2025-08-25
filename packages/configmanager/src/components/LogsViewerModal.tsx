@@ -25,6 +25,7 @@ export const LogsViewerModal: React.FC<LogsViewerModalProps> = ({
   const [autoScroll, setAutoScroll] = useState(true);
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  const streamCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const fetchInitialLogs = async () => {
@@ -90,12 +91,44 @@ export const LogsViewerModal: React.FC<LogsViewerModalProps> = ({
       }
     };
 
+    const startDockerLogStream = () => {
+      if (!electronAPI?.onDockerLogStream) return;
+
+      // Set up the new Docker log stream listener for detailed progress
+      const streamCleanup = electronAPI.onDockerLogStream((logEntry: { 
+        type: string; 
+        message: string; 
+        timestamp: string; 
+        level: string;
+        serviceName?: string;
+      }) => {
+        const newLogEntry: LogEntry = {
+          timestamp: logEntry.timestamp,
+          service: logEntry.serviceName || logEntry.type || 'Docker',
+          level: logEntry.level as 'info' | 'warn' | 'error' | 'debug',
+          message: logEntry.message
+        };
+
+        setLogs(prevLogs => {
+          const updated = [...prevLogs, newLogEntry];
+          // Keep last 1000 logs
+          return updated.slice(-1000);
+        });
+      });
+
+      streamCleanupRef.current = streamCleanup;
+    };
+
     fetchInitialLogs();
+    startDockerLogStream();
 
     // Cleanup on unmount
     return () => {
       if (cleanupRef.current) {
         cleanupRef.current();
+      }
+      if (streamCleanupRef.current) {
+        streamCleanupRef.current();
       }
       if (electronAPI) {
         electronAPI.clearDockerLogsListener();

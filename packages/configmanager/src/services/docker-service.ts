@@ -829,28 +829,177 @@ services:
       return new Promise((resolve, reject) => {
         // Use 'up -d' to start services in detached mode
         const composeCommand = EnvironmentIsolationService.getDockerComposeCommand(setupPath);
-        dockerComposeProcess = shellUtils.exec(
-          `${composeCommand} up -d`,
-          { 
-            cwd: setupPath
-          },
-          (error, stdout, stderr) => {
-            if (error) {
-              logger.error(`Error starting Docker Compose: ${error.message}`);
-              mainWindow.webContents.send("docker-status-update", {
-                type: "error",
-                message: `Failed to start Docker: ${stderr || error.message}`,
-              });
-              return reject(false);
+        
+        // Use spawn instead of exec for better control over long-running processes
+        const { spawn } = require('child_process');
+        const [command, ...args] = `${composeCommand} up -d`.split(' ');
+        
+        dockerComposeProcess = spawn(command, args, {
+          cwd: setupPath,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          shell: true
+        });
+
+        let stdout = '';
+        let stderr = '';
+        let hasCompleted = false;
+        let logBuffer: string[] = []; // Buffer for streaming logs
+
+        // Set a generous timeout for Docker operations (15 minutes)
+        // This is longer than typical because image pulls can take a very long time
+        // especially on slower internet connections
+        const warningTimeout = setTimeout(() => {
+          if (!hasCompleted) {
+            logger.warn('Docker Compose startup taking longer than expected, but continuing...');
+            mainWindow.webContents.send("docker-status-update", {
+              type: "info",
+              message: "Docker setup is taking longer than usual. This is normal for first-time setup as images are being downloaded. Please be patient...",
+            });
+          }
+        }, 300000); // 5 minutes warning
+
+        // Hard timeout after 20 minutes - this should be enough even for slow connections
+        const hardTimeout = setTimeout(() => {
+          if (!hasCompleted && dockerComposeProcess) {
+            logger.error('Docker Compose startup exceeded hard timeout of 20 minutes');
+            hasCompleted = true;
+            dockerComposeProcess.kill('SIGTERM');
+            mainWindow.webContents.send("docker-status-update", {
+              type: "error",
+              message: "Docker setup timed out after 20 minutes. This may indicate network issues or very slow download speeds. Please check your internet connection and try again.",
+            });
+            reject(false);
+          }
+        }, 1200000); // 20 minutes hard timeout
+
+        // Handle stdout for progress updates and streaming logs
+        if (dockerComposeProcess.stdout) {
+          dockerComposeProcess.stdout.on('data', (data: Buffer) => {
+            const output = data.toString();
+            stdout += output;
+            logger.debug(`Docker Compose stdout: ${output.trim()}`);
+            
+            // Split output into lines for processing
+            const lines = output.split('\n').filter(line => line.trim());
+            
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+              if (!trimmedLine) continue;
+              
+              // Add to log buffer for streaming
+              logBuffer.push(trimmedLine);
+              
+              // Keep buffer size manageable (last 100 lines)
+              if (logBuffer.length > 100) {
+                logBuffer = logBuffer.slice(-100);
+              }
+              
+              // Send detailed streaming logs for Docker operations
+              if (trimmedLine.includes('Pulling') || trimmedLine.includes('Waiting') || 
+                  trimmedLine.includes('Downloading') || trimmedLine.includes('Extracting') ||
+                  trimmedLine.includes('Creating') || trimmedLine.includes('Starting') ||
+                  trimmedLine.includes('Pull complete') || trimmedLine.includes('Already exists') ||
+                  trimmedLine.includes('Image is up to date') || trimmedLine.includes('Status:')) {
+                
+                // Clean up the log message
+                let cleanMessage = trimmedLine.replace(/^[a-f0-9]+:\s*/, ''); // Remove hash prefixes
+                cleanMessage = cleanMessage.replace(/\x1B\[[0-9;]*[JKmsu]/g, ''); // Remove ANSI codes
+                
+                // Send streaming log update
+                mainWindow.webContents.send("docker-log-stream", {
+                  type: "log",
+                  message: cleanMessage,
+                  timestamp: new Date().toISOString(),
+                  level: this.getLogLevel(trimmedLine)
+                });
+                
+                // Also send progress update for UI
+                mainWindow.webContents.send("docker-status-update", {
+                  type: "progress",
+                  message: `Setting up DDALAB services... ${cleanMessage}`,
+                });
+              }
+              
+              // Send service startup notifications
+              if (trimmedLine.includes('Started') || trimmedLine.includes('Recreated') || 
+                  trimmedLine.includes('Created')) {
+                const serviceName = this.extractServiceName(trimmedLine);
+                if (serviceName) {
+                  mainWindow.webContents.send("docker-log-stream", {
+                    type: "service",
+                    message: `Service ${serviceName} is starting...`,
+                    timestamp: new Date().toISOString(),
+                    level: "info",
+                    serviceName
+                  });
+                }
+              }
             }
-            logger.info(`Docker Compose started. Stdout: ${stdout}`);
+          });
+        }
+
+        // Handle stderr
+        if (dockerComposeProcess.stderr) {
+          dockerComposeProcess.stderr.on('data', (data: Buffer) => {
+            const output = data.toString();
+            stderr += output;
+            logger.debug(`Docker Compose stderr: ${output.trim()}`);
+            
+            // Send stderr logs as streaming updates too (for errors)
+            const lines = output.split('\n').filter(line => line.trim());
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+              if (trimmedLine) {
+                // Clean up error message
+                let cleanMessage = trimmedLine.replace(/\x1B\[[0-9;]*[JKmsu]/g, ''); // Remove ANSI codes
+                
+                mainWindow.webContents.send("docker-log-stream", {
+                  type: "error",
+                  message: cleanMessage,
+                  timestamp: new Date().toISOString(),
+                  level: "error"
+                });
+              }
+            }
+          });
+        }
+
+        // Handle process completion
+        dockerComposeProcess.on('close', (code: number) => {
+          hasCompleted = true;
+          clearTimeout(warningTimeout);
+          clearTimeout(hardTimeout);
+          
+          if (code === 0) {
+            logger.info(`Docker Compose started successfully. Exit code: ${code}`);
             mainWindow.webContents.send("docker-status-update", {
               type: "success",
               message: "DDALAB services started successfully.",
             });
             resolve(true);
+          } else {
+            logger.error(`Docker Compose failed with exit code: ${code}`);
+            logger.error(`Docker Compose stderr: ${stderr}`);
+            mainWindow.webContents.send("docker-status-update", {
+              type: "error",
+              message: `Failed to start Docker services (exit code: ${code}): ${stderr.slice(-200) || 'Unknown error'}`,
+            });
+            reject(false);
           }
-        );
+        });
+
+        // Handle process errors
+        dockerComposeProcess.on('error', (error: Error) => {
+          hasCompleted = true;
+          clearTimeout(warningTimeout);
+          clearTimeout(hardTimeout);
+          logger.error(`Docker Compose process error: ${error.message}`);
+          mainWindow.webContents.send("docker-status-update", {
+            type: "error",
+            message: `Failed to start Docker: ${error.message}`,
+          });
+          reject(false);
+        });
       });
     } catch (error: any) {
       logger.error(`Pre-start setup failed: ${error.message}`);
@@ -1531,5 +1680,48 @@ services:
   // Method to get config manager state (to avoid circular dependency with SetupService)
   static async getConfigManagerState(): Promise<ConfigManagerState> {
     return SetupService.getConfigManagerState();
+  }
+
+  /**
+   * Determine log level based on content
+   */
+  private static getLogLevel(message: string): string {
+    const lowerMessage = message.toLowerCase();
+    if (lowerMessage.includes('error') || lowerMessage.includes('failed')) {
+      return 'error';
+    }
+    if (lowerMessage.includes('warning') || lowerMessage.includes('warn')) {
+      return 'warning';
+    }
+    if (lowerMessage.includes('pulling') || lowerMessage.includes('downloading')) {
+      return 'info';
+    }
+    if (lowerMessage.includes('pull complete') || lowerMessage.includes('already exists') || 
+        lowerMessage.includes('started') || lowerMessage.includes('created')) {
+      return 'success';
+    }
+    return 'info';
+  }
+
+  /**
+   * Extract service name from Docker Compose log line
+   */
+  private static extractServiceName(message: string): string | null {
+    // Look for patterns like "Container ddalab-traefik-1  Started"
+    const containerMatch = message.match(/Container\s+([^\s]+)/);
+    if (containerMatch) {
+      let serviceName = containerMatch[1];
+      // Clean up container name to get service name
+      serviceName = serviceName.replace(/^[^-]+-/, '').replace(/-\d+$/, '');
+      return serviceName;
+    }
+    
+    // Look for patterns like "ddalab Creating"
+    const serviceMatch = message.match(/^([^\s]+)\s+(?:Creating|Starting|Started|Recreated)/);
+    if (serviceMatch) {
+      return serviceMatch[1];
+    }
+    
+    return null;
   }
 }

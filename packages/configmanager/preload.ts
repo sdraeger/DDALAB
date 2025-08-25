@@ -97,6 +97,15 @@ export interface ElectronAPI {
   onDockerStateUpdate: (
     callback: (stateUpdate: { type: string }) => void
   ) => () => void;
+  onDockerLogStream: (
+    callback: (logEntry: { 
+      type: string; 
+      message: string; 
+      timestamp: string; 
+      level: string;
+      serviceName?: string;
+    }) => void
+  ) => () => void;
 
   validateDockerSetup: (
     setupPath: string
@@ -399,6 +408,22 @@ const exposedAPI: ElectronAPI = {
     ipcRenderer.on("docker-state-update", handler);
     return () => {
       ipcRenderer.removeListener("docker-state-update", handler);
+    };
+  },
+  onDockerLogStream: (callback) => {
+    const handler = (
+      _event: any,
+      logEntry: { 
+        type: string; 
+        message: string; 
+        timestamp: string; 
+        level: string;
+        serviceName?: string;
+      }
+    ) => callback(logEntry);
+    ipcRenderer.on("docker-log-stream", handler);
+    return () => {
+      ipcRenderer.removeListener("docker-log-stream", handler);
     };
   },
 
