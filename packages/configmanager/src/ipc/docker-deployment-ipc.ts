@@ -304,17 +304,114 @@ NEXT_PUBLIC_APP_URL=https://localhost
         const traefikLogsDir = path.join(targetDirectory, "traefik-logs");
         await fs.mkdir(traefikLogsDir, { recursive: true });
 
-        // Copy docker-compose.yml
-        const sourcePath = path.join(process.cwd(), "docker-compose.yml");
+        // Create or copy docker-compose.yml
         const targetPath = path.join(targetDirectory, "docker-compose.yml");
-        logger.info(`Copying docker-compose.yml from ${sourcePath} to ${targetPath}`);
+        logger.info(`Creating docker-compose.yml at ${targetPath}`);
         
-        const dockerComposeContent = await fs.readFile(sourcePath, "utf-8");
+        // First try to copy from the parent DDALAB directory
+        const possibleSources = [
+          path.join(process.cwd(), "docker-compose.yml"),
+          path.join(process.cwd(), "..", "..", "docker-compose.yml"), // From packages/configmanager to root
+          path.join(process.cwd(), "..", "..", "..", "docker-compose.yml"), // Alternative path
+        ];
+        
+        let dockerComposeContent = null;
+        for (const sourcePath of possibleSources) {
+          try {
+            logger.info(`Trying to copy docker-compose.yml from ${sourcePath}`);
+            dockerComposeContent = await fs.readFile(sourcePath, "utf-8");
+            logger.info(`Successfully found docker-compose.yml at ${sourcePath}`);
+            break;
+          } catch (error) {
+            logger.warn(`Could not read docker-compose.yml from ${sourcePath}: ${error.message}`);
+          }
+        }
+        
+        // If we couldn't find the template, create a minimal working version
+        if (!dockerComposeContent) {
+          logger.info("Creating minimal docker-compose.yml template");
+          dockerComposeContent = `version: '3.8'
+
+services:
+  ddalab:
+    image: sdraeger1/ddalab:latest
+    container_name: ddalab
+    ports:
+      - "8000:8000"
+    environment:
+      - DDALAB_DB_HOST=postgres
+      - DDALAB_DB_USER=\${DDALAB_DB_USER}
+      - DDALAB_DB_PASSWORD=\${DDALAB_DB_PASSWORD}
+      - DDALAB_DB_NAME=\${DDALAB_DB_NAME}
+      - DDALAB_ALLOWED_DIRS=\${DDALAB_ALLOWED_DIRS}
+      - DDALAB_DATA_DIR=\${DDALAB_DATA_DIR}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    networks:
+      - ddalab-network
+
+  postgres:
+    image: postgres:15
+    container_name: ddalab-postgres
+    environment:
+      - POSTGRES_USER=\${DDALAB_DB_USER}
+      - POSTGRES_PASSWORD=\${DDALAB_DB_PASSWORD}
+      - POSTGRES_DB=\${DDALAB_DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ddalab-network
+
+  redis:
+    image: redis:alpine
+    container_name: ddalab-redis
+    networks:
+      - ddalab-network
+
+  minio:
+    image: minio/minio
+    container_name: ddalab-minio
+    environment:
+      - MINIO_ROOT_USER=\${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=\${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - ddalab-network
+
+  web:
+    image: sdraeger1/ddalab-web:latest
+    container_name: ddalab-web
+    ports:
+      - "\${WEB_PORT}:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=\${NEXT_PUBLIC_API_URL}
+      - NEXT_PUBLIC_APP_URL=\${NEXT_PUBLIC_APP_URL}
+    depends_on:
+      - ddalab
+    networks:
+      - ddalab-network
+
+volumes:
+  postgres_data:
+  minio_data:
+
+networks:
+  ddalab-network:
+    driver: bridge
+`;
+        }
+        
         await fs.writeFile(targetPath, dockerComposeContent);
-        
-        // Verify file was copied
-        await fs.access(targetPath);
-        logger.info(`docker-compose.yml copied successfully to ${targetPath}`);
+        logger.info(`docker-compose.yml created successfully at ${targetPath}`);
 
         // Create .env file with proper configuration
         const envContent = `# DDALAB Docker Deployment Configuration
@@ -365,23 +462,126 @@ NEXT_PUBLIC_APP_URL=https://localhost
 `;
         await fs.writeFile(path.join(targetDirectory, ".env"), envContent);
 
-        const traefikContent = await fs.readFile(
+        // Create or copy traefik.yml
+        const traefikPath = path.join(targetDirectory, "traefik.yml");
+        logger.info(`Creating traefik.yml at ${traefikPath}`);
+        
+        const possibleTraefikSources = [
           path.join(process.cwd(), "traefik.yml"),
-          "utf-8"
-        );
-        await fs.writeFile(
-          path.join(targetDirectory, "traefik.yml"),
-          traefikContent
-        );
+          path.join(process.cwd(), "..", "..", "traefik.yml"),
+          path.join(process.cwd(), "..", "..", "..", "traefik.yml"),
+        ];
+        
+        let traefikContent = null;
+        for (const sourcePath of possibleTraefikSources) {
+          try {
+            logger.info(`Trying to copy traefik.yml from ${sourcePath}`);
+            traefikContent = await fs.readFile(sourcePath, "utf-8");
+            logger.info(`Successfully found traefik.yml at ${sourcePath}`);
+            break;
+          } catch (error) {
+            logger.warn(`Could not read traefik.yml from ${sourcePath}: ${error.message}`);
+          }
+        }
+        
+        // If we couldn't find the template, create a minimal working version
+        if (!traefikContent) {
+          logger.info("Creating minimal traefik.yml template");
+          traefikContent = `api:
+  dashboard: true
+  insecure: true
 
-        const dynamicContent = await fs.readFile(
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+  file:
+    directory: /dynamic
+    watch: true
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: admin@ddalab.local
+      storage: acme.json
+      httpChallenge:
+        entryPoint: web
+
+log:
+  level: INFO
+  filePath: "/traefik-logs/traefik.log"
+
+accessLog:
+  filePath: "/traefik-logs/access.log"
+`;
+        }
+        
+        await fs.writeFile(traefikPath, traefikContent);
+        logger.info(`traefik.yml created successfully at ${traefikPath}`);
+
+        // Create or copy dynamic router configuration
+        const routersPath = path.join(dynamicDir, "routers.yml");
+        logger.info(`Creating routers.yml at ${routersPath}`);
+        
+        const possibleDynamicSources = [
           path.join(process.cwd(), "dynamic/routers.yml"),
-          "utf-8"
-        );
-        await fs.writeFile(
-          path.join(dynamicDir, "routers.yml"),
-          dynamicContent
-        );
+          path.join(process.cwd(), "..", "..", "dynamic/routers.yml"),
+          path.join(process.cwd(), "..", "..", "..", "dynamic/routers.yml"),
+        ];
+        
+        let dynamicContent = null;
+        for (const sourcePath of possibleDynamicSources) {
+          try {
+            logger.info(`Trying to copy routers.yml from ${sourcePath}`);
+            dynamicContent = await fs.readFile(sourcePath, "utf-8");
+            logger.info(`Successfully found routers.yml at ${sourcePath}`);
+            break;
+          } catch (error) {
+            logger.warn(`Could not read routers.yml from ${sourcePath}: ${error.message}`);
+          }
+        }
+        
+        // If we couldn't find the template, create a minimal working version
+        if (!dynamicContent) {
+          logger.info("Creating minimal routers.yml template");
+          dynamicContent = `http:
+  routers:
+    ddalab-api:
+      rule: "Host(\`localhost\`) && PathPrefix(\`/api\`)"
+      service: ddalab-api
+      tls: {}
+    
+    ddalab-web:
+      rule: "Host(\`localhost\`)"
+      service: ddalab-web
+      tls: {}
+
+  services:
+    ddalab-api:
+      loadBalancer:
+        servers:
+          - url: "http://ddalab:8000"
+    
+    ddalab-web:
+      loadBalancer:
+        servers:
+          - url: "http://web:3000"
+
+tls:
+  certificates:
+    - certFile: /certs/server.crt
+      keyFile: /certs/server.key
+`;
+        }
+        
+        await fs.writeFile(routersPath, dynamicContent);
+        logger.info(`routers.yml created successfully at ${routersPath}`);
 
         // Create empty acme.json file
         await fs.writeFile(path.join(targetDirectory, "acme.json"), "{}");

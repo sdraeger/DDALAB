@@ -37,6 +37,16 @@ export function DDAHeatmapWidget({
   const [stateError, setStateError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const uplotRef = useRef<uPlot | null>(null);
+  
+  // Cursor tracking state
+  const [cursorInfo, setCursorInfo] = useState<{
+    x: number;
+    y: number;
+    dataX: number;
+    dataY: number;
+    value: number | null;
+    visible: boolean;
+  } | null>(null);
 
   // Persist/restore across unmounts (minimize/maximize)
   const storageKey = useMemo(
@@ -139,11 +149,14 @@ export function DDAHeatmapWidget({
     const onResults = (e: Event) => {
       const detail = (e as CustomEvent).detail as { Q?: (number | null)[][] };
       if (Array.isArray(detail?.Q) && detail.Q.length > 0) {
+        // Clean the data without downsampling
         const cleaned = detail.Q.map((row) =>
-          row.map((v) =>
-            v == null || !Number.isFinite(Number(v)) ? 0 : Number(v)
-          )
+          row.map((v) => {
+            const value = v == null || !Number.isFinite(Number(v)) ? 0 : Number(v);
+            return value;
+          })
         );
+        
         setQ(cleaned);
       }
     };
@@ -213,11 +226,31 @@ export function DDAHeatmapWidget({
       }
       return `rgb(${r}, ${g}, ${b})`;
     } else {
-      // Inferno color scheme
-      const r = Math.round(0 + 252 * clampedValue);
-      const g = Math.round(0 + 108 * clampedValue);
-      const b = Math.round(4 + 3 * clampedValue);
-      return `rgb(${r}, ${g}, ${b})`;
+      // Proper inferno colormap with control points
+      const infernoPoints = [
+        { t: 0.0, rgb: [0, 0, 4] },
+        { t: 0.2, rgb: [20, 11, 52] },
+        { t: 0.4, rgb: [66, 10, 104] },
+        { t: 0.6, rgb: [147, 38, 103] },
+        { t: 0.8, rgb: [229, 92, 48] },
+        { t: 1.0, rgb: [252, 255, 164] },
+      ];
+      
+      // Find the appropriate color segment
+      for (let i = 0; i < infernoPoints.length - 1; i++) {
+        const p1 = infernoPoints[i];
+        const p2 = infernoPoints[i + 1];
+        
+        if (clampedValue >= p1.t && clampedValue <= p2.t) {
+          const segmentT = (clampedValue - p1.t) / (p2.t - p1.t);
+          const r = Math.round(p1.rgb[0] + (p2.rgb[0] - p1.rgb[0]) * segmentT);
+          const g = Math.round(p1.rgb[1] + (p2.rgb[1] - p1.rgb[1]) * segmentT);
+          const b = Math.round(p1.rgb[2] + (p2.rgb[2] - p1.rgb[2]) * segmentT);
+          return `rgb(${r}, ${g}, ${b})`;
+        }
+      }
+      
+      return `rgb(${infernoPoints[infernoPoints.length - 1].rgb.join(', ')})`;
     }
   };
 
@@ -230,6 +263,7 @@ export function DDAHeatmapWidget({
     }
     const rows = Q.length;
     const cols = Q[0]?.length || 0;
+    
     const x = Float64Array.from({ length: cols }, (_, i) => i);
     const y = new Float64Array(cols).fill(0); // single dummy series; we paint in draw hook
 
@@ -252,24 +286,59 @@ export function DDAHeatmapWidget({
             const plotW = Math.max(1, Math.round(width * pxRatio));
             const plotH = Math.max(1, Math.round(height * pxRatio));
             const image = ctx2d.createImageData(plotW, plotH);
-            // Normalize Q to [0,1]
-            let min = Infinity,
-              max = -Infinity;
+            // Collect all values for robust statistics
+            const allValues = [];
+            let zeroCount = 0;
             for (let i = 0; i < rows; i++) {
               for (let j = 0; j < cols; j++) {
                 const v = Q[i][j];
-                if (v < min) min = v;
-                if (v > max) max = v;
+                if (typeof v === 'number' && !isNaN(v) && isFinite(v)) {
+                  allValues.push(v);
+                  if (v === 0) zeroCount++;
+                }
               }
             }
+            
+            // Sort values for percentile calculation
+            allValues.sort((a, b) => a - b);
+            
+            // Calculate percentiles to handle outliers
+            const getPercentile = (arr, p) => {
+              const index = Math.floor(arr.length * p / 100);
+              return arr[Math.min(index, arr.length - 1)];
+            };
+            
+            // Use 2nd and 98th percentiles for robust color scaling
+            // This handles outliers that would otherwise compress the color range
+            let min = getPercentile(allValues, 2);
+            let max = getPercentile(allValues, 98);
+            
+            // Fallback to actual min/max if percentiles are the same
+            if (min === max && allValues.length > 0) {
+              min = allValues[0];
+              max = allValues[allValues.length - 1];
+            }
+            
             const denom = max - min || 1;
+            
+            // Only log if there are outliers
+            if (allValues.length > 0 && (allValues[0] < min * 10 || allValues[allValues.length - 1] > max * 10)) {
+              console.log('[DDAHeatmapWidget] Outliers detected and handled:', {
+                actualMin: allValues[0],
+                actualMax: allValues[allValues.length - 1],
+                scaledMin: min,
+                scaledMax: max
+              });
+            }
             // Map plot pixels to Q indices
             for (let py = 0; py < plotH; py++) {
               const qi = Math.min(rows - 1, Math.floor((py / plotH) * rows));
               for (let px = 0; px < plotW; px++) {
                 const qj = Math.min(cols - 1, Math.floor((px / plotW) * cols));
                 const qv = Q[qi][qj];
-                const norm = denom === 0 ? 0 : (qv - min) / denom;
+                // Clamp values to the percentile range for better visualization
+                const clampedValue = Math.max(min, Math.min(max, qv));
+                const norm = denom === 0 ? 0 : (clampedValue - min) / denom;
                 const color = getColor(norm);
                 const m = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
                 const r = m ? Number(m[1]) : 0;
@@ -289,11 +358,70 @@ export function DDAHeatmapWidget({
             );
           },
         ],
+        setCursor: [
+          (u: uPlot) => {
+            const canvas = (u as any).root.querySelector('canvas');
+            if (!canvas) return;
+            
+            const handleMouseMove = (e: MouseEvent) => {
+              const rect = canvas.getBoundingClientRect();
+              const canvasX = e.clientX - rect.left;
+              const canvasY = e.clientY - rect.top;
+              
+              // Map canvas coordinates to Q matrix coordinates
+              const plotArea = u.bbox;
+              if (canvasX >= plotArea.left && canvasX <= plotArea.left + plotArea.width &&
+                  canvasY >= plotArea.top && canvasY <= plotArea.top + plotArea.height) {
+                
+                const relativeX = (canvasX - plotArea.left) / plotArea.width;
+                const relativeY = (canvasY - plotArea.top) / plotArea.height;
+                
+                const dataX = Math.floor(relativeX * cols);
+                const dataY = Math.floor(relativeY * rows);
+                
+                if (dataY >= 0 && dataY < rows && dataX >= 0 && dataX < cols) {
+                  const value = Q[dataY][dataX];
+                  setCursorInfo({
+                    x: canvasX,
+                    y: canvasY,
+                    dataX,
+                    dataY,
+                    value,
+                    visible: true,
+                  });
+                } else {
+                  setCursorInfo(null);
+                }
+              } else {
+                setCursorInfo(null);
+              }
+            };
+            
+            const handleMouseLeave = () => {
+              setCursorInfo(null);
+            };
+            
+            canvas.addEventListener('mousemove', handleMouseMove);
+            canvas.addEventListener('mouseleave', handleMouseLeave);
+            
+            // Store cleanup functions on the canvas element
+            (canvas as any)._cleanupCursor = () => {
+              canvas.removeEventListener('mousemove', handleMouseMove);
+              canvas.removeEventListener('mouseleave', handleMouseLeave);
+            };
+          },
+        ],
       },
     } as any;
 
     const data = [x, y] as unknown as uPlot.AlignedData;
     if (uplotRef.current) {
+      // Clean up old cursor listeners before updating
+      const canvas = (uplotRef.current as any).root.querySelector('canvas');
+      if (canvas && (canvas as any)._cleanupCursor) {
+        (canvas as any)._cleanupCursor();
+      }
+      
       uplotRef.current.setData(data);
       uplotRef.current.redraw();
     } else {
@@ -313,7 +441,31 @@ export function DDAHeatmapWidget({
         // Don't throw - just log the error to prevent component crash
       }
     }
+    
+    // Cleanup function for cursor listeners
+    return () => {
+      if (uplotRef.current) {
+        const canvas = (uplotRef.current as any).root?.querySelector('canvas');
+        if (canvas && (canvas as any)._cleanupCursor) {
+          (canvas as any)._cleanupCursor();
+        }
+      }
+    };
   }, [Q, colorScheme]);
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (uplotRef.current) {
+        const canvas = (uplotRef.current as any).root?.querySelector('canvas');
+        if (canvas && (canvas as any)._cleanupCursor) {
+          (canvas as any)._cleanupCursor();
+        }
+        uplotRef.current.destroy();
+        uplotRef.current = null;
+      }
+    };
+  }, []);
 
   const getStats = () => {
     if (Q.length === 0) return { min: 0, max: 0, avg: 0 };
@@ -412,6 +564,20 @@ export function DDAHeatmapWidget({
                 className="w-full"
                 style={{ minHeight: 320 }}
               />
+            )}
+            
+            {/* Cursor info overlay */}
+            {cursorInfo && cursorInfo.visible && (
+              <div 
+                className="absolute pointer-events-none z-20 bg-black/80 text-white px-2 py-1 rounded text-xs whitespace-nowrap"
+                style={{
+                  left: Math.min(cursorInfo.x + 10, 300),
+                  top: Math.max(cursorInfo.y - 30, 10),
+                }}
+              >
+                <div>X: {cursorInfo.dataX}, Y: {cursorInfo.dataY}</div>
+                <div>Q: {cursorInfo.value !== null ? cursorInfo.value.toFixed(4) : 'N/A'}</div>
+              </div>
             )}
           </div>
 

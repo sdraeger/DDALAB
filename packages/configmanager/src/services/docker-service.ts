@@ -189,7 +189,7 @@ Please visit https://www.docker.com/products/docker-desktop to download and inst
    * Copies missing files from the local DDALAB installation
    */
   static async ensureEssentialFiles(setupPath: string, userConfig: any): Promise<void> {
-    const LOCAL_DDALAB_PATH = process.env.DDALAB_LOCAL_PATH || "/Users/simon/Desktop/DDALAB";
+    const LOCAL_DDALAB_PATH = process.env.DDALAB_LOCAL_PATH || "./";
     
     logger.info(`Ensuring essential files are present in: ${setupPath}`);
     logger.info(`Using local DDALAB installation at: ${LOCAL_DDALAB_PATH}`);

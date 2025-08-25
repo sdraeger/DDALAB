@@ -20,6 +20,8 @@ interface DDAHeatmapProps {
   dataColumnStart?: number; // Start column index for focused color scaling
   dataColumnEnd?: number; // End column index for focused color scaling
   nullValueColor?: string; // Optional: color for null values
+  percentileLow?: number; // Optional: lower percentile for color scaling (default 5)
+  percentileHigh?: number; // Optional: upper percentile for color scaling (default 95)
 }
 
 // Default values
@@ -28,6 +30,8 @@ const DEFAULT_PAN = { x: 0, y: 0 };
 const MAX_ZOOM_LEVEL = 100;
 const MIN_INITIAL_ZOOM_FACTOR = 0.1;
 const DEFAULT_NULL_COLOR = "rgb(220, 220, 220)";
+const DEFAULT_PERCENTILE_LOW = 2; // Changed from 5 to 2 for better range
+const DEFAULT_PERCENTILE_HIGH = 98; // Changed from 95 to 98 for better range
 
 export function DDAHeatmap({
   data,
@@ -38,6 +42,8 @@ export function DDAHeatmap({
   dataColumnStart,
   dataColumnEnd,
   nullValueColor = DEFAULT_NULL_COLOR,
+  percentileLow = DEFAULT_PERCENTILE_LOW,
+  percentileHigh = DEFAULT_PERCENTILE_HIGH,
 }: DDAHeatmapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const heatmapContainerRef = useRef<HTMLDivElement>(null);
@@ -53,21 +59,35 @@ export function DDAHeatmap({
   const [dynamicMinZoom, setDynamicMinZoom] = useState(0.1);
   const [isRendering, setIsRendering] = useState(false);
   const initialViewCalculated = useRef(false);
+  
+  // Cursor tracking state
+  const [cursorInfo, setCursorInfo] = useState<{
+    x: number;
+    y: number;
+    dataX: number;
+    dataY: number;
+    value: number | null;
+    visible: boolean;
+  } | null>(null);
 
   // Memoized data processing
-  const { dataExtents, colorRange, gridData } = useMemo(() => {
+  const { dataExtents, colorRange, gridData, statistics } = useMemo(() => {
     if (data.length === 0) {
       return {
         dataExtents: { minX: 0, maxX: 0, minY: 0, maxY: 0, numX: 1, numY: 1 },
         colorRange: [0, 1] as [number, number],
-        gridData: new Map<string, number>()
+        gridData: new Map<string, number>(),
+        statistics: { mean: 0, std: 0, validCount: 0 }
       };
     }
 
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     const pointValuesForColorScale: number[] = [];
     const gridMap = new Map<string, number>();
+    let sum = 0;
+    let validCount = 0;
 
+    // First pass: collect data and statistics
     for (const point of data) {
       if (typeof point?.x === "number" && !isNaN(point.x)) {
         if (point.x < minX) minX = point.x;
@@ -81,31 +101,71 @@ export function DDAHeatmap({
       // Store in grid for fast lookup
       gridMap.set(`${point.x},${point.y}`, point.value);
 
+      // Collect values for color scaling, excluding fill values and NaN
       if (
         !point.isFillValue &&
         typeof point?.value === "number" &&
         !isNaN(point.value) &&
+        isFinite(point.value) &&
         (dataColumnStart === undefined || point.x >= dataColumnStart) &&
         (dataColumnEnd === undefined || point.x <= dataColumnEnd)
       ) {
         pointValuesForColorScale.push(point.value);
+        sum += point.value;
+        validCount++;
       }
     }
 
-    // Calculate color range using percentiles
+    // Calculate statistics
+    const mean = validCount > 0 ? sum / validCount : 0;
+    let variance = 0;
+    if (validCount > 1) {
+      for (const value of pointValuesForColorScale) {
+        variance += Math.pow(value - mean, 2);
+      }
+      variance /= (validCount - 1);
+    }
+    const std = Math.sqrt(variance);
+
+    // Calculate color range using percentiles or robust statistics
     let effectiveMinVal = 0;
     let effectiveMaxVal = 1;
+    
     if (pointValuesForColorScale.length > 0) {
       pointValuesForColorScale.sort((a, b) => a - b);
-      const p5Index = Math.floor(pointValuesForColorScale.length * 0.05);
-      const p95Index = Math.ceil(pointValuesForColorScale.length * 0.95) - 1;
-
-      effectiveMinVal = pointValuesForColorScale[p5Index];
-      effectiveMaxVal = pointValuesForColorScale[p95Index];
-
-      if (effectiveMaxVal <= effectiveMinVal) {
-        effectiveMaxVal = effectiveMinVal + 1;
+      
+      // Use percentiles if we have enough data
+      if (pointValuesForColorScale.length > 20) {
+        const lowIndex = Math.floor(pointValuesForColorScale.length * percentileLow / 100);
+        const highIndex = Math.ceil(pointValuesForColorScale.length * percentileHigh / 100) - 1;
+        
+        effectiveMinVal = pointValuesForColorScale[Math.max(0, lowIndex)];
+        effectiveMaxVal = pointValuesForColorScale[Math.min(pointValuesForColorScale.length - 1, highIndex)];
+      } else {
+        // For small datasets, use min/max
+        effectiveMinVal = pointValuesForColorScale[0];
+        effectiveMaxVal = pointValuesForColorScale[pointValuesForColorScale.length - 1];
       }
+
+      // Ensure we have a valid range
+      if (effectiveMaxVal <= effectiveMinVal) {
+        // If all values are the same, create a small range around that value
+        const midValue = effectiveMinVal;
+        effectiveMinVal = midValue - 0.5;
+        effectiveMaxVal = midValue + 0.5;
+      }
+      
+      // Log the color range for debugging
+      console.log('Color range calculation:', {
+        validCount,
+        mean: mean.toFixed(3),
+        std: std.toFixed(3),
+        minValue: Math.min(...pointValuesForColorScale).toFixed(3),
+        maxValue: Math.max(...pointValuesForColorScale).toFixed(3),
+        effectiveMin: effectiveMinVal.toFixed(3),
+        effectiveMax: effectiveMaxVal.toFixed(3),
+        percentiles: [percentileLow, percentileHigh]
+      });
     }
 
     minX = isFinite(minX) ? minX : 0;
@@ -126,9 +186,10 @@ export function DDAHeatmap({
         numY: maxY - minY + 1,
       },
       colorRange: [effectiveMinVal, effectiveMaxVal] as [number, number],
-      gridData: gridMap
+      gridData: gridMap,
+      statistics: { mean, std, validCount }
     };
-  }, [data, currentCanvasWidth, height, dataColumnStart, dataColumnEnd]);
+  }, [data, currentCanvasWidth, height, dataColumnStart, dataColumnEnd, percentileLow, percentileHigh]);
 
   // Initialize view when data changes
   useEffect(() => {
@@ -160,9 +221,9 @@ export function DDAHeatmap({
       const dataCenterX = (dataExtents.minX + dataExtents.maxX) / 2;
       const dataCenterY = (dataExtents.minY + dataExtents.maxY) / 2;
 
-      // Calculate pan to center the data
-      const newInitialPanX = dataCenterX - currentCanvasWidth / (2 * newInitialZoom);
-      const newInitialPanY = dataCenterY - height / (2 * newInitialZoom);
+      // Calculate pan to center the data with better alignment
+      const newInitialPanX = dataExtents.minX - (currentCanvasWidth / newInitialZoom - dataWidth) / 2;
+      const newInitialPanY = dataExtents.minY - (height / newInitialZoom - dataHeight) / 2;
 
       console.log('Pan calculation:', { dataCenterX, dataCenterY, newInitialPanX, newInitialPanY });
 
@@ -175,7 +236,7 @@ export function DDAHeatmap({
 
   // Improved color mapping function (inferno colormap)
   const intToInfernoRGB = useCallback((value: number): [number, number, number] => {
-    if (isNaN(value)) return [0, 0, 0];
+    if (isNaN(value) || !isFinite(value)) return [0, 0, 0];
 
     const normalized = Math.min(Math.max(value, 0), 1);
 
@@ -233,7 +294,8 @@ export function DDAHeatmap({
         zoom,
         pan,
         colorRange,
-        canvasSize: { width: currentCanvasWidth, height }
+        canvasSize: { width: currentCanvasWidth, height },
+        statistics
       });
 
       // Create ImageData for pixel-perfect rendering
@@ -250,12 +312,14 @@ export function DDAHeatmap({
       const visibleMaxY = pan.y + height / zoom;
 
       console.log('Visible region:', { visibleMinX, visibleMaxX, visibleMinY, visibleMaxY });
+      console.log('Data extents:', dataExtents);
+      console.log('Zoom and pan:', { zoom, pan });
 
-      // Pre-fill with background color
+      // Pre-fill with background color (darker gray for better contrast)
       for (let i = 0; i < pixels.length; i += 4) {
-        pixels[i] = 50;      // Dark gray
-        pixels[i + 1] = 50;
-        pixels[i + 2] = 50;
+        pixels[i] = 30;      // Darker gray
+        pixels[i + 1] = 30;
+        pixels[i + 2] = 30;
         pixels[i + 3] = 255;
       }
 
@@ -288,9 +352,16 @@ export function DDAHeatmap({
                 const exactY = Math.round(dataY);
                 const value = gridData.get(`${exactX},${exactY}`);
 
-                if (value !== undefined && !isNaN(value)) {
+                if (value !== undefined && !isNaN(value) && isFinite(value)) {
+                  // Add some debugging for the first few pixels
+                  if (canvasX < 5 && canvasY < 5) {
+                    console.log(`Pixel (${canvasX},${canvasY}) -> Data (${exactX},${exactY}) = ${value}`);
+                  }
                   const pixelIndex = (canvasY * currentCanvasWidth + canvasX) * 4;
-                  const normalizedValue = (value - minValue) / valueRange;
+                  
+                  // Clamp value to color range to avoid overflow
+                  const clampedValue = Math.max(minValue, Math.min(maxValue, value));
+                  const normalizedValue = (clampedValue - minValue) / valueRange;
                   const [r, g, b] = intToInfernoRGB(normalizedValue);
 
                   pixels[pixelIndex] = r;     // Red
@@ -342,6 +413,18 @@ export function DDAHeatmap({
           });
         }
 
+        // Draw color scale info in corner
+        ctx.fillStyle = "white";
+        ctx.strokeStyle = "black";
+        ctx.lineWidth = 1;
+        ctx.font = "10px Arial";
+        const rangeText = `Range: [${colorRange[0].toFixed(2)}, ${colorRange[1].toFixed(2)}]`;
+        const statsText = `μ=${statistics.mean.toFixed(2)}, σ=${statistics.std.toFixed(2)}`;
+        ctx.strokeText(rangeText, currentCanvasWidth - 150, 20);
+        ctx.fillText(rangeText, currentCanvasWidth - 150, 20);
+        ctx.strokeText(statsText, currentCanvasWidth - 150, 35);
+        ctx.fillText(statsText, currentCanvasWidth - 150, 35);
+
         console.log('Heatmap drawing completed successfully');
       }
     } catch (error) {
@@ -350,7 +433,7 @@ export function DDAHeatmap({
       setIsRendering(false);
       drawingRef.current = false;
     }
-  }, [data, zoom, pan, currentCanvasWidth, height, colorRange, gridData, channels, intToInfernoRGB, dataExtents]);
+  }, [data, zoom, pan, currentCanvasWidth, height, colorRange, gridData, channels, intToInfernoRGB, dataExtents, statistics]);
 
   // Debounced redraw
   useEffect(() => {
@@ -415,18 +498,52 @@ export function DDAHeatmap({
   }, [isRendering]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isDragging || isRendering) return;
+    if (isRendering) return;
 
-    const dx = e.clientX - dragStart.x;
-    const dy = e.clientY - dragStart.y;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    setPan(prevPan => ({
-      x: prevPan.x - dx / zoom,
-      y: prevPan.y - dy / zoom,
-    }));
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
 
-    setDragStart({ x: e.clientX, y: e.clientY });
-  }, [isDragging, dragStart, zoom, isRendering]);
+    if (isDragging) {
+      // Handle dragging
+      const dx = e.clientX - dragStart.x;
+      const dy = e.clientY - dragStart.y;
+
+      setPan(prevPan => ({
+        x: prevPan.x - dx / zoom,
+        y: prevPan.y - dy / zoom,
+      }));
+
+      setDragStart({ x: e.clientX, y: e.clientY });
+    } else {
+      // Handle cursor tracking
+      const visibleMinX = pan.x;
+      const visibleMaxX = pan.x + currentCanvasWidth / zoom;
+      const visibleMinY = pan.y;
+      const visibleMaxY = pan.y + height / zoom;
+
+      // Map canvas coordinates to data coordinates
+      const dataX = visibleMinX + (canvasX / currentCanvasWidth) * (visibleMaxX - visibleMinX);
+      const dataY = visibleMinY + (canvasY / height) * (visibleMaxY - visibleMinY);
+
+      // Find the nearest data point
+      const exactX = Math.round(dataX);
+      const exactY = Math.round(dataY);
+      const value = gridData.get(`${exactX},${exactY}`);
+
+      setCursorInfo({
+        x: canvasX,
+        y: canvasY,
+        dataX: exactX,
+        dataY: exactY,
+        value: value ?? null,
+        visible: true,
+      });
+    }
+  }, [isDragging, dragStart, zoom, isRendering, pan, currentCanvasWidth, height, gridData]);
 
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
     if (isDragging) {
@@ -440,6 +557,9 @@ export function DDAHeatmap({
       setIsDragging(false);
       (e.target as HTMLElement).style.cursor = "grab";
     }
+    
+    // Hide cursor info when mouse leaves the heatmap
+    setCursorInfo(null);
   }, [isDragging]);
 
   const resetView = useCallback(() => {
@@ -455,8 +575,8 @@ export function DDAHeatmap({
       const dataCenterX = (dataExtents.minX + dataExtents.maxX) / 2;
       const dataCenterY = (dataExtents.minY + dataExtents.maxY) / 2;
 
-      const initialPanX = dataCenterX - currentCanvasWidth / (2 * initialZoom);
-      const initialPanY = dataCenterY - height / (2 * initialZoom);
+      const initialPanX = dataExtents.minX - (currentCanvasWidth / initialZoom - dataWidth) / 2;
+      const initialPanY = dataExtents.minY - (height / initialZoom - dataHeight) / 2;
 
       setZoom(initialZoom);
       setPan({ x: initialPanX, y: initialPanY });
@@ -557,6 +677,20 @@ export function DDAHeatmap({
           height={height}
           className="block"
         />
+        {/* Cursor info overlay */}
+        {cursorInfo && cursorInfo.visible && (
+          <div 
+            className="absolute pointer-events-none z-20 bg-black/80 text-white px-2 py-1 rounded text-xs whitespace-nowrap"
+            style={{
+              left: Math.min(cursorInfo.x + 10, currentCanvasWidth - 120),
+              top: Math.max(cursorInfo.y - 30, 10),
+            }}
+          >
+            <div>X: {cursorInfo.dataX}, Y: {cursorInfo.dataY}</div>
+            <div>Q: {cursorInfo.value !== null ? cursorInfo.value.toFixed(4) : 'N/A'}</div>
+          </div>
+        )}
+        
         <div className="absolute top-3 right-3 flex flex-col space-y-2 z-10">
           <Button
             variant="outline"
