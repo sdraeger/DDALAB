@@ -108,10 +108,12 @@ export interface ElectronAPI {
   }>;
   setupDockerDeployment: (
     dataLocation: string,
-    setupLocation: string
+    setupLocation: string,
+    userConfig?: any
   ) => Promise<{ success: boolean; message: string }>;
   setupDockerDirectory: (
-    targetDirectory: string
+    targetDirectory: string,
+    userConfig?: any
   ) => Promise<{ success: boolean; message: string }>;
 
   checkDockerInstallation: () => Promise<{
@@ -402,10 +404,10 @@ const exposedAPI: ElectronAPI = {
 
   validateDockerSetup: (setupPath: string) =>
     ipcRenderer.invoke("validate-docker-setup", setupPath),
-  setupDockerDeployment: (dataLocation: string, setupLocation: string) =>
-    ipcRenderer.invoke("setup-docker-deployment", dataLocation, setupLocation),
-  setupDockerDirectory: (targetDirectory: string) =>
-    ipcRenderer.invoke("setup-docker-directory-legacy", targetDirectory),
+  setupDockerDeployment: (dataLocation: string, setupLocation: string, userConfig?: any) =>
+    ipcRenderer.invoke("setup-docker-deployment", dataLocation, setupLocation, userConfig),
+  setupDockerDirectory: (targetDirectory: string, userConfig?: any) =>
+    ipcRenderer.invoke("setup-docker-directory", targetDirectory, userConfig),
 
   checkDockerInstallation: () =>
     ipcRenderer.invoke("check-docker-installation"),

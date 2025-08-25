@@ -5,7 +5,7 @@ import type {
   UserSelections,
 } from "./utils/electron";
 import type { DockerStatus } from "../preload";
-import { logger } from './utils/logger-client';
+import { logger } from "./utils/logger-client";
 import {
   WelcomeSite,
   DataLocationSite,
@@ -13,20 +13,29 @@ import {
   ManualConfigSite,
   DockerConfigSite,
   SummarySite,
-  ProgressSidebar,
   ConfigurationEditor,
   SystemInfoModal,
   BugReportModal,
   EnhancedControlPanel,
-  SimplifiedControlSidebar,
   UpdateProgressModal,
   QuitConfirmationModal,
+  MenuActionHandler,
+  AppLayout,
+  NavigationErrorBoundary,
+  SectionErrorBoundary,
+  ModalErrorBoundary,
+  HealthStatusModal,
 } from "./components";
+import MissingInstallationAlert from "./components/MissingInstallationAlert";
 import { SiteNavigationProvider } from "./context/SiteNavigationProvider";
 import { DockerProvider } from "./context/DockerProvider";
 import { SystemStatusProvider } from "./context/SystemStatusProvider";
+import { HealthStatusProvider } from "./context/HealthStatusProvider";
 import { useSiteNavigation } from "./hooks/useSiteNavigation";
 import { useNavigationValidation } from "./hooks/useNavigationValidation";
+import { useAppNavigation } from "./hooks/useAppNavigation";
+import { useEnvironmentLoader } from "./hooks/useEnvironmentLoader";
+import { useStatePersistence } from "./hooks/useStatePersistence";
 
 interface CloneDialog {
   show: boolean;
@@ -100,6 +109,7 @@ const CloneDialogModal: React.FC<{
 );
 
 const AppContent: React.FC = () => {
+  const electronAPI = window.electronAPI as ElectronAPI | undefined;
   const {
     currentSite,
     userSelections,
@@ -122,8 +132,8 @@ const AppContent: React.FC = () => {
   const [showBugReport, setShowBugReport] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showQuitConfirmation, setShowQuitConfirmation] = useState(false);
+  const [showHealthStatus, setShowHealthStatus] = useState(false);
   const [isDDALABRunning, setIsDDALABRunning] = useState(false);
-  const electronAPI = window.electronAPI as ElectronAPI | undefined;
 
   const {
     isNextButtonEnabled,
@@ -137,172 +147,45 @@ const AppContent: React.FC = () => {
     isLoading
   );
 
-  const loadEnvVars = async (
-    path: string
-  ): Promise<ParsedEnvEntry[] | null> => {
-    if (!electronAPI?.loadEnvVars) return null;
-    try {
-      const entries = await electronAPI.loadEnvVars(path);
-      if (!entries) return null;
-      updateSelections({
-        envVariables: Object.fromEntries(
-          entries.map(({ key, value }) => [key, value])
-        ),
-      });
-      updateEnvEntries(entries);
-      return entries;
-    } catch (error) {
-      logger.error('Could not load environment variables', error);
-      // TODO: Show user-friendly UI notification instead of alert
-      return null;
-    }
-  };
+  const { handleNavigation, validateDockerSetup, executeDockerInstallation } =
+    useAppNavigation(electronAPI, setIsSetupComplete);
 
-  const validateDockerSetup = async (path: string): Promise<boolean> => {
-    if (!electronAPI || !path) {
-      logger.error('Setup validation not available or no directory selected');
-      // TODO: Show user-friendly UI notification instead of alert
-      return false;
-    }
-    try {
-      const result = await electronAPI.validateDockerSetup(path);
-      if (result.success) {
-        updateSelections({
-          dataLocation: path,
-          projectLocation: path,
-        });
-        return true;
-      }
-      if (result.needsSetup && result.targetPath) {
+  const { loadEnvVars } = useEnvironmentLoader(
+    electronAPI,
+    updateSelections,
+    updateEnvEntries
+  );
+
+  useStatePersistence(
+    electronAPI,
+    userSelections,
+    currentSite,
+    parsedEnvEntries,
+    installationSuccess
+  );
+
+  const handleValidateDockerSetup = async (path: string): Promise<boolean> => {
+    const result = await validateDockerSetup(path);
+    if (!result && electronAPI) {
+      const validationResult = await electronAPI.validateDockerSetup(path);
+      if (validationResult.needsSetup && validationResult.targetPath) {
         setCloneDialog({
           show: true,
-          targetPath: result.targetPath,
+          targetPath: validationResult.targetPath,
           message:
-            result.message ||
-            `No DDALAB Docker setup found in ${result.targetPath}. Would you like to create the necessary files?`,
+            validationResult.message ||
+            `No DDALAB Docker setup found in ${validationResult.targetPath}. Would you like to create the necessary files?`,
         });
-      } else {
-        logger.error('Docker setup validation failed', result.message || 'Failed to validate Docker setup directory');
-        // TODO: Show user-friendly UI notification instead of alert
       }
-      return false;
-    } catch (error) {
-      logger.error('Failed to validate Docker setup', error);
-      // TODO: Show user-friendly UI notification instead of alert
-      return false;
     }
+    return result;
   };
 
-  const executeDockerInstallation = async (): Promise<boolean> => {
-    if (!electronAPI || !userSelections.dataLocation) {
-      logger.error('Installation interface not available or no directory selected');
-      // TODO: Show user-friendly UI notification instead of alert
-      return false;
-    }
-    try {
-      if (userSelections.setupType === "docker") {
-        if (!userSelections.projectLocation) {
-          logger.error('Setup location not selected for Docker setup');
-          // TODO: Show user-friendly UI notification instead of alert
-          return false;
-        }
-
-        // Setup Docker deployment with user configuration handled internally
-
-        await electronAPI.setupDockerDeployment(
-          userSelections.dataLocation,
-          userSelections.projectLocation
-        );
-      } else {
-        await electronAPI.saveEnvFile(
-          userSelections.dataLocation,
-          userSelections.envVariables
-        );
-        await electronAPI.markSetupComplete(userSelections.dataLocation);
-      }
-
-      // Save full state after successful installation
-      if (electronAPI?.saveFullState) {
-        await electronAPI.saveFullState(
-          userSelections.dataLocation,
-          userSelections.projectLocation,
-          userSelections,
-          currentSite,
-          parsedEnvEntries,
-          installationSuccess
-        );
-      }
-
-      setInstallationSuccess(true);
-      return true;
-    } catch (error) {
-      logger.error('Installation failed', error);
-      // TODO: Show user-friendly UI notification instead of alert
-      return false;
-    }
-  };
-
-  const handleNavigation = async (direction: "next" | "back") => {
+  const handleNavigationWrapper = async (direction: "next" | "back") => {
     if (isLoading) return;
     setIsLoading(true);
     try {
-      if (direction === "back") {
-        goToPreviousSite();
-        return;
-      }
-
-      let canProceed = true;
-      switch (currentSite) {
-        case "welcome":
-          if (!userSelections.setupType) {
-            logger.warn('Please select a setup type');
-            // TODO: Show user-friendly UI notification instead of alert
-            canProceed = false;
-          } else if (userSelections.setupType === "docker") {
-            updateSelections({ envVariables: {} });
-          }
-          break;
-        case "data-location":
-          if (!userSelections.dataLocation) {
-            logger.warn('Please select a data location');
-            // TODO: Show user-friendly UI notification instead of alert
-            canProceed = false;
-          } else if (!userSelections.envVariables?.DDALAB_ALLOWED_DIRS) {
-            logger.warn('Please configure allowed directories before proceeding');
-            // TODO: Show user-friendly UI notification instead of alert
-            canProceed = false;
-          }
-          break;
-        case "clone-location":
-          if (!userSelections.projectLocation) {
-            logger.warn('Please select a setup location');
-            // TODO: Show user-friendly UI notification instead of alert
-            canProceed = false;
-          }
-          break;
-        case "docker-config":
-          // For Docker config, we can proceed as long as we have the basic setup
-          if (!userSelections.dataLocation || !userSelections.projectLocation) {
-            logger.warn('Please complete the previous steps first');
-            // TODO: Show user-friendly UI notification instead of alert
-            canProceed = false;
-          }
-          break;
-        case "manual-config":
-          canProceed = await validateDockerSetup(userSelections.dataLocation);
-          break;
-        case "summary":
-          canProceed = await executeDockerInstallation();
-          if (canProceed) {
-            // Setup is complete, transition to control panel
-            setIsSetupComplete(true);
-          }
-          break;
-      }
-      if (canProceed) goToNextSite();
-    } catch (error) {
-      logger.error('An error occurred during navigation', error);
-      // TODO: Show user-friendly UI notification instead of alert
+      await handleNavigation(direction);
     } finally {
       setIsLoading(false);
     }
@@ -312,10 +195,24 @@ const AppContent: React.FC = () => {
     if (!cloneDialog?.targetPath || !electronAPI) return;
     setIsLoading(true);
     try {
-      // Setup Docker directory with user configuration handled internally
-
+      // Build the user configuration with defaults
+      const userConfig = {
+        dataLocation: cloneDialog.targetPath,
+        allowedDirs: userSelections.envVariables?.DDALAB_ALLOWED_DIRS || `${cloneDialog.targetPath}:/app/data:rw`,
+        webPort: userSelections.envVariables?.WEB_PORT || '3000',
+        apiPort: userSelections.envVariables?.DDALAB_API_PORT || '8001',
+        apiPortMetrics: userSelections.envVariables?.API_PORT_METRICS || '8002',
+        dbPassword: userSelections.envVariables?.DDALAB_DB_PASSWORD || 'ddalab_password',
+        minioPassword: userSelections.envVariables?.MINIO_ROOT_PASSWORD || 'ddalab_password',
+        traefikEmail: userSelections.envVariables?.TRAEFIK_ACME_EMAIL || 'admin@ddalab.local',
+        useDockerHub: true,
+        authMode: userSelections.envVariables?.DDALAB_AUTH_MODE || 'local',
+        projectLocation: cloneDialog.targetPath,
+      };
+      
       const result = await electronAPI.setupDockerDirectory(
-        cloneDialog.targetPath
+        cloneDialog.targetPath,
+        userConfig
       );
       if (result.success) {
         updateSelections({
@@ -326,107 +223,17 @@ const AppContent: React.FC = () => {
         setCloneDialog(null);
         goToNextSite();
       } else {
-        logger.error('Failed to setup directory', result.message || 'Failed to setup directory');
-        // TODO: Show user-friendly UI notification instead of alert
+        logger.error(
+          "Failed to setup directory",
+          result.message || "Failed to setup directory"
+        );
       }
     } catch (error) {
-      logger.error('Failed to setup directory', error);
-      // TODO: Show user-friendly UI notification instead of alert
+      logger.error("Failed to setup directory", error);
     } finally {
       setIsLoading(false);
     }
   };
-
-  useEffect(() => {
-    const handleMenuAction = (data: { action: string; path?: string }) => {
-      switch (data.action) {
-        case "new-setup":
-          goToSite("welcome");
-          updateSelections({});
-          updateEnvEntries([]);
-          setInstallationSuccess(false);
-          break;
-        case "open-setup-directory":
-          if (data.path) {
-            updateSelections({
-              dataLocation: data.path,
-              projectLocation: data.path,
-            });
-          }
-          break;
-        case "restart-setup-wizard":
-          goToSite("welcome");
-          break;
-        case "reset-all-settings":
-          goToSite("welcome");
-          updateSelections({});
-          updateEnvEntries([]);
-          setInstallationSuccess(false);
-          break;
-        case "validate-current-setup":
-          if (electronAPI?.validateDockerSetup && userSelections.dataLocation) {
-            validateDockerSetup(userSelections.dataLocation);
-          }
-          break;
-        case "start-docker-services":
-          if (electronAPI?.startMonolithicDocker) {
-            electronAPI.startMonolithicDocker();
-          }
-          break;
-        case "stop-docker-services":
-          if (electronAPI?.stopMonolithicDocker) {
-            electronAPI.stopMonolithicDocker(false);
-          }
-          break;
-        case "restart-docker-services":
-          if (
-            electronAPI?.stopMonolithicDocker &&
-            electronAPI?.startMonolithicDocker
-          ) {
-            electronAPI.stopMonolithicDocker(false).then(() => {
-              setTimeout(() => electronAPI.startMonolithicDocker(), 2000);
-            });
-          }
-          break;
-        case "check-docker-status":
-          if (electronAPI?.getDockerStatus) {
-            electronAPI.getDockerStatus();
-          }
-          break;
-        case "view-docker-logs":
-          goToSite("control-panel");
-          break;
-        case "reset-docker-volumes":
-          if (electronAPI?.stopMonolithicDocker) {
-            electronAPI.stopMonolithicDocker(true);
-          }
-          break;
-        case "export-configuration":
-        case "import-configuration":
-          // These are handled by menu IPC handlers
-          break;
-        default:
-          logger.warn('Unhandled menu action', { action: data.action });
-      }
-    };
-
-    // Listen for menu actions
-    if (electronAPI?.onMenuAction) {
-      const removeMenuListener = electronAPI.onMenuAction(handleMenuAction);
-
-      return () => {
-        removeMenuListener();
-      };
-    }
-  }, [
-    electronAPI,
-    goToSite,
-    updateSelections,
-    updateEnvEntries,
-    setInstallationSuccess,
-    userSelections.dataLocation,
-    validateDockerSetup,
-  ]);
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -437,28 +244,23 @@ const AppContent: React.FC = () => {
       try {
         const state = await electronAPI.getConfigManagerState();
 
-        // Restore user selections if available
         if (state.userSelections) {
           updateSelections(state.userSelections);
         }
 
-        // Restore navigation state if available
         if (state.currentSite) {
           goToSite(state.currentSite);
         }
 
-        // Restore environment entries if available
         if (state.parsedEnvEntries) {
           updateEnvEntries(state.parsedEnvEntries);
         }
 
-        // Restore installation success state
         if (state.installationSuccess !== undefined) {
           setInstallationSuccess(state.installationSuccess || false);
         }
 
         if (state.setupComplete) {
-          // Setup is complete, go to control panel and set flag
           setIsSetupComplete(true);
           goToSite("control-panel");
           updateSelections({
@@ -466,7 +268,6 @@ const AppContent: React.FC = () => {
             projectLocation: state.projectLocation || state.setupPath || "",
           });
         } else {
-          // Only go to welcome if no current site is set
           if (!state.currentSite) {
             goToSite("welcome");
           }
@@ -478,42 +279,11 @@ const AppContent: React.FC = () => {
     initializeApp();
   }, []);
 
-  // Auto-save state when user selections or navigation changes
-  useEffect(() => {
-    const saveState = async () => {
-      if (electronAPI?.saveUserState) {
-        try {
-          await electronAPI.saveUserState(
-            userSelections,
-            currentSite,
-            parsedEnvEntries,
-            installationSuccess
-          );
-        } catch (error) {
-          logger.error('Failed to save user state', error);
-        }
-      }
-    };
-
-    // Debounce state saving to avoid excessive writes
-    const timeoutId = setTimeout(saveState, 1000);
-    return () => clearTimeout(timeoutId);
-  }, [
-    userSelections,
-    currentSite,
-    parsedEnvEntries,
-    installationSuccess,
-    electronAPI,
-  ]);
-
-  // Listen for quit requests and Docker status updates
   useEffect(() => {
     if (!electronAPI) return;
 
-    // Listen for quit confirmation requests
     const removeQuitListener = electronAPI.onQuitRequest
       ? electronAPI.onQuitRequest(() => {
-          // Check Docker status before showing quit confirmation
           if (electronAPI.getDockerStatus) {
             electronAPI
               .getDockerStatus()
@@ -522,29 +292,26 @@ const AppContent: React.FC = () => {
                 setShowQuitConfirmation(true);
               })
               .catch(() => {
-                // If we can't check Docker status, assume it's not running
                 setIsDDALABRunning(false);
                 setShowQuitConfirmation(true);
               });
           } else {
-            // Fallback if getDockerStatus is not available
             setIsDDALABRunning(false);
             setShowQuitConfirmation(true);
           }
         })
       : null;
 
-    // Listen for Docker status updates
     const removeDockerListener = electronAPI.onDockerStatusUpdate
-      ? electronAPI.onDockerStatusUpdate((statusUpdate: { type: string; message: string }) => {
-          // For now, we'll parse the message to determine if Docker is running
-          // This should be updated based on the actual status update format
-          if (statusUpdate.type === 'docker-running') {
-            setIsDDALABRunning(true);
-          } else if (statusUpdate.type === 'docker-stopped') {
-            setIsDDALABRunning(false);
+      ? electronAPI.onDockerStatusUpdate(
+          (statusUpdate: { type: string; message: string }) => {
+            if (statusUpdate.type === "docker-running") {
+              setIsDDALABRunning(true);
+            } else if (statusUpdate.type === "docker-stopped") {
+              setIsDDALABRunning(false);
+            }
           }
-        })
+        )
       : null;
 
     return () => {
@@ -553,7 +320,6 @@ const AppContent: React.FC = () => {
     };
   }, [electronAPI]);
 
-  // Control panel sidebar handlers
   const handleEditConfig = () => {
     setShowConfigEditor(true);
   };
@@ -574,30 +340,34 @@ const AppContent: React.FC = () => {
     setIsSetupComplete(false);
   };
 
+  const handleStartNewSetupFromAlert = () => {
+    logger.info("Starting new setup from missing installation alert");
+    handleNewSetup();
+  };
+
+  const handleShowHealthFromAlert = () => {
+    setShowHealthStatus(true);
+  };
+
   const handleShowUpdateModal = () => {
     setShowUpdateModal(true);
   };
-
 
   const handleConfirmQuit = async (stopDDALAB: boolean) => {
     if (!electronAPI) return;
 
     try {
       if (stopDDALAB && isDDALABRunning) {
-        // Stop DDALAB services before quitting
         await electronAPI.stopMonolithicDocker(false);
       }
 
-      // Close the modal and proceed with quit
       setShowQuitConfirmation(false);
 
-      // Signal to electron that it's safe to quit
       if (electronAPI.confirmQuit) {
         electronAPI.confirmQuit();
       }
     } catch (error) {
-      logger.error('Error during quit process', error);
-      // Still proceed with quit even if stopping Docker fails
+      logger.error("Error during quit process", error);
       setShowQuitConfirmation(false);
       if (electronAPI.confirmQuit) {
         electronAPI.confirmQuit();
@@ -613,7 +383,6 @@ const AppContent: React.FC = () => {
       updateSelections(selections);
       updateEnvEntries(envEntries);
 
-      // Save to electron store
       if (electronAPI?.saveUserState) {
         await electronAPI.saveUserState(
           { ...userSelections, ...selections },
@@ -623,7 +392,6 @@ const AppContent: React.FC = () => {
         );
       }
 
-      // Save env file if needed
       if (electronAPI?.saveEnvFile && userSelections.dataLocation) {
         await electronAPI.saveEnvFile(
           userSelections.dataLocation,
@@ -632,11 +400,9 @@ const AppContent: React.FC = () => {
       }
 
       setShowConfigEditor(false);
-      logger.info('Configuration saved successfully');
-      // TODO: Show user-friendly UI notification instead of alert
+      logger.info("Configuration saved successfully");
     } catch (error) {
-      logger.error('Failed to save configuration', error);
-      // TODO: Show user-friendly UI notification instead of alert
+      logger.error("Failed to save configuration", error);
     }
   };
 
@@ -645,211 +411,246 @@ const AppContent: React.FC = () => {
     onUpdateSelections: updateSelections,
     parsedEnvEntries,
     onUpdateEnvEntries: updateEnvEntries,
-    onNext: () => handleNavigation("next"),
-    onBack: () => handleNavigation("back"),
-    electronAPI,
+    onNext: () => handleNavigationWrapper("next"),
+    onBack: () => handleNavigationWrapper("back"),
+    electronAPI: electronAPI,
   };
 
   const siteComponents: Record<string, JSX.Element> = {
     welcome: (
-      <WelcomeSite
-        {...commonProps}
-        onSetupTypeChange={(type) => updateSelections({ setupType: type })}
-      />
+      <SectionErrorBoundary sectionName="Welcome">
+        <WelcomeSite
+          {...commonProps}
+          onSetupTypeChange={(type) => updateSelections({ setupType: type })}
+        />
+      </SectionErrorBoundary>
     ),
     "data-location": (
-      <DataLocationSite
-        {...commonProps}
-        onDataLocationChange={(path) =>
-          updateSelections({ dataLocation: path })
-        }
-        onEnvVariableChange={(key, value) =>
-          updateSelections({
-            envVariables: { ...userSelections.envVariables, [key]: value },
-          })
-        }
-      />
+      <SectionErrorBoundary sectionName="Data Location">
+        <DataLocationSite
+          {...commonProps}
+          onDataLocationChange={(path) =>
+            updateSelections({ dataLocation: path })
+          }
+          onEnvVariableChange={(key, value) =>
+            updateSelections({
+              envVariables: { ...userSelections.envVariables, [key]: value },
+            })
+          }
+        />
+      </SectionErrorBoundary>
     ),
     "clone-location": (
-      <ProjectLocationSite
-        {...commonProps}
-        onProjectLocationChange={(path) =>
-          updateSelections({ projectLocation: path })
-        }
-      />
+      <SectionErrorBoundary sectionName="Project Location">
+        <ProjectLocationSite
+          {...commonProps}
+          onProjectLocationChange={(path) =>
+            updateSelections({ projectLocation: path })
+          }
+        />
+      </SectionErrorBoundary>
     ),
-    "docker-config": <DockerConfigSite {...commonProps} />,
+    "docker-config": (
+      <SectionErrorBoundary sectionName="Docker Configuration">
+        <DockerConfigSite {...commonProps} />
+      </SectionErrorBoundary>
+    ),
     "manual-config": (
-      <ManualConfigSite
-        {...commonProps}
-        onEnvVariableChange={(key, value) =>
-          updateSelections({
-            envVariables: { ...userSelections.envVariables, [key]: value },
-          })
-        }
-        setParsedEnvEntries={updateEnvEntries}
-      />
+      <SectionErrorBoundary sectionName="Manual Configuration">
+        <ManualConfigSite
+          {...commonProps}
+          onEnvVariableChange={(key, value) =>
+            updateSelections({
+              envVariables: { ...userSelections.envVariables, [key]: value },
+            })
+          }
+          setParsedEnvEntries={updateEnvEntries}
+        />
+      </SectionErrorBoundary>
     ),
-    summary: <SummarySite {...commonProps} />,
+    summary: (
+      <SectionErrorBoundary sectionName="Summary">
+        <SummarySite {...commonProps} />
+      </SectionErrorBoundary>
+    ),
     "control-panel": (
-      <EnhancedControlPanel
-        electronAPI={electronAPI}
-        userSelections={userSelections}
-        onEditConfig={handleEditConfig}
-        onSystemInfo={handleSystemInfo}
-        onBugReport={handleBugReport}
-      />
+      <SectionErrorBoundary sectionName="Control Panel">
+        <EnhancedControlPanel
+          electronAPI={electronAPI}
+          userSelections={userSelections}
+          onEditConfig={handleEditConfig}
+          onSystemInfo={handleSystemInfo}
+          onBugReport={handleBugReport}
+        />
+      </SectionErrorBoundary>
     ),
   };
 
   return (
-    <div className="app-layout">
-      {isSetupComplete ? (
-        <SimplifiedControlSidebar
-          isExpanded={sidebarExpanded}
-          onToggle={() => setSidebarExpanded(!sidebarExpanded)}
-          electronAPI={electronAPI}
-          userSelections={userSelections}
-          onNewSetup={handleNewSetup}
-          onShowUpdateModal={handleShowUpdateModal}
-        />
-      ) : (
-        <ProgressSidebar
-          currentSite={currentSite}
-          setupType={userSelections.setupType}
-          isExpanded={sidebarExpanded}
-          onToggle={() => setSidebarExpanded(!sidebarExpanded)}
-          electronAPI={electronAPI}
-          isSetupComplete={isSetupComplete}
-        />
-      )}
-      <div
-        className={`main-content ${sidebarExpanded ? "with-sidebar" : "with-collapsed-sidebar"}`}
+    <HealthStatusProvider
+      electronAPI={electronAPI}
+      userSelections={userSelections}
+      isSetupComplete={isSetupComplete}
+      autoStart={true}
+      intervalMs={60000}
+    >
+      <MenuActionHandler
+        electronAPI={electronAPI}
+        userSelections={userSelections}
+        goToSite={goToSite}
+        updateSelections={updateSelections}
+        updateEnvEntries={updateEnvEntries}
+        setInstallationSuccess={setInstallationSuccess}
+        validateDockerSetup={handleValidateDockerSetup}
+      />
+      <AppLayout
+        isSetupComplete={isSetupComplete}
+        sidebarExpanded={sidebarExpanded}
+        onToggleSidebar={() => setSidebarExpanded(!sidebarExpanded)}
+        currentSite={currentSite}
+        setupType={userSelections.setupType}
+        electronAPI={electronAPI}
+        userSelections={userSelections}
+        onNewSetup={handleNewSetup}
+        onShowUpdateModal={handleShowUpdateModal}
+        onShowHealthDetails={() => setShowHealthStatus(true)}
       >
-        <div className="installer-container">
+        <NavigationErrorBoundary
+          currentSite={currentSite}
+          onNavigateHome={() => goToSite("welcome")}
+        >
           {siteComponents[currentSite] || <div>Loading...</div>}
-          {!isSetupComplete && (
-            <footer className="mt-auto pt-3 border-top d-flex justify-content-between">
+        </NavigationErrorBoundary>
+        {!isSetupComplete && (
+          <footer className="mt-auto pt-3 border-top d-flex justify-content-between">
+            <button
+              className="btn btn-secondary"
+              onClick={() => handleNavigationWrapper("back")}
+              disabled={!isBackButtonEnabled}
+            >
+              Back
+            </button>
+            {(shouldShowNextButton || shouldShowFinishButton) && (
               <button
-                className="btn btn-secondary"
-                onClick={() => handleNavigation("back")}
-                disabled={!isBackButtonEnabled}
+                className={`btn ${
+                  shouldShowFinishButton ? "btn-success" : "btn-primary"
+                }`}
+                onClick={() => handleNavigationWrapper("next")}
+                disabled={!isNextButtonEnabled}
               >
-                Back
+                {isLoading ? (
+                  <>
+                    <span
+                      className="spinner-border spinner-border-sm me-2"
+                      role="status"
+                      aria-hidden="true"
+                    />
+                    {shouldShowFinishButton ? "Processing..." : "Loading..."}
+                  </>
+                ) : shouldShowFinishButton ? (
+                  "Finish Setup"
+                ) : (
+                  "Next"
+                )}
               </button>
-              {(shouldShowNextButton || shouldShowFinishButton) && (
-                <button
-                  className={`btn ${
-                    shouldShowFinishButton ? "btn-success" : "btn-primary"
-                  }`}
-                  onClick={() => handleNavigation("next")}
-                  disabled={!isNextButtonEnabled}
-                >
-                  {isLoading ? (
-                    <>
-                      <span
-                        className="spinner-border spinner-border-sm me-2"
-                        role="status"
-                        aria-hidden="true"
-                      />
-                      {shouldShowFinishButton ? "Processing..." : "Loading..."}
-                    </>
-                  ) : shouldShowFinishButton ? (
-                    "Finish Setup"
-                  ) : (
-                    "Next"
-                  )}
-                </button>
-              )}
-            </footer>
-          )}
-          {cloneDialog?.show && (
-            <CloneDialogModal
-              dialog={cloneDialog}
-              isLoading={isLoading}
-              onClone={handleSetupDirectory}
-              onClose={() => setCloneDialog(null)}
-            />
-          )}
-        </div>
-      </div>
+            )}
+          </footer>
+        )}
+        {cloneDialog?.show && (
+          <CloneDialogModal
+            dialog={cloneDialog}
+            isLoading={isLoading}
+            onClone={handleSetupDirectory}
+            onClose={() => setCloneDialog(null)}
+          />
+        )}
+      </AppLayout>
 
       {showConfigEditor && (
-        <ConfigurationEditor
-          userSelections={userSelections}
-          parsedEnvEntries={parsedEnvEntries}
-          electronAPI={electronAPI}
-          onSave={handleSaveConfiguration}
-          onCancel={() => setShowConfigEditor(false)}
-        />
+        <ModalErrorBoundary
+          modalName="Configuration Editor"
+          onClose={() => setShowConfigEditor(false)}
+        >
+          <ConfigurationEditor
+            userSelections={userSelections}
+            parsedEnvEntries={parsedEnvEntries}
+            electronAPI={electronAPI}
+            onSave={handleSaveConfiguration}
+            onCancel={() => setShowConfigEditor(false)}
+          />
+        </ModalErrorBoundary>
       )}
 
       {showSystemInfo && (
-        <SystemInfoModal
-          electronAPI={electronAPI}
+        <ModalErrorBoundary
+          modalName="System Information"
           onClose={() => setShowSystemInfo(false)}
-        />
+        >
+          <SystemInfoModal
+            electronAPI={electronAPI}
+            onClose={() => setShowSystemInfo(false)}
+          />
+        </ModalErrorBoundary>
       )}
 
       {showBugReport && (
-        <BugReportModal onClose={() => setShowBugReport(false)} />
+        <ModalErrorBoundary
+          modalName="Bug Report"
+          onClose={() => setShowBugReport(false)}
+        >
+          <BugReportModal onClose={() => setShowBugReport(false)} />
+        </ModalErrorBoundary>
       )}
 
       {showUpdateModal && (
-        <UpdateProgressModal
-          electronAPI={electronAPI}
+        <ModalErrorBoundary
+          modalName="Update Progress"
           onClose={() => setShowUpdateModal(false)}
-        />
+        >
+          <UpdateProgressModal
+            electronAPI={electronAPI}
+            onClose={() => setShowUpdateModal(false)}
+          />
+        </ModalErrorBoundary>
       )}
       {showQuitConfirmation && (
-        <QuitConfirmationModal
+        <ModalErrorBoundary
+          modalName="Quit Confirmation"
           onClose={() => setShowQuitConfirmation(false)}
-          onConfirmQuit={handleConfirmQuit}
-          isDDALABRunning={isDDALABRunning}
-        />
+        >
+          <QuitConfirmationModal
+            onClose={() => setShowQuitConfirmation(false)}
+            onConfirmQuit={handleConfirmQuit}
+            isDDALABRunning={isDDALABRunning}
+          />
+        </ModalErrorBoundary>
       )}
-      <style>{`
-        .app-layout {
-          display: flex;
-          height: 100vh;
-          overflow: hidden;
-        }
 
-        .main-content {
-          flex: 1;
-          overflow-y: auto;
-          transition: margin-left 0.3s ease;
-        }
+      {showHealthStatus && (
+        <HealthStatusModal onClose={() => setShowHealthStatus(false)} />
+      )}
 
-        .main-content.with-sidebar {
-          margin-left: ${isSetupComplete ? "280px" : "280px"};
-        }
+      <MissingInstallationAlert
+        onStartNewSetup={handleStartNewSetupFromAlert}
+        onShowHealthDetails={handleShowHealthFromAlert}
+      />
 
-        .main-content.with-collapsed-sidebar {
-          margin-left: 50px;
-        }
-
-        .installer-container {
-          height: 100%;
-          display: flex;
-          flex-direction: column;
-          padding: 20px;
-        }
-      `}</style>
-    </div>
+    </HealthStatusProvider>
   );
 };
 
-const App: React.FC = () => (
-  <SiteNavigationProvider>
-    <DockerProvider>
-      <SystemStatusProvider
-        electronAPI={window.electronAPI as ElectronAPI | undefined}
-      >
-        <AppContent />
-      </SystemStatusProvider>
-    </DockerProvider>
-  </SiteNavigationProvider>
-);
+const App: React.FC = () => {
+  const electronAPI = window.electronAPI as ElectronAPI | undefined;
+
+  return (
+    <SiteNavigationProvider>
+      <DockerProvider>
+        <SystemStatusProvider electronAPI={electronAPI}>
+          <AppContent />
+        </SystemStatusProvider>
+      </DockerProvider>
+    </SiteNavigationProvider>
+  );
+};
 
 export default App;
