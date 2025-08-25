@@ -6,6 +6,8 @@ export interface HeatmapPoint {
   x: number;
   y: number;
   value: number;
+  originalX?: number; // Original coordinates before downsampling
+  originalY?: number; // Original coordinates before downsampling
 }
 
 interface SimpleDDAHeatmapProps {
@@ -24,6 +26,16 @@ export function SimpleDDAHeatmap({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 800, height: 400 });
+  
+  // Cursor tracking state
+  const [cursorInfo, setCursorInfo] = useState<{
+    x: number;
+    y: number;
+    dataX: number;
+    dataY: number;
+    value: number | null;
+    visible: boolean;
+  } | null>(null);
 
   // Responsive sizing
   useEffect(() => {
@@ -93,20 +105,39 @@ export function SimpleDDAHeatmap({
     };
   }, [data]);
 
-  // Simple color mapping function (blue to red)
+  // Improved color mapping using inferno colormap (same as main DDAHeatmap)
   const valueToColor = (value: number): string => {
     const { min, max } = valueRange;
     const range = max - min;
     if (range === 0) return "rgb(128, 128, 128)";
 
-    const normalized = (value - min) / range;
+    const normalized = Math.min(Math.max((value - min) / range, 0), 1);
 
-    // Simple blue to red gradient
-    const red = Math.round(255 * normalized);
-    const blue = Math.round(255 * (1 - normalized));
-    const green = Math.round(128 * (1 - Math.abs(normalized - 0.5) * 2));
+    // Inferno colormap control points
+    const infernoPoints = [
+      { t: 0.0, rgb: [0, 0, 4] },
+      { t: 0.2, rgb: [20, 11, 52] },
+      { t: 0.4, rgb: [66, 10, 104] },
+      { t: 0.6, rgb: [147, 38, 103] },
+      { t: 0.8, rgb: [229, 92, 48] },
+      { t: 1.0, rgb: [252, 255, 164] },
+    ];
 
-    return `rgb(${red}, ${green}, ${blue})`;
+    // Find the appropriate color segment
+    for (let i = 0; i < infernoPoints.length - 1; i++) {
+      const p1 = infernoPoints[i];
+      const p2 = infernoPoints[i + 1];
+
+      if (normalized >= p1.t && normalized <= p2.t) {
+        const segmentT = (normalized - p1.t) / (p2.t - p1.t);
+        const r = Math.round(p1.rgb[0] + (p2.rgb[0] - p1.rgb[0]) * segmentT);
+        const g = Math.round(p1.rgb[1] + (p2.rgb[1] - p1.rgb[1]) * segmentT);
+        const b = Math.round(p1.rgb[2] + (p2.rgb[2] - p1.rgb[2]) * segmentT);
+        return `rgb(${r}, ${g}, ${b})`;
+      }
+    }
+
+    return `rgb(${infernoPoints[infernoPoints.length - 1].rgb.join(', ')})`;
   };
 
   // Draw the heatmap
@@ -186,6 +217,46 @@ export function SimpleDDAHeatmap({
     console.log("[SimpleDDAHeatmap] Heatmap drawing completed");
   }, [data, dimensions, valueRange, effectiveWidth, effectiveHeight, channels]);
 
+  // Mouse tracking handlers
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas || data.length === 0) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+
+    // Calculate cell size
+    const cellWidth = Number(effectiveWidth) / dimensions.width;
+    const cellHeight = Number(effectiveHeight) / dimensions.height;
+
+    // Map canvas coordinates to data coordinates
+    const dataX = Math.floor(canvasX / cellWidth) + dimensions.minX;
+    const dataY = Math.floor(canvasY / cellHeight) + dimensions.minY;
+
+    // Find the value at this position
+    const gridKey = `${dataX},${dataY}`;
+    const value = dataGrid.get(gridKey) ?? null;
+    
+    // Find the actual data point to get original coordinates if available
+    const dataPoint = data.find(point => point.x === dataX && point.y === dataY);
+    const displayX = dataPoint?.originalX ?? dataX;
+    const displayY = dataPoint?.originalY ?? dataY;
+
+    setCursorInfo({
+      x: canvasX,
+      y: canvasY,
+      dataX: displayX, // Use original coordinates for display
+      dataY: displayY, // Use original coordinates for display
+      value,
+      visible: true,
+    });
+  };
+
+  const handleMouseLeave = () => {
+    setCursorInfo(null);
+  };
+
   if (data.length === 0) {
     return (
       <div
@@ -211,13 +282,29 @@ export function SimpleDDAHeatmap({
           Range: {valueRange.min.toFixed(3)} - {valueRange.max.toFixed(3)}
         </span>
       </div>
-      <div className="flex-1 border rounded overflow-hidden">
+      <div className="flex-1 border rounded overflow-hidden relative">
         <canvas
           ref={canvasRef}
           width={Number(effectiveWidth)}
           height={Number(effectiveHeight)}
-          className="block w-full h-full"
+          className="block w-full h-full cursor-crosshair"
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
         />
+        
+        {/* Cursor info overlay */}
+        {cursorInfo && cursorInfo.visible && (
+          <div 
+            className="absolute pointer-events-none z-20 bg-black/80 text-white px-2 py-1 rounded text-xs whitespace-nowrap"
+            style={{
+              left: Math.min(cursorInfo.x + 10, Number(effectiveWidth) - 120),
+              top: Math.max(cursorInfo.y - 30, 10),
+            }}
+          >
+            <div>X: {cursorInfo.dataX}, Y: {cursorInfo.dataY}</div>
+            <div>Q: {cursorInfo.value !== null ? cursorInfo.value.toFixed(4) : 'N/A'}</div>
+          </div>
+        )}
       </div>
     </div>
   );

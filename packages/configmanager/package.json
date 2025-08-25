@@ -91,8 +91,9 @@
     "env",
     "editor"
   ],
-  "author": "",
+  "author": "DDALAB Team",
   "license": "ISC",
+  "homepage": "https://github.com/sdraeger/DDALAB",
   "dependencies": {
     "@formspree/react": "^3.0.0",
     "@xstate/react": "^3.2.2",
@@ -125,7 +126,8 @@
       "dist/**/*",
       "node_modules/**/*",
       "package.json",
-      "src/assets/**/*"
+      "src/assets/**/*",
+      "resources/**/*"
     ],
     "publish": {
       "provider": "github",

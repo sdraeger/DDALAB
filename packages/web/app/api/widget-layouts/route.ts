@@ -13,7 +13,7 @@ const corsHeaders = {
 const PYTHON_API_BASE =
   process.env.NODE_ENV === "development"
     ? "https://localhost/api" // Through Traefik in development
-    : process.env.PYTHON_API_URL || "http://api:8000"; // Direct in production
+    : process.env.PYTHON_API_URL || process.env.API_BASE_URL || "http://api:8000"; // Direct in production
 
 async function proxyToPythonAPI(
   endpoint: string,

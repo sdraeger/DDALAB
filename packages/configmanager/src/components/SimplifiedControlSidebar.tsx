@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import type { ElectronAPI, UserSelections } from "../utils/electron";
 import { useSystemStatusContext } from "../context/SystemStatusProvider";
+import { useHealthStatusContext } from "../context/HealthStatusProvider";
 import { logger } from '../utils/logger-client';
 
 interface SimplifiedControlSidebarProps {
@@ -10,6 +11,7 @@ interface SimplifiedControlSidebarProps {
   userSelections: UserSelections;
   onNewSetup: () => void;
   onShowUpdateModal: () => void;
+  onShowHealthDetails?: () => void;
 }
 
 interface ServiceStatus {
@@ -25,6 +27,7 @@ export const SimplifiedControlSidebar: React.FC<SimplifiedControlSidebarProps> =
   userSelections,
   onNewSetup,
   onShowUpdateModal,
+  onShowHealthDetails,
 }) => {
   const [serviceStatus, setServiceStatus] = useState<ServiceStatus | null>(null);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
@@ -36,6 +39,9 @@ export const SimplifiedControlSidebar: React.FC<SimplifiedControlSidebarProps> =
   
   // Use centralized system status
   const systemStatus = useSystemStatusContext();
+  
+  // Use health status context
+  const healthStatus = useHealthStatusContext();
 
   useEffect(() => {
     const fetchBuildInfo = async () => {
@@ -52,19 +58,46 @@ export const SimplifiedControlSidebar: React.FC<SimplifiedControlSidebarProps> =
     fetchBuildInfo();
   }, [electronAPI]);
 
-  // Update service status from centralized status
+  // Update service status from centralized status and health checks
   useEffect(() => {
     const detailedServices = systemStatus.getDetailedServiceStatus();
     
+    // Combine system status with health check information
+    const overallHealthy = systemStatus.isDdalabHealthy && healthStatus.isHealthy;
+    const hasInstallationIssues = healthStatus.healthStatus?.checks?.some(check => 
+      check.category === 'installation' && 
+      check.status === 'fail' && 
+      check.priority === 'critical'
+    );
+    
+    let healthDescription = "Unknown";
+    if (hasInstallationIssues) {
+      healthDescription = "Installation missing or incomplete";
+    } else if (healthStatus.healthStatus) {
+      switch (healthStatus.healthStatus.status) {
+        case 'healthy':
+          healthDescription = "All systems operational";
+          break;
+        case 'warning':
+          healthDescription = `${healthStatus.warnings} warning(s) detected`;
+          break;
+        case 'critical':
+          healthDescription = `${healthStatus.criticalIssues} critical issue(s)`;
+          break;
+        default:
+          healthDescription = "Status unknown";
+      }
+    }
+    
     setServiceStatus({
       running: systemStatus.isDockerRunning,
-      healthy: systemStatus.isDdalabHealthy,
+      healthy: overallHealthy && !hasInstallationIssues,
       services: {
         "Docker Engine": detailedServices[0]?.description || "Unknown",
-        "DDALAB Services": detailedServices[1]?.description || "Unknown"
+        "DDALAB Health": healthDescription
       }
     });
-  }, [systemStatus]);
+  }, [systemStatus, healthStatus]);
 
   const handleCheckForUpdates = async () => {
     if (!electronAPI || isCheckingUpdate) return;
@@ -106,7 +139,17 @@ export const SimplifiedControlSidebar: React.FC<SimplifiedControlSidebarProps> =
         <div className="sidebar-content">
           {/* Service Status Summary */}
           <div className="status-section">
-            <h6 className="section-title">Status</h6>
+            <div className="d-flex justify-content-between align-items-center mb-2">
+              <h6 className="section-title mb-0">Status</h6>
+              <button
+                className="btn btn-sm btn-outline-secondary"
+                onClick={() => healthStatus.runImmediateCheck()}
+                disabled={!healthStatus.isRunning}
+                title="Run health check"
+              >
+                <i className="bi bi-arrow-clockwise" style={{ fontSize: '12px' }}></i>
+              </button>
+            </div>
             {serviceStatus && (
               <div className="status-summary">
                 <div className="overall-status">
@@ -115,13 +158,54 @@ export const SimplifiedControlSidebar: React.FC<SimplifiedControlSidebarProps> =
                   </div>
                   <div className="status-text">
                     <div className="fw-bold">
-                      {serviceStatus.healthy ? 'Running' : 'Stopped'}
+                      {serviceStatus.healthy ? 'Healthy' : 'Issues Detected'}
                     </div>
                     <small className="text-muted">
-                      {serviceStatus.healthy ? 'All services operational' : 'Services not running'}
+                      {serviceStatus.services["DDALAB Health"]}
                     </small>
                   </div>
                 </div>
+                
+                {/* Health Status Details */}
+                {healthStatus.healthStatus && (
+                  <div 
+                    className="health-details mt-2"
+                    onClick={onShowHealthDetails}
+                    style={{ cursor: onShowHealthDetails ? 'pointer' : 'default' }}
+                    title={onShowHealthDetails ? 'Click to view detailed health report' : ''}
+                  >
+                    <div className="health-score">
+                      <small className="text-muted">Overall Health: </small>
+                      <span className={`fw-bold ${
+                        healthStatus.healthStatus.overallHealth > 80 ? 'text-success' :
+                        healthStatus.healthStatus.overallHealth > 60 ? 'text-warning' : 'text-danger'
+                      }`}>
+                        {healthStatus.healthStatus.overallHealth}%
+                      </span>
+                    </div>
+                    
+                    {(healthStatus.criticalIssues > 0 || healthStatus.warnings > 0) && (
+                      <div className="health-issues mt-1">
+                        {healthStatus.criticalIssues > 0 && (
+                          <span className="badge bg-danger me-1">
+                            {healthStatus.criticalIssues} Critical
+                          </span>
+                        )}
+                        {healthStatus.warnings > 0 && (
+                          <span className="badge bg-warning">
+                            {healthStatus.warnings} Warnings
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    
+                    <div className="last-check mt-1">
+                      <small className="text-muted">
+                        Last check: {healthStatus.lastUpdate || 'Never'}
+                      </small>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -213,6 +297,12 @@ export const SimplifiedControlSidebar: React.FC<SimplifiedControlSidebarProps> =
       )}
 
       <style jsx>{`
+        .health-details:hover {
+          background-color: rgba(0, 0, 0, 0.05);
+          border-radius: 4px;
+          padding: 4px;
+          margin: -4px;
+        }
         .simplified-control-sidebar {
           position: fixed;
           left: 0;
@@ -384,6 +474,36 @@ export const SimplifiedControlSidebar: React.FC<SimplifiedControlSidebarProps> =
           background-color: #d4edda;
           border-color: #c3e6cb;
           color: #155724;
+        }
+
+        .health-details {
+          padding-top: 8px;
+          border-top: 1px solid #e9ecef;
+        }
+
+        .health-score {
+          display: flex;
+          align-items: center;
+          font-size: 12px;
+        }
+
+        .health-issues {
+          display: flex;
+          gap: 4px;
+          flex-wrap: wrap;
+        }
+
+        .health-issues .badge {
+          font-size: 10px;
+          padding: 2px 6px;
+        }
+
+        .last-check {
+          font-size: 10px;
+        }
+
+        .section-title {
+          margin-bottom: 10px;
         }
       `}</style>
     </div>

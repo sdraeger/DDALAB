@@ -12,7 +12,7 @@ async function checkAuthMode(): Promise<{
 }> {
   try {
     // Use absolute URL for server-side requests
-    const apiUrl = process.env.API_URL || 'http://localhost:8001';
+    const apiUrl = process.env.API_URL || process.env.API_BASE_URL || 'http://localhost:8001';
     const response = await fetch(`${apiUrl}/api/auth/mode`);
     if (response.ok) {
       const data = await response.json();
@@ -111,7 +111,7 @@ const authOptions: NextAuthOptions = {
         }
 
         try {
-          const apiUrl = process.env.API_URL || 'http://localhost:8001';
+          const apiUrl = process.env.API_URL || process.env.API_BASE_URL || 'http://localhost:8001';
           const res = await fetch(`${apiUrl}/api/auth/token`, {
             method: "POST",
             headers: {

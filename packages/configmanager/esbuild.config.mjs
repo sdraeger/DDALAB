@@ -116,6 +116,7 @@ async function copyStaticAssets() {
     await cpx.copy("src/style.css", "dist/src");
     await cpx.copy("src/vendor/**/*", "dist/src/vendor");
     await cpx.copy(".env.example", "dist"); // Copy .env.example to dist/
+    await cpx.copy("resources/**/*", "dist/resources"); // Copy bundled DDALAB files
     console.log("Static assets copied successfully.");
   } catch (error) {
     console.error("Failed to copy static assets:", error);
