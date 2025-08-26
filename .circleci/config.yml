@@ -5,6 +5,14 @@ executors:
     machine:
       image: windows-server-2019-vs2019:stable
     resource_class: windows.medium
+  linux:
+    docker:
+      - image: cimg/node:18.20
+    resource_class: medium
+  macos:
+    macos:
+      xcode: 15.2.0
+    resource_class: macos.m1.medium.gen1
 
 jobs:
   build-windows:
@@ -27,6 +35,11 @@ jobs:
             npm install
             npm run build
       - run:
+          name: Update version with build number
+          command: |
+            cd packages/configmanager
+            node scripts/version-ci.js
+      - run:
           name: Verify and Set AWS Credentials
           command: |
             echo "Checking AWS credentials..."
@@ -47,6 +60,160 @@ jobs:
             set AWS_DEFAULT_REGION=us-east-1
             npm run publish:dev:win
 
+  build-linux:
+    executor: linux
+    working_directory: ~/project
+    steps:
+      - checkout
+      - run:
+          name: Install system dependencies
+          command: |
+            sudo apt-get update
+            sudo apt-get install -y libgtk-3-0 libnotify-dev libgconf-2-4 libatk-bridge2.0-0 libx11-xcb1 libxss1 libnss3 libgbm-dev
+      - run:
+          name: Install root dependencies
+          command: npm install
+      - run:
+          name: Build ConfigManager only
+          command: |
+            cd packages/configmanager
+            npm install
+            npm run build
+      - run:
+          name: Update version with build number
+          command: |
+            cd packages/configmanager
+            node scripts/version-ci.js
+      - run:
+          name: Verify and Set AWS Credentials
+          command: |
+            echo "Checking AWS credentials..."
+            if [ -z "$AWS_ACCESS_KEY_ID" ]; then
+              echo "ERROR: AWS_ACCESS_KEY_ID is not set"
+              exit 1
+            fi
+            if [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+              echo "ERROR: AWS_SECRET_ACCESS_KEY is not set"
+              exit 1
+            fi
+            echo "AWS credentials are set"
+      - run:
+          name: Publish ConfigManager
+          command: |
+            cd packages/configmanager
+            export AWS_DEFAULT_REGION=us-east-1
+            npm run publish:dev:linux
+
+  build-macos:
+    executor: macos
+    working_directory: ~/project
+    steps:
+      - checkout
+      - run:
+          name: Install Node.js
+          command: |
+            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            nvm install 18
+            nvm use 18
+            echo 'export NVM_DIR="$HOME/.nvm"' >> $BASH_ENV
+            echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> $BASH_ENV
+      - run:
+          name: Install root dependencies
+          command: npm install
+      - run:
+          name: Build ConfigManager only
+          command: |
+            cd packages/configmanager
+            npm install
+            npm run build
+      - run:
+          name: Update version with build number
+          command: |
+            cd packages/configmanager
+            node scripts/version-ci.js
+      - run:
+          name: Verify and Set AWS Credentials
+          command: |
+            echo "Checking AWS credentials..."
+            if [ -z "$AWS_ACCESS_KEY_ID" ]; then
+              echo "ERROR: AWS_ACCESS_KEY_ID is not set"
+              exit 1
+            fi
+            if [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+              echo "ERROR: AWS_SECRET_ACCESS_KEY is not set"
+              exit 1
+            fi
+            echo "AWS credentials are set"
+      - run:
+          name: Publish ConfigManager
+          command: |
+            cd packages/configmanager
+            export AWS_DEFAULT_REGION=us-east-1
+            npm run publish:dev:mac
+
+  build-docker:
+    docker:
+      - image: cimg/base:stable
+    resource_class: large
+    steps:
+      - checkout
+      - setup_remote_docker:
+          version: default
+          docker_layer_caching: true
+      - run:
+          name: Build Docker image
+          command: |
+            # Extract version info from commit
+            VERSION=$(echo ${CIRCLE_SHA1} | cut -c1-7)
+            BRANCH=${CIRCLE_BRANCH}
+            
+            # Determine tags based on branch
+            if [ "$BRANCH" = "main" ]; then
+              TAGS="sdraeger1/ddalab:latest,sdraeger1/ddalab:${BRANCH}-${VERSION}"
+            else
+              TAGS="sdraeger1/ddalab:${BRANCH}-${VERSION}"
+            fi
+            
+            # Build multi-architecture image
+            docker buildx create --use --name multiarch-builder || true
+            docker buildx build \
+              --platform linux/amd64,linux/arm64 \
+              --tag sdraeger1/ddalab:${BRANCH}-${VERSION} \
+              --file ./Dockerfile \
+              --push=false \
+              .
+      - run:
+          name: Login to Docker Hub
+          command: |
+            echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+      - run:
+          name: Push Docker image
+          command: |
+            VERSION=$(echo ${CIRCLE_SHA1} | cut -c1-7)
+            BRANCH=${CIRCLE_BRANCH}
+            
+            # Build and push with appropriate tags
+            if [ "$BRANCH" = "main" ]; then
+              docker buildx build \
+                --platform linux/amd64,linux/arm64 \
+                --tag sdraeger1/ddalab:latest \
+                --tag sdraeger1/ddalab:${BRANCH}-${VERSION} \
+                --tag sdraeger1/ddalab:build-${CIRCLE_BUILD_NUM} \
+                --file ./Dockerfile \
+                --push \
+                .
+            else
+              docker buildx build \
+                --platform linux/amd64,linux/arm64 \
+                --tag sdraeger1/ddalab:${BRANCH}-${VERSION} \
+                --tag sdraeger1/ddalab:${BRANCH}-build-${CIRCLE_BUILD_NUM} \
+                --file ./Dockerfile \
+                --push \
+                .
+            fi
+
 workflows:
   build-and-publish:
     jobs:
@@ -56,3 +223,22 @@ workflows:
             branches:
               only:
                 - main
+      - build-linux:
+          context: aws-credentials
+          filters:
+            branches:
+              only:
+                - main
+      - build-macos:
+          context: aws-credentials
+          filters:
+            branches:
+              only:
+                - main
+      - build-docker:
+          context: dockerhub-credentials
+          filters:
+            branches:
+              only:
+                - main
+                - develop
