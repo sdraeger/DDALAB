@@ -38,7 +38,23 @@ jobs:
           name: Update version with build number
           command: |
             cd packages/configmanager
-            node scripts/version-ci.js
+            $shortSha = "$env:CIRCLE_SHA1".Substring(0, 7)
+            $branch = "$env:CIRCLE_BRANCH"
+            $packageJson = Get-Content package.json | ConvertFrom-Json
+            $currentVersion = $packageJson.version -replace '-.*', ''
+            
+            if ($branch -eq "main") {
+              $newVersion = "${currentVersion}-dev.${shortSha}"
+            } else {
+              $safeBranch = $branch -replace '[^a-zA-Z0-9-]', '-'
+              if ($safeBranch.Length -gt 20) { $safeBranch = $safeBranch.Substring(0, 20) }
+              $newVersion = "${currentVersion}-${safeBranch}.${shortSha}"
+            }
+            
+            $packageJson.version = $newVersion
+            $packageJson | ConvertTo-Json -Depth 10 | Set-Content package.json -Encoding UTF8
+            Write-Output "Version updated to $newVersion"
+          shell: powershell.exe
       - run:
           name: Verify and Set AWS Credentials
           command: |
@@ -83,7 +99,19 @@ jobs:
           name: Update version with build number
           command: |
             cd packages/configmanager
-            node scripts/version-ci.js
+            SHORT_SHA=$(echo ${CIRCLE_SHA1} | cut -c1-7)
+            BRANCH=${CIRCLE_BRANCH}
+            CURRENT_VERSION=$(node -p "require('./package.json').version.replace(/-.*/, '')")
+            
+            if [ "$BRANCH" = "main" ]; then
+              NEW_VERSION="${CURRENT_VERSION}-dev.${SHORT_SHA}"
+            else
+              SAFE_BRANCH=$(echo $BRANCH | sed 's/[^a-zA-Z0-9-]/-/g' | cut -c1-20)
+              NEW_VERSION="${CURRENT_VERSION}-${SAFE_BRANCH}.${SHORT_SHA}"
+            fi
+            
+            node -e "const fs=require('fs'); const p=require('./package.json'); p.version='$NEW_VERSION'; fs.writeFileSync('./package.json', JSON.stringify(p, null, 2)+'\n');"
+            echo "Version updated to $NEW_VERSION"
       - run:
           name: Verify and Set AWS Credentials
           command: |
@@ -132,7 +160,19 @@ jobs:
           name: Update version with build number
           command: |
             cd packages/configmanager
-            node scripts/version-ci.js
+            SHORT_SHA=$(echo ${CIRCLE_SHA1} | cut -c1-7)
+            BRANCH=${CIRCLE_BRANCH}
+            CURRENT_VERSION=$(node -p "require('./package.json').version.replace(/-.*/, '')")
+            
+            if [ "$BRANCH" = "main" ]; then
+              NEW_VERSION="${CURRENT_VERSION}-dev.${SHORT_SHA}"
+            else
+              SAFE_BRANCH=$(echo $BRANCH | sed 's/[^a-zA-Z0-9-]/-/g' | cut -c1-20)
+              NEW_VERSION="${CURRENT_VERSION}-${SAFE_BRANCH}.${SHORT_SHA}"
+            fi
+            
+            node -e "const fs=require('fs'); const p=require('./package.json'); p.version='$NEW_VERSION'; fs.writeFileSync('./package.json', JSON.stringify(p, null, 2)+'\n');"
+            echo "Version updated to $NEW_VERSION"
       - run:
           name: Verify and Set AWS Credentials
           command: |
