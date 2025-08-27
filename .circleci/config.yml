@@ -140,6 +140,16 @@ jobs:
     steps:
       - checkout
       - run:
+          name: Fix Python environment
+          command: |
+            # Remove any Python version constraints
+            find . -name ".python-version" -delete
+            # Ensure pyenv uses system python
+            echo 'export PYENV_VERSION=system' >> $BASH_ENV
+            # Install Python 3.10 via pyenv to match what's expected
+            pyenv install 3.10 || true
+            pyenv global 3.10 || pyenv global system
+      - run:
           name: Install Node.js
           command: |
             brew install node@18
