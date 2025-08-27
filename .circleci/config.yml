@@ -38,23 +38,7 @@ jobs:
           name: Update version with build number
           command: |
             cd packages/configmanager
-            $shortSha = "$env:CIRCLE_SHA1".Substring(0, 7)
-            $branch = "$env:CIRCLE_BRANCH"
-            $packageJson = Get-Content package.json | ConvertFrom-Json
-            $currentVersion = $packageJson.version -replace '-.*', ''
-            
-            if ($branch -eq "main") {
-              $newVersion = "${currentVersion}-dev.${shortSha}"
-            } else {
-              $safeBranch = $branch -replace '[^a-zA-Z0-9-]', '-'
-              if ($safeBranch.Length -gt 20) { $safeBranch = $safeBranch.Substring(0, 20) }
-              $newVersion = "${currentVersion}-${safeBranch}.${shortSha}"
-            }
-            
-            $packageJson.version = $newVersion
-            $packageJson | ConvertTo-Json -Depth 10 | Set-Content package.json -Encoding UTF8
-            Write-Output "Version updated to $newVersion"
-          shell: powershell.exe
+            node -e "const fs=require('fs'); const p=require('./package.json'); const buildNum='%CIRCLE_BUILD_NUM%'; const branch='%CIRCLE_BRANCH%'; const currentVersion=p.version.replace(/-.*/, ''); if(branch==='main'){p.version=currentVersion+'-dev.'+buildNum}else{const safeBranch=branch.replace(/[^a-zA-Z0-9-]/g,'-').substring(0,20);p.version=currentVersion+'-'+safeBranch+'.'+buildNum} fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n'); console.log('Version updated to '+p.version);"
       - run:
           name: Verify and Set AWS Credentials
           command: |
@@ -99,15 +83,15 @@ jobs:
           name: Update version with build number
           command: |
             cd packages/configmanager
-            SHORT_SHA=$(echo ${CIRCLE_SHA1} | cut -c1-7)
+            BUILD_NUM=${CIRCLE_BUILD_NUM}
             BRANCH=${CIRCLE_BRANCH}
             CURRENT_VERSION=$(node -p "require('./package.json').version.replace(/-.*/, '')")
             
             if [ "$BRANCH" = "main" ]; then
-              NEW_VERSION="${CURRENT_VERSION}-dev.${SHORT_SHA}"
+              NEW_VERSION="${CURRENT_VERSION}-dev.${BUILD_NUM}"
             else
               SAFE_BRANCH=$(echo $BRANCH | sed 's/[^a-zA-Z0-9-]/-/g' | cut -c1-20)
-              NEW_VERSION="${CURRENT_VERSION}-${SAFE_BRANCH}.${SHORT_SHA}"
+              NEW_VERSION="${CURRENT_VERSION}-${SAFE_BRANCH}.${BUILD_NUM}"
             fi
             
             node -e "const fs=require('fs'); const p=require('./package.json'); p.version='$NEW_VERSION'; fs.writeFileSync('./package.json', JSON.stringify(p, null, 2)+'\n');"
@@ -141,34 +125,39 @@ jobs:
           name: Install Node.js
           command: |
             curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-            nvm install 18
-            nvm use 18
             echo 'export NVM_DIR="$HOME/.nvm"' >> $BASH_ENV
             echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> $BASH_ENV
+            source $BASH_ENV
+            nvm install 18
+            nvm use 18
+            node --version
+            npm --version
       - run:
           name: Install root dependencies
-          command: npm install
+          command: |
+            source $BASH_ENV
+            npm install
       - run:
           name: Build ConfigManager only
           command: |
+            source $BASH_ENV
             cd packages/configmanager
             npm install
             npm run build
       - run:
           name: Update version with build number
           command: |
+            source $BASH_ENV
             cd packages/configmanager
-            SHORT_SHA=$(echo ${CIRCLE_SHA1} | cut -c1-7)
+            BUILD_NUM=${CIRCLE_BUILD_NUM}
             BRANCH=${CIRCLE_BRANCH}
             CURRENT_VERSION=$(node -p "require('./package.json').version.replace(/-.*/, '')")
             
             if [ "$BRANCH" = "main" ]; then
-              NEW_VERSION="${CURRENT_VERSION}-dev.${SHORT_SHA}"
+              NEW_VERSION="${CURRENT_VERSION}-dev.${BUILD_NUM}"
             else
               SAFE_BRANCH=$(echo $BRANCH | sed 's/[^a-zA-Z0-9-]/-/g' | cut -c1-20)
-              NEW_VERSION="${CURRENT_VERSION}-${SAFE_BRANCH}.${SHORT_SHA}"
+              NEW_VERSION="${CURRENT_VERSION}-${SAFE_BRANCH}.${BUILD_NUM}"
             fi
             
             node -e "const fs=require('fs'); const p=require('./package.json'); p.version='$NEW_VERSION'; fs.writeFileSync('./package.json', JSON.stringify(p, null, 2)+'\n');"
@@ -189,6 +178,7 @@ jobs:
       - run:
           name: Publish ConfigManager
           command: |
+            source $BASH_ENV
             cd packages/configmanager
             export AWS_DEFAULT_REGION=us-east-1
             npm run publish:dev:mac
