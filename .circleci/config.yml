@@ -38,7 +38,25 @@ jobs:
           name: Update version with build number
           command: |
             cd packages/configmanager
-            node -e "const fs=require('fs'); const p=require('./package.json'); const buildNum='%CIRCLE_BUILD_NUM%'; const branch='%CIRCLE_BRANCH%'; const currentVersion=p.version.replace(/-.*/, ''); if(branch==='main'){p.version=currentVersion+'-dev.'+buildNum}else{const safeBranch=branch.replace(/[^a-zA-Z0-9-]/g,'-').substring(0,20);p.version=currentVersion+'-'+safeBranch+'.'+buildNum} fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n'); console.log('Version updated to '+p.version);"
+            $buildNum = $env:CIRCLE_BUILD_NUM
+            $branch = $env:CIRCLE_BRANCH
+            $script = @"
+            const fs = require('fs');
+            const p = require('./package.json');
+            const buildNum = '$buildNum';
+            const branch = '$branch';
+            const currentVersion = p.version.replace(/-.*/, '');
+            if (branch === 'main') {
+              p.version = currentVersion + '-dev.' + buildNum;
+            } else {
+              const safeBranch = branch.replace(/[^a-zA-Z0-9-]/g, '-').substring(0, 20);
+              p.version = currentVersion + '-' + safeBranch + '.' + buildNum;
+            }
+            fs.writeFileSync('./package.json', JSON.stringify(p, null, 2) + '\n');
+            console.log('Version updated to ' + p.version);
+            "@
+            node -e $script
+          shell: powershell.exe
       - run:
           name: Verify and Set AWS Credentials
           command: |
@@ -124,12 +142,9 @@ jobs:
       - run:
           name: Install Node.js
           command: |
-            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
-            echo 'export NVM_DIR="$HOME/.nvm"' >> $BASH_ENV
-            echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> $BASH_ENV
+            brew install node@18
+            echo 'export PATH="/opt/homebrew/opt/node@18/bin:$PATH"' >> $BASH_ENV
             source $BASH_ENV
-            nvm install 18
-            nvm use 18
             node --version
             npm --version
       - run:
@@ -217,7 +232,7 @@ jobs:
       - run:
           name: Login to Docker Hub
           command: |
-            echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            echo "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
       - run:
           name: Push Docker image
           command: |
