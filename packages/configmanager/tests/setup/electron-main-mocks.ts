@@ -64,9 +64,11 @@ export const TestMocks = {
   showDirectoryDialog: () => {
     const config = getTestEnvironmentConfig();
     if (config.isTestMode && config.disableRealFileOperations) {
+      const os = require('os');
+      const homeDir = os.homedir();
       return {
         canceled: false,
-        filePaths: [config.testDataPath]
+        filePaths: [homeDir]
       };
     }
     return null; // Use real implementation
