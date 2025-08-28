@@ -4,6 +4,7 @@ import { SetupService } from "../services/setup-service";
 import { SystemTrayService } from "../services/system-tray-service";
 import type { UserSelections, ParsedEnvEntry } from "../utils/electron";
 import { logger } from "../utils/logger";
+import { TestMocks, getTestEnvironmentConfig } from "../../tests/setup/electron-main-mocks";
 
 export function registerConfigManagerIpcHandlers(): void {
   ipcMain.handle(
@@ -11,6 +12,17 @@ export function registerConfigManagerIpcHandlers(): void {
     async (): Promise<string | undefined> => {
       const mainWindow = getMainWindow();
       if (!mainWindow) return undefined;
+      
+      // Check if we're in test mode and should use mock dialog
+      const testConfig = getTestEnvironmentConfig();
+      if (testConfig.isTestMode) {
+        const mockResult = TestMocks.showDirectoryDialog();
+        if (mockResult) {
+          logger.info("Using mock directory selection", { path: mockResult.filePaths[0] });
+          return mockResult.canceled ? undefined : mockResult.filePaths[0];
+        }
+      }
+      
       const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
         properties: ["openDirectory", "showHiddenFiles"],
       });
