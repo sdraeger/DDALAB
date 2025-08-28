@@ -269,23 +269,177 @@ jobs:
                 .
             fi
 
+  test-windows:
+    executor: windows
+    working_directory: ~/project
+    steps:
+      - checkout
+      - run:
+          name: Install Node.js
+          command: |
+            nvm install 18
+            nvm use 18
+      - run:
+          name: Install root dependencies
+          command: npm install
+      - run:
+          name: Install ConfigManager dependencies
+          command: |
+            cd packages/configmanager
+            npm install
+      - run:
+          name: Install Playwright browsers
+          command: |
+            cd packages/configmanager
+            npx playwright install --with-deps
+      - run:
+          name: Build ConfigManager for testing
+          command: |
+            cd packages/configmanager
+            npm run build
+      - run:
+          name: Run acceptance tests
+          command: |
+            cd packages/configmanager
+            npm run test:e2e
+      - store_test_results:
+          path: packages/configmanager/test-results
+      - store_artifacts:
+          path: packages/configmanager/test-results
+          destination: test-results-windows
+
+  test-linux:
+    executor: linux
+    working_directory: ~/project
+    steps:
+      - checkout
+      - run:
+          name: Install system dependencies for Electron
+          command: |
+            sudo apt-get update
+            sudo apt-get install -y libgtk-3-0 libnotify-dev libgconf-2-4 libatk-bridge2.0-0 libx11-xcb1 libxss1 libnss3 libgbm-dev xvfb
+      - run:
+          name: Install root dependencies
+          command: npm install
+      - run:
+          name: Install ConfigManager dependencies
+          command: |
+            cd packages/configmanager
+            npm install
+      - run:
+          name: Install Playwright browsers
+          command: |
+            cd packages/configmanager
+            npx playwright install --with-deps
+      - run:
+          name: Build ConfigManager for testing
+          command: |
+            cd packages/configmanager
+            npm run build
+      - run:
+          name: Run acceptance tests
+          command: |
+            cd packages/configmanager
+            xvfb-run -a npm run test:e2e
+      - store_test_results:
+          path: packages/configmanager/test-results
+      - store_artifacts:
+          path: packages/configmanager/test-results
+          destination: test-results-linux
+
+  test-macos:
+    executor: macos
+    working_directory: ~/project
+    steps:
+      - checkout
+      - run:
+          name: Fix Python environment
+          command: |
+            find . -name ".python-version" -delete
+            echo 'export PYENV_VERSION=system' >> $BASH_ENV
+            pyenv install 3.10 || true
+            pyenv global 3.10 || pyenv global system
+      - run:
+          name: Install Node.js
+          command: |
+            brew install node@18
+            echo 'export PATH="/opt/homebrew/opt/node@18/bin:$PATH"' >> $BASH_ENV
+            source $BASH_ENV
+            node --version
+            npm --version
+      - run:
+          name: Install root dependencies
+          command: |
+            source $BASH_ENV
+            npm install
+      - run:
+          name: Install ConfigManager dependencies
+          command: |
+            source $BASH_ENV
+            cd packages/configmanager
+            npm install
+      - run:
+          name: Install Playwright browsers
+          command: |
+            source $BASH_ENV
+            cd packages/configmanager
+            npx playwright install --with-deps
+      - run:
+          name: Build ConfigManager for testing
+          command: |
+            source $BASH_ENV
+            cd packages/configmanager
+            npm run build
+      - run:
+          name: Run acceptance tests
+          command: |
+            source $BASH_ENV
+            cd packages/configmanager
+            npm run test:e2e
+      - store_test_results:
+          path: packages/configmanager/test-results
+      - store_artifacts:
+          path: packages/configmanager/test-results
+          destination: test-results-macos
+
 workflows:
-  build-and-publish:
+  test-and-build:
     jobs:
+      # Test jobs run on all branches
+      - test-windows:
+          filters:
+            branches:
+              ignore: []
+      - test-linux:
+          filters:
+            branches:
+              ignore: []
+      - test-macos:
+          filters:
+            branches:
+              ignore: []
+      
+      # Build jobs only run on main branch and require tests to pass
       - build-windows:
           context: aws-credentials
+          requires:
+            - test-windows
           filters:
             branches:
               only:
                 - main
       - build-linux:
           context: aws-credentials
+          requires:
+            - test-linux
           filters:
             branches:
               only:
                 - main
       - build-macos:
           context: aws-credentials
+          requires:
+            - test-macos
           filters:
             branches:
               only:
