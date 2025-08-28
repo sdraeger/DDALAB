@@ -41,6 +41,17 @@ if (fs.existsSync(testDir)) {
   const testFiles = fs.readdirSync(testDir).filter(file => file.endsWith('.spec.ts'));
   if (testFiles.length > 0) {
     checks.push({ name: 'Test files', status: '✅', details: `Found ${testFiles.length} test files` });
+    
+    // Check for deployment-specific test files
+    const deploymentTests = testFiles.filter(file => 
+      file.includes('setup') || file.includes('deployment') || file.includes('connectivity')
+    );
+    
+    if (deploymentTests.length >= 3) {
+      checks.push({ name: 'Deployment tests', status: '✅', details: `Found ${deploymentTests.length} deployment-related test files` });
+    } else {
+      checks.push({ name: 'Deployment tests', status: '⚠️', details: `Only ${deploymentTests.length} deployment test files found` });
+    }
   } else {
     checks.push({ name: 'Test files', status: '❌', details: 'No .spec.ts files found in tests directory' });
   }
