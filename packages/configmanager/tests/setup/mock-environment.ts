@@ -42,13 +42,60 @@ export class MockEnvironment {
       isRunning: true,
       version: '20.10.0',
       containers: [
-        { name: 'ddalab-web', status: 'running' },
-        { name: 'ddalab-api', status: 'running' },
-        { name: 'ddalab-db', status: 'running' }
+        { 
+          name: 'ddalab-web', 
+          status: 'running',
+          ports: ['3000:3000', '443:443'],
+          image: 'ddalab/web:latest',
+          created: new Date().toISOString(),
+          health: 'healthy'
+        },
+        { 
+          name: 'ddalab-api', 
+          status: 'running',
+          ports: ['8000:8000'],
+          image: 'ddalab/api:latest',
+          created: new Date().toISOString(),
+          health: 'healthy'
+        },
+        { 
+          name: 'ddalab-db', 
+          status: 'running',
+          ports: ['5432:5432'],
+          image: 'postgres:13',
+          created: new Date().toISOString(),
+          health: 'healthy'
+        }
+      ],
+      networks: [
+        { name: 'ddalab_default', driver: 'bridge' }
+      ],
+      volumes: [
+        { name: 'ddalab_data', mountpoint: '/var/lib/postgresql/data' },
+        { name: 'ddalab_logs', mountpoint: '/var/log' }
       ]
     };
     
     await fs.writeFile(dockerStatusPath, JSON.stringify(mockDockerStatus, null, 2));
+    
+    // Create mock deployment status
+    const deploymentStatusPath = path.join(this.testDataPath, 'deployment-status.json');
+    const mockDeploymentStatus = {
+      isDeployed: true,
+      deploymentTime: new Date().toISOString(),
+      services: {
+        web: { status: 'running', url: 'https://localhost', port: 443 },
+        api: { status: 'running', url: 'http://localhost:8000', port: 8000 },
+        database: { status: 'running', url: 'postgresql://localhost:5432/ddalab', port: 5432 }
+      },
+      healthChecks: {
+        web: { status: 'healthy', lastCheck: new Date().toISOString() },
+        api: { status: 'healthy', lastCheck: new Date().toISOString() },
+        database: { status: 'healthy', lastCheck: new Date().toISOString() }
+      }
+    };
+    
+    await fs.writeFile(deploymentStatusPath, JSON.stringify(mockDeploymentStatus, null, 2));
   }
   
   private static async createMockProjectStructure(): Promise<void> {
@@ -141,7 +188,10 @@ SSL_KEY_PATH=${this.testDataPath}/certs/server.key
       TEST_CONFIG_PATH: this.mockConfigPath,
       MOCK_DOCKER_STATUS: 'running',
       MOCK_PROJECT_CONFIGURED: 'true',
+      MOCK_DEPLOYMENT_STATUS: 'deployed',
+      MOCK_SERVICES_HEALTHY: 'true',
       DISABLE_REAL_FILE_OPERATIONS: 'true',
+      DISABLE_REAL_NETWORK_CALLS: 'false', // Allow network calls for connectivity testing
       TEST_VIRTUALIZED_ENV: 'true'
     };
   }
@@ -172,5 +222,45 @@ SSL_KEY_PATH=${this.testDataPath}/certs/server.key
     } catch {
       return false;
     }
+  }
+  
+  static async getMockDockerStatus(): Promise<any> {
+    try {
+      const statusPath = path.join(this.testDataPath, 'docker-status.json');
+      const content = await fs.readFile(statusPath, 'utf8');
+      return JSON.parse(content);
+    } catch {
+      return null;
+    }
+  }
+  
+  static async getMockDeploymentStatus(): Promise<any> {
+    try {
+      const statusPath = path.join(this.testDataPath, 'deployment-status.json');
+      const content = await fs.readFile(statusPath, 'utf8');
+      return JSON.parse(content);
+    } catch {
+      return null;
+    }
+  }
+  
+  static async updateDeploymentStatus(status: Partial<any>): Promise<void> {
+    try {
+      const statusPath = path.join(this.testDataPath, 'deployment-status.json');
+      const currentStatus = await this.getMockDeploymentStatus() || {};
+      const updatedStatus = { ...currentStatus, ...status };
+      await fs.writeFile(statusPath, JSON.stringify(updatedStatus, null, 2));
+    } catch (error) {
+      console.warn('Failed to update deployment status:', error);
+    }
+  }
+  
+  static getExpectedDDALABUrls(): string[] {
+    return [
+      'https://localhost',
+      'https://localhost:443',
+      'http://localhost:3000',
+      'http://localhost:8000'
+    ];
   }
 }
