@@ -14,7 +14,11 @@
     "start:test": "npm run build && NODE_ENV=test ELECTRON_IS_TESTING=true electron .",
     "start:prod": "npm run build && NODE_ENV=production ELECTRON_IS_PRODUCTION=true electron .",
     "watch": "tsc -w",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "playwright test",
+    "test:e2e": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:validate": "node scripts/validate-test-setup.js",
     "package": "npm run build && electron-builder",
     "package:win": "npm run build && electron-builder --win",
     "package:mac": "npm run build && electron-builder --mac",
@@ -105,6 +109,7 @@
     "xstate": "^4.38.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.50.0",
     "@types/electron": "^1.6.10",
     "@types/node": "^20.10.5",
     "@types/react": "^18.2.45",
