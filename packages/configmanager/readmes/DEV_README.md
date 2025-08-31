@@ -208,4 +208,4 @@ npm run package:linux
 
 ---
 
-**Happy coding! 🎉** 
+**Happy coding! 🎉**

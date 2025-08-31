@@ -1,0 +1,54 @@
+<testsuites id="" name="" tests="1" failures="0" skipped="0" errors="0" time="53.212965000000004">
+<testsuite name="10-setup-workflow.spec.ts" timestamp="2025-08-28T22:33:27.716Z" hostname="electron" tests="1" failures="0" skipped="0" time="52.244" errors="0">
+<testcase name="DDALAB Setup Workflow › should navigate through complete setup wizard" classname="10-setup-workflow.spec.ts" time="52.244">
+<system-out>
+<![CDATA[Running locally - initializing virtualized test environment
+Testing actual setup workflow navigation
+Step 1: Looking for welcome/start screen...
+Found and clicking welcome button: button:has-text("Next")
+Found and clicking dialog button: button:has-text("I understand")
+Step 2: Looking for Docker check step...
+Found and clicking Docker button: button:has-text("Check")
+Step 3: Looking for project directory step...
+Found directory UI element: button:has-text("Add") (1 elements)
+Found directory UI element: button:has-text("Browse") (1 elements)
+Found directory UI element: text=directory (9 elements)
+Found directory UI element: text=Directory (9 elements)
+Found directory UI element: text=data directory (1 elements)
+Found directory UI element: text=least one (3 elements)
+No existing directories found - trying browse dialog or alternatives
+Trying browse button (should use mock): button:has-text("Browse")
+Found directory indicator after mock browse: text=simon (1 elements)
+✓ Directory appears to have been added via mock
+Directory selector found/handled - looking for next step button
+Found next step button: button:has-text("Next")
+✓ Clicked next step button: button:has-text("Next")
+Step 4: Looking for DDALAB installation location selection...
+Found installation location UI element: text=install (3 elements)
+Found and clicking home folder button: button:has-text("Home")
+Found and clicking dialog button: button:has-text("create new installation")
+Found next button after installation location: button:has-text("Next")
+Step 5: Looking for configuration step...
+Found and clicking config button: button:has-text("Next")
+Step 6: Looking for Docker configuration page...
+Found Docker configuration UI element: text=docker (2 elements)
+Docker configuration page detected - looking for Next button
+No Docker configuration page found - may be automated or skipped
+Step 7: Looking for Finish Setup page...
+Found Finish Setup UI element: text=finish (1 elements)
+Finish Setup page detected - looking for Finish Setup button
+Found and clicking Finish Setup button: button:has-text("Finish Setup")
+Step 8: Looking for final step...
+Step 9: Looking for control panel...
+✓ Found control panel element: text=Control Panel
+✓ Successfully reached DDALAB control panel!
+🏠 Running locally - skipping CI-specific DDALAB startup verification
+Setup workflow navigation completed. Steps navigated: 7
+✓ Successfully navigated through setup workflow steps
+Quit confirmation modal detected, handling...
+No quit confirmation dialog appeared or could not handle it: page.waitForTimeout: Target page, context or browser has been closed
+]]>
+</system-out>
+</testcase>
+</testsuite>
+</testsuites>
