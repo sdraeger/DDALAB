@@ -11,7 +11,7 @@ entryPoints:
 
 providers:
   file:
-    directory: /etc/traefik/dynamic
+    filename: /etc/traefik/dynamic/routers.yml
     watch: true
 
 

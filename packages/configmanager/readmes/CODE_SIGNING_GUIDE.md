@@ -63,7 +63,7 @@ npm run publish:beta
    ```bash
    # Check for existing certificates
    security find-identity -v -p codesigning
-   
+
    # If none exist, you need to:
    # 1. Join Apple Developer Program
    # 2. Create certificate in Apple Developer portal
@@ -269,7 +269,7 @@ export CSC_LINK=path/to/certificate.pfx
    ```bash
    # Check certificate validity
    security find-identity -v -p codesigning
-   
+
    # Remove expired certificates
    security delete-identity -Z "expired_certificate_name"
    ```
@@ -278,7 +278,7 @@ export CSC_LINK=path/to/certificate.pfx
    ```bash
    # Allow unsigned apps
    sudo spctl --master-disable
-   
+
    # Check Gatekeeper status
    spctl --status
    ```
@@ -359,4 +359,4 @@ export CSC_IDENTITY="Developer ID Application: Your Name (TEAM_ID)"
 export CSC_HARDENED_RUNTIME=true
 ```
 
-This configuration allows you to build development versions without code signing while maintaining the option to add proper signing for production releases. 
+This configuration allows you to build development versions without code signing while maintaining the option to add proper signing for production releases.

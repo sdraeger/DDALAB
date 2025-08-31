@@ -182,10 +182,10 @@ npm run build
 To build the Next.js application's Docker image, run the following command from the project root:
 
 ```bash
-docker build -t ddalab-monolith .
+docker build -t ddalab .
 ```
 
-This will create a Docker image tagged `ddalab-monolith`.
+This will create a Docker image tagged `ddalab`.
 
 ### Running with Docker Compose
 

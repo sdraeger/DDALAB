@@ -51,6 +51,20 @@ http:
       service: web
       tls:
         options: default
+    web-websocket:
+      rule: "Host(`localhost`) && PathPrefix(`/_next/webpack-hmr`)"
+      priority: 90
+      entryPoints:
+        - web
+      service: web
+    web-websocket-secure:
+      rule: "Host(`localhost`) && PathPrefix(`/_next/webpack-hmr`)"
+      priority: 90
+      entryPoints:
+        - websecure
+      service: web
+      tls:
+        options: default
     # Removed: web-api-secure routing to avoid conflicts with Python API endpoints
     web-debug-secure:
       rule: "Host(`localhost`) && PathPrefix(`/api/debug`)"
@@ -120,11 +134,11 @@ http:
     web:
       loadBalancer:
         servers:
-          - url: "http://ddalab:3000"
+          - url: "http://host.docker.internal:3000"
     api:
       loadBalancer:
         servers:
-          - url: "http://ddalab:8001"
+          - url: "http://host.docker.internal:8001"
 
   middlewares:
     auth:

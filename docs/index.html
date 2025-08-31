@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DDALAB - Delay Differential Analysis Laboratory</title>
+    <title>DDALAB</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <!-- Bootstrap CSS -->
     <link
@@ -42,263 +42,33 @@
     </style>
   </head>
   <body>
-    <!-- Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-      <div class="container">
-        <a class="navbar-brand" href="#">DDALAB</a>
-        <button
-          class="navbar-toggler"
-          type="button"
-          data-bs-toggle="collapse"
-          data-bs-target="#navbarNav"
-        >
-          <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarNav">
-          <ul class="navbar-nav">
-            <li class="nav-item">
-              <a class="nav-link" href="#features">Features</a>
-            </li>
-            <li class="nav-item">
-              <a class="nav-link" href="#installation">Installation</a>
-            </li>
-            <li class="nav-item">
-              <a class="nav-link" href="#documentation">Documentation</a>
-            </li>
-          </ul>
-          <ul class="navbar-nav ms-auto">
-            <li class="nav-item">
-              <a
-                class="nav-link"
-                href="https://github.com/sdraeger/DDALAB"
-                target="_blank"
-              >
-                <i class="bi bi-github"></i> GitHub
-              </a>
-            </li>
-          </ul>
-        </div>
-      </div>
-    </nav>
-
-    <!-- Hero Section -->
-    <section class="hero">
-      <div class="container text-center">
-        <h1 class="display-4 mb-4">DDALAB</h1>
-        <p class="lead mb-4">
-          A powerful data-driven analysis laboratory for scientific research
-        </p>
-        <div class="d-flex justify-content-center gap-3">
-          <a href="#installation" class="btn btn-primary btn-lg">Get Started</a>
-          <a
-            href="https://github.com/sdraeger/DDALAB"
-            class="btn btn-outline-light btn-lg"
-            target="_blank"
-            >View on GitHub</a
-          >
-        </div>
-      </div>
-    </section>
-
-    <!-- Features -->
-    <section id="features" class="py-5">
-      <div class="container">
-        <h2 class="text-center mb-5">Features</h2>
-        <div class="row g-4">
-          <div class="col-md-4">
-            <div class="text-center">
-              <div class="feature-icon">🔬</div>
-              <h3>Data Analysis</h3>
-              <p>
-                Advanced data analysis capabilities with real-time processing
-                and visualization
-              </p>
-            </div>
-          </div>
-          <div class="col-md-4">
-            <div class="text-center">
-              <div class="feature-icon">⚡</div>
-              <h3>High Performance</h3>
-              <p>
-                Distributed task processing with Celery and Redis for optimal
-                performance
-              </p>
-            </div>
-          </div>
-          <div class="col-md-4">
-            <div class="text-center">
-              <div class="feature-icon">🔒</div>
-              <h3>Secure</h3>
-              <p>
-                Built-in authentication and authorization system for secure data
-                access
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Installation -->
-    <section id="installation" class="py-5 bg-light">
-      <div class="container">
-        <h2 class="text-center mb-5">Installation</h2>
-
-        <!-- Installation Tabs -->
-        <ul class="nav nav-pills mb-4 justify-content-center" role="tablist">
-          <li class="nav-item">
-            <button
-              class="nav-link active"
-              data-bs-toggle="tab"
-              data-bs-target="#docker"
-            >
-              Docker
-            </button>
-          </li>
-          <li class="nav-item">
-            <button
-              class="nav-link"
-              data-bs-toggle="tab"
-              data-bs-target="#manual"
-            >
-              Manual Setup
-            </button>
-          </li>
-        </ul>
-
-        <div class="tab-content">
-          <!-- Docker Installation -->
-          <div class="tab-pane fade show active" id="docker">
-            <div class="card">
-              <div class="card-body">
-                <h4>Using Docker</h4>
-                <p>
-                  The easiest way to get started with DDALAB is using Docker:
-                </p>
-                <pre><code class="language-bash"># Clone the repository
-git clone https://github.com/sdraeger/DDALAB
-cd ddalab
-
-# Build and run with Docker
-docker build -t ddalab .
-docker run -p 8001:8001 ddalab</code></pre>
-              </div>
-            </div>
-          </div>
-
-          <!-- Manual Installation -->
-          <div class="tab-pane fade" id="manual">
-            <div class="card">
-              <div class="card-body">
-                <h4>Manual Setup</h4>
-                <p>For development or custom installations:</p>
-                <pre><code class="language-bash"># Clone the repository
-git clone https://github.com/sdraeger/DDALAB
-cd ddalab
-
-# Create and activate virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Start Redis server
-redis-server
-
-# Start Celery worker
-celery -A server.celery_app worker --loglevel=info
-
-# Start the server
-uvicorn server.main:app --host localhost --port 8001</code></pre>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Documentation -->
-    <section id="documentation" class="py-5">
-      <div class="container">
-        <h2 class="text-center mb-5">Documentation</h2>
-        <div class="row">
-          <div class="col-md-6">
-            <div class="card h-100">
-              <div class="card-body">
-                <h4>Server Configuration</h4>
-                <p>
-                  The server can be configured using environment variables or a
-                  <code>.env</code> file:
-                </p>
-                <pre><code class="language-bash"># Server settings
-DDALAB_HOST=localhost
-DDALAB_PORT=8001
-
-# Redis settings
-DDALAB_REDIS_HOST=localhost
-DDALAB_REDIS_PORT=6379
-
-# Celery settings
-DDALAB_CELERY_BROKER_URL=redis://localhost:6379/0
-DDALAB_CELERY_RESULT_BACKEND=redis://localhost:6379/0</code></pre>
-              </div>
-            </div>
-          </div>
-          <div class="col-md-6">
-            <div class="card h-100">
-              <div class="card-body">
-                <h4>API Documentation</h4>
-                <p>The API documentation is available at:</p>
-                <ul>
-                  <li>REST API: <code>http://localhost:8001/docs</code></li>
-                  <li>GraphQL: <code>http://localhost:8001/graphql</code></li>
-                </ul>
-                <p>Example API usage:</p>
-                <pre><code class="language-python">import requests
-
-# Get authentication token
-response = requests.post(
-    "http://localhost:8001/api/auth/token",
-    data={"username": "user", "password": "pass"}
-)
-token = response.json()["access_token"]
-
-# Use the API
-headers = {"Authorization": f"Bearer {token}"}
-response = requests.get(
-    "http://localhost:8001/api/data",
-    headers=headers
-)</code></pre>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Footer -->
-    <footer class="bg-dark text-light py-4">
-      <div class="container text-center">
-        <p>DDALAB - Delay Differential Analysis Laboratory</p>
-        <p class="mb-0">
-          <a
-            href="https://github.com/sdraeger/DDALAB"
-            class="text-light"
-            target="_blank"
-            >GitHub</a
-          >
-          | <a href="#" class="text-light">Documentation</a> |
-          <a href="#" class="text-light">Support</a>
-        </p>
-      </div>
-    </footer>
-
-    <!-- Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- Code highlighting -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.24.1/prism.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.24.1/components/prism-bash.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.24.1/components/prism-python.min.js"></script>
+    <h1>DDALAB Application</h1>
+    <p>
+      This is the main application for DDALAB. To run it, you need Docker
+      installed.
+    </p>
+    <h2>Quick Start with Docker</h2>
+    <ol>
+      <li>
+        <strong>Build the Docker Image:</strong> Open your terminal, navigate to
+        the project root, and run:
+        <pre><code>docker build -t ddalab .</code></pre>
+      </li>
+      <li>
+        <strong>Run with Docker Compose:</strong> From the same directory,
+        execute:
+        <pre><code>docker compose up -d</code></pre>
+      </li>
+      <li>
+        <strong>Access the Application:</strong> Open your web browser and go to
+        <a href="http://localhost:3000">http://localhost:3000</a>
+      </li>
+    </ol>
+    <h2>Additional Resources</h2>
+    <ul>
+      <li><a href="./DOCKER_BUILD_GUIDE.md">Docker Build Guide</a></li>
+      <li><a href="./DEPLOYMENT_SUMMARY.md">Deployment Summary</a></li>
+      <li><a href="./ENVIRONMENT_VARIABLES.md">Environment Variables</a></li>
+    </ul>
   </body>
 </html>
