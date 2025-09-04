@@ -65,7 +65,7 @@ export function DDAWidget({
         // Initialize DDA selected channels with plot's selected channels
         setDdaSelectedChannels(currentPlotState.selectedChannels);
       }
-      
+
       const channelLabels =
         currentPlotState.edfData?.channel_labels ||
         currentPlotState.metadata?.channels ||
@@ -84,7 +84,7 @@ export function DDAWidget({
       // Initialize DDA selected channels with plot's selected channels
       setDdaSelectedChannels(event.selectedChannels);
     }
-    
+
     const channelLabels =
       event.edfData?.channel_labels ||
       event.metadata?.channels ||
