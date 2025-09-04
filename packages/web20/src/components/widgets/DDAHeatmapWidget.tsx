@@ -498,7 +498,7 @@ export function DDAHeatmapWidget({
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-sm">
             <Activity className="h-4 w-4" />
-            DDA Heatmap
+            DDA Heatmap (a1 Coefficients)
             {(isLoadingState || isSavingState) && (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             )}

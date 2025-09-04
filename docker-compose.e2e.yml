@@ -1,0 +1,23 @@
+services:
+  e2e-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    volumes:
+      - ./e2e-output:/output
+    environment:
+      - CI=true
+      - CIRCLECI=true
+      - NODE_ENV=test
+      - ELECTRON_IS_TESTING=true
+      - ELECTRON_DISABLE_SANDBOX=1
+      - DISPLAY=:99
+    # Required for Electron to run in container
+    security_opt:
+      - seccomp:unconfined
+    init: true
+    # Enable network access for connectivity tests
+    network_mode: bridge
+    # Use limited resources for faster startup
+    mem_limit: 2g
+    cpus: 2

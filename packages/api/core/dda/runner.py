@@ -218,9 +218,9 @@ async def run_dda(
             cpu_time=False,
             raise_on_error=True,
         )
-        Q = Q[:, 2:]
 
         logger.info(f"Raw Q matrix shape: {Q.shape}, dtype: {Q.dtype}")
+
         nan_count = np.isnan(Q).sum()
         inf_count = np.isinf(Q).sum()
         finite_count = np.isfinite(Q).sum()
