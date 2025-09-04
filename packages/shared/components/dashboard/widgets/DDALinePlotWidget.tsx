@@ -79,17 +79,17 @@ export function DDALinePlotWidget({
     scales: { x: { time: false } },
     axes: [
       { label: "Time Step", stroke: "#555" },
-      { label: "Q Value", stroke: "#555" },
+      { label: "a1 Coefficient", stroke: "#555" },
     ],
     series: [
       { label: "Time" },
       ...Array.from({ length: seriesCount }, (_, i) => ({
         label:
           plotMode === "all"
-            ? `Channel ${i + 1}`
+            ? `Channel ${i + 1} (a1)`
             : plotMode === "average"
-              ? "Average"
-              : `Channel ${selectedRow + 1}`,
+              ? "Average (a1)"
+              : `Channel ${selectedRow + 1} (a1)`,
         stroke: `hsl(${(i * 60) % 360}, 70%, 50%)`,
         width: 2,
         points: { show: false },
@@ -154,7 +154,7 @@ export function DDALinePlotWidget({
           <CardTitle className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5" />
-              <span>DDA Line Plot</span>
+              <span>DDA Line Plot (a1 Coefficients)</span>
             </div>
           </CardTitle>
         </CardHeader>
@@ -179,7 +179,7 @@ export function DDALinePlotWidget({
         <CardTitle className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <TrendingUp className="h-5 w-5" />
-            <span>DDA Line Plot</span>
+            <span>DDA Line Plot (a1 Coefficients)</span>
           </div>
           <Button variant="ghost" size="sm" onClick={handleRefresh}>
             <RotateCcw className="h-4 w-4" />

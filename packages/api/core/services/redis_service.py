@@ -4,7 +4,7 @@ import json
 import pickle
 from typing import Any, Dict, List, Optional
 
-import aioredis
+import redis.asyncio as redis
 from loguru import logger
 
 from ..environment import get_config_service
@@ -31,14 +31,14 @@ class RedisService:
             password if password is not None else cache_settings.redis_password
         )
         self._use_ssl = use_ssl if use_ssl is not None else cache_settings.redis_use_ssl
-        self._redis: Optional[aioredis.Redis] = None
+        self._redis: Optional[redis.Redis] = None
 
     @classmethod
     def from_db(cls, db=None) -> "RedisService":
         """Create a service instance for dependency injection."""
         return cls()
 
-    async def get_redis(self) -> aioredis.Redis:
+    async def get_redis(self) -> redis.Redis:
         """Get Redis connection."""
         if self._redis is None:
             # Build connection URL with SSL if needed
@@ -58,7 +58,7 @@ class RedisService:
             if self._password:
                 connection_params["password"] = self._password
 
-            self._redis = aioredis.from_url(url, **connection_params)
+            self._redis = redis.from_url(url, **connection_params)
         return self._redis
 
     async def close(self):

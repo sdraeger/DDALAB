@@ -6,6 +6,10 @@ dist/
 wheels/
 *.egg-info
 
+# direnv
+.envrc
+!.envrc.example
+
 # Virtual environments
 .venv
 node_modules/
@@ -77,3 +81,8 @@ playwright-report/
 
 # Scripts (keep local only)
 scripts/
+
+.claude/
+
+packages/configmanager/playwright-report/
+packages/configmanager/test-results/

@@ -191,7 +191,7 @@ export function DDAHeatmapWidget({
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-sm">
             <Activity className="h-4 w-4" />
-            DDA Heatmap
+            DDA Heatmap (a1 Coefficients)
           </CardTitle>
         </CardHeader>
         <CardContent className="flex-1 flex items-center justify-center">
@@ -211,7 +211,7 @@ export function DDAHeatmapWidget({
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-sm">
             <Activity className="h-4 w-4" />
-            DDA Heatmap
+            DDA Heatmap (a1 Coefficients)
           </CardTitle>
         </CardHeader>
         <CardContent className="flex-1 flex items-center justify-center">
@@ -233,7 +233,7 @@ export function DDAHeatmapWidget({
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-sm">
             <Activity className="h-4 w-4" />
-            DDA Heatmap
+            DDA Heatmap (a1 Coefficients)
           </CardTitle>
         </CardHeader>
         <CardContent className="flex-1 flex flex-col items-center justify-center">
@@ -261,7 +261,7 @@ export function DDAHeatmapWidget({
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-sm">
             <Activity className="h-4 w-4" />
-            DDA Heatmap
+            DDA Heatmap (a1 Coefficients)
           </CardTitle>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="text-xs">

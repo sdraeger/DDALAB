@@ -7,6 +7,11 @@
   ],
   "scripts": {
     "dev": "turbo run dev",
+    "dev:docker": "./scripts/dev.sh up",
+    "dev:docker:minimal": "./scripts/dev-minimal.sh up",
+    "dev:local": "./scripts/dev-local.sh",
+    "dev:local:auto": "./scripts/dev-local.sh --start-services",
+    "dev:local:concurrent": "concurrently \"cd packages/api && ./start.sh\" \"cd packages/web20 && npm run dev\"",
     "build": "turbo run build",
     "install-deps": "npm install",
     "dev:configmanager": "cd packages/configmanager && npm run dev",
@@ -14,12 +19,30 @@
     "build:docker": "./scripts/build-docker-images.sh",
     "build:docker:win": "scripts\\build-docker-images.bat",
     "push:docker": "./scripts/push-docker-images.sh",
-    "push:docker:win": "scripts\\push-docker-images.bat"
+    "push:docker:win": "scripts\\push-docker-images.bat",
+    "docker:up": "./scripts/dev.sh up",
+    "docker:down": "./scripts/dev.sh down",
+    "docker:logs": "./scripts/dev.sh logs",
+    "check": "./scripts/check-setup.sh",
+    "setup:python": "./scripts/setup-python-env.sh",
+    "setup:dev": "./scripts/setup-dev.sh",
+    "services:start": "./scripts/core-services.sh start",
+    "services:stop": "./scripts/core-services.sh stop",
+    "services:status": "./scripts/core-services.sh status"
+  },
+  "volta": {
+    "node": "20.18.2",
+    "npm": "10.9.2"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
   },
   "devDependencies": {
     "@types/lodash": "^4.17.20",
     "@types/node": "^22.13.10",
     "@types/node-fetch": "^2.6.13",
+    "concurrently": "^9.1.0",
     "turbo": "^2.5.3",
     "typescript": "^5.3.3"
   },

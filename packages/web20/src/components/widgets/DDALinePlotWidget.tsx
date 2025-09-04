@@ -237,7 +237,7 @@ export function DDALinePlotWidget({
     const s = [
       { label: "t" },
       ...Array.from({ length: numSeries }, (_, i) => ({
-        label: `Q${i + 1}`,
+        label: `Q${i + 1} (a1)`,
         stroke: COLORS[i % COLORS.length],
         points: { show: false },
         width: Math.max(1, 1 / dpr),
@@ -306,7 +306,7 @@ export function DDALinePlotWidget({
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-sm">
             <TrendingUp className="h-4 w-4" />
-            DDA Line Plot
+            DDA Line Plot (a1 Coefficients)
             {(isLoadingState || isSavingState) && (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             )}
