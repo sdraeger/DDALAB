@@ -59,7 +59,7 @@ export function DDAHeatmapWidget({
       const points: any[] = [];
       const rows = matrix.length;
       const cols = matrix[0]?.length || 0;
-      
+
       console.log("[DDAHeatmapWidget] Processing matrix:", {
         rows,
         cols,
@@ -74,15 +74,15 @@ export function DDAHeatmapWidget({
       const totalPoints = rows * cols;
       let stepRow = 1;
       let stepCol = 1;
-      
+
       if (totalPoints > MAX_HEATMAP_POINTS) {
         // Calculate downsampling steps
         const targetCols = Math.min(cols, 500); // Max 500 columns for visualization
         const targetRows = Math.min(rows, 20);  // Max 20 rows (channels)
-        
+
         stepCol = Math.max(1, Math.floor(cols / targetCols));
         stepRow = Math.max(1, Math.floor(rows / targetRows));
-        
+
         console.log("[DDAHeatmapWidget] Downsampling large matrix:", {
           original: `${rows}×${cols}`,
           target: `${Math.ceil(rows/stepRow)}×${Math.ceil(cols/stepCol)}`,
@@ -96,12 +96,12 @@ export function DDAHeatmapWidget({
       matrix.forEach((row, rowIndex) => {
         // Skip rows based on downsampling
         if (rowIndex % stepRow !== 0) return;
-        
+
         if (Array.isArray(row)) {
           row.forEach((value, colIndex) => {
             // Skip columns based on downsampling
             if (colIndex % stepCol !== 0) return;
-            
+
             // Handle cases where the value might be wrapped in an array e.g. [0.123]
             const unwrappedValue = Array.isArray(value) ? value[0] : value;
 
@@ -118,7 +118,7 @@ export function DDAHeatmapWidget({
             if (typeof numericValue === "number" && !isNaN(numericValue)) {
               points.push({
                 x: Math.floor(colIndex / stepCol), // Use downsampled coordinates
-                y: Math.floor(rowIndex / stepRow), // Use downsampled coordinates  
+                y: Math.floor(rowIndex / stepRow), // Use downsampled coordinates
                 value: numericValue,
                 originalX: colIndex, // Keep original coordinates for reference
                 originalY: rowIndex,

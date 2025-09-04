@@ -1,15 +1,15 @@
 from pathlib import Path
 
 import dda_py
+import matplotlib.pyplot as plt
 import numpy as np
 from core.dda.binary_validation import validate_dda_binary
 from core.dda_ape_patch import patch_dda_py
 from core.edf.edf_cache import get_cache_manager
+from core.environment import get_config_service
 from core.files import read_edf_header
 from loguru import logger
 from schemas.dda import DDAResponse
-import matplotlib.pyplot as plt
-from core.environment import get_config_service
 
 patch_dda_py()
 

@@ -37,7 +37,7 @@ export function DDAHeatmapWidget({
   const [stateError, setStateError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const uplotRef = useRef<uPlot | null>(null);
-  
+
   // Cursor tracking state
   const [cursorInfo, setCursorInfo] = useState<{
     x: number;
@@ -60,7 +60,7 @@ export function DDAHeatmapWidget({
   useEffect(() => {
     if (restoredRef.current) return;
     restoredRef.current = true;
-    
+
     const restoreState = async () => {
       setIsLoadingState(true);
       setStateError(null);
@@ -92,7 +92,7 @@ export function DDAHeatmapWidget({
         setTimeout(() => { isFirstRender.current = false; }, 100);
       }
     };
-    
+
     restoreState();
   }, [storageKey]);
 
@@ -106,9 +106,9 @@ export function DDAHeatmapWidget({
   // Persist state snapshot to database when key inputs change
   useEffect(() => {
     if (!restoredRef.current || isLoadingState || isFirstRender.current) return; // Don't save during initial load
-    
+
     const snapshot = { colorScheme, Q };
-    
+
     const saveState = async () => {
       setIsSavingState(true);
       try {
@@ -129,7 +129,7 @@ export function DDAHeatmapWidget({
         setIsSavingState(false);
       }
     };
-    
+
     // Debounce saves to avoid excessive API calls
     const timeoutId = setTimeout(saveState, 500);
     return () => clearTimeout(timeoutId);
@@ -156,7 +156,7 @@ export function DDAHeatmapWidget({
             return value;
           })
         );
-        
+
         setQ(cleaned);
       }
     };
@@ -235,12 +235,12 @@ export function DDAHeatmapWidget({
         { t: 0.8, rgb: [229, 92, 48] },
         { t: 1.0, rgb: [252, 255, 164] },
       ];
-      
+
       // Find the appropriate color segment
       for (let i = 0; i < infernoPoints.length - 1; i++) {
         const p1 = infernoPoints[i];
         const p2 = infernoPoints[i + 1];
-        
+
         if (clampedValue >= p1.t && clampedValue <= p2.t) {
           const segmentT = (clampedValue - p1.t) / (p2.t - p1.t);
           const r = Math.round(p1.rgb[0] + (p2.rgb[0] - p1.rgb[0]) * segmentT);
@@ -249,7 +249,7 @@ export function DDAHeatmapWidget({
           return `rgb(${r}, ${g}, ${b})`;
         }
       }
-      
+
       return `rgb(${infernoPoints[infernoPoints.length - 1].rgb.join(', ')})`;
     }
   };
@@ -263,7 +263,7 @@ export function DDAHeatmapWidget({
     }
     const rows = Q.length;
     const cols = Q[0]?.length || 0;
-    
+
     const x = Float64Array.from({ length: cols }, (_, i) => i);
     const y = new Float64Array(cols).fill(0); // single dummy series; we paint in draw hook
 
@@ -298,29 +298,29 @@ export function DDAHeatmapWidget({
                 }
               }
             }
-            
+
             // Sort values for percentile calculation
             allValues.sort((a, b) => a - b);
-            
+
             // Calculate percentiles to handle outliers
             const getPercentile = (arr, p) => {
               const index = Math.floor(arr.length * p / 100);
               return arr[Math.min(index, arr.length - 1)];
             };
-            
+
             // Use 2nd and 98th percentiles for robust color scaling
             // This handles outliers that would otherwise compress the color range
             let min = getPercentile(allValues, 2);
             let max = getPercentile(allValues, 98);
-            
+
             // Fallback to actual min/max if percentiles are the same
             if (min === max && allValues.length > 0) {
               min = allValues[0];
               max = allValues[allValues.length - 1];
             }
-            
+
             const denom = max - min || 1;
-            
+
             // Only log if there are outliers
             if (allValues.length > 0 && (allValues[0] < min * 10 || allValues[allValues.length - 1] > max * 10)) {
               console.log('[DDAHeatmapWidget] Outliers detected and handled:', {
@@ -362,23 +362,23 @@ export function DDAHeatmapWidget({
           (u: uPlot) => {
             const canvas = (u as any).root.querySelector('canvas');
             if (!canvas) return;
-            
+
             const handleMouseMove = (e: MouseEvent) => {
               const rect = canvas.getBoundingClientRect();
               const canvasX = e.clientX - rect.left;
               const canvasY = e.clientY - rect.top;
-              
+
               // Map canvas coordinates to Q matrix coordinates
               const plotArea = u.bbox;
               if (canvasX >= plotArea.left && canvasX <= plotArea.left + plotArea.width &&
                   canvasY >= plotArea.top && canvasY <= plotArea.top + plotArea.height) {
-                
+
                 const relativeX = (canvasX - plotArea.left) / plotArea.width;
                 const relativeY = (canvasY - plotArea.top) / plotArea.height;
-                
+
                 const dataX = Math.floor(relativeX * cols);
                 const dataY = Math.floor(relativeY * rows);
-                
+
                 if (dataY >= 0 && dataY < rows && dataX >= 0 && dataX < cols) {
                   const value = Q[dataY][dataX];
                   setCursorInfo({
@@ -396,14 +396,14 @@ export function DDAHeatmapWidget({
                 setCursorInfo(null);
               }
             };
-            
+
             const handleMouseLeave = () => {
               setCursorInfo(null);
             };
-            
+
             canvas.addEventListener('mousemove', handleMouseMove);
             canvas.addEventListener('mouseleave', handleMouseLeave);
-            
+
             // Store cleanup functions on the canvas element
             (canvas as any)._cleanupCursor = () => {
               canvas.removeEventListener('mousemove', handleMouseMove);
@@ -421,27 +421,27 @@ export function DDAHeatmapWidget({
       if (canvas && (canvas as any)._cleanupCursor) {
         (canvas as any)._cleanupCursor();
       }
-      
+
       uplotRef.current.setData(data);
       uplotRef.current.redraw();
     } else {
       try {
         // Get the appropriate uPlot constructor based on context
         let uPlotConstructor = uPlot;
-        
+
         // Check if we're in a popup window context and use global uPlot if available
         if (typeof window !== 'undefined' && window.opener && (window as any).uPlot) {
           console.log('[DDAHeatmapWidget] Using popup window uPlot');
           uPlotConstructor = (window as any).uPlot;
         }
-        
+
         uplotRef.current = new uPlotConstructor(opts, data, containerRef.current);
       } catch (error) {
         console.error('[DDAHeatmapWidget] Error creating uPlot instance:', error);
         // Don't throw - just log the error to prevent component crash
       }
     }
-    
+
     // Cleanup function for cursor listeners
     return () => {
       if (uplotRef.current) {
@@ -452,7 +452,7 @@ export function DDAHeatmapWidget({
       }
     };
   }, [Q, colorScheme]);
-  
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -565,10 +565,10 @@ export function DDAHeatmapWidget({
                 style={{ minHeight: 320 }}
               />
             )}
-            
+
             {/* Cursor info overlay */}
             {cursorInfo && cursorInfo.visible && (
-              <div 
+              <div
                 className="absolute pointer-events-none z-20 bg-black/80 text-white px-2 py-1 rounded text-xs whitespace-nowrap"
                 style={{
                   left: Math.min(cursorInfo.x + 10, 300),

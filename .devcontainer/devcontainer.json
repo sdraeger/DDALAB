@@ -4,7 +4,7 @@
     "dockerfile": "Dockerfile"
   },
   "workspaceFolder": "/app",
-  
+
   "features": {
     "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
@@ -72,7 +72,7 @@
   },
 
   "forwardPorts": [3000, 3001, 8001],
-  
+
   "portsAttributes": {
     "3000": {
       "label": "Web20 Dashboard",
@@ -92,7 +92,7 @@
   "postStartCommand": "npm run dev",
 
   "remoteUser": "node",
-  
+
   "mounts": [
     "source=ddalab-node-modules,target=/app/node_modules,type=volume"
   ],
