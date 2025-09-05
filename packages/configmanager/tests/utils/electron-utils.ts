@@ -32,8 +32,8 @@ async function handleQuitConfirmation(page: Page): Promise<void> {
     console.log('Quit confirmation modal detected, handling...');
     
     // The quit button is in the modal footer and contains an icon + "Quit" text
-    // It's the primary button in the modal footer
-    const quitButton = page.locator('.modal-footer button.btn-primary');
+    // Be more specific to avoid matching other primary buttons
+    const quitButton = page.locator('.modal-footer button.btn-primary').filter({ hasText: /Quit/ });
     
     // Wait for the button to be visible and enabled
     await quitButton.waitFor({ state: 'visible', timeout: 2000 });
