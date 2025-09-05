@@ -46,16 +46,16 @@ async function gracefullyCloseElectronApp(electronApp: ElectronApplication): Pro
       // Handle quit confirmation dialog first, then close
       await handleQuitConfirmation(mainWindow);
       
-      // Now close the app with a timeout
+      // Now close the app with a longer timeout for CI
       await Promise.race([
         electronApp.close(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Close timeout')), 10000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Close timeout')), 30000))
       ]);
     } else {
-      // No windows, just close directly with timeout
+      // No windows, just close directly with longer timeout
       await Promise.race([
         electronApp.close(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Close timeout')), 5000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Close timeout')), 15000))
       ]);
     }
     
@@ -117,8 +117,26 @@ export const electronTest = test.extend<ElectronTestContext>({
   },
 
   page: async ({ electronApp }, use) => {
-    // Get the main window with increased timeout for Windows CI
-    const page = await electronApp.firstWindow({ timeout: 45000 });
+    // Get the main window with increased timeout for Windows CI and retry logic
+    let page;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (retryCount < maxRetries) {
+      try {
+        console.log(`Attempting to get first window (attempt ${retryCount + 1}/${maxRetries})`);
+        page = await electronApp.firstWindow({ timeout: 60000 });
+        break;
+      } catch (error) {
+        retryCount++;
+        if (retryCount >= maxRetries) {
+          console.log('Failed to get first window after all retries:', error.message);
+          throw error;
+        }
+        console.log(`First window attempt ${retryCount} failed, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
     
     // Wait for the page to be ready
     await page.waitForLoadState('domcontentloaded', { timeout: 30000 });
