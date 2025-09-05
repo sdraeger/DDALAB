@@ -141,14 +141,12 @@ export function DDAHeatmapWidget({
     console.log("DDA Heatmap Widget: File selected", event.filePath);
   });
 
-  // Listen to DDA results - but only after we've been restored
+  // Listen to DDA results immediately - don't wait for restoration
   useEffect(() => {
-    // Don't process results until we're properly initialized
-    if (!restoredRef.current) return;
-
     const onResults = (e: Event) => {
       const detail = (e as CustomEvent).detail as { Q?: (number | null)[][] };
       if (Array.isArray(detail?.Q) && detail.Q.length > 0) {
+        console.log('[DDAHeatmapWidget] Received DDA results, Q shape:', detail.Q.length, 'x', detail.Q[0]?.length);
         // Clean the data without downsampling
         const cleaned = detail.Q.map((row) =>
           row.map((v) => {
@@ -158,6 +156,9 @@ export function DDAHeatmapWidget({
         );
 
         setQ(cleaned);
+        
+        // Mark that we've received fresh data
+        isFirstRender.current = false;
       }
     };
     window.addEventListener("dda:results", onResults as EventListener);
@@ -256,13 +257,33 @@ export function DDAHeatmapWidget({
 
   // Build uPlot heatmap renderer using draw hook for performance
   useEffect(() => {
-    if (!containerRef.current || !Q || Q.length === 0) {
-      uplotRef.current?.destroy();
+    console.log('[DDAHeatmapWidget] useEffect triggered - Q updated:', Q?.length, 'x', Q?.[0]?.length);
+    
+    // Always destroy existing chart before creating new one
+    if (uplotRef.current) {
+      console.log('[DDAHeatmapWidget] Destroying existing chart');
+      uplotRef.current.destroy();
       uplotRef.current = null;
+    }
+    
+    if (!containerRef.current || !Q || Q.length === 0) {
+      console.log('[DDAHeatmapWidget] Conditions not met:', {
+        container: !!containerRef.current,
+        Q: !!Q,
+        QLength: Q?.length
+      });
       return;
     }
     const rows = Q.length;
     const cols = Q[0]?.length || 0;
+    console.log('[DDAHeatmapWidget] Building heatmap with dimensions:', rows, 'x', cols);
+    
+    // Small delay to ensure DOM is ready
+    const timeoutId = setTimeout(() => {
+      if (!containerRef.current) {
+        console.log('[DDAHeatmapWidget] Container still not available after delay');
+        return;
+      }
 
     const x = Float64Array.from({ length: cols }, (_, i) => i);
     const y = new Float64Array(cols).fill(0); // single dummy series; we paint in draw hook
@@ -271,7 +292,7 @@ export function DDAHeatmapWidget({
       width: Math.max(320, containerRef.current.clientWidth || 400),
       height: Math.min(600, Math.max(240, rows)),
       scales: { x: { time: false }, y: { auto: true } },
-      axes: [{ label: "t" }, { label: "rows" }],
+      axes: [{ label: "Time (s)" }, { label: "Channel Pairs" }],
       series: [
         { label: "t" },
         { label: "Q", points: { show: false }, width: 0 },
@@ -442,8 +463,11 @@ export function DDAHeatmapWidget({
       }
     }
 
-    // Cleanup function for cursor listeners
+    }, 50); // 50ms delay
+    
+    // Cleanup function for cursor listeners and timeout
     return () => {
+      clearTimeout(timeoutId);
       if (uplotRef.current) {
         const canvas = (uplotRef.current as any).root?.querySelector('canvas');
         if (canvas && (canvas as any)._cleanupCursor) {
@@ -551,19 +575,18 @@ export function DDAHeatmapWidget({
           </div>
 
           <div className="flex items-center justify-center p-2 bg-muted/20 rounded-lg overflow-auto relative">
-            {isLoadingState ? (
-              <div className="w-full h-[320px] flex items-center justify-center">
+            <div
+              ref={containerRef}
+              className="w-full"
+              style={{ minHeight: 320, display: isLoadingState ? 'none' : 'block' }}
+            />
+            {isLoadingState && (
+              <div className="absolute inset-0 w-full h-[320px] flex items-center justify-center bg-muted/20">
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Loader2 className="h-5 w-5 animate-spin" />
                   <span className="text-sm">Loading widget state...</span>
                 </div>
               </div>
-            ) : (
-              <div
-                ref={containerRef}
-                className="w-full"
-                style={{ minHeight: 320 }}
-              />
             )}
 
             {/* Cursor info overlay */}
