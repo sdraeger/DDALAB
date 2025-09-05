@@ -272,6 +272,8 @@ jobs:
   test-windows:
     executor: windows
     working_directory: ~/project
+    environment:
+      NODE_OPTIONS: "--max-old-space-size=4096"
     steps:
       - checkout
       - run:
@@ -301,6 +303,7 @@ jobs:
           name: Run acceptance tests
           command: |
             cd packages/configmanager
+            set NODE_OPTIONS=--max-old-space-size=4096
             npm run test:e2e
       - store_test_results:
           path: packages/configmanager/test-results
@@ -316,8 +319,18 @@ jobs:
       - run:
           name: Install system dependencies for Electron
           command: |
-            sudo apt-get update
-            sudo apt-get install -y libgtk-3-0 libnotify-dev libgconf-2-4 libatk-bridge2.0-0 libx11-xcb1 libxss1 libnss3 libgbm-dev xvfb
+            # Retry apt-get update with different mirrors if needed
+            sudo apt-get update || (
+              echo "Switching to archive mirrors..."
+              sudo sed -i 's|http://archive.ubuntu.com|http://us.archive.ubuntu.com|g' /etc/apt/sources.list
+              sudo apt-get update
+            )
+            sudo apt-get install -y libgtk-3-0 libnotify-dev libgconf-2-4 libatk-bridge2.0-0 libx11-xcb1 libxss1 libnss3 libgbm-dev xvfb || true
+            # Install critical dependencies individually if bulk install fails
+            sudo apt-get install -y libgtk-3-0 || true
+            sudo apt-get install -y libnss3 || true
+            sudo apt-get install -y libgbm-dev || true
+            sudo apt-get install -y xvfb || true
       - run:
           name: Install root dependencies
           command: npm install
