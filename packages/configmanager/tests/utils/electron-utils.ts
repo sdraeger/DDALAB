@@ -36,6 +36,9 @@ async function handleQuitConfirmation(page: Page): Promise<void> {
  * Gracefully close the Electron app, handling quit confirmation if it appears
  */
 async function gracefullyCloseElectronApp(electronApp: ElectronApplication): Promise<void> {
+  const isWindows = process.platform === 'win32';
+  const isCI = process.env.CI === 'true' || process.env.CIRCLECI === 'true';
+  
   try {
     // Get all windows before closing
     const windows = electronApp.windows();
@@ -45,31 +48,28 @@ async function gracefullyCloseElectronApp(electronApp: ElectronApplication): Pro
       
       // Handle quit confirmation dialog first, then close
       await handleQuitConfirmation(mainWindow);
-      
-      // Now close the app with a longer timeout for CI
-      await Promise.race([
-        electronApp.close(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Close timeout')), 30000))
-      ]);
-    } else {
-      // No windows, just close directly with longer timeout
-      await Promise.race([
-        electronApp.close(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Close timeout')), 15000))
-      ]);
     }
+    
+    // For Windows in CI, use a more aggressive close strategy
+    if (isWindows && isCI) {
+      // Don't wait for graceful close on Windows CI
+      electronApp.close().catch(() => {});
+      // Give it a moment to start closing
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      return;
+    }
+    
+    // For other platforms, use normal close with timeout
+    await Promise.race([
+      electronApp.close(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Close timeout')), 15000))
+    ]);
     
   } catch (error) {
     console.log('Error during graceful close, forcing close:', error.message);
     
-    // Force close without waiting - Windows CI may need this
-    try {
-      electronApp.close();
-      // Don't await - just fire and forget in case of hanging processes
-    } catch (forceError) {
-      console.log('Force close also failed:', forceError.message);
-      // The app might already be closed, which is fine
-    }
+    // Just log and continue - the app might already be closed
+    return;
   }
 }
 
