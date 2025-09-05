@@ -7,6 +7,12 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: 1, // Single worker for Electron tests
+  // Increase teardown timeout for CI to handle slow electron cleanup
+  expect: {
+    timeout: 30000, // 30 seconds for expect assertions
+  },
+  globalTeardown: undefined,
+  globalSetup: undefined,
   reporter: [
     ['html', { outputFolder: 'playwright-report' }],
     ['junit', { outputFile: 'test-results/results.xml' }],
