@@ -44,19 +44,31 @@ class DDAService(BaseService):
         """Perform DDA on the given file."""
         try:
             # Validate file path
+            logger.info(f"DDA service received file_path: {request.file_path}")
             file_path = Path(request.file_path)
 
-            # Handle absolute paths
-            if file_path.is_absolute():
-                # For absolute paths, check if the file exists directly
-                if not file_path.exists():
-                    raise NotFoundError("File", str(file_path))
-            else:
-                # For relative paths, check relative to data directory
-                full_path = Path(self.storage_settings.data_dir) / file_path
-                if not full_path.exists():
-                    raise NotFoundError("File", str(file_path))
-                file_path = full_path
+            # First, try to resolve the path as provided
+            try:
+                resolved_path = file_path.resolve()
+                if resolved_path.exists():
+                    logger.info(f"DDA service: Using resolved path as-is: {resolved_path}")
+                    file_path = resolved_path
+                else:
+                    # If the path doesn't exist as provided, check if it needs data_dir prepended
+                    # This handles cases where the frontend sends just "edf/file.edf"
+                    if not file_path.is_absolute() and not str(file_path).startswith('..'):
+                        full_path = Path(self.storage_settings.data_dir) / file_path
+                        resolved_full_path = full_path.resolve()
+                        if resolved_full_path.exists():
+                            logger.info(f"DDA service: Using path relative to data_dir: {file_path} -> {resolved_full_path}")
+                            file_path = resolved_full_path
+                        else:
+                            raise NotFoundError("File", str(request.file_path))
+                    else:
+                        raise NotFoundError("File", str(request.file_path))
+            except Exception as e:
+                logger.error(f"Error resolving file path: {e}")
+                raise NotFoundError("File", str(request.file_path))
 
             # Convert preprocessing options to dict format expected by run_dda
             preprocessing_options = {}
@@ -77,6 +89,7 @@ class DDAService(BaseService):
                     )
 
             # Run DDA using the core implementation, pass channel_list if provided
+            logger.info(f"DDA service calling run_dda with file_path: {file_path}")
             result = await run_dda(
                 file_path=file_path,
                 channel_list=request.channel_list

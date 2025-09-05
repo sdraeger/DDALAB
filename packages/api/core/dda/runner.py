@@ -128,7 +128,11 @@ async def run_dda(
             error_message=error_message,
         ).model_dump()
 
-    file_path_str = str(Path(storage_settings.data_dir) / file_path)
+    # Handle both absolute and relative paths
+    if Path(file_path).is_absolute():
+        file_path_str = str(file_path)
+    else:
+        file_path_str = str(Path(storage_settings.data_dir) / file_path)
     logger.info(f"Running DDA on file: {file_path_str}")
     logger.info(f"Original preprocessing options: {preprocessing_options}")
 
@@ -227,14 +231,28 @@ async def run_dda(
         logger.info(
             f"Q matrix stats: NaN={nan_count}, Inf={inf_count}, Finite={finite_count}"
         )
+        
+        # Log some actual values to understand the data
+        logger.info(f"Q matrix min: {np.nanmin(Q)}, max: {np.nanmax(Q)}, mean: {np.nanmean(Q)}")
+        logger.info(f"Q matrix sample (first 5x5):\n{Q[:5, :5]}")
+        
         if nan_count > 0 or inf_count > 0:
             logger.warning("Q matrix contains non-finite values.")
             logger.debug(f"Raw Q sample: {Q[:2, :5]}")
-        if nan_count > 0:
-            logger.info(f"Replacing {nan_count} NaN values with 0.")
-            np.nan_to_num(Q, copy=False, nan=0.0)
+            
+        # Replace NaN and Inf values with 0
+        if nan_count > 0 or inf_count > 0:
+            logger.info(f"Replacing {nan_count} NaN and {inf_count} Inf values with 0.")
+            Q = np.nan_to_num(Q, copy=True, nan=0.0, posinf=0.0, neginf=0.0)
+            
+        # Check for all zeros or all same value
+        unique_values = np.unique(Q)
+        logger.info(f"Q matrix has {len(unique_values)} unique values")
+        if len(unique_values) <= 5:
+            logger.warning(f"Q matrix has very few unique values: {unique_values}")
 
-        Q = np.where(np.isnan(Q), None, Q).T.tolist()
+        # Convert to list without transposing - keep time on x-axis
+        Q = Q.tolist()
 
         if isinstance(metadata, dict):
             result_metadata = metadata

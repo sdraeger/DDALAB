@@ -1,6 +1,14 @@
 #!/bin/sh
 # Start the Python API server via Uvicorn
 
+# Source .env.local if it exists for local development overrides
+if [ -f "../../.env.local" ]; then
+    echo "Loading environment from .env.local..."
+    set -a  # Export all variables
+    . ../../.env.local
+    set +a  # Stop exporting
+fi
+
 # Check for and activate virtual environment
 if [ -d ".venv" ]; then
     echo "Activating Python virtual environment..."
@@ -26,13 +34,17 @@ export JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-secret-key-change-in-production}
 export MINIO_HOST=${MINIO_HOST:-localhost:9000}
 export MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-admin}
 export MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-dev_password123}
-export ALLOWED_DIRS=${ALLOWED_DIRS:-./data,/tmp}
+export DATA_DIR=${DATA_DIR:-../../data}
+export ALLOWED_DIRS=${ALLOWED_DIRS:-../../data,/tmp}
+export DDA_BINARY_PATH=${DDA_BINARY_PATH:-../../bin/run_DDA_ASCII}
 export DDALAB_AUTH_MODE=${DDALAB_AUTH_MODE:-local}
 
 # Print warnings about using defaults
 echo "INFO: Using database host: $DB_HOST"
 echo "INFO: Using MinIO host: $MINIO_HOST"
+echo "INFO: Using data directory: $DATA_DIR"
 echo "INFO: Using allowed directories: $ALLOWED_DIRS"
+echo "INFO: Using DDA binary: $DDA_BINARY_PATH"
 echo "INFO: Using auth mode: $DDALAB_AUTH_MODE"
 
 # Initialize database if needed (will create tables if they don't exist)

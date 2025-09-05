@@ -22,19 +22,34 @@ async def get_allowed_roots():
     """Return the list of allowed root directories (relative to the data directory)."""
     storage_settings = get_config_service().get_storage_settings()
     data_dir = Path(storage_settings.data_dir).resolve()
+    
+    logger.info(f"data_dir: {data_dir}")
+    logger.info(f"allowed_dirs: {storage_settings.allowed_dirs}")
 
     roots: list[dict] = []
     for raw_path in storage_settings.allowed_dirs:
         try:
             abs_path = Path(raw_path).resolve()
+            logger.info(f"Processing allowed_dir: {raw_path} -> {abs_path}")
+            
+            # Skip non-existent paths
+            if not abs_path.exists():
+                logger.warning(f"Path does not exist: {abs_path}")
+                continue
             
             # Calculate relative path, using empty string for data_dir itself
             if abs_path == data_dir:
                 rel_path = ""
                 name = "data"  # Use a friendly name for the root
             else:
-                rel_path = str(abs_path.relative_to(data_dir))
-                name = abs_path.name
+                try:
+                    # Try to make it relative to data_dir
+                    rel_path = str(abs_path.relative_to(data_dir))
+                    name = abs_path.name
+                except ValueError:
+                    # Path is outside data_dir, use absolute path
+                    rel_path = str(abs_path)
+                    name = abs_path.name if abs_path.name else str(abs_path)
                 
             roots.append(
                 {
@@ -42,8 +57,9 @@ async def get_allowed_roots():
                     "relative_path": rel_path,
                 }
             )
-        except Exception:
+        except Exception as e:
             # Skip paths not under data_dir
+            logger.warning(f"Skipping path {raw_path}: {e}")
             continue
 
     roots = sorted(roots, key=lambda r: r["name"].lower())
