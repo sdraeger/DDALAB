@@ -86,3 +86,4 @@ scripts/
 
 packages/configmanager/playwright-report/
 packages/configmanager/test-results/
+e2e-output/
