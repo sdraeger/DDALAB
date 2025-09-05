@@ -43,31 +43,29 @@ async function gracefullyCloseElectronApp(electronApp: ElectronApplication): Pro
     if (windows.length > 0) {
       const mainWindow = windows[0];
       
-      // Set up a handler for the quit confirmation dialog
-      const handleQuitPromise = handleQuitConfirmation(mainWindow);
+      // Handle quit confirmation dialog first, then close
+      await handleQuitConfirmation(mainWindow);
       
-      // Try to close the app
-      const closePromise = electronApp.close();
-      
-      // Wait for either the close to complete or the quit handler to finish
+      // Now close the app with a timeout
       await Promise.race([
-        closePromise,
-        handleQuitPromise.then(() => {
-          // After handling the dialog, give the app a moment to close naturally
-          return new Promise(resolve => setTimeout(resolve, 2000));
-        })
+        electronApp.close(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Close timeout')), 10000))
       ]);
     } else {
-      // No windows, just close directly
-      await electronApp.close();
+      // No windows, just close directly with timeout
+      await Promise.race([
+        electronApp.close(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Close timeout')), 5000))
+      ]);
     }
     
   } catch (error) {
     console.log('Error during graceful close, forcing close:', error.message);
     
-    // If graceful close fails, try to force close
+    // Force close without waiting - Windows CI may need this
     try {
-      await electronApp.close();
+      electronApp.close();
+      // Don't await - just fire and forget in case of hanging processes
     } catch (forceError) {
       console.log('Force close also failed:', forceError.message);
       // The app might already be closed, which is fine
@@ -78,6 +76,7 @@ async function gracefullyCloseElectronApp(electronApp: ElectronApplication): Pro
 export const electronTest = test.extend<ElectronTestContext>({
   electronApp: async ({}, use) => {
     const isCI = process.env.CI === 'true' || process.env.CIRCLECI === 'true';
+    const isWindows = process.platform === 'win32';
     let mockEnvVars = {};
     
     // Only use virtualized environment when running locally (not in CI)
@@ -89,8 +88,8 @@ export const electronTest = test.extend<ElectronTestContext>({
       console.log('Running in CI - using real environment without virtualization');
     }
     
-    // Launch Electron app
-    const electronApp = await electron.launch({
+    // Launch Electron app with Windows-specific adjustments
+    const launchOptions = {
       args: [path.join(__dirname, '../../dist/main.js')],
       env: {
         ...process.env,
@@ -98,8 +97,13 @@ export const electronTest = test.extend<ElectronTestContext>({
         ELECTRON_IS_TESTING: 'true',
         ...mockEnvVars,
         CI: process.env.CI || 'false'
-      }
-    });
+      },
+      // Windows CI may need longer timeout
+      timeout: isCI && isWindows ? 60000 : 30000
+    };
+    
+    console.log(`Launching Electron app (CI: ${isCI}, Windows: ${isWindows}, timeout: ${launchOptions.timeout}ms)`);
+    const electronApp = await electron.launch(launchOptions);
 
     await use(electronApp);
     
@@ -113,11 +117,11 @@ export const electronTest = test.extend<ElectronTestContext>({
   },
 
   page: async ({ electronApp }, use) => {
-    // Get the main window
-    const page = await electronApp.firstWindow();
+    // Get the main window with increased timeout for Windows CI
+    const page = await electronApp.firstWindow({ timeout: 45000 });
     
     // Wait for the page to be ready
-    await page.waitForLoadState('domcontentloaded');
+    await page.waitForLoadState('domcontentloaded', { timeout: 30000 });
     
     await use(page);
   },

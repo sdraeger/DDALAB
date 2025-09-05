@@ -985,7 +985,8 @@ test.describe('DDALAB Setup Workflow', () => {
   });
   
   test('should validate Docker installation requirements', async ({ page }) => {
-    await page.waitForSelector('body', { timeout: 15000 });
+    // Increased timeout for Windows CI
+    await page.waitForSelector('body', { timeout: 30000 });
     
     // Look for Docker validation UI
     const dockerValidationElements = [
