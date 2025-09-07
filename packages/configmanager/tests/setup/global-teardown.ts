@@ -34,13 +34,28 @@ export default async function globalTeardown() {
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
     
-    // Force garbage collection multiple times if available
-    if (global.gc) {
-      for (let i = 0; i < 3; i++) {
-        global.gc();
-        await new Promise(resolve => setTimeout(resolve, 100));
+    // Try to force garbage collection if available (without --expose-gc flag)
+    try {
+      if (typeof global !== 'undefined' && global.gc) {
+        for (let i = 0; i < 3; i++) {
+          global.gc();
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        console.log('Forced garbage collection completed');
+      } else {
+        // Alternative memory pressure relief without --expose-gc
+        const memBefore = process.memoryUsage().heapUsed;
+        for (let i = 0; i < 5; i++) {
+          // Create and release some objects to encourage GC
+          let temp = new Array(1000).fill(null);
+          temp = null;
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        const memAfter = process.memoryUsage().heapUsed;
+        console.log(`Memory cleanup attempt: ${memBefore} -> ${memAfter} bytes`);
       }
-      console.log('Forced garbage collection completed');
+    } catch (error) {
+      console.log('Memory cleanup skipped:', error instanceof Error ? error.message : String(error));
     }
     
     // Clear any remaining timers or intervals
