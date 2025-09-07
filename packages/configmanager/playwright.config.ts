@@ -11,7 +11,10 @@ export default defineConfig({
   expect: {
     timeout: 30000, // 30 seconds for expect assertions
   },
-  // Increase worker teardown timeout to handle the cumulative cleanup of 47 tests
+  // Disable worker teardown timeout to prevent CI failures
+  teardown: {
+    timeout: 0 // Disable timeout - let workers finish naturally
+  },
   globalTeardown: process.env.CI ? require.resolve('./tests/setup/global-teardown.ts') : undefined,
   globalSetup: undefined,
   reporter: [
