@@ -316,6 +316,7 @@ jobs:
             cd packages/configmanager
             set NODE_OPTIONS=--max-old-space-size=6144
             set PLAYWRIGHT_WORKERS=1
+            set PWTEST_SKIP_TEST_OUTPUT=1
             npm run test:ci
       - store_test_results:
           path: packages/configmanager/test-results
@@ -472,7 +473,7 @@ jobs:
           name: Run Orchestrator E2E tests
           command: |
             cd packages/configmanager
-            set DDALAB_E2E_PLATFORM=windows
+            set DDALAB_E2E_PLATFORM=win32
             set PLAYWRIGHT_HTML_REPORT=playwright-report/orchestrator-windows
             npm run test:e2e -- --config=playwright-orchestrator.config.ts --reporter=html
           timeout: 600
@@ -633,7 +634,7 @@ jobs:
           command: |
             source $BASH_ENV
             cd packages/configmanager
-            export DDALAB_E2E_PLATFORM=macos
+            export DDALAB_E2E_PLATFORM=darwin
             export PLAYWRIGHT_HTML_REPORT=playwright-report/orchestrator-macos
             npm run test:e2e -- --config=playwright-orchestrator.config.ts --reporter=html
           timeout: 600

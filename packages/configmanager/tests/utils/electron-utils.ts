@@ -26,53 +26,47 @@ async function handleQuitConfirmation(page: Page): Promise<void> {
   // In CI environments, use faster quit handling but still try to click properly
   if (isCI) {
     try {
-      // Quick check without waiting long
+      // Quick check if modal is visible first
       const quitModal = page.locator('.modal:has-text("Quit DDALAB ConfigManager")');
+      const isModalVisible = await quitModal.isVisible({ timeout: 1000 }).catch(() => false);
       
-      // Wait up to 2 seconds for the modal
-      await quitModal.waitFor({ timeout: 2000 });
+      if (!isModalVisible) {
+        // No modal visible, skip handling
+        return;
+      }
+      
       console.log('Quit confirmation modal detected in CI, handling...');
       
-      // Try different quit button selectors
-      const quitSelectors = [
-        '.modal-footer button.btn-primary:has-text("Quit")',
-        '.modal-footer button:has-text("Quit")', 
-        'button:has-text("Quit")',
-        '.modal button[class*="primary"]:has-text("Quit")'
-      ];
-      
-      let buttonClicked = false;
-      for (const selector of quitSelectors) {
-        try {
-          const button = page.locator(selector);
-          if (await button.isVisible()) {
-            console.log(`CI: Clicking quit button with selector: ${selector}`);
-            await button.click({ force: true, timeout: 1000 });
-            buttonClicked = true;
-            break;
-          }
-        } catch (selectorError) {
-          // Try next selector
+      // Try the most specific selector first
+      try {
+        const quitButton = page.locator('.modal-footer button.btn-primary').filter({ hasText: /Quit/ });
+        if (await quitButton.isVisible({ timeout: 500 })) {
+          await quitButton.click({ force: true });
+          console.log('CI: Clicked quit button');
+          await page.waitForTimeout(500);
+          return;
         }
+      } catch (error) {
+        // Continue to fallback
       }
       
-      if (!buttonClicked) {
-        console.log('CI: No quit button found, trying JavaScript click');
+      // Fallback: JavaScript click
+      try {
         await page.evaluate(() => {
-          const buttons = document.querySelectorAll('button');
-          for (const button of buttons) {
-            if (button.textContent?.includes('Quit')) {
-              button.click();
-              console.log('CI: Clicked quit button via JavaScript');
-              return;
-            }
+          const buttons = Array.from(document.querySelectorAll('button'));
+          const quitButton = buttons.find(btn => btn.textContent?.includes('Quit'));
+          if (quitButton) {
+            quitButton.click();
+            return true;
           }
+          return false;
         });
+      } catch (error) {
+        // Ignore JavaScript errors
       }
       
-      await page.waitForTimeout(1000);
     } catch (error) {
-      console.log('CI: Quit dialog handling failed - proceeding with cleanup:', error instanceof Error ? error.message : String(error));
+      // Silently ignore all errors in CI
     }
     return;
   }
