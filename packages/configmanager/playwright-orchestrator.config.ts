@@ -21,9 +21,9 @@ const platformConfig = {
   },
   linux: {
     name: 'Linux',
-    timeout: 120000,
+    timeout: isCI ? 180000 : 120000, // Increase timeout in CI
     retries: isCI ? 2 : 1,
-    workers: isCI ? 2 : 2,
+    workers: isCI ? 1 : 2, // Reduce workers in CI to prevent resource issues
   }
 };
 
@@ -36,7 +36,7 @@ export default defineConfig({
   testMatch: '**/13-orchestrator-e2e.spec.ts',
   
   // Global timeout for the entire test run
-  globalTimeout: isCI ? 600000 : 300000, // 10min CI, 5min local
+  globalTimeout: isCI ? 900000 : 300000, // 15min CI (Windows needs more time), 5min local
   
   // Timeout for individual tests
   timeout: currentPlatformConfig.timeout,
