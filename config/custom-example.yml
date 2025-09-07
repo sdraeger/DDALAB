@@ -1,0 +1,67 @@
+# DDALAB Custom Configuration Example
+# This demonstrates a custom configuration that can be mounted into the container
+
+# Deployment settings
+environment: staging
+debug: true
+service_name: ddalab-staging
+institution_name: My Institution
+
+# API server configuration
+api:
+  host: 0.0.0.0
+  port: 8001
+  reload: true  # Enable hot reload for development
+
+# Database configuration (pointing to external database)
+database:
+  host: postgres.example.com
+  port: 5432
+  name: ddalab_staging
+  user: staging_user
+  password: staging_password
+
+# Authentication configuration
+auth:
+  mode: ldap  # Use LDAP authentication
+  jwt_secret_key: YOUR_STAGING_SECRET_KEY_HERE
+  jwt_algorithm: HS256
+  token_expiration_minutes: 1440  # 24 hours
+  refresh_token_expire_days: 30
+
+# Storage configuration
+storage:
+  minio_host: minio.example.com:9000
+  minio_access_key: staging_access_key
+  minio_secret_key: staging_secret_key
+  minio_bucket_name: dda-results-staging
+  data_dir: /mnt/shared/data  # Network mounted storage
+  allowed_dirs: /mnt/shared/data,/mnt/shared/uploads
+  anonymize_edf: false  # Disable anonymization for internal use
+
+# Cache configuration (using external Redis cluster)
+cache:
+  redis_host: redis.example.com
+  redis_port: 6380
+  redis_db: 1
+  redis_password: redis_password
+  redis_use_ssl: true
+  plot_cache_ttl: 7200  # 2 hours
+
+# DDA engine configuration
+dda:
+  binary_path: /app/bin/run_DDA_ASCII
+  max_concurrent_tasks: 20  # Increase for better performance
+  task_timeout: 1200  # 20 minutes for large files
+
+# Monitoring configuration
+monitoring:
+  otlp_host: telemetry.example.com
+  otlp_port: 4318
+
+# Web frontend configuration
+web:
+  public_api_url: https://api.ddalab.example.com
+  public_app_url: https://ddalab.example.com
+  nextauth_url: https://ddalab.example.com
+  port: 3000

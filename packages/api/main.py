@@ -2,6 +2,8 @@
 
 from contextlib import asynccontextmanager
 
+# Load configuration from YAML file if available (must be done early)
+from core.config_loader import ConfigLoader
 from core.environment import get_config_service
 
 from core.middleware import (

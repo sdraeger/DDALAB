@@ -4,7 +4,7 @@ executors:
   windows:
     machine:
       image: windows-server-2019-vs2019:stable
-    resource_class: windows.medium
+    resource_class: windows.large
   linux:
     docker:
       - image: cimg/node:18.20
@@ -218,6 +218,11 @@ jobs:
           version: default
           docker_layer_caching: true
       - run:
+          name: Validate deployment configuration
+          command: |
+            npm run config:validate
+            npm run deploy:check docker-compose
+      - run:
           name: Build Docker image
           command: |
             # Extract version info from commit
@@ -304,7 +309,8 @@ jobs:
           command: |
             cd packages/configmanager
             set NODE_OPTIONS=--max-old-space-size=4096
-            npm run test:e2e
+            set PLAYWRIGHT_WORKERS=4
+            npm run test:ci
       - store_test_results:
           path: packages/configmanager/test-results
       - store_artifacts:
@@ -415,6 +421,202 @@ jobs:
           path: packages/configmanager/test-results
           destination: test-results-macos
 
+  orchestrator-e2e-windows:
+    executor: windows
+    working_directory: ~/project
+    environment:
+      NODE_OPTIONS: "--max-old-space-size=4096"
+      CI: "true"
+      ELECTRON_IS_TESTING: "true"
+      ELECTRON_DISABLE_SANDBOX: "1"
+    steps:
+      - checkout
+      - run:
+          name: Install Node.js
+          command: |
+            nvm install 18
+            nvm use 18
+      - run:
+          name: Install root dependencies
+          command: npm install
+      - run:
+          name: Install ConfigManager dependencies
+          command: |
+            cd packages/configmanager
+            npm install
+      - run:
+          name: Install Playwright browsers
+          command: |
+            cd packages/configmanager
+            npx playwright install chromium --with-deps
+      - run:
+          name: Build ConfigManager for testing
+          command: |
+            cd packages/configmanager
+            npm run build
+      - run:
+          name: Check Docker availability
+          command: |
+            docker --version || echo "Docker not available"
+            docker info || echo "Docker not running"
+          continue_on_error: true
+      - run:
+          name: Run Orchestrator E2E tests
+          command: |
+            cd packages/configmanager
+            set DDALAB_E2E_PLATFORM=windows
+            set PLAYWRIGHT_HTML_REPORT=playwright-report/orchestrator-windows
+            npm run test:e2e -- --config=playwright-orchestrator.config.ts --reporter=html
+          timeout: 600
+      - store_test_results:
+          path: packages/configmanager/test-results
+      - store_artifacts:
+          path: packages/configmanager/test-results
+          destination: orchestrator-e2e-windows
+      - store_artifacts:
+          path: packages/configmanager/playwright-report
+          destination: orchestrator-report-windows
+
+  orchestrator-e2e-linux:
+    executor: linux
+    working_directory: ~/project
+    environment:
+      CI: "true"
+      ELECTRON_IS_TESTING: "true"
+      ELECTRON_DISABLE_SANDBOX: "1"
+    steps:
+      - checkout
+      - setup_remote_docker:
+          version: default
+          docker_layer_caching: true
+      - run:
+          name: Install system dependencies for Electron
+          command: |
+            sudo apt-get update
+            sudo apt-get install -y libgtk-3-0 libnotify-dev libgconf-2-4 libatk-bridge2.0-0 libx11-xcb1 libxss1 libnss3 libgbm-dev xvfb
+      - run:
+          name: Install root dependencies
+          command: npm install
+      - run:
+          name: Install ConfigManager dependencies
+          command: |
+            cd packages/configmanager
+            npm install
+      - run:
+          name: Install Playwright browsers
+          command: |
+            cd packages/configmanager
+            npx playwright install chromium --with-deps
+      - run:
+          name: Build ConfigManager for testing
+          command: |
+            cd packages/configmanager
+            npm run build
+      - run:
+          name: Check Docker availability
+          command: |
+            docker --version
+            docker info
+      - run:
+          name: Run Orchestrator E2E tests
+          command: |
+            cd packages/configmanager
+            export DDALAB_E2E_PLATFORM=linux
+            export PLAYWRIGHT_HTML_REPORT=playwright-report/orchestrator-linux
+            xvfb-run -a npm run test:e2e -- --config=playwright-orchestrator.config.ts --reporter=html
+          timeout: 600
+      - store_test_results:
+          path: packages/configmanager/test-results
+      - store_artifacts:
+          path: packages/configmanager/test-results
+          destination: orchestrator-e2e-linux
+      - store_artifacts:
+          path: packages/configmanager/playwright-report
+          destination: orchestrator-report-linux
+
+  orchestrator-e2e-macos:
+    executor: macos
+    working_directory: ~/project
+    environment:
+      CI: "true"
+      ELECTRON_IS_TESTING: "true"
+      ELECTRON_DISABLE_SANDBOX: "1"
+    steps:
+      - checkout
+      - run:
+          name: Fix Python environment
+          command: |
+            find . -name ".python-version" -delete
+            echo 'export PYENV_VERSION=system' >> $BASH_ENV
+            pyenv install 3.10 || true
+            pyenv global 3.10 || pyenv global system
+      - run:
+          name: Install Node.js
+          command: |
+            brew install node@18
+            echo 'export PATH="/opt/homebrew/opt/node@18/bin:$PATH"' >> $BASH_ENV
+            source $BASH_ENV
+            node --version
+            npm --version
+      - run:
+          name: Install Docker Desktop
+          command: |
+            source $BASH_ENV
+            brew install --cask docker
+            open -a Docker
+            # Wait for Docker to start
+            timeout=120
+            while ! docker info >/dev/null 2>&1 && [ $timeout -gt 0 ]; do
+              echo "Waiting for Docker to start... ($timeout seconds remaining)"
+              sleep 5
+              timeout=$((timeout - 5))
+            done
+            if ! docker info >/dev/null 2>&1; then
+              echo "Docker failed to start within timeout"
+              exit 1
+            fi
+            docker --version
+      - run:
+          name: Install root dependencies
+          command: |
+            source $BASH_ENV
+            npm install
+      - run:
+          name: Install ConfigManager dependencies
+          command: |
+            source $BASH_ENV
+            cd packages/configmanager
+            npm install
+      - run:
+          name: Install Playwright browsers
+          command: |
+            source $BASH_ENV
+            cd packages/configmanager
+            npx playwright install chromium --with-deps
+      - run:
+          name: Build ConfigManager for testing
+          command: |
+            source $BASH_ENV
+            cd packages/configmanager
+            npm run build
+      - run:
+          name: Run Orchestrator E2E tests
+          command: |
+            source $BASH_ENV
+            cd packages/configmanager
+            export DDALAB_E2E_PLATFORM=macos
+            export PLAYWRIGHT_HTML_REPORT=playwright-report/orchestrator-macos
+            npm run test:e2e -- --config=playwright-orchestrator.config.ts --reporter=html
+          timeout: 600
+      - store_test_results:
+          path: packages/configmanager/test-results
+      - store_artifacts:
+          path: packages/configmanager/test-results
+          destination: orchestrator-e2e-macos
+      - store_artifacts:
+          path: packages/configmanager/playwright-report
+          destination: orchestrator-report-macos
+
 workflows:
   test-and-build:
     jobs:
@@ -431,6 +633,26 @@ workflows:
           filters:
             branches:
               ignore: []
+      
+      # Orchestrator E2E tests run on main and develop branches
+      - orchestrator-e2e-windows:
+          filters:
+            branches:
+              only:
+                - main
+                - develop
+      - orchestrator-e2e-linux:
+          filters:
+            branches:
+              only:
+                - main
+                - develop
+      - orchestrator-e2e-macos:
+          filters:
+            branches:
+              only:
+                - main
+                - develop
       
       # Build jobs only run on main branch and require tests to pass
       - build-windows:

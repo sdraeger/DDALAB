@@ -16,6 +16,7 @@
     "watch": "tsc -w",
     "test": "playwright test",
     "test:e2e": "playwright test",
+    "test:ci": "playwright test --config playwright-ci.config.ts",
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
     "test:validate": "node scripts/validate-test-setup.js",
