@@ -210,13 +210,16 @@ jobs:
 
   build-docker:
     docker:
-      - image: cimg/base:stable
+      - image: cimg/node:18.20
     resource_class: large
     steps:
       - checkout
       - setup_remote_docker:
           version: default
           docker_layer_caching: true
+      - run:
+          name: Install dependencies
+          command: npm install
       - run:
           name: Validate deployment configuration
           command: |
