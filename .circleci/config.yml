@@ -365,7 +365,7 @@ jobs:
           name: Run acceptance tests
           command: |
             cd packages/configmanager
-            xvfb-run -a npm run test:e2e
+            xvfb-run -a npm run test:ci
       - store_test_results:
           path: packages/configmanager/test-results
       - store_artifacts:
@@ -530,7 +530,10 @@ jobs:
             cd packages/configmanager
             export DDALAB_E2E_PLATFORM=linux
             export PLAYWRIGHT_HTML_REPORT=playwright-report/orchestrator-linux
-            xvfb-run -a npm run test:e2e -- --config=playwright-orchestrator.config.ts --reporter=html
+            export DISPLAY=:99
+            Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+            sleep 3
+            npm run test:e2e -- --config=playwright-orchestrator.config.ts --reporter=html
           timeout: 600
       - store_test_results:
           path: packages/configmanager/test-results
