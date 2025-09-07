@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Script to run ConfigManager e2e tests locally
+# Script to run ConfigManager orchestrator E2E tests locally
 
 set -e
 
-echo "========================================"
-echo "ConfigManager E2E Test Runner (Local)"
-echo "========================================"
+echo "=============================================="
+echo "Orchestrator E2E Test Runner (Local)"
+echo "=============================================="
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -65,14 +65,15 @@ mkdir -p test-results
 # Set environment variables for local testing
 export ELECTRON_IS_TESTING=true
 export NODE_ENV=test
+export DDALAB_E2E_PLATFORM=$(uname | tr '[:upper:]' '[:lower:]')
 
-# Run the tests
-print_status "Running ConfigManager e2e tests..."
-if npm run test:e2e; then
-    print_status "E2E tests completed successfully!"
+# Run the orchestrator E2E tests
+print_status "Running Orchestrator E2E tests..."
+if npm run test:e2e -- --config=playwright-orchestrator.config.ts; then
+    print_status "Orchestrator E2E tests completed successfully!"
     TEST_RESULT=0
 else
-    print_error "E2E tests failed!"
+    print_error "Orchestrator E2E tests failed!"
     TEST_RESULT=1
 fi
 
