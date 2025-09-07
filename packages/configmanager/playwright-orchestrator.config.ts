@@ -35,15 +35,15 @@ export default defineConfig({
   // Only run the orchestrator E2E tests
   testMatch: '**/13-orchestrator-e2e.spec.ts',
   
-  // Global timeout for the entire test run
-  globalTimeout: isCI ? 900000 : 300000, // 15min CI (Windows needs more time), 5min local
+  // Global timeout for the entire test run - much shorter since tests should be fast
+  globalTimeout: isCI ? 300000 : 180000, // 5min CI, 3min local
   
-  // Timeout for individual tests
-  timeout: currentPlatformConfig.timeout,
+  // Timeout for individual tests - shorter since we're just testing UI
+  timeout: isCI ? 60000 : 30000, // 1min CI, 30s local
   
-  // Expect timeout for assertions
+  // Expect timeout for assertions - faster for UI tests
   expect: {
-    timeout: 30000
+    timeout: isCI ? 15000 : 10000 // 15s CI, 10s local
   },
   
   // Test configuration
@@ -60,9 +60,8 @@ export default defineConfig({
     ['line']
   ],
   
-  // Global test setup and teardown
+  // Global test setup only - skip teardown to prevent timeout issues
   globalSetup: path.resolve(__dirname, 'tests/setup/orchestrator-global-setup.ts'),
-  globalTeardown: path.resolve(__dirname, 'tests/setup/orchestrator-global-teardown.ts'),
   
   // Output directories
   outputDir: `test-results/orchestrator-${platform}`,
@@ -72,9 +71,9 @@ export default defineConfig({
     // Base URL for any web requests
     baseURL: process.env.DDALAB_BASE_URL || 'https://localhost',
     
-    // Global test timeout
-    actionTimeout: 30000,
-    navigationTimeout: 60000,
+    // Faster timeouts for UI testing
+    actionTimeout: isCI ? 15000 : 10000, // 15s CI, 10s local
+    navigationTimeout: isCI ? 30000 : 20000, // 30s CI, 20s local
     
     // Capture screenshots and videos on failure
     screenshot: 'only-on-failure',
@@ -97,7 +96,7 @@ export default defineConfig({
     }
   },
 
-  // Project configuration for different test scenarios
+  // Single project configuration - run all tests once
   projects: [
     {
       name: `orchestrator-${platform === 'darwin' ? 'macos' : platform === 'win32' ? 'windows' : 'linux'}`,
@@ -105,39 +104,6 @@ export default defineConfig({
       testMatch: '**/13-orchestrator-e2e.spec.ts',
       use: {
         ...devices['Desktop Chrome'], // Use Chrome-like settings for Electron
-      },
-    },
-    
-    // Platform-specific installation test
-    {
-      name: `installation-${platform === 'darwin' ? 'macos' : platform === 'win32' ? 'windows' : 'linux'}`,
-      testDir: './tests',
-      testMatch: '**/13-orchestrator-e2e.spec.ts',
-      grep: /should guide through the initial setup process|should provide OS-specific installation instructions/,
-      use: {
-        ...devices['Desktop Chrome'],
-      },
-    },
-    
-    // Docker integration test
-    {
-      name: `docker-integration-${platform === 'darwin' ? 'macos' : platform === 'win32' ? 'windows' : 'linux'}`,
-      testDir: './tests',
-      testMatch: '**/13-orchestrator-e2e.spec.ts',
-      grep: /should validate Docker installation|should initiate DDALAB deployment|should successfully deploy and verify DDALAB services/,
-      use: {
-        ...devices['Desktop Chrome'],
-      },
-    },
-    
-    // Connectivity verification test
-    {
-      name: `connectivity-${platform === 'darwin' ? 'macos' : platform === 'win32' ? 'windows' : 'linux'}`,
-      testDir: './tests',
-      testMatch: '**/13-orchestrator-e2e.spec.ts',
-      grep: /should verify DDALAB web interface is accessible/,
-      use: {
-        ...devices['Desktop Chrome'],
       },
     }
   ],
