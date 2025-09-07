@@ -133,6 +133,12 @@ test.describe('DDALAB Orchestrator End-to-End Tests', () => {
     console.log(`Running E2E tests on: ${currentOS}`);
     dockerInfo = await checkDockerAvailability();
     console.log('Docker status:', dockerInfo);
+    
+    // If Docker is not running in CI, mark it as not available for tests
+    if (process.env.CI === 'true' && !dockerInfo.running) {
+      console.log('Docker not running in CI - marking as unavailable for tests');
+      dockerInfo.installed = false;
+    }
   });
 
   test('should detect system requirements correctly', async ({ page }) => {
