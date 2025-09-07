@@ -10,25 +10,34 @@ export default async function globalTeardown() {
   const isLinux = process.platform === 'linux';
   
   try {
-    // In CI, especially Linux, we need more aggressive cleanup
+    // In CI, we need ultra-aggressive cleanup across all platforms
     if (isCI) {
-      console.log('CI environment detected, performing aggressive cleanup');
+      console.log('CI environment detected, performing ultra-aggressive cleanup');
       
-      // Kill any remaining Electron processes that might be hanging
-      if (isLinux) {
-        try {
-          const { execSync } = require('child_process');
-          // Kill any electron processes that might be hanging
-          execSync('pkill -f electron || true', { stdio: 'ignore' });
-          execSync('pkill -f "npm.*test" || true', { stdio: 'ignore' });
-          console.log('Killed any remaining electron processes');
-        } catch (error) {
-          // Ignore errors - processes might already be dead
+      // Kill any remaining Electron processes that might be hanging across all platforms
+      try {
+        const { execSync } = require('child_process');
+        
+        if (process.platform === 'win32') {
+          // Windows: Kill all electron processes
+          execSync('taskkill /F /IM electron.exe /T 2>NUL || echo "No electron processes"', { stdio: 'ignore' });
+          execSync('taskkill /F /IM node.exe /FI "WINDOWTITLE eq *electron*" /T 2>NUL || echo "No electron node"', { stdio: 'ignore' });
+          execSync('taskkill /F /IM node.exe /FI "COMMANDLINE eq *configmanager*" /T 2>NUL || echo "No configmanager processes"', { stdio: 'ignore' });
+          console.log('Windows: Killed any remaining electron/node processes');
+        } else {
+          // Linux/macOS: Kill electron processes with extreme prejudice
+          execSync('pkill -9 -f electron || true', { stdio: 'ignore' });
+          execSync('pkill -9 -f "configmanager.*dist.*main" || true', { stdio: 'ignore' });
+          execSync('pkill -9 -f "npm.*test" || true', { stdio: 'ignore' });
+          execSync('pkill -9 -f playwright || true', { stdio: 'ignore' });
+          console.log('Unix: Killed any remaining electron/test processes');
         }
+      } catch (error) {
+        console.log('Process cleanup failed but continuing:', error instanceof Error ? error.message : String(error));
       }
       
-      // Shorter delay in CI to prevent timeout issues
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Very short delay in CI to finish quickly
+      await new Promise(resolve => setTimeout(resolve, 200));
     } else {
       // Longer delay for local development
       await new Promise(resolve => setTimeout(resolve, 5000));

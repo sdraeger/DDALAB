@@ -232,8 +232,51 @@ export const electronTest = test.extend<ElectronTestContext>({
 
     await use(electronApp);
     
-    // Use our graceful close function
-    await gracefullyCloseElectronApp(electronApp);
+    // In CI environments, use ultra-aggressive cleanup to prevent worker teardown timeouts
+    if (isCI) {
+      try {
+        console.log('CI: Starting ultra-aggressive app cleanup');
+        
+        // Try to force close immediately
+        const closePromise = electronApp.close().catch(() => console.log('CI: electronApp.close() failed'));
+        
+        // Don't wait for close - kill processes immediately
+        const { execSync } = require('child_process');
+        
+        if (isWindows) {
+          // Windows: Kill electron processes aggressively
+          try {
+            execSync('taskkill /F /IM electron.exe /T 2>NUL || echo "No electron processes"', { stdio: 'ignore' });
+            execSync('taskkill /F /IM node.exe /FI "WINDOWTITLE eq *electron*" /T 2>NUL || echo "No electron node processes"', { stdio: 'ignore' });
+            console.log('CI: Windows electron processes killed');
+          } catch (error) {
+            console.log('CI: Windows process kill failed, continuing');
+          }
+        } else {
+          // Linux/macOS: Kill electron processes
+          try {
+            execSync('pkill -9 -f electron || true', { stdio: 'ignore' });
+            execSync('pkill -9 -f "configmanager.*dist.*main" || true', { stdio: 'ignore' });
+            console.log('CI: Unix electron processes killed');
+          } catch (error) {
+            console.log('CI: Unix process kill failed, continuing');
+          }
+        }
+        
+        // Wait very briefly for the close promise to resolve
+        await Promise.race([
+          closePromise,
+          new Promise(resolve => setTimeout(resolve, 200))
+        ]);
+        
+        console.log('CI: Ultra-aggressive cleanup completed');
+      } catch (error) {
+        console.log('CI: Cleanup error ignored:', error instanceof Error ? error.message : String(error));
+      }
+    } else {
+      // Use graceful close for local development
+      await gracefullyCloseElectronApp(electronApp);
+    }
     
     // Cleanup the mock environment only if it was initialized
     if (!isCI) {
