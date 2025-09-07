@@ -1,7 +1,21 @@
 #!/bin/sh
 # Start the Python API server via Uvicorn
 
-# Source .env.local if it exists for local development overrides
+# Source environment files in priority order
+if [ -f "../../.env.master" ]; then
+    echo "Loading environment from .env.master..."
+    set -a  # Export all variables
+    . ../../.env.master
+    set +a  # Stop exporting
+fi
+
+if [ -f "../../.env" ]; then
+    echo "Loading environment from .env..."
+    set -a  # Export all variables
+    . ../../.env
+    set +a  # Stop exporting
+fi
+
 if [ -f "../../.env.local" ]; then
     echo "Loading environment from .env.local..."
     set -a  # Export all variables
@@ -24,19 +38,27 @@ fi
 HOST=${API_HOST:-0.0.0.0}
 PORT=${API_PORT:-8001}
 
+# Check if DDALAB_CONFIG_FILE is set (by docker-entrypoint.sh)
+if [ -n "$DDALAB_CONFIG_FILE" ] && [ -f "$DDALAB_CONFIG_FILE" ]; then
+    echo "INFO: Using config file: $DDALAB_CONFIG_FILE"
+fi
+
 # Set default environment variables before Python imports them
-export DB_USER=${DB_USER:-admin}
-export DB_PASSWORD=${DB_PASSWORD:-ddalab_password}
-export DB_NAME=${DB_NAME:-ddalab}
-export DB_HOST=${DB_HOST:-localhost}
-export DB_PORT=${DB_PORT:-5432}
-export JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-secret-key-change-in-production}
-export MINIO_HOST=${MINIO_HOST:-localhost:9000}
-export MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-admin}
-export MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-dev_password123}
-export DATA_DIR=${DATA_DIR:-../../data}
-export ALLOWED_DIRS=${ALLOWED_DIRS:-../../data,/tmp}
-export DDA_BINARY_PATH=${DDA_BINARY_PATH:-../../bin/run_DDA_ASCII}
+# Use DDALAB_ prefixed vars first, fallback to legacy names for compatibility
+export DB_USER=${DDALAB_DB_USER:-${DB_USER:-admin}}
+export DB_PASSWORD=${DDALAB_DB_PASSWORD:-${DB_PASSWORD:-ddalab_password}}
+export DB_NAME=${DDALAB_DB_NAME:-${DB_NAME:-ddalab}}
+export DB_HOST=${DDALAB_DB_HOST:-${DB_HOST:-localhost}}
+export DB_PORT=${DDALAB_DB_PORT:-${DB_PORT:-5432}}
+export JWT_SECRET_KEY=${DDALAB_JWT_SECRET_KEY:-${JWT_SECRET_KEY:-dev-secret-key-change-in-production}}
+export MINIO_HOST=${DDALAB_MINIO_HOST:-${MINIO_HOST:-localhost:9000}}
+export MINIO_ACCESS_KEY=${DDALAB_MINIO_ACCESS_KEY:-${MINIO_ACCESS_KEY:-minioadmin}}
+export MINIO_SECRET_KEY=${DDALAB_MINIO_SECRET_KEY:-${MINIO_SECRET_KEY:-minioadmin}}
+export DATA_DIR=${DDALAB_DATA_DIR:-${DATA_DIR:-./data}}
+export ALLOWED_DIRS=${DDALAB_ALLOWED_DIRS:-${ALLOWED_DIRS:-./data}}
+# Ensure DDALAB_ALLOWED_DIRS is also set for the environment service
+export DDALAB_ALLOWED_DIRS=${DDALAB_ALLOWED_DIRS:-./data}
+export DDA_BINARY_PATH=${DDALAB_DDA_BINARY_PATH:-${DDA_BINARY_PATH:-./bin/run_DDA_ASCII}}
 export DDALAB_AUTH_MODE=${DDALAB_AUTH_MODE:-local}
 
 # Print warnings about using defaults
@@ -46,6 +68,8 @@ echo "INFO: Using data directory: $DATA_DIR"
 echo "INFO: Using allowed directories: $ALLOWED_DIRS"
 echo "INFO: Using DDA binary: $DDA_BINARY_PATH"
 echo "INFO: Using auth mode: $DDALAB_AUTH_MODE"
+echo "DEBUG: DDALAB_ALLOWED_DIRS=$DDALAB_ALLOWED_DIRS"
+echo "DEBUG: ALLOWED_DIRS=$ALLOWED_DIRS"
 
 # Initialize database if needed (will create tables if they don't exist)
 echo "Initializing database..."
