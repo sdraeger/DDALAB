@@ -3,6 +3,8 @@ import { defineConfig, devices } from '@playwright/test';
 // CI-specific configuration with optimized settings
 export default defineConfig({
   testDir: './tests',
+  // Exclude orchestrator E2E test (13) as it runs in dedicated jobs
+  testIgnore: '**/13-orchestrator-e2e.spec.ts',
   timeout: 90000, // 1.5 minutes per test
   fullyParallel: true,
   forbidOnly: true,

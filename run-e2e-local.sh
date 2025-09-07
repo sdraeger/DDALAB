@@ -62,9 +62,9 @@ npx playwright install --with-deps
 # Create test results directory
 mkdir -p test-results
 
-# Set environment variables for CI mode
-export CI=true
-export CIRCLECI=true
+# Set environment variables for local testing
+export ELECTRON_IS_TESTING=true
+export NODE_ENV=test
 
 # Run the tests
 print_status "Running ConfigManager e2e tests..."

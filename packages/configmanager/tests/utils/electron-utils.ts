@@ -21,23 +21,58 @@ export interface ElectronTestContext {
  * Helper function to handle the quit confirmation dialog
  */
 async function handleQuitConfirmation(page: Page): Promise<void> {
-  const isCI = process.env.CI === 'true' || process.env.CIRCLECI === 'true';
+  const isCI = process.env.CI === 'true' || process.env.CIRCLECI === 'true' || process.env.GITHUB_ACTIONS === 'true';
   
-  // In CI environments, don't wait long for quit dialogs - they may not appear consistently
+  // In CI environments, use faster quit handling but still try to click properly
   if (isCI) {
     try {
+      // Quick check without waiting long
       const quitModal = page.locator('.modal:has-text("Quit DDALAB ConfigManager")');
-      const isVisible = await quitModal.isVisible();
       
-      if (isVisible) {
-        console.log('Quit confirmation modal detected in CI, handling quickly...');
-        const quitButton = page.locator('.modal-footer button.btn-primary').filter({ hasText: /Quit/ });
-        await quitButton.click({ force: true, timeout: 2000 });
-        await page.waitForTimeout(1000); // Quick wait
+      // Wait up to 2 seconds for the modal
+      await quitModal.waitFor({ timeout: 2000 });
+      console.log('Quit confirmation modal detected in CI, handling...');
+      
+      // Try different quit button selectors
+      const quitSelectors = [
+        '.modal-footer button.btn-primary:has-text("Quit")',
+        '.modal-footer button:has-text("Quit")', 
+        'button:has-text("Quit")',
+        '.modal button[class*="primary"]:has-text("Quit")'
+      ];
+      
+      let buttonClicked = false;
+      for (const selector of quitSelectors) {
+        try {
+          const button = page.locator(selector);
+          if (await button.isVisible()) {
+            console.log(`CI: Clicking quit button with selector: ${selector}`);
+            await button.click({ force: true, timeout: 1000 });
+            buttonClicked = true;
+            break;
+          }
+        } catch (selectorError) {
+          // Try next selector
+        }
       }
+      
+      if (!buttonClicked) {
+        console.log('CI: No quit button found, trying JavaScript click');
+        await page.evaluate(() => {
+          const buttons = document.querySelectorAll('button');
+          for (const button of buttons) {
+            if (button.textContent?.includes('Quit')) {
+              button.click();
+              console.log('CI: Clicked quit button via JavaScript');
+              return;
+            }
+          }
+        });
+      }
+      
+      await page.waitForTimeout(1000);
     } catch (error) {
-      // In CI, silently continue if quit dialog handling fails
-      console.log('CI: Quit dialog handling skipped or failed - proceeding with cleanup');
+      console.log('CI: Quit dialog handling failed - proceeding with cleanup:', error instanceof Error ? error.message : String(error));
     }
     return;
   }
@@ -68,7 +103,7 @@ async function handleQuitConfirmation(page: Page): Promise<void> {
  */
 async function gracefullyCloseElectronApp(electronApp: ElectronApplication): Promise<void> {
   const isWindows = process.platform === 'win32';
-  const isCI = process.env.CI === 'true' || process.env.CIRCLECI === 'true';
+  const isCI = process.env.CI === 'true' || process.env.CIRCLECI === 'true' || process.env.GITHUB_ACTIONS === 'true';
   
   // In CI environments, use a more aggressive and faster close strategy
   if (isCI) {
@@ -149,7 +184,7 @@ async function gracefullyCloseElectronApp(electronApp: ElectronApplication): Pro
 
 export const electronTest = test.extend<ElectronTestContext>({
   electronApp: async ({}, use) => {
-    const isCI = process.env.CI === 'true' || process.env.CIRCLECI === 'true';
+    const isCI = process.env.CI === 'true' || process.env.CIRCLECI === 'true' || process.env.GITHUB_ACTIONS === 'true';
     const isWindows = process.platform === 'win32';
     let mockEnvVars = {};
     
