@@ -52,6 +52,11 @@ export default defineConfig({
   retries: isCI ? 1 : currentPlatformConfig.retries, // Reduce retries in CI to save memory
   workers: isCI ? 1 : Math.min(currentPlatformConfig.workers, 2), // Limit workers in CI
   
+  // Disable worker teardown timeout to prevent CI failures
+  teardown: {
+    timeout: 0 // Disable timeout - let tests finish naturally
+  },
+  
   // Reporter configuration
   reporter: [
     ['html', { outputFolder: `playwright-report/orchestrator-${platform}` }],

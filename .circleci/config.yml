@@ -367,7 +367,7 @@ jobs:
           command: |
             cd packages/configmanager
             export PLAYWRIGHT_WORKERS=1
-            export NODE_OPTIONS="--expose-gc --max-old-space-size=4096"
+            export NODE_OPTIONS="--max-old-space-size=4096"
             xvfb-run -a npm run test:ci
       - store_test_results:
           path: packages/configmanager/test-results
