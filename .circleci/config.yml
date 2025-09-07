@@ -366,7 +366,8 @@ jobs:
           name: Run acceptance tests
           command: |
             cd packages/configmanager
-            export PLAYWRIGHT_WORKERS=2
+            export PLAYWRIGHT_WORKERS=1
+            export NODE_OPTIONS="--expose-gc --max-old-space-size=4096"
             xvfb-run -a npm run test:ci
       - store_test_results:
           path: packages/configmanager/test-results
@@ -476,7 +477,7 @@ jobs:
             set DDALAB_E2E_PLATFORM=win32
             set PLAYWRIGHT_HTML_REPORT=playwright-report/orchestrator-windows
             npm run test:e2e -- --config=playwright-orchestrator.config.ts --reporter=html
-          timeout: 600
+          timeout: 480
       - store_test_results:
           path: packages/configmanager/test-results
       - store_artifacts:
@@ -536,7 +537,7 @@ jobs:
             Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
             sleep 3
             npm run test:e2e -- --config=playwright-orchestrator.config.ts --reporter=html
-          timeout: 600
+          timeout: 420
       - store_test_results:
           path: packages/configmanager/test-results
       - store_artifacts:
@@ -637,7 +638,7 @@ jobs:
             export DDALAB_E2E_PLATFORM=darwin
             export PLAYWRIGHT_HTML_REPORT=playwright-report/orchestrator-macos
             npm run test:e2e -- --config=playwright-orchestrator.config.ts --reporter=html
-          timeout: 600
+          timeout: 480
       - store_test_results:
           path: packages/configmanager/test-results
       - store_artifacts:
