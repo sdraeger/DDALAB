@@ -365,6 +365,7 @@ jobs:
           name: Run acceptance tests
           command: |
             cd packages/configmanager
+            export PLAYWRIGHT_WORKERS=2
             xvfb-run -a npm run test:ci
       - store_test_results:
           path: packages/configmanager/test-results

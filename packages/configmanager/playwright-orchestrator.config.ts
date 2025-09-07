@@ -100,7 +100,7 @@ export default defineConfig({
   // Project configuration for different test scenarios
   projects: [
     {
-      name: `orchestrator-${currentPlatformConfig.name.toLowerCase()}`,
+      name: `orchestrator-${platform === 'darwin' ? 'macos' : platform === 'win32' ? 'windows' : 'linux'}`,
       testDir: './tests',
       testMatch: '**/13-orchestrator-e2e.spec.ts',
       use: {
@@ -110,7 +110,7 @@ export default defineConfig({
     
     // Platform-specific installation test
     {
-      name: `installation-${currentPlatformConfig.name.toLowerCase()}`,
+      name: `installation-${platform === 'darwin' ? 'macos' : platform === 'win32' ? 'windows' : 'linux'}`,
       testDir: './tests',
       testMatch: '**/13-orchestrator-e2e.spec.ts',
       grep: /should guide through the initial setup process|should provide OS-specific installation instructions/,
@@ -121,7 +121,7 @@ export default defineConfig({
     
     // Docker integration test
     {
-      name: `docker-integration-${currentPlatformConfig.name.toLowerCase()}`,
+      name: `docker-integration-${platform === 'darwin' ? 'macos' : platform === 'win32' ? 'windows' : 'linux'}`,
       testDir: './tests',
       testMatch: '**/13-orchestrator-e2e.spec.ts',
       grep: /should validate Docker installation|should initiate DDALAB deployment|should successfully deploy and verify DDALAB services/,
@@ -132,7 +132,7 @@ export default defineConfig({
     
     // Connectivity verification test
     {
-      name: `connectivity-${currentPlatformConfig.name.toLowerCase()}`,
+      name: `connectivity-${platform === 'darwin' ? 'macos' : platform === 'win32' ? 'windows' : 'linux'}`,
       testDir: './tests',
       testMatch: '**/13-orchestrator-e2e.spec.ts',
       grep: /should verify DDALAB web interface is accessible/,

@@ -11,6 +11,11 @@ export default defineConfig({
   retries: 0, // No retries to save time
   workers: process.env.PLAYWRIGHT_WORKERS ? parseInt(process.env.PLAYWRIGHT_WORKERS) : 4,
   
+  // Increase teardown timeout for CI environments
+  teardown: {
+    timeout: 180000 // 3 minutes for worker teardown
+  },
+  
   expect: {
     timeout: 20000, // 20 seconds for assertions
   },
