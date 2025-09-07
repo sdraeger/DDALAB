@@ -21,57 +21,44 @@ export interface ElectronTestContext {
  * Helper function to handle the quit confirmation dialog
  */
 async function handleQuitConfirmation(page: Page): Promise<void> {
+  const isCI = process.env.CI === 'true' || process.env.CIRCLECI === 'true';
+  
+  // In CI environments, don't wait long for quit dialogs - they may not appear consistently
+  if (isCI) {
+    try {
+      const quitModal = page.locator('.modal:has-text("Quit DDALAB ConfigManager")');
+      const isVisible = await quitModal.isVisible();
+      
+      if (isVisible) {
+        console.log('Quit confirmation modal detected in CI, handling quickly...');
+        const quitButton = page.locator('.modal-footer button.btn-primary').filter({ hasText: /Quit/ });
+        await quitButton.click({ force: true, timeout: 2000 });
+        await page.waitForTimeout(1000); // Quick wait
+      }
+    } catch (error) {
+      // In CI, silently continue if quit dialog handling fails
+      console.log('CI: Quit dialog handling skipped or failed - proceeding with cleanup');
+    }
+    return;
+  }
+
+  // Local development - more thorough quit dialog handling
   try {
-    // Wait for the quit confirmation modal to appear (with a longer timeout in CI)
-    const isCI = process.env.CI === 'true' || process.env.CIRCLECI === 'true';
-    const modalTimeout = isCI ? 5000 : 3000;
-    
     const quitModal = page.locator('.modal:has-text("Quit DDALAB ConfigManager")');
-    await quitModal.waitFor({ timeout: modalTimeout });
+    await quitModal.waitFor({ timeout: 3000 });
     
     console.log('Quit confirmation modal detected, handling...');
     
-    // The quit button is in the modal footer and contains an icon + "Quit" text
-    // Be more specific to avoid matching other primary buttons
     const quitButton = page.locator('.modal-footer button.btn-primary').filter({ hasText: /Quit/ });
-    
-    // Wait for the button to be visible and enabled
     await quitButton.waitFor({ state: 'visible', timeout: 2000 });
     
-    // Debug: log button details
     const buttonText = await quitButton.textContent();
     console.log(`Found quit button with text: "${buttonText}"`);
     
-    // Make sure the button is not disabled
-    const isDisabled = await quitButton.isDisabled();
-    if (isDisabled) {
-      console.log('Quit button is disabled, waiting...');
-      await page.waitForTimeout(500);
-    }
-    
-    // Try different click strategies
-    try {
-      // First try: regular click
-      await quitButton.click({ force: true });
-      console.log('Clicked quit button using regular click');
-    } catch (clickError) {
-      console.log('Regular click failed, trying alternative methods...');
-      
-      // Alternative: evaluate JavaScript click
-      await page.evaluate(() => {
-        const button = document.querySelector('.modal-footer button.btn-primary') as HTMLButtonElement;
-        if (button) {
-          button.click();
-          console.log('Clicked button via JavaScript');
-        }
-      });
-    }
-    
-    // Wait a bit for the quit process to complete
+    await quitButton.click({ force: true });
     await page.waitForTimeout(2000);
     
   } catch (error) {
-    // If no quit dialog appears within the timeout, that's fine too
     console.log('No quit confirmation dialog appeared or could not handle it:', error instanceof Error ? error.message : String(error));
   }
 }
@@ -83,14 +70,50 @@ async function gracefullyCloseElectronApp(electronApp: ElectronApplication): Pro
   const isWindows = process.platform === 'win32';
   const isCI = process.env.CI === 'true' || process.env.CIRCLECI === 'true';
   
+  // In CI environments, use a more aggressive and faster close strategy
+  if (isCI) {
+    try {
+      // Try to get windows, but don't wait long
+      const windows = electronApp.windows();
+      
+      if (windows.length > 0) {
+        const mainWindow = windows[0];
+        
+        // Quick quit attempt without waiting for dialogs
+        try {
+          await mainWindow.evaluate(() => {
+            if (window.electronAPI && window.electronAPI.quitApp) {
+              window.electronAPI.quitApp();
+            }
+          });
+        } catch (error) {
+          // Ignore API errors in CI
+        }
+        
+        // Quick dialog handling
+        await handleQuitConfirmation(mainWindow);
+      }
+      
+      // Force close after short timeout in CI
+      await Promise.race([
+        electronApp.close(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('CI close timeout')), 10000))
+      ]);
+      
+    } catch (error) {
+      console.log('CI: Fast close failed, app may already be closed');
+      // Don't throw in CI - let tests continue
+    }
+    return;
+  }
+
+  // Local development - more thorough handling
   try {
-    // Get all windows before closing
     const windows = electronApp.windows();
     
     if (windows.length > 0) {
       const mainWindow = windows[0];
       
-      // Trigger the app's quit flow through the API
       try {
         await mainWindow.evaluate(() => {
           if (window.electronAPI && window.electronAPI.quitApp) {
@@ -99,13 +122,9 @@ async function gracefullyCloseElectronApp(electronApp: ElectronApplication): Pro
           }
         });
         
-        // Give the quit dialog time to appear
         await mainWindow.waitForTimeout(1000);
-        
-        // Now handle the quit confirmation dialog
         await handleQuitConfirmation(mainWindow);
         
-        // Wait for the app to close
         await electronApp.waitForEvent('close', { timeout: 5000 }).catch(() => {
           console.log('App close event timeout - app might already be closed');
         });
@@ -116,35 +135,15 @@ async function gracefullyCloseElectronApp(electronApp: ElectronApplication): Pro
       }
     }
     
-    // Fallback: For Windows in CI, use a more aggressive close strategy
-    if (isWindows && isCI) {
-      // Don't wait for graceful close on Windows CI
-      electronApp.close().catch(() => {});
-      // Give it a longer moment to start closing
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      return;
-    }
-    
-    // Fallback: For other platforms, use normal close with timeout
-    // Use longer timeout in CI environments (45s) vs local (15s)
-    const closeTimeout = isCI ? 45000 : 15000;
-    
+    // Fallback close with reasonable timeout
     await Promise.race([
       electronApp.close(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Close timeout')), closeTimeout))
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Close timeout')), 15000))
     ]);
     
   } catch (error) {
     console.log('Error during graceful close, forcing close:', error instanceof Error ? error.message : String(error));
-    
-    // In CI, don't force close - let the test framework handle cleanup
-    // This prevents abrupt termination that might affect subsequent tests
-    if (!isCI) {
-      // Only force close in local development
-      electronApp.close().catch(() => {});
-    }
-    
-    return;
+    electronApp.close().catch(() => {});
   }
 }
 
