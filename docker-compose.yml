@@ -1,170 +1,187 @@
-services:
-  redis:
-    image: redis:7.4.1-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    networks:
-      - internal
-    restart: unless-stopped
+# DDALAB Production Docker Compose
+# This is the main deployment file for DDALAB
+# 
+# Quick Start:
+# 1. Copy .env.production.example to .env
+# 2. Edit .env to change all passwords
+# 3. Run: docker-compose up -d
+# 4. Access: https://localhost
 
+services:
+  # Main DDALAB application (includes API + Web frontend)
   ddalab:
-    image: sdraeger1/ddalab:latest
+    image: ${DDALAB_IMAGE:-sdraeger1/ddalab:latest}
     platform: linux/amd64
-    env_file:
-      - ./.env
+    container_name: ddalab
+    restart: unless-stopped
     environment:
-      DDALAB_AUTH_MODE: ${DDALAB_AUTH_MODE:-local}
-    ports:
-      - "${WEB_PORT:-3000}:3000"
-      - "${API_PORT:-8001}:8001"
+      # Database connection
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER:-ddalab}
+      - DB_PASSWORD=${DB_PASSWORD:-ddalab}
+      - DB_NAME=${DB_NAME:-ddalab}
+      # MinIO storage
+      - MINIO_HOST=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      # Redis cache
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      # Authentication
+      - DDALAB_AUTH_MODE=${DDALAB_AUTH_MODE:-local}
+      - JWT_SECRET_KEY=${DDALAB_JWT_SECRET_KEY:-CHANGE_ME_IN_PRODUCTION}
+      # DDA Engine
+      - DDA_BINARY_PATH=${DDALAB_DDA_BINARY_PATH:-/app/bin/run_DDA_ASCII}
+      # Data directories
+      - DATA_DIR=/app/data
+      - ALLOWED_DIRS=/app/data
     volumes:
-      - type: bind
-        source: ${ALLOWED_DIR_SOURCE:-./data}
-        target: ${ALLOWED_DIR_TARGET:-/app/data}
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://0.0.0.0:3000 && curl -f http://0.0.0.0:8001/api/config | grep -q 'auth_mode.*local'"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-      start_period: 60s
+      - ./data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
-        condition: service_started
       redis:
         condition: service_started
+      minio:
+        condition: service_started
     networks:
-      - internal
+      - ddalab-network
     labels:
+      # Traefik configuration for HTTPS
       - "traefik.enable=true"
-    restart: unless-stopped
+      # Web interface routing
+      - "traefik.http.routers.ddalab-web.rule=Host(`localhost`)"
+      - "traefik.http.routers.ddalab-web.entrypoints=websecure"
+      - "traefik.http.routers.ddalab-web.tls=true"
+      - "traefik.http.routers.ddalab-web.service=ddalab-web"
+      - "traefik.http.services.ddalab-web.loadbalancer.server.port=3000"
+      # API routing through HTTPS
+      - "traefik.http.routers.ddalab-api.rule=Host(`localhost`) && (PathPrefix(`/api`) || PathPrefix(`/api-backend`) || PathPrefix(`/docs`) || PathPrefix(`/graphql`))"
+      - "traefik.http.routers.ddalab-api.entrypoints=websecure"
+      - "traefik.http.routers.ddalab-api.tls=true"
+      - "traefik.http.routers.ddalab-api.priority=100"
+      - "traefik.http.routers.ddalab-api.service=ddalab-api"
+      - "traefik.http.services.ddalab-api.loadbalancer.server.port=8001"
+      # Middleware to rewrite paths
+      - "traefik.http.routers.ddalab-api.middlewares=api-rewrite"
+      - "traefik.http.middlewares.api-rewrite.replacepathregex.regex=^/api-backend/(.*)"
+      - "traefik.http.middlewares.api-rewrite.replacepathregex.replacement=/api/$$1"
 
-  minio:
-    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    command: server /data --console-address ":9001"
-    volumes:
-      - minio-data:/data
-    networks:
-      - internal
-    restart: unless-stopped
-
+  # PostgreSQL database
   postgres:
-    image: postgres:16
+    image: postgres:16-alpine
+    container_name: ddalab-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      # Create the database and user directly
+      POSTGRES_USER: ${DB_USER:-ddalab}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ddalab}
+      POSTGRES_DB: ${DB_NAME:-ddalab}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - ddalab-network
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${DB_USER}", "-d", "${DB_NAME}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ddalab}"]
       interval: 5s
       timeout: 3s
       retries: 10
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    networks:
-      - internal
-    restart: unless-stopped
 
+  # Redis cache
+  redis:
+    image: redis:7-alpine
+    container_name: ddalab-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - ddalab-network
+
+  # MinIO object storage
+  minio:
+    image: minio/minio:latest
+    container_name: ddalab-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9001:9001"  # MinIO console (optional)
+    networks:
+      - ddalab-network
+
+  # Traefik reverse proxy for SSL/HTTPS
   traefik:
-    image: traefik:v3.3.5
+    image: traefik:v3.0
+    container_name: ddalab-traefik
+    restart: unless-stopped
+    command:
+      # Enable Docker provider
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      # Configure entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.api.address=:8001"
+      # Redirect HTTP to HTTPS
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      # Disable dashboard for security
+      - "--api.dashboard=false"
     ports:
       - "80:80"
       - "443:443"
-    environment:
-      - TRAEFIK_PASSWORD_HASH=${TRAEFIK_PASSWORD_HASH}
-    healthcheck:
-      test: ["CMD", "traefik", "healthcheck", "--ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+      - "8001:8001"
     volumes:
-      - ./certs:/etc/traefik/certs:ro
-      - ./traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./dynamic:/etc/traefik/dynamic:ro
-      - ./traefik-logs:/traefik.log
-      - type: bind
-        source: ./acme.json
-        target: /acme.json
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - ddalab-network
     depends_on:
-      postgres:
-        condition: service_healthy
-      ddalab:
-        condition: service_started
-    restart: unless-stopped
-    networks:
-      - internal
-    labels:
-      - "traefik.enable=true"
+      - ddalab
 
-  jaeger:
-    image: jaegertracing/jaeger:2.0.0
-    ports:
-      - "4317:4317"
-      - "4318:4318"
-      - "16686:16686"
-      - "14268:14268"
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
-    networks:
-      - internal
-
+  # Optional: Monitoring with Prometheus
   prometheus:
-    image: prom/prometheus:v3.2.1
+    image: prom/prometheus:latest
+    container_name: ddalab-prometheus
+    restart: unless-stopped
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-      - prometheus_tmp:/tmp
-    ports:
-      - "9090:9090"
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--web.console.libraries=/etc/prometheus/console_libraries"
-      - "--web.console.templates=/etc/prometheus/consoles"
-      - "--storage.tsdb.retention.time=200h"
-      - "--web.enable-lifecycle"
-      - "--query.timeout=2m"
-      - "--query.max-concurrency=20"
-      - "--storage.tsdb.no-lockfile"
-    restart: unless-stopped
+      - prometheus-data:/prometheus
     networks:
-      - internal
+      - ddalab-network
+    profiles:
+      - monitoring
 
+  # Optional: Grafana dashboards
   grafana:
-    image: grafana/grafana:11.6.0
+    image: grafana/grafana:latest
+    container_name: ddalab-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SERVER_HTTP_PORT=3005
     ports:
       - "3005:3005"
     volumes:
-      - grafana_data:/var/lib/grafana
-    environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
-    depends_on:
-      - prometheus
-    restart: unless-stopped
+      - grafana-data:/var/lib/grafana
     networks:
-      - internal
-
-volumes:
-  prometheus_data:
-  prometheus_tmp:
-  grafana_data:
-  postgres-data:
-  minio-data:
-  redis-data:
+      - ddalab-network
+    profiles:
+      - monitoring
 
 networks:
-  internal:
+  ddalab-network:
     driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  prometheus-data:
+  grafana-data:

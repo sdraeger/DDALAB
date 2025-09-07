@@ -1,0 +1,68 @@
+# DDALAB Default Configuration
+# This is the baked-in configuration that ensures the container always starts
+# Users can override via mounted config or environment variables
+
+# Deployment settings
+environment: production
+debug: false
+service_name: ddalab
+institution_name: DDALAB
+
+# API server configuration
+api:
+  host: 0.0.0.0
+  port: 8001
+  reload: false
+
+# Database configuration
+database:
+  host: postgres
+  port: 5432
+  name: ddalab
+  user: admin
+  password: ddalab_password
+
+# Authentication configuration
+auth:
+  mode: local
+  jwt_secret_key: MUST_CHANGE_IN_PRODUCTION_32_CHARS_MIN
+  jwt_algorithm: HS256
+  token_expiration_minutes: 10080
+  refresh_token_expire_days: 7
+
+# Storage configuration
+storage:
+  minio_host: minio:9000
+  minio_access_key: minioadmin
+  minio_secret_key: minioadmin
+  minio_bucket_name: dda-results
+  data_dir: /app/data
+  allowed_dirs: /app/data
+  anonymize_edf: true
+
+# Cache configuration
+cache:
+  redis_host: redis
+  redis_port: 6379
+  redis_db: 0
+  redis_password: ""
+  redis_use_ssl: false
+  plot_cache_ttl: 3600
+
+# DDA engine configuration
+dda:
+  binary_path: /app/bin/run_DDA_ASCII
+  max_concurrent_tasks: 10
+  task_timeout: 600
+
+# Monitoring configuration
+monitoring:
+  otlp_host: jaeger
+  otlp_port: 4318
+
+# Web frontend configuration
+web:
+  public_api_url: http://localhost:8001
+  public_app_url: http://localhost:3000
+  nextauth_url: http://localhost:3000
+  port: 3000

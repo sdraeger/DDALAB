@@ -13,8 +13,15 @@ wheels/
 # Virtual environments
 .venv
 node_modules/
+
+# Environment files (now generated from .env.master)
 .env
 .env.local
+.env.generated
+.env.docker
+deployments/*/
+
+# Legacy env files (archived)
 .env.dev
 .env.publish.update
 .DS_Store

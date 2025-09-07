@@ -93,17 +93,24 @@ RUN mkdir -p /app/bin && \
 # Check binary dependencies
 RUN ldd /app/bin/run_DDA_ASCII || echo "Binary check completed"
 
-# Create necessary directories
-RUN mkdir -p /tmp/.dda /tmp/prometheus /app/data /app/api/.config && \
+# Create necessary directories including config directories
+RUN mkdir -p /tmp/.dda /tmp/prometheus /app/data /app/api/.config /etc/ddalab /config && \
     chmod 777 /tmp/.dda
+
+# Copy default configuration (baked-in)
+COPY config/default.yml /etc/ddalab/config.yml
+
+# Copy enhanced entrypoint script
+COPY docker-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Copy legacy start script (still used by entrypoint)
+COPY start.sh /usr/local/bin/start.sh
+RUN chmod +x /usr/local/bin/start.sh
 
 # Create non-root user
 RUN useradd -m -s /bin/bash ddalabuser && \
-    chown -R ddalabuser:ddalabuser /app /tmp/.dda /tmp/prometheus
-
-# Copy start script
-COPY start.sh /usr/local/bin/start.sh
-RUN chmod +x /usr/local/bin/start.sh
+    chown -R ddalabuser:ddalabuser /app /tmp/.dda /tmp/prometheus /etc/ddalab
 
 # Expose ports
 EXPOSE 8001 3000
@@ -113,4 +120,4 @@ USER ddalabuser
 
 WORKDIR /app
 
-CMD ["/usr/local/bin/start.sh"]
+CMD ["/entrypoint.sh"]
