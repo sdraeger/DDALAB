@@ -101,6 +101,9 @@ async function gracefullyCloseElectronApp(electronApp: ElectronApplication): Pro
   
   // In CI environments, use a more aggressive and faster close strategy
   if (isCI) {
+    const isLinux = process.platform === 'linux';
+    const ciTimeout = isLinux ? 5000 : 10000; // Even shorter timeout for Linux
+    
     try {
       // Try to get windows, but don't wait long
       const windows = electronApp.windows();
@@ -119,18 +122,36 @@ async function gracefullyCloseElectronApp(electronApp: ElectronApplication): Pro
           // Ignore API errors in CI
         }
         
-        // Quick dialog handling
-        await handleQuitConfirmation(mainWindow);
+        // Quick dialog handling with very short timeout for Linux
+        try {
+          await Promise.race([
+            handleQuitConfirmation(mainWindow),
+            new Promise(resolve => setTimeout(resolve, isLinux ? 1000 : 2000))
+          ]);
+        } catch (error) {
+          // Ignore dialog handling errors in CI
+        }
       }
       
-      // Force close after short timeout in CI
+      // Force close after very short timeout in CI, especially Linux
       await Promise.race([
         electronApp.close(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('CI close timeout')), 10000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('CI close timeout')), ciTimeout))
       ]);
       
     } catch (error) {
-      console.log('CI: Fast close failed, app may already be closed');
+      console.log(`CI: Fast close failed (${process.platform}), attempting force kill`);
+      
+      // On Linux, try to force kill the process if normal close fails
+      if (isLinux) {
+        try {
+          const { execSync } = require('child_process');
+          execSync('pkill -f electron || true', { stdio: 'ignore' });
+        } catch (killError) {
+          // Ignore kill errors
+        }
+      }
+      
       // Don't throw in CI - let tests continue
     }
     return;
@@ -191,7 +212,8 @@ export const electronTest = test.extend<ElectronTestContext>({
       console.log('Running in CI - using real environment without virtualization');
     }
     
-    // Launch Electron app with Windows-specific adjustments
+    // Launch Electron app with platform-specific adjustments
+    const isLinux = process.platform === 'linux';
     const launchOptions = {
       args: [path.join(__dirname, '../../dist/main.js')],
       env: {
@@ -201,8 +223,8 @@ export const electronTest = test.extend<ElectronTestContext>({
         ...mockEnvVars,
         CI: process.env.CI || 'false'
       },
-      // Windows CI may need longer timeout
-      timeout: isCI && isWindows ? 60000 : 30000
+      // Platform-specific timeouts - shorter for Linux to prevent hangs
+      timeout: isCI ? (isWindows ? 60000 : isLinux ? 30000 : 45000) : 30000
     };
     
     console.log(`Launching Electron app (CI: ${isCI}, Windows: ${isWindows}, timeout: ${launchOptions.timeout}ms)`);

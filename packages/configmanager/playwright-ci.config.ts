@@ -9,11 +9,11 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: true,
   retries: 0, // No retries to save time
-  workers: process.env.PLAYWRIGHT_WORKERS ? parseInt(process.env.PLAYWRIGHT_WORKERS) : 4,
+  workers: process.env.PLAYWRIGHT_WORKERS ? parseInt(process.env.PLAYWRIGHT_WORKERS) : (process.platform === 'linux' ? 1 : 4),
   
   // Increase teardown timeout for CI environments
   teardown: {
-    timeout: 180000 // 3 minutes for worker teardown
+    timeout: 300000 // 5 minutes for worker teardown
   },
   
   expect: {
