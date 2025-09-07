@@ -49,8 +49,8 @@ export default defineConfig({
   // Test configuration
   fullyParallel: false, // Orchestrator tests should run sequentially
   forbidOnly: isCI,
-  retries: currentPlatformConfig.retries,
-  workers: currentPlatformConfig.workers,
+  retries: isCI ? 1 : currentPlatformConfig.retries, // Reduce retries in CI to save memory
+  workers: isCI ? 1 : Math.min(currentPlatformConfig.workers, 2), // Limit workers in CI
   
   // Reporter configuration
   reporter: [

@@ -283,7 +283,8 @@ jobs:
     executor: windows
     working_directory: ~/project
     environment:
-      NODE_OPTIONS: "--max-old-space-size=4096"
+      NODE_OPTIONS: "--max-old-space-size=6144"
+      PLAYWRIGHT_WORKERS: "1"
     steps:
       - checkout
       - run:
@@ -313,8 +314,8 @@ jobs:
           name: Run acceptance tests
           command: |
             cd packages/configmanager
-            set NODE_OPTIONS=--max-old-space-size=4096
-            set PLAYWRIGHT_WORKERS=4
+            set NODE_OPTIONS=--max-old-space-size=6144
+            set PLAYWRIGHT_WORKERS=1
             npm run test:ci
       - store_test_results:
           path: packages/configmanager/test-results
@@ -430,10 +431,11 @@ jobs:
     executor: windows
     working_directory: ~/project
     environment:
-      NODE_OPTIONS: "--max-old-space-size=4096"
+      NODE_OPTIONS: "--max-old-space-size=8192"
       CI: "true"
       ELECTRON_IS_TESTING: "true"
       ELECTRON_DISABLE_SANDBOX: "1"
+      PLAYWRIGHT_WORKERS: "1"
     steps:
       - checkout
       - run:
