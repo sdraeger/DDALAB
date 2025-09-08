@@ -74,6 +74,10 @@ COPY --from=api-builder /usr/local/bin /usr/local/bin
 COPY packages/api /app/api
 RUN chmod +x /app/api/start.sh
 
+# Copy Docker Swarm entrypoint script
+COPY packages/api/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
 # Copy web20 build artifacts
 COPY --from=web-builder /app/web20 /app/web20
 

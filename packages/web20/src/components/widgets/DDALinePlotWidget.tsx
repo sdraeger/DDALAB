@@ -28,7 +28,6 @@ export function DDALinePlotWidget({
   widgetData,
 }: DDALinePlotWidgetProps) {
   const [Q, setQ] = useState<number[][]>([]);
-  const [lineType, setLineType] = useState<"linear" | "step">("linear");
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingState, setIsLoadingState] = useState(false);
@@ -60,7 +59,6 @@ export function DDALinePlotWidget({
           const snap = response.data.data.data;
           if (snap) {
             // Restore UI state
-            if (snap.lineType) setLineType(snap.lineType);
             if (typeof snap.zoomLevel === "number") setZoomLevel(snap.zoomLevel);
             if (typeof snap.normalize === "boolean") setNormalize(snap.normalize);
             // Restore Q data if available
@@ -94,7 +92,6 @@ export function DDALinePlotWidget({
     if (!restoredRef.current || isLoadingState || isFirstRender.current) return; // Don't save during initial load
 
     const snapshot = {
-      lineType,
       zoomLevel,
       normalize,
       Q
@@ -124,7 +121,7 @@ export function DDALinePlotWidget({
     // Debounce saves to avoid excessive API calls
     const timeoutId = setTimeout(saveState, 500);
     return () => clearTimeout(timeoutId);
-  }, [storageKey, lineType, zoomLevel, normalize, Q, widgetId, isLoadingState]);
+  }, [storageKey, zoomLevel, normalize, Q, widgetId, isLoadingState]);
 
   // Listen to file selection events
   useCurrentFileSubscription((event) => {
@@ -316,22 +313,7 @@ export function DDALinePlotWidget({
           )}
         </CardHeader>
         <CardContent className="space-y-3 pt-0">
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-              <Select
-                value={lineType}
-                onValueChange={(value: any) => setLineType(value)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="linear">Linear</SelectItem>
-                  <SelectItem value="step">Step</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
+          <div className="flex items-center gap-4 justify-end">
             <div className="flex items-center gap-2">
               <Button
                 onClick={() => handleZoom("out")}
@@ -435,7 +417,7 @@ export function DDALinePlotWidget({
 
           <div className="text-xs text-muted-foreground flex items-center justify-between">
             <span>
-              {Q?.length || 0}×{Q?.[0]?.length || 0} • {lineType} •{" "}
+              {Q?.length || 0}×{Q?.[0]?.length || 0} •{" "}
               {Math.round(zoomLevel * 100)}% zoom
             </span>
             {isSavingState && (

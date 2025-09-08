@@ -7,27 +7,15 @@ echo "Using consolidated environment system"
 export PYTHONPATH=$PYTHONPATH:$(pwd)/packages/api
 
 # Select environment file (prefer dev-specific files for local runs)
-POSSIBLE_ENV_FILES=(".env.dev" ".env.local" ".env")
-ENV_FILE=""
-for candidate in "${POSSIBLE_ENV_FILES[@]}"; do
-  if [ -f "$candidate" ]; then
-    ENV_FILE="$candidate"
-    break
-  fi
-done
-
-if [ -z "$ENV_FILE" ]; then
-  echo "❌ ERROR: No environment file found (.env.dev, .env.local, or .env)."
-  echo "   Please create .env.dev for local development or .env for Docker deployments."
+ENV_FILE=".env.dev"
+if [ ! -f "$ENV_FILE" ]; then
+  echo "❌ ERROR: Development environment file .env.dev not found."
+  echo "   This script requires .env.dev for local development."
+  echo "   Please create .env.dev or use one of the deployment scripts instead."
   exit 1
 fi
 
 echo "Loading environment from $ENV_FILE..."
-if [ "$ENV_FILE" = ".env" ]; then
-  echo "ℹ️  Using .env (intended for Docker deployments)."
-  echo "   For local development, consider creating .env.dev with host paths (e.g., DATA_DIR=/Users/... )"
-fi
-
 set -a
 source "$ENV_FILE"
 set +a
@@ -39,22 +27,25 @@ export DEBUG=true
 export RELOAD=true
 export AUTH_MODE=local
 export DB_HOST=localhost
+export DB_PORT=${DDALAB_DB_PORT:-5432}
+export API_PORT=${DDALAB_API_PORT:-8001}
+export DB_NAME=${DDALAB_DB_NAME:-ddalab_db}
 export MINIO_HOST=localhost:9000
-export MINIO_ACCESS_KEY=admin
-export MINIO_SECRET_KEY=dev_password123
+export MINIO_ACCESS_KEY=ddalab
+export MINIO_SECRET_KEY=ddalab_dev_key
 export REDIS_HOST=localhost
-export DATA_DIR=${DATA_DIR:-data}
+export DATA_DIR=${DATA_DIR:-/Users/$(whoami)/Desktop}
 export ALLOWED_DIRS=${ALLOWED_DIRS:-/Users/$(whoami)/Desktop}
 export DDA_BINARY_PATH=${DDA_BINARY_PATH:-/Users/$(whoami)/Desktop/DDALAB/bin/run_DDA_ASCII}
-export NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://localhost/api}
-export NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-https://localhost}
-export NEXTAUTH_URL=${NEXTAUTH_URL:-https://localhost}
-export MINIO_ROOT_USER=${MINIO_ROOT_USER:-admin}
-export MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-dev_password123}
+export NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8001}
+export NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+export NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+export MINIO_ROOT_USER=${MINIO_ROOT_USER:-ddalab}
+export MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-ddalab_dev_key}
 export JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-jwt-secret-key}
 export NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-dev-nextauth-secret-key}
-export DB_USER=${DB_USER:-admin}
-export DB_PASSWORD=${DB_PASSWORD:-dev_password123}
+export DB_USER=${DB_USER:-ddalab}
+export DB_PASSWORD=${DB_PASSWORD:-ddalab_dev_password}
 
 # Validate required environment variables
 REQUIRED_VARS=(
@@ -100,12 +91,17 @@ until nc -z "$DB_HOST" "$DB_PORT"; do
   sleep 1
 done
 
-# Create user and database if they don't exist
-PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -t -c "SELECT 1 FROM pg_roles WHERE rolname = '$DB_USER'" | grep -q 1 || \
-PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -c "CREATE ROLE \"$DB_USER\" WITH LOGIN PASSWORD '$DB_PASSWORD' CREATEDB;"
-
-PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -t -c "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1 || \
-PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -c "CREATE DATABASE $DB_NAME WITH OWNER = \"$DB_USER\" ENCODING = 'UTF8' LC_COLLATE = 'C' LC_CTYPE = 'C';"
+# Check if we can connect directly as the target user (already exists in dev stack)
+if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c '\q' 2>/dev/null; then
+    echo "✓ Database user and database already exist"
+else
+    echo "Database user or database doesn't exist, trying to create..."
+    # Try to connect as postgres superuser to create user/database
+    # Note: In the dev stack, the main user should already exist
+    echo "⚠️  Could not connect with target user. The dev stack should have pre-created the user."
+    echo "   Make sure the development Docker stack is running with correct credentials."
+    exit 1
+fi
 
 echo "Applying SQL files..."
 
@@ -130,6 +126,7 @@ if [ $? -ne 0 ]; then
 fi
 
 mkdir -p /tmp/prometheus
+export PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus
 
 echo "DB_USER: $DB_USER"
 echo "DB_HOST: $DB_HOST"

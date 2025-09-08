@@ -1,0 +1,246 @@
+services:
+  # Main DDALAB service (API + Web)
+  ddalab:
+    image: ${DDALAB_IMAGE:-ddalab:latest}
+    networks:
+      - internal
+      - traefik_public
+    environment:
+      # Pass all env vars to container (override baked-in defaults)
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      AUTH_MODE: ${AUTH_MODE:-local}
+
+      # Database connection
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-ddalab_db}
+      DB_USER: ${DB_USER:-ddalab}
+      DB_PASSWORD: ${DB_PASSWORD:-ddalab_default_password}
+
+      # Redis connection
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      # MinIO connection
+      MINIO_HOST: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-ddalab}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-ddalab_default_key}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-dda-results}
+
+      # Security
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-default_jwt_secret_change_in_production}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-default_nextauth_secret_change_in_production}
+
+      # Application paths (using defaults from container)
+      DATA_DIR: /data
+      ALLOWED_DIRS: /data
+      DDA_BINARY_PATH: /app/bin/run_DDA_ASCII
+
+      # Public URLs (customize these)
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.ddalab.example.com}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://app.ddalab.example.com}
+      NEXTAUTH_URL: ${NEXT_PUBLIC_APP_URL:-https://app.ddalab.example.com}
+
+    volumes:
+      - dda_data:/data
+      - dda_uploads:/app/uploads
+    deploy:
+      replicas: ${DDALAB_REPLICAS:-1}
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik_public
+
+        # API endpoint - use hardcoded for now to avoid variable expansion issues
+        - "traefik.http.routers.ddalab-api.rule=Host(`api.ddalab.example.com`)"
+        - traefik.http.routers.ddalab-api.entrypoints=websecure
+        - traefik.http.routers.ddalab-api.tls=true
+        - traefik.http.routers.ddalab-api.tls.certresolver=letsencrypt
+        - traefik.http.routers.ddalab-api.service=ddalab-api
+        - traefik.http.services.ddalab-api.loadbalancer.server.port=8001
+
+        # Web app endpoint
+        - "traefik.http.routers.ddalab-web.rule=Host(`app.ddalab.example.com`)"
+        - traefik.http.routers.ddalab-web.entrypoints=websecure
+        - traefik.http.routers.ddalab-web.tls=true
+        - traefik.http.routers.ddalab-web.tls.certresolver=letsencrypt
+        - traefik.http.routers.ddalab-web.service=ddalab-web
+        - traefik.http.services.ddalab-web.loadbalancer.server.port=3000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    networks:
+      - internal
+    environment:
+      POSTGRES_DB: ${DB_NAME:-ddalab_db}
+      POSTGRES_USER: ${DB_USER:-ddalab}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ddalab_default_password}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "pg_isready",
+          "-U",
+          "${DB_USER:-ddalab}",
+          "-d",
+          "${DB_NAME:-ddalab_db}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7.4-alpine
+    networks:
+      - internal
+    volumes:
+      - redis_data:/data
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO Object Storage
+  minio:
+    image: minio/minio:latest
+    networks:
+      - internal
+      - traefik_public
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-ddalab}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-ddalab_default_key}
+      MINIO_BROWSER_REDIRECT_URL: ${MINIO_CONSOLE_URL:-https://minio.ddalab.example.com}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik_public
+        # MinIO Console
+        - "traefik.http.routers.minio-console.rule=Host(`minio.ddalab.example.com`)"
+        - traefik.http.routers.minio-console.entrypoints=websecure
+        - traefik.http.routers.minio-console.tls=true
+        - traefik.http.routers.minio-console.tls.certresolver=letsencrypt
+        - traefik.http.routers.minio-console.service=minio-console
+        - traefik.http.services.minio-console.loadbalancer.server.port=9001
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Traefik Reverse Proxy
+  traefik:
+    image: traefik:v3.3
+    networks:
+      - traefik_public
+    ports:
+      - target: 80
+        published: 80
+        mode: host
+      - target: 443
+        published: 443
+        mode: host
+    command:
+      # API and dashboard
+      - --api.dashboard=false
+      - --api.debug=false
+      # Swarm provider (replaces docker.swarmMode in v3)
+      - --providers.swarm=true
+      - --providers.swarm.exposedbydefault=false
+      - --providers.swarm.network=traefik_public
+      # Entrypoints
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      # Let's Encrypt
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.letsencrypt.acme.email=admin@example.com
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      # Logging
+      - --log.level=INFO
+      - --accesslog=true
+    volumes:
+      - traefik_letsencrypt:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  internal:
+    driver: overlay
+    attachable: true
+  traefik_public:
+    external: true
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+  dda_data:
+    driver: local
+  dda_uploads:
+    driver: local
+  traefik_letsencrypt:
+    driver: local
