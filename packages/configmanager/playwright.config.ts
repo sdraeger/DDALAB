@@ -2,6 +2,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
+  // Exclude orchestrator E2E test (13) as it runs in dedicated jobs
+  testIgnore: '**/13-orchestrator-e2e.spec.ts',
   timeout: process.env.CI ? 120000 : 60000, // 2 minutes for CI, 1 minute for local
   fullyParallel: true, // Enable parallel execution
   forbidOnly: !!process.env.CI,
@@ -13,7 +15,7 @@ export default defineConfig({
   },
   // Disable worker teardown issues in CI 
   maxFailures: process.env.CI ? 0 : undefined, // Don't stop on failures to avoid teardown issues
-  globalTeardown: process.env.CI ? require.resolve('./tests/setup/global-teardown.ts') : undefined,
+  globalTeardown: process.env.CI ? require.resolve('./playwright.teardown.ts') : undefined,
   globalSetup: undefined,
   reporter: [
     ['html', { outputFolder: 'playwright-report' }],

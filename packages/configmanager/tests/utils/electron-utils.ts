@@ -181,56 +181,62 @@ export const electronTest = test.extend<ElectronTestContext>({
     const isCI = process.env.CI === 'true' || process.env.CIRCLECI === 'true' || process.env.GITHUB_ACTIONS === 'true';
     const isWindows = process.platform === 'win32';
     let mockEnvVars = {};
+    let electronApp: ElectronApplication | null = null;
     
-    // Only use virtualized environment when running locally (not in CI)
-    if (!isCI) {
-      console.log('Running locally - initializing virtualized test environment');
-      await MockEnvironment.initialize();
-      mockEnvVars = MockEnvironment.getEnvironmentVariables();
-    } else {
-      console.log('Running in CI - using real environment without virtualization');
-    }
-    
-    // Launch Electron app with platform-specific adjustments
-    const isLinux = process.platform === 'linux';
-    const launchOptions = {
-      args: [path.join(__dirname, '../../dist/main.js')],
-      env: {
-        ...process.env,
-        NODE_ENV: 'test',
-        ELECTRON_IS_TESTING: 'true',
-        ...mockEnvVars,
-        CI: process.env.CI || 'false'
-      },
-      // Platform-specific timeouts - shorter for Linux to prevent hangs
-      timeout: isCI ? (isWindows ? 60000 : isLinux ? 30000 : 45000) : 30000
-    };
-    
-    console.log(`Launching Electron app (CI: ${isCI}, Windows: ${isWindows}, timeout: ${launchOptions.timeout}ms)`);
-    const electronApp = await electron.launch(launchOptions);
-
-    await use(electronApp);
-    
-    // In CI environments, use fast but targeted cleanup
-    if (isCI) {
-      try {
-        console.log('CI: Starting targeted app cleanup');
-        
-        // Use graceful close first
-        await gracefullyCloseElectronApp(electronApp);
-        
-        console.log('CI: Targeted cleanup completed');
-      } catch (error) {
-        console.log('CI: Cleanup error ignored:', error instanceof Error ? error.message : String(error));
+    try {
+      // Only use virtualized environment when running locally (not in CI)
+      if (!isCI) {
+        console.log('Running locally - initializing virtualized test environment');
+        await MockEnvironment.initialize();
+        mockEnvVars = MockEnvironment.getEnvironmentVariables();
+      } else {
+        console.log('Running in CI - using real environment without virtualization');
       }
-    } else {
-      // Use graceful close for local development
-      await gracefullyCloseElectronApp(electronApp);
-    }
-    
-    // Cleanup the mock environment only if it was initialized
-    if (!isCI) {
-      await MockEnvironment.cleanup();
+      
+      // Launch Electron app with platform-specific adjustments
+      const isLinux = process.platform === 'linux';
+      const launchOptions = {
+        args: [path.join(__dirname, '../../dist/main.js')],
+        env: {
+          ...process.env,
+          NODE_ENV: 'test',
+          ELECTRON_IS_TESTING: 'true',
+          ...mockEnvVars,
+          CI: process.env.CI || 'false'
+        },
+        // Platform-specific timeouts - shorter for Linux to prevent hangs
+        timeout: isCI ? (isWindows ? 60000 : isLinux ? 30000 : 45000) : 30000
+      };
+      
+      console.log(`Launching Electron app (CI: ${isCI}, Windows: ${isWindows}, timeout: ${launchOptions.timeout}ms)`);
+      electronApp = await electron.launch(launchOptions);
+
+      await use(electronApp);
+      
+    } finally {
+      // Always attempt cleanup, even if test fails
+      if (electronApp) {
+        try {
+          // In test mode, app should close cleanly without dialogs
+          await Promise.race([
+            electronApp.close(),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Close timeout')), isCI ? 10000 : 5000)
+            )
+          ]);
+        } catch (error) {
+          console.log('Electron close error (will be handled by global teardown):', error);
+        }
+      }
+      
+      // Cleanup the mock environment only if it was initialized
+      if (!isCI) {
+        try {
+          await MockEnvironment.cleanup();
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+      }
     }
   },
 

@@ -63,8 +63,9 @@ export default defineConfig({
     ['line']
   ],
   
-  // Global test setup only - skip teardown to prevent timeout issues
+  // Global test setup and teardown with Linux-specific cleanup
   globalSetup: path.resolve(__dirname, 'tests/setup/orchestrator-global-setup.ts'),
+  globalTeardown: path.resolve(__dirname, 'playwright.teardown.ts'),
   
   // Output directories
   outputDir: `test-results/orchestrator-${platform}`,

@@ -18,7 +18,7 @@ export default defineConfig({
     timeout: 20000, // 20 seconds for assertions
   },
   
-  globalTeardown: require.resolve('./tests/setup/global-teardown.ts'),
+  globalTeardown: require.resolve('./playwright.teardown.ts'),
   
   reporter: [
     ['list'],
