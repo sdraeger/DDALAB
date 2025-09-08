@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { ScrollArea } from '../ui/scroll-area';
-import { Folder, File, ChevronRight, ChevronDown } from 'lucide-react';
+import { Folder, File, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
 import apiService from '@/lib/api';
 import { useUnifiedSessionData } from '@/hooks/useUnifiedSession';
 import { FileSelectionDialog } from '@/components/dialog/FileSelectionDialog';
@@ -31,6 +31,7 @@ export function FileBrowserWidget({ onFileSelect, maxHeight = "400px" }: FileBro
 	const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [pendingFile, setPendingFile] = useState<string | null>(null);
+	const [allowedRoots, setAllowedRoots] = useState<Array<{ name: string; relative_path: string }>>([]);
 
 	// Load default root from API on mount
 	useEffect(() => {
@@ -49,6 +50,9 @@ export function FileBrowserWidget({ onFileSelect, maxHeight = "400px" }: FileBro
 					setFiles([]);
 					return;
 				}
+				
+				// Store allowed roots for bounds checking
+				setAllowedRoots(data.roots);
 				
 				// Use the default path as-is (API now returns "" for root, not ".")
 				setCurrentPath(defaultPath);
@@ -104,6 +108,33 @@ export function FileBrowserWidget({ onFileSelect, maxHeight = "400px" }: FileBro
 		}
 	};
 
+	const handleGoUp = async () => {
+		if (!canGoUp()) return;
+		
+		// Calculate parent path
+		let parentPath = '';
+		if (currentPath.includes('/')) {
+			const pathParts = currentPath.split('/').filter(part => part !== '');
+			if (pathParts.length > 1) {
+				parentPath = pathParts.slice(0, -1).join('/');
+			}
+			// If pathParts.length === 1, parentPath stays empty (root)
+		}
+		
+		console.log('Going up from:', currentPath, 'to:', parentPath);
+		setCurrentPath(parentPath);
+		await handleRefresh(parentPath);
+	};
+
+	const canGoUp = (): boolean => {
+		// Can't go up if we're already at the root (empty path)
+		if (!currentPath || currentPath === '') return false;
+		
+		// Always allow going up one level - the API should handle bounds checking
+		// If the user can navigate to a directory, they should be able to go back up
+		return true;
+	};
+
 	const handleFileClick = async (file: FileItem) => {
 		console.log('handleFileClick', file);
 		if (file.type === 'file') {
@@ -156,24 +187,30 @@ export function FileBrowserWidget({ onFileSelect, maxHeight = "400px" }: FileBro
 		return (
 			<div key={item.path}>
 				<div
-					className={`grid grid-cols-[auto,1fr,100px,100px,160px] items-center gap-2 px-2 py-1 ${item.type === 'file' ? 'text-foreground' : 'text-muted-foreground'}`}
+					className={`grid grid-cols-[auto,1fr,80px,80px,120px] items-center gap-2 px-2 py-1 ${item.type === 'file' ? 'text-foreground' : 'text-muted-foreground'}`}
 					style={{ paddingLeft: `${depth * 16 + 8}px` }}
 				>
-					{item.type === 'directory' && (
-						<>
-							{hasChildren ? (
-								isExpanded ? (
-									<ChevronDown className="h-3 w-3" />
+					<div className="flex items-center gap-1">
+						{item.type === 'directory' ? (
+							<>
+								{hasChildren ? (
+									isExpanded ? (
+										<ChevronDown className="h-3 w-3 shrink-0" />
+									) : (
+										<ChevronRight className="h-3 w-3 shrink-0" />
+									)
 								) : (
-									<ChevronRight className="h-3 w-3" />
-								)
-							) : (
-								<div className="w-3" />
-							)}
-							<Folder className="h-4 w-4" />
-						</>
-					)}
-					{item.type === 'file' && <File className="h-4 w-4" />}
+									<div className="w-3 shrink-0" />
+								)}
+								<Folder className="h-4 w-4 shrink-0" />
+							</>
+						) : (
+							<>
+								<div className="w-3 shrink-0" />
+								<File className="h-4 w-4 shrink-0" />
+							</>
+						)}
+					</div>
 					<span className="text-sm truncate">{item.name}</span>
 					<span className="text-xs text-muted-foreground">{item.type === 'directory' ? 'Folder' : (item.name.split('.').pop()?.toUpperCase() || 'File')}</span>
 					<span className="text-xs tabular-nums text-right">{item.type === 'file' ? formatBytes(item.size) : ''}</span>
@@ -191,6 +228,15 @@ export function FileBrowserWidget({ onFileSelect, maxHeight = "400px" }: FileBro
 	return (
 		<div className="flex flex-col h-full min-h-0" style={{ maxHeight }}>
 			<div className="flex items-center gap-2 p-1 border-b">
+				<Button 
+					size="sm" 
+					variant="outline" 
+					onClick={handleGoUp} 
+					disabled={!canGoUp() || loading}
+					title="Go up one directory"
+				>
+					<ChevronUp className="h-4 w-4" />
+				</Button>
 				<Input
 					value={currentPath}
 					onChange={(e) => setCurrentPath(e.target.value)}
@@ -214,10 +260,11 @@ export function FileBrowserWidget({ onFileSelect, maxHeight = "400px" }: FileBro
 					) : (
 						<div className="space-y-1">
 							{/* Header Row */}
-							<div className="grid grid-cols-[auto,1fr,100px,120px] gap-2 px-2 py-1 text-[11px] uppercase tracking-wide text-muted-foreground">
-								<div />
+							<div className="grid grid-cols-[auto,1fr,80px,80px,120px] gap-2 px-2 py-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+								<div className="w-6" />
 								<div>Name</div>
-								<div>Type/Size</div>
+								<div>Type</div>
+								<div className="text-right">Size</div>
 								<div className="text-right">Last Modified</div>
 							</div>
 							{files.map(item => (

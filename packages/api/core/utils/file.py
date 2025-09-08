@@ -1,5 +1,6 @@
 """File utility functions."""
 
+import os
 from pathlib import Path
 
 from core.environment import get_config_service
@@ -27,6 +28,29 @@ def is_path_allowed(requested_path: str | Path) -> Path:
     if requested_str == "/":
         raise HTTPException(
             status_code=403, detail="Path not allowed: absolute root is forbidden"
+        )
+    
+    # Check if the requested path is an absolute path that matches an allowed directory
+    if requested_str and os.path.isabs(requested_str):
+        requested_abs = Path(requested_str).resolve()
+        for allowed_dir in storage_settings.allowed_dirs:
+            allowed_path = Path(allowed_dir).resolve()
+            try:
+                # Check if requested path is under or equal to allowed path
+                if requested_abs == allowed_path or requested_abs.relative_to(allowed_path):
+                    if not requested_abs.exists():
+                        raise HTTPException(
+                            status_code=404,
+                            detail=f"Path not found: {requested_path}",
+                        )
+                    return requested_abs
+            except ValueError:
+                # Not under this allowed directory, continue
+                pass
+        # If absolute path doesn't match any allowed directory, reject it
+        raise HTTPException(
+            status_code=403,
+            detail=f"Path not allowed: {requested_path}",
         )
 
     # Handle empty string and "." as requests for the data_dir root

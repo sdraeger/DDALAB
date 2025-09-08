@@ -1,63 +1,67 @@
 #!/bin/bash
-
-# DDALAB Deployment Script
-# Validates configuration and deploys services based on environment
+# Simple DDALAB Docker Swarm Deployment
 
 set -e
 
-ENVIRONMENT="${1:-development}"
-MODE="${2:-local}"
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
 
-echo "🚀 Deploying DDALAB ($ENVIRONMENT - $MODE)"
-echo "================================================"
+echo -e "${GREEN}🚀 DDALAB Simple Docker Swarm Deployment${NC}"
+echo
 
-echo "🔍 Validating configuration..."
-npm run config:validate
-
-if [ $? -ne 0 ]; then
-    echo "❌ Configuration validation failed"
+# Check if .env exists
+if [ ! -f .env ]; then
+    echo -e "${RED}❌ .env file not found!${NC}"
+    echo "Please copy .env.example to .env and customize it:"
+    echo "  cp .env.example .env"
+    echo "  # Edit .env with your domain names and passwords"
     exit 1
 fi
 
-echo "✅ Deployment configuration is valid"
+echo "✅ Found .env configuration file"
 
-# For local development mode
-if [ "$MODE" = "local" ]; then
-    echo "🏠 Starting local development services..."
-    
-    # Start core services only (no web/api containers)
-    docker-compose -f docker-compose.dev.yml up redis postgres minio traefik -d
-    
-    echo "✅ Core services started"
-    echo ""
-    echo "📋 Next steps:"
-    echo "   • Run API: cd packages/api && ./start.sh"
-    echo "   • Run Web: cd packages/web20 && npm run dev"
-    echo "   • Or run both: npm run dev:local:concurrent"
-    echo ""
-    echo "🌐 Services:"
-    echo "   • API will be: http://localhost:8001"
-    echo "   • Web will be: http://localhost:3000"
-    echo "   • MinIO: http://localhost:9001"
-    echo "   • PostgreSQL: localhost:5432"
-    echo "   • Redis: localhost:6379"
-    
-elif [ "$MODE" = "docker" ]; then
-    echo "🐳 Starting Docker Compose services..."
-    docker-compose up --build -d
-    
-    echo "✅ All services started"
-    echo ""
-    echo "🌐 Access points:"
-    echo "   • Web Interface: https://localhost"
-    echo "   • API: https://localhost/api"
-    echo "   • Traefik Dashboard: http://localhost:8080"
-    
-else
-    echo "❌ Unknown deployment mode: $MODE"
-    echo "Available modes: local, docker"
-    exit 1
+# Check if running as swarm manager
+if ! docker info | grep -q "Swarm: active"; then
+    echo -e "${YELLOW}Docker Swarm is not initialized. Initializing now...${NC}"
+    docker swarm init
+    echo
 fi
 
-echo ""
-echo "🎉 DDALAB deployment completed!"
+# Create external network if it doesn't exist
+echo "Creating traefik_public network..."
+docker network create --driver overlay --attachable traefik_public 2>/dev/null || true
+
+# Deploy the stack
+echo
+echo "Deploying DDALAB stack..."
+docker stack deploy -c docker-stack.yml ddalab --with-registry-auth
+
+echo
+echo -e "${GREEN}✅ Deployment initiated!${NC}"
+echo
+echo "Monitor deployment status:"
+echo "  docker stack ps ddalab"
+echo "  docker service ls"
+echo
+echo "View logs:"
+echo "  docker service logs -f ddalab_ddalab"
+echo
+echo "Your DDALAB instance will be available at:"
+echo "  Application: https://$(grep APP_HOST .env | cut -d'=' -f2)"
+echo "  API: https://$(grep API_HOST .env | cut -d'=' -f2)"
+echo "  MinIO Console: https://$(grep MINIO_HOST .env | cut -d'=' -f2)"
+echo
+echo -e "${YELLOW}Note: SSL certificates may take a few minutes to provision.${NC}"
+echo "Initial deployment takes 2-5 minutes for all services to be ready."
+
+# Show next steps
+echo
+echo "Next steps:"
+echo "1. Update your DNS records to point to this server"
+echo "2. Wait for SSL certificates to provision"
+echo "3. Access your DDALAB instance"
+echo
+echo "To remove the deployment:"
+echo "  docker stack rm ddalab"

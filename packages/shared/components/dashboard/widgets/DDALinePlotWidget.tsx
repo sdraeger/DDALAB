@@ -23,7 +23,6 @@ export function DDALinePlotWidget({
   isPopout = false,
 }: DDALinePlotWidgetProps) {
   const [Q, setQ] = useState<number[][]>([]);
-  const [lineType, setLineType] = useState<"linear" | "step">("linear");
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [normalize, setNormalize] = useState<boolean>(true);

@@ -223,10 +223,26 @@ jobs:
       - run:
           name: Validate deployment configuration
           command: |
-            # Skip config validation in CI - just validate Docker Compose structure
             echo "Validating Docker Compose configuration..."
             docker compose config --quiet
             echo "✅ Docker Compose configuration is valid"
+            
+            echo "Validating Docker Swarm stack configurations..."
+            # Validate production swarm stack
+            if [ -f docker-stack.yml ]; then
+              docker compose -f docker-stack.yml config --quiet
+              echo "✅ Docker Swarm production stack is valid"
+            else
+              echo "⚠️ docker-stack.yml not found"
+            fi
+            
+            # Validate development swarm stack
+            if [ -f docker-stack.dev.yml ]; then
+              docker compose -f docker-stack.dev.yml config --quiet
+              echo "✅ Docker Swarm development stack is valid"
+            else
+              echo "⚠️ docker-stack.dev.yml not found"
+            fi
       - run:
           name: Build Docker image
           command: |
@@ -665,25 +681,25 @@ workflows:
             branches:
               ignore: []
       
-      # Orchestrator E2E tests run on main and develop branches
-      - orchestrator-e2e-windows:
-          filters:
-            branches:
-              only:
-                - main
-                - develop
-      - orchestrator-e2e-linux:
-          filters:
-            branches:
-              only:
-                - main
-                - develop
-      - orchestrator-e2e-macos:
-          filters:
-            branches:
-              only:
-                - main
-                - develop
+      # Orchestrator E2E tests - PAUSED: Phase out orchestrator in favor of Docker Swarm
+      # - orchestrator-e2e-windows:
+      #     filters:
+      #       branches:
+      #         only:
+      #           - main
+      #           - develop
+      # - orchestrator-e2e-linux:
+      #     filters:
+      #       branches:
+      #         only:
+      #           - main
+      #           - develop
+      # - orchestrator-e2e-macos:
+      #     filters:
+      #       branches:
+      #         only:
+      #           - main
+      #           - develop
       
       # Build jobs only run on main branch and require tests to pass
       - build-windows:
