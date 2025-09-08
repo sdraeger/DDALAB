@@ -27,8 +27,16 @@ export default async function globalTeardown() {
           console.log('Windows: Cleaned up orphaned electron processes');
         } else {
           // Linux/macOS: Kill only truly orphaned electron processes
-          execSync('pkill -f "electron.*configmanager" || true', { stdio: 'ignore' });
-          console.log('Unix: Cleaned up orphaned electron processes');
+          if (process.platform === 'darwin') {
+            // macOS specific cleanup
+            execSync('pkill -f "Electron.*configmanager" || true', { stdio: 'ignore' });
+            execSync('pkill -f "Electron Helper" || true', { stdio: 'ignore' });
+            console.log('macOS: Cleaned up orphaned Electron processes');
+          } else {
+            // Linux cleanup
+            execSync('pkill -f "electron.*configmanager" || true', { stdio: 'ignore' });
+            console.log('Linux: Cleaned up orphaned electron processes');
+          }
         }
       } catch (error) {
         console.log('Final cleanup failed but continuing:', error instanceof Error ? error.message : String(error));
