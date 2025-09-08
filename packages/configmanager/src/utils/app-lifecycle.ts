@@ -48,12 +48,26 @@ export function initializeAppLifecycle(): void {
   });
 
   app.on("window-all-closed", () => {
-    // Don't quit the app when all windows are closed
+    // In test mode, quit immediately when all windows are closed
+    if (process.env.ELECTRON_IS_TESTING === 'true' || process.env.NODE_ENV === 'test') {
+      app.quit();
+      return;
+    }
+    
+    // Don't quit the app when all windows are closed in normal mode
     // The app will continue running in the system tray/dock
     // Users can quit via the tray context menu or Cmd+Q on macOS
   });
 
   app.on("before-quit", (event) => {
+    // Skip quit confirmation in test mode
+    if (process.env.ELECTRON_IS_TESTING === 'true' || process.env.NODE_ENV === 'test') {
+      // In test mode, quit immediately with cleanup
+      DockerService.stopLogStream();
+      SystemTrayService.destroy();
+      return;
+    }
+    
     // Check if quit confirmation has been shown already
     if (!SystemTrayService.getIsQuitting()) {
       // Prevent default quit and show confirmation dialog

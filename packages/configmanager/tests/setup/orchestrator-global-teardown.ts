@@ -81,6 +81,35 @@ async function globalTeardown(config: FullConfig) {
     console.log('⚠️ Could not clean up all test artifacts or cleanup timed out');
   }
   
+  // Platform-specific process cleanup for orchestrator tests
+  if ((process.platform === 'linux' || process.platform === 'darwin') && isCI) {
+    const platform = process.platform === 'darwin' ? 'macOS' : 'Linux';
+    console.log(`🐧 ${platform}: Performing final process cleanup...`);
+    try {
+      await Promise.race([
+        (async () => {
+          // Kill any remaining electron processes that might cause worker hangs
+          if (process.platform === 'darwin') {
+            // macOS specific patterns
+            await execAsync('pkill -f "Electron.*configmanager" || true');
+            await execAsync('pkill -f "Electron Helper" || true');
+            await execAsync('pkill -f "Electron.*main.js" || true');
+          } else {
+            // Linux patterns
+            await execAsync('pkill -f "electron.*configmanager" || true');
+            await execAsync('pkill -f "electron.*main.js" || true');
+          }
+          console.log(`${platform}: Electron processes cleaned up`);
+        })(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error(`${platform} process cleanup timeout`)), 5000)
+        )
+      ]);
+    } catch (error) {
+      console.log(`⚠️ ${platform} process cleanup completed with some issues (this is usually okay)`);
+    }
+  }
+  
   console.log('✅ Global teardown complete');
 }
 
