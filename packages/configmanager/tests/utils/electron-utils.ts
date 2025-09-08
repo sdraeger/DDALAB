@@ -99,13 +99,10 @@ async function gracefullyCloseElectronApp(electronApp: ElectronApplication): Pro
   const isWindows = process.platform === 'win32';
   const isCI = process.env.CI === 'true' || process.env.CIRCLECI === 'true' || process.env.GITHUB_ACTIONS === 'true';
   
-  // In CI environments, use a more aggressive and faster close strategy
+  // In CI environments, use a faster close strategy but don't kill aggressively during tests
   if (isCI) {
-    const isLinux = process.platform === 'linux';
-    const ciTimeout = isLinux ? 5000 : 10000; // Even shorter timeout for Linux
-    
     try {
-      // Try to get windows, but don't wait long
+      // Try to get windows
       const windows = electronApp.windows();
       
       if (windows.length > 0) {
@@ -122,36 +119,18 @@ async function gracefullyCloseElectronApp(electronApp: ElectronApplication): Pro
           // Ignore API errors in CI
         }
         
-        // Quick dialog handling with very short timeout for Linux
-        try {
-          await Promise.race([
-            handleQuitConfirmation(mainWindow),
-            new Promise(resolve => setTimeout(resolve, isLinux ? 1000 : 2000))
-          ]);
-        } catch (error) {
-          // Ignore dialog handling errors in CI
-        }
+        // Skip dialog handling in CI to speed up cleanup
+        // The test has already completed successfully
       }
       
-      // Force close after very short timeout in CI, especially Linux
+      // Force close with reasonable timeout
       await Promise.race([
         electronApp.close(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('CI close timeout')), ciTimeout))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('CI close timeout')), 5000))
       ]);
       
     } catch (error) {
-      console.log(`CI: Fast close failed (${process.platform}), attempting force kill`);
-      
-      // On Linux, try to force kill the process if normal close fails
-      if (isLinux) {
-        try {
-          const { execSync } = require('child_process');
-          execSync('pkill -f electron || true', { stdio: 'ignore' });
-        } catch (killError) {
-          // Ignore kill errors
-        }
-      }
-      
+      console.log(`CI: Fast close failed (${process.platform}), but continuing`);
       // Don't throw in CI - let tests continue
     }
     return;
@@ -232,44 +211,15 @@ export const electronTest = test.extend<ElectronTestContext>({
 
     await use(electronApp);
     
-    // In CI environments, use ultra-aggressive cleanup to prevent worker teardown timeouts
+    // In CI environments, use fast but targeted cleanup
     if (isCI) {
       try {
-        console.log('CI: Starting ultra-aggressive app cleanup');
+        console.log('CI: Starting targeted app cleanup');
         
-        // Try to force close immediately
-        const closePromise = electronApp.close().catch(() => console.log('CI: electronApp.close() failed'));
+        // Use graceful close first
+        await gracefullyCloseElectronApp(electronApp);
         
-        // Don't wait for close - kill processes immediately
-        const { execSync } = require('child_process');
-        
-        if (isWindows) {
-          // Windows: Kill electron processes aggressively
-          try {
-            execSync('taskkill /F /IM electron.exe /T 2>NUL || echo "No electron processes"', { stdio: 'ignore' });
-            execSync('taskkill /F /IM node.exe /FI "WINDOWTITLE eq *electron*" /T 2>NUL || echo "No electron node processes"', { stdio: 'ignore' });
-            console.log('CI: Windows electron processes killed');
-          } catch (error) {
-            console.log('CI: Windows process kill failed, continuing');
-          }
-        } else {
-          // Linux/macOS: Kill electron processes
-          try {
-            execSync('pkill -9 -f electron || true', { stdio: 'ignore' });
-            execSync('pkill -9 -f "configmanager.*dist.*main" || true', { stdio: 'ignore' });
-            console.log('CI: Unix electron processes killed');
-          } catch (error) {
-            console.log('CI: Unix process kill failed, continuing');
-          }
-        }
-        
-        // Wait very briefly for the close promise to resolve
-        await Promise.race([
-          closePromise,
-          new Promise(resolve => setTimeout(resolve, 200))
-        ]);
-        
-        console.log('CI: Ultra-aggressive cleanup completed');
+        console.log('CI: Targeted cleanup completed');
       } catch (error) {
         console.log('CI: Cleanup error ignored:', error instanceof Error ? error.message : String(error));
       }
