@@ -1,11 +1,10 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Footer } from "@/components/layout/Footer";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
-import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ThemeSyncProvider } from "@/components/providers/ThemeSyncProvider";
 import { PopOutManager } from "@/components/popout/PopOutManager";
@@ -17,7 +16,13 @@ import {
   useWidgets,
 } from "@/store/hooks";
 import { useLayoutPersistence } from "@/hooks/useLayoutPersistence";
-import { Save, RefreshCw, Trash2 } from "lucide-react";
+import { Save, RefreshCw, Trash2, FileText, X } from "lucide-react";
+
+interface LoadedFileInfo {
+  filePath: string;
+  selectedChannels: string[];
+  metadata: any;
+}
 
 export default function DashboardPage() {
   const dispatch = useAppDispatch();
@@ -25,6 +30,7 @@ export default function DashboardPage() {
   const headerVisible = useHeaderVisible();
   const footerVisible = useFooterVisible();
   const widgets = useWidgets();
+  const [loadedFile, setLoadedFile] = useState<LoadedFileInfo | null>(null);
 
   // Use layout persistence hook
   const {
@@ -36,6 +42,24 @@ export default function DashboardPage() {
     clearLayout,
     isInitialized,
   } = useLayoutPersistence();
+
+  // Listen for file loads
+  useEffect(() => {
+    const handleFileLoad = (event: CustomEvent) => {
+      const { filePath, selectedChannels, metadata } = event.detail;
+      setLoadedFile({
+        filePath,
+        selectedChannels: selectedChannels || [],
+        metadata: metadata || {}
+      });
+    };
+
+    window.addEventListener('dda:edf-loaded', handleFileLoad as EventListener);
+    
+    return () => {
+      window.removeEventListener('dda:edf-loaded', handleFileLoad as EventListener);
+    };
+  }, []);
 
   // No sample widgets by default - user will add them manually
   useEffect(() => {
@@ -71,6 +95,14 @@ export default function DashboardPage() {
     }
   };
 
+  const handleClearFile = () => {
+    setLoadedFile(null);
+  };
+
+  const getFileName = (filePath: string) => {
+    return filePath.split('/').pop() || filePath;
+  };
+
   return (
     <AuthProvider>
       <ThemeSyncProvider>
@@ -82,31 +114,60 @@ export default function DashboardPage() {
               {headerVisible && <Header />}
               <main className="flex-1 overflow-hidden flex flex-col min-h-0">
                 <div className="p-6 space-y-6">
-                  <DashboardStats />
-
                   {/* Layout Controls */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleManualSave}
-                      className="inline-flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground rounded-md"
-                    >
-                      <Save className="h-3 w-3" />
-                      Save Layout
-                    </button>
-                    <button
-                      onClick={handleManualLoad}
-                      className="inline-flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground rounded-md"
-                    >
-                      <RefreshCw className="h-3 w-3" />
-                      Reload
-                    </button>
-                    <button
-                      onClick={handleClearLayout}
-                      className="inline-flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground rounded-md text-destructive hover:text-destructive"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                      Clear
-                    </button>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleManualSave}
+                        className="inline-flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground rounded-md"
+                      >
+                        <Save className="h-3 w-3" />
+                        Save Layout
+                      </button>
+                      <button
+                        onClick={handleManualLoad}
+                        className="inline-flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground rounded-md"
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                        Reload
+                      </button>
+                      <button
+                        onClick={handleClearLayout}
+                        className="inline-flex items-center justify-center gap-1 px-3 py-2 text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground rounded-md text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Clear
+                      </button>
+                    </div>
+
+                    {/* Currently Loaded File Info */}
+                    <div className="flex items-center gap-2">
+                      {loadedFile ? (
+                        <div className="flex items-center gap-2 px-3 py-2 bg-muted/50 rounded-md border">
+                          <FileText className="h-3 w-3 text-green-600" />
+                          <div className="flex flex-col">
+                            <span className="text-xs font-medium text-foreground">
+                              {getFileName(loadedFile.filePath)}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {loadedFile.selectedChannels.length} channel{loadedFile.selectedChannels.length !== 1 ? 's' : ''} loaded
+                            </span>
+                          </div>
+                          <button
+                            onClick={handleClearFile}
+                            className="p-0.5 hover:bg-muted rounded-sm text-muted-foreground hover:text-foreground"
+                            title="Clear loaded file"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 px-3 py-2 text-muted-foreground">
+                          <FileText className="h-3 w-3" />
+                          <span className="text-xs">No file loaded</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Debug Info */}

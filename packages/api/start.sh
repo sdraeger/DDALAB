@@ -1,26 +1,22 @@
 #!/bin/sh
 # Start the Python API server via Uvicorn
 
-# Source environment files in priority order
-if [ -f "../../.env.master" ]; then
-    echo "Loading environment from .env.master..."
+# Load environment configuration
+if [ -f "../../.env.dev" ]; then
+    echo "Loading development environment from .env.dev..."
     set -a  # Export all variables
-    . ../../.env.master
+    . ../../.env.dev
     set +a  # Stop exporting
-fi
-
-if [ -f "../../.env" ]; then
-    echo "Loading environment from .env..."
+elif [ -f "../../.env" ]; then
+    echo "Loading production environment from .env..."
     set -a  # Export all variables
     . ../../.env
     set +a  # Stop exporting
-fi
-
-if [ -f "../../.env.local" ]; then
-    echo "Loading environment from .env.local..."
-    set -a  # Export all variables
-    . ../../.env.local
-    set +a  # Stop exporting
+else
+    echo "❌ No environment file found!"
+    echo "For development: create .env.dev"
+    echo "For production: cp .env.example .env"
+    exit 1
 fi
 
 # Check for and activate virtual environment

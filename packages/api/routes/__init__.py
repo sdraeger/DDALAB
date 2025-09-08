@@ -53,6 +53,7 @@ router.include_router(
 router.include_router(widget_data_router, prefix="/widget-data", tags=["widget-data"])
 router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
 router.include_router(notifications_router, prefix="/notifications", tags=["notifications"])
+router.include_router(metrics_router, prefix="/metrics", tags=["metrics"])  # Add metrics to main API
 
 
 def include_routers(app):

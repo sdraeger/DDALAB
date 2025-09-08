@@ -1,0 +1,40 @@
+# Standalone Traefik for Development HTTPS
+# Run with: docker-compose -f docker-compose.traefik-dev.yml up -d
+
+version: '3.8'
+
+services:
+  traefik-dev:
+    image: traefik:v3.3
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Traefik dashboard
+    volumes:
+      - ./certs:/etc/traefik/certs:ro
+      - ./traefik.dev.yml:/etc/traefik/traefik.yml:ro
+      - ./dynamic:/etc/traefik/dynamic:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command:
+      # API and dashboard
+      - --api.dashboard=true
+      - --api.debug=true
+      - --api.insecure=true
+      # File provider for static config
+      - --providers.file=true
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      # Entrypoints
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      # TLS
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.letsencrypt.acme.email=dev@localhost
+      - --certificatesresolvers.letsencrypt.acme.storage=/tmp/acme.json
+      # Logging
+      - --log.level=INFO
+      - --accesslog=true
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=false"  # Don't route to itself

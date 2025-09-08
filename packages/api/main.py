@@ -2,6 +2,10 @@
 
 from contextlib import asynccontextmanager
 
+# Load default configuration first
+from config.defaults import load_default_config
+load_default_config()
+
 from core.environment import get_config_service
 
 from core.middleware import (
@@ -243,4 +247,23 @@ app.include_router(
     user_preferences_router, prefix="/api/user-preferences", tags=["user-preferences"]
 )
 
+# Include metrics router directly (no prefix) for Prometheus scraping
+from routes.metrics import router as direct_metrics_router
+app.include_router(direct_metrics_router, prefix="/metrics", tags=["metrics"])
+
 app_metrics.include_router(api_router_metrics)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    api_settings = config_service.get_api_settings()
+    service_settings = config_service.get_service_settings()
+    
+    uvicorn.run(
+        "main:app",
+        host=api_settings.api_host,
+        port=api_settings.api_port,
+        reload=api_settings.reload,
+        log_level="debug" if service_settings.debug else "info"
+    )
