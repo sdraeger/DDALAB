@@ -34,7 +34,11 @@
     "deploy:generate": "node scripts/generate-deployment.js",
     "deploy:dev": "node scripts/generate-deployment.js development local",
     "deploy:prod": "node scripts/generate-deployment.js production docker-compose",
-    "deploy:configmanager": "node scripts/generate-deployment.js production configmanager"
+    "deploy:configmanager": "node scripts/generate-deployment.js production configmanager",
+    "test:e2e": "cd packages/web20 && npm run test:e2e",
+    "test:e2e:install": "cd packages/web20 && npm run test:e2e:install",
+    "test:e2e:ui": "cd packages/web20 && npm run test:e2e:ui",
+    "test:e2e:debug": "cd packages/web20 && npm run test:e2e:debug"
   },
   "volta": {
     "node": "20.18.2",

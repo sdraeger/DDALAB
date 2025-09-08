@@ -8,6 +8,7 @@ import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ThemeSyncProvider } from "@/components/providers/ThemeSyncProvider";
 import { PopOutManager } from "@/components/popout/PopOutManager";
+import { LoadedFilesManager } from "@/components/dashboard/LoadedFilesManager";
 import {
   useAppDispatch,
   useHeaderVisible,
@@ -16,13 +17,8 @@ import {
   useWidgets,
 } from "@/store/hooks";
 import { useLayoutPersistence } from "@/hooks/useLayoutPersistence";
-import { Save, RefreshCw, Trash2, FileText, X } from "lucide-react";
-
-interface LoadedFileInfo {
-  filePath: string;
-  selectedChannels: string[];
-  metadata: any;
-}
+import { setFileData } from "@/store/slices/plotSlice";
+import { Save, RefreshCw, Trash2 } from "lucide-react";
 
 export default function DashboardPage() {
   const dispatch = useAppDispatch();
@@ -30,7 +26,6 @@ export default function DashboardPage() {
   const headerVisible = useHeaderVisible();
   const footerVisible = useFooterVisible();
   const widgets = useWidgets();
-  const [loadedFile, setLoadedFile] = useState<LoadedFileInfo | null>(null);
 
   // Use layout persistence hook
   const {
@@ -43,23 +38,46 @@ export default function DashboardPage() {
     isInitialized,
   } = useLayoutPersistence();
 
-  // Listen for file loads
+  // Listen for file loads and update store
   useEffect(() => {
     const handleFileLoad = (event: CustomEvent) => {
-      const { filePath, selectedChannels, metadata } = event.detail;
-      setLoadedFile({
+      const { filePath, selectedChannels, metadata, edfData } = event.detail;
+      
+      // Update the store with the new file data
+      dispatch(setFileData({
         filePath,
-        selectedChannels: selectedChannels || [],
-        metadata: metadata || {}
-      });
+        plotData: {
+          metadata: metadata || null,
+          edfData: edfData || null,
+          selectedChannels: selectedChannels || [],
+          ddaResults: null
+        }
+      }));
+    };
+
+    const handleFileRestore = (event: CustomEvent) => {
+      const { filePath, selectedChannels, metadata } = event.detail;
+      
+      // Restore file to store without EDF data (will be loaded by widgets)
+      dispatch(setFileData({
+        filePath,
+        plotData: {
+          metadata: metadata || null,
+          edfData: null,
+          selectedChannels: selectedChannels || [],
+          ddaResults: null
+        }
+      }));
     };
 
     window.addEventListener('dda:edf-loaded', handleFileLoad as EventListener);
+    window.addEventListener('dda:file-restore', handleFileRestore as EventListener);
     
     return () => {
       window.removeEventListener('dda:edf-loaded', handleFileLoad as EventListener);
+      window.removeEventListener('dda:file-restore', handleFileRestore as EventListener);
     };
-  }, []);
+  }, [dispatch]);
 
   // No sample widgets by default - user will add them manually
   useEffect(() => {
@@ -95,13 +113,6 @@ export default function DashboardPage() {
     }
   };
 
-  const handleClearFile = () => {
-    setLoadedFile(null);
-  };
-
-  const getFileName = (filePath: string) => {
-    return filePath.split('/').pop() || filePath;
-  };
 
   return (
     <AuthProvider>
@@ -140,34 +151,8 @@ export default function DashboardPage() {
                       </button>
                     </div>
 
-                    {/* Currently Loaded File Info */}
-                    <div className="flex items-center gap-2">
-                      {loadedFile ? (
-                        <div className="flex items-center gap-2 px-3 py-2 bg-muted/50 rounded-md border">
-                          <FileText className="h-3 w-3 text-green-600" />
-                          <div className="flex flex-col">
-                            <span className="text-xs font-medium text-foreground">
-                              {getFileName(loadedFile.filePath)}
-                            </span>
-                            <span className="text-[10px] text-muted-foreground">
-                              {loadedFile.selectedChannels.length} channel{loadedFile.selectedChannels.length !== 1 ? 's' : ''} loaded
-                            </span>
-                          </div>
-                          <button
-                            onClick={handleClearFile}
-                            className="p-0.5 hover:bg-muted rounded-sm text-muted-foreground hover:text-foreground"
-                            title="Clear loaded file"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2 px-3 py-2 text-muted-foreground">
-                          <FileText className="h-3 w-3" />
-                          <span className="text-xs">No file loaded</span>
-                        </div>
-                      )}
-                    </div>
+                    {/* Loaded Files Manager */}
+                    <LoadedFilesManager />
                   </div>
 
                   {/* Debug Info */}

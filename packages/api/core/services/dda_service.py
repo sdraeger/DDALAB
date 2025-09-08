@@ -1,12 +1,14 @@
 """DDA service."""
 
 from pathlib import Path
+from typing import List
 
 from core.environment import get_config_service
 from core.dda import run_dda
 from core.registry import register_service
 from core.services.base import BaseService
 from core.services.errors import NotFoundError, ServiceError
+from core.services.dda_variant_service import DDAVariantService, DDAVariant
 from loguru import logger
 from schemas.dda import DDARequest, DDAResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -88,6 +90,13 @@ class DDAService(BaseService):
                         request.preprocessing_options.resample
                     )
 
+            # Convert algorithm selection to dict format expected by run_dda
+            algorithm_selection = None
+            if request.algorithm_selection:
+                algorithm_selection = {
+                    "enabled_variants": request.algorithm_selection.enabled_variants
+                }
+
             # Run DDA using the core implementation, pass channel_list if provided
             logger.info(f"DDA service calling run_dda with file_path: {file_path}")
             result = await run_dda(
@@ -96,6 +105,7 @@ class DDAService(BaseService):
                 if hasattr(request, "channel_list")
                 else None,
                 preprocessing_options=preprocessing_options,
+                algorithm_selection=algorithm_selection,
             )
 
             # Check if the result is already a dict (error response)
@@ -126,6 +136,15 @@ class DDAService(BaseService):
         except Exception as e:
             logger.error(f"Error performing DDA: {e}")
             raise ServiceError(f"Error performing DDA: {str(e)}")
+
+    async def get_available_variants(self) -> List[DDAVariant]:
+        """Get available DDA algorithm variants."""
+        try:
+            variant_service = DDAVariantService()
+            return variant_service.get_available_variants()
+        except Exception as e:
+            logger.error(f"Error getting available variants: {e}")
+            raise ServiceError(f"Error getting available variants: {str(e)}")
 
     @classmethod
     def from_db(cls, db: AsyncSession) -> "DDAService":

@@ -112,6 +112,7 @@ async def run_dda(
     file_path: Path = None,
     channel_list: list[int] = None,
     preprocessing_options: dict = None,
+    algorithm_selection: dict = None,
 ) -> DDAResponse:
     dda_settings = get_config_service().get_dda_settings()
     storage_settings = get_config_service().get_storage_settings()
@@ -135,6 +136,30 @@ async def run_dda(
         file_path_str = str(Path(storage_settings.data_dir) / file_path)
     logger.info(f"Running DDA on file: {file_path_str}")
     logger.info(f"Original preprocessing options: {preprocessing_options}")
+    logger.info(f"Algorithm selection: {algorithm_selection}")
+
+    # Handle algorithm variant selection
+    select_variants = None
+    if algorithm_selection and "enabled_variants" in algorithm_selection:
+        from core.services.dda_variant_service import DDAVariantService
+        variant_service = DDAVariantService()
+        config = variant_service.create_config_from_selection(
+            algorithm_selection["enabled_variants"]
+        )
+        is_valid_config, config_error = variant_service.validate_config(config)
+        if not is_valid_config:
+            logger.error(f"Invalid algorithm configuration: {config_error}")
+            return DDAResponse(
+                file_path=str(file_path) if file_path else "",
+                Q=[],
+                preprocessing_options=preprocessing_options,
+                error="DDA_ALGORITHM_CONFIG_INVALID",
+                error_message=config_error,
+            ).model_dump()
+        
+        select_variants = config.to_select_args()
+        enabled_variants = config.get_enabled_variants()
+        logger.info(f"Using DDA variants: {[v.abbreviation for v in enabled_variants]} -> {select_variants}")
 
     try:
         header = read_edf_header(file_path_str)
@@ -221,6 +246,7 @@ async def run_dda(
             bounds=bounds,
             cpu_time=False,
             raise_on_error=True,
+            select_variants=select_variants,
         )
 
         logger.info(f"Raw Q matrix shape: {Q.shape}, dtype: {Q.dtype}")

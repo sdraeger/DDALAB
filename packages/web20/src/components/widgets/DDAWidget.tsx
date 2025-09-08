@@ -12,12 +12,15 @@ import {
   SelectValue,
 } from "../ui/select";
 import { Checkbox } from "../ui/checkbox";
+import { Badge } from "../ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Settings, Play, Download } from "lucide-react";
 import { ScrollArea } from "../ui/scroll-area";
 import { useUnifiedSessionData } from "@/hooks/useUnifiedSession";
 import apiService from "@/lib/api";
 import { useCurrentFileSubscription, useCurrentFileInfo } from "@/hooks/useCurrentFileSubscription";
+import { DDAVariantSelector, type DDAVariant } from "./DDAVariantSelector";
+import { useDDAVariants } from "@/hooks/useDDAVariants";
 
 interface DDAWidgetProps {
   widgetId?: string;
@@ -30,6 +33,8 @@ export function DDAWidget({
 }: DDAWidgetProps) {
   const { data: session } = useUnifiedSessionData();
   const { currentFilePath, currentPlotState } = useCurrentFileInfo();
+  const { variants, isLoading: variantsLoading, error: variantsError } = useDDAVariants();
+  const [selectedVariants, setSelectedVariants] = useState<DDAVariant[]>([]);
   const [formData, setFormData] = useState({
     windowSize: 1.0,
     stepSize: 0.5,
@@ -48,6 +53,13 @@ export function DDAWidget({
     ok: boolean;
   } | null>(null);
   const [ddaSelectedChannels, setDdaSelectedChannels] = useState<string[]>([]);
+
+  // Initialize variants when they are loaded
+  useEffect(() => {
+    if (variants.length > 0 && selectedVariants.length === 0) {
+      setSelectedVariants(variants);
+    }
+  }, [variants, selectedVariants.length]);
 
   const handleInputChange = (field: string, value: any) => {
     setFormData((prev) => ({
@@ -134,6 +146,12 @@ export function DDAWidget({
       setResultInfo({ ok: false, message: "Please select at least one channel for DDA processing" });
       return;
     }
+    
+    const enabledVariants = selectedVariants.filter((v) => v.enabled);
+    if (enabledVariants.length === 0) {
+      setResultInfo({ ok: false, message: "Please select at least one DDA algorithm variant" });
+      return;
+    }
     setIsProcessing(true);
     setResultInfo(null);
 
@@ -150,6 +168,11 @@ export function DDAWidget({
               detrend: false,
             }
           : undefined,
+        algorithm_selection: {
+          enabled_variants: selectedVariants
+            .filter((v) => v.enabled)
+            .map((v) => v.id),
+        },
       };
       // Map DDA selected channel names to 1-based indices expected by backend
       const channelIndices: number[] = ddaSelectedChannels
@@ -356,6 +379,29 @@ export function DDAWidget({
               <Label htmlFor="includeMetadata" className="text-xs">Metadata</Label>
             </div>
           </div>
+
+          {/* DDA Algorithm Variants */}
+          {variants.length > 0 && !variantsLoading && (
+            <div className="border-t pt-2">
+              <DDAVariantSelector
+                variants={selectedVariants}
+                onChange={setSelectedVariants}
+                allowMultiple={true}
+              />
+            </div>
+          )}
+
+          {variantsLoading && (
+            <div className="border-t pt-2">
+              <div className="text-xs text-muted-foreground">Loading algorithm variants...</div>
+            </div>
+          )}
+
+          {variantsError && (
+            <div className="border-t pt-2">
+              <div className="text-xs text-red-600">Error loading variants: {variantsError}</div>
+            </div>
+          )}
 
         </CardContent>
         <div className="p-2 pt-0 space-y-1">
