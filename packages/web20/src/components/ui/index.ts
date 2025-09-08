@@ -5,6 +5,7 @@ import { Label } from "./label";
 import { Card } from "./card";
 import { Alert } from "./alert";
 import { Badge } from "./badge";
+import { Checkbox } from "./checkbox";
 import { DropdownMenu } from "./dropdown-menu";
 import { ScrollArea } from "./scroll-area";
 import { Separator } from "./separator";
@@ -42,6 +43,7 @@ export {
   Card,
   Alert,
   Badge,
+  Checkbox,
   DropdownMenu,
   ScrollArea,
   Separator,
