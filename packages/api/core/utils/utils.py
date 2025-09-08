@@ -5,7 +5,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 # Constants for fixed parameters
 BASE_PARAMS = {
@@ -74,6 +74,7 @@ def make_dda_command(
     channel_list: List[str],
     bounds: Tuple[int, int],
     cpu_time: bool,
+    select_variants: Optional[List[str]] = None,
 ) -> List[str]:
     """
     Constructs a command list for DDA binary execution.
@@ -85,6 +86,7 @@ def make_dda_command(
         channel_list: List of channel identifiers
         bounds: Tuple of (start, end) time bounds
         cpu_time: Flag to include CPU time measurement
+        select_variants: Custom -SELECT parameter values (defaults to BASE_PARAMS)
 
     Returns:
         List of command arguments
@@ -101,9 +103,11 @@ def make_dda_command(
         *channel_list,
     ]
 
-    # Add fixed parameters
+    # Add fixed parameters with optional SELECT override
     for flag, value in BASE_PARAMS.items():
-        if isinstance(value, list):
+        if flag == "-SELECT" and select_variants is not None:
+            command.extend([flag, *select_variants])
+        elif isinstance(value, list):
             command.extend([flag, *value])
         else:
             command.extend([flag, value])

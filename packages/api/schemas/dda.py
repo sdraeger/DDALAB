@@ -19,12 +19,18 @@ class PreprocessingOptions(BaseModel):
     normalization: Optional[str] = None  # Normalization method
 
 
+class DDAAlgorithmSelection(BaseModel):
+    """DDA algorithm variant selection."""
+    enabled_variants: List[str] = ["single_timeseries"]  # List of enabled variant IDs
+
+
 class DDARequest(BaseModel):
     """Request schema for DDA."""
 
     file_path: str  # Path to the EDF file to analyze
     preprocessing_options: Optional[PreprocessingOptions] = None
     channel_list: Optional[List[int]] = None  # 1-based channel indices to analyze
+    algorithm_selection: Optional[DDAAlgorithmSelection] = None  # Algorithm variant selection
 
 
 class DDAResponse(BaseModel):
@@ -36,6 +42,7 @@ class DDAResponse(BaseModel):
     preprocessing_options: Optional[Union[PreprocessingOptions, Dict[str, Any]]] = (
         None  # Applied preprocessing options
     )
+    algorithm_selection: Optional[DDAAlgorithmSelection] = None  # Applied algorithm selection
     error: Optional[str] = None  # Error code if analysis failed
     error_message: Optional[str] = None  # Error message if analysis failed
 

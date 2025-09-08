@@ -11,7 +11,11 @@
 		"lint": "next lint",
 		"test": "jest",
 		"test:watch": "jest --watch",
-		"test:coverage": "jest --coverage"
+		"test:coverage": "jest --coverage",
+		"test:e2e": "playwright test",
+		"test:e2e:ui": "playwright test --ui",
+		"test:e2e:debug": "playwright test --debug",
+		"test:e2e:install": "playwright install"
 	},
 	"dependencies": {
 		"@hookform/resolvers": "^5.0.1",
@@ -95,6 +99,7 @@
 		"uplot": "^1.6.30"
 	},
 	"devDependencies": {
+		"@playwright/test": "^1.48.0",
 		"@testing-library/dom": "^10.4.0",
 		"@testing-library/jest-dom": "^6.6.3",
 		"@testing-library/react": "^16.2.0",

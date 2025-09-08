@@ -44,6 +44,37 @@ class APECompatibleDDARunner(dda_py.DDARunner):
                 f"Detected APE binary format for {self.binary_path}, using shell execution"
             )
 
+    def _prepare_execution(
+        self,
+        input_file: str,
+        output_file: Optional[str] = None,
+        channel_list: List[str] = [],
+        bounds: Optional[Tuple[int, int]] = None,
+        cpu_time: bool = False,
+        select_variants: Optional[List[str]] = None,
+    ) -> Tuple[List[str], str]:
+        """Override _prepare_execution to support custom variant selection."""
+        from core.utils.utils import make_dda_command, create_tempfile
+        
+        # Create output file if not provided
+        if output_file is None:
+            temp_file = create_tempfile("dda_output", suffix=".txt")
+            output_file = temp_file.name
+            temp_file.close()
+        
+        # Build command with optional variant selection
+        command = make_dda_command(
+            dda_binary_path=self.binary_path,
+            edf_file_name=input_file,
+            out_file_name=output_file,
+            channel_list=channel_list,
+            bounds=bounds if bounds else (-1, -1),
+            cpu_time=cpu_time,
+            select_variants=select_variants,
+        )
+        
+        return command, output_file
+
     def run(
         self,
         input_file: str,
@@ -52,11 +83,12 @@ class APECompatibleDDARunner(dda_py.DDARunner):
         bounds: Optional[Tuple[int, int]] = None,
         cpu_time: bool = False,
         raise_on_error: bool = False,
+        select_variants: Optional[List[str]] = None,
     ) -> Tuple:
         """Run DDA synchronously with APE compatibility."""
 
         command, output_path = self._prepare_execution(
-            input_file, output_file, channel_list, bounds, cpu_time
+            input_file, output_file, channel_list, bounds, cpu_time, select_variants
         )
 
         if self._is_ape:
@@ -88,11 +120,12 @@ class APECompatibleDDARunner(dda_py.DDARunner):
         bounds: Optional[Tuple[int, int]] = None,
         cpu_time: bool = False,
         raise_on_error: bool = False,
+        select_variants: Optional[List[str]] = None,
     ) -> Tuple:
         """Run DDA asynchronously with APE compatibility."""
 
         command, output_path = self._prepare_execution(
-            input_file, output_file, channel_list, bounds, cpu_time
+            input_file, output_file, channel_list, bounds, cpu_time, select_variants
         )
 
         if self._is_ape:

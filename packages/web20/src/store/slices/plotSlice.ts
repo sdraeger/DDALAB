@@ -35,7 +35,47 @@ const plotsSlice = createSlice({
   name: "plots",
   initialState: initialPlotsState,
   reducers: {
-    // We'll add reducers as needed
+    // Set current file path
+    setCurrentFilePath: (state, action) => {
+      state.currentFilePath = action.payload;
+    },
+    
+    // Add or update file data
+    setFileData: (state, action) => {
+      const { filePath, plotData } = action.payload;
+      state.byFilePath[filePath] = plotData;
+      
+      // Set as current if no current file
+      if (!state.currentFilePath) {
+        state.currentFilePath = filePath;
+      }
+    },
+    
+    // Remove a file completely
+    removeFile: (state, action) => {
+      const filePathToRemove = action.payload;
+      delete state.byFilePath[filePathToRemove];
+      
+      // If we're removing the current file, switch to another or null
+      if (state.currentFilePath === filePathToRemove) {
+        const remainingPaths = Object.keys(state.byFilePath);
+        state.currentFilePath = remainingPaths.length > 0 ? remainingPaths[0] : null;
+      }
+    },
+    
+    // Update selected channels for a specific file
+    updateSelectedChannels: (state, action) => {
+      const { filePath, selectedChannels } = action.payload;
+      if (state.byFilePath[filePath]) {
+        state.byFilePath[filePath].selectedChannels = selectedChannels;
+      }
+    },
+    
+    // Clear all files
+    clearAllFiles: (state) => {
+      state.byFilePath = {};
+      state.currentFilePath = null;
+    }
   },
 });
 
@@ -49,5 +89,23 @@ export const selectCurrentPlotState = (
   const currentFilePath = state.plots.currentFilePath;
   return currentFilePath ? state.plots.byFilePath[currentFilePath] : undefined;
 };
+
+export const selectAllLoadedFiles = (state: { plots: PlotsState }): string[] =>
+  Object.keys(state.plots.byFilePath);
+
+export const selectLoadedFilesCount = (state: { plots: PlotsState }): number =>
+  Object.keys(state.plots.byFilePath).length;
+
+export const selectFileData = (filePath: string) => (state: { plots: PlotsState }): PlotState | undefined =>
+  state.plots.byFilePath[filePath];
+
+// Action creators
+export const { 
+  setCurrentFilePath, 
+  setFileData, 
+  removeFile, 
+  updateSelectedChannels, 
+  clearAllFiles 
+} = plotsSlice.actions;
 
 export default plotsSlice.reducer;

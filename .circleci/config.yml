@@ -664,22 +664,69 @@ jobs:
           path: packages/configmanager/playwright-report
           destination: orchestrator-report-macos
 
+  e2e-tests:
+    docker:
+      - image: cimg/node:18.20
+    resource_class: large
+    steps:
+      - checkout
+      - run:
+          name: Install system dependencies
+          command: |
+            sudo apt-get update
+            sudo apt-get install -y libgtk-3-0 libnotify-dev libgconf-2-4 libatk-bridge2.0-0 libx11-xcb1 libxss1 libnss3 libgbm-dev xvfb curl
+      - run:
+          name: Install root dependencies
+          command: npm install
+      - run:
+          name: Install web20 dependencies
+          command: |
+            cd packages/web20
+            npm install
+      - run:
+          name: Install Playwright browsers
+          command: |
+            cd packages/web20
+            npm run test:e2e:install
+      - run:
+          name: Build application
+          command: |
+            cd packages/web20
+            npm run build
+      - run:
+          name: Run E2E tests (with built-in server)
+          command: |
+            cd packages/web20
+            # Restore webServer config for CI since we start fresh
+            export DISPLAY=:99
+            Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &
+            sleep 3
+            # Use CI-specific config with webServer enabled
+            npx playwright test --config=playwright.ci.config.ts --workers=1 --retries=2 --reporter=junit,html,list
+          environment:
+            CI: true
+            NODE_ENV: test
+      - store_test_results:
+          path: packages/web20/test-results
+      - store_artifacts:
+          path: packages/web20/test-results
+          destination: e2e-test-results
+      - store_artifacts:
+          path: packages/web20/playwright-report
+          destination: e2e-playwright-report
+
 workflows:
   test-and-build:
     jobs:
-      # Test jobs run on all branches
-      - test-windows:
+      # ConfigManager tests REMOVED - replaced with web browser E2E tests
+      
+      # E2E tests - run on main and develop branches
+      - e2e-tests:
           filters:
             branches:
-              ignore: []
-      - test-linux:
-          filters:
-            branches:
-              ignore: []
-      - test-macos:
-          filters:
-            branches:
-              ignore: []
+              only:
+                - main
+                - develop
       
       # Orchestrator E2E tests - PAUSED: Phase out orchestrator in favor of Docker Swarm
       # - orchestrator-e2e-windows:
@@ -701,11 +748,11 @@ workflows:
       #           - main
       #           - develop
       
-      # Build jobs only run on main branch and require tests to pass
+      # Build jobs only run on main branch and require E2E tests to pass
       - build-windows:
           context: aws-credentials
           requires:
-            - test-windows
+            - e2e-tests
           filters:
             branches:
               only:
@@ -713,7 +760,7 @@ workflows:
       - build-linux:
           context: aws-credentials
           requires:
-            - test-linux
+            - e2e-tests
           filters:
             branches:
               only:
@@ -721,7 +768,7 @@ workflows:
       - build-macos:
           context: aws-credentials
           requires:
-            - test-macos
+            - e2e-tests
           filters:
             branches:
               only:
