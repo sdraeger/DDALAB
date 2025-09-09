@@ -92,7 +92,18 @@ export default defineConfig({
     // },
   ],
 
-  // webServer configuration removed - we manage the dev server externally
+  /* Configure webServer for CI environment only */
+  webServer: process.env.CI ? {
+    command: './scripts/ci-setup.sh && npm run dev:ci',
+    url: 'https://localhost',
+    reuseExistingServer: !process.env.CI,
+    timeout: 180 * 1000, // 3 minutes to allow for setup
+    env: {
+      NODE_TLS_REJECT_UNAUTHORIZED: '0', // Allow self-signed certs
+      NODE_ENV: 'development',
+    },
+    ignoreHTTPSErrors: true,
+  } : undefined,
   
   /* Global setup for test environment - commented out to avoid timeout issues */
   // globalSetup: './e2e-tests/global.setup.ts',

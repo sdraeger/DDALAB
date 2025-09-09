@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FileText, X } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '@/store/hooks';
-import { selectAllLoadedFiles, selectCurrentFilePath, removeFile, setCurrentFilePath } from '@/store/slices/plotSlice';
+import { selectAllLoadedFiles, selectCurrentFilePath, removeFile, setCurrentFilePath, setFileData } from '@/store/slices/plotSlice';
 import { apiService } from '@/lib/api';
 
 interface LoadedFilesManagerProps {
@@ -16,6 +16,7 @@ export function LoadedFilesManager({ className }: LoadedFilesManagerProps) {
   const currentFilePath = useAppSelector(selectCurrentFilePath);
   const [isLoading, setIsLoading] = useState(false);
   const restoredRef = useRef(false);
+  const lastPersistedStateRef = useRef<string>('');
 
   // Restore file state from persistence on mount
   useEffect(() => {
@@ -32,17 +33,18 @@ export function LoadedFilesManager({ className }: LoadedFilesManagerProps) {
         if (response.data?.data?.data) {
           const savedState = response.data.data.data;
           
-          // Restore file paths to Redux store
+          // Restore file paths to Redux store directly without events
           if (savedState.files && Array.isArray(savedState.files)) {
             for (const fileInfo of savedState.files) {
               if (fileInfo.filePath) {
-                // Dispatch a mock file load event to restore the file in the store
-                // This will trigger the existing file load handler in page.tsx
-                window.dispatchEvent(new CustomEvent('dda:file-restore', {
-                  detail: {
-                    filePath: fileInfo.filePath,
+                // Directly dispatch to Redux store instead of using events to avoid loops
+                dispatch(setFileData({
+                  filePath: fileInfo.filePath,
+                  plotData: {
+                    metadata: fileInfo.metadata || null,
+                    edfData: null, // Will be loaded by widgets as needed
                     selectedChannels: fileInfo.selectedChannels || [],
-                    metadata: fileInfo.metadata || null
+                    ddaResults: null
                   }
                 }));
               }
@@ -61,12 +63,21 @@ export function LoadedFilesManager({ className }: LoadedFilesManagerProps) {
       }
     };
 
-    restoreFileState();
+    // Add a small delay to ensure Redux store is ready
+    const timeoutId = setTimeout(restoreFileState, 100);
+    return () => clearTimeout(timeoutId);
   }, [dispatch]);
 
   // Persist file state when it changes
   useEffect(() => {
     if (!restoredRef.current || isLoading) return;
+
+    const currentStateKey = `${loadedFiles.length}-${currentFilePath || 'null'}`;
+    
+    // Only persist if state has actually changed
+    if (currentStateKey === lastPersistedStateRef.current) {
+      return;
+    }
 
     const persistFileState = async () => {
       try {
@@ -87,15 +98,20 @@ export function LoadedFilesManager({ className }: LoadedFilesManagerProps) {
           widgetId: 'loaded-files-manager',
           metadata: { type: 'loaded-files', version: 'v1' }
         });
+        
+        lastPersistedStateRef.current = currentStateKey;
       } catch (err) {
         console.warn('Failed to persist file state:', err);
       }
     };
 
-    // Debounce saves
-    const timeoutId = setTimeout(persistFileState, 500);
-    return () => clearTimeout(timeoutId);
-  }, [loadedFiles, currentFilePath, isLoading]);
+    // Only persist if there's actual data to save
+    if (loadedFiles.length > 0 || currentFilePath !== null) {
+      // Debounce saves
+      const timeoutId = setTimeout(persistFileState, 500);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [loadedFiles.length, currentFilePath, isLoading]);
 
   const handleRemoveFile = (filePath: string) => {
     dispatch(removeFile(filePath));
