@@ -5,6 +5,7 @@
 	"private": true,
 	"scripts": {
 		"dev": "NODE_ENV=development NODE_TLS_REJECT_UNAUTHORIZED=0 dotenv -e ../../.env -- next dev --port 3000",
+		"dev:ci": "npx next@latest telemetry disable && NODE_ENV=development NODE_TLS_REJECT_UNAUTHORIZED=0 next dev --port 3000",
 		"build": "dotenv -e ../../.env -- next build",
 		"build:docker": "next build",
 		"start": "next start",

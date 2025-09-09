@@ -55,27 +55,10 @@ export default function DashboardPage() {
       }));
     };
 
-    const handleFileRestore = (event: CustomEvent) => {
-      const { filePath, selectedChannels, metadata } = event.detail;
-      
-      // Restore file to store without EDF data (will be loaded by widgets)
-      dispatch(setFileData({
-        filePath,
-        plotData: {
-          metadata: metadata || null,
-          edfData: null,
-          selectedChannels: selectedChannels || [],
-          ddaResults: null
-        }
-      }));
-    };
-
     window.addEventListener('dda:edf-loaded', handleFileLoad as EventListener);
-    window.addEventListener('dda:file-restore', handleFileRestore as EventListener);
     
     return () => {
       window.removeEventListener('dda:edf-loaded', handleFileLoad as EventListener);
-      window.removeEventListener('dda:file-restore', handleFileRestore as EventListener);
     };
   }, [dispatch]);
 
