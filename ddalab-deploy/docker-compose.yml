@@ -13,6 +13,8 @@ services:
     platform: linux/amd64
     container_name: ddalab
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       # Database
       - DB_HOST=postgres
@@ -50,6 +52,7 @@ services:
       - NODE_ENV=production
     volumes:
       - ./data:/app/data
+      - ./.env:/app/.env:ro
     depends_on:
       postgres:
         condition: service_healthy
