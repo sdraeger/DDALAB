@@ -94,3 +94,5 @@ scripts/
 packages/configmanager/playwright-report/
 packages/configmanager/test-results/
 e2e-output/
+
+packages/web30/.next/

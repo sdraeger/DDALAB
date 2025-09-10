@@ -9,6 +9,7 @@ import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ThemeSyncProvider } from "@/components/providers/ThemeSyncProvider";
 import { PopOutManager } from "@/components/popout/PopOutManager";
 import { LoadedFilesManager } from "@/components/dashboard/LoadedFilesManager";
+import { FileConfigBar } from "@/components/dashboard/FileConfigBar";
 import {
   useAppDispatch,
   useHeaderVisible,
@@ -107,6 +108,8 @@ export default function DashboardPage() {
             <div className="flex flex-col flex-1 min-w-0">
               {headerVisible && <Header />}
               <main className="flex-1 overflow-hidden flex flex-col min-h-0">
+                {/* File Configuration Bar */}
+                <FileConfigBar />
                 <div className="p-6 space-y-6">
                   {/* Layout Controls */}
                   <div className="flex items-center justify-between">

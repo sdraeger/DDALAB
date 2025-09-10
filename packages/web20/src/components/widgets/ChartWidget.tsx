@@ -9,6 +9,7 @@ import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Input } from '../ui/input';
+import { useFileConfig } from '@/contexts/FileConfigContext';
 
 interface ChartWidgetProps {
 	widgetId?: string;
@@ -21,6 +22,7 @@ interface DataPoint {
 }
 
 export function ChartWidget({ widgetId = "chart-widget", isPopout = false }: ChartWidgetProps) {
+	const { config: fileConfig } = useFileConfig();
 	const [data, setData] = useState<DataPoint[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -159,14 +161,18 @@ export function ChartWidget({ widgetId = "chart-widget", isPopout = false }: Cha
 	const totalChannels = useMemo(() => channelLabels.length || (eegData?.channels?.length ?? 0), [channelLabels.length, eegData?.channels?.length]);
 
 	const totalChunks = useMemo(() => {
-		if (!chunkSize || chunkSize <= 0 || !totalSamples || totalSamples <= 0) return 0;
-		return Math.ceil(totalSamples / chunkSize);
-	}, [totalSamples, chunkSize]);
+		// Use FileConfig chunk size in samples for chunk calculation
+		const chunkSizeInSamples = Math.round(fileConfig.chunkSizeSeconds * sampleRate);
+		if (!chunkSizeInSamples || chunkSizeInSamples <= 0 || !totalSamples || totalSamples <= 0) return 0;
+		return Math.ceil(totalSamples / chunkSizeInSamples);
+	}, [totalSamples, fileConfig.chunkSizeSeconds, sampleRate]);
 
 	const currentChunkNumber = useMemo(() => {
-		if (!chunkSize || chunkSize <= 0) return 1;
-		return Math.floor(chunkStart / chunkSize) + 1;
-	}, [chunkStart, chunkSize]);
+		// Use FileConfig chunk size in samples for current chunk calculation
+		const chunkSizeInSamples = Math.round(fileConfig.chunkSizeSeconds * sampleRate);
+		if (!chunkSizeInSamples || chunkSizeInSamples <= 0) return 1;
+		return Math.floor(chunkStart / chunkSizeInSamples) + 1;
+	}, [chunkStart, fileConfig.chunkSizeSeconds, sampleRate]);
 
 	const pointsPlotted = useMemo(() => {
 		return Math.max(0, samplesPerChannel) * Math.max(1, selectedChannels.length || 0);
@@ -199,8 +205,10 @@ export function ChartWidget({ widgetId = "chart-widget", isPopout = false }: Cha
 			const preprocessingParam = Object.keys(preprocessingPayload).length > 0
 				? `&preprocessing_options=${encodeURIComponent(JSON.stringify(preprocessingPayload))}`
 				: '';
+			// Use FileConfig chunk size in seconds, converted to samples
+			const chunkSizeInSamples = Math.round(fileConfig.chunkSizeSeconds * sampleRate);
 			const { data: payload, error } = await apiService.request<any>(
-				`/api/edf/data?file_path=${encodeURIComponent(filePath)}&chunk_start=${newChunkStart}&chunk_size=${chunkSize}${channelsParam}${preprocessingParam}`,
+				`/api/edf/data?file_path=${encodeURIComponent(filePath)}&chunk_start=${newChunkStart}&chunk_size=${chunkSizeInSamples}${channelsParam}${preprocessingParam}`,
 				{ headers: { 'x-timeout-ms': '60000' } as any }
 			);
 			if (error || !payload) {
@@ -249,7 +257,7 @@ export function ChartWidget({ widgetId = "chart-widget", isPopout = false }: Cha
 		} catch (err) {
 			try { window.dispatchEvent(new CustomEvent('dda:loading-error', { detail: String(err) })); } catch (_) { }
 		}
-	}, [filePath, chunkSize, sampleRate, channelLabels, selectedChannels, preproc]);
+	}, [filePath, fileConfig.chunkSizeSeconds, sampleRate, channelLabels, selectedChannels, preproc]);
 
 	// Restore state from database on mount
 	useEffect(() => {
@@ -329,11 +337,15 @@ export function ChartWidget({ widgetId = "chart-widget", isPopout = false }: Cha
 		return () => clearTimeout(timeoutId);
 	}, [storageKey, filePath, selectedChannels, sampleRate, chunkStart, chunkSize, totalSamples, preproc, timeWindow, widgetId, isLoadingState]);
 
-	const canGoPrev = useMemo(() => chunkStart > 0 && chunkSize > 0, [chunkStart, chunkSize]);
+	const canGoPrev = useMemo(() => {
+		const chunkSizeInSamples = Math.round(fileConfig.chunkSizeSeconds * sampleRate);
+		return chunkStart > 0 && chunkSizeInSamples > 0;
+	}, [chunkStart, fileConfig.chunkSizeSeconds, sampleRate]);
 	const canGoNext = useMemo(() => {
-		if (!chunkSize || !totalSamples) return false;
-		return chunkStart + chunkSize < totalSamples;
-	}, [chunkStart, chunkSize, totalSamples]);
+		const chunkSizeInSamples = Math.round(fileConfig.chunkSizeSeconds * sampleRate);
+		if (!chunkSizeInSamples || !totalSamples) return false;
+		return chunkStart + chunkSizeInSamples < totalSamples;
+	}, [chunkStart, fileConfig.chunkSizeSeconds, sampleRate, totalSamples]);
 
 	const handleFirst = useCallback(() => {
 		if (!canGoPrev) return;
@@ -342,21 +354,24 @@ export function ChartWidget({ widgetId = "chart-widget", isPopout = false }: Cha
 
 	const handlePrev = useCallback(() => {
 		if (!canGoPrev) return;
-		const nextStart = Math.max(0, chunkStart - chunkSize);
+		const chunkSizeInSamples = Math.round(fileConfig.chunkSizeSeconds * sampleRate);
+		const nextStart = Math.max(0, chunkStart - chunkSizeInSamples);
 		fetchChunk(nextStart);
-	}, [canGoPrev, chunkStart, chunkSize, fetchChunk]);
+	}, [canGoPrev, chunkStart, fileConfig.chunkSizeSeconds, sampleRate, fetchChunk]);
 
 	const handleNext = useCallback(() => {
 		if (!canGoNext) return;
-		const nextStart = chunkStart + chunkSize;
+		const chunkSizeInSamples = Math.round(fileConfig.chunkSizeSeconds * sampleRate);
+		const nextStart = chunkStart + chunkSizeInSamples;
 		fetchChunk(nextStart);
-	}, [canGoNext, chunkStart, chunkSize, fetchChunk]);
+	}, [canGoNext, chunkStart, fileConfig.chunkSizeSeconds, sampleRate, fetchChunk]);
 
 	const handleLast = useCallback(() => {
-		if (!totalSamples || !chunkSize) return;
-		const lastStart = Math.max(0, totalSamples - chunkSize);
+		const chunkSizeInSamples = Math.round(fileConfig.chunkSizeSeconds * sampleRate);
+		if (!totalSamples || !chunkSizeInSamples) return;
+		const lastStart = Math.max(0, totalSamples - chunkSizeInSamples);
 		if (lastStart !== chunkStart) fetchChunk(lastStart);
-	}, [chunkStart, totalSamples, chunkSize, fetchChunk]);
+	}, [chunkStart, totalSamples, fileConfig.chunkSizeSeconds, sampleRate, fetchChunk]);
 
 	// Responsive sizing
 	useEffect(() => {

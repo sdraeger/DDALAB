@@ -469,7 +469,7 @@ function FileBrowserContent({
         onDragEnter={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`flex-1 overflow-auto relative ${isDragOver
+        className={`flex-1 overflow-auto relative min-h-0 ${isDragOver
           ? "border-2 border-dashed border-primary bg-primary/10"
           : ""
           }`}

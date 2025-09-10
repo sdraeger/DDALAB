@@ -15,6 +15,7 @@ import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { apiService } from "../../lib/api";
 import { useCurrentFileSubscription } from "@/hooks/useCurrentFileSubscription";
+import { useFileConfig } from "@/contexts/FileConfigContext";
 
 interface DDALinePlotWidgetProps {
   widgetId?: string;
@@ -27,6 +28,7 @@ export function DDALinePlotWidget({
   isPopout = false,
   widgetData,
 }: DDALinePlotWidgetProps) {
+  const { config: fileConfig } = useFileConfig();
   const [Q, setQ] = useState<number[][]>([]);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
@@ -136,6 +138,12 @@ export function DDALinePlotWidget({
 
     const onResults = (e: Event) => {
       const detail = (e as CustomEvent).detail as { Q?: (number | null)[][] };
+      console.log('[DDALinePlot] Received DDA results:', {
+        hasQ: Array.isArray(detail?.Q),
+        qLength: detail?.Q?.length || 0,
+        qColLength: detail?.Q?.[0]?.length || 0,
+        detail
+      });
       if (Array.isArray(detail?.Q) && detail.Q.length > 0) {
         // sanitize nulls to 0
         const cleaned = detail.Q.map((row) =>
@@ -143,6 +151,12 @@ export function DDALinePlotWidget({
             v == null || !Number.isFinite(Number(v)) ? 0 : Number(v)
           )
         );
+        console.log('[DDALinePlot] Setting Q data:', {
+          originalRows: detail.Q.length,
+          originalCols: detail.Q[0]?.length || 0,
+          cleanedRows: cleaned.length,
+          cleanedCols: cleaned[0]?.length || 0
+        });
         setQ(cleaned);
       }
     };
@@ -191,8 +205,35 @@ export function DDALinePlotWidget({
     const timeLen = Math.max(rows, cols);
     const isTimeRows = rows >= cols;
 
-    // x axis is [0..timeLen-1]
-    const x = Array.from({ length: timeLen }, (_, i) => i);
+    // x axis in seconds based on chunk size and sampling rate
+    const samplingRate = fileConfig.samplingRate;
+    const chunkSizeInSamples = fileConfig.chunkSize;
+    const chunkSizeInSeconds = chunkSizeInSamples / samplingRate;
+    
+    console.log('[DDALinePlot] Config update:', {
+      chunkSizeInSamples,
+      chunkSizeInSeconds,
+      samplingRate,
+      displayMode: fileConfig.displayMode
+    });
+    
+    console.log('[DDALinePlot] Q data dimensions:', {
+      rows: Q.length,
+      cols: Q[0]?.length || 0,
+      timeLen,
+      isTimeRows
+    });
+    
+    // Generate x-axis in seconds
+    const x = Array.from({ length: timeLen }, (_, i) => {
+      // If display mode is chunked, show time relative to current chunk
+      if (fileConfig.displayMode === 'chunked') {
+        return (i / timeLen) * chunkSizeInSeconds;
+      }
+      // Otherwise show continuous time
+      return (i / samplingRate);
+    });
+    
     const seriesData: number[][] = [];
     const numSeries = isTimeRows ? cols : rows;
 
@@ -232,7 +273,7 @@ export function DDALinePlotWidget({
     const dpr =
       (typeof window !== "undefined" ? window.devicePixelRatio : 1) || 1;
     const s = [
-      { label: "t" },
+      { label: "Time (s)" },
       ...Array.from({ length: numSeries }, (_, i) => ({
         label: `Q${i + 1} (a1)`,
         stroke: COLORS[i % COLORS.length],
@@ -241,9 +282,9 @@ export function DDALinePlotWidget({
       })),
     ];
     return { uplotData: uData, series: s };
-  }, [Q, normalize]);
+  }, [Q, normalize, fileConfig.samplingRate, fileConfig.chunkSize, fileConfig.displayMode]);
 
-  // Create/destroy uPlot and recreate if series length changes
+  // Create/destroy uPlot and recreate if series length changes or config changes
   useEffect(() => {
     if (!containerRef.current) return;
     if (!uplotData) {
@@ -251,26 +292,28 @@ export function DDALinePlotWidget({
       uplotRef.current = null;
       return;
     }
-    const currentSeriesLen = uplotRef.current
-      ? ((uplotRef.current as any).series?.length ?? 0)
-      : 0;
-    const desiredSeriesLen = series.length;
-    const needsRecreate =
-      !uplotRef.current || currentSeriesLen !== desiredSeriesLen;
-    if (needsRecreate) {
-      uplotRef.current?.destroy();
-      const opts: uPlot.Options = {
-        width: Math.max(320, containerRef.current.clientWidth || 400),
-        height: 300,
-        scales: { x: { time: false } },
-        axes: [{ label: "t" }, { label: "Q" }],
-        series,
-      } as any;
-      uplotRef.current = new uPlot(opts, uplotData, containerRef.current);
-    } else {
-      uplotRef.current?.setData(uplotData as any);
-    }
-  }, [uplotData, series]);
+    
+    // Always recreate the chart when config changes to ensure axis updates
+    uplotRef.current?.destroy();
+    const opts: uPlot.Options = {
+      width: Math.max(320, containerRef.current.clientWidth || 400),
+      height: 300,
+      scales: { x: { time: false } },
+      axes: [{ label: "Time (seconds)" }, { label: "Q" }],
+      series,
+    } as any;
+    uplotRef.current = new uPlot(opts, uplotData, containerRef.current);
+  }, [uplotData, series, fileConfig.chunkSize, fileConfig.samplingRate, fileConfig.displayMode]);
+
+  // Clean up chart on unmount
+  useEffect(() => {
+    return () => {
+      if (uplotRef.current) {
+        uplotRef.current.destroy();
+        uplotRef.current = null;
+      }
+    };
+  }, []);
 
   const getStats = () => {
     if (!Q || Q.length === 0) return { min: 0, max: 0, avg: 0 };
@@ -418,7 +461,8 @@ export function DDALinePlotWidget({
           <div className="text-xs text-muted-foreground flex items-center justify-between">
             <span>
               {Q?.length || 0}×{Q?.[0]?.length || 0} •{" "}
-              {Math.round(zoomLevel * 100)}% zoom
+              {Math.round(zoomLevel * 100)}% zoom •{" "}
+              Chunk: {(fileConfig.chunkSize / fileConfig.samplingRate).toFixed(1)}s
             </span>
             {isSavingState && (
               <span className="flex items-center gap-1">
