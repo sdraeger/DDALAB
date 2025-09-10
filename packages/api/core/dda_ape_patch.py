@@ -9,9 +9,13 @@ import asyncio
 import shlex
 import subprocess
 from typing import List, Optional, Tuple
+from pathlib import Path
 
 import dda_py
 from loguru import logger
+
+# Set debug level for this module
+logger.enable("core.dda_ape_patch")
 
 
 def _is_ape_binary(binary_path: str) -> bool:
@@ -30,7 +34,8 @@ def _is_ape_binary(binary_path: str) -> bool:
 def _make_ape_compatible_command(command: List[str]) -> str:
     """Convert a command list to a shell-compatible command string for APE execution."""
     # For APE binaries, we need to execute via shell to allow bootstrapping
-    return " ".join(shlex.quote(arg) for arg in command)
+    # Convert all arguments to strings first to handle numeric values
+    return " ".join(shlex.quote(str(arg)) for arg in command)
 
 
 class APECompatibleDDARunner(dda_py.DDARunner):
@@ -52,7 +57,7 @@ class APECompatibleDDARunner(dda_py.DDARunner):
         bounds: Optional[Tuple[int, int]] = None,
         cpu_time: bool = False,
         select_variants: Optional[List[str]] = None,
-    ) -> Tuple[List[str], str]:
+    ) -> Tuple[List[str], Path]:
         """Override _prepare_execution to support custom variant selection."""
         from core.utils.utils import make_dda_command, create_tempfile
         
@@ -73,7 +78,8 @@ class APECompatibleDDARunner(dda_py.DDARunner):
             select_variants=select_variants,
         )
         
-        return command, output_file
+        # Return command and Path object (not string) to match parent class interface
+        return command, Path(output_file)
 
     def run(
         self,
@@ -102,6 +108,13 @@ class APECompatibleDDARunner(dda_py.DDARunner):
             # Use direct execution for regular binaries
             process = subprocess.run(command, capture_output=True, text=True)
 
+        # Log the output for debugging
+        logger.debug(f"DDA process return code: {process.returncode}")
+        if process.stdout:
+            logger.debug(f"DDA stdout: {process.stdout}")
+        if process.stderr:
+            logger.debug(f"DDA stderr: {process.stderr}")
+
         if raise_on_error and process.returncode != 0:
             logger.error(f"DDA execution failed with return code {process.returncode}")
             logger.error(f"stdout: {process.stdout}")
@@ -109,6 +122,19 @@ class APECompatibleDDARunner(dda_py.DDARunner):
             raise subprocess.CalledProcessError(
                 process.returncode, command, process.stderr
             )
+
+        # Check what files were created
+        import os
+        output_dir = output_path.parent
+        logger.debug(f"Output directory: {output_dir}")
+        logger.debug(f"Expected output file: {output_path}")
+        logger.debug(f"Expected ST file: {output_path.with_name(f'{output_path.stem}_ST')}")
+        
+        if output_dir.exists():
+            files = list(output_dir.glob("*"))
+            logger.debug(f"Files in output directory: {[f.name for f in files]}")
+        else:
+            logger.error(f"Output directory does not exist: {output_dir}")
 
         return self._process_output(output_path)
 
@@ -143,11 +169,16 @@ class APECompatibleDDARunner(dda_py.DDARunner):
                 *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
 
-        await process.wait()
+        stdout, stderr = await process.communicate()
+        
+        # Log the output for debugging
+        logger.debug(f"DDA process return code: {process.returncode}")
+        if stdout:
+            logger.debug(f"DDA stdout: {stdout.decode()}")
+        if stderr:
+            logger.debug(f"DDA stderr: {stderr.decode()}")
 
         if raise_on_error and process.returncode != 0:
-            stderr = await process.stderr.read()
-            stdout = await process.stdout.read()
             logger.error(
                 f"DDA async execution failed with return code {process.returncode}"
             )
@@ -157,6 +188,19 @@ class APECompatibleDDARunner(dda_py.DDARunner):
                 process.returncode, command, stderr.decode()
             )
 
+        # Check what files were created
+        import os
+        output_dir = output_path.parent
+        logger.debug(f"Output directory: {output_dir}")
+        logger.debug(f"Expected output file: {output_path}")
+        logger.debug(f"Expected ST file: {output_path.with_name(f'{output_path.stem}_ST')}")
+        
+        if output_dir.exists():
+            files = list(output_dir.glob("*"))
+            logger.debug(f"Files in output directory: {[f.name for f in files]}")
+        else:
+            logger.error(f"Output directory does not exist: {output_dir}")
+        
         return self._process_output(output_path)
 
 

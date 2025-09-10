@@ -32,20 +32,14 @@
       "@/lib/*": [
         "./src/lib/*"
       ],
-      "@/store/*": [
-        "./src/store/*"
+      "@/hooks/*": [
+        "./src/hooks/*"
       ],
       "@/types/*": [
         "./src/types/*"
       ],
-      "@/hooks/*": [
-        "./src/hooks/*"
-      ],
-      "@/utils/*": [
-        "./src/utils/*"
-      ],
-      "shared": [
-        "../shared"
+      "@/store/*": [
+        "./src/store/*"
       ]
     },
     "target": "ES2017"

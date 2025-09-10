@@ -21,6 +21,7 @@ import apiService from "@/lib/api";
 import { useCurrentFileSubscription, useCurrentFileInfo } from "@/hooks/useCurrentFileSubscription";
 import { DDAVariantSelector, type DDAVariant } from "./DDAVariantSelector";
 import { useDDAVariants } from "@/hooks/useDDAVariants";
+import { useFileConfigWithUpdates } from "@/hooks/useFileConfigWithUpdates";
 
 interface DDAWidgetProps {
   widgetId?: string;
@@ -34,6 +35,7 @@ export function DDAWidget({
   const { data: session } = useUnifiedSessionData();
   const { currentFilePath, currentPlotState } = useCurrentFileInfo();
   const { variants, isLoading: variantsLoading, error: variantsError } = useDDAVariants();
+  const { config: fileConfig } = useFileConfigWithUpdates(currentFilePath || undefined);
   const [selectedVariants, setSelectedVariants] = useState<DDAVariant[]>([]);
   const [formData, setFormData] = useState({
     windowSize: 1.0,
@@ -166,12 +168,21 @@ export function DDAWidget({
                 ? undefined
                 : undefined,
               detrend: false,
+              high_pass: fileConfig.filters.highPass,
+              low_pass: fileConfig.filters.lowPass,
+              notch_frequency: fileConfig.filters.notch,
             }
           : undefined,
         algorithm_selection: {
           enabled_variants: selectedVariants
             .filter((v) => v.enabled)
             .map((v) => v.id),
+        },
+        processing_options: {
+          chunk_size: fileConfig.chunkSize,
+          window_size: fileConfig.windowSize,
+          overlap: fileConfig.overlap,
+          sampling_rate: fileConfig.samplingRate,
         },
       };
       // Map DDA selected channel names to 1-based indices expected by backend
