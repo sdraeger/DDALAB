@@ -1,0 +1,38 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# SSL certificates
+certs/
+*.pem
+*.key
+*.crt
+*.csr
+
+# Backup files
+backups/
+*.sql
+*.sql.gz
+*.dump
+
+# Data directories
+data/
+logs/
+
+# IDE and system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Docker volumes (if running locally)
+docker-volumes/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
