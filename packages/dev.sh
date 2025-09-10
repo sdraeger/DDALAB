@@ -91,16 +91,64 @@ until nc -z "$DB_HOST" "$DB_PORT"; do
   sleep 1
 done
 
-# Check if we can connect directly as the target user (already exists in dev stack)
+# Check if we can connect directly as the target user
 if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c '\q' 2>/dev/null; then
     echo "✓ Database user and database already exist"
 else
     echo "Database user or database doesn't exist, trying to create..."
+    
     # Try to connect as postgres superuser to create user/database
-    # Note: In the dev stack, the main user should already exist
-    echo "⚠️  Could not connect with target user. The dev stack should have pre-created the user."
-    echo "   Make sure the development Docker stack is running with correct credentials."
-    exit 1
+    # Default postgres superuser credentials for local development
+    POSTGRES_USER=${POSTGRES_USER:-postgres}
+    POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+    
+    # Check if we can connect as postgres superuser
+    if ! PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c '\q' 2>/dev/null; then
+        echo "⚠️  Cannot connect as postgres superuser."
+        echo "   Please ensure PostgreSQL is running and accessible."
+        echo "   You may need to set POSTGRES_USER and POSTGRES_PASSWORD environment variables."
+        exit 1
+    fi
+    
+    # Create user if it doesn't exist
+    echo "Creating database user '$DB_USER'..."
+    PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres <<EOF
+DO \$\$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_user WHERE usename = '$DB_USER') THEN
+        CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';
+    ELSE
+        ALTER USER $DB_USER WITH PASSWORD '$DB_PASSWORD';
+    END IF;
+END
+\$\$;
+EOF
+    
+    # Create database if it doesn't exist
+    echo "Creating database '$DB_NAME'..."
+    PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres <<EOF
+DO \$\$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_database WHERE datname = '$DB_NAME') THEN
+        CREATE DATABASE $DB_NAME OWNER $DB_USER;
+    END IF;
+END
+\$\$;
+EOF
+    
+    # Grant all privileges on the database to the user
+    PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$DB_NAME" <<EOF
+GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
+GRANT ALL ON SCHEMA public TO $DB_USER;
+EOF
+    
+    # Verify the connection works now
+    if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c '\q' 2>/dev/null; then
+        echo "✓ Successfully created database user and database"
+    else
+        echo "❌ Failed to create database user or database"
+        exit 1
+    fi
 fi
 
 echo "Applying SQL files..."
