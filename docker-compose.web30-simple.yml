@@ -1,0 +1,33 @@
+# Simple web30 proxy configuration
+# Usage: docker-compose -f docker-compose.web30-simple.yml up -d
+
+services:
+  # Simple Traefik proxy for web30 development
+  traefik-web30:
+    image: traefik:v3.0
+    container_name: traefik-web30
+    restart: unless-stopped
+    command:
+      # Enable Docker provider
+      - "--providers.docker=false"
+      - "--providers.file.filename=/etc/traefik/dynamic.yml"
+      - "--providers.file.watch=true"
+      # Configure entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # Redirect HTTP to HTTPS
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      # Enable API for debugging
+      - "--api.dashboard=true"
+      - "--api.debug=true"
+      # Disable certificate verification for development
+      - "--serverstransport.insecureskipverify=true"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Traefik dashboard
+    volumes:
+      - ./traefik-web30.yml:/etc/traefik/dynamic.yml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

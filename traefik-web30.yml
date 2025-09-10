@@ -1,0 +1,29 @@
+# Traefik dynamic configuration for web30
+http:
+  routers:
+    web30:
+      rule: "Host(`localhost`)"
+      service: "web30-service"
+      entryPoints:
+        - "websecure"
+      tls: {}
+    
+    # WebSocket support for Next.js HMR
+    web30-websocket:
+      rule: "Host(`localhost`) && PathPrefix(`/_next/webpack-hmr`)"
+      service: "web30-service"
+      priority: 100
+      entryPoints:
+        - "websecure"
+      tls: {}
+
+  services:
+    web30-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:3001"
+
+tls:
+  options:
+    default:
+      minVersion: "VersionTLS12"
