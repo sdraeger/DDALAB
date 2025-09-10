@@ -224,6 +224,22 @@ docker-compose exec redis redis-cli FLUSHALL
 2. Verify MinIO credentials
 3. Check available disk space
 
+## 📊 Monitoring (Optional)
+
+Enable Prometheus and Grafana monitoring:
+
+```bash
+# Linux/macOS
+docker-compose --profile monitoring up -d
+
+# Windows
+docker compose --profile monitoring up -d
+```
+
+Access monitoring dashboards:
+- Prometheus: http://localhost:9090
+- Grafana: http://localhost:3005 (admin/admin)
+
 ## 📦 Advanced Configuration
 
 ### Using External Database

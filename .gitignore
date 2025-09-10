@@ -86,9 +86,6 @@ packages/configmanager/release-dev/
 test-results/
 playwright-report/
 
-# Scripts (keep local only)
-scripts/
-
 .claude/
 
 packages/configmanager/playwright-report/
