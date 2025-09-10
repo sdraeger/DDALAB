@@ -1,0 +1,213 @@
+# DDALAB Docker Compose Deployment
+# Quick Start:
+# 1. Copy .env.example to .env
+# 2. Edit .env and update all passwords and configuration
+# 3. Generate SSL certificates: ./scripts/generate-certs.sh
+# 4. Run: docker-compose up -d
+# 5. Access: https://localhost (or your configured domain)
+
+services:
+  # Main DDALAB application
+  ddalab:
+    image: ${DDALAB_IMAGE:-sdraeger1/ddalab:latest}
+    platform: linux/amd64
+    container_name: ddalab
+    restart: unless-stopped
+    environment:
+      # Database
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME:-ddalab}
+      
+      # MinIO Object Storage
+      - MINIO_HOST=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      
+      # Redis Cache
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      
+      # Authentication
+      - DDALAB_AUTH_MODE=${DDALAB_AUTH_MODE:-local}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      
+      # Application URLs
+      - NEXT_PUBLIC_API_URL=${PUBLIC_URL:-https://localhost}/api-backend
+      - NEXT_PUBLIC_APP_URL=${PUBLIC_URL:-https://localhost}
+      - NEXTAUTH_URL=${PUBLIC_URL:-https://localhost}
+      
+      # DDA Configuration
+      - DDA_BINARY_PATH=/app/bin/run_DDA_ASCII
+      - DATA_DIR=/app/data
+      - ALLOWED_DIRS=/app/data
+      
+      # Environment
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - NODE_ENV=production
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+      init-minio:
+        condition: service_completed_successfully
+    networks:
+      - ddalab-network
+    labels:
+      - "traefik.enable=true"
+      # Web frontend
+      - "traefik.http.routers.ddalab-web.rule=Host(`${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.ddalab-web.entrypoints=websecure"
+      - "traefik.http.routers.ddalab-web.tls=true"
+      - "traefik.http.routers.ddalab-web.service=ddalab-web"
+      - "traefik.http.services.ddalab-web.loadbalancer.server.port=3000"
+      # API backend
+      - "traefik.http.routers.ddalab-api.rule=Host(`${DOMAIN:-localhost}`) && (PathPrefix(`/api`) || PathPrefix(`/api-backend`) || PathPrefix(`/docs`) || PathPrefix(`/graphql`))"
+      - "traefik.http.routers.ddalab-api.entrypoints=websecure"
+      - "traefik.http.routers.ddalab-api.tls=true"
+      - "traefik.http.routers.ddalab-api.priority=100"
+      - "traefik.http.routers.ddalab-api.service=ddalab-api"
+      - "traefik.http.services.ddalab-api.loadbalancer.server.port=8001"
+      # API path rewriting
+      - "traefik.http.routers.ddalab-api.middlewares=api-rewrite"
+      - "traefik.http.middlewares.api-rewrite.replacepathregex.regex=^/api-backend/(.*)"
+      - "traefik.http.middlewares.api-rewrite.replacepathregex.replacement=/api/$$1"
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: ddalab-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-ddalab}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    networks:
+      - ddalab-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: ddalab-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - ddalab-network
+
+  # MinIO Object Storage
+  minio:
+    image: minio/minio:latest
+    container_name: ddalab-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    networks:
+      - ddalab-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # MinIO Initialization
+  init-minio:
+    image: minio/mc:latest
+    container_name: ddalab-init-minio
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set ddalab http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}; do
+        echo 'Waiting for MinIO...'
+        sleep 5
+      done
+      mc mb ddalab/ddalab --ignore-existing
+      echo 'MinIO bucket created'
+      "
+    networks:
+      - ddalab-network
+
+  # Traefik Reverse Proxy
+  traefik:
+    image: traefik:v3.0
+    container_name: ddalab-traefik
+    restart: unless-stopped
+    command:
+      # Docker provider
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # HTTP to HTTPS redirect
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      # SSL configuration
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      # Logging
+      - "--log.level=${TRAEFIK_LOG_LEVEL:-ERROR}"
+      - "--accesslog=true"
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./certs:/etc/traefik/certs:ro
+      - ./scripts/traefik-config.yml:/etc/traefik/dynamic/config.yml:ro
+    networks:
+      - ddalab-network
+    depends_on:
+      - ddalab
+
+  # Optional: Database Backup
+  postgres-backup:
+    image: prodrigestivill/postgres-backup-local:16
+    container_name: ddalab-postgres-backup
+    restart: unless-stopped
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=${DB_NAME:-ddalab}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - SCHEDULE=${BACKUP_SCHEDULE:-@daily}
+      - BACKUP_KEEP_DAYS=${BACKUP_KEEP_DAYS:-7}
+      - BACKUP_KEEP_WEEKS=${BACKUP_KEEP_WEEKS:-4}
+      - BACKUP_KEEP_MONTHS=${BACKUP_KEEP_MONTHS:-6}
+    volumes:
+      - ./backups:/backups
+    networks:
+      - ddalab-network
+    profiles:
+      - backup
+
+networks:
+  ddalab-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
