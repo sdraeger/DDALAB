@@ -1,0 +1,58 @@
+DDALAB Docker Deployment Package Manifest
+=========================================
+
+Main Files:
+-----------
+ddalab.sh                 - Linux/macOS management script
+ddalab.ps1               - Windows PowerShell management script  
+ddalab.bat               - Windows batch file wrapper
+docker-compose.yml       - Docker Compose orchestration file
+.env.example             - Environment configuration template
+.gitignore              - Git ignore rules
+
+Configuration Files:
+-------------------
+configs/
+├── prometheus.yml                          - Prometheus monitoring configuration
+├── traefik-config.yml                     - Traefik SSL/TLS configuration
+└── grafana/
+    └── provisioning/
+        ├── datasources/
+        │   └── prometheus.yml              - Grafana datasource config
+        └── dashboards/
+            ├── dashboard.yml               - Dashboard provisioning config
+            └── ddalab-overview.json        - DDALAB monitoring dashboard
+
+Scripts:
+--------
+scripts/
+├── init-db.sh           - Database initialization (runs in container)
+├── generate-certs.sh    - SSL certificate generation
+├── backup.sh           - Database backup script
+└── restore.sh          - Database restore script
+
+Directories:
+------------
+certs/                  - SSL certificates (generated on first run)
+data/                   - User data files
+backups/                - Database backups (created by backup script)
+
+Documentation:
+--------------
+README.md               - Full documentation
+QUICK_START.md         - Quick reference guide
+DEPLOYMENT_PACKAGE.md  - Package overview
+MANIFEST.txt           - This file
+
+Docker Images Used:
+------------------
+- sdraeger1/ddalab:latest      - Main DDALAB application
+- postgres:16-alpine           - PostgreSQL database
+- redis:7-alpine              - Redis cache
+- minio/minio:latest          - MinIO object storage
+- traefik:v3.0                - Reverse proxy with SSL
+- prom/prometheus:latest      - Metrics collection (optional)
+- grafana/grafana:latest      - Metrics visualization (optional)
+
+All configuration files are self-contained and reference only files 
+within this deployment package. No external dependencies required.
