@@ -7,7 +7,7 @@
 # 5. Access: https://localhost (or your configured domain)
 
 services:
-  # Main DDALAB application
+  # Main DDALAB application  
   ddalab:
     image: ${DDALAB_IMAGE:-sdraeger1/ddalab:latest}
     platform: linux/amd64
@@ -50,9 +50,14 @@ services:
       # Environment
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - NODE_ENV=production
+      
+      # Additional runtime configuration
+      - NODE_OPTIONS=--max-old-space-size=4096
     volumes:
       - ./data:/app/data
       - ./.env:/app/.env:ro
+      - ./.env:/app/packages/web/.env:ro
+      - ./.env:/.env:ro
     depends_on:
       postgres:
         condition: service_healthy
