@@ -56,6 +56,22 @@ The launcher provides:
 - 🖥️ **Cross-platform** support (Linux, macOS, Windows)
 - 📊 **Status monitoring** and log viewing
 
+## DDALAB Docker Extension 🐳
+
+For Docker Desktop users, there's also a **Docker Extension** available:
+
+```bash
+# Clone the extension (standalone repository)
+git clone https://github.com/sdraeger/DDALAB-docker-ext.git
+cd DDALAB-docker-ext
+
+# Build and install the extension
+make build-extension
+docker extension install ddalab/desktop-extension:latest
+```
+
+The extension provides Docker Desktop integration with multiple UI variants.
+
 ## Quick Start (Docker) 🚀
 
 For manual setup, the traditional way to run DDALAB:
@@ -188,9 +204,9 @@ For detailed instructions, see [DOCKER_PUSH_GUIDE.md](DOCKER_PUSH_GUIDE.md).
 
 ## Development
 
-### Getting the Launcher (for developers)
+### Getting Submodules (for developers)
 
-The DDALAB Launcher is included as a git submodule. To get it when cloning:
+The DDALAB Launcher and Docker Extension are included as git submodules. To get them when cloning:
 
 ```bash
 # Clone with submodules
@@ -200,7 +216,9 @@ git clone --recursive https://github.com/sdraeger/DDALAB.git
 git submodule update --init --recursive
 ```
 
-The launcher will be available in the `launcher/` directory.
+The submodules will be available in:
+- `launcher/` - DDALAB Launcher (CLI tool)
+- `docker-extension/` - Docker Desktop Extension
 
 ### ConfigManager Development
 
