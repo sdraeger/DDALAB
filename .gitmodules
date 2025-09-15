@@ -1,0 +1,3 @@
+[submodule "launcher"]
+	path = launcher
+	url = git@github.com:sdraeger/DDALAB-launcher.git
