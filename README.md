@@ -35,23 +35,84 @@ docker --version
 docker-compose --version
 ```
 
-## Getting Started
+## DDALAB Launcher 🚀
 
-### Option 1: Quick Docker Deployment (Recommended)
-
-For the easiest setup, use our automated deployment script:
+For the easiest way to manage DDALAB, use the **DDALAB Launcher** - a user-friendly GUI tool:
 
 ```bash
-# Clone the repository
+# Clone the launcher (standalone repository)
+git clone https://github.com/sdraeger/DDALAB-launcher.git
+cd DDALAB-launcher
+
+# Build and run
+make build
+./bin/ddalab-launcher
+```
+
+The launcher provides:
+- 🔍 **Auto-detection** of DDALAB installations
+- 🎯 **Interactive menu** for all operations
+- ⚡ **Interrupt support** (Ctrl+C) for long operations
+- 🖥️ **Cross-platform** support (Linux, macOS, Windows)
+- 📊 **Status monitoring** and log viewing
+
+## Quick Start (Docker) 🚀
+
+For manual setup, the traditional way to run DDALAB:
+
+```bash
+# 1. Clone the repository
 git clone https://github.com/sdraeger/DDALAB.git
 cd DDALAB
 
-# Run the deployment script
-./deploy-ddalab.sh
+# 2. Copy environment template
+cp .env.production.example .env
+
+# 3. Edit .env - CHANGE ALL PASSWORDS!
+nano .env  # or your preferred editor
+
+# 4. Start everything
+docker-compose up -d
+
+# 5. Access DDALAB
+# Open https://localhost in your browser
+# (Accept the self-signed certificate warning)
+```
+
+That's it! DDALAB is now running at:
+- **Web Interface**: https://localhost (accept the SSL warning)
+- **API Documentation**: http://localhost:8001/docs (API server direct access)
+- **MinIO Console**: http://localhost:9001 (optional admin interface)
+
+To stop: `docker-compose down`
+
+## Alternative Deployment Methods
+
+### Option 1: Using ConfigManager (Desktop App)
+
+DDALAB includes a desktop application that can manage deployments:
+
+```bash
+# Build and run ConfigManager
+cd packages/configmanager
+npm install
+npm run dev
+```
+
+### Option 2: Development Mode
+
+For local development with hot-reload:
+
+```bash
+# Start only infrastructure services
+docker-compose -f docker-compose.dev.yml up -d
+
+# Run API and Web locally
+npm run dev:local:concurrent
 
 # Access the application
-# Web interface: http://localhost:3000
-# API documentation: http://localhost:8001/docs
+# Web interface: https://localhost
+# API documentation: https://localhost/api/docs
 ```
 
 ### Option 2: Manual Setup
@@ -127,6 +188,20 @@ For detailed instructions, see [DOCKER_PUSH_GUIDE.md](DOCKER_PUSH_GUIDE.md).
 
 ## Development
 
+### Getting the Launcher (for developers)
+
+The DDALAB Launcher is included as a git submodule. To get it when cloning:
+
+```bash
+# Clone with submodules
+git clone --recursive https://github.com/sdraeger/DDALAB.git
+
+# Or if already cloned, initialize submodules
+git submodule update --init --recursive
+```
+
+The launcher will be available in the `launcher/` directory.
+
 ### ConfigManager Development
 
 To run the ConfigManager application in development mode:
@@ -162,8 +237,17 @@ If using `traefik` for SSL:
    echo -n "admin" | htpasswd -c auth admin
    ```
 
-3. Set the hash in your `.env` file:
+3. Set the hash in your configuration:
 
+   **New configuration system:**
+   ```bash
+   # Generate production deployment with secure defaults
+   npm run deploy:prod
+   cd deployments/production-docker-compose
+   # Edit .env to set TRAEFIK_PASSWORD_HASH
+   ```
+
+   **Legacy approach:**
    ```
    TRAEFIK_PASSWORD_HASH='$2y$...'  # Make sure to use single quotes
    ```
