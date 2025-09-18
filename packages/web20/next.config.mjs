@@ -9,8 +9,6 @@ const nextConfig = {
   transpilePackages: ["shared"],
   output: "standalone",
   outputFileTracingRoot: resolve(__dirname, '../../'),
-  // Disable minification for debugging
-  swcMinify: false,
   compiler: {
     removeConsole: false,
   },
