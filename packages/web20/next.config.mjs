@@ -16,13 +16,6 @@ const nextConfig = {
     // Disable ESLint during builds to resolve configuration issues
     ignoreDuringBuilds: true,
   },
-  typescript: {
-    // !! WARN !!
-    // Dangerously allow production builds to successfully complete even if
-    // your project has type errors.
-    // !! WARN !!
-    ignoreBuildErrors: true,
-  },
   webpack: (config, { isServer, dev }) => {
     if (!isServer) {
       config.resolve.fallback = {
@@ -38,11 +31,6 @@ const nextConfig = {
       ...config.resolve.alias,
       '@shared': resolve(__dirname, '../shared'),
     };
-    
-    // Disable minification for debugging
-    if (config.optimization && config.optimization.minimize) {
-      config.optimization.minimize = false;
-    }
     
     return config;
   },
