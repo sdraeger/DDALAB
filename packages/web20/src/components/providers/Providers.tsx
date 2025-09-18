@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { SessionProvider } from 'next-auth/react';
+import { ConditionalSessionProvider } from './ConditionalSessionProvider';
 import { AuthModeProvider } from '@/contexts/AuthModeContext';
 import { ThemeProvider } from './ThemeProvider';
 import { SearchProvider } from '@/contexts/SearchContext';
@@ -13,7 +13,7 @@ interface ProvidersProps {
 
 export function Providers({ children }: ProvidersProps) {
 	return (
-		<SessionProvider>
+		<ConditionalSessionProvider>
 			<ThemeProvider>
 				<SearchProvider>
 					<AuthModeProvider>
@@ -23,6 +23,6 @@ export function Providers({ children }: ProvidersProps) {
 					</AuthModeProvider>
 				</SearchProvider>
 			</ThemeProvider>
-		</SessionProvider>
+		</ConditionalSessionProvider>
 	);
 } 

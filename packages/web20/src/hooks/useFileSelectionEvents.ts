@@ -5,7 +5,7 @@ import type { PlotState } from "@/store/slices/plotSlice";
 import { eventManager } from "./useCurrentFileSubscription";
 
 // Hook to initialize file selection events from Redux store updates
-export function useFileSelectionEvents() {
+export function useFileSelectionEvents(enabled: boolean = true) {
   const currentFilePath = useAppSelector((state: any) => 
     state.plots ? selectCurrentFilePath({ plots: state.plots }) : null
   );
@@ -14,8 +14,8 @@ export function useFileSelectionEvents() {
   );
 
   useEffect(() => {
-    // When Redux state changes, notify all subscribers
-    if (currentFilePath) {
+    // Only notify if enabled and when Redux state changes
+    if (enabled && currentFilePath) {
       eventManager.notify({
         filePath: currentFilePath,
         metadata: currentPlotState?.metadata,
@@ -23,5 +23,5 @@ export function useFileSelectionEvents() {
         selectedChannels: currentPlotState?.selectedChannels,
       });
     }
-  }, [currentFilePath, currentPlotState]);
+  }, [enabled, currentFilePath, currentPlotState]);
 }

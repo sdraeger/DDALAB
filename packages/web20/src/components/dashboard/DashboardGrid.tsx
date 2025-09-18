@@ -22,7 +22,6 @@ import {
 import { Widget, Rectangle, DragState, ResizeState } from "@/types/dashboard";
 import { cn } from "@/lib/utils";
 import { WidgetComponent } from "./WidgetComponent";
-import { useFileSelectionEvents } from "@/hooks/useFileSelectionEvents";
 
 // Collision detection utility
 class CollisionDetector {
@@ -149,9 +148,6 @@ export function DashboardGrid({
   const isResizing = useIsResizing();
   const dragState = useDragState();
   const resizeState = useResizeState();
-
-  // Initialize file selection events
-  useFileSelectionEvents();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerBounds, setContainerBounds] = useState<Rectangle>({

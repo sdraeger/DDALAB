@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils';
 import { NotificationDropdown } from '@/components/notifications/NotificationDropdown';
 import { useGlobalSearch } from '@/hooks/useGlobalSearch';
 import { SearchProviderRegistry } from '@/components/search/SearchProviderRegistry';
+import { InterfaceSelector } from '@shared/components/ui/interface-selector';
 
 export function Header() {
 	const dispatch = useAppDispatch();
@@ -126,6 +127,9 @@ export function Header() {
 					<LayoutGrid className="h-6 w-6 text-primary" />
 					<h1 className="text-lg font-semibold">Dashboard</h1>
 				</div>
+				
+				{/* Interface Selector */}
+				<InterfaceSelector currentInterface="web20" />
 			</div>
 
 			<div className="flex items-center gap-4">

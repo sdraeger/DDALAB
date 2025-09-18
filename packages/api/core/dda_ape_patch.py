@@ -106,7 +106,9 @@ class APECompatibleDDARunner(dda_py.DDARunner):
             )
         else:
             # Use direct execution for regular binaries
-            process = subprocess.run(command, capture_output=True, text=True)
+            # Convert all command arguments to strings to avoid TypeError
+            string_command = [str(arg) for arg in command]
+            process = subprocess.run(string_command, capture_output=True, text=True)
 
         # Log the output for debugging
         logger.debug(f"DDA process return code: {process.returncode}")
@@ -124,7 +126,6 @@ class APECompatibleDDARunner(dda_py.DDARunner):
             )
 
         # Check what files were created
-        import os
         output_dir = output_path.parent
         logger.debug(f"Output directory: {output_dir}")
         logger.debug(f"Expected output file: {output_path}")
@@ -165,8 +166,10 @@ class APECompatibleDDARunner(dda_py.DDARunner):
             )
         else:
             # Use direct execution for regular binaries
+            # Convert all command arguments to strings to avoid TypeError
+            string_command = [str(arg) for arg in command]
             process = await asyncio.create_subprocess_exec(
-                *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                *string_command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
 
         stdout, stderr = await process.communicate()
@@ -189,7 +192,6 @@ class APECompatibleDDARunner(dda_py.DDARunner):
             )
 
         # Check what files were created
-        import os
         output_dir = output_path.parent
         logger.debug(f"Output directory: {output_dir}")
         logger.debug(f"Expected output file: {output_path}")
