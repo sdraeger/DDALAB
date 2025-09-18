@@ -14,6 +14,7 @@ import { useUnifiedSessionData } from "@/hooks/useUnifiedSession";
 // Module-level guards to prevent duplicate initialization and loads
 let serviceInitializedOnce = false;
 let layoutLoadedOnce = false;
+let isCurrentlyLoading = false;
 
 interface UseLayoutPersistenceOptions {
   autoInit?: boolean;
@@ -67,8 +68,13 @@ export function useLayoutPersistence(
       setInitialized(true);
       return;
     }
+    if (isCurrentlyLoading) {
+      // Another instance is already loading
+      return;
+    }
     if (!isInitializedRef.current && (session || !isMultiUserMode)) {
       isInitializedRef.current = true;
+      isCurrentlyLoading = true;
 
       persistenceService.current
         .loadLayout()
@@ -82,7 +88,10 @@ export function useLayoutPersistence(
               return;
             }
             if (loadedWidgets.length > 0) {
-              dispatch(setWidgets(loadedWidgets));
+              // Use setTimeout to prevent infinite loop during React render cycle
+              setTimeout(() => {
+                dispatch(setWidgets(loadedWidgets));
+              }, 0);
               layoutLoadedOnce = true;
               logger.info(
                 "Loaded saved layout with widgets:",
@@ -99,16 +108,20 @@ export function useLayoutPersistence(
         .catch((error) => {
           logger.error("Failed to load layout:", error);
           setInitialized(true);
+        })
+        .finally(() => {
+          isCurrentlyLoading = false;
         });
     }
   }, [dispatch, session, isMultiUserMode, autoLoad]);
 
   // Auto-save on widget changes
   useEffect(() => {
-    if (initialized && widgets.length > 0) {
+    if (initialized && widgets.length > 0 && layoutLoadedOnce) {
+      // Only auto-save after initial layout has been loaded
       persistenceService.current.scheduleAutoSave(widgets);
     }
-  }, [widgets]);
+  }, [widgets, initialized]);
 
   // Cleanup on unmount
   useEffect(() => {

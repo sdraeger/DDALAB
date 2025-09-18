@@ -1,0 +1,40 @@
+# Isolated Development Dockerfile
+# Optimized for fast builds and hot reloading
+
+# Base stage for Python
+FROM python:3.11-slim AS python-base
+WORKDIR /app
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    curl \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# API development stage
+FROM python-base AS api-dev
+# Copy only requirements first for better caching
+COPY packages/api/requirements.txt /app/packages/api/
+RUN pip install --no-cache-dir -r /app/packages/api/requirements.txt
+# Install development dependencies
+RUN pip install --no-cache-dir watchdog[watchmedo]
+# Create necessary directories
+RUN mkdir -p /app/data /app/bin /tmp/prometheus
+ENV PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus
+# The source code will be mounted as a volume for hot reload
+
+# Node base stage
+FROM node:20-alpine AS node-base
+WORKDIR /app
+# Install dependencies for better compatibility
+RUN apk add --no-cache python3 make g++
+
+# Web development stage
+FROM node-base AS web-dev
+# Copy package files for dependency installation
+COPY package.json package-lock.json turbo.json ./
+COPY packages/web20/package.json ./packages/web20/
+COPY packages/shared/package.json ./packages/shared/
+# Install all dependencies
+RUN npm ci
+# The source code will be mounted as a volume for hot reload
