@@ -11,6 +11,7 @@ export * from "./components/ui/scroll-area";
 export * from "./components/ui/separator";
 export * from "./components/ui/select";
 export * from "./components/ui/slider";
+export * from "./components/ui/interface-selector";
 export * from "./components/form/LoginForm";
 export * from "./components/UnsavedChangesAlert";
 export * from "./components/ui/ArtifactIdentifier";

@@ -18,6 +18,7 @@ import {
   useWidgets,
 } from "@/store/hooks";
 import { useLayoutPersistence } from "@/hooks/useLayoutPersistence";
+import { useFileSelectionEvents } from "@/hooks/useFileSelectionEvents";
 import { setFileData } from "@/store/slices/plotSlice";
 import { Save, RefreshCw, Trash2 } from "lucide-react";
 
@@ -38,6 +39,20 @@ export default function DashboardPage() {
     clearLayout,
     isInitialized,
   } = useLayoutPersistence();
+
+  // Initialize file selection events after widgets are restored (delayed to prevent infinite loop)
+  const [enableFileEvents, setEnableFileEvents] = useState(false);
+  useEffect(() => {
+    if (isInitialized && widgets.length > 0) {
+      const timer = setTimeout(() => {
+        setEnableFileEvents(true);
+      }, 2000); // 2 second delay after widgets are loaded
+      return () => clearTimeout(timer);
+    }
+  }, [isInitialized, widgets.length]);
+  
+  // Always call the hook, but make it conditional internally
+  useFileSelectionEvents(enableFileEvents);
 
   // Listen for file loads and update store
   useEffect(() => {

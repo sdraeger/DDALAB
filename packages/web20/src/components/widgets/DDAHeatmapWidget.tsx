@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import {
@@ -55,6 +55,39 @@ export function DDAHeatmapWidget({
   );
   const restoredRef = useRef(false);
   const isFirstRender = useRef(true);
+  const renderingRef = useRef(false);
+  const lastQHashRef = useRef<string>('');
+  const setQInProgressRef = useRef(false);
+
+  // Safe setQ wrapper to prevent infinite loops
+  const safeSetQ = useCallback((newQ: number[][]) => {
+    if (setQInProgressRef.current) {
+      console.warn('[DDAHeatmapWidget] setQ call blocked - already in progress');
+      return;
+    }
+
+    // Generate a simple hash of the data to detect duplicates
+    const hash = `${newQ.length}x${newQ[0]?.length || 0}_${JSON.stringify(newQ.slice(0, 2).map(row => row.slice(0, 3)))}`;
+    
+    if (hash === lastQHashRef.current) {
+      console.warn('[DDAHeatmapWidget] setQ call blocked - identical data');
+      return;
+    }
+
+    setQInProgressRef.current = true;
+    lastQHashRef.current = hash;
+    
+    try {
+      setQ(newQ);
+    } catch (error) {
+      console.error('[DDAHeatmapWidget] Error in safeSetQ:', error);
+    } finally {
+      // Clear the flag after a short delay to allow React to process
+      setTimeout(() => {
+        setQInProgressRef.current = false;
+      }, 100);
+    }
+  }, []);
 
   // Restore state from database on mount
   useEffect(() => {
@@ -67,16 +100,48 @@ export function DDAHeatmapWidget({
       try {
         const response = await apiService.getWidgetData(storageKey);
         console.log('[DDAHeatmapWidget] Restore response:', response);
+        console.log('[DDAHeatmapWidget] Restore response type:', typeof response);
+        console.log('[DDAHeatmapWidget] Restore response keys:', Object.keys(response || {}));
         if (response.data?.data?.data) {
           const snap = response.data.data.data;
           console.log('[DDAHeatmapWidget] Restored data:', snap);
+          console.log('[DDAHeatmapWidget] Restored data type:', typeof snap);
+          console.log('[DDAHeatmapWidget] Restored data keys:', Object.keys(snap || {}));
           if (snap) {
             // Restore UI state
             if (snap.colorScheme) setColorScheme(snap.colorScheme);
             // Restore Q data if available
             if (snap.Q && Array.isArray(snap.Q)) {
               console.log('[DDAHeatmapWidget] Restoring Q data, length:', snap.Q.length);
-              setQ(snap.Q);
+              console.log('[DDAHeatmapWidget] Q data sample:', snap.Q.slice(0, 2));
+              try {
+                // Sanitize the restored data to ensure all values are valid numbers
+                const sanitizedQ = snap.Q.map((row: any, rowIndex: number) => {
+                  if (!Array.isArray(row)) {
+                    console.warn('[DDAHeatmapWidget] Row', rowIndex, 'is not array:', typeof row, row);
+                    return [];
+                  }
+                  return row.map((v: any, colIndex: number) => {
+                    if (v === null || v === undefined) return 0;
+                    const value = Number(v);
+                    if (isNaN(value) || !isFinite(value)) {
+                      if (rowIndex === 0 && colIndex < 5) {
+                        console.warn('[DDAHeatmapWidget] Invalid value at', rowIndex, colIndex, ':', v, 'converted to 0');
+                      }
+                      return 0;
+                    }
+                    return value;
+                  });
+                }).filter((row: any[]) => Array.isArray(row) && row.length > 0);
+                
+                console.log('[DDAHeatmapWidget] Sanitized Q data shape:', sanitizedQ.length, 'x', sanitizedQ[0]?.length || 0);
+                if (!renderingRef.current) {
+                  safeSetQ(sanitizedQ);
+                }
+              } catch (error) {
+                console.error('[DDAHeatmapWidget] Error sanitizing Q data:', error);
+                safeSetQ([]); // Fallback to empty array
+              }
             }
           }
         } else if (response.error && !response.error.includes('not found')) {
@@ -94,24 +159,48 @@ export function DDAHeatmapWidget({
     };
 
     restoreState();
-  }, [storageKey]);
+  }, [storageKey, safeSetQ]);
 
   // Handle widget data prop (optional - for external data injection)
   useEffect(() => {
     if (widgetData?.Q && Array.isArray(widgetData.Q)) {
-      setQ(widgetData.Q);
+      // Sanitize the external data to ensure all values are valid numbers
+      const sanitizedQ = widgetData.Q.map((row: any) => 
+        Array.isArray(row) ? row.map((v: any) => {
+          const value = Number(v);
+          return (isNaN(value) || !isFinite(value)) ? 0 : value;
+        }) : []
+      ).filter((row: any[]) => row.length > 0);
+      safeSetQ(sanitizedQ);
     }
-  }, [widgetData]);
+  }, [widgetData, safeSetQ]);
 
   // Persist state snapshot to database when key inputs change
   useEffect(() => {
     if (!restoredRef.current || isLoadingState || isFirstRender.current) return; // Don't save during initial load
+    
+    // Don't save if Q is empty to prevent infinite loops
+    if (!Array.isArray(Q) || Q.length === 0) return;
+    
+    // Don't save during setQ operations to prevent circular dependencies
+    if (setQInProgressRef.current) return;
 
-    const snapshot = { colorScheme, Q };
+    // Sanitize data before saving to prevent serialization issues
+    const sanitizedQ = Q.map((row) => 
+      row.map((v) => {
+        const value = Number(v);
+        return (isNaN(value) || !isFinite(value)) ? 0 : value;
+      })
+    );
+    const snapshot = { colorScheme, Q: sanitizedQ };
 
     const saveState = async () => {
       setIsSavingState(true);
       try {
+        // Save to localStorage as backup
+        localStorage.setItem(`${storageKey}_backup`, JSON.stringify(snapshot));
+        
+        // Save to database
         const response = await apiService.storeWidgetData({
           key: storageKey,
           data: snapshot,
@@ -133,38 +222,97 @@ export function DDAHeatmapWidget({
     // Debounce saves to avoid excessive API calls
     const timeoutId = setTimeout(saveState, 500);
     return () => clearTimeout(timeoutId);
-  }, [storageKey, colorScheme, Q, widgetId, isLoadingState]);
+  }, [storageKey, colorScheme, Q, widgetId]);
 
   // Listen to file selection events
-  useCurrentFileSubscription((event) => {
+  const handleFileSelection = useCallback((event: any) => {
     // Handle file selection - this is where widgets can react to file changes
     console.log("DDA Heatmap Widget: File selected", event.filePath);
-  });
+    
+    // After file selection, try to trigger data restoration if needed
+    if (restoredRef.current && Array.isArray(Q) && Q.length === 0) {
+      console.log('[DDAHeatmapWidget] File selected but no data - checking for restoration');
+      // Small delay to let other systems settle
+      setTimeout(() => {
+        if (Array.isArray(Q) && Q.length === 0) {
+          // Try to restore from localStorage as backup
+          const lastSavedData = localStorage.getItem(`${storageKey}_backup`);
+          if (lastSavedData) {
+            try {
+              const parsed = JSON.parse(lastSavedData);
+              if (parsed.Q && Array.isArray(parsed.Q)) {
+                console.log('[DDAHeatmapWidget] Restoring from localStorage backup');
+                safeSetQ(parsed.Q);
+                if (parsed.colorScheme) {
+                  setColorScheme(parsed.colorScheme);
+                }
+              }
+            } catch (error) {
+              console.error('[DDAHeatmapWidget] Error parsing backup data:', error);
+            }
+          }
+        }
+      }, 1000);
+    }
+  }, [Q, storageKey, safeSetQ]);
+
+  useCurrentFileSubscription(handleFileSelection);
 
   // Listen to DDA results immediately - don't wait for restoration
   useEffect(() => {
     const onResults = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { Q?: (number | null)[][] };
-      if (Array.isArray(detail?.Q) && detail.Q.length > 0) {
-        console.log('[DDAHeatmapWidget] Received DDA results, Q shape:', detail.Q.length, 'x', detail.Q[0]?.length);
+      try {
+        const customEvent = e as CustomEvent;
+        const detail = customEvent.detail;
+        console.log('[DDAHeatmapWidget] Received DDA results event, detail:', typeof detail, detail);
+        
+        if (!detail || typeof detail !== 'object') {
+          console.warn('[DDAHeatmapWidget] Invalid detail object:', detail);
+          return;
+        }
+        
+        const Q = detail.Q;
+        if (!Array.isArray(Q) || Q.length === 0) {
+          console.warn('[DDAHeatmapWidget] Invalid Q data:', typeof Q, Q);
+          return;
+        }
+        
+        console.log('[DDAHeatmapWidget] Processing Q data, shape:', Q.length, 'x', Q[0]?.length);
+        
         // Clean the data without downsampling
-        const cleaned = detail.Q.map((row) =>
-          row.map((v) => {
-            const value = v == null || !Number.isFinite(Number(v)) ? 0 : Number(v);
+        const cleaned = Q.map((row, rowIndex) => {
+          if (!Array.isArray(row)) {
+            console.warn('[DDAHeatmapWidget] Row', rowIndex, 'is not array:', typeof row);
+            return [];
+          }
+          return row.map((v, colIndex) => {
+            if (v == null) return 0;
+            const value = Number(v);
+            if (!Number.isFinite(value)) {
+              if (rowIndex === 0 && colIndex < 5) {
+                console.warn('[DDAHeatmapWidget] Invalid value in results at', rowIndex, colIndex, ':', v);
+              }
+              return 0;
+            }
             return value;
-          })
-        );
+          });
+        }).filter(row => Array.isArray(row) && row.length > 0);
 
-        setQ(cleaned);
+        console.log('[DDAHeatmapWidget] Cleaned Q data shape:', cleaned.length, 'x', cleaned[0]?.length || 0);
+        if (!renderingRef.current) {
+          safeSetQ(cleaned);
+        }
         
         // Mark that we've received fresh data
         isFirstRender.current = false;
+      } catch (error) {
+        console.error('[DDAHeatmapWidget] Error processing DDA results:', error);
       }
     };
     window.addEventListener("dda:results", onResults as EventListener);
     return () =>
       window.removeEventListener("dda:results", onResults as EventListener);
-  }, []);
+  }, [safeSetQ]);
 
   // Also listen for the old dda:edf-loaded event for backward compatibility
   useEffect(() => {
@@ -183,16 +331,16 @@ export function DDAHeatmapWidget({
       );
   }, []);
 
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     setIsLoading(true);
     // Force re-render by temporarily clearing and restoring Q data
     const currentQ = [...Q];
-    setQ([]);
+    safeSetQ([]);
     setTimeout(() => {
-      setQ(currentQ);
+      safeSetQ(currentQ);
       setIsLoading(false);
     }, 100);
-  };
+  }, [Q, safeSetQ]);
 
   const getColor = (value: number) => {
     const clampedValue = Math.max(0, Math.min(1, value));
@@ -257,21 +405,42 @@ export function DDAHeatmapWidget({
 
   // Build uPlot heatmap renderer using draw hook for performance
   useEffect(() => {
-    console.log('[DDAHeatmapWidget] useEffect triggered - Q updated:', Q?.length, 'x', Q?.[0]?.length);
+    try {
+      console.log('[DDAHeatmapWidget] useEffect triggered - Q updated:', Array.isArray(Q) ? Q.length : 'not array', 'x', Array.isArray(Q) && Q[0] ? Q[0].length : 'no data');
+      
+      // Prevent infinite loops - don't render during initial state loading
+      if (isLoadingState || isFirstRender.current) {
+        console.log('[DDAHeatmapWidget] Skipping render during loading or first render');
+        return;
+      }
+      
+      // Always destroy existing chart before creating new one
+      if (uplotRef.current) {
+        console.log('[DDAHeatmapWidget] Destroying existing chart');
+        uplotRef.current.destroy();
+        uplotRef.current = null;
+      }
+      
+      // Set rendering flag to prevent state updates during render
+      renderingRef.current = true;
     
-    // Always destroy existing chart before creating new one
-    if (uplotRef.current) {
-      console.log('[DDAHeatmapWidget] Destroying existing chart');
-      uplotRef.current.destroy();
-      uplotRef.current = null;
-    }
-    
-    if (!containerRef.current || !Q || Q.length === 0) {
+    if (!containerRef.current || !Array.isArray(Q) || Q.length === 0) {
       console.log('[DDAHeatmapWidget] Conditions not met:', {
         container: !!containerRef.current,
         Q: !!Q,
-        QLength: Q?.length
+        QIsArray: Array.isArray(Q),
+        QLength: Array.isArray(Q) ? Q.length : 'not array'
       });
+      renderingRef.current = false; // Clear flag
+      return;
+    }
+    
+    // Additional safety check - ensure Q is a proper 2D array
+    const isValid2DArray = Q.every(row => Array.isArray(row));
+    if (!isValid2DArray) {
+      console.error('[DDAHeatmapWidget] Q is not a proper 2D array:', Q);
+      // Don't modify state here as it would cause an infinite loop
+      renderingRef.current = false; // Clear flag
       return;
     }
     const rows = Q.length;
@@ -282,6 +451,7 @@ export function DDAHeatmapWidget({
     const timeoutId = setTimeout(() => {
       if (!containerRef.current) {
         console.log('[DDAHeatmapWidget] Container still not available after delay');
+        renderingRef.current = false; // Clear flag
         return;
       }
 
@@ -461,6 +631,9 @@ export function DDAHeatmapWidget({
         console.error('[DDAHeatmapWidget] Error creating uPlot instance:', error);
         // Don't throw - just log the error to prevent component crash
       }
+      
+      // Clear rendering flag after chart creation completes
+      renderingRef.current = false;
     }
 
     }, 50); // 50ms delay
@@ -468,6 +641,7 @@ export function DDAHeatmapWidget({
     // Cleanup function for cursor listeners and timeout
     return () => {
       clearTimeout(timeoutId);
+      renderingRef.current = false; // Clear flag on cleanup
       if (uplotRef.current) {
         const canvas = (uplotRef.current as any).root?.querySelector('canvas');
         if (canvas && (canvas as any)._cleanupCursor) {
@@ -475,7 +649,12 @@ export function DDAHeatmapWidget({
         }
       }
     };
-  }, [Q, colorScheme]);
+    } catch (error) {
+      console.error('[DDAHeatmapWidget] Critical error in useEffect:', error);
+      // Don't modify state here as it would cause an infinite loop
+      renderingRef.current = false; // Clear flag on error
+    }
+  }, [Q, colorScheme, isLoadingState]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -492,26 +671,34 @@ export function DDAHeatmapWidget({
   }, []);
 
   const getStats = () => {
-    if (Q.length === 0) return { min: 0, max: 0, avg: 0 };
+    if (!Array.isArray(Q) || Q.length === 0) return { min: 0, max: 0, avg: 0 };
     let min = Number.POSITIVE_INFINITY;
     let max = Number.NEGATIVE_INFINITY;
     let sum = 0;
     let count = 0;
-    for (let i = 0; i < Q.length; i++) {
-      const row = Q[i];
-      for (let j = 0; j < row.length; j++) {
-        const v = row[j];
-        if (v < min) min = v;
-        if (v > max) max = v;
-        sum += v;
-        count++;
+    
+    try {
+      for (let i = 0; i < Q.length; i++) {
+        const row = Q[i];
+        if (!Array.isArray(row)) continue;
+        for (let j = 0; j < row.length; j++) {
+          const v = row[j];
+          if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+          if (v < min) min = v;
+          if (v > max) max = v;
+          sum += v;
+          count++;
+        }
       }
+      const avg = count > 0 ? sum / count : 0;
+      if (!Number.isFinite(min)) min = 0;
+      if (!Number.isFinite(max)) max = 0;
+      if (!Number.isFinite(avg)) return { min, max, avg: 0 };
+      return { min, max, avg };
+    } catch (error) {
+      console.error('[DDAHeatmapWidget] Error calculating stats:', error);
+      return { min: 0, max: 0, avg: 0 };
     }
-    const avg = count > 0 ? sum / count : 0;
-    if (!Number.isFinite(min)) min = 0;
-    if (!Number.isFinite(max)) max = 0;
-    if (!Number.isFinite(avg)) return { min, max, avg: 0 };
-    return { min, max, avg };
   };
 
   const stats = getStats();
@@ -627,7 +814,7 @@ export function DDAHeatmapWidget({
 
           <div className="text-xs text-muted-foreground flex items-center justify-between">
             <span>
-              {Q.length} × {Q[0]?.length || 0} data points • {colorScheme}
+              {Array.isArray(Q) ? Q.length : 0} × {Array.isArray(Q) && Q.length > 0 && Array.isArray(Q[0]) ? Q[0].length : 0} data points • {colorScheme}
             </span>
             {isSavingState && (
               <span className="flex items-center gap-1">

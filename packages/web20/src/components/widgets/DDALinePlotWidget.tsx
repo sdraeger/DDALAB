@@ -64,7 +64,16 @@ export function DDALinePlotWidget({
             if (typeof snap.zoomLevel === "number") setZoomLevel(snap.zoomLevel);
             if (typeof snap.normalize === "boolean") setNormalize(snap.normalize);
             // Restore Q data if available
-            if (snap.Q && Array.isArray(snap.Q)) setQ(snap.Q);
+            if (snap.Q && Array.isArray(snap.Q)) {
+              // Sanitize the restored data to ensure all values are valid numbers
+              const sanitizedQ = snap.Q.map((row: any) => 
+                Array.isArray(row) ? row.map((v: any) => {
+                  const value = Number(v);
+                  return (isNaN(value) || !isFinite(value)) ? 0 : value;
+                }) : []
+              ).filter((row: any[]) => row.length > 0);
+              setQ(sanitizedQ);
+            }
           }
         } else if (response.error && !response.error.includes('not found')) {
           // Only show error if it's not a 404 (no saved state)
@@ -85,18 +94,35 @@ export function DDALinePlotWidget({
   // Handle widget data prop (optional - for external data injection)
   useEffect(() => {
     if (widgetData?.Q && Array.isArray(widgetData.Q)) {
-      setQ(widgetData.Q);
+      // Sanitize the external data to ensure all values are valid numbers
+      const sanitizedQ = widgetData.Q.map((row: any) => 
+        Array.isArray(row) ? row.map((v: any) => {
+          const value = Number(v);
+          return (isNaN(value) || !isFinite(value)) ? 0 : value;
+        }) : []
+      ).filter((row: any[]) => row.length > 0);
+      setQ(sanitizedQ);
     }
   }, [widgetData]);
 
   // Persist state snapshot to database when key inputs change
   useEffect(() => {
     if (!restoredRef.current || isLoadingState || isFirstRender.current) return; // Don't save during initial load
+    
+    // Don't save if Q is empty to prevent infinite loops
+    if (!Array.isArray(Q) || Q.length === 0) return;
 
+    // Sanitize data before saving to prevent serialization issues
+    const sanitizedQ = Q.map((row) => 
+      row.map((v) => {
+        const value = Number(v);
+        return (isNaN(value) || !isFinite(value)) ? 0 : value;
+      })
+    );
     const snapshot = {
       zoomLevel,
       normalize,
-      Q
+      Q: sanitizedQ
     };
 
     const saveState = async () => {

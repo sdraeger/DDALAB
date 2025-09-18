@@ -18,7 +18,6 @@ import {
   Settings,
   Maximize2,
   Brain,
-  Download,
   AlertCircle,
   CheckCircle,
 } from "lucide-react";
@@ -37,6 +36,7 @@ import {
 } from "@/services/apiService";
 import { EEGChannel, ChannelPreset, FilterConfig } from "@/types/eeg";
 import { cn } from "@/lib/utils";
+import { InterfaceSelector } from "@shared/components/ui/interface-selector";
 
 interface ClinicalDashboardProps {
   className?: string;
@@ -89,11 +89,14 @@ export function ClinicalDashboard({ className }: ClinicalDashboardProps) {
     } catch (error) {
       // The apiService.getAnnotations method should handle 404s silently
       // If we get here, it's likely a different error
-      if (error instanceof Error && !(
-        error.message.includes('404') || 
-        error.message.includes('Not Found') ||
-        error.message.includes('API Error: 404')
-      )) {
+      if (
+        error instanceof Error &&
+        !(
+          error.message.includes("404") ||
+          error.message.includes("Not Found") ||
+          error.message.includes("API Error: 404")
+        )
+      ) {
         console.error("Failed to load annotations (unexpected error):", error);
       }
       // Always ensure we have an empty array
@@ -225,14 +228,19 @@ export function ClinicalDashboard({ className }: ClinicalDashboardProps) {
       {/* Header */}
       <header className="flex-shrink-0 border-b bg-card/50 backdrop-blur">
         <div className="flex items-center justify-between p-4">
-          <div className="flex items-center gap-3">
-            <Brain className="h-6 w-6 text-primary" />
-            <div>
-              <h1 className="text-xl font-bold">Clinical EEG Dashboard</h1>
-              <p className="text-sm text-muted-foreground">
-                {selectedFile ? selectedFile.file_name : "No file selected"}
-              </p>
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3">
+              <Brain className="h-6 w-6 text-primary" />
+              <div>
+                <h1 className="text-xl font-bold">Dashboard</h1>
+                <p className="text-sm text-muted-foreground">
+                  {selectedFile ? selectedFile.file_name : "No file selected"}
+                </p>
+              </div>
             </div>
+
+            {/* Interface Selector */}
+            <InterfaceSelector currentInterface="web30" />
           </div>
 
           <div className="flex items-center gap-2">
@@ -290,10 +298,7 @@ export function ClinicalDashboard({ className }: ClinicalDashboardProps) {
                   </TabsList>
                 </div>
 
-                <TabsContent
-                  value="files"
-                  className="flex-1 overflow-hidden"
-                >
+                <TabsContent value="files" className="flex-1 overflow-hidden">
                   <FileManager
                     selectedFile={selectedFile}
                     onFileSelect={handleFileSelect}
@@ -324,10 +329,7 @@ export function ClinicalDashboard({ className }: ClinicalDashboardProps) {
                   )}
                 </TabsContent>
 
-                <TabsContent
-                  value="filters"
-                  className="flex-1 overflow-hidden"
-                >
+                <TabsContent value="filters" className="flex-1 overflow-hidden">
                   {selectedFile ? (
                     <FilterPipeline
                       filters={filters}

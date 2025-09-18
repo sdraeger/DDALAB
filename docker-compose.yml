@@ -50,12 +50,44 @@ services:
     labels:
       # Traefik configuration for HTTPS
       - "traefik.enable=true"
-      # Web interface routing
-      - "traefik.http.routers.ddalab-web.rule=Host(`localhost`)"
-      - "traefik.http.routers.ddalab-web.entrypoints=websecure"
-      - "traefik.http.routers.ddalab-web.tls=true"
-      - "traefik.http.routers.ddalab-web.service=ddalab-web"
-      - "traefik.http.services.ddalab-web.loadbalancer.server.port=3000"
+      # Web30 interface routing
+      - "traefik.http.routers.ddalab-web30.rule=Host(`localhost`) && PathPrefix(`/web30`)"
+      - "traefik.http.routers.ddalab-web30.entrypoints=websecure"
+      - "traefik.http.routers.ddalab-web30.tls=true"
+      - "traefik.http.routers.ddalab-web30.priority=100"
+      - "traefik.http.routers.ddalab-web30.service=ddalab-web30"
+      - "traefik.http.routers.ddalab-web30.middlewares=web30-stripprefix"
+      - "traefik.http.middlewares.web30-stripprefix.stripprefix.prefixes=/web30"
+      - "traefik.http.services.ddalab-web30.loadbalancer.server.port=3001"
+      # Web30 assets routing - route /web30-assets to web30 service  
+      - "traefik.http.routers.ddalab-web30-assets.rule=Host(`localhost`) && PathPrefix(`/web30-assets`)"
+      - "traefik.http.routers.ddalab-web30-assets.entrypoints=websecure"
+      - "traefik.http.routers.ddalab-web30-assets.tls=true"
+      - "traefik.http.routers.ddalab-web30-assets.priority=100"
+      - "traefik.http.routers.ddalab-web30-assets.service=ddalab-web30-assets"
+      - "traefik.http.routers.ddalab-web30-assets.middlewares=web30-assets-stripprefix"
+      - "traefik.http.middlewares.web30-assets-stripprefix.stripprefix.prefixes=/web30-assets"
+      - "traefik.http.services.ddalab-web30-assets.loadbalancer.server.port=3001"
+      # Web30 specific assets routing - route web30-specific assets to web30
+      - "traefik.http.routers.ddalab-web30-specific.rule=Host(`localhost`) && PathRegexp(`^/_next/static/(css/ff370fba21abc9eb\\.css|css/d062c0149ade33ed\\.css|chunks/webpack-62929d1849f2de72\\.js|chunks/4bd1b696-c023c6e3521b1417\\.js|chunks/app/layout-c946412b78f516b4\\.js|chunks/255-40634877ae3e8e9d\\.js|chunks/382-2ba84b7bacea0237\\.js|chunks/main-app-40e5fb769bb8164f\\.js|chunks/app/dashboard/page-e46aba4944e6582f\\.js|chunks/framework-fffd2192ef0a6589\\.js|chunks/main-327a9076db36026f\\.js|chunks/polyfills-42372ed130431b0a\\.js|chunks/app/page-f47082ca351a8369\\.js)`)"
+      - "traefik.http.routers.ddalab-web30-specific.entrypoints=websecure"
+      - "traefik.http.routers.ddalab-web30-specific.tls=true"
+      - "traefik.http.routers.ddalab-web30-specific.priority=50"
+      - "traefik.http.routers.ddalab-web30-specific.service=ddalab-web30-specific"
+      - "traefik.http.services.ddalab-web30-specific.loadbalancer.server.port=3001"
+      # Web20 assets routing - route /_next to web20 service (default)
+      - "traefik.http.routers.ddalab-web20-assets.rule=Host(`localhost`) && PathPrefix(`/_next/static/chunks/19-`)"
+      - "traefik.http.routers.ddalab-web20-assets.entrypoints=websecure"
+      - "traefik.http.routers.ddalab-web20-assets.tls=true"
+      - "traefik.http.routers.ddalab-web20-assets.priority=10"
+      - "traefik.http.routers.ddalab-web20-assets.service=ddalab-web20"
+      # Web20 interface routing (default) - explicitly exclude _next fallback paths
+      - "traefik.http.routers.ddalab-web20.rule=Host(`localhost`) && !PathPrefix(`/api`) && !PathPrefix(`/api-backend`) && !PathPrefix(`/docs`) && !PathPrefix(`/graphql`) && !PathPrefix(`/web30`) && !PathPrefix(`/web30-assets`) && !PathPrefix(`/_next`)"
+      - "traefik.http.routers.ddalab-web20.entrypoints=websecure"
+      - "traefik.http.routers.ddalab-web20.tls=true"
+      - "traefik.http.routers.ddalab-web20.priority=1"
+      - "traefik.http.routers.ddalab-web20.service=ddalab-web20"
+      - "traefik.http.services.ddalab-web20.loadbalancer.server.port=3000"
       # API routing through HTTPS
       - "traefik.http.routers.ddalab-api.rule=Host(`localhost`) && (PathPrefix(`/api`) || PathPrefix(`/api-backend`) || PathPrefix(`/docs`) || PathPrefix(`/graphql`))"
       - "traefik.http.routers.ddalab-api.entrypoints=websecure"
@@ -124,6 +156,9 @@ services:
       # Enable Docker provider
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
+      # Enable file provider for TLS configuration
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
       # Configure entrypoints
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
@@ -139,6 +174,8 @@ services:
       - "8001:8001"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./certs:/etc/traefik/certs:ro
+      - ./dynamic:/etc/traefik/dynamic:ro
     networks:
       - ddalab-network
     depends_on:

@@ -12,6 +12,9 @@ elif [ -f "../../.env" ]; then
     set -a  # Export all variables
     . ../../.env
     set +a  # Stop exporting
+elif [ -n "$DDALAB_CONFIG_FILE" ]; then
+    echo "Using environment variables from Docker entrypoint..."
+    # Environment variables are already set by docker-entrypoint.sh
 else
     echo "❌ No environment file found!"
     echo "For development: create .env.dev"

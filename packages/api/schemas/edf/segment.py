@@ -5,7 +5,7 @@ class TimeDeltaParts(BaseModel):
     days: int
     hours: int
     minutes: int
-    seconds: int
+    seconds: float
 
 
 class Segment(BaseModel):

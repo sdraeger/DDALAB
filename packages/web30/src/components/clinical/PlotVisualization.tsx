@@ -435,7 +435,7 @@ export function PlotVisualization({
     // Create a true heatmap by drawing rectangles for each data point
     // We'll use a custom draw hook to render the heatmap
     const series: UPlot.Series[] = [
-      { label: 'Scales' },
+      { label: 'Time/Scales' },
       { 
         label: 'Heatmap',
         stroke: 'transparent',
@@ -445,9 +445,9 @@ export function PlotVisualization({
       }
     ];
 
-    // Create minimal data structure (just for axes)
+    // Create minimal data structure (just for axes) - TRANSPOSED
     const uplotData: UPlot.AlignedData = [
-      scales,
+      scales.map((_, idx) => idx), // X-axis: scale indices (time-like)
       new Array(scales.length).fill(0) // Dummy data for second series
     ];
 
@@ -458,10 +458,12 @@ export function PlotVisualization({
       series,
       axes: [
         {
-          label: 'Scales',
+          label: 'Time/Scales',
           scale: 'x',
           stroke: '#555',
-          grid: { stroke: '#e0e0e0', width: 1 }
+          grid: { stroke: '#e0e0e0', width: 1 },
+          splits: () => scales.map((_, idx) => idx),
+          values: () => scales.map(s => s.toString())
         },
         {
           label: 'Channels',
@@ -474,9 +476,12 @@ export function PlotVisualization({
         }
       ],
       scales: {
-        x: { time: false },
+        x: { 
+          range: [-0.5, scales.length - 0.5] 
+        },
         y: { 
-          range: [-0.5, channels.length - 0.5] 
+          time: false,
+          range: [-0.5, channels.length - 0.5]
         }
       },
       legend: {
@@ -488,22 +493,24 @@ export function PlotVisualization({
             const { ctx } = u;
             if (!ctx) return;
 
-            // Draw the heatmap
+            // Draw the heatmap - TRANSPOSED
             const plotLeft = u.bbox.left;
             const plotTop = u.bbox.top;
             const plotWidth = u.bbox.width;
             const plotHeight = u.bbox.height;
             
-            const cellWidth = plotWidth / scales.length;
-            const cellHeight = plotHeight / channels.length;
+            const cellWidth = plotWidth / scales.length; // scales on X
+            const cellHeight = plotHeight / channels.length; // channels on Y
 
-            channels.forEach((channel, channelIdx) => {
-              const channelData = Q[channel];
-              channelData.forEach((value, scaleIdx) => {
+            scales.forEach((scale, scaleIdx) => {
+              channels.forEach((channel, channelIdx) => {
+                const channelData = Q[channel];
+                const value = channelData[scaleIdx];
                 const normalizedValue = (value - minVal) / (maxVal - minVal);
                 const color = getColormapColor(normalizedValue, colormap);
                 
-                const x = plotLeft + scaleIdx * cellWidth;
+                const x = plotLeft + scaleIdx * cellWidth; // scale index on X
+                // Y position: channels from top to bottom
                 const y = plotTop + channelIdx * cellHeight;
                 
                 ctx.fillStyle = color;

@@ -85,14 +85,21 @@ class ApiService {
 
     try {
       const controller = new AbortController();
-      // Allow overriding timeout via custom header (x-timeout-ms); default 60s for heavy EDF calls
+      // Allow overriding timeout via custom header (x-timeout-ms); shorter timeout for system status
       const specifiedTimeout =
         (headers["x-timeout-ms"] as any) || (options as any)?.timeoutMs;
-      const timeoutMs = specifiedTimeout ? Number(specifiedTimeout) : 60000;
+      const isSystemStatus = endpoint.includes('system-status');
+      const defaultTimeout = isSystemStatus ? 10000 : 60000; // 10s for status, 60s for heavy calls
+      const timeoutMs = specifiedTimeout ? Number(specifiedTimeout) : defaultTimeout;
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      
       const response = await fetch(url, {
         ...options,
-        headers,
+        headers: {
+          ...headers,
+          // Force connection close for system status to prevent pooling issues
+          ...(isSystemStatus ? { 'Connection': 'close' } : {}),
+        },
         signal: controller.signal,
       });
       clearTimeout(timeout);

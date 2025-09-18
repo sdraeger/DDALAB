@@ -1,5 +1,19 @@
 import { useAuthMode } from "../contexts/AuthModeContext";
-import { useSession, signOut } from "next-auth/react";
+import { useSession as useNextAuthSession, signOut } from "next-auth/react";
+
+// Safe wrapper for useSession that handles cases where SessionProvider is not present
+function useSafeSession() {
+  try {
+    return useNextAuthSession();
+  } catch (error) {
+    // SessionProvider not found, return mock data
+    return {
+      data: null,
+      status: "unauthenticated" as const,
+      update: async () => null,
+    };
+  }
+}
 
 export interface UnifiedUser {
   id: string;
@@ -64,7 +78,7 @@ export function useUnifiedSession(): UnifiedSession {
 
   // In multi-user mode, use NextAuth session
   if (authMode === "multi-user") {
-    const { data: nextAuthSession, status: nextAuthStatus } = useSession();
+    const { data: nextAuthSession, status: nextAuthStatus } = useSafeSession();
 
     if (nextAuthStatus === "loading") {
       return { user: null, status: "loading" };
@@ -131,7 +145,7 @@ export function useUnifiedSessionData(): UnifiedSessionData {
       data: nextAuthSession,
       status: nextAuthStatus,
       update,
-    } = useSession();
+    } = useSafeSession();
 
     if (nextAuthStatus === "loading") {
       return {

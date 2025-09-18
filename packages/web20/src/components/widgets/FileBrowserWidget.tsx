@@ -320,8 +320,8 @@ export function FileBrowserWidget({ onFileSelect, maxHeight = "400px" }: FileBro
 
 						if (durSec > segmentThresholdSec) {
 							const segRes = await apiService.request<string>(
-								`/api/edf/segment`,
-								{ method: 'POST', body: JSON.stringify({ file_path: filePath, segment }) }
+								`/api/edf/segment?file_path=${encodeURIComponent(filePath)}`,
+								{ method: 'POST', body: JSON.stringify(segment) }
 							);
 							if (!segRes.error && segRes.data) {
 								effectiveFilePath = segRes.data as unknown as string;

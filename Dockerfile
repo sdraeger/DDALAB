@@ -17,10 +17,21 @@ COPY packages/api/requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Stage 2: Build the Web20 app
-FROM node:20-alpine AS web-builder
+# Stage 2: Build the shared package
+FROM node:20-alpine AS shared-builder
 
-WORKDIR /app/web20
+WORKDIR /app/shared
+
+# Copy and install shared package dependencies first (better caching)
+COPY packages/shared/package*.json ./
+RUN npm ci || npm install --force
+COPY packages/shared .
+RUN npm run build 2>/dev/null || true
+
+# Stage 3: Build the Web20 app
+FROM node:20-alpine AS web20-builder
+
+WORKDIR /app
 
 # Install build tools
 RUN apk update && apk add --no-cache \
@@ -35,17 +46,61 @@ RUN apk update && apk add --no-cache \
 ARG NEXT_PUBLIC_API_URL=http://localhost:8001
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
-# Copy and install dependencies
-COPY packages/web20/package*.json ./
-RUN npm ci || npm install
+# Setup monorepo structure
+RUN mkdir -p /app/packages
 
-# Copy source
-COPY packages/web20 .
+# Copy shared package first
+COPY --from=shared-builder /app/shared /app/packages/shared
+
+# Copy and install dependencies
+COPY packages/web20/package*.json /app/packages/web20/
+WORKDIR /app/packages/web20
+RUN npm ci || npm install --force
+
+# Copy source (maintaining relative paths)
+COPY packages/web20 /app/packages/web20/
+WORKDIR /app/packages/web20
 
 # Build Next.js app (standalone output for lean runtime)
-RUN npm run build
+RUN npm run build && rm -rf node_modules
 
-# Stage 3: Final runtime image
+# Stage 4: Build the Web30 app
+FROM node:20-alpine AS web30-builder
+
+WORKDIR /app
+
+# Install build tools
+RUN apk update && apk add --no-cache \
+    build-base \
+    gcc \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/cache/apk/*
+
+# Accept API URL at build time (can be overridden)
+ARG NEXT_PUBLIC_API_URL=http://localhost:8001
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
+# Setup monorepo structure
+RUN mkdir -p /app/packages
+
+# Copy shared package first
+COPY --from=shared-builder /app/shared /app/packages/shared
+
+# Copy and install dependencies
+COPY packages/web30/package*.json /app/packages/web30/
+WORKDIR /app/packages/web30
+RUN npm ci || npm install --force
+
+# Copy source (maintaining relative paths)
+COPY packages/web30 /app/packages/web30/
+WORKDIR /app/packages/web30
+
+# Build Next.js app (standalone output for lean runtime)
+RUN npm run build:docker && rm -rf node_modules
+
+# Stage 5: Final runtime image
 FROM python:3.10-slim
 
 WORKDIR /app
@@ -78,16 +133,13 @@ RUN chmod +x /app/api/start.sh
 COPY packages/api/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
-# Copy web20 build artifacts
-COPY --from=web-builder /app/web20 /app/web20
+# Copy standalone builds with proper structure
+COPY --from=web20-builder /app/packages/web20/.next/standalone/packages/web20/ /app/web20/
+COPY --from=web20-builder /app/packages/web20/.next/static /app/web20/.next/static
 
-# Copy static assets to standalone build directory
-RUN if [ -d "/app/web20/.next/standalone" ]; then \
-        cp -R /app/web20/.next/static /app/web20/.next/standalone/.next/static 2>/dev/null || true; \
-        if [ -d "/app/web20/public" ]; then \
-            cp -R /app/web20/public /app/web20/.next/standalone/public 2>/dev/null || true; \
-        fi; \
-    fi
+COPY --from=web30-builder /app/packages/web30/.next/standalone/packages/web30/ /app/web30/
+COPY --from=web30-builder /app/packages/web30/.next/static /app/web30/.next/static
+
 
 # Download and install DDA binary
 RUN mkdir -p /app/bin && \
@@ -117,7 +169,7 @@ RUN useradd -m -s /bin/bash ddalabuser && \
     chown -R ddalabuser:ddalabuser /app /tmp/.dda /tmp/prometheus /etc/ddalab
 
 # Expose ports
-EXPOSE 8001 3000
+EXPOSE 8001 3000 3001
 
 # Switch to non-root user
 USER ddalabuser

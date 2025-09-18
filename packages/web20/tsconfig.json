@@ -46,6 +46,9 @@
       ],
       "shared": [
         "../shared"
+      ],
+      "@shared/*": [
+        "../shared/*"
       ]
     },
     "target": "ES2017"
