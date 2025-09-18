@@ -148,23 +148,40 @@ else
     API_PID=$!
 
     # Start the Next.js web20 server in the background
+    echo "Starting Next.js web20 in standalone mode..."
     cd /app/web20
     # Respect runtime env for API URL if provided
     export NEXT_PUBLIC_API_URL=${DDA_PUBLIC_API_URL:-${NEXT_PUBLIC_API_URL:-http://localhost:8001}}
-    # Use standalone server for production
-    if [ -f ".next/standalone/server.js" ]; then
-        echo "Starting Next.js in standalone mode..."
-        # Set port and hostname for standalone server
-        export PORT=${DDA_WEB_PORT:-3000}
-        export HOSTNAME=0.0.0.0
-        node .next/standalone/server.js &
+    export PORT=${DDA_WEB20_PORT:-3000}
+    export HOSTNAME=0.0.0.0
+    if [ -f "server.js" ]; then
+        node server.js &
     else
-        echo "Standalone build not found, falling back to npm start..."
-        npm run start -- --port ${DDA_WEB_PORT:-3000} &
+        echo "ERROR: web20 standalone build not found at /app/web20/server.js"
+        exit 1
     fi
-    WEB_PID=$!
+    WEB20_PID=$!
 
-    # Wait for both processes to finish
+    # Start the Next.js web30 server in the background (optional)
+    if [ -d "/app/web30" ] && [ -f "/app/web30/server.js" ]; then
+        echo "Starting Next.js web30 in standalone mode..."
+        cd /app/web30
+        # Respect runtime env for API URL if provided
+        export NEXT_PUBLIC_API_URL=${DDA_PUBLIC_API_URL:-${NEXT_PUBLIC_API_URL:-http://localhost:8001}}
+        export PORT=${DDA_WEB30_PORT:-3001}
+        export HOSTNAME=0.0.0.0
+        # Start the main Next.js server
+        node server.js &
+        WEB30_PID=$!
+    else
+        echo "Warning: web30 standalone build not found, skipping web30 frontend"
+        WEB30_PID=""
+    fi
+
+    # Wait for all processes to finish
     wait $API_PID
-    wait $WEB_PID
+    wait $WEB20_PID
+    if [ -n "$WEB30_PID" ]; then
+        wait $WEB30_PID
+    fi
 fi
