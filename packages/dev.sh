@@ -31,8 +31,8 @@ export DB_PORT=${DDALAB_DB_PORT:-5432}
 export API_PORT=${DDALAB_API_PORT:-8001}
 export DB_NAME=${DDALAB_DB_NAME:-ddalab_db}
 export MINIO_HOST=localhost:9000
-export MINIO_ACCESS_KEY=ddalab
-export MINIO_SECRET_KEY=ddalab_dev_key
+export MINIO_ACCESS_KEY=minioadmin
+export MINIO_SECRET_KEY=minioadmin
 export REDIS_HOST=localhost
 export DATA_DIR=${DATA_DIR:-/Users/$(whoami)/Desktop}
 export ALLOWED_DIRS=${ALLOWED_DIRS:-/Users/$(whoami)/Desktop}
@@ -40,8 +40,8 @@ export DDA_BINARY_PATH=${DDA_BINARY_PATH:-/Users/$(whoami)/Desktop/DDALAB/bin/ru
 export NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8001}
 export NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
 export NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
-export MINIO_ROOT_USER=${MINIO_ROOT_USER:-ddalab}
-export MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-ddalab_dev_key}
+export MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+export MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
 export JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-jwt-secret-key}
 export NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-dev-nextauth-secret-key}
 export DB_USER=${DB_USER:-ddalab}
@@ -92,16 +92,23 @@ until nc -z "$DB_HOST" "$DB_PORT"; do
 done
 
 # Check if we can connect directly as the target user
+# Try with both configured password and actual container password
 if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c '\q' 2>/dev/null; then
     echo "✓ Database user and database already exist"
+elif PGPASSWORD="ddalab" psql -h "$DB_HOST" -p "$DB_PORT" -U ddalab -d ddalab_db -c '\q' 2>/dev/null; then
+    echo "✓ Database user and database already exist (using container defaults)"
+    # Update variables to match what actually works
+    DB_PASSWORD="ddalab"
+    DB_NAME="ddalab_db"
+    DB_USER="ddalab"
 else
     echo "Database user or database doesn't exist, trying to create..."
-    
+
     # Try to connect as postgres superuser to create user/database
     # Default postgres superuser credentials for local development
     POSTGRES_USER=${POSTGRES_USER:-postgres}
     POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-    
+
     # Check if we can connect as postgres superuser
     if ! PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c '\q' 2>/dev/null; then
         echo "⚠️  Cannot connect as postgres superuser."
@@ -109,7 +116,7 @@ else
         echo "   You may need to set POSTGRES_USER and POSTGRES_PASSWORD environment variables."
         exit 1
     fi
-    
+
     # Create user if it doesn't exist
     echo "Creating database user '$DB_USER'..."
     PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres <<EOF
@@ -123,7 +130,7 @@ BEGIN
 END
 \$\$;
 EOF
-    
+
     # Create database if it doesn't exist
     echo "Creating database '$DB_NAME'..."
     PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres <<EOF
@@ -135,13 +142,13 @@ BEGIN
 END
 \$\$;
 EOF
-    
+
     # Grant all privileges on the database to the user
     PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" -d "$DB_NAME" <<EOF
 GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
 GRANT ALL ON SCHEMA public TO $DB_USER;
 EOF
-    
+
     # Verify the connection works now
     if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c '\q' 2>/dev/null; then
         echo "✓ Successfully created database user and database"
