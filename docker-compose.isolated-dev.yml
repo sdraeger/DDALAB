@@ -67,36 +67,36 @@ services:
       ENVIRONMENT: development
       DEBUG: "true"
       RELOAD: "true"
-      
+
       # Database - internal container names
       DB_HOST: postgres-dev
       DB_PORT: 5432
       DB_USER: ddalab_dev
       DB_PASSWORD: isolated_dev_pass
       DB_NAME: ddalab_isolated
-      
+
       # MinIO - internal container names
       MINIO_HOST: minio-dev:9000
       MINIO_ACCESS_KEY: isolated_minio
       MINIO_SECRET_KEY: isolated_minio_pass
-      
+
       # Redis - internal container names
       REDIS_HOST: redis-dev
       REDIS_PORT: 6379
-      
+
       # Auth
       AUTH_MODE: local
       JWT_SECRET_KEY: isolated_dev_jwt_secret_key_32chars
-      
+
       # Data paths
       DATA_DIR: /app/data
       ALLOWED_DIRS: /app/data
       DDA_BINARY_PATH: /app/bin/run_DDA_ASCII
-      
+
       # API settings
       API_HOST: 0.0.0.0
       API_PORT: 8001
-      
+
       # Python path
       PYTHONPATH: /app/packages/api
     # No external port exposure - accessed through traefik
@@ -127,40 +127,70 @@ services:
       - "traefik.http.middlewares.api-rewrite.replacepathregex.regex=^/api-backend/(.*)"
       - "traefik.http.middlewares.api-rewrite.replacepathregex.replacement=/api/$$1"
 
-  # Web20 Frontend with hot reload
-  web20-dev:
+  # Combined Web Frontend (Web20 + Web30) with hot reload
+  web-dev:
     build:
       context: .
       dockerfile: Dockerfile.isolated-dev
       target: web-dev
-    container_name: ddalab-web20-isolated
+    container_name: ddalab-web-isolated
     environment:
       NODE_ENV: development
+      # Web20 environment
       NEXT_PUBLIC_API_URL: http://localhost:3002
       NEXT_PUBLIC_APP_URL: http://localhost:3002
       NEXTAUTH_URL: http://localhost:3002
       NEXTAUTH_SECRET: isolated_dev_nextauth_secret
-      # Internal API URL for server-side NextAuth calls
+      # Web30 environment
+      WEB30_BASE_PATH: "true"
+      # Internal API URL for server-side calls
       API_URL: http://api-dev:8001
       API_BASE_URL: http://api-dev:8001
+    ports:
+      - "3000:3000"  # Web20 direct access (for debugging)
+      - "3001:3001"  # Web30 direct access (for debugging)
     networks:
       - ddalab-isolated
     volumes:
       - ./packages/web20:/app/packages/web20:cached
+      - ./packages/web30:/app/packages/web30:cached
       - ./packages/shared:/app/packages/shared:cached
       - /app/packages/web20/node_modules  # Prevent node_modules overwrite
       - /app/packages/web20/.next  # Prevent .next overwrite
-    working_dir: /app/packages/web20
-    command: ["npm", "run", "dev"]
+      - /app/packages/web30/node_modules  # Prevent node_modules overwrite
+      - /app/packages/web30/.next  # Prevent .next overwrite
+    working_dir: /app
+    command: ["/app/start-webs.sh"]
     depends_on:
       - api-dev
     labels:
       - "traefik.enable=true"
-      # Frontend routing - handle NextAuth routes and all other non-API routes
-      - "traefik.http.routers.web20-isolated.rule=Host(`localhost`) && (!PathPrefix(`/api-backend`) && !PathPrefix(`/docs`) && !PathPrefix(`/graphql`))"
-      - "traefik.http.routers.web20-isolated.entrypoints=web"
-      - "traefik.http.routers.web20-isolated.priority=10"
-      - "traefik.http.routers.web20-isolated.service=web20-isolated"
+      # Web30 page routing - basic PathPrefix test
+      - "traefik.http.routers.web30-pages-isolated.rule=Host(`localhost`) && PathPrefix(`/web30/`)"
+      - "traefik.http.routers.web30-pages-isolated.entrypoints=web"
+      - "traefik.http.routers.web30-pages-isolated.priority=200"
+      - "traefik.http.routers.web30-pages-isolated.service=web30-isolated"
+      - "traefik.http.routers.web30-pages-isolated.middlewares=web30-pages-strip"
+      - "traefik.http.middlewares.web30-pages-strip.stripprefix.prefixes=/web30"
+      # Web30 assets routing via /web30-assets prefix
+      - "traefik.http.routers.web30-assets-isolated.rule=Host(`localhost`) && PathPrefix(`/web30-assets`)"
+      - "traefik.http.routers.web30-assets-isolated.entrypoints=web"
+      - "traefik.http.routers.web30-assets-isolated.priority=250"
+      - "traefik.http.routers.web30-assets-isolated.service=web30-isolated"
+      # - "traefik.http.routers.web30-assets-isolated.middlewares=assets-strip-isolated"
+      # - "traefik.http.middlewares.assets-strip-isolated.stripprefix.prefixes=/web30-assets"
+      # Web20 assets routing - all other Next.js assets
+      - "traefik.http.routers.web20-assets-isolated.rule=Host(`localhost`) && PathPrefix(`/_next/`)"
+      - "traefik.http.routers.web20-assets-isolated.entrypoints=web"
+      - "traefik.http.routers.web20-assets-isolated.priority=100"
+      - "traefik.http.routers.web20-assets-isolated.service=web20-isolated"
+      # Web20 page routing - default for everything else
+      - "traefik.http.routers.web20-pages-isolated.rule=Host(`localhost`) && (!PathPrefix(`/api-backend`) && !PathPrefix(`/docs`) && !PathPrefix(`/graphql`) && !PathPrefix(`/web30`))"
+      - "traefik.http.routers.web20-pages-isolated.entrypoints=web"
+      - "traefik.http.routers.web20-pages-isolated.priority=10"
+      - "traefik.http.routers.web20-pages-isolated.service=web20-isolated"
+      # Service definitions
+      - "traefik.http.services.web30-isolated.loadbalancer.server.port=3001"
       - "traefik.http.services.web20-isolated.loadbalancer.server.port=3000"
 
   # Traefik reverse proxy for routing
@@ -181,7 +211,7 @@ services:
     networks:
       - ddalab-isolated
     depends_on:
-      - web20-dev
+      - web-dev
       - api-dev
 
 networks:

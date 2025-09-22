@@ -29,12 +29,26 @@ WORKDIR /app
 # Install dependencies for better compatibility
 RUN apk add --no-cache python3 make g++
 
-# Web development stage
+# Combined web development stage for both web20 and web30
 FROM node-base AS web-dev
 # Copy package files for dependency installation
 COPY package.json package-lock.json turbo.json ./
 COPY packages/web20/package.json ./packages/web20/
+COPY packages/web30/package.json ./packages/web30/
 COPY packages/shared/package.json ./packages/shared/
 # Install all dependencies
 RUN npm ci
-# The source code will be mounted as a volume for hot reload
+# Create startup script for dual web servers
+COPY <<EOF /app/start-webs.sh
+#!/bin/sh
+set -e
+echo "Starting web20 on port 3000..."
+cd /app/packages/web20 && npm run dev -- --port 3000 &
+WEB20_PID=\$!
+echo "Starting web30 on port 3001..."
+cd /app/packages/web30 && npm run dev -- --port 3001 &
+WEB30_PID=\$!
+echo "Both web servers started. PID web20: \$WEB20_PID, PID web30: \$WEB30_PID"
+wait \$WEB20_PID \$WEB30_PID
+EOF
+RUN chmod +x /app/start-webs.sh
