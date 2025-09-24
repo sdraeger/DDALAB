@@ -440,9 +440,7 @@ export function DDAResults({ result }: DDAResultsProps) {
             <div>
               <CardTitle className="text-lg">DDA Results Visualization</CardTitle>
               <CardDescription>
-                Analysis from {new Date(result.created_at).toLocaleDateString()} • 
-                {result.channels.length} channels • 
-                R² = {(result.results.quality_metrics.mean_r_squared * 100).toFixed(1)}%
+                Analysis from {new Date(result.created_at).toLocaleDateString()} • {result.channels.length} channels
               </CardDescription>
             </div>
             <div className="flex items-center space-x-2">

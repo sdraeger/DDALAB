@@ -302,7 +302,7 @@ async fn create_popout_window(
         .resizable(true)
         .build() 
     {
-        Ok(window) => {
+        Ok(_window) => {
             println!("Created popout window: {}", label);
             Ok(label)
         },
