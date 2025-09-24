@@ -41,13 +41,22 @@ export function FileManager({ apiService }: FileManagerProps) {
   
   const [files, setFiles] = useState<EDFFileInfo[]>([])
   const [directories, setDirectories] = useState<Array<{name: string, path: string}>>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true) // Start with loading true
   const [error, setError] = useState<string | null>(null)
+  const [isInitialLoad, setIsInitialLoad] = useState(true)
 
-  // Load files when path changes
+  // Load files when component mounts or path changes
   useEffect(() => {
     loadCurrentDirectory()
   }, [fileManager.currentPath])
+
+  // Ensure we load on mount even if currentPath hasn't changed
+  useEffect(() => {
+    if (isInitialLoad) {
+      setIsInitialLoad(false)
+      loadCurrentDirectory()
+    }
+  }, [])
 
   const loadCurrentDirectory = async () => {
     try {
@@ -57,8 +66,16 @@ export function FileManager({ apiService }: FileManagerProps) {
       const pathStr = fileManager.currentPath.join('/')
       console.log('Loading directory:', pathStr || 'root')
       
-      // Get directory listing
-      const result = await apiService.listDirectory(pathStr)
+      // Add a timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Loading timeout - please try refreshing')), 10000)
+      )
+      
+      // Get directory listing with timeout
+      const result = await Promise.race([
+        apiService.listDirectory(pathStr),
+        timeoutPromise
+      ]) as Awaited<ReturnType<typeof apiService.listDirectory>>
       
       if (result.files) {
         // Separate directories and files
@@ -354,14 +371,17 @@ export function FileManager({ apiService }: FileManagerProps) {
           </div>
         )}
 
-        {loading && (
-          <div className="flex items-center justify-center py-8">
-            <RefreshCw className="h-6 w-6 animate-spin mr-2" />
-            Loading...
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-8 gap-4">
+            <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+            <div className="text-center">
+              <p className="font-medium">Loading files...</p>
+              <p className="text-sm text-muted-foreground">
+                Scanning {fileManager.currentPath.length > 0 ? fileManager.currentPath.join('/') : 'root directory'}
+              </p>
+            </div>
           </div>
-        )}
-
-        {!loading && (
+        ) : (
           <div className="space-y-2">
             {/* Directories */}
             {directories.map((dir) => (
@@ -420,7 +440,7 @@ export function FileManager({ apiService }: FileManagerProps) {
               </div>
             ))}
 
-            {!loading && filteredAndSortedFiles.length === 0 && directories.length === 0 && (
+            {filteredAndSortedFiles.length === 0 && directories.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
                 <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>No files found</p>

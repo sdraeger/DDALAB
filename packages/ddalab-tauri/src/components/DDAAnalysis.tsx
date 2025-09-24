@@ -609,9 +609,6 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                           {analysis.channels.length} channels • {new Date(analysis.created_at).toLocaleString()}
                         </p>
                       </div>
-                      <Badge variant="outline" className="text-xs">
-                        {(analysis.results.quality_metrics.mean_r_squared * 100).toFixed(0)}% R²
-                      </Badge>
                     </div>
                   ))}
                 </div>
