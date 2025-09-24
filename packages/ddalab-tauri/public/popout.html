@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DDALAB Popout Window</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: #ffffff;
+            color: #000000;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .titlebar {
+            height: 40px;
+            background: #f5f5f5;
+            border-bottom: 1px solid #e5e5e5;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 12px;
+            user-select: none;
+        }
+        
+        .titlebar-title {
+            font-size: 13px;
+            font-weight: 500;
+            color: #666;
+        }
+        
+        .titlebar-controls {
+            display: flex;
+            gap: 4px;
+        }
+        
+        .titlebar-button {
+            width: 28px;
+            height: 28px;
+            border: none;
+            border-radius: 4px;
+            background: transparent;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+        
+        .titlebar-button:hover {
+            background: #e5e5e5;
+        }
+        
+        .close-button:hover {
+            background: #ff4444;
+            color: white;
+        }
+        
+        .content {
+            flex: 1;
+            padding: 20px;
+            overflow: auto;
+        }
+        
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .error {
+            color: #ff4444;
+            background: #fff5f5;
+            padding: 12px;
+            border: 1px solid #fecaca;
+            border-radius: 6px;
+            margin: 20px;
+        }
+        
+        .lock-indicator {
+            background: #fef3c7;
+            border-bottom: 1px solid #f59e0b;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: #92400e;
+        }
+        
+        .status-bar {
+            height: 24px;
+            background: #f9f9f9;
+            border-top: 1px solid #e5e5e5;
+            display: flex;
+            align-items: center;
+            justify-content: between;
+            padding: 0 12px;
+            font-size: 11px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="titlebar" data-tauri-drag-region>
+        <div class="titlebar-title" id="window-title">DDALAB Popout</div>
+        <div class="titlebar-controls">
+            <button class="titlebar-button" id="lock-button" title="Lock/Unlock window">🔒</button>
+            <button class="titlebar-button" id="refresh-button" title="Refresh">↻</button>
+            <button class="titlebar-button" id="minimize-button" title="Minimize">−</button>
+            <button class="titlebar-button close-button" id="close-button" title="Close">×</button>
+        </div>
+    </div>
+    
+    <div id="lock-indicator" class="lock-indicator" style="display: none;">
+        🔒 Window is locked - not receiving updates from main UI
+    </div>
+    
+    <div class="content">
+        <div class="loading" id="loading">
+            Waiting for data...
+        </div>
+        <div id="content-area" style="display: none;">
+            <!-- Dynamic content will be inserted here -->
+        </div>
+        <div class="error" id="error" style="display: none;">
+            <!-- Error messages will be shown here -->
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <span id="status-text">Initializing...</span>
+    </div>
+
+    <script type="module">
+        console.log('Popout window script starting...');
+        
+        // Get window parameters from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const windowId = urlParams.get('id');
+        const windowType = urlParams.get('type');
+        
+        console.log('Window parameters:', { windowId, windowType });
+
+        let isLocked = false;
+        let currentData = null;
+
+        // Update title based on window type
+        const titleMap = {
+            'timeseries': 'Time Series Plot',
+            'dda-results': 'DDA Analysis Results',
+            'eeg-visualization': 'EEG Visualization'
+        };
+        
+        const titleElement = document.getElementById('window-title');
+        if (titleMap[windowType]) {
+            titleElement.textContent = titleMap[windowType];
+        }
+
+        // Update status
+        function updateStatus(message) {
+            const statusElement = document.getElementById('status-text');
+            statusElement.textContent = message;
+        }
+
+        function updateLockButton() {
+            const lockButton = document.getElementById('lock-button');
+            const lockIndicator = document.getElementById('lock-indicator');
+            
+            lockButton.textContent = isLocked ? '🔓' : '🔒';
+            lockButton.title = isLocked ? 'Unlock window' : 'Lock window';
+            lockIndicator.style.display = isLocked ? 'block' : 'none';
+        }
+
+        function showError(message) {
+            const errorElement = document.getElementById('error');
+            const loadingElement = document.getElementById('loading');
+            const contentElement = document.getElementById('content-area');
+
+            errorElement.textContent = message;
+            errorElement.style.display = 'block';
+            loadingElement.style.display = 'none';
+            contentElement.style.display = 'none';
+        }
+
+        function renderContent(data) {
+            const loadingElement = document.getElementById('loading');
+            const contentElement = document.getElementById('content-area');
+            const errorElement = document.getElementById('error');
+
+            loadingElement.style.display = 'none';
+            errorElement.style.display = 'none';
+            contentElement.style.display = 'block';
+
+            try {
+                if (windowType === 'timeseries') {
+                    renderTimeSeriesContent(data, contentElement);
+                } else if (windowType === 'dda-results') {
+                    renderDDAResultsContent(data, contentElement);
+                } else if (windowType === 'eeg-visualization') {
+                    renderTimeSeriesContent(data, contentElement); // Reuse for now
+                } else {
+                    contentElement.innerHTML = '<div>Unknown window type: ' + windowType + '</div>';
+                }
+                updateStatus(`Last update: ${new Date().toLocaleTimeString()}`);
+            } catch (error) {
+                console.error('Error rendering content:', error);
+                showError('Error rendering content: ' + error.message);
+            }
+        }
+
+        function renderTimeSeriesContent(data, container) {
+            if (!data || !data.channels) {
+                container.innerHTML = '<div>No time series data available</div>';
+                return;
+            }
+
+            container.innerHTML = `
+                <div>
+                    <h2 style="margin-bottom: 16px; color: #333;">Time Series Plot</h2>
+                    <div style="display: grid; gap: 12px;">
+                        <div><strong>Channels:</strong> ${data.channels.length}</div>
+                        <div><strong>Sample Rate:</strong> ${data.sampleRate} Hz</div>
+                        <div><strong>Time Window:</strong> ${data.timeWindow}s</div>
+                        <div><strong>Data Points:</strong> ${data.data ? data.data.length : 0}</div>
+                        <div><strong>Current Time:</strong> ${data.currentTime}s</div>
+                        ${data.channels && data.channels.length > 0 ? `
+                            <div>
+                                <strong>Channels:</strong><br>
+                                <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px;">
+                                    ${data.channels.map(ch => `<span style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 12px;">${ch}</span>`).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderDDAResultsContent(data, container) {
+            if (!data || !data.result) {
+                container.innerHTML = '<div>No DDA results available</div>';
+                return;
+            }
+
+            const result = data.result;
+            container.innerHTML = `
+                <div>
+                    <h2 style="margin-bottom: 16px; color: #333;">DDA Analysis Results</h2>
+                    <div style="display: grid; gap: 12px;">
+                        <div><strong>Result ID:</strong> ${result.id}</div>
+                        <div><strong>Channels:</strong> ${result.channels ? result.channels.length : 0}</div>
+                        <div><strong>Created:</strong> ${result.created_at ? new Date(result.created_at).toLocaleString() : 'Unknown'}</div>
+                        ${result.channels && result.channels.length > 0 ? `
+                            <div>
+                                <strong>Channel List:</strong><br>
+                                <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px;">
+                                    ${result.channels.map(ch => `<span style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 12px;">${ch}</span>`).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Initialize Tauri event listeners
+        async function initializeTauri() {
+            try {
+                updateStatus('Connecting to Tauri...');
+                
+                if (!window.__TAURI__) {
+                    throw new Error('Tauri API not available');
+                }
+
+                const { listen, emit } = window.__TAURI__.event;
+                const { getCurrentWindow } = window.__TAURI__.window;
+
+                updateStatus('Setting up event listeners...');
+
+                // Listen for data updates
+                if (windowId) {
+                    await listen(`data-update-${windowId}`, (event) => {
+                        console.log('Received data update:', event.payload);
+                        if (!isLocked) {
+                            currentData = event.payload.data;
+                            renderContent(currentData);
+                        } else {
+                            console.log('Window is locked, ignoring data update');
+                        }
+                    });
+
+                    // Listen for lock state changes
+                    await listen(`lock-state-${windowId}`, (event) => {
+                        isLocked = event.payload.locked;
+                        updateLockButton();
+                        updateStatus(`Window ${isLocked ? 'locked' : 'unlocked'}`);
+                    });
+
+                    console.log('Event listeners set up successfully');
+                    updateStatus(`Ready - Window ID: ${windowId}`);
+                }
+
+                // Window controls
+                document.getElementById('close-button').addEventListener('click', async () => {
+                    const currentWindow = getCurrentWindow();
+                    await currentWindow.close();
+                });
+
+                document.getElementById('minimize-button').addEventListener('click', async () => {
+                    const currentWindow = getCurrentWindow();
+                    await currentWindow.minimize();
+                });
+
+                document.getElementById('lock-button').addEventListener('click', async () => {
+                    const eventName = isLocked ? `unlock-window-${windowId}` : `lock-window-${windowId}`;
+                    await emit(eventName);
+                    updateStatus(`${isLocked ? 'Unlocking' : 'Locking'} window...`);
+                });
+
+                document.getElementById('refresh-button').addEventListener('click', () => {
+                    if (currentData) {
+                        renderContent(currentData);
+                        updateStatus('Content refreshed');
+                    }
+                });
+
+            } catch (error) {
+                console.error('Failed to initialize Tauri:', error);
+                showError('Failed to initialize Tauri: ' + error.message);
+                updateStatus('Error: ' + error.message);
+            }
+        }
+
+        // Initialize when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeTauri);
+        } else {
+            initializeTauri();
+        }
+
+        // Initial setup
+        updateLockButton();
+        
+        console.log('Popout window initialized:', { windowId, windowType });
+    </script>
+</body>
+</html>

@@ -1,0 +1,129 @@
+# API-only development environment for DDALAB Tauri app
+# Contains only the API server and its required dependencies
+
+services:
+  # PostgreSQL Database
+  postgres-dev:
+    image: postgres:16-alpine
+    container_name: ddalab-postgres-api-only
+    environment:
+      POSTGRES_USER: ddalab_dev
+      POSTGRES_PASSWORD: isolated_dev_pass
+      POSTGRES_DB: ddalab_isolated
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-api-only:/var/lib/postgresql/data
+    networks:
+      - ddalab-api-only
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "ddalab_dev", "-d", "ddalab_isolated"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Redis Cache
+  redis-dev:
+    image: redis:7-alpine
+    container_name: ddalab-redis-api-only
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis-api-only:/data
+    networks:
+      - ddalab-api-only
+
+  # MinIO Object Storage
+  minio-dev:
+    image: minio/minio:latest
+    container_name: ddalab-minio-api-only
+    environment:
+      MINIO_ROOT_USER: isolated_minio
+      MINIO_ROOT_PASSWORD: isolated_minio_pass
+    ports:
+      - "9002:9000"
+      - "9003:9001"
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-api-only:/data
+    networks:
+      - ddalab-api-only
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # API Server only - exposed on localhost:8000
+  api-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.isolated-dev
+      target: api-dev
+    container_name: ddalab-api-only
+    environment:
+      # Core settings
+      ENVIRONMENT: development
+      DEBUG: "true"
+      RELOAD: "true"
+
+      # Database
+      DB_HOST: postgres-dev
+      DB_PORT: 5432
+      DB_USER: ddalab_dev
+      DB_PASSWORD: isolated_dev_pass
+      DB_NAME: ddalab_isolated
+
+      # MinIO
+      MINIO_HOST: minio-dev:9000
+      MINIO_ACCESS_KEY: isolated_minio
+      MINIO_SECRET_KEY: isolated_minio_pass
+
+      # Redis
+      REDIS_HOST: redis-dev
+      REDIS_PORT: 6379
+
+      # Auth
+      AUTH_MODE: local
+      JWT_SECRET_KEY: isolated_dev_jwt_secret_key_32chars
+
+      # Data paths
+      DATA_DIR: /app/data
+      ALLOWED_DIRS: /app/data
+      DDA_BINARY_PATH: /app/bin/run_DDA_ASCII
+
+      # API settings - bind to all interfaces and expose on 8000
+      API_HOST: 0.0.0.0
+      API_PORT: 8001
+
+      # CORS settings for Tauri desktop app
+      CORS_ORIGINS: "tauri://localhost,http://localhost:3003,http://localhost:3000"
+
+      # Python path
+      PYTHONPATH: /app/packages/api
+    ports:
+      - "8000:8001"  # Expose API directly on 8000 for Tauri
+    volumes:
+      - ./packages/api:/app/packages/api:cached
+      - ./data:/app/data
+      - ./bin:/app/bin:ro
+    depends_on:
+      postgres-dev:
+        condition: service_healthy
+      redis-dev:
+        condition: service_started
+      minio-dev:
+        condition: service_healthy
+    networks:
+      - ddalab-api-only
+    command: ["sh", "-c", "cd /app && python -m packages.api.apply_sql_files --dbname ddalab_isolated --user ddalab_dev --password isolated_dev_pass --host postgres-dev --port 5432 --email admin@isolated.dev --first_name Admin --last_name User && uvicorn packages.api.main:app --host 0.0.0.0 --port 8001 --reload"]
+
+networks:
+  ddalab-api-only:
+    name: ddalab-api-only-network
+    driver: bridge
+
+volumes:
+  postgres-api-only:
+  redis-api-only:
+  minio-api-only:

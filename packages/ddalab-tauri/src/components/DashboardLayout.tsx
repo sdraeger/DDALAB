@@ -1,0 +1,279 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { ApiService } from '@/services/apiService'
+import { useAppStore } from '@/store/appStore'
+import { FileManager } from '@/components/FileManager'
+import { HealthStatusBar } from '@/components/HealthStatusBar'
+import { TimeSeriesPlot } from '@/components/TimeSeriesPlot'
+import { DDAAnalysis } from '@/components/DDAAnalysis'
+import { DDAResults } from '@/components/DDAResults'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Button } from '@/components/ui/button'
+import { 
+  Brain, 
+  FileText, 
+  BarChart3, 
+  Activity, 
+  Settings, 
+  PanelLeftClose,
+  PanelLeftOpen,
+  Maximize2,
+  Minimize2
+} from 'lucide-react'
+import { TauriService } from '@/services/tauriService'
+
+interface DashboardLayoutProps {
+  apiUrl: string
+}
+
+export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
+  const [apiService] = useState(() => new ApiService(apiUrl))
+  const { 
+    ui, 
+    fileManager, 
+    dda,
+    isInitialized,
+    initializeFromTauri,
+    setSidebarOpen, 
+    setActiveTab,
+    setLayout 
+  } = useAppStore()
+
+  // Initialize state from Tauri on mount
+  useEffect(() => {
+    if (!isInitialized) {
+      initializeFromTauri()
+    }
+  }, [isInitialized, initializeFromTauri])
+
+  const handleMinimize = async () => {
+    if (TauriService.isTauri()) {
+      await TauriService.minimizeWindow()
+    }
+  }
+
+  const handleMaximize = async () => {
+    if (TauriService.isTauri()) {
+      await TauriService.maximizeWindow()
+    }
+  }
+
+  const handleClose = async () => {
+    if (TauriService.isTauri()) {
+      await TauriService.closeWindow()
+    }
+  }
+
+  return (
+    <div className="h-screen flex flex-col bg-background">
+      {/* Title Bar */}
+      <div className="flex items-center justify-between px-4 py-2 border-b bg-background">
+        <div className="flex items-center space-x-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setSidebarOpen(!ui.sidebarOpen)}
+            className="h-8 w-8"
+          >
+            {ui.sidebarOpen ? 
+              <PanelLeftClose className="h-4 w-4" /> : 
+              <PanelLeftOpen className="h-4 w-4" />
+            }
+          </Button>
+          
+          <div className="flex items-center space-x-2">
+            <Brain className="h-6 w-6 text-primary" />
+            <div>
+              <h1 className="text-lg font-bold">DDALAB Desktop</h1>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <div className="text-sm text-muted-foreground">
+            {fileManager.selectedFile?.file_name || 'No file selected'}
+          </div>
+          
+          {TauriService.isTauri() && (
+            <div className="flex items-center space-x-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleMinimize}
+                className="h-6 w-6"
+              >
+                <Minimize2 className="h-3 w-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleMaximize}
+                className="h-6 w-6"
+              >
+                <Maximize2 className="h-3 w-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleClose}
+                className="h-6 w-6 text-red-500 hover:text-red-600"
+              >
+                ×
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Sidebar */}
+        {ui.sidebarOpen && (
+          <div className="w-80 border-r bg-background overflow-hidden flex flex-col">
+            <FileManager apiService={apiService} />
+          </div>
+        )}
+
+        {/* Content Area */}
+        <div className="flex-1 flex flex-col">
+          <Tabs 
+            value={ui.activeTab} 
+            onValueChange={setActiveTab}
+            className="flex-1 flex flex-col"
+          >
+            {/* Tab Navigation */}
+            <div className="border-b px-4 py-2">
+              <TabsList>
+                <TabsTrigger value="files" className="flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  Files
+                </TabsTrigger>
+                <TabsTrigger value="plots" className="flex items-center gap-2">
+                  <Activity className="h-4 w-4" />
+                  Time Series
+                </TabsTrigger>
+                <TabsTrigger value="analysis" className="flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4" />
+                  DDA Analysis
+                </TabsTrigger>
+                <TabsTrigger value="results" className="flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  Results
+                </TabsTrigger>
+              </TabsList>
+            </div>
+
+            {/* Tab Content */}
+            <div className="flex-1 overflow-auto">
+              <TabsContent value="files" className="h-full m-0">
+                <div className="p-6 h-full">
+                  {fileManager.selectedFile ? (
+                    <div className="space-y-6">
+                      <div>
+                        <h2 className="text-2xl font-bold mb-4">File Details</h2>
+                        <div className="bg-card border rounded-lg p-6">
+                          <h3 className="text-lg font-semibold mb-4">{fileManager.selectedFile.file_name}</h3>
+                          <div className="grid md:grid-cols-2 gap-6">
+                            <div className="space-y-3">
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Duration:</span>
+                                <span>{fileManager.selectedFile.duration?.toFixed(2) || '0'}s</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Sample Rate:</span>
+                                <span>{fileManager.selectedFile.sample_rate} Hz</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Total Samples:</span>
+                                <span>{fileManager.selectedFile.total_samples?.toLocaleString() || '0'}</span>
+                              </div>
+                            </div>
+                            <div className="space-y-3">
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Channels:</span>
+                                <span>{fileManager.selectedFile.channels.length}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">File Size:</span>
+                                <span>{(fileManager.selectedFile.file_size / 1024 / 1024).toFixed(2)} MB</span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {fileManager.selectedFile.channels.length > 0 && (
+                            <div className="mt-6">
+                              <h4 className="font-medium mb-3">Available Channels:</h4>
+                              <div className="flex flex-wrap gap-2">
+                                {fileManager.selectedFile.channels.slice(0, 20).map((channel, index) => (
+                                  <span
+                                    key={index}
+                                    className="px-2 py-1 bg-secondary text-secondary-foreground rounded text-sm"
+                                  >
+                                    {channel}
+                                  </span>
+                                ))}
+                                {fileManager.selectedFile.channels.length > 20 && (
+                                  <span className="px-2 py-1 bg-muted text-muted-foreground rounded text-sm">
+                                    +{fileManager.selectedFile.channels.length - 20} more
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center">
+                        <FileText className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+                        <h3 className="text-lg font-medium mb-2">No File Selected</h3>
+                        <p className="text-muted-foreground">
+                          Select a file from the sidebar to view its details
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="plots" className="h-full m-0">
+                <div className="p-4 h-full">
+                  <TimeSeriesPlot apiService={apiService} />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="analysis" className="h-full m-0">
+                <div className="p-4 h-full">
+                  <DDAAnalysis apiService={apiService} />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="results" className="h-full m-0">
+                <div className="p-4 h-full">
+                  {dda.currentAnalysis ? (
+                    <DDAResults result={dda.currentAnalysis} />
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center">
+                        <Settings className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+                        <h3 className="text-lg font-medium mb-2">No Analysis Results</h3>
+                        <p className="text-muted-foreground">
+                          Run a DDA analysis to see results here
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+            </div>
+          </Tabs>
+        </div>
+      </div>
+
+      {/* Health Status Bar */}
+      <HealthStatusBar apiService={apiService} />
+    </div>
+  )
+}
