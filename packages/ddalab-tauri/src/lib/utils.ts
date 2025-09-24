@@ -26,7 +26,7 @@ export function formatDate(dateString: string): string {
 
 export function formatDateTime(dateString: string): string {
   try {
-    return format(new Date(dateString), 'MMM d, yyyy h:mm a')
+    return format(new Date(dateString), 'MMM d, yyyy h:mm:ss a')
   } catch {
     return 'Unknown'
   }
