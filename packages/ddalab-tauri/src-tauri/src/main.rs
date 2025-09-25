@@ -120,6 +120,7 @@ impl Default for AppPreferences {
 struct AppStateManager {
     state: Arc<RwLock<AppState>>,
     config_path: PathBuf,
+    analysis_preview_data: Arc<RwLock<HashMap<String, serde_json::Value>>>,
 }
 
 impl AppStateManager {
@@ -146,6 +147,7 @@ impl AppStateManager {
         Ok(Self {
             state: Arc::new(RwLock::new(state)),
             config_path,
+            analysis_preview_data: Arc::new(RwLock::new(HashMap::new())),
         })
     }
     
@@ -173,6 +175,16 @@ impl AppStateManager {
             updater(&mut state);
         }
         self.save()
+    }
+    
+    fn store_analysis_preview_data(&self, window_id: String, analysis_data: serde_json::Value) {
+        let mut preview_data = self.analysis_preview_data.write();
+        preview_data.insert(window_id, analysis_data);
+    }
+    
+    fn get_analysis_preview_data(&self, window_id: &str) -> Option<serde_json::Value> {
+        let preview_data = self.analysis_preview_data.read();
+        preview_data.get(window_id).cloned()
     }
 }
 
@@ -313,6 +325,27 @@ async fn create_popout_window(
     }
 }
 
+#[tauri::command]
+async fn store_analysis_preview_data(
+    state_manager: State<'_, AppStateManager>,
+    window_id: String,
+    analysis_data: serde_json::Value,
+) -> Result<(), String> {
+    state_manager.store_analysis_preview_data(window_id, analysis_data);
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_analysis_preview_data(
+    state_manager: State<'_, AppStateManager>,
+    window_id: String,
+) -> Result<serde_json::Value, String> {
+    match state_manager.get_analysis_preview_data(&window_id) {
+        Some(data) => Ok(data),
+        None => Err(format!("Analysis preview data not found for window: {}", window_id))
+    }
+}
+
 // TODO: Implement menu system with Tauri v2 API
 // Menu system removed for Tauri v2 - will need to be reimplemented with new API
 // Reference: https://tauri.app/v2/reference/rust/tauri/
@@ -337,7 +370,9 @@ fn main() {
             check_api_connection,
             open_file_dialog,
             show_notification,
-            create_popout_window
+            create_popout_window,
+            store_analysis_preview_data,
+            get_analysis_preview_data
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();

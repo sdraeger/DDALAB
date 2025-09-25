@@ -493,7 +493,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     }
 
     try {
-      const windowId = await createWindow('timeseries', Date.now().toString(), timeSeriesData)
+      const windowId = await createWindow('timeseries', 'main', timeSeriesData)
       console.log('Created timeseries popout window:', windowId)
     } catch (error) {
       console.error('Failed to create popout window:', error)
