@@ -80,6 +80,7 @@ export interface AppState {
   dda: DDAState
   setCurrentAnalysis: (analysis: DDAResult | null) => void
   addAnalysisToHistory: (analysis: DDAResult) => void
+  setAnalysisHistory: (analyses: DDAResult[]) => void
   updateAnalysisParameters: (parameters: Partial<DDAState['analysisParameters']>) => void
   setDDARunning: (running: boolean) => void
 
@@ -313,6 +314,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         analysisHistory: [analysis, ...state.dda.analysisHistory.slice(0, 9)]
       }
     }))
+  },
+
+  setAnalysisHistory: (analyses) => {
+    set((state) => ({ dda: { ...state.dda, analysisHistory: analyses } }))
   },
   
   updateAnalysisParameters: (parameters) => {

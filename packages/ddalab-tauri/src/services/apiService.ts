@@ -92,47 +92,41 @@ export class ApiService {
 
   async getFileInfo(filePath: string): Promise<EDFFileInfo> {
     try {
-      console.log('Getting file info for:', filePath)
-      
-      const response = await this.client.get(`/api/edf/data`, {
+      // Get EDF-specific metadata from the correct endpoint
+      const edfResponse = await this.client.get(`/api/edf/info`, {
         params: {
-          file_path: filePath,
-          chunk_start: 0,
-          chunk_size: 1000  // Get some initial data to calculate duration properly
+          file_path: filePath
         }
       })
       
-      console.log('File info response:', response.data)
-      console.log('Raw response keys:', Object.keys(response.data))
-      console.log('Data shape check:', {
-        hasData: !!response.data.data,
-        dataLength: response.data.data?.length,
-        firstChannelLength: response.data.data?.[0]?.length,
-        totalSamples: response.data.total_samples,
-        sampleRate: response.data.sample_rate || response.data.sampling_rate
-      })
-      
-      const sampleRate = response.data.sampling_frequency || response.data.sample_rate || 256
-      const totalSamples = response.data.total_samples || 0
-      const calculatedDuration = totalSamples > 0 && sampleRate > 0 ? totalSamples / sampleRate : 0
-      
-      console.log('Duration calculation:', {
-        totalSamples,
-        sampleRate,
-        calculatedDuration,
-        responseDuration: response.data.duration
-      })
+      // Get file size from files list endpoint
+      let fileSize = 0
+      try {
+        const directory = filePath.substring(0, filePath.lastIndexOf('/'))
+        const fileName = filePath.split('/').pop() || filePath
+        
+        const filesResponse = await this.client.get(`/api/files/list`, {
+          params: {
+            path: directory
+          }
+        })
+        
+        const fileEntry = filesResponse.data.files?.find((f: any) => f.name === fileName)
+        fileSize = fileEntry?.file_size || fileEntry?.size || 0
+      } catch (filesError) {
+        console.warn('Could not get file size from files endpoint:', filesError)
+      }
       
       const fileInfo: EDFFileInfo = {
         file_path: filePath,
         file_name: filePath.split('/').pop() || filePath,
-        file_size: response.data.file_size || 0,
-        duration: response.data.duration || calculatedDuration,
-        sample_rate: sampleRate,
-        channels: response.data.channel_labels || response.data.channels || [],
-        total_samples: totalSamples,
-        start_time: response.data.start_time || new Date().toISOString(),
-        end_time: response.data.end_time || new Date().toISOString(),
+        file_size: fileSize,
+        duration: edfResponse.data.total_duration || 0,
+        sample_rate: edfResponse.data.sampling_rate || 256,
+        channels: edfResponse.data.channels || [],
+        total_samples: edfResponse.data.total_samples || 0,
+        start_time: new Date().toISOString(),
+        end_time: new Date().toISOString(),
         annotations_count: 0
       }
       
@@ -449,6 +443,114 @@ export class ApiService {
     } catch (error) {
       console.error(`Failed to get DDA status ${jobId}:`, error)
       return { status: 'unknown', message: 'Failed to get status' }
+    }
+  }
+
+  // Analysis History Management
+  async saveAnalysisToHistory(result: DDAResult): Promise<boolean> {
+    try {
+      console.log('Sending analysis to save:', {
+        result_id: result.id,
+        file_path: result.file_path,
+        channels_count: result.channels.length
+      })
+      
+      const response = await this.client.post('/api/dda/history/save', {
+        result_id: result.id,
+        analysis_data: result
+      })
+      
+      console.log('Save response:', response.data)
+      
+      // Check for both success formats
+      return response.data.success === true || response.data.status === 'success'
+    } catch (error) {
+      console.error('Failed to save analysis to history:', error)
+      if (error instanceof Error) {
+        console.error('Error details:', error.message)
+      }
+      return false
+    }
+  }
+
+  async getAnalysisHistory(): Promise<DDAResult[]> {
+    try {
+      console.log('Fetching analysis history from backend...')
+      const response = await this.client.get('/api/dda/history')
+      console.log('Analysis history response:', {
+        status: response.status,
+        dataType: typeof response.data,
+        dataKeys: response.data ? Object.keys(response.data) : 'null',
+        analysesCount: response.data.analyses?.length || response.data?.length || 0
+      })
+      
+      // Handle both array and object responses
+      let analyses = []
+      if (Array.isArray(response.data)) {
+        analyses = response.data
+      } else {
+        analyses = response.data.analyses || []
+      }
+      
+      // Flatten analysis data structure if needed
+      return analyses.map((item: any) => {
+        // If the item has analysis_data nested inside, flatten it
+        if (item.analysis_data && typeof item.analysis_data === 'object') {
+          return {
+            ...item.analysis_data,
+            // Use the backend storage ID as the primary ID for lookups
+            id: item.id,
+            // Preserve the original analysis ID and other metadata
+            analysis_id: item.analysis_data.id,
+            result_id: item.result_id,
+            storage_created_at: item.created_at
+          }
+        }
+        return item
+      })
+    } catch (error) {
+      console.error('Failed to get analysis history:', error)
+      if (error instanceof Error) {
+        console.error('Error details:', error.message)
+      }
+      return []
+    }
+  }
+
+  async getAnalysisFromHistory(resultId: string): Promise<DDAResult | null> {
+    try {
+      const response = await this.client.get(`/api/dda/history/${resultId}`)
+      const analysisWrapper = response.data.analysis
+      
+      if (!analysisWrapper) return null
+      
+      // Flatten analysis data structure if needed
+      if (analysisWrapper.analysis_data && typeof analysisWrapper.analysis_data === 'object') {
+        return {
+          ...analysisWrapper.analysis_data,
+          // Use the backend storage ID as the primary ID
+          id: analysisWrapper.id,
+          // Preserve the original analysis ID and other metadata  
+          analysis_id: analysisWrapper.analysis_data.id,
+          result_id: analysisWrapper.result_id,
+          storage_created_at: analysisWrapper.created_at
+        }
+      }
+      
+      return analysisWrapper
+    } catch (error) {
+      console.error(`Failed to get analysis ${resultId} from history:`, error)
+      return null
+    }
+  }
+
+  async deleteAnalysisFromHistory(resultId: string): Promise<boolean> {
+    try {
+      const response = await this.client.delete(`/api/dda/history/${resultId}`)
+      return response.data.success || false
+    } catch (error) {
+      console.error(`Failed to delete analysis ${resultId} from history:`, error)
+      return false
     }
   }
 }

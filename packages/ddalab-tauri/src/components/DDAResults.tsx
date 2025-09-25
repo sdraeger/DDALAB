@@ -618,50 +618,6 @@ export function DDAResults({ result }: DDAResultsProps) {
         )}
       </div>
 
-      {/* Statistics Panel */}
-      <Card>
-        <CardHeader className="pb-4">
-          <CardTitle className="text-base flex items-center">
-            <BarChart3 className="h-4 w-4 mr-2" />
-            Statistical Summary
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-4 gap-4 text-sm">
-            <div>
-              <Label className="text-muted-foreground">Mean Exponent</Label>
-              <p className="font-medium">
-                {Object.values(result.results.exponents).length > 0 
-                  ? (Object.values(result.results.exponents).reduce((a, b) => a + b, 0) / Object.values(result.results.exponents).length).toFixed(3)
-                  : 'N/A'
-                }
-              </p>
-            </div>
-            <div>
-              <Label className="text-muted-foreground">Std Deviation</Label>
-              <p className="font-medium">
-                {Object.values(result.results.exponents).length > 0 
-                  ? (() => {
-                      const values = Object.values(result.results.exponents)
-                      const mean = values.reduce((a, b) => a + b, 0) / values.length
-                      const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length
-                      return Math.sqrt(variance).toFixed(3)
-                    })()
-                  : 'N/A'
-                }
-              </p>
-            </div>
-            <div>
-              <Label className="text-muted-foreground">Processing Time</Label>
-              <p className="font-medium">{result.results.quality_metrics.processing_time}s</p>
-            </div>
-            <div>
-              <Label className="text-muted-foreground">Quality (R²)</Label>
-              <p className="font-medium">{(result.results.quality_metrics.mean_r_squared * 100).toFixed(1)}%</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   )
 }

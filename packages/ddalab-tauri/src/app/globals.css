@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Import uPlot styles for chart rendering */
+@import 'uplot/dist/uPlot.min.css';
+
 @layer base {
   :root {
     --background: 0 0% 100%;

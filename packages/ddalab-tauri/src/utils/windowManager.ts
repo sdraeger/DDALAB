@@ -25,7 +25,7 @@ export interface PopoutWindowState {
 }
 
 class WindowManager {
-  private windows: Map<string, Window> = new Map()
+  private windows: Map<string, any> = new Map()
   private windowStates: Map<string, PopoutWindowState> = new Map()
   private listeners: Map<string, UnlistenFn> = new Map()
 
@@ -76,6 +76,7 @@ class WindowManager {
     console.log(`[WINDOW_MANAGER] createPopoutWindow called with:`, { type, id, data })
     const config = this.getWindowConfig(type, id)
     const windowId = `${type}-${id}-${Date.now()}`
+    console.log(`[WINDOW_MANAGER] Generated window ID: ${windowId}`)
 
     try {
       // Import Tauri invoke function
@@ -139,7 +140,7 @@ class WindowManager {
     }
   }
 
-  private async setupWindowListeners(windowId: string, window: Window): Promise<void> {
+  private async setupWindowListeners(windowId: string, window: any): Promise<void> {
     // Listen for window close event
     const closeListener = await window.onCloseRequested(() => {
       this.cleanup(windowId)
@@ -154,10 +155,18 @@ class WindowManager {
       this.setWindowLock(windowId, false)
     })
 
+    // Listen for toggle lock requests from the window
+    const toggleLockListener = await listen(`toggle-lock-${windowId}`, (event: any) => {
+      const { locked } = event.payload
+      this.setWindowLock(windowId, locked)
+      console.log(`[WINDOW_MANAGER] Toggle lock event received for ${windowId}: ${locked}`)
+    })
+
     // Store listeners for cleanup
     this.listeners.set(`${windowId}-close`, closeListener)
     this.listeners.set(`${windowId}-lock`, lockListener)
     this.listeners.set(`${windowId}-unlock`, unlockListener)
+    this.listeners.set(`${windowId}-toggle-lock`, toggleLockListener)
   }
 
   private cleanup(windowId: string): void {

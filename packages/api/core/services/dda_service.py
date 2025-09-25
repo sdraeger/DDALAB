@@ -1,7 +1,10 @@
 """DDA service."""
 
+import json
+import uuid
+from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Dict, Any
 
 from core.environment import get_config_service
 from core.dda import run_dda
@@ -9,6 +12,7 @@ from core.registry import register_service
 from core.services.base import BaseService
 from core.services.errors import NotFoundError, ServiceError
 from core.services.dda_variant_service import DDAVariantService, DDAVariant
+from core.services.widget_data_service import WidgetDataService
 from loguru import logger
 from schemas.dda import DDARequest, DDAResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -150,3 +154,158 @@ class DDAService(BaseService):
     def from_db(cls, db: AsyncSession) -> "DDAService":
         """Create a new instance of the service."""
         return cls(db)
+
+    async def get_analysis_history(
+        self, 
+        user_id: int, 
+        file_path: Optional[str] = None, 
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Get DDA analysis history for a user."""
+        try:
+            # Use widget data service to retrieve stored DDA results
+            widget_data_service = WidgetDataService(self.db)
+            
+            # Create a key pattern to search for DDA results
+            key_pattern = "dda_result:"
+            if file_path:
+                # If file_path is specified, we could filter results by file_path
+                # For now, we'll get all results and filter in Python
+                pass
+            
+            # Get all DDA result keys for this user (this is a simplified approach)
+            # In a production system, you might want a more efficient querying mechanism
+            history = []
+            
+            # Since widget data service doesn't have a "list all keys" method,
+            # we'll use a different approach - store a master list of DDA results
+            master_key = f"dda_history_master:{user_id}"
+            
+            try:
+                master_data = await widget_data_service.get_widget_data(user_id, master_key)
+                if master_data and master_data.get("data") and "result_ids" in master_data["data"]:
+                    result_ids = master_data["data"]["result_ids"][-limit:]  # Get latest results
+                    
+                    for result_id in reversed(result_ids):  # Most recent first
+                        try:
+                            result_key = f"dda_result:{result_id}"
+                            result_response = await widget_data_service.get_widget_data(user_id, result_key)
+                            if result_response and result_response.get("data"):
+                                result_data = result_response["data"]
+                                # Filter by file_path if specified
+                                if not file_path or result_data.get("file_path") == file_path:
+                                    history.append(result_data)
+                        except Exception as e:
+                            logger.warning(f"Failed to load DDA result {result_id}: {e}")
+                            continue
+                            
+            except Exception as e:
+                logger.info(f"No DDA history master found for user {user_id}: {e}")
+                # No history yet, return empty list
+                pass
+                
+            return history[:limit]  # Ensure we don't exceed limit
+            
+        except Exception as e:
+            logger.error(f"Error getting DDA analysis history: {e}")
+            raise ServiceError(f"Failed to get analysis history: {str(e)}")
+
+    async def save_analysis_history(
+        self, 
+        user_id: int, 
+        history_entry: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Save a DDA analysis result to history."""
+        try:
+            # Use widget data service to store the result
+            widget_data_service = WidgetDataService(self.db)
+            
+            # Generate a unique ID for this result if not provided
+            if "id" not in history_entry:
+                history_entry["id"] = f"dda_{uuid.uuid4().hex[:12]}"
+            
+            # Add timestamp if not provided
+            if "created_at" not in history_entry:
+                history_entry["created_at"] = datetime.utcnow().isoformat()
+            
+            # Store the result
+            result_key = f"dda_result:{history_entry['id']}"
+            await widget_data_service.store_widget_data(
+                user_id=user_id,
+                data_key=result_key,
+                widget_data=history_entry,
+                widget_id="dda-analysis",
+                metadata={
+                    "type": "dda-result",
+                    "file_path": history_entry.get("file_path"),
+                    "created_at": history_entry["created_at"]
+                }
+            )
+            
+            # Update the master list of DDA results
+            master_key = f"dda_history_master:{user_id}"
+            try:
+                master_response = await widget_data_service.get_widget_data(user_id, master_key)
+                if not master_response or not master_response.get("data"):
+                    master_data = {"result_ids": []}
+                else:
+                    master_data = master_response["data"]
+                
+                # Add the new result ID to the list
+                if "result_ids" not in master_data:
+                    master_data["result_ids"] = []
+                
+                # Add to the beginning (most recent first)
+                if history_entry["id"] not in master_data["result_ids"]:
+                    master_data["result_ids"].append(history_entry["id"])
+                
+                # Keep only the latest 100 results to avoid unbounded growth
+                master_data["result_ids"] = master_data["result_ids"][-100:]
+                
+                # Save the updated master list
+                await widget_data_service.store_widget_data(
+                    user_id=user_id,
+                    data_key=master_key,
+                    widget_data=master_data,
+                    widget_id="dda-analysis",
+                    metadata={"type": "dda-history-master"}
+                )
+                
+            except Exception as e:
+                logger.warning(f"Failed to update DDA history master list: {e}")
+                # Continue anyway - the result is still saved
+            
+            logger.info(f"Successfully saved DDA result {history_entry['id']} for user {user_id}")
+            return history_entry
+            
+        except Exception as e:
+            logger.error(f"Error saving DDA analysis history: {e}")
+            raise ServiceError(f"Failed to save analysis history: {str(e)}")
+
+    async def get_analysis_by_id(
+        self, 
+        user_id: int, 
+        result_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get a specific DDA analysis result by its ID."""
+        try:
+            # Use widget data service to retrieve the specific result
+            widget_data_service = WidgetDataService(self.db)
+            
+            # Construct the key for the specific result
+            result_key = f"dda_result:{result_id}"
+            
+            # Get the result data
+            result_response = await widget_data_service.get_widget_data(user_id, result_key)
+            
+            if not result_response or not result_response.get("data"):
+                logger.info(f"No DDA analysis found with ID {result_id} for user {user_id}")
+                return None
+            
+            result_data = result_response["data"]
+            logger.info(f"Successfully retrieved DDA analysis {result_id} for user {user_id}")
+            return result_data
+            
+        except Exception as e:
+            logger.error(f"Error getting DDA analysis by ID: {e}")
+            raise ServiceError(f"Failed to get analysis by ID: {str(e)}")

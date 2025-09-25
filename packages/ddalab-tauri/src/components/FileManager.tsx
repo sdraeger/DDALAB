@@ -9,6 +9,16 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { 
   Search, 
   Folder, 
@@ -22,7 +32,8 @@ import {
   Eye,
   EyeOff,
   ChevronRight,
-  Home
+  Home,
+  Check
 } from 'lucide-react'
 import { formatBytes, formatDate } from '@/lib/utils'
 
@@ -44,6 +55,8 @@ export function FileManager({ apiService }: FileManagerProps) {
   const [loading, setLoading] = useState(true) // Start with loading true
   const [error, setError] = useState<string | null>(null)
   const [isInitialLoad, setIsInitialLoad] = useState(true)
+  const [pendingFileSelection, setPendingFileSelection] = useState<EDFFileInfo | null>(null)
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
 
   // Load files when component mounts or path changes
   useEffect(() => {
@@ -197,7 +210,18 @@ export function FileManager({ apiService }: FileManagerProps) {
     return filtered
   }, [files, fileManager.searchQuery, fileManager.showHidden, fileManager.sortBy, fileManager.sortOrder])
 
-  const handleFileSelect = async (file: EDFFileInfo) => {
+  const handleFileSelect = (file: EDFFileInfo) => {
+    // If a file is already selected and it's different from the new selection
+    if (fileManager.selectedFile && fileManager.selectedFile.file_path !== file.file_path) {
+      setPendingFileSelection(file)
+      setShowConfirmDialog(true)
+    } else {
+      // No file selected yet or clicking the same file
+      loadFileInfo(file)
+    }
+  }
+
+  const loadFileInfo = async (file: EDFFileInfo) => {
     try {
       setLoading(true)
       
@@ -217,6 +241,19 @@ export function FileManager({ apiService }: FileManagerProps) {
     } finally {
       setLoading(false)
     }
+  }
+
+  const confirmFileSelection = () => {
+    if (pendingFileSelection) {
+      loadFileInfo(pendingFileSelection)
+      setPendingFileSelection(null)
+    }
+    setShowConfirmDialog(false)
+  }
+
+  const cancelFileSelection = () => {
+    setPendingFileSelection(null)
+    setShowConfirmDialog(false)
   }
 
   const handleDirectorySelect = (dir: {name: string, path: string}) => {
@@ -404,10 +441,10 @@ export function FileManager({ apiService }: FileManagerProps) {
               <div
                 key={`${file.file_path}-${index}`}
                 onClick={() => handleFileSelect(file)}
-                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors
+                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all
                   ${fileManager.selectedFile?.file_path === file.file_path 
-                    ? 'bg-primary/10 border-primary' 
-                    : 'hover:bg-accent'
+                    ? 'bg-primary/10 border-primary shadow-sm ring-2 ring-primary/20' 
+                    : 'hover:bg-accent hover:shadow-sm'
                   }`}
               >
                 <FileText className="h-5 w-5 text-green-600" />
@@ -427,6 +464,12 @@ export function FileManager({ apiService }: FileManagerProps) {
                 </div>
                 
                 <div className="flex flex-col items-end gap-1">
+                  {fileManager.selectedFile?.file_path === file.file_path && (
+                    <div className="flex items-center gap-1 text-primary mb-1">
+                      <Check className="h-4 w-4" />
+                      <span className="text-xs font-medium">Selected</span>
+                    </div>
+                  )}
                   <Badge variant="secondary" className="text-xs">
                     {file.file_name.toLowerCase().endsWith('.edf') ? 'EDF' : 
                      file.file_name.toLowerCase().endsWith('.ascii') ? 'ASCII' : 'TXT'}
@@ -455,6 +498,32 @@ export function FileManager({ apiService }: FileManagerProps) {
           </div>
         )}
       </CardContent>
+      
+      {/* Confirmation Dialog */}
+      <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change Selected File?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to change the selected file? This will reset your current analysis workspace.
+              <div className="mt-4 space-y-2">
+                <div className="p-2 bg-muted rounded">
+                  <p className="text-sm font-medium">Current file:</p>
+                  <p className="text-sm">{fileManager.selectedFile?.file_name}</p>
+                </div>
+                <div className="p-2 bg-muted rounded">
+                  <p className="text-sm font-medium">New file:</p>
+                  <p className="text-sm">{pendingFileSelection?.file_name}</p>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={cancelFileSelection}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmFileSelection}>Change File</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   )
 }

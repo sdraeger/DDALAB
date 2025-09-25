@@ -55,6 +55,57 @@ export interface AppPreferences {
 }
 
 export class TauriService {
+  private static instance: TauriService
+  
+  static getInstance(): TauriService {
+    if (!TauriService.instance) {
+      TauriService.instance = new TauriService()
+    }
+    return TauriService.instance
+  }
+
+  async openAnalysisPreviewWindow(analysis: any): Promise<void> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) return
+      
+      // Use Tauri's window API to create a new window
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+      
+      // Create window with analysis data
+      const windowLabel = `analysis-preview-${analysis.id}`
+      
+      const previewWindow = new WebviewWindow(windowLabel, {
+        url: `/analysis-preview?analysisId=${analysis.id}`,
+        title: `Analysis Preview - ${analysis.file_path ? analysis.file_path.split('/').pop() : analysis.id}`,
+        width: 1200,
+        height: 800,
+        resizable: true,
+        minimizable: true,
+        maximizable: true,
+        center: true,
+        focus: true,
+        decorations: true
+      })
+
+      // Pass the analysis data to the window once it's loaded
+      previewWindow.once('tauri://created', async () => {
+        // Store the analysis data temporarily so the preview window can access it
+        await api.invoke('store_analysis_preview_data', { 
+          windowId: windowLabel,
+          analysisData: analysis 
+        })
+      })
+
+      previewWindow.once('tauri://error', (e) => {
+        console.error('Failed to create analysis preview window:', e)
+      })
+
+    } catch (error) {
+      console.error('Failed to open analysis preview window:', error)
+    }
+  }
+
   static async getAppState(): Promise<AppState> {
     try {
       const api = await getTauriAPI()
@@ -176,7 +227,7 @@ export class TauriService {
       
       // TODO: Replace with tauri-plugin-dialog v2 API once properly integrated
       // For now, use the Rust command fallback
-      const result = await api.invoke('open_file_dialog')
+      const result = await api.invoke<string | null>('open_file_dialog')
       return result
     } catch (error) {
       console.error('Failed to open file dialog:', error)
@@ -238,6 +289,6 @@ export class TauriService {
   }
 
   static isTauri(): boolean {
-    return typeof window !== 'undefined' && typeof (window as any).__TAURI__ !== 'undefined'
+    return typeof window !== 'undefined' && '__TAURI__' in window
   }
 }

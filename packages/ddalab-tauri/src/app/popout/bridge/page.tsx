@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 
-export default function PopoutBridge() {
+function PopoutBridgeContent() {
   const searchParams = useSearchParams()
   const windowType = searchParams.get('type')
   const windowId = searchParams.get('id')
@@ -210,5 +210,13 @@ export default function PopoutBridge() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function PopoutBridge() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <PopoutBridgeContent />
+    </Suspense>
   )
 }

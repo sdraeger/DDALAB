@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { ApiService } from '@/services/apiService'
 import { DDAAnalysisRequest, DDAResult } from '@/types/api'
@@ -24,7 +24,8 @@ import {
   CheckCircle,
   Clock,
   Cpu,
-  Brain
+  Brain,
+  RefreshCw
 } from 'lucide-react'
 
 interface DDAAnalysisProps {
@@ -50,7 +51,7 @@ interface DDAParameters {
 }
 
 export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
-  const { fileManager, dda, setCurrentAnalysis, addAnalysisToHistory, updateAnalysisParameters, setDDARunning } = useAppStore()
+  const { fileManager, dda, setCurrentAnalysis, addAnalysisToHistory, setAnalysisHistory, updateAnalysisParameters, setDDARunning } = useAppStore()
   
   const [parameters, setParameters] = useState<DDAParameters>({
     variants: ['single_timeseries'],
@@ -76,6 +77,90 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const [estimatedTime, setEstimatedTime] = useState<number>(0)
   const [results, setResults] = useState<DDAResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [previewingAnalysis, setPreviewingAnalysis] = useState<DDAResult | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
+  const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' })
+
+  // Load analysis history from MinIO
+  const loadAnalysisHistory = useCallback(async () => {
+    setHistoryLoading(true)
+    setHistoryError(null)
+    try {
+      const history = await apiService.getAnalysisHistory()
+      setAnalysisHistory(history)
+    } catch (error) {
+      console.error('Failed to load analysis history:', error)
+      setHistoryError('Failed to load analysis history')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [apiService, setAnalysisHistory])
+
+  // Save analysis to history when completed
+  const saveAnalysisToHistory = useCallback(async (result: DDAResult) => {
+    try {
+      console.log('Attempting to save analysis to history:', result.id)
+      setSaveStatus({ type: null, message: 'Saving analysis to history...' })
+      
+      const success = await apiService.saveAnalysisToHistory(result)
+      if (success) {
+        console.log('Analysis saved to history successfully')
+        setSaveStatus({ type: 'success', message: 'Analysis saved to history successfully!' })
+        // Reload history to show the new analysis
+        await loadAnalysisHistory()
+        // Clear success message after 3 seconds
+        setTimeout(() => setSaveStatus({ type: null, message: '' }), 3000)
+      } else {
+        console.warn('Failed to save analysis to history')
+        setSaveStatus({ type: 'error', message: 'Failed to save analysis to history. Server returned false.' })
+      }
+    } catch (error) {
+      console.error('Error saving analysis to history:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      setSaveStatus({ type: 'error', message: `Failed to save analysis: ${errorMessage}` })
+    }
+  }, [apiService, loadAnalysisHistory])
+
+  // Preview analysis from history in dedicated window
+  const previewAnalysis = useCallback(async (analysis: DDAResult) => {
+    try {
+      // Validate analysis object
+      if (!analysis || !analysis.id) {
+        console.error('Invalid analysis object:', analysis)
+        setHistoryError('Invalid analysis data')
+        return
+      }
+
+      console.log('Preview analysis - Using ID for lookup:', analysis.id)
+
+      // Get full analysis data from history (in case the list only has metadata)
+      const fullAnalysis = await apiService.getAnalysisFromHistory(analysis.id)
+      if (fullAnalysis) {
+        // Import TauriService dynamically to avoid SSR issues
+        const { TauriService } = await import('@/services/tauriService')
+        const tauriService = TauriService.getInstance()
+        
+        // Open analysis preview in dedicated window
+        await tauriService.openAnalysisPreviewWindow(fullAnalysis)
+        
+        // Still set the previewing analysis for the blue notification
+        setPreviewingAnalysis(fullAnalysis)
+      } else {
+        console.warn('No analysis data returned for ID:', analysis.id)
+        setHistoryError('Analysis data not found')
+      }
+    } catch (error) {
+      console.error('Failed to load analysis preview:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      setHistoryError(`Failed to load analysis preview: ${errorMessage}`)
+    }
+  }, [apiService])
+
+  // Load history on component mount
+  useEffect(() => {
+    loadAnalysisHistory()
+  }, [loadAnalysisHistory])
 
   const availableVariants = [
     { id: 'single_timeseries', name: 'Single Timeseries (ST)', description: 'Standard temporal dynamics analysis' },
@@ -153,7 +238,11 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       setCurrentAnalysis(result)
       addAnalysisToHistory(result)
       
-      setAnalysisStatus('Analysis completed successfully!')
+      // Save to MinIO history
+      setAnalysisStatus('Saving to history...')
+      await saveAnalysisToHistory(result)
+      
+      setAnalysisStatus('Analysis completed and saved successfully!')
       setProgress(100)
 
       // Save parameters
@@ -590,34 +679,119 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
         <TabsContent value="history" className="flex-1">
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Analysis History</CardTitle>
-              <CardDescription>{dda.analysisHistory.length} analyses performed</CardDescription>
+            <CardHeader className="flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-base">Analysis History</CardTitle>
+                <CardDescription>
+                  {historyLoading ? 'Loading...' : `${dda.analysisHistory.length} analyses stored in MinIO`}
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadAnalysisHistory}
+                disabled={historyLoading}
+                className="shrink-0"
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${historyLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
             </CardHeader>
             <CardContent>
-              {dda.analysisHistory.length > 0 ? (
-                <div className="space-y-2">
-                  {dda.analysisHistory.map(analysis => (
-                    <div
-                      key={analysis.id}
-                      className="flex items-center justify-between p-3 border rounded-lg cursor-pointer hover:bg-accent"
-                      onClick={() => setResults(analysis)}
-                    >
-                      <div>
-                        <p className="font-medium text-sm">{analysis.file_path.split('/').pop()}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {analysis.channels.length} channels • {new Date(analysis.created_at).toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Brain className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No analyses performed yet</p>
+              {historyError && (
+                <div className="p-4 mb-4 text-sm text-red-800 bg-red-100 rounded-lg">
+                  {historyError}
                 </div>
               )}
+
+              {saveStatus.message && (
+                <div className={`p-4 mb-4 text-sm rounded-lg ${
+                  saveStatus.type === 'success' 
+                    ? 'text-green-800 bg-green-100 border border-green-200' 
+                    : saveStatus.type === 'error'
+                    ? 'text-red-800 bg-red-100 border border-red-200'
+                    : 'text-blue-800 bg-blue-100 border border-blue-200'
+                }`}>
+                  <div className="flex items-center">
+                    {saveStatus.type === 'success' && <CheckCircle className="h-4 w-4 mr-2" />}
+                    {saveStatus.type === 'error' && <AlertCircle className="h-4 w-4 mr-2" />}
+                    {!saveStatus.type && <Clock className="h-4 w-4 mr-2 animate-spin" />}
+                    {saveStatus.message}
+                  </div>
+                </div>
+              )}
+              
+              {previewingAnalysis && (
+                <div className="p-3 mb-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-blue-900">Previewing Analysis</p>
+                      <p className="text-xs text-blue-700">
+                        {previewingAnalysis.file_path ? previewingAnalysis.file_path.split('/').pop() : `Analysis ${previewingAnalysis.id}`}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setPreviewingAnalysis(null)}
+                      className="text-blue-700 hover:text-blue-900"
+                    >
+                      ×
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {dda.analysisHistory.length > 0 ? (
+                <div className="space-y-2">
+                  {dda.analysisHistory.map(analysis => {
+                    // Debug log the analysis structure
+                    console.log('Rendering analysis item:', {
+                      id: analysis.id,
+                      analysis_id: (analysis as any).analysis_id,
+                      result_id: (analysis as any).result_id,
+                      hasFilePath: !!analysis.file_path,
+                      hasChannels: !!analysis.channels,
+                      keys: Object.keys(analysis)
+                    })
+                    
+                    return (
+                    <div
+                      key={analysis.id}
+                      className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors ${
+                        previewingAnalysis?.id === analysis.id ? 'bg-blue-50 border-blue-200' : ''
+                      }`}
+                      onClick={() => previewAnalysis(analysis)}
+                    >
+                      <div>
+                        <p className="font-medium text-sm">
+                          {analysis.file_path ? analysis.file_path.split('/').pop() : `Analysis ${analysis.id}`}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {analysis.channels?.length || 0} channels • {new Date(analysis.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Badge variant="outline" className="text-xs">
+                          Stored
+                        </Badge>
+                        {previewingAnalysis?.id === analysis.id && (
+                          <Badge variant="default" className="text-xs">
+                            Previewing
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    )
+                  })}
+                </div>
+              ) : !historyLoading ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Brain className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No analyses in history</p>
+                  <p className="text-xs mt-2">Completed analyses are automatically saved to MinIO</p>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         </TabsContent>

@@ -162,11 +162,11 @@ function PopoutContent() {
         // If data is array of arrays (multiple channels)
         if (Array.isArray(data[0])) {
           data.forEach((channelData: number[]) => {
-            plotData.push(channelData)
+            plotData.push(new Float64Array(channelData))
           })
         } else {
           // Single channel data
-          plotData.push(data)
+          plotData.push(new Float64Array(data))
         }
       }
 
@@ -343,6 +343,27 @@ function PopoutContent() {
     }
   }, [currentData])
 
+  // Lock toggle function
+  const toggleLock = useCallback(async () => {
+    if (!windowId) return
+    
+    const newLockState = !isLocked
+    setIsLocked(newLockState)
+    
+    try {
+      const { emit } = await import('@tauri-apps/api/event')
+      await emit(`toggle-lock-${windowId}`, { 
+        windowId, 
+        locked: newLockState 
+      })
+      console.log(`[POPOUT] Lock toggled to: ${newLockState ? 'locked' : 'unlocked'}`)
+    } catch (error) {
+      console.error('Failed to toggle lock:', error)
+      // Revert lock state if emission failed
+      setIsLocked(!newLockState)
+    }
+  }, [windowId, isLocked])
+
   // Re-render plots when data changes
   useEffect(() => {
     if (windowType === 'timeseries' && currentData && !isLocked) {
@@ -459,7 +480,7 @@ function PopoutContent() {
         <h2 className="text-lg font-semibold mb-4">DDA Analysis Results</h2>
         
         {/* Metadata */}
-        <div className="grid grid-cols-3 gap-4 mb-4 text-sm">
+        <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
           <div>
             <label className="block text-gray-600">Result ID</label>
             <div className="text-xs font-mono">{result.id}</div>
@@ -467,10 +488,6 @@ function PopoutContent() {
           <div>
             <label className="block text-gray-600">Channels</label>
             <div className="font-semibold">{result.channels ? result.channels.length : 0}</div>
-          </div>
-          <div>
-            <label className="block text-gray-600">R² Quality</label>
-            <div className="font-semibold">{result.results?.quality_metrics?.mean_r_squared ? (result.results.quality_metrics.mean_r_squared * 100).toFixed(1) + '%' : 'N/A'}</div>
           </div>
         </div>
         
@@ -492,7 +509,7 @@ function PopoutContent() {
                 <label className="block text-gray-600">Mean α</label>
                 <div className="font-semibold">
                   {Object.values(result.results.exponents).length > 0 
-                    ? (Object.values(result.results.exponents).reduce((a: number, b: number) => a + b, 0) / Object.values(result.results.exponents).length).toFixed(3)
+                    ? ((Object.values(result.results.exponents) as number[]).reduce((a: number, b: number) => a + b, 0) / Object.values(result.results.exponents).length).toFixed(3)
                     : 'N/A'
                   }
                 </div>
@@ -549,11 +566,15 @@ function PopoutContent() {
         
         <div className="flex items-center space-x-1">
           <button
-            onClick={() => (window as any).toggleLock?.()}
-            className="w-7 h-7 rounded hover:bg-gray-200 flex items-center justify-center text-xs"
-            title={isLocked ? "Unlock window" : "Lock window"}
+            onClick={toggleLock}
+            className={`w-7 h-7 rounded flex items-center justify-center text-xs transition-colors ${
+              isLocked 
+                ? 'bg-red-100 hover:bg-red-200 text-red-700' 
+                : 'bg-green-100 hover:bg-green-200 text-green-700'
+            }`}
+            title={isLocked ? "Unlock window (currently not receiving updates)" : "Lock window (stop receiving updates)"}
           >
-            {isLocked ? '🔓' : '🔒'}
+            {isLocked ? '🔒' : '🔓'}
           </button>
           
           <button
@@ -599,7 +620,7 @@ function PopoutContent() {
       {/* Status bar */}
       <div className="h-6 bg-gray-50 border-t flex items-center justify-between px-3 text-xs text-gray-500">
         <div>
-          Window ID: {windowId || 'Unknown'} | Status: {isLocked ? 'Locked' : 'Live'}
+          Window ID: {windowId || 'Unknown'} | Status: {isLocked ? '🔒 Locked (Not receiving updates)' : '🔓 Live (Receiving updates)'}
         </div>
         <div>
           {status}
