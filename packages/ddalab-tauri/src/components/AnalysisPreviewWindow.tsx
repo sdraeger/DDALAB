@@ -5,6 +5,8 @@ import { DDAResult } from '@/types/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Label } from '@/components/ui/label'
 import { BarChart3, Download, X, Maximize2 } from 'lucide-react'
 import uPlot from 'uplot'
 
@@ -19,15 +21,40 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
   const heatmapRef = useRef<HTMLDivElement | null>(null)
   const linePlotRef = useRef<HTMLDivElement | null>(null)
   const plotsInitialized = useRef(false)
+  const [selectedVariant, setSelectedVariant] = useState<number>(0)
+
+  // Helper functions to handle both new and legacy data formats
+  const getAvailableVariants = () => {
+    if (analysis.results?.variants && analysis.results.variants.length > 0) {
+      return analysis.results.variants
+    }
+    // Fallback to legacy format
+    if (analysis.results?.dda_matrix) {
+      return [{
+        variant_id: 'legacy',
+        variant_name: 'Combined Results',
+        dda_matrix: analysis.results.dda_matrix,
+        exponents: analysis.results.exponents || {},
+        quality_metrics: analysis.results.quality_metrics || {}
+      }]
+    }
+    return []
+  }
+
+  const getCurrentVariantData = () => {
+    const variants = getAvailableVariants()
+    return variants[selectedVariant] || variants[0]
+  }
 
   // Create both plots in a single useEffect to prevent duplicates
   useEffect(() => {
     // Skip if plots are already initialized
     if (plotsInitialized.current) return
 
-    if (!analysis?.results?.dda_matrix || !heatmapRef.current || !linePlotRef.current) return
+    const currentVariant = getCurrentVariantData()
+    if (!currentVariant || !heatmapRef.current || !linePlotRef.current) return
 
-    const channels = Object.keys(analysis.results.dda_matrix)
+    const channels = Object.keys(currentVariant.dda_matrix)
     if (channels.length === 0) return
 
     const scales = analysis.results.scales || []
@@ -57,7 +84,7 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
       const heatmapData: number[][] = []
 
       channels.forEach(channel => {
-        const channelData = analysis.results.dda_matrix[channel].map(val => {
+        const channelData = (currentVariant.dda_matrix[channel] || []).map(val => {
           const logVal = Math.log10(Math.max(0.001, val))
           minVal = Math.min(minVal, logVal)
           maxVal = Math.max(maxVal, logVal)
@@ -174,13 +201,13 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
     // Create line plot
     const createLinePlot = () => {
       // Get scales from the first channel or generate default
-      const firstChannelData = analysis.results.dda_matrix[channels[0]]
+      const firstChannelData = currentVariant.dda_matrix[channels[0]] || []
       const plotScales = analysis.results.scales || Array.from({ length: firstChannelData.length }, (_, i) => i)
 
       // Prepare data for uPlot - [x-values, ...y-values for each channel]
       const plotData: uPlot.AlignedData = [
         new Float64Array(plotScales),
-        ...channels.map(channel => new Float64Array(analysis.results.dda_matrix[channel]))
+        ...channels.map(channel => new Float64Array(currentVariant.dda_matrix[channel] || []))
       ]
 
       const opts: uPlot.Options = {
@@ -192,7 +219,7 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
             label: plotScales.length > 100 ? 'Time Points' : 'Scale'
           },
           ...channels.map((channel, idx) => ({
-            label: `${channel} (α=${analysis.results?.exponents?.[channel]?.toFixed(3) || 'N/A'})`,
+            label: `${channel} (α=${currentVariant.exponents[channel]?.toFixed(3) || 'N/A'})`,
             stroke: getChannelColor(idx),
             width: 2,
             points: { show: false }
@@ -241,7 +268,7 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
     // Mark plots as initialized
     plotsInitialized.current = true
 
-  }, [analysis])
+  }, [analysis, selectedVariant])
 
   // Cleanup plots on unmount
   useEffect(() => {
@@ -296,6 +323,23 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {getAvailableVariants().length > 1 && (
+            <div className="flex items-center space-x-2 mr-4">
+              <Label className="text-sm">Variant:</Label>
+              <Select value={selectedVariant.toString()} onValueChange={(value) => setSelectedVariant(parseInt(value))}>
+                <SelectTrigger className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {getAvailableVariants().map((variant, index) => (
+                    <SelectItem key={variant.variant_id} value={index.toString()}>
+                      {variant.variant_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <Button variant="outline" size="sm" onClick={exportAnalysis}>
             <Download className="h-4 w-4 mr-2" />
             Export

@@ -44,13 +44,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   const { fileManager, plot, updatePlotState, setCurrentChunk } = useAppStore()
   const { createWindow, updateWindowData, broadcastToType } = usePopoutWindows()
   
-  // Debug the store state
-  console.log('TimeSeriesPlot store state:', {
-    hasFileManager: !!fileManager,
-    selectedFile: fileManager?.selectedFile,
-    selectedFileName: fileManager?.selectedFile?.file_name,
-    currentPath: fileManager?.currentPath
-  })
+  // Remove debug console.log to prevent infinite re-render loop
   const plotRef = useRef<HTMLDivElement>(null)
   const uplotRef = useRef<uPlot | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)

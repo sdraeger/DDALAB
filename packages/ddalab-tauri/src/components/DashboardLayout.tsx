@@ -33,19 +33,57 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
     ui, 
     fileManager, 
     dda,
-    isInitialized,
-    initializeFromTauri,
     setSidebarOpen, 
     setActiveTab,
-    setLayout 
+    setLayout,
+    setCurrentAnalysis,
+    setAnalysisHistory
   } = useAppStore()
+  
+  const [autoLoadingResults, setAutoLoadingResults] = useState(false)
 
-  // Initialize state from Tauri on mount
+  // Auto-load most recent analysis from MinIO on component mount
   useEffect(() => {
-    if (!isInitialized) {
-      initializeFromTauri()
+    const loadAnalysisHistory = async () => {
+      try {
+        const history = await apiService.getAnalysisHistory()
+        setAnalysisHistory(history)
+      } catch (error) {
+        console.error('Failed to load analysis history:', error)
+      }
     }
-  }, [isInitialized, initializeFromTauri])
+
+    loadAnalysisHistory()
+  }, [apiService, setAnalysisHistory])
+
+  // Auto-load most recent analysis if no current analysis is set
+  useEffect(() => {
+    const autoLoadMostRecent = async () => {
+      if (!dda.currentAnalysis && dda.analysisHistory.length > 0 && !autoLoadingResults) {
+        setAutoLoadingResults(true)
+        try {
+          console.log('Auto-loading most recent analysis from dashboard:', dda.analysisHistory[0].id)
+          await new Promise(resolve => setTimeout(resolve, 100))
+          
+          const fullAnalysis = await apiService.getAnalysisFromHistory(dda.analysisHistory[0].id)
+          if (fullAnalysis) {
+            console.log('Setting current analysis from dashboard:', fullAnalysis.id)
+            setCurrentAnalysis(fullAnalysis)
+          }
+        } catch (error) {
+          console.error('Failed to auto-load most recent analysis:', error)
+        } finally {
+          setAutoLoadingResults(false)
+        }
+      }
+    }
+    
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(() => autoLoadMostRecent())
+    } else {
+      setTimeout(() => autoLoadMostRecent(), 0)
+    }
+  }, [dda.currentAnalysis, dda.analysisHistory, autoLoadingResults, apiService, setCurrentAnalysis])
 
   const handleMinimize = async () => {
     if (TauriService.isTauri()) {
@@ -254,6 +292,29 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
                 <div className="p-4 h-full">
                   {dda.currentAnalysis ? (
                     <DDAResults result={dda.currentAnalysis} />
+                  ) : autoLoadingResults ? (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                        <h3 className="text-lg font-medium mb-2">Loading Analysis Results</h3>
+                        <p className="text-muted-foreground">
+                          Fetching the most recent analysis from MinIO storage...
+                        </p>
+                      </div>
+                    </div>
+                  ) : dda.analysisHistory.length > 0 ? (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center">
+                        <Settings className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+                        <h3 className="text-lg font-medium mb-2">Analysis Available</h3>
+                        <p className="text-muted-foreground mb-4">
+                          Found {dda.analysisHistory.length} analysis{dda.analysisHistory.length > 1 ? 'es' : ''} in history
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          Switch to the DDA Analysis tab to view results
+                        </p>
+                      </div>
+                    </div>
                   ) : (
                     <div className="flex items-center justify-center h-full">
                       <div className="text-center">

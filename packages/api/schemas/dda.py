@@ -33,11 +33,21 @@ class DDARequest(BaseModel):
     algorithm_selection: Optional[DDAAlgorithmSelection] = None  # Algorithm variant selection
 
 
+class DDAVariantResult(BaseModel):
+    """Results for a specific DDA variant."""
+    variant_id: str  # e.g., "single_timeseries", "cross_timeseries"
+    variant_name: str  # Human-readable name
+    Q: List[List[float]] = []  # DDA results matrix for this variant
+    exponents: Optional[Dict[str, float]] = None  # Channel-specific scaling exponents
+    quality_metrics: Optional[Dict[str, Any]] = None  # Quality metrics for this variant
+
+
 class DDAResponse(BaseModel):
     """Response schema for DDA."""
 
     file_path: str  # Path to the analyzed file
-    Q: List[List[float]] = []  # DDA results (Q matrix)
+    Q: List[List[float]] = []  # Legacy single Q matrix (for backward compatibility)
+    variants: Optional[List[DDAVariantResult]] = None  # Variant-specific results
     metadata: Optional[Dict[str, Any]] = None  # Additional metadata about the analysis
     preprocessing_options: Optional[Union[PreprocessingOptions, Dict[str, Any]]] = (
         None  # Applied preprocessing options
