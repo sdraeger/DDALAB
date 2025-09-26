@@ -1,0 +1,178 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (without v prefix)'
+        required: true
+        type: string
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create_release.outputs.release_id }}
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Get version
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          release_name: DDALAB v${{ steps.get_version.outputs.version }}
+          body: |
+            # DDALAB v${{ steps.get_version.outputs.version }}
+
+            ## What's New
+            - Built with Tauri v2
+            - Cross-platform desktop application for EEG analysis
+            - Delay Differential Analysis (DDA) support
+
+            ## Downloads
+            Choose the appropriate installer for your platform below.
+
+            ### Installation Instructions
+
+            **macOS**: Download the .dmg file, open it, and drag DDALAB to your Applications folder.
+
+            **Linux**: Download the .AppImage file, make it executable (`chmod +x`), and run it. Alternatively, use the .deb package for Debian-based distributions.
+
+            **Windows**: Download and run the .msi or .exe installer.
+
+            ## System Requirements
+            - macOS 10.15 or later
+            - Linux: Ubuntu 20.04 or later (or equivalent)
+            - Windows 10 or later
+          draft: true
+          prerelease: false
+
+  build-tauri:
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+            suffix: 'macOS-aarch64'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+            suffix: 'macOS-x86_64'
+          - platform: 'ubuntu-20.04'
+            args: ''
+            suffix: 'Linux-x86_64'
+          - platform: 'windows-latest'
+            args: ''
+            suffix: 'Windows-x86_64'
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Install Linux Dependencies
+        if: matrix.platform == 'ubuntu-20.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Install Dependencies
+        run: |
+          npm install
+          cd packages/ddalab-tauri
+          npm install
+
+      - name: Build Tauri App
+        run: |
+          cd packages/ddalab-tauri
+          npm run tauri build -- ${{ matrix.args }}
+
+      - name: Upload macOS Artifacts
+        if: matrix.platform == 'macos-latest'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./packages/ddalab-tauri/src-tauri/target/release/bundle/dmg/DDALAB_${{ needs.create-release.outputs.version }}_${{ contains(matrix.args, 'aarch64') && 'aarch64' || 'x64' }}.dmg
+          asset_name: DDALAB-${{ needs.create-release.outputs.version }}-${{ matrix.suffix }}.dmg
+          asset_content_type: application/x-apple-diskimage
+
+      - name: Upload Linux AppImage
+        if: matrix.platform == 'ubuntu-20.04'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./packages/ddalab-tauri/src-tauri/target/release/bundle/appimage/ddalab_${{ needs.create-release.outputs.version }}_amd64.AppImage
+          asset_name: DDALAB-${{ needs.create-release.outputs.version }}-${{ matrix.suffix }}.AppImage
+          asset_content_type: application/vnd.appimage
+
+      - name: Upload Linux DEB
+        if: matrix.platform == 'ubuntu-20.04'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./packages/ddalab-tauri/src-tauri/target/release/bundle/deb/ddalab_${{ needs.create-release.outputs.version }}_amd64.deb
+          asset_name: DDALAB-${{ needs.create-release.outputs.version }}-${{ matrix.suffix }}.deb
+          asset_content_type: application/vnd.debian.binary-package
+
+      - name: Upload Windows MSI
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./packages/ddalab-tauri/src-tauri/target/release/bundle/msi/DDALAB_${{ needs.create-release.outputs.version }}_x64_en-US.msi
+          asset_name: DDALAB-${{ needs.create-release.outputs.version }}-${{ matrix.suffix }}.msi
+          asset_content_type: application/x-msi
+
+      - name: Upload Windows EXE
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./packages/ddalab-tauri/src-tauri/target/release/bundle/nsis/DDALAB_${{ needs.create-release.outputs.version }}_x64-setup.exe
+          asset_name: DDALAB-${{ needs.create-release.outputs.version }}-${{ matrix.suffix }}-Setup.exe
+          asset_content_type: application/x-msdownload

@@ -19,7 +19,10 @@
     "api:start": "../../scripts/start-api-only.sh up",
     "api:stop": "../../scripts/start-api-only.sh down",
     "api:logs": "../../scripts/start-api-only.sh logs",
-    "test": "echo \"No tests specified\" && exit 0"
+    "test": "echo \"No tests specified\" && exit 0",
+    "release": "npm run build && npm run tauri:build && echo 'Build complete! Check src-tauri/target/release/bundle/'",
+    "release:mac": "npm run build && tauri build --target universal-apple-darwin",
+    "release:github": "../../scripts/build-and-release.sh"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",
