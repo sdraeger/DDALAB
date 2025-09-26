@@ -35,6 +35,9 @@ import {
   DDAResult,
 } from "@/services/apiService";
 import { EEGChannel, ChannelPreset, FilterConfig } from "@/types/eeg";
+import { useSessionPersistence, useFileManagerPersistence } from "@/hooks/useSessionPersistence";
+import { debugPersistence } from "@/utils/debug-persistence";
+import { PersistenceDebugger } from "./PersistenceDebugger";
 import { cn } from "@/lib/utils";
 import { InterfaceSelector } from "@shared/components/ui/interface-selector";
 
@@ -43,23 +46,33 @@ interface ClinicalDashboardProps {
 }
 
 export function ClinicalDashboard({ className }: ClinicalDashboardProps) {
+  // Session persistence
+  const { session, isLoaded, updateActiveTab, updatePanelSizes, updatePreferences, updateFileManagerState, saveUIElement, getUIElement } = useSessionPersistence();
+  const { 
+    fileManager, 
+    selectFile, 
+    selectChannels, 
+    updateFilters, 
+    updateTimeWindow 
+  } = useFileManagerPersistence(session, updateFileManagerState);
+
   // File and data state
   const [selectedFile, setSelectedFile] = useState<EDFFileInfo | null>(null);
-  const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [selectedAnnotation, setSelectedAnnotation] = useState<Annotation>();
   const [ddaResults, setDDAResults] = useState<DDAResult[]>([]);
   const [selectedDDAResult, setSelectedDDAResult] = useState<DDAResult>();
 
-  // UI state
-  const [activeTab, setActiveTab] = useState("eeg");
-  const [currentTimeWindow, setCurrentTimeWindow] = useState({
-    start: 0,
-    end: 30,
-  });
+  // UI state - use persisted values as defaults
+  const [activeTab, setActiveTab] = useState(session.activeTab);
+  const [currentTimeWindow, setCurrentTimeWindow] = useState(fileManager.timeWindow);
   const [filters, setFilters] = useState<FilterConfig[]>([]);
   const [channelPresets, setChannelPresets] = useState<ChannelPreset[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [attemptedFileRestoration, setAttemptedFileRestoration] = useState(false);
+  
+  // Use persisted selected channels
+  const selectedChannels = fileManager.selectedChannelIds;
 
   // Convert file channels to EEGChannel format
   const eegChannels: EEGChannel[] =
@@ -77,6 +90,98 @@ export function ClinicalDashboard({ className }: ClinicalDashboardProps) {
       loadAnnotations();
     }
   }, [selectedFile]);
+
+  // Restore session on mount (only after session is loaded)
+  useEffect(() => {
+    if (!isLoaded) return;
+    
+    const restoreSession = async () => {
+      console.log('🔄 Starting session restoration...');
+      debugPersistence.logSessionState();
+      
+      if (fileManager.selectedFileId && !attemptedFileRestoration) {
+        setAttemptedFileRestoration(true);
+        console.log('📁 Restoring file:', fileManager.selectedFileId);
+        try {
+          const fileInfo = await apiService.getFileInfo(fileManager.selectedFileId);
+          setSelectedFile(fileInfo);
+          setCurrentTimeWindow(fileManager.timeWindow);
+          
+          // Validate and restore channels
+          const savedChannels = fileManager.selectedChannelIds;
+          const wasEmptySelection = fileManager.hasEmptyChannelSelection;
+          
+          console.log('📋 Channel restoration:', {
+            savedChannels,
+            wasEmptySelection,
+            fileChannels: fileInfo.channels.slice(0, 5) + '...' // Show first 5
+          });
+          
+          // If user intentionally cleared channels, respect that choice
+          if (wasEmptySelection) {
+            console.log('✅ Restored intentionally empty channel selection');
+            // Keep the empty selection as-is
+          } else {
+            // Validate saved channels against current file
+            const validChannels = savedChannels.filter(ch => fileInfo.channels.includes(ch));
+            
+            // If no valid channels saved or all channels were invalid, use defaults
+            if (validChannels.length === 0) {
+              const defaultChannels = fileInfo.channels.slice(0, Math.min(8, fileInfo.channels.length));
+              selectChannels(defaultChannels);
+              console.log('✅ No valid channels found, restored defaults:', defaultChannels);
+            } else {
+              console.log('✅ Restored valid channels:', validChannels);
+              // The valid channels are already set from persistence
+            }
+          }
+          
+        } catch (error) {
+          console.warn('❌ Failed to restore selected file:', error);
+          console.log('🔍 Current fileManager state before clearing:', fileManager);
+          
+          const missingFileId = fileManager.selectedFileId;
+          
+          // Immediately clear invalid file reference from persisted state
+          selectFile(null);
+          selectChannels([]);
+          updateTimeWindow({ start: 0, end: 30 });
+          
+          // Force immediate save to localStorage by directly updating
+          try {
+            const currentSession = localStorage.getItem('web30-session');
+            if (currentSession) {
+              const session = JSON.parse(currentSession);
+              session.fileManager = {
+                ...session.fileManager,
+                selectedFileId: null,
+                selectedChannelIds: [],
+                hasEmptyChannelSelection: false,
+                timeWindow: { start: 0, end: 30 }
+              };
+              localStorage.setItem('web30-session', JSON.stringify(session));
+              console.log('✅ Cleared invalid file from localStorage:', missingFileId);
+              console.log('🔍 Updated session in localStorage:', session);
+            }
+          } catch (e) {
+            console.error('Failed to clear localStorage:', e);
+          }
+          
+          // Clear local state
+          setSelectedFile(null);
+          
+          // Show user notification
+          if (error instanceof Error && error.message.includes('404')) {
+            alert(`The previously selected file "${missingFileId}" is no longer available. Please select a new file.`);
+          }
+        }
+      } else {
+        console.log('📭 No file to restore');
+      }
+    };
+    
+    restoreSession();
+  }, [isLoaded]); // Run only when session is loaded
 
   const loadAnnotations = useCallback(async () => {
     if (!selectedFile) return;
@@ -106,19 +211,43 @@ export function ClinicalDashboard({ className }: ClinicalDashboardProps) {
 
   // Handle file selection
   const handleFileSelect = useCallback((file: EDFFileInfo) => {
+    console.log('🗂️ File selected:', file.file_name, 'Channels:', file.channels.slice(0, 5) + '...');
+    
     setSelectedFile(file);
-    setSelectedChannels(file.channels.slice(0, 8)); // Select first 8 channels by default
-    setCurrentTimeWindow({ start: 0, end: Math.min(30, file.duration) });
+    selectFile(file.file_path); // Persist file selection
+    
+    // If it's a new file or we have no valid channels, select defaults
+    const isNewFile = fileManager.selectedFileId !== file.file_path;
+    const hasValidChannels = selectedChannels.length > 0 && 
+      selectedChannels.every(ch => file.channels.includes(ch));
+    
+    if (isNewFile || !hasValidChannels) {
+      const defaultChannels = file.channels.slice(0, Math.min(8, file.channels.length));
+      console.log('📋 Selecting default channels:', defaultChannels);
+      selectChannels(defaultChannels);
+    }
+    
+    const newTimeWindow = { start: 0, end: Math.min(30, file.duration) };
+    setCurrentTimeWindow(newTimeWindow);
+    updateTimeWindow(newTimeWindow);
+    
     setAnnotations([]);
     setSelectedAnnotation(undefined);
     setDDAResults([]);
     setSelectedDDAResult(undefined);
-  }, []);
+    
+    // Debug: Check what was saved
+    setTimeout(() => {
+      console.log('🔍 After file selection, persistence state:');
+      debugPersistence.logSessionState();
+    }, 500);
+  }, [selectFile, selectChannels, selectedChannels, fileManager.selectedFileId, updateTimeWindow]);
 
   // Handle channel selection
   const handleChannelSelectionChange = useCallback((channelIds: string[]) => {
-    setSelectedChannels(channelIds);
-  }, []);
+    console.log('📋 Channel selection changed:', channelIds);
+    selectChannels(channelIds);
+  }, [selectChannels]);
 
   // Handle preset save
   const handlePresetSave = useCallback((preset: Omit<ChannelPreset, "id">) => {
@@ -183,8 +312,9 @@ export function ClinicalDashboard({ className }: ClinicalDashboardProps) {
   // DDA result handling
   const handleDDAResultSelect = useCallback((result: DDAResult) => {
     setSelectedDDAResult(result);
-    setActiveTab("plots"); // Switch to plots tab
-  }, []);
+    setActiveTab("plots");
+    updateActiveTab("plots"); // Persist tab change
+  }, [updateActiveTab]);
 
   // Utility function to determine channel group
   function getChannelGroup(
@@ -276,7 +406,15 @@ export function ClinicalDashboard({ className }: ClinicalDashboardProps) {
             >
               <Maximize2 className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="sm">
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => {
+                console.log('🧪 Manual persistence test');
+                debugPersistence.logSessionState();
+                debugPersistence.logLocalStorage();
+              }}
+            >
               <Settings className="h-4 w-4" />
             </Button>
           </div>
@@ -285,9 +423,13 @@ export function ClinicalDashboard({ className }: ClinicalDashboardProps) {
 
       {/* Main Content */}
       <div className="flex-1 min-h-0">
-        <ResizablePanelGroup direction="horizontal" className="h-full">
+        <ResizablePanelGroup 
+          direction="horizontal" 
+          className="h-full"
+          onLayout={(sizes) => updatePanelSizes(sizes)}
+        >
           {/* Left Panel - File Management & Channel Selection */}
-          <ResizablePanel defaultSize={25} minSize={20} maxSize={35}>
+          <ResizablePanel defaultSize={session.panelSizes[0] || 25} minSize={20} maxSize={35}>
             <div className="h-full flex flex-col overflow-hidden">
               <Tabs defaultValue="files" className="h-full flex flex-col">
                 <div className="flex-shrink-0 p-4 border-b">
@@ -353,11 +495,14 @@ export function ClinicalDashboard({ className }: ClinicalDashboardProps) {
           <ResizableHandle />
 
           {/* Center Panel - Main Visualization */}
-          <ResizablePanel defaultSize={50} minSize={40}>
+          <ResizablePanel defaultSize={session.panelSizes[1] || 50} minSize={40}>
             <div className="h-full">
               <Tabs
                 value={activeTab}
-                onValueChange={setActiveTab}
+                onValueChange={(tab) => {
+                  setActiveTab(tab);
+                  updateActiveTab(tab);
+                }}
                 className="h-full flex flex-col"
               >
                 <div className="flex-shrink-0 p-4 border-b">
@@ -393,6 +538,8 @@ export function ClinicalDashboard({ className }: ClinicalDashboardProps) {
                       onAnnotationCreate={handleAnnotationCreate}
                       onAnnotationUpdate={handleAnnotationUpdate}
                       onAnnotationDelete={handleAnnotationDelete}
+                      saveUIElement={saveUIElement}
+                      getUIElement={getUIElement}
                     />
                   ) : (
                     <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -478,7 +625,7 @@ export function ClinicalDashboard({ className }: ClinicalDashboardProps) {
           <ResizableHandle />
 
           {/* Right Panel - Analysis Tools */}
-          <ResizablePanel defaultSize={25} minSize={20} maxSize={35}>
+          <ResizablePanel defaultSize={session.panelSizes[2] || 25} minSize={20} maxSize={35}>
             <div className="h-full">
               <Tabs defaultValue="annotations" className="h-full flex flex-col">
                 <div className="flex-shrink-0 p-4 border-b">
@@ -519,6 +666,8 @@ export function ClinicalDashboard({ className }: ClinicalDashboardProps) {
                       currentTimeWindow={currentTimeWindow}
                       onResultSelect={handleDDAResultSelect}
                       selectedResult={selectedDDAResult}
+                      saveUIElement={saveUIElement}
+                      getUIElement={getUIElement}
                     />
                   ) : (
                     <div className="flex items-center justify-center h-32 text-muted-foreground">
@@ -572,6 +721,9 @@ export function ClinicalDashboard({ className }: ClinicalDashboardProps) {
           </div>
         </div>
       </footer>
+      
+      {/* Debug panel - remove in production */}
+      <PersistenceDebugger />
     </div>
   );
 }

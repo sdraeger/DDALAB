@@ -25,13 +25,12 @@ export class ApiService {
   // File management
   async getAvailableFiles(): Promise<EDFFileInfo[]> {
     try {
-      // First, get root directory to find EDF folder
+      // Get files from root directory (which is mapped to data/edf by the API server)
       const rootResponse = await this.client.get<{ files: any[] }>('/api/files/list')
-      const files: EDFFileInfo[] = []
       
       if (rootResponse.data && Array.isArray(rootResponse.data.files)) {
-        // Look for EDF files in root directory
-        const rootEdfFiles = rootResponse.data.files
+        // Filter for EDF files only (API server already handles the directory mapping)
+        const edfFiles = rootResponse.data.files
           .filter(file => !file.is_directory && 
                          (file.name.toLowerCase().endsWith('.edf') || 
                           file.name.toLowerCase().endsWith('.ascii')))
@@ -48,42 +47,10 @@ export class ApiService {
             annotations_count: 0
           }))
         
-        files.push(...rootEdfFiles)
-        
-        // Look for EDF folder and scan it
-        const edfFolder = rootResponse.data.files.find(file => 
-          file.is_directory && file.name.toLowerCase() === 'edf'
-        )
-        
-        if (edfFolder) {
-          const edfResponse = await this.client.get<{ files: any[] }>('/api/files/list', {
-            params: { path: 'edf' }
-          })
-          
-          if (edfResponse.data && Array.isArray(edfResponse.data.files)) {
-            const edfFiles = edfResponse.data.files
-              .filter(file => !file.is_directory && 
-                             (file.name.toLowerCase().endsWith('.edf') || 
-                              file.name.toLowerCase().endsWith('.ascii')))
-              .map(file => ({
-                file_path: file.path,
-                file_name: file.name,
-                file_size: file.size || 0,
-                duration: 0,
-                sample_rate: 256,
-                channels: [],
-                total_samples: 0,
-                start_time: file.last_modified || new Date().toISOString(),
-                end_time: file.last_modified || new Date().toISOString(),
-                annotations_count: 0
-              }))
-            
-            files.push(...edfFiles)
-          }
-        }
+        return edfFiles
       }
       
-      return files
+      return []
     } catch (error) {
       console.error('Failed to get available files:', error)
       return []
@@ -289,6 +256,16 @@ export class ApiService {
   }
 
   // DDA Analysis
+  private getVariantName(variantId: string): string {
+    const variantNames: Record<string, string> = {
+      'single_timeseries': 'Single Timeseries (ST)',
+      'cross_timeseries': 'Cross Timeseries (CT)', 
+      'cross_dynamical': 'Cross Dynamical (CD)',
+      'dynamical_ergodicity': 'Dynamical Ergodicity (DE)'
+    }
+    return variantNames[variantId] || variantId
+  }
+
   async submitDDAAnalysis(request: DDAAnalysisRequest): Promise<DDAResult> {
     try {
       // Map channel names to indices if needed
@@ -297,6 +274,10 @@ export class ApiService {
         return isNaN(parsed) ? idx + 1 : parsed
       })
 
+      // Note: The backend DDARequest schema expects:
+      // - algorithm_selection.enabled_variants: List of variant IDs
+      // - The backend currently returns only a single Q matrix regardless of variants
+      // - We handle this by creating variant-specific results in the frontend
       const ddaRequest = {
         file_path: request.file_path,
         channel_list: channelIndices,
@@ -333,7 +314,14 @@ export class ApiService {
         Q_isArray: Array.isArray(response.data.Q),
         Q_length: response.data.Q?.length,
         responseKeys: Object.keys(response.data),
-        firstRows: response.data.Q?.slice(0, 3)
+        firstRows: response.data.Q?.slice(0, 3),
+        // Check for variant-specific results
+        hasVariants: !!response.data.variants,
+        variantKeys: response.data.variants ? Object.keys(response.data.variants) : null,
+        hasST: !!response.data.single_timeseries,
+        hasCT: !!response.data.cross_timeseries,
+        hasCD: !!response.data.cross_dynamical,
+        hasDE: !!response.data.dynamical_ergodicity
       });
 
       // Process the real API response
@@ -349,45 +337,165 @@ export class ApiService {
       const exponents: Record<string, number> = {};
       const quality_metrics: Record<string, number> = {};
 
-      // Process the Q matrix (it's channels x time_points, not channels x scales)
-      if (response.data.Q && Array.isArray(response.data.Q) && response.data.Q.length > 0) {
-        // Q matrix is channels x time_points - each row is a time series for one channel
-        const timePoints = response.data.Q[0]?.length || 100;
-        
-        // Create a time axis (not scales) for the time series
-        scales = Array.from({ length: timePoints }, (_, i) => i);
-        
-        request.channels.forEach((channel, idx) => {
-          if (idx < response.data.Q.length && Array.isArray(response.data.Q[idx])) {
-            // Each row of Q matrix is the time series for this channel
-            dda_matrix[channel] = response.data.Q[idx];
-            // Calculate basic statistics
-            const validValues = response.data.Q[idx].filter((v: number) => !isNaN(v) && isFinite(v));
-            if (validValues.length > 1) {
-              exponents[channel] = 0.5; // Placeholder - should calculate from data
-              quality_metrics[channel] = 0.95; // Placeholder
+      // Check if response contains variant-specific results
+      const variants = [];
+      
+      // First, let's check what the backend actually returned
+      console.log('Checking backend response structure for variants...');
+      console.log('Response data keys:', Object.keys(response.data));
+      console.log('Request variants:', request.variants);
+      
+      // Look for variant-specific results in different possible formats
+      let foundVariantData = false;
+      
+      // Option 1: Check if variants are nested under a 'variants' key
+      if (response.data.variants && typeof response.data.variants === 'object') {
+        console.log('Found variants object in response:', Object.keys(response.data.variants));
+        for (const variantId of request.variants) {
+          if (response.data.variants[variantId]) {
+            foundVariantData = true;
+            const variantData = response.data.variants[variantId];
+            console.log(`Processing variant ${variantId} from variants object`);
+            
+            const variantMatrix: Record<string, number[]> = {};
+            const variantExponents: Record<string, number> = {};
+            
+            // Process variant-specific Q matrix
+            if (variantData.Q && Array.isArray(variantData.Q)) {
+              const timePoints = variantData.Q[0]?.length || 100;
+              scales = Array.from({ length: timePoints }, (_, i) => i);
+              
+              request.channels.forEach((channel, idx) => {
+                if (idx < variantData.Q.length && Array.isArray(variantData.Q[idx])) {
+                  variantMatrix[channel] = variantData.Q[idx];
+                  variantExponents[channel] = variantData.exponents?.[channel] || 0.5;
+                }
+              });
+            }
+            
+            variants.push({
+              variant_id: variantId,
+              variant_name: this.getVariantName(variantId),
+              dda_matrix: variantMatrix,
+              exponents: variantExponents,
+              quality_metrics: variantData.quality_metrics || {}
+            });
+          } else {
+            console.log(`Variant ${variantId} not found in variants object`);
+          }
+        }
+      }
+      
+      // Option 2: Check for individual variant keys in the root response
+      if (!foundVariantData) {
+        console.log('Looking for individual variant keys in response root...');
+        for (const variantId of request.variants) {
+          // Check both the variant ID and common variant key patterns
+          const possibleKeys = [
+            variantId,
+            variantId.toUpperCase(),
+            variantId.toLowerCase(),
+            // Map to common backend naming patterns
+            variantId === 'single_timeseries' ? 'ST' : 
+            variantId === 'cross_timeseries' ? 'CT' :
+            variantId === 'cross_dynamical' ? 'CD' :
+            variantId === 'dynamical_ergodicity' ? 'DE' : variantId
+          ];
+          
+          let variantData = null;
+          for (const key of possibleKeys) {
+            if (response.data[key]) {
+              variantData = response.data[key];
+              console.log(`Found variant data for ${variantId} under key '${key}'`);
+              break;
             }
           }
-        });
-        console.log('Successfully processed real Q matrix data as time series');
-      } else {
-        // Create dummy data for testing if no real Q matrix
-        console.warn('No Q matrix in DDA response, creating dummy data for testing');
-        scales = Array.from({ length: scaleNum }, (_, i) => 
-          Math.round(scaleMin * Math.pow(scaleMax / scaleMin, i / Math.max(1, scaleNum - 1)))
-        );
+          
+          if (variantData) {
+            foundVariantData = true;
+            const variantMatrix: Record<string, number[]> = {};
+            const variantExponents: Record<string, number> = {};
+            
+            if (variantData.Q && Array.isArray(variantData.Q)) {
+              const timePoints = variantData.Q[0]?.length || 100;
+              scales = Array.from({ length: timePoints }, (_, i) => i);
+              
+              request.channels.forEach((channel, idx) => {
+                if (idx < variantData.Q.length && Array.isArray(variantData.Q[idx])) {
+                  variantMatrix[channel] = variantData.Q[idx];
+                  variantExponents[channel] = variantData.exponents?.[channel] || 0.5;
+                }
+              });
+            } else if (variantData && Array.isArray(variantData)) {
+              // Some backends might return Q matrix directly as the variant value
+              const timePoints = variantData[0]?.length || 100;
+              scales = Array.from({ length: timePoints }, (_, i) => i);
+              
+              request.channels.forEach((channel, idx) => {
+                if (idx < variantData.length && Array.isArray(variantData[idx])) {
+                  variantMatrix[channel] = variantData[idx];
+                  variantExponents[channel] = 0.5; // Default value
+                }
+              });
+            }
+            
+            variants.push({
+              variant_id: variantId,
+              variant_name: this.getVariantName(variantId),
+              dda_matrix: variantMatrix,
+              exponents: variantExponents,
+              quality_metrics: {}
+            });
+          } else {
+            console.log(`No data found for variant ${variantId}`);
+          }
+        }
+      }
+      
+      // Option 3: If still no variant-specific data found, check if there's a single Q matrix to replicate
+      if (!foundVariantData) {
+        console.warn('No variant-specific data found in backend response');
+        console.log('Available response keys:', Object.keys(response.data));
         
-        // Create dummy DDA matrix data
-        request.channels.forEach((channel, idx) => {
-          dda_matrix[channel] = scales.map((scale, scaleIdx) => {
-            // Generate some dummy DDA-like data
-            return Math.log(scale) + Math.random() * 0.5 + idx * 0.2;
+        if (response.data.Q && Array.isArray(response.data.Q) && response.data.Q.length > 0) {
+          console.log('Using single Q matrix for all variants (backend does not support multiple variants)');
+          
+          // Process the single Q matrix
+          const timePoints = response.data.Q[0]?.length || 100;
+          scales = Array.from({ length: timePoints }, (_, i) => i);
+          
+          request.channels.forEach((channel, idx) => {
+            if (idx < response.data.Q.length && Array.isArray(response.data.Q[idx])) {
+              dda_matrix[channel] = response.data.Q[idx];
+              const validValues = response.data.Q[idx].filter((v: number) => !isNaN(v) && isFinite(v));
+              if (validValues.length > 1) {
+                exponents[channel] = 0.5;
+              }
+            }
           });
-          exponents[channel] = 0.5 + Math.random() * 0.3;
-          quality_metrics[channel] = 0.8 + Math.random() * 0.2;
-        });
+          
+          // Create identical results for each requested variant
+          // Note: This means the backend doesn't actually compute different variants
+          for (const variantId of request.variants) {
+            variants.push({
+              variant_id: variantId,
+              variant_name: this.getVariantName(variantId),
+              dda_matrix: { ...dda_matrix }, // Clone the matrix
+              exponents: { ...exponents },   // Clone the exponents
+              quality_metrics: response.data.quality_metrics || {}
+            });
+          }
+          
+          console.warn(`Created ${variants.length} identical variant results - backend may not support multiple variants`);
+        } else {
+          console.error('No Q matrix found in backend response');
+          // This is an error condition - no data to work with
+          throw new Error('Backend returned no DDA results (no Q matrix found)');
+        }
       }
 
+      console.log('Final variants array:', variants.map(v => ({ id: v.variant_id, name: v.variant_name })));
+      
       // Create and return the result
       const result: DDAResult = {
         id: job_id,
@@ -396,15 +504,24 @@ export class ApiService {
         parameters: request,
         results: {
           scales,
-          dda_matrix,
-          exponents,
-          quality_metrics
+          variants: variants.length > 0 ? variants : [{
+            variant_id: 'single_timeseries',
+            variant_name: this.getVariantName('single_timeseries'),
+            dda_matrix,
+            exponents,
+            quality_metrics
+          }],
+          // Legacy fields for backward compatibility (use first variant)
+          dda_matrix: variants.length > 0 ? variants[0].dda_matrix : dda_matrix,
+          exponents: variants.length > 0 ? variants[0].exponents : exponents,
+          quality_metrics: variants.length > 0 ? variants[0].quality_metrics : quality_metrics
         },
         status: 'completed',
         created_at: new Date().toISOString(),
         completed_at: new Date().toISOString()
       };
 
+      console.log('Result contains', result.results.variants.length, 'variants');
       return result;
     } catch (error) {
       console.error('Failed to submit DDA analysis:', error)

@@ -30,6 +30,7 @@ import { Slider } from '@/components/ui/slider';
 import { Separator } from '@/components/ui/separator';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { apiService, DDAAnalysisRequest, DDAResult, EDFFileInfo } from '@/services/apiService';
+import { useFormPersistence } from '@/hooks/useSessionPersistence';
 import { cn } from '@/lib/utils';
 
 interface DDAAnalysisPanelProps {
@@ -38,6 +39,8 @@ interface DDAAnalysisPanelProps {
   currentTimeWindow: { start: number; end: number };
   onResultSelect: (result: DDAResult) => void;
   selectedResult?: DDAResult;
+  saveUIElement: (elementId: string, type: 'plot' | 'form' | 'panel' | 'widget', lightweightState: Record<string, any>) => void;
+  getUIElement: (elementId: string) => any;
   className?: string;
 }
 
@@ -100,21 +103,31 @@ export function DDAAnalysisPanel({
   currentTimeWindow,
   onResultSelect,
   selectedResult,
+  saveUIElement,
+  getUIElement,
   className
 }: DDAAnalysisPanelProps) {
+  // Form persistence
+  const formId = `dda-analysis-${file.file_path}`;
+  const { formState, updateField, updateFields } = useFormPersistence(formId, saveUIElement, getUIElement);
+  
   const [results, setResults] = useState<DDAResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedVariants, setSelectedVariants] = useState<string[]>(['single_timeseries']);
+  
+  // Use persisted form values with fallbacks
+  const [selectedVariants, setSelectedVariants] = useState<string[]>(
+    formState.selectedVariants || ['single_timeseries']
+  );
   const [customParameters, setCustomParameters] = useState<DDAAnalysisRequest>({
     file_path: file.file_path,
     channels: selectedChannels,
     start_time: currentTimeWindow.start,
     end_time: currentTimeWindow.end,
-    variants: ['single_timeseries'],
-    window_length: 4,
-    window_step: 2,
-    detrending: 'linear',
-    scale_min: 4,
+    variants: formState.selectedVariants || ['single_timeseries'],
+    window_length: formState.window_length || 4,
+    window_step: formState.window_step || 2,
+    detrending: formState.detrending || 'linear',
+    scale_min: formState.scale_min || 4,
     scale_max: 64,
     scale_num: 16
   });
@@ -438,10 +451,13 @@ export function DDAAnalysisPanel({
                         <Label className="text-sm">Window Length (s)</Label>
                         <Slider
                           value={[customParameters.window_length || 4]}
-                          onValueChange={([value]) => setCustomParameters(prev => ({
-                            ...prev,
-                            window_length: value
-                          }))}
+                          onValueChange={([value]) => {
+                            setCustomParameters(prev => ({
+                              ...prev,
+                              window_length: value
+                            }));
+                            updateField('window_length', value);
+                          }}
                           max={30}
                           min={1}
                           step={0.5}
@@ -455,10 +471,13 @@ export function DDAAnalysisPanel({
                         <Label className="text-sm">Window Step (s)</Label>
                         <Slider
                           value={[customParameters.window_step || 2]}
-                          onValueChange={([value]) => setCustomParameters(prev => ({
-                            ...prev,
-                            window_step: value
-                          }))}
+                          onValueChange={([value]) => {
+                            setCustomParameters(prev => ({
+                              ...prev,
+                              window_step: value
+                            }));
+                            updateField('window_step', value);
+                          }}
                           max={customParameters.window_length || 4}
                           min={0.5}
                           step={0.5}
@@ -528,10 +547,13 @@ export function DDAAnalysisPanel({
                       <Label className="text-sm">Detrending</Label>
                       <Select
                         value={customParameters.detrending || 'linear'}
-                        onValueChange={(value: any) => setCustomParameters(prev => ({
-                          ...prev,
-                          detrending: value
-                        }))}
+                        onValueChange={(value: any) => {
+                          setCustomParameters(prev => ({
+                            ...prev,
+                            detrending: value
+                          }));
+                          updateField('detrending', value);
+                        }}
                       >
                         <SelectTrigger>
                           <SelectValue />
