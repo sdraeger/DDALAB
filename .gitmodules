@@ -1,9 +1,3 @@
-[submodule "launcher"]
-	path = launcher
-	url = git@github.com:sdraeger/DDALAB-launcher.git
-[submodule "docker-extension"]
-	path = docker-extension
-	url = git@github.com:sdraeger/DDALAB-docker-ext.git
-[submodule "ddalab-control"]
-	path = ddalab-control
-	url = git@github.com:sdraeger/DDALAB-control.git
+[submodule "setup"]
+	path = setup
+	url = git@github.com:sdraeger/DDALAB-setup.git
