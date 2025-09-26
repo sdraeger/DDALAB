@@ -4,9 +4,6 @@
 [submodule "docker-extension"]
 	path = docker-extension
 	url = git@github.com:sdraeger/DDALAB-docker-ext.git
-[submodule "ddalab-deploy"]
-	path = ddalab-deploy
-	url = git@github.com:sdraeger/DDALAB-setup.git
 [submodule "ddalab-control"]
 	path = ddalab-control
 	url = git@github.com:sdraeger/DDALAB-control.git
