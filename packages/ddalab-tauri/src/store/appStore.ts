@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { EDFFileInfo, ChunkData, DDAResult, Annotation } from '@/types/api'
 import { TauriService } from '@/services/tauriService'
+import { getStatePersistenceService, StatePersistenceService } from '@/services/statePersistenceService'
+import { AppState as PersistedAppState, AnalysisResult } from '@/types/persistence'
 
 export interface FileManagerState {
   currentPath: string[]
@@ -14,6 +16,8 @@ export interface FileManagerState {
   sortBy: 'name' | 'size' | 'date'
   sortOrder: 'asc' | 'desc'
   showHidden: boolean
+  // For state restoration - file path to re-select after restart
+  pendingFileSelection: string | null
 }
 
 export interface PlotState {
@@ -61,7 +65,9 @@ export interface UIState {
 export interface AppState {
   // Initialization
   isInitialized: boolean
+  persistenceService: StatePersistenceService | null
   initializeFromTauri: () => Promise<void>
+  initializePersistence: () => Promise<void>
 
   // File management
   fileManager: FileManagerState
@@ -70,11 +76,13 @@ export interface AppState {
   setSelectedChannels: (channels: string[]) => void
   setTimeWindow: (window: { start: number; end: number }) => void
   updateFileManagerState: (updates: Partial<FileManagerState>) => void
+  clearPendingFileSelection: () => void
 
   // Plotting
   plot: PlotState
   setCurrentChunk: (chunk: ChunkData | null) => void
   updatePlotState: (updates: Partial<PlotState>) => void
+  savePlotData: (plotData: any, analysisId?: string) => Promise<void>
 
   // DDA Analysis
   dda: DDAState
@@ -83,6 +91,7 @@ export interface AppState {
   setAnalysisHistory: (analyses: DDAResult[]) => void
   updateAnalysisParameters: (parameters: Partial<DDAState['analysisParameters']>) => void
   setDDARunning: (running: boolean) => void
+  saveAnalysisResult: (analysis: DDAResult) => Promise<void>
 
   // Health monitoring
   health: HealthState
@@ -95,6 +104,13 @@ export interface AppState {
   setPanelSizes: (sizes: number[]) => void
   setLayout: (layout: UIState['layout']) => void
   setTheme: (theme: UIState['theme']) => void
+
+  // State persistence
+  saveCurrentState: () => Promise<void>
+  forceSave: () => Promise<void>
+  clearPersistedState: () => Promise<void>
+  getPersistedState: () => Promise<PersistedAppState | null>
+  createStateSnapshot: () => Promise<any>
 }
 
 const defaultFileManagerState: FileManagerState = {
@@ -105,7 +121,8 @@ const defaultFileManagerState: FileManagerState = {
   searchQuery: '',
   sortBy: 'name',
   sortOrder: 'asc',
-  showHidden: false
+  showHidden: false,
+  pendingFileSelection: null
 }
 
 const defaultPlotState: PlotState = {
@@ -152,46 +169,158 @@ const defaultUIState: UIState = {
 
 export const useAppStore = create<AppState>((set, get) => ({
   isInitialized: false,
+  persistenceService: null,
   
-  initializeFromTauri: async () => {
+  initializePersistence: async () => {
+    console.log('DEBUG: initializePersistence called, isTauri:', TauriService.isTauri());
     if (TauriService.isTauri()) {
       try {
-        const tauriState = await TauriService.getAppState()
+        console.log('DEBUG: Creating persistence service...');
+        const service = getStatePersistenceService({
+          autoSave: true,
+          saveInterval: 30000,
+          includeAnalysisHistory: true,
+          includePlotData: true,
+          maxHistoryItems: 50
+        });
+
+        console.log('DEBUG: Initializing persistence service...');
+        const persistedState = await service.initialize();
+        console.log('DEBUG: Persisted state loaded:', {
+          version: persistedState.version,
+          activeTab: persistedState.active_tab,
+          selectedFile: persistedState.file_manager.selected_file,
+          selectedChannels: persistedState.file_manager.selected_channels,
+          ddaVariants: persistedState.dda.selected_variants,
+          hasCurrentAnalysis: !!persistedState.dda.current_analysis,
+          analysisHistoryCount: persistedState.dda.analysis_history.length
+        });
         
-        set((state) => ({
-          isInitialized: true,
-          fileManager: {
-            ...state.fileManager,
-            currentPath: tauriState.file_manager.current_path,
-            selectedChannels: tauriState.file_manager.selected_channels,
-            searchQuery: tauriState.file_manager.search_query,
-            sortBy: tauriState.file_manager.sort_by as 'name' | 'size' | 'date',
-            sortOrder: tauriState.file_manager.sort_order as 'asc' | 'desc',
-            showHidden: tauriState.file_manager.show_hidden
-          },
-          plot: {
-            ...state.plot,
-            // Map Tauri state to local state
-          },
-          dda: {
-            ...state.dda,
-            analysisParameters: {
-              ...state.dda.analysisParameters,
-              variants: tauriState.dda.selected_variants
+        // Set up the current state getter for auto-save
+        service.setCurrentStateGetter(() => {
+          const currentState = get();
+          return currentState.saveCurrentState();
+        });
+
+        set((state) => {
+          // Don't create selectedFile here - let the FileManager component
+          // re-fetch the actual file metadata to ensure we have correct data
+          const selectedFile = null;
+
+          // Create properly typed DDA results with missing properties
+          const currentAnalysis = persistedState.dda.current_analysis ? {
+            id: persistedState.dda.current_analysis.id,
+            file_path: persistedState.dda.current_analysis.file_path,
+            created_at: persistedState.dda.current_analysis.created_at,
+            results: persistedState.dda.current_analysis.results,
+            parameters: persistedState.dda.current_analysis.parameters,
+            plot_data: persistedState.dda.current_analysis.plot_data,
+            channels: persistedState.file_manager.selected_channels,
+            status: 'completed' as const
+          } : null;
+
+          const analysisHistory = persistedState.dda.analysis_history.map(item => ({
+            id: item.id,
+            file_path: item.file_path,
+            created_at: item.created_at,
+            results: item.results,
+            parameters: item.parameters,
+            plot_data: item.plot_data,
+            channels: persistedState.file_manager.selected_channels,
+            status: 'completed' as const
+          }));
+
+          return {
+            ...state,
+            persistenceService: service,
+            fileManager: {
+              ...state.fileManager,
+              currentPath: persistedState.file_manager.current_path,
+              selectedFile,
+              selectedChannels: persistedState.file_manager.selected_channels,
+              searchQuery: persistedState.file_manager.search_query,
+              sortBy: persistedState.file_manager.sort_by as 'name' | 'size' | 'date',
+              sortOrder: persistedState.file_manager.sort_order as 'asc' | 'desc',
+              showHidden: persistedState.file_manager.show_hidden,
+              pendingFileSelection: persistedState.file_manager.selected_file
+            },
+            plot: {
+              ...state.plot,
+              chunkSize: persistedState.plot.filters?.chunkSize || state.plot.chunkSize,
+              amplitude: persistedState.plot.filters?.amplitude || state.plot.amplitude,
+              showAnnotations: Boolean(persistedState.plot.filters?.showAnnotations ?? state.plot.showAnnotations)
+            },
+            dda: {
+              ...state.dda,
+              analysisParameters: {
+                ...state.dda.analysisParameters,
+                variants: persistedState.dda.selected_variants,
+                windowLength: persistedState.dda.parameters?.windowLength || persistedState.dda.analysis_parameters?.windowLength || state.dda.analysisParameters.windowLength,
+                windowStep: persistedState.dda.parameters?.windowStep || persistedState.dda.analysis_parameters?.windowStep || state.dda.analysisParameters.windowStep,
+                detrending: (persistedState.dda.parameters?.detrending || persistedState.dda.analysis_parameters?.detrending || state.dda.analysisParameters.detrending) as 'linear' | 'polynomial' | 'none',
+                scaleMin: persistedState.dda.parameters?.scaleMin || persistedState.dda.analysis_parameters?.scaleMin || state.dda.analysisParameters.scaleMin,
+                scaleMax: persistedState.dda.parameters?.scaleMax || persistedState.dda.analysis_parameters?.scaleMax || state.dda.analysisParameters.scaleMax,
+                scaleNum: persistedState.dda.parameters?.scaleNum || persistedState.dda.analysis_parameters?.scaleNum || state.dda.analysisParameters.scaleNum
+              },
+              currentAnalysis,
+              analysisHistory
+            },
+            ui: {
+              ...state.ui,
+              activeTab: persistedState.active_tab,
+              sidebarOpen: !persistedState.sidebar_collapsed,
+              panelSizes: [
+                persistedState.panel_sizes.sidebar * 100,
+                persistedState.panel_sizes.main * 100 - persistedState.panel_sizes.sidebar * 100,
+                25
+              ]
             }
-          },
-          ui: {
-            ...state.ui,
-            ...tauriState.ui
-          }
-        }))
+          };
+        });
+
+        console.log('State persistence initialized successfully');
+        
+        // Debug what was actually set
+        const currentState = get();
+        console.log('DEBUG: Final state after persistence load:', {
+          activeTab: currentState.ui.activeTab,
+          sidebarOpen: currentState.ui.sidebarOpen,
+          selectedFile: currentState.fileManager.selectedFile?.file_name,
+          selectedChannels: currentState.fileManager.selectedChannels,
+          ddaVariants: currentState.dda.analysisParameters.variants,
+          ddaParams: currentState.dda.analysisParameters,
+          hasCurrentAnalysis: !!currentState.dda.currentAnalysis
+        });
       } catch (error) {
-        console.error('Failed to initialize from Tauri state:', error)
-        set({ isInitialized: true })
+        console.error('Failed to initialize persistence:', error);
+        console.error('Error details:', {
+          name: (error as Error)?.name,
+          message: (error as Error)?.message,
+          stack: (error as Error)?.stack
+        });
+        set({ persistenceService: null });
       }
-    } else {
-      set({ isInitialized: true })
     }
+  },
+  
+  initializeFromTauri: async () => {
+    console.log('🟢 DEBUG: initializeFromTauri called, isTauri:', TauriService.isTauri());
+    console.error('🟢 DEBUG: initializeFromTauri called, isTauri:', TauriService.isTauri()); // Use error to make it more visible
+    
+    if (TauriService.isTauri()) {
+      console.log('🟢 DEBUG: Calling initializePersistence...');
+      console.error('🟢 DEBUG: Calling initializePersistence...');
+      await get().initializePersistence();
+      console.log('🟢 DEBUG: Persistence initialization completed');
+      console.error('🟢 DEBUG: Persistence initialization completed');
+      set({ isInitialized: true });
+    } else {
+      console.log('🔴 DEBUG: Not in Tauri environment, skipping persistence');
+      console.error('🔴 DEBUG: Not in Tauri environment, skipping persistence');
+      set({ isInitialized: true });
+    }
+    console.log('🟢 DEBUG: initializeFromTauri completed');
+    console.error('🟢 DEBUG: initializeFromTauri completed');
   },
 
   // File management
@@ -203,8 +332,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }))
     
     if (TauriService.isTauri()) {
-      const { fileManager } = get()
-      TauriService.updateFileManagerState({
+      const { fileManager, persistenceService } = get()
+      const fileManagerState = {
         selected_file: fileManager.selectedFile?.file_path || null,
         current_path: path,
         selected_channels: fileManager.selectedChannels,
@@ -212,7 +341,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         sort_by: fileManager.sortBy,
         sort_order: fileManager.sortOrder,
         show_hidden: fileManager.showHidden
-      })
+      }
+      
+      TauriService.updateFileManagerState(fileManagerState)
+      
+      // Auto-save via persistence service
+      if (persistenceService) {
+        persistenceService.saveFileManagerState(fileManagerState).catch(console.error)
+      }
     }
   },
   
@@ -277,6 +413,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         show_hidden: fileManager.showHidden
       })
     }
+  },
+
+  clearPendingFileSelection: () => {
+    set((state) => ({
+      fileManager: { ...state.fileManager, pendingFileSelection: null }
+    }))
   },
 
   // Plotting
@@ -401,5 +543,135 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (TauriService.isTauri()) {
       TauriService.updateUIState({ theme })
     }
+  },
+
+  // Additional persistence methods that weren't in the original implementation
+  savePlotData: async (plotData, analysisId) => {
+    const service = get().persistenceService;
+    if (service) {
+      await service.savePlotData(plotData, analysisId);
+    }
+  },
+
+  saveAnalysisResult: async (analysis) => {
+    const service = get().persistenceService;
+    if (service) {
+      const persistedAnalysis: AnalysisResult = {
+        id: analysis.id,
+        file_path: analysis.file_path,
+        created_at: analysis.created_at || new Date().toISOString(),
+        results: analysis.results,
+        parameters: analysis.parameters,
+        plot_data: null // Will be saved separately if needed
+      };
+      await service.saveAnalysisResult(persistedAnalysis);
+    }
+  },
+
+  // State persistence methods
+  saveCurrentState: async () => {
+    const service = get().persistenceService;
+    const currentState = get();
+    
+    if (service) {
+      const stateToSave = {
+        version: '1.0.0',
+        file_manager: {
+          selected_file: currentState.fileManager.selectedFile?.file_path || null,
+          current_path: currentState.fileManager.currentPath,
+          selected_channels: currentState.fileManager.selectedChannels,
+          search_query: currentState.fileManager.searchQuery,
+          sort_by: currentState.fileManager.sortBy,
+          sort_order: currentState.fileManager.sortOrder,
+          show_hidden: currentState.fileManager.showHidden
+        },
+        plot: {
+          visible_channels: currentState.fileManager.selectedChannels,
+          time_range: [currentState.fileManager.timeWindow.start, currentState.fileManager.timeWindow.end],
+          amplitude_range: [-100, 100], // Default
+          zoom_level: 1.0,
+          annotations: [],
+          color_scheme: 'default',
+          plot_mode: 'raw',
+          filters: {
+            chunkSize: currentState.plot.chunkSize,
+            amplitude: currentState.plot.amplitude,
+            showAnnotations: currentState.plot.showAnnotations
+          }
+        },
+        dda: {
+          selected_variants: currentState.dda.analysisParameters.variants,
+          parameters: currentState.dda.analysisParameters,
+          last_analysis_id: currentState.dda.currentAnalysis?.id || null,
+          current_analysis: currentState.dda.currentAnalysis ? {
+            id: currentState.dda.currentAnalysis.id,
+            file_path: currentState.dda.currentAnalysis.file_path,
+            created_at: currentState.dda.currentAnalysis.created_at || new Date().toISOString(),
+            results: currentState.dda.currentAnalysis.results,
+            parameters: currentState.dda.currentAnalysis.parameters,
+            plot_data: null
+          } : null,
+          analysis_history: currentState.dda.analysisHistory.map(item => ({
+            id: item.id,
+            file_path: item.file_path,
+            created_at: item.created_at || new Date().toISOString(),
+            results: item.results,
+            parameters: item.parameters,
+            plot_data: null
+          })),
+          analysis_parameters: currentState.dda.analysisParameters,
+          running: currentState.dda.isRunning
+        },
+        ui: {
+          activeTab: currentState.ui.activeTab,
+          sidebarOpen: currentState.ui.sidebarOpen,
+          panelSizes: currentState.ui.panelSizes,
+          layout: currentState.ui.layout,
+          theme: currentState.ui.theme
+        },
+        windows: {},
+        active_tab: currentState.ui.activeTab,
+        sidebar_collapsed: !currentState.ui.sidebarOpen,
+        panel_sizes: {
+          sidebar: (currentState.ui.panelSizes[0] || 25) / 100,
+          main: (currentState.ui.panelSizes[1] || 50) / 100,
+          'plot-height': 0.6
+        }
+      };
+
+      await service.saveCompleteState(stateToSave);
+    }
+  },
+
+  forceSave: async () => {
+    const service = get().persistenceService;
+    if (service) {
+      await get().saveCurrentState();
+      await service.forceSave();
+    }
+  },
+
+  clearPersistedState: async () => {
+    const service = get().persistenceService;
+    if (service) {
+      await service.clearState();
+    }
+  },
+
+  getPersistedState: async () => {
+    const service = get().persistenceService;
+    if (service) {
+      return await service.getSavedState();
+    }
+    return null;
+  },
+
+  createStateSnapshot: async () => {
+    const service = get().persistenceService;
+    if (service) {
+      await get().saveCurrentState();
+      return await service.createSnapshot();
+    }
+    return null;
   }
 }))

@@ -60,7 +60,7 @@ export interface DDAResult {
   parameters: DDAAnalysisRequest;
   results: {
     scales: number[];
-    fluctuations: Record<string, number[]>;
+    dda_matrix: Record<string, number[]>;
     exponents: Record<string, number>;
     quality_metrics: Record<string, number>;
   };
@@ -190,27 +190,51 @@ class APIService {
 
   async getFileInfo(filePath: string): Promise<EDFFileInfo> {
     try {
-      // Get metadata from EDF data endpoint with chunk_size=0 to get file info only
-      const response = await this.request<any>(`/api/edf/data?file_path=${encodeURIComponent(filePath)}&chunk_start=0&chunk_size=0`);
+      console.log('Getting file info for:', filePath)
       
-      if (response) {
+      // Get EDF-specific metadata from the correct endpoint
+      const edfResponse = await this.request<any>(`/api/edf/info?file_path=${encodeURIComponent(filePath)}`);
+      
+      console.log('EDF info response:', edfResponse)
+      
+      // Get file size from files list endpoint
+      let fileSize = 0
+      try {
+        const directory = filePath.substring(0, filePath.lastIndexOf('/'))
+        const fileName = filePath.split('/').pop() || filePath
+        
+        const filesResponse = await this.request<any>(`/api/files/list?path=${encodeURIComponent(directory)}`)
+        
+        const fileEntry = filesResponse.files?.find((f: any) => f.name === fileName)
+        fileSize = fileEntry?.file_size || 0
+        
+        console.log('File size from files endpoint:', fileSize)
+      } catch (filesError) {
+        console.warn('Could not get file size from files endpoint:', filesError)
+      }
+      
+      if (edfResponse) {
         return {
           file_path: filePath,
           file_name: filePath.split('/').pop() || filePath,
-          file_size: response.file_size || 0,
-          duration: response.duration || 0,
-          sample_rate: response.sample_rate || response.sampling_rate || 256,
-          channels: response.channel_labels || response.channels || [],
-          total_samples: response.total_samples || 0,
-          start_time: response.start_time || new Date().toISOString(),
-          end_time: response.end_time || new Date().toISOString(),
-          annotations_count: 0 // Will be loaded separately
+          file_size: fileSize,
+          duration: edfResponse.total_duration || 0,
+          sample_rate: edfResponse.sampling_rate || 256,
+          channels: edfResponse.channels || [],
+          total_samples: edfResponse.total_samples || 0,
+          start_time: new Date().toISOString(),
+          end_time: new Date().toISOString(),
+          annotations_count: 0
         };
       }
       throw new Error('No response from server');
     } catch (error) {
       console.error(`Failed to get file info for ${filePath}:`, error);
-      // Return default values if metadata loading fails
+      // Re-throw 404 errors so they can be handled by the caller
+      if (error instanceof Error && error.message.includes('404')) {
+        throw error;
+      }
+      // Return default values only for other errors
       return {
         file_path: filePath,
         file_name: filePath.split('/').pop() || filePath,
@@ -442,6 +466,16 @@ class APIService {
         body: JSON.stringify(ddaRequest),
       });
 
+      console.log('Raw DDA API response:', response);
+      console.log('Response structure:', {
+        hasQ: !!response.Q,
+        Q_type: typeof response.Q,
+        Q_isArray: Array.isArray(response.Q),
+        Q_length: response.Q?.length,
+        responseKeys: Object.keys(response),
+        firstRows: response.Q?.slice(0, 3)
+      });
+
       // Generate a job ID for tracking
       const job_id = `dda_${Date.now()}`;
 
@@ -453,22 +487,23 @@ class APIService {
       const scaleNum = request.scale_num || 16;
       
       let scales: number[] = [];
-      let fluctuations: Record<string, number[]> = {};
+      let dda_matrix: Record<string, number[]> = {};
       const exponents: Record<string, number> = {};
       const quality_metrics: Record<string, number> = {};
 
-      // Process the Q matrix (assuming it's channels x scales)
+      // Process the Q matrix (it's channels x time_points, not channels x scales)
       if (response.Q && Array.isArray(response.Q) && response.Q.length > 0) {
-        // Use actual Q matrix dimensions
-        const scaleCount = response.Q[0]?.length || scaleNum;
-        scales = Array.from({ length: scaleCount }, (_, i) => 
-          Math.round(scaleMin * Math.pow(scaleMax / scaleMin, i / Math.max(1, scaleCount - 1)))
-        );
+        // Q matrix is channels x time_points - each row is a time series for one channel
+        const timePoints = response.Q[0]?.length || 100;
+        
+        // Create a time axis (not scales) for the time series
+        scales = Array.from({ length: timePoints }, (_, i) => i);
         
         request.channels.forEach((channel, idx) => {
           if (idx < response.Q.length && Array.isArray(response.Q[idx])) {
-            fluctuations[channel] = response.Q[idx];
-            // Calculate exponent (simplified - should be from linear fit)
+            // Each row of Q matrix is the time series for this channel
+            dda_matrix[channel] = response.Q[idx];
+            // Calculate basic statistics
             const validValues = response.Q[idx].filter((v: number) => !isNaN(v) && isFinite(v));
             if (validValues.length > 1) {
               exponents[channel] = 0.5; // Placeholder - should calculate from data
@@ -476,6 +511,7 @@ class APIService {
             }
           }
         });
+        console.log('Successfully processed real Q matrix data as time series');
       } else {
         // Create dummy data for testing if no real Q matrix
         console.warn('No Q matrix in DDA response, creating dummy data for testing');
@@ -483,9 +519,9 @@ class APIService {
           Math.round(scaleMin * Math.pow(scaleMax / scaleMin, i / Math.max(1, scaleNum - 1)))
         );
         
-        // Create dummy fluctuation data
+        // Create dummy DDA matrix data
         request.channels.forEach((channel, idx) => {
-          fluctuations[channel] = scales.map((scale, scaleIdx) => {
+          dda_matrix[channel] = scales.map((scale, scaleIdx) => {
             // Generate some dummy DDA-like data
             return Math.log(scale) + Math.random() * 0.5 + idx * 0.2;
           });
@@ -502,7 +538,7 @@ class APIService {
         parameters: request,
         results: {
           scales,
-          fluctuations,
+          dda_matrix,
           exponents,
           quality_metrics
         },
@@ -526,7 +562,7 @@ class APIService {
         parameters: request,
         results: {
           scales: [],
-          fluctuations: {},
+          dda_matrix: {},
           exponents: {},
           quality_metrics: {}
         },
@@ -546,9 +582,17 @@ class APIService {
 
   async getDDAResults(jobId?: string, filePath?: string): Promise<DDAResult[]> {
     try {
-      // Filter cached results based on criteria
-      let results = this.ddaResultsCache;
+      // Get results from backend history first
+      let results: DDAResult[] = [];
+      try {
+        results = await this.getDDAHistoryFromBackend(filePath);
+      } catch (error) {
+        console.warn('Failed to get DDA history from backend:', error);
+        // Fall back to cache
+        results = this.ddaResultsCache;
+      }
       
+      // Filter based on criteria
       if (jobId) {
         results = results.filter(r => r.id === jobId);
       }
@@ -562,22 +606,51 @@ class APIService {
       return [];
     }
   }
+
+  // Get DDA history from backend
+  async getDDAHistoryFromBackend(filePath?: string): Promise<DDAResult[]> {
+    const params = new URLSearchParams();
+    if (filePath) {
+      params.append('file_path', filePath);
+    }
+    params.append('limit', '50');
+    
+    const url = `/api/dda/history${params.toString() ? '?' + params.toString() : ''}`;
+    const response = await this.request<DDAResult[]>(url);
+    
+    console.log('DDA History response:', {
+      analysesCount: response?.length || 0,
+      dataKeys: Array.isArray(response) ? response.map(r => r.id).slice(0, 5) : [],
+      dataType: typeof response,
+      status: 'success'
+    });
+    
+    return response || [];
+  }
   
   private async storeDDAResult(result: DDAResult): Promise<void> {
     // Add to cache
     this.ddaResultsCache = [...this.ddaResultsCache.filter(r => r.id !== result.id), result];
     
-    // Also try to store in widget data for persistence (but don't fail if it doesn't work)
+    // Store in DDA history using the proper backend endpoint
     try {
-      await this.storeWidgetData({
-        key: `dda_result:${result.id}`,
-        data: result,
-        widgetId: 'dda-analysis',
-        metadata: { type: 'dda-result', file_path: result.file_path }
-      });
+      await this.saveDDAAnalysisToHistory(result);
     } catch (error) {
-      // Ignore storage errors - we have it in memory at least
+      console.warn('Failed to save DDA result to backend history:', error);
+      // Continue anyway - we have it in memory cache
     }
+  }
+
+  // Save DDA analysis to backend history
+  async saveDDAAnalysisToHistory(result: DDAResult): Promise<{status: string, message: string, id: string}> {
+    const response = await this.request<{status: string, message: string, id: string}>(
+      '/api/dda/history/save',
+      {
+        method: 'POST',
+        body: JSON.stringify(result),
+      }
+    );
+    return response;
   }
 
   async getDDAResult(jobId: string): Promise<DDAResult> {
@@ -592,6 +665,16 @@ class APIService {
       return response.data;
     } catch (error) {
       throw new Error(`DDA result ${jobId} not found`);
+    }
+  }
+
+  async getAnalysisFromHistory(resultId: string): Promise<DDAResult | null> {
+    try {
+      const response = await this.request<{analysis: DDAResult}>(`/api/dda/history/${resultId}`);
+      return response.analysis || null;
+    } catch (error) {
+      console.error(`Failed to get analysis ${resultId} from history:`, error);
+      return null;
     }
   }
 
@@ -628,6 +711,30 @@ class APIService {
 
   clearAuthToken() {
     this.token = null;
+  }
+
+  // Plot data fetching for persistence
+  async getPlotData(plotId: string): Promise<any> {
+    try {
+      const response = await this.getWidgetData(`plot_data:${plotId}`);
+      return response.data;
+    } catch (error) {
+      console.warn(`Plot data not found for ${plotId}:`, error);
+      return null;
+    }
+  }
+
+  async storePlotData(plotId: string, data: any): Promise<void> {
+    try {
+      await this.storeWidgetData({
+        key: `plot_data:${plotId}`,
+        data: data,
+        widgetId: 'plot-visualization',
+        metadata: { type: 'plot-data', plot_id: plotId }
+      });
+    } catch (error) {
+      console.warn(`Failed to store plot data for ${plotId}:`, error);
+    }
   }
 
   // WebSocket for real-time updates (DDA progress, etc.)

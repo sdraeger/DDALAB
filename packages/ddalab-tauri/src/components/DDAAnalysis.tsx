@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { ApiService } from '@/services/apiService'
 import { DDAAnalysisRequest, DDAResult } from '@/types/api'
+import { DDAResults } from '@/components/DDAResults'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -53,14 +54,8 @@ interface DDAParameters {
 export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const { fileManager, dda, setCurrentAnalysis, addAnalysisToHistory, setAnalysisHistory, updateAnalysisParameters, setDDARunning } = useAppStore()
   
-  const [parameters, setParameters] = useState<DDAParameters>({
-    variants: ['single_timeseries'],
-    windowLength: 100,
-    windowStep: 10,
-    detrending: 'linear',
-    scaleMin: 1,
-    scaleMax: 20,
-    scaleNum: 20,
+  // Use store parameters and merge with local time and channel selections
+  const [localParameters, setLocalParameters] = useState<Omit<DDAParameters, 'variants' | 'windowLength' | 'windowStep' | 'detrending' | 'scaleMin' | 'scaleMax' | 'scaleNum'>>({
     timeStart: 0,
     timeEnd: 30,
     selectedChannels: [],
@@ -70,6 +65,12 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       notch: [50]
     }
   })
+  
+  // Combine store and local parameters
+  const parameters: DDAParameters = {
+    ...dda.analysisParameters,
+    ...localParameters
+  }
 
   const [isRunning, setIsRunning] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -81,6 +82,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' })
+  const [autoLoadingResults, setAutoLoadingResults] = useState(false)
 
   // Load analysis history from MinIO
   const loadAnalysisHistory = useCallback(async () => {
@@ -162,6 +164,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     loadAnalysisHistory()
   }, [loadAnalysisHistory])
 
+  // Sync local results with current analysis from store
+  useEffect(() => {
+    if (dda.currentAnalysis && !results) {
+      setResults(dda.currentAnalysis)
+    }
+  }, [dda.currentAnalysis, results])
+
   const availableVariants = [
     { id: 'single_timeseries', name: 'Single Timeseries (ST)', description: 'Standard temporal dynamics analysis' },
     { id: 'cross_timeseries', name: 'Cross Timeseries (CT)', description: 'Inter-channel relationship analysis' },
@@ -173,7 +182,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   useEffect(() => {
     if (fileManager.selectedFile) {
       const defaultChannels = fileManager.selectedFile.channels.slice(0, Math.min(8, fileManager.selectedFile.channels.length))
-      setParameters(prev => ({
+      setLocalParameters(prev => ({
         ...prev,
         selectedChannels: defaultChannels,
         timeEnd: Math.min(30, fileManager.selectedFile?.duration || 30)
@@ -245,16 +254,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       setAnalysisStatus('Analysis completed and saved successfully!')
       setProgress(100)
 
-      // Save parameters
-      updateAnalysisParameters({
-        variants: parameters.variants,
-        windowLength: parameters.windowLength,
-        windowStep: parameters.windowStep,
-        detrending: parameters.detrending,
-        scaleMin: parameters.scaleMin,
-        scaleMax: parameters.scaleMax,
-        scaleNum: parameters.scaleNum
-      })
+      // Parameters are already saved in the store, no need to update them here
 
     } catch (err) {
       console.error('DDA analysis failed:', err)
@@ -267,14 +267,16 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   }
 
   const resetParameters = () => {
-    setParameters({
+    updateAnalysisParameters({
       variants: ['single_timeseries'],
       windowLength: 100,
       windowStep: 10,
       detrending: 'linear',
       scaleMin: 1,
       scaleMax: 20,
-      scaleNum: 20,
+      scaleNum: 20
+    })
+    setLocalParameters({
       timeStart: 0,
       timeEnd: Math.min(30, fileManager.selectedFile?.duration || 30),
       selectedChannels: fileManager.selectedFile?.channels.slice(0, 8) || [],
@@ -287,7 +289,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   }
 
   const handleChannelToggle = (channel: string, checked: boolean) => {
-    setParameters(prev => ({
+    setLocalParameters(prev => ({
       ...prev,
       selectedChannels: checked 
         ? [...prev.selectedChannels, channel]
@@ -317,7 +319,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         <div className="flex items-center justify-between">
           <TabsList>
             <TabsTrigger value="parameters">Parameters</TabsTrigger>
-            <TabsTrigger value="results" disabled={!results}>Results</TabsTrigger>
+            <TabsTrigger value="results">Results</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
           </TabsList>
           
@@ -347,7 +349,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
         <TabsContent value="parameters" className="flex-1 space-y-4">
           {/* Analysis Status */}
-          {(isRunning || results) && (
+          {(isRunning || results || autoLoadingResults) && (
             <Card>
               <CardContent className="pt-6">
                 <div className="space-y-4">
@@ -355,12 +357,16 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     <div className="flex items-center space-x-2">
                       {isRunning ? (
                         <Cpu className="h-4 w-4 animate-spin text-blue-600" />
+                      ) : autoLoadingResults ? (
+                        <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
                       ) : results ? (
                         <CheckCircle className="h-4 w-4 text-green-600" />
                       ) : (
                         <AlertCircle className="h-4 w-4 text-red-600" />
                       )}
-                      <span className="text-sm font-medium">{analysisStatus}</span>
+                      <span className="text-sm font-medium">
+                        {isRunning ? analysisStatus : autoLoadingResults ? 'Loading previous analysis results...' : analysisStatus}
+                      </span>
                     </div>
                     {isRunning && (
                       <div className="flex items-center space-x-2 text-sm text-muted-foreground">
@@ -398,12 +404,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     <Checkbox
                       checked={parameters.variants.includes(variant.id)}
                       onCheckedChange={(checked) => {
-                        setParameters(prev => ({
-                          ...prev,
-                          variants: checked 
-                            ? [...prev.variants, variant.id]
-                            : prev.variants.filter(v => v !== variant.id)
-                        }))
+                        const newVariants = checked 
+                          ? [...parameters.variants, variant.id]
+                          : parameters.variants.filter(v => v !== variant.id)
+                        updateAnalysisParameters({ variants: newVariants })
                       }}
                       disabled={isRunning}
                     />
@@ -428,7 +432,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   <Input
                     type="number"
                     value={parameters.timeStart}
-                    onChange={(e) => setParameters(prev => ({ 
+                    onChange={(e) => setLocalParameters(prev => ({ 
                       ...prev, 
                       timeStart: Math.max(0, parseFloat(e.target.value) || 0)
                     }))}
@@ -443,7 +447,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   <Input
                     type="number"
                     value={parameters.timeEnd}
-                    onChange={(e) => setParameters(prev => ({ 
+                    onChange={(e) => setLocalParameters(prev => ({ 
                       ...prev, 
                       timeEnd: Math.min(fileManager.selectedFile?.duration || 0, parseFloat(e.target.value) || 30)
                     }))}
@@ -472,7 +476,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   <Label className="text-sm">Window Length: {parameters.windowLength}</Label>
                   <Slider
                     value={[parameters.windowLength]}
-                    onValueChange={([value]) => setParameters(prev => ({ ...prev, windowLength: value }))}
+                    onValueChange={([value]) => updateAnalysisParameters({ windowLength: value })}
                     disabled={isRunning}
                     min={50}
                     max={500}
@@ -484,7 +488,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   <Label className="text-sm">Window Step: {parameters.windowStep}</Label>
                   <Slider
                     value={[parameters.windowStep]}
-                    onValueChange={([value]) => setParameters(prev => ({ ...prev, windowStep: value }))}
+                    onValueChange={([value]) => updateAnalysisParameters({ windowStep: value })}
                     disabled={isRunning}
                     min={1}
                     max={50}
@@ -497,7 +501,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   <Select
                     value={parameters.detrending}
                     onValueChange={(value: 'linear' | 'polynomial' | 'none') => 
-                      setParameters(prev => ({ ...prev, detrending: value }))
+                      updateAnalysisParameters({ detrending: value })
                     }
                     disabled={isRunning}
                   >
@@ -527,10 +531,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     <Input
                       type="number"
                       value={parameters.scaleMin}
-                      onChange={(e) => setParameters(prev => ({ 
-                        ...prev, 
+                      onChange={(e) => updateAnalysisParameters({ 
                         scaleMin: Math.max(1, parseInt(e.target.value) || 1)
-                      }))}
+                      })}
                       disabled={isRunning}
                       min="1"
                       max={parameters.scaleMax - 1}
@@ -541,10 +544,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     <Input
                       type="number"
                       value={parameters.scaleMax}
-                      onChange={(e) => setParameters(prev => ({ 
-                        ...prev, 
+                      onChange={(e) => updateAnalysisParameters({ 
                         scaleMax: Math.max(parameters.scaleMin + 1, parseInt(e.target.value) || 20)
-                      }))}
+                      })}
                       disabled={isRunning}
                       min={parameters.scaleMin + 1}
                       max="100"
@@ -555,7 +557,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   <Label className="text-sm">Number of Scales: {parameters.scaleNum}</Label>
                   <Slider
                     value={[parameters.scaleNum]}
-                    onValueChange={([value]) => setParameters(prev => ({ ...prev, scaleNum: value }))}
+                    onValueChange={([value]) => updateAnalysisParameters({ scaleNum: value })}
                     disabled={isRunning}
                     min={5}
                     max={50}
@@ -620,57 +622,15 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         </TabsContent>
 
         <TabsContent value="results" className="flex-1">
-          {results ? (
-            <div className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Analysis Results</CardTitle>
-                  <CardDescription>
-                    Completed at {new Date(results.completed_at || '').toLocaleString()}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <Label className="text-muted-foreground">Channels Analyzed</Label>
-                      <p className="font-medium">{results.channels.length}</p>
-                    </div>
-                    <div>
-                      <Label className="text-muted-foreground">Mean R²</Label>
-                      <p className="font-medium">{(results.results.quality_metrics.mean_r_squared * 100).toFixed(1)}%</p>
-                    </div>
-                    <div>
-                      <Label className="text-muted-foreground">Processing Time</Label>
-                      <p className="font-medium">{results.results.quality_metrics.processing_time}s</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Exponent Summary */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Scaling Exponents</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    {Object.entries(results.results.exponents).map(([channel, exponent]) => (
-                      <div key={channel} className="flex justify-between">
-                        <span>{channel}</span>
-                        <span className="font-medium">{exponent.toFixed(3)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+          {(results || dda.currentAnalysis) ? (
+            <DDAResults result={results || dda.currentAnalysis!} />
           ) : (
             <Card className="h-full flex items-center justify-center">
               <CardContent>
                 <div className="text-center">
                   <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No Results</h3>
-                  <p className="text-muted-foreground">Run an analysis to see results</p>
+                  <h3 className="text-lg font-medium mb-2">No Analysis Results</h3>
+                  <p className="text-muted-foreground">Run a DDA analysis to see results here</p>
                 </div>
               </CardContent>
             </Card>
@@ -745,16 +705,6 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               {dda.analysisHistory.length > 0 ? (
                 <div className="space-y-2">
                   {dda.analysisHistory.map(analysis => {
-                    // Debug log the analysis structure
-                    console.log('Rendering analysis item:', {
-                      id: analysis.id,
-                      analysis_id: (analysis as any).analysis_id,
-                      result_id: (analysis as any).result_id,
-                      hasFilePath: !!analysis.file_path,
-                      hasChannels: !!analysis.channels,
-                      keys: Object.keys(analysis)
-                    })
-                    
                     return (
                     <div
                       key={analysis.id}

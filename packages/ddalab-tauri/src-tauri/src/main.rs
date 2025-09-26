@@ -10,6 +10,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
+use chrono::{DateTime, Utc};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ApiConfig {
@@ -34,6 +35,20 @@ struct PlotState {
     time_range: (f64, f64),
     amplitude_range: (f64, f64),
     zoom_level: f64,
+    annotations: Vec<serde_json::Value>,
+    color_scheme: String,
+    plot_mode: String, // 'raw', 'filtered', etc.
+    filters: HashMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AnalysisResult {
+    id: String,
+    file_path: String,
+    created_at: String,
+    results: serde_json::Value,
+    parameters: serde_json::Value,
+    plot_data: Option<serde_json::Value>, // Cached plot data for quick restore
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,14 +56,31 @@ struct DDAState {
     selected_variants: Vec<String>,
     parameters: HashMap<String, serde_json::Value>,
     last_analysis_id: Option<String>,
+    current_analysis: Option<AnalysisResult>,
+    analysis_history: Vec<AnalysisResult>,
+    analysis_parameters: HashMap<String, serde_json::Value>, // Current analysis parameters
+    running: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WindowState {
+    position: (i32, i32),
+    size: (u32, u32),
+    maximized: bool,
+    tab: String, // Currently active tab
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct AppState {
+    version: String, // For migration purposes
     file_manager: FileManagerState,
     plot: PlotState,
     dda: DDAState,
     ui: HashMap<String, serde_json::Value>,
+    windows: HashMap<String, WindowState>, // For popout windows
+    active_tab: String,
+    sidebar_collapsed: bool,
+    panel_sizes: HashMap<String, f64>, // Panel sizing ratios
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -79,6 +111,10 @@ impl Default for PlotState {
             time_range: (0.0, 30.0),
             amplitude_range: (-100.0, 100.0),
             zoom_level: 1.0,
+            annotations: Vec::new(),
+            color_scheme: "default".to_string(),
+            plot_mode: "raw".to_string(),
+            filters: HashMap::new(),
         }
     }
 }
@@ -89,6 +125,10 @@ impl Default for DDAState {
             selected_variants: vec!["single_timeseries".to_string()],
             parameters: HashMap::new(),
             last_analysis_id: None,
+            current_analysis: None,
+            analysis_history: Vec::new(),
+            analysis_parameters: HashMap::new(),
+            running: false,
         }
     }
 }
@@ -96,10 +136,21 @@ impl Default for DDAState {
 impl Default for AppState {
     fn default() -> Self {
         Self {
+            version: "1.0.0".to_string(),
             file_manager: FileManagerState::default(),
             plot: PlotState::default(),
             dda: DDAState::default(),
             ui: HashMap::new(),
+            windows: HashMap::new(),
+            active_tab: "files".to_string(),
+            sidebar_collapsed: false,
+            panel_sizes: {
+                let mut sizes = HashMap::new();
+                sizes.insert("sidebar".to_string(), 0.25);
+                sizes.insert("main".to_string(), 0.75);
+                sizes.insert("plot-height".to_string(), 0.6);
+                sizes
+            },
         }
     }
 }
@@ -121,6 +172,7 @@ struct AppStateManager {
     state: Arc<RwLock<AppState>>,
     config_path: PathBuf,
     analysis_preview_data: Arc<RwLock<HashMap<String, serde_json::Value>>>,
+    auto_save_enabled: bool,
 }
 
 impl AppStateManager {
@@ -144,11 +196,17 @@ impl AppStateManager {
             AppState::default()
         };
         
-        Ok(Self {
+        let manager = Self {
             state: Arc::new(RwLock::new(state)),
             config_path,
             analysis_preview_data: Arc::new(RwLock::new(HashMap::new())),
-        })
+            auto_save_enabled: true,
+        };
+        
+        // Run migration if needed
+        manager.migrate_state()?;
+        
+        Ok(manager)
     }
     
     fn save(&self) -> Result<(), String> {
@@ -174,7 +232,44 @@ impl AppStateManager {
             let mut state = self.state.write();
             updater(&mut state);
         }
-        self.save()
+        if self.auto_save_enabled {
+            self.save()
+        } else {
+            Ok(())
+        }
+    }
+    
+    fn set_auto_save(&mut self, enabled: bool) {
+        self.auto_save_enabled = enabled;
+    }
+    
+    fn migrate_state(&self) -> Result<(), String> {
+        let mut state = self.state.write();
+        
+        // Check if migration is needed based on version
+        if state.version != "1.0.0" {
+            println!("Migrating state from version {} to 1.0.0", state.version);
+            
+            // Add migration logic here for different versions
+            match state.version.as_str() {
+                "" => {
+                    // Migrate from pre-versioned state
+                    state.version = "1.0.0".to_string();
+                    if state.panel_sizes.is_empty() {
+                        state.panel_sizes.insert("sidebar".to_string(), 0.25);
+                        state.panel_sizes.insert("main".to_string(), 0.75);
+                        state.panel_sizes.insert("plot-height".to_string(), 0.6);
+                    }
+                }
+                _ => {
+                    // Unknown version, reset to defaults
+                    println!("Unknown state version {}, resetting to defaults", state.version);
+                    *state = AppState::default();
+                }
+            }
+        }
+        
+        Ok(())
     }
     
     fn store_analysis_preview_data(&self, window_id: String, analysis_data: serde_json::Value) {
@@ -190,7 +285,10 @@ impl AppStateManager {
 
 #[tauri::command]
 async fn get_app_state(state_manager: State<'_, AppStateManager>) -> Result<AppState, String> {
-    Ok(state_manager.get_state())
+    println!("DEBUG: get_app_state called");
+    let state = state_manager.get_state();
+    println!("DEBUG: returning state with version: {}", state.version);
+    Ok(state)
 }
 
 #[tauri::command]
@@ -346,6 +444,116 @@ async fn get_analysis_preview_data(
     }
 }
 
+#[tauri::command]
+async fn save_analysis_result(
+    state_manager: State<'_, AppStateManager>,
+    analysis: AnalysisResult,
+) -> Result<(), String> {
+    state_manager.update_state(|state| {
+        // Update current analysis
+        state.dda.current_analysis = Some(analysis.clone());
+        state.dda.last_analysis_id = Some(analysis.id.clone());
+        
+        // Add to history (limit to 50 entries)
+        state.dda.analysis_history.insert(0, analysis);
+        if state.dda.analysis_history.len() > 50 {
+            state.dda.analysis_history.truncate(50);
+        }
+    })
+}
+
+#[tauri::command]
+async fn save_plot_data(
+    state_manager: State<'_, AppStateManager>,
+    plot_data: serde_json::Value,
+    analysis_id: Option<String>,
+) -> Result<(), String> {
+    state_manager.update_state(|state| {
+        // Save plot data to current analysis if available
+        if let Some(ref analysis_id) = analysis_id {
+            if let Some(ref mut current_analysis) = state.dda.current_analysis {
+                if current_analysis.id == *analysis_id {
+                    current_analysis.plot_data = Some(plot_data.clone());
+                }
+            }
+            
+            // Also update in history
+            for analysis in &mut state.dda.analysis_history {
+                if analysis.id == *analysis_id {
+                    analysis.plot_data = Some(plot_data.clone());
+                    break;
+                }
+            }
+        }
+        
+        // Save general plot state
+        state.ui.insert("last_plot_data".to_string(), plot_data);
+    })
+}
+
+#[tauri::command]
+async fn save_window_state(
+    state_manager: State<'_, AppStateManager>,
+    window_id: String,
+    window_state: WindowState,
+) -> Result<(), String> {
+    state_manager.update_state(|state| {
+        state.windows.insert(window_id, window_state);
+    })
+}
+
+#[tauri::command]
+async fn save_complete_state(
+    state_manager: State<'_, AppStateManager>,
+    complete_state: serde_json::Value,
+) -> Result<(), String> {
+    println!("DEBUG: save_complete_state called with state keys: {:?}", 
+        complete_state.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+    
+    let result = state_manager.update_state(|state| {
+        // Save the complete frontend state as JSON
+        state.ui.insert("frontend_state".to_string(), complete_state.clone());
+        state.ui.insert("last_saved".to_string(), serde_json::Value::String(
+            chrono::Utc::now().to_rfc3339()
+        ));
+    });
+    
+    match &result {
+        Ok(_) => println!("DEBUG: save_complete_state succeeded"),
+        Err(e) => println!("DEBUG: save_complete_state failed: {}", e),
+    }
+    
+    result
+}
+
+#[tauri::command]
+async fn get_saved_state(
+    state_manager: State<'_, AppStateManager>,
+) -> Result<serde_json::Value, String> {
+    println!("DEBUG: get_saved_state called");
+    let state = state_manager.get_state();
+    println!("DEBUG: state has {} UI keys", state.ui.len());
+    let json_result = serde_json::to_value(state).map_err(|e| e.to_string())?;
+    println!("DEBUG: converted to JSON successfully");
+    Ok(json_result)
+}
+
+#[tauri::command]
+async fn force_save_state(
+    state_manager: State<'_, AppStateManager>,
+) -> Result<(), String> {
+    state_manager.save()
+}
+
+#[tauri::command]
+async fn clear_state(
+    state_manager: State<'_, AppStateManager>,
+) -> Result<(), String> {
+    state_manager.update_state(|state| {
+        *state = AppState::default();
+    })
+}
+
 // TODO: Implement menu system with Tauri v2 API
 // Menu system removed for Tauri v2 - will need to be reimplemented with new API
 // Reference: https://tauri.app/v2/reference/rust/tauri/
@@ -372,7 +580,14 @@ fn main() {
             show_notification,
             create_popout_window,
             store_analysis_preview_data,
-            get_analysis_preview_data
+            get_analysis_preview_data,
+            save_analysis_result,
+            save_plot_data,
+            save_window_state,
+            save_complete_state,
+            get_saved_state,
+            force_save_state,
+            clear_state
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();

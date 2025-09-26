@@ -50,6 +50,14 @@ export interface DDAAnalysisRequest {
   scale_num?: number
 }
 
+export interface DDAVariantResult {
+  variant_id: string
+  variant_name: string
+  dda_matrix: Record<string, number[]>
+  exponents: Record<string, number>
+  quality_metrics: Record<string, number>
+}
+
 export interface DDAResult {
   id: string
   file_path: string
@@ -57,9 +65,11 @@ export interface DDAResult {
   parameters: DDAAnalysisRequest
   results: {
     scales: number[]
-    dda_matrix: Record<string, number[]>
-    exponents: Record<string, number>
-    quality_metrics: Record<string, number>
+    variants: DDAVariantResult[]
+    // Legacy fields for backward compatibility
+    dda_matrix?: Record<string, number[]>
+    exponents?: Record<string, number>
+    quality_metrics?: Record<string, number>
   }
   status: 'pending' | 'running' | 'completed' | 'failed'
   created_at: string

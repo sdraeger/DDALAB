@@ -47,7 +47,8 @@ export function FileManager({ apiService }: FileManagerProps) {
     setSelectedFile,
     updateFileManagerState,
     setSelectedChannels,
-    setCurrentPath
+    setCurrentPath,
+    clearPendingFileSelection
   } = useAppStore()
   
   const [files, setFiles] = useState<EDFFileInfo[]>([])
@@ -121,45 +122,6 @@ export function FileManager({ apiService }: FileManagerProps) {
           }))
         
         setFiles(edfFiles)
-        
-        // If we're in a subdirectory, also try to load files from any EDF subdirectories
-        if (pathStr === '' || pathStr === 'root') {
-          const edfDir = dirs.find(d => d.name.toLowerCase() === 'edf')
-          if (edfDir) {
-            try {
-              const edfResult = await apiService.listDirectory('edf')
-              if (edfResult.files) {
-                const edfSubFiles = edfResult.files
-                  .filter(f => !f.is_directory && (
-                    f.name.toLowerCase().endsWith('.edf') || 
-                    f.name.toLowerCase().endsWith('.ascii') ||
-                    f.name.toLowerCase().endsWith('.txt')
-                  ))
-                  .map(file => ({
-                    file_path: file.path,
-                    file_name: file.name,
-                    file_size: file.size || 0,
-                    duration: 0,
-                    sample_rate: 256,
-                    channels: [],
-                    total_samples: 0,
-                    start_time: file.last_modified || new Date().toISOString(),
-                    end_time: file.last_modified || new Date().toISOString(),
-                    annotations_count: 0
-                  }))
-                
-                // Merge and deduplicate files by file_path
-                setFiles(prevFiles => {
-                  const existingPaths = new Set(prevFiles.map(f => f.file_path))
-                  const newFiles = edfSubFiles.filter(f => !existingPaths.has(f.file_path))
-                  return [...prevFiles, ...newFiles]
-                })
-              }
-            } catch (edfError) {
-              console.warn('Could not load EDF subdirectory:', edfError)
-            }
-          }
-        }
       }
     } catch (err) {
       console.error('Failed to load directory:', err)
@@ -168,6 +130,18 @@ export function FileManager({ apiService }: FileManagerProps) {
       setLoading(false)
     }
   }
+
+  // Handle pending file selection after files are loaded
+  useEffect(() => {
+    if (fileManager.pendingFileSelection && files.length > 0) {
+      const fileToSelect = files.find(f => f.file_path === fileManager.pendingFileSelection)
+      if (fileToSelect) {
+        console.log('Restoring selected file from persistence:', fileToSelect.file_name)
+        handleFileSelect(fileToSelect)
+        clearPendingFileSelection()
+      }
+    }
+  }, [files, fileManager.pendingFileSelection, clearPendingFileSelection])
 
   // Filter and sort files
   const filteredAndSortedFiles = useMemo(() => {

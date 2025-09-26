@@ -289,6 +289,16 @@ export class TauriService {
   }
 
   static isTauri(): boolean {
-    return typeof window !== 'undefined' && '__TAURI__' in window
+    if (typeof window === 'undefined') return false
+    
+    // Check multiple possible Tauri indicators
+    return (
+      '__TAURI__' in window ||
+      '__TAURI_METADATA__' in window ||
+      window.location.protocol === 'tauri:' ||
+      (window.navigator.userAgent && window.navigator.userAgent.includes('Tauri')) ||
+      // Force Tauri mode in development for testing
+      (process.env.NODE_ENV === 'development' && window.location.port === '3003')
+    )
   }
 }

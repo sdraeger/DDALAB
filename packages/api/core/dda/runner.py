@@ -251,34 +251,89 @@ async def run_dda(
 
         logger.info(f"Raw Q matrix shape: {Q.shape}, dtype: {Q.dtype}")
 
-        nan_count = np.isnan(Q).sum()
-        inf_count = np.isinf(Q).sum()
-        finite_count = np.isfinite(Q).sum()
-        logger.info(
-            f"Q matrix stats: NaN={nan_count}, Inf={inf_count}, Finite={finite_count}"
-        )
-        
-        # Log some actual values to understand the data
-        logger.info(f"Q matrix min: {np.nanmin(Q)}, max: {np.nanmax(Q)}, mean: {np.nanmean(Q)}")
-        logger.info(f"Q matrix sample (first 5x5):\n{Q[:5, :5]}")
-        
-        if nan_count > 0 or inf_count > 0:
-            logger.warning("Q matrix contains non-finite values.")
-            logger.debug(f"Raw Q sample: {Q[:2, :5]}")
-            
-        # Replace NaN and Inf values with 0
-        if nan_count > 0 or inf_count > 0:
-            logger.info(f"Replacing {nan_count} NaN and {inf_count} Inf values with 0.")
-            Q = np.nan_to_num(Q, copy=True, nan=0.0, posinf=0.0, neginf=0.0)
-            
-        # Check for all zeros or all same value
-        unique_values = np.unique(Q)
-        logger.info(f"Q matrix has {len(unique_values)} unique values")
-        if len(unique_values) <= 5:
-            logger.warning(f"Q matrix has very few unique values: {unique_values}")
+        # Process the metadata to look for variant-specific results
+        variants = []
+        if isinstance(metadata, dict) and "variant_results" in metadata:
+            # If the DDA runner returns variant-specific results
+            variant_results = metadata["variant_results"]
+            for variant_id, variant_data in variant_results.items():
+                if variant_data and "Q" in variant_data:
+                    variant_Q = np.array(variant_data["Q"])
+                    
+                    # Clean the variant Q matrix
+                    nan_count = np.isnan(variant_Q).sum()
+                    inf_count = np.isinf(variant_Q).sum()
+                    if nan_count > 0 or inf_count > 0:
+                        logger.info(f"Variant {variant_id}: Replacing {nan_count} NaN and {inf_count} Inf values with 0.")
+                        variant_Q = np.nan_to_num(variant_Q, copy=True, nan=0.0, posinf=0.0, neginf=0.0)
+                    
+                    logger.info(f"Variant {variant_id} Q matrix shape: {variant_Q.shape}")
+                    
+                    # Get variant name from service
+                    from core.services.dda_variant_service import DDAVariantService
+                    variant_service = DDAVariantService()
+                    variant_info = variant_service.get_variant_by_id(variant_id)
+                    variant_name = variant_info.name if variant_info else variant_id.upper()
+                    
+                    variants.append({
+                        "variant_id": variant_id,
+                        "variant_name": variant_name,
+                        "Q": variant_Q.tolist(),
+                        "exponents": variant_data.get("exponents", {}),
+                        "quality_metrics": variant_data.get("quality_metrics", {})
+                    })
 
-        # Convert to list without transposing - keep time on x-axis
-        Q = Q.tolist()
+        # If no variant-specific results found, create variants from the main Q matrix
+        if not variants and algorithm_selection and "enabled_variants" in algorithm_selection:
+            enabled_variants = algorithm_selection["enabled_variants"]
+            from core.services.dda_variant_service import DDAVariantService
+            variant_service = DDAVariantService()
+            
+            # Clean the main Q matrix first
+            nan_count = np.isnan(Q).sum()
+            inf_count = np.isinf(Q).sum()
+            finite_count = np.isfinite(Q).sum()
+            logger.info(
+                f"Q matrix stats: NaN={nan_count}, Inf={inf_count}, Finite={finite_count}"
+            )
+            
+            # Log some actual values to understand the data
+            logger.info(f"Q matrix min: {np.nanmin(Q)}, max: {np.nanmax(Q)}, mean: {np.nanmean(Q)}")
+            logger.info(f"Q matrix sample (first 5x5):\n{Q[:5, :5]}")
+            
+            if nan_count > 0 or inf_count > 0:
+                logger.warning("Q matrix contains non-finite values.")
+                logger.debug(f"Raw Q sample: {Q[:2, :5]}") 
+                logger.info(f"Replacing {nan_count} NaN and {inf_count} Inf values with 0.")
+                Q = np.nan_to_num(Q, copy=True, nan=0.0, posinf=0.0, neginf=0.0)
+                
+            # Check for all zeros or all same value
+            unique_values = np.unique(Q)
+            logger.info(f"Q matrix has {len(unique_values)} unique values")
+            if len(unique_values) <= 5:
+                logger.warning(f"Q matrix has very few unique values: {unique_values}")
+
+            # Create variant results from the single Q matrix
+            # Note: This is a fallback when the binary doesn't return separate variant results
+            for variant_id in enabled_variants:
+                variant_info = variant_service.get_variant_by_id(variant_id)
+                variant_name = variant_info.name if variant_info else variant_id.upper()
+                
+                # For now, use the same Q matrix for all variants
+                # TODO: Update when DDA binary returns separate results per variant
+                variants.append({
+                    "variant_id": variant_id,
+                    "variant_name": variant_name,
+                    "Q": Q.tolist(),
+                    "exponents": {},  # Would need to be calculated separately for each variant
+                    "quality_metrics": {}
+                })
+                
+                logger.warning(f"Using shared Q matrix for variant {variant_id} - DDA binary may not support separate variant outputs")
+
+        # Convert main Q matrix to list for backward compatibility
+        if not isinstance(Q, list):
+            Q = Q.tolist()
 
         if isinstance(metadata, dict):
             result_metadata = metadata
@@ -286,9 +341,15 @@ async def run_dda(
             result_metadata = metadata.__dict__
         else:
             result_metadata = {"dda_output_file": str(metadata) if metadata else None}
+            
+        # Remove variant_results from metadata to avoid duplication
+        if isinstance(result_metadata, dict) and "variant_results" in result_metadata:
+            del result_metadata["variant_results"]
+            
         result = DDAResponse(
             file_path=file_path_str,
-            Q=Q,
+            Q=Q,  # Keep legacy format for backward compatibility
+            variants=variants,  # New variant-specific results
             preprocessing_options=preprocessing_options,
             metadata=result_metadata,
         ).model_dump()

@@ -25,6 +25,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { apiService, EDFFileInfo } from '@/services/apiService';
+import { useFileManagerPersistence } from '@/hooks/useSessionPersistence';
 import { cn } from '@/lib/utils';
 
 interface FileManagerProps {
@@ -45,6 +46,9 @@ type SortField = 'name' | 'size' | 'date';
 type FilterType = 'all' | 'edf' | 'ascii' | 'recent' | 'large';
 
 export function FileManager({ selectedFile, onFileSelect, className }: FileManagerProps) {
+  // Use persistent file manager state
+  const { fileManager, toggleFolder, updateSort } = useFileManagerPersistence();
+  
   const [files, setFiles] = useState<FileItem[]>([]);
   const [edfFiles, setEdfFiles] = useState<EDFFileInfo[]>([]);
   const [currentPath, setCurrentPath] = useState('');
@@ -52,8 +56,10 @@ export function FileManager({ selectedFile, onFileSelect, className }: FileManag
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortField, setSortField] = useState<SortField>('name');
-  const [sortAsc, setSortAsc] = useState(true);
+  
+  // Use persisted sort settings
+  const [sortField, setSortField] = useState<SortField>(fileManager.sortBy as SortField || 'name');
+  const [sortAsc, setSortAsc] = useState(fileManager.sortOrder === 'asc');
   const [filterType, setFilterType] = useState<FilterType>('all');
 
   const loadDirectory = useCallback(async (path: string = '') => {
@@ -305,7 +311,10 @@ export function FileManager({ selectedFile, onFileSelect, className }: FileManag
               </SelectContent>
             </Select>
 
-            <Select value={sortField} onValueChange={(value: SortField) => setSortField(value)}>
+            <Select value={sortField} onValueChange={(value: SortField) => {
+              setSortField(value);
+              updateSort(value, sortAsc ? 'asc' : 'desc');
+            }}>
               <SelectTrigger className="w-24 h-8">
                 <SelectValue />
               </SelectTrigger>
@@ -319,7 +328,11 @@ export function FileManager({ selectedFile, onFileSelect, className }: FileManag
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSortAsc(!sortAsc)}
+              onClick={() => {
+                const newOrder = !sortAsc;
+                setSortAsc(newOrder);
+                updateSort(sortField, newOrder ? 'asc' : 'desc');
+              }}
               className="h-8 px-3"
             >
               {sortAsc ? '↑' : '↓'}

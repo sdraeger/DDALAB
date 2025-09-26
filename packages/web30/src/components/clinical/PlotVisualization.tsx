@@ -35,7 +35,7 @@ import 'uplot/dist/uPlot.min.css';
 interface PlotVisualizationProps {
   file?: EDFFileInfo;
   ddaResult?: DDAResult;
-  plotType: 'timeseries' | 'dda_scaling' | 'dda_fluctuations' | 'spectrogram';
+  plotType: 'timeseries' | 'dda_scaling' | 'dda_matrix' | 'spectrogram';
   selectedChannels?: string[];
   timeWindow?: { start: number; end: number };
   className?: string;
@@ -196,7 +196,7 @@ export function PlotVisualization({
     plotType: string,
     config: PlotConfig
   ) => {
-    const Q = ddaResult.results.fluctuations;
+    const Q = ddaResult.results.dda_matrix;
     const scales = ddaResult.results.scales;
     
     if (!Q || Object.keys(Q).length === 0 || !scales || scales.length === 0) {
@@ -418,7 +418,7 @@ export function PlotVisualization({
     ddaResult: DDAResult,
     config: PlotConfig
   ) => {
-    const Q = ddaResult.results.fluctuations;
+    const Q = ddaResult.results.dda_matrix;
     const scales = ddaResult.results.scales;
     
     if (!Q || Object.keys(Q).length === 0 || !scales || scales.length === 0) {
@@ -527,7 +527,7 @@ export function PlotVisualization({
 
   // Generate uPlot data and options based on view type
   const { data, options, heatmapData, heatmapOptions } = useMemo(() => {
-    if (ddaResult && (plotType === 'dda_scaling' || plotType === 'dda_fluctuations')) {
+    if (ddaResult && (plotType === 'dda_scaling' || plotType === 'dda_matrix')) {
       if (viewType === 'heatmap') {
         const heatmap = createDDAHeatmap(ddaResult, plotConfig);
         return { data: heatmap.data, options: heatmap.options, heatmapData: null, heatmapOptions: null };
@@ -601,8 +601,8 @@ export function PlotVisualization({
         return `EEG Time Series - ${file?.file_name || 'Unknown'}`;
       case 'dda_scaling':
         return `DDA Scaling Analysis - ${ddaResult?.id || 'Unknown'}`;
-      case 'dda_fluctuations':
-        return `DDA Fluctuation Functions - ${ddaResult?.id || 'Unknown'}`;
+      case 'dda_matrix':
+        return `DDA Matrix Analysis - ${ddaResult?.id || 'Unknown'}`;
       case 'spectrogram':
         return `EEG Spectrogram - ${file?.file_name || 'Unknown'}`;
       default:
@@ -625,7 +625,7 @@ export function PlotVisualization({
 
           <div className="flex items-center gap-2">
             {/* View Type Selector - only show for DDA plots */}
-            {ddaResult && (plotType === 'dda_scaling' || plotType === 'dda_fluctuations') && (
+            {ddaResult && (plotType === 'dda_scaling' || plotType === 'dda_matrix') && (
               <>
                 <Select value={viewType} onValueChange={(value: ViewType) => setViewType(value)}>
                   <SelectTrigger className="w-32">

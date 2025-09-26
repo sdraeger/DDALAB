@@ -286,7 +286,7 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
 
     // Add DDA matrix data for selected channels
     selectedChannels.forEach(channel => {
-      if (result.results.dda_matrix[channel]) {
+      if (result.results.dda_matrix?.[channel]) {
         data.push(result.results.dda_matrix[channel])
       }
     })
@@ -295,7 +295,7 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
     const series: uPlot.Series[] = [
       {}, // x-axis
       ...selectedChannels.map((channel, index) => ({
-        label: `${channel} (α=${result.results.exponents[channel]?.toFixed(3) || 'N/A'})`,
+        label: `${channel} (α=${result.results.exponents?.[channel]?.toFixed(3) || 'N/A'})`,
         stroke: getChannelColor(index),
         width: 2,
         points: { show: false }
@@ -479,7 +479,7 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
                   className="cursor-pointer text-xs"
                   onClick={() => handleChannelToggle(channel)}
                 >
-                  {channel} ({result.results.exponents[channel]?.toFixed(3) || 'N/A'})
+                  {channel} ({result.results.exponents?.[channel]?.toFixed(3) || 'N/A'})
                 </Badge>
               ))}
             </div>

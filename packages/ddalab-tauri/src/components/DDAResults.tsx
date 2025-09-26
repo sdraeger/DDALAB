@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { DDAResult } from '@/types/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,7 +21,8 @@ import {
   BarChart3,
   Eye,
   Info,
-  ExternalLink
+  ExternalLink,
+  Loader2
 } from 'lucide-react'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
@@ -44,9 +45,13 @@ export function DDAResults({ result }: DDAResultsProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('both')
   const [colorScheme, setColorScheme] = useState<ColorScheme>('viridis')
   const [selectedChannels, setSelectedChannels] = useState<string[]>(result.channels)
+  const [selectedVariant, setSelectedVariant] = useState<number>(0)
   const [heatmapData, setHeatmapData] = useState<number[][]>([])
   const [colorRange, setColorRange] = useState<[number, number]>([0, 1])
   const [autoScale, setAutoScale] = useState(true)
+  const [isProcessingData, setIsProcessingData] = useState(true)
+  const [isRenderingHeatmap, setIsRenderingHeatmap] = useState(false)
+  const [isRenderingLinePlot, setIsRenderingLinePlot] = useState(false)
 
   // Color schemes
   const colorSchemes: Record<ColorScheme, (t: number) => string> = {
@@ -126,254 +131,440 @@ export function DDAResults({ result }: DDAResultsProps) {
     }
   }
 
+  // Get available variants - memoized to prevent recreation
+  const availableVariants = useMemo(() => {
+    console.log('DDAResults - Getting available variants:', {
+      hasVariants: !!result.results.variants,
+      variantsLength: result.results.variants?.length,
+      variants: result.results.variants?.map(v => ({ id: v.variant_id, name: v.variant_name }))
+    });
+    
+    if (result.results.variants && result.results.variants.length > 0) {
+      return result.results.variants
+    }
+    // Fallback to legacy format
+    if (result.results.dda_matrix) {
+      return [{
+        variant_id: 'legacy',
+        variant_name: 'Combined Results',
+        dda_matrix: result.results.dda_matrix,
+        exponents: result.results.exponents || {},
+        quality_metrics: result.results.quality_metrics || {}
+      }]
+    }
+    return []
+  }, [result.results])
+
+  const getCurrentVariantData = () => {
+    const current = availableVariants[selectedVariant] || availableVariants[0]
+    return current
+  }
+
   // Generate heatmap data from dda_matrix
   useEffect(() => {
-    const channels = selectedChannels
-    const scales = result.results.scales
-    const dda_matrix = result.results.dda_matrix
-
-    const data: number[][] = []
-    let minVal = Infinity
-    let maxVal = -Infinity
-
-    // Create 2D array: [channel][time_point] = dda_matrix value
-    channels.forEach(channel => {
-      if (dda_matrix[channel]) {
-        const channelData = dda_matrix[channel].map(val => {
-          // Log transform for better visualization
-          const logVal = Math.log10(Math.max(0.001, val))
-          minVal = Math.min(minVal, logVal)
-          maxVal = Math.max(maxVal, logVal)
-          return logVal
-        })
-        data.push(channelData)
+    const processData = async () => {
+      setIsProcessingData(true)
+      
+      // Small delay to prevent UI blocking
+      await new Promise(resolve => setTimeout(resolve, 50))
+      
+      const channels = selectedChannels
+      const scales = result.results.scales
+      const currentVariant = availableVariants[selectedVariant] || availableVariants[0]
+      
+      if (!currentVariant || !currentVariant.dda_matrix) {
+        console.log('No variant data available for heatmap');
+        setIsProcessingData(false)
+        return
       }
-    })
 
-    setHeatmapData(data)
-    
-    if (autoScale) {
-      setColorRange([minVal, maxVal])
+      const dda_matrix = currentVariant.dda_matrix
+
+      const data: number[][] = []
+      let minVal = Infinity
+      let maxVal = -Infinity
+
+      // Create 2D array: [channel][time_point] = dda_matrix value
+      channels.forEach(channel => {
+        if (dda_matrix[channel]) {
+          const channelData = dda_matrix[channel].map(val => {
+            // Log transform for better visualization
+            const logVal = Math.log10(Math.max(0.001, val))
+            minVal = Math.min(minVal, logVal)
+            maxVal = Math.max(maxVal, logVal)
+            return logVal
+          })
+          data.push(channelData)
+        }
+      })
+
+      console.log(`Heatmap data for variant ${currentVariant.variant_id}:`, {
+        channels: channels.length,
+        dataRows: data.length,
+        minVal,
+        maxVal
+      });
+
+      setHeatmapData(data)
+      
+      if (autoScale) {
+        setColorRange([minVal, maxVal])
+      }
+      
+      setIsProcessingData(false)
     }
-  }, [result, selectedChannels, autoScale])
+    
+    // Use requestIdleCallback if available
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(() => processData())
+    } else {
+      processData()
+    }
+  }, [result, selectedChannels, selectedVariant, autoScale])
 
   const renderHeatmap = useCallback(() => {
-    if (!heatmapRef.current || heatmapData.length === 0) return
-
-    // Clean up existing plot
-    if (uplotHeatmapRef.current) {
-      uplotHeatmapRef.current.destroy()
-      uplotHeatmapRef.current = null
+    console.log('renderHeatmap called:', {
+      hasRef: !!heatmapRef.current,
+      heatmapDataLength: heatmapData.length,
+      selectedChannelsLength: selectedChannels.length,
+      resultScalesLength: result.results.scales?.length
+    })
+    
+    if (!heatmapRef.current || heatmapData.length === 0) {
+      console.log('Early return from renderHeatmap:', {
+        hasRef: !!heatmapRef.current,
+        heatmapDataLength: heatmapData.length
+      })
+      setIsRenderingHeatmap(false)
+      return
     }
-
-    const width = heatmapRef.current.clientWidth
-    const height = Math.max(300, selectedChannels.length * 30 + 100)
-
-    // Create canvas for heatmap rendering
-    const canvas = document.createElement('canvas')
-    canvas.width = result.results.scales.length
-    canvas.height = selectedChannels.length
-    const ctx = canvas.getContext('2d')!
-
-    // Render heatmap pixels
-    const imageData = ctx.createImageData(canvas.width, canvas.height)
-    const data = imageData.data
-
-    for (let y = 0; y < selectedChannels.length; y++) {
-      for (let x = 0; x < result.results.scales.length; x++) {
-        const value = heatmapData[y]?.[x] || 0
-        const normalized = (value - colorRange[0]) / (colorRange[1] - colorRange[0])
-        const clamped = Math.max(0, Math.min(1, normalized))
+    
+    setIsRenderingHeatmap(true)
+    
+    // Use requestAnimationFrame to ensure DOM is ready
+    requestAnimationFrame(() => {
+      try {
+        console.log('Starting heatmap rendering process...')
         
-        const color = colorSchemes[colorScheme](clamped)
-        const rgb = color.match(/\d+/g)!.map(Number)
+        // Double-check ref is still available
+        if (!heatmapRef.current) {
+          console.log('Heatmap ref became null')
+          setIsRenderingHeatmap(false)
+          return
+        }
+
+        console.log('Cleaning up existing plot...')
         
-        const pixelIndex = (y * canvas.width + x) * 4
-        data[pixelIndex] = rgb[0]     // R
-        data[pixelIndex + 1] = rgb[1] // G
-        data[pixelIndex + 2] = rgb[2] // B
-        data[pixelIndex + 3] = 255    // A
-      }
-    }
-
-    ctx.putImageData(imageData, 0, 0)
-
-    // Convert canvas to data URL for uPlot
-    const dataURL = canvas.toDataURL()
-
-    // Prepare data for uPlot (just coordinates for image positioning)
-    const plotData: uPlot.AlignedData = [
-      [0, result.results.scales[result.results.scales.length - 1]],
-      [0, selectedChannels.length - 1]
-    ]
-
-    const opts: uPlot.Options = {
-      width,
-      height,
-      scales: {
-        x: {
-          time: false,
-          range: [result.results.scales[0], result.results.scales[result.results.scales.length - 1]]
-        },
-        y: {
-          range: [-0.5, selectedChannels.length - 0.5]
+        // Clean up existing plot
+        if (uplotHeatmapRef.current) {
+          uplotHeatmapRef.current.destroy()
+          uplotHeatmapRef.current = null
         }
-      },
-      axes: [
-        {
-          label: 'Time Points',
-          labelSize: 30,
-          size: 50
-        },
-        {
-          label: 'Channels',
-          labelSize: 100,
-          size: 120,
-          values: (u, ticks) => ticks.map(tick => {
-            const idx = Math.round(tick)
-            return idx >= 0 && idx < selectedChannels.length ? selectedChannels[idx] : ''
-          })
-        }
-      ],
-      series: [
-        {},
-        {
-          paths: () => null, // No paths, we'll draw the heatmap manually
-          points: { show: false }
-        }
-      ],
-      hooks: {
-        drawClear: [
-          u => {
-            const ctx = u.ctx
-            // Calculate the plot area
-            const plotLeft = u.bbox.left
-            const plotTop = u.bbox.top
-            const plotWidth = u.bbox.width
-            const plotHeight = u.bbox.height
 
-            // Draw the heatmap image
-            const img = new Image()
-            img.onload = () => {
-              ctx.drawImage(img, plotLeft, plotTop, plotWidth, plotHeight)
-            }
-            img.src = dataURL
+        const width = heatmapRef.current.clientWidth || 800 // Fallback width
+        const height = Math.max(300, selectedChannels.length * 30 + 100)
+      
+      console.log('Canvas dimensions:', { width, height })
+
+      // Prepare data for uPlot
+      const plotData: uPlot.AlignedData = [
+        result.results.scales,
+        new Array(result.results.scales.length).fill(0) // Dummy data for positioning
+      ]
+      
+      console.log('Heatmap plot data prepared:', {
+        scalesLength: result.results.scales.length,
+        channelsLength: selectedChannels.length,
+        heatmapDataRows: heatmapData.length,
+        heatmapDataCols: heatmapData[0]?.length || 0
+      })
+
+      const opts: uPlot.Options = {
+        width,
+        height,
+        scales: {
+          x: {
+            time: false,
+            range: [result.results.scales[0], result.results.scales[result.results.scales.length - 1]]
+          },
+          y: {
+            range: [-0.5, selectedChannels.length - 0.5]
           }
-        ]
+        },
+        axes: [
+          {
+            label: 'Time Points',
+            labelSize: 30,
+            size: 50
+          },
+          {
+            label: 'Channels',
+            labelSize: 100,
+            size: 120,
+            values: (u, ticks) => ticks.map(tick => {
+              const idx = Math.round(tick)
+              return idx >= 0 && idx < selectedChannels.length ? selectedChannels[idx] : ''
+            })
+          }
+        ],
+        series: [
+          {},
+          {
+            paths: () => null,
+            points: { show: false }
+          }
+        ],
+        hooks: {
+          ready: [
+            u => {
+              console.log('Heatmap uPlot ready')
+              // Force initial draw
+              u.redraw()
+            }
+          ],
+          draw: [
+            u => {
+              console.log('Heatmap draw hook called')
+              const ctx = u.ctx
+              const { left, top, width: plotWidth, height: plotHeight } = u.bbox
+              
+              // Check if we have valid dimensions
+              if (plotWidth <= 0 || plotHeight <= 0) {
+                console.warn('Invalid plot dimensions:', { plotWidth, plotHeight })
+                return
+              }
+              
+              // Save context state
+              ctx.save()
+              
+              // Clip to plot area
+              ctx.beginPath()
+              ctx.rect(left, top, plotWidth, plotHeight)
+              ctx.clip()
+              
+              const cellWidth = plotWidth / result.results.scales.length
+              const cellHeight = plotHeight / selectedChannels.length
+              
+              console.log('Drawing heatmap cells:', {
+                cellWidth,
+                cellHeight,
+                totalCells: result.results.scales.length * selectedChannels.length,
+                colorRange,
+                colorScheme
+              })
+              
+              // Draw heatmap cells
+              for (let y = 0; y < selectedChannels.length; y++) {
+                for (let x = 0; x < result.results.scales.length; x++) {
+                  const value = heatmapData[y]?.[x] || 0
+                  const normalized = (value - colorRange[0]) / (colorRange[1] - colorRange[0])
+                  const clamped = Math.max(0, Math.min(1, normalized))
+                  
+                  const color = colorSchemes[colorScheme](clamped)
+                  
+                  ctx.fillStyle = color
+                  ctx.fillRect(
+                    left + x * cellWidth,
+                    top + y * cellHeight,
+                    cellWidth + 1, // +1 to avoid gaps
+                    cellHeight + 1
+                  )
+                }
+              }
+              
+              // Restore context state
+              ctx.restore()
+              
+              console.log('Heatmap drawing complete')
+            }
+          ]
+        }
       }
-    }
 
-    uplotHeatmapRef.current = new uPlot(opts, plotData, heatmapRef.current)
+      // Final check before creating plot
+      if (!heatmapRef.current) {
+        console.log('Heatmap ref became null before creating uPlot')
+        setIsRenderingPlots(false)
+        return
+      }
 
-    // Handle resize
-    const resizeObserver = new ResizeObserver(() => {
-      if (uplotHeatmapRef.current && heatmapRef.current) {
-        uplotHeatmapRef.current.setSize({
-          width: heatmapRef.current.clientWidth,
-          height: Math.max(300, selectedChannels.length * 30 + 100)
-        })
+      console.log('Creating uPlot with:', { 
+        optsWidth: opts.width, 
+        optsHeight: opts.height,
+        plotDataLength: plotData.length,
+        containerElement: heatmapRef.current
+      })
+      
+      uplotHeatmapRef.current = new uPlot(opts, plotData, heatmapRef.current)
+      
+      console.log('uPlot created successfully for heatmap')
+
+      // Handle resize
+      const resizeObserver = new ResizeObserver(() => {
+        if (uplotHeatmapRef.current && heatmapRef.current) {
+          const newWidth = heatmapRef.current.clientWidth || 800
+          const newHeight = Math.max(300, selectedChannels.length * 30 + 100)
+          console.log('Resizing heatmap:', { newWidth, newHeight })
+          uplotHeatmapRef.current.setSize({
+            width: newWidth,
+            height: newHeight
+          })
+          // Force redraw after resize
+          uplotHeatmapRef.current.redraw()
+        }
+      })
+
+      if (heatmapRef.current) {
+        resizeObserver.observe(heatmapRef.current)
+      }
+
+      // Clear loading state after a short delay to ensure initial draw is complete
+      setTimeout(() => {
+        setIsRenderingHeatmap(false)
+      }, 100)
+
+      return () => {
+        resizeObserver.disconnect()
+        if (uplotHeatmapRef.current) {
+          uplotHeatmapRef.current.destroy()
+          uplotHeatmapRef.current = null
+        }
+      }
+      
+      } catch (error) {
+        console.error('Error rendering heatmap:', error)
+        setIsRenderingHeatmap(false)
       }
     })
-
-    resizeObserver.observe(heatmapRef.current)
-
-    return () => {
-      resizeObserver.disconnect()
-      if (uplotHeatmapRef.current) {
-        uplotHeatmapRef.current.destroy()
-        uplotHeatmapRef.current = null
-      }
-    }
   }, [heatmapData, selectedChannels, result.results.scales, colorRange, colorScheme])
 
   const renderLinePlot = useCallback(() => {
-    if (!linePlotRef.current || !result.results.dda_matrix) return
-
-    // Clean up existing plot
-    if (uplotLinePlotRef.current) {
-      uplotLinePlotRef.current.destroy()
-      uplotLinePlotRef.current = null
+    if (!linePlotRef.current) {
+      setIsRenderingLinePlot(false)
+      return
+    }
+    
+    const currentVariant = availableVariants[selectedVariant] || availableVariants[0]
+    
+    if (!currentVariant || !currentVariant.dda_matrix) {
+      console.log('No variant data available for line plot');
+      setIsRenderingLinePlot(false)
+      return
     }
 
-    // Prepare data for line plot
-    const scales = result.results.scales
-    const data: uPlot.AlignedData = [scales]
+    setIsRenderingLinePlot(true)
 
-    // Add DDA matrix data for selected channels
-    selectedChannels.forEach(channel => {
-      if (result.results.dda_matrix[channel]) {
-        data.push(result.results.dda_matrix[channel])
-      }
-    })
-
-    // Create series configuration
-    const series: uPlot.Series[] = [
-      {}, // x-axis
-      ...selectedChannels.map((channel, index) => ({
-        label: `${channel} (α=${result.results.exponents[channel]?.toFixed(3) || 'N/A'})`,
-        stroke: getChannelColor(index),
-        width: 2,
-        points: { show: false }
-      }))
-    ]
-
-    const opts: uPlot.Options = {
-      width: linePlotRef.current.clientWidth,
-      height: 400,
-      series,
-      scales: {
-        x: {
-          time: false,
-        },
-        y: {
-        }
-      },
-      axes: [
-        {
-          label: 'Time Points',
-          labelSize: 30,
-          size: 50
-        },
-        {
-          label: 'DDA Values',
-          labelSize: 80,
-          size: 80
-        }
-      ],
-      legend: {
-        show: true,
-        live: true
-      },
-      cursor: {
-        show: true,
-        x: true,
-        y: true,
-        lock: true
-      }
-    }
-
-    uplotLinePlotRef.current = new uPlot(opts, data, linePlotRef.current)
-
-    // Handle resize
-    const resizeObserver = new ResizeObserver(() => {
-      if (uplotLinePlotRef.current && linePlotRef.current) {
-        uplotLinePlotRef.current.setSize({
-          width: linePlotRef.current.clientWidth,
-          height: 400
-        })
-      }
-    })
-
-    resizeObserver.observe(linePlotRef.current)
-
-    return () => {
-      resizeObserver.disconnect()
+    try {
+      // Clean up existing plot
       if (uplotLinePlotRef.current) {
         uplotLinePlotRef.current.destroy()
         uplotLinePlotRef.current = null
       }
+
+      console.log(`Rendering line plot for variant ${currentVariant.variant_id}`);
+
+      // Prepare data for line plot
+      const scales = result.results.scales
+      const data: uPlot.AlignedData = [scales]
+
+      // Add DDA matrix data for selected channels
+      selectedChannels.forEach(channel => {
+        if (currentVariant.dda_matrix[channel]) {
+          data.push(currentVariant.dda_matrix[channel])
+        }
+      })
+
+      // Create series configuration
+      const series: uPlot.Series[] = [
+        {}, // x-axis
+        ...selectedChannels.map((channel, index) => ({
+          label: `${channel} (α=${currentVariant.exponents[channel]?.toFixed(3) || 'N/A'})`,
+          stroke: getChannelColor(index),
+          width: 2,
+          points: { show: false }
+        }))
+      ]
+
+      // Check ref again before accessing clientWidth
+      if (!linePlotRef.current) {
+        console.warn('Line plot ref became null during rendering')
+        return
+      }
+
+      const opts: uPlot.Options = {
+        width: linePlotRef.current.clientWidth || 800, // Fallback width
+        height: 400,
+        series,
+        scales: {
+          x: {
+            time: false,
+          },
+          y: {
+          }
+        },
+        axes: [
+          {
+            label: 'Time Points',
+            labelSize: 30,
+            size: 50
+          },
+          {
+            label: 'DDA Values',
+            labelSize: 80,
+            size: 80
+          }
+        ],
+        legend: {
+          show: true,
+          live: true
+        },
+        cursor: {
+          show: true,
+          x: true,
+          y: true,
+          lock: true
+        }
+      }
+
+      // Final check before creating plot
+      if (!linePlotRef.current) {
+        console.warn('Line plot ref became null before creating uPlot')
+        return
+      }
+
+      uplotLinePlotRef.current = new uPlot(opts, data, linePlotRef.current)
+
+      // Handle resize
+      const resizeObserver = new ResizeObserver(() => {
+        if (uplotLinePlotRef.current && linePlotRef.current) {
+          uplotLinePlotRef.current.setSize({
+            width: linePlotRef.current.clientWidth || 800, // Fallback width
+            height: 400
+          })
+        }
+      })
+
+      if (linePlotRef.current) {
+        resizeObserver.observe(linePlotRef.current)
+      }
+
+      // Clear loading state after a short delay to ensure plot is rendered
+      setTimeout(() => {
+        setIsRenderingLinePlot(false)
+      }, 100)
+
+      return () => {
+        resizeObserver.disconnect()
+        if (uplotLinePlotRef.current) {
+          uplotLinePlotRef.current.destroy()
+          uplotLinePlotRef.current = null
+        }
+      }
+    } catch (error) {
+      console.error('Error rendering line plot:', error)
+      setIsRenderingLinePlot(false)
     }
-  }, [result, selectedChannels])
+  }, [result, selectedChannels, selectedVariant, availableVariants])
 
   const getChannelColor = (index: number): string => {
     const colors = [
@@ -411,16 +602,64 @@ export function DDAResults({ result }: DDAResultsProps) {
 
   // Re-render plots when dependencies change
   useEffect(() => {
-    if (viewMode === 'heatmap' || viewMode === 'both') {
-      renderHeatmap()
+    console.log('Heatmap render effect triggered:', { 
+      viewMode, 
+      shouldRender: viewMode === 'heatmap' || viewMode === 'both',
+      heatmapDataLength: heatmapData.length,
+      hasRef: !!heatmapRef.current,
+      refDimensions: heatmapRef.current ? {
+        width: heatmapRef.current.clientWidth,
+        height: heatmapRef.current.clientHeight,
+        offsetWidth: heatmapRef.current.offsetWidth,
+        offsetHeight: heatmapRef.current.offsetHeight
+      } : null
+    })
+    if ((viewMode === 'heatmap' || viewMode === 'both') && heatmapData.length > 0) {
+      // Wait for DOM to be fully ready with multiple checks
+      const attemptRender = (attempts = 0) => {
+        if (heatmapRef.current && heatmapRef.current.clientWidth > 0) {
+          console.log('DOM ready, rendering heatmap...')
+          renderHeatmap()
+        } else if (attempts < 10) {
+          console.log(`DOM not ready, retrying... (attempt ${attempts + 1})`)
+          setTimeout(() => attemptRender(attempts + 1), 100)
+        } else {
+          console.error('Failed to render heatmap: DOM element not ready after 10 attempts')
+        }
+      }
+      attemptRender()
     }
-  }, [renderHeatmap, viewMode])
+  }, [renderHeatmap, viewMode, heatmapData])
 
   useEffect(() => {
-    if (viewMode === 'lineplot' || viewMode === 'both') {
-      renderLinePlot()
+    console.log('Line plot render effect triggered:', { 
+      viewMode, 
+      shouldRender: viewMode === 'lineplot' || viewMode === 'both',
+      availableVariantsLength: availableVariants.length,
+      hasRef: !!linePlotRef.current,
+      refDimensions: linePlotRef.current ? {
+        width: linePlotRef.current.clientWidth,
+        height: linePlotRef.current.clientHeight,
+        offsetWidth: linePlotRef.current.offsetWidth,
+        offsetHeight: linePlotRef.current.offsetHeight
+      } : null
+    })
+    if ((viewMode === 'lineplot' || viewMode === 'both') && availableVariants.length > 0) {
+      // Wait for DOM to be fully ready with multiple checks
+      const attemptRender = (attempts = 0) => {
+        if (linePlotRef.current && linePlotRef.current.clientWidth > 0) {
+          console.log('DOM ready, rendering line plot...')
+          renderLinePlot()
+        } else if (attempts < 10) {
+          console.log(`Line plot DOM not ready, retrying... (attempt ${attempts + 1})`)
+          setTimeout(() => attemptRender(attempts + 1), 100)
+        } else {
+          console.error('Failed to render line plot: DOM element not ready after 10 attempts')
+        }
+      }
+      attemptRender()
     }
-  }, [renderLinePlot, viewMode])
+  }, [renderLinePlot, viewMode, availableVariants])
 
   // Update popout windows when DDA results change
   useEffect(() => {
@@ -541,7 +780,7 @@ export function DDAResults({ result }: DDAResultsProps) {
                   className="cursor-pointer text-xs"
                   onClick={() => handleChannelToggle(channel)}
                 >
-                  {channel} ({result.results.exponents[channel]?.toFixed(3) || 'N/A'})
+                  {channel} ({getCurrentVariantData()?.exponents[channel]?.toFixed(3) || 'N/A'})
                 </Badge>
               ))}
             </div>
@@ -586,37 +825,144 @@ export function DDAResults({ result }: DDAResultsProps) {
       </Card>
 
       {/* Visualization Area */}
-      <div className="flex-1 flex flex-col space-y-4">
-        {/* Heatmap */}
-        {(viewMode === 'heatmap' || viewMode === 'both') && (
-          <Card className="flex-1">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">DDA Matrix Heatmap</CardTitle>
-              <CardDescription>
-                Log-transformed DDA matrix values across time points and channels
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="h-full">
-              <div ref={heatmapRef} className="w-full h-full min-h-[300px]" />
-            </CardContent>
-          </Card>
-        )}
+      {availableVariants.length > 1 ? (
+        <Tabs value={selectedVariant.toString()} onValueChange={(v) => setSelectedVariant(parseInt(v))} className="flex-1 flex flex-col">
+          <TabsList>
+            {availableVariants.map((variant, index) => (
+              <TabsTrigger key={variant.variant_id} value={index.toString()}>
+                {variant.variant_name}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          
+          {availableVariants.map((variant, index) => (
+            <TabsContent key={variant.variant_id} value={index.toString()} className="flex-1 flex flex-col space-y-4">
+              {selectedVariant === index && (
+                <>
+                  {/* Heatmap */}
+                  {(viewMode === 'heatmap' || viewMode === 'both') && (
+                    <Card className="flex-1">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">
+                          DDA Matrix Heatmap - {variant.variant_name}
+                        </CardTitle>
+                        <CardDescription>
+                          Log-transformed DDA matrix values across time points and channels
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="h-full">
+                        <div className="w-full h-full min-h-[300px] relative">
+                          {(isProcessingData || isRenderingHeatmap) && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
+                              <div className="flex flex-col items-center space-y-2">
+                                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                                <p className="text-sm text-muted-foreground">
+                                  {isProcessingData ? 'Processing DDA data...' : 'Rendering heatmap...'}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                          <div ref={heatmapRef} className="w-full h-full" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
-        {/* Line Plot */}
-        {(viewMode === 'lineplot' || viewMode === 'both') && (
-          <Card className="flex-1">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">DDA Time Series</CardTitle>
-              <CardDescription>
-                DDA output time series - one line per channel (each row of the DDA matrix)
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="h-full">
-              <div ref={linePlotRef} className="w-full h-full min-h-[400px]" />
-            </CardContent>
-          </Card>
-        )}
-      </div>
+                  {/* Line Plot */}
+                  {(viewMode === 'lineplot' || viewMode === 'both') && (
+                    <Card className="flex-1">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">
+                          DDA Time Series - {variant.variant_name}
+                        </CardTitle>
+                        <CardDescription>
+                          DDA output time series - one line per channel (each row of the DDA matrix)
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="h-full">
+                        <div className="w-full h-full min-h-[400px] relative">
+                          {(isProcessingData || isRenderingLinePlot) && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
+                              <div className="flex flex-col items-center space-y-2">
+                                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                                <p className="text-sm text-muted-foreground">
+                                  {isProcessingData ? 'Processing DDA data...' : 'Rendering line plot...'}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                          <div ref={linePlotRef} className="w-full h-full" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
+              )}
+            </TabsContent>
+          ))}
+        </Tabs>
+      ) : (
+        <div className="flex-1 flex flex-col space-y-4">
+          {/* Single variant view */}
+          {/* Heatmap */}
+          {(viewMode === 'heatmap' || viewMode === 'both') && (
+            <Card className="flex-1">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  DDA Matrix Heatmap - {getCurrentVariantData()?.variant_name || 'Unknown'}
+                </CardTitle>
+                <CardDescription>
+                  Log-transformed DDA matrix values across time points and channels
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="h-full">
+                <div className="w-full h-full min-h-[300px] relative">
+                  {(isProcessingData || isRenderingHeatmap) && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
+                      <div className="flex flex-col items-center space-y-2">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        <p className="text-sm text-muted-foreground">
+                          {isProcessingData ? 'Processing DDA data...' : 'Rendering heatmap...'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={heatmapRef} className="w-full h-full" />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Line Plot */}
+          {(viewMode === 'lineplot' || viewMode === 'both') && (
+            <Card className="flex-1">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  DDA Time Series - {getCurrentVariantData()?.variant_name || 'Unknown'}
+                </CardTitle>
+                <CardDescription>
+                  DDA output time series - one line per channel (each row of the DDA matrix)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="h-full">
+                <div className="w-full h-full min-h-[400px] relative">
+                  {(isProcessingData || isRenderingLinePlot) && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
+                      <div className="flex flex-col items-center space-y-2">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        <p className="text-sm text-muted-foreground">
+                          {isProcessingData ? 'Processing DDA data...' : 'Rendering line plot...'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={linePlotRef} className="w-full h-full" />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
 
     </div>
   )

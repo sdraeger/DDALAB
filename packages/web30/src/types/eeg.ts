@@ -75,7 +75,7 @@ export interface DDAResult {
   timeRange: [number, number];
   data: {
     scales: number[];
-    fluctuations: Array<{
+    dda_matrix: Array<{
       channelId: string;
       values: number[];
     }>;

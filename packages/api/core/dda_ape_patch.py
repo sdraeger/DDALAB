@@ -137,7 +137,7 @@ class APECompatibleDDARunner(dda_py.DDARunner):
         else:
             logger.error(f"Output directory does not exist: {output_dir}")
 
-        return self._process_output(output_path)
+        return self._process_output_with_variants(output_path, select_variants)
 
     async def run_async(
         self,
@@ -203,7 +203,92 @@ class APECompatibleDDARunner(dda_py.DDARunner):
         else:
             logger.error(f"Output directory does not exist: {output_dir}")
         
-        return self._process_output(output_path)
+        return self._process_output_with_variants(output_path, select_variants)
+
+    def _process_output_with_variants(self, output_path: Path, select_variants: Optional[List[str]] = None) -> Tuple:
+        """Process DDA output files and look for variant-specific results."""
+        logger.debug(f"Processing DDA output with variants. Base output: {output_path}")
+        
+        # Map select_variants array to variant names
+        variant_mapping = {
+            0: "single_timeseries",
+            1: "cross_timeseries", 
+            2: "cross_dynamical",
+            3: "dynamical_ergodicity"
+        }
+        
+        # Determine which variants were selected
+        selected_variants = []
+        if select_variants:
+            for i, selected in enumerate(select_variants):
+                if selected == "1" and i in variant_mapping:
+                    selected_variants.append(variant_mapping[i])
+        else:
+            selected_variants = ["single_timeseries"]  # Default
+            
+        logger.debug(f"Expected variant files: {selected_variants}")
+        
+        # Check for variant-specific output files
+        variant_results = {}
+        output_dir = output_path.parent
+        base_name = output_path.stem
+        
+        # Common suffix patterns the DDA binary might use
+        suffix_patterns = {
+            "single_timeseries": ["_ST", ""],  # ST might be default or have _ST suffix
+            "cross_timeseries": ["_CT"],
+            "cross_dynamical": ["_CD"], 
+            "dynamical_ergodicity": ["_DE"]
+        }
+        
+        for variant_id in selected_variants:
+            patterns = suffix_patterns.get(variant_id, [f"_{variant_id.upper()}"])
+            variant_data = None
+            
+            for suffix in patterns:
+                variant_file = output_dir / f"{base_name}{suffix}.txt"
+                logger.debug(f"Looking for variant file: {variant_file}")
+                
+                if variant_file.exists():
+                    logger.info(f"Found variant file for {variant_id}: {variant_file}")
+                    try:
+                        # Use the parent class method to process this specific file
+                        Q_variant, meta_variant = self._process_output(variant_file)
+                        variant_data = {
+                            "Q": Q_variant,
+                            "metadata": meta_variant,
+                            "exponents": {},  # Would need specific calculation for each variant
+                            "quality_metrics": {}
+                        }
+                        break
+                    except Exception as e:
+                        logger.warning(f"Failed to process variant file {variant_file}: {e}")
+                        continue
+                        
+            if variant_data:
+                variant_results[variant_id] = variant_data
+            else:
+                logger.warning(f"No output file found for variant {variant_id}")
+        
+        # If we found variant-specific results, return them
+        if variant_results:
+            logger.info(f"Successfully processed {len(variant_results)} variant-specific files")
+            # Return the first variant's Q matrix as main result (for backward compatibility)
+            # and include all variants in metadata
+            first_variant = list(variant_results.values())[0]
+            main_Q = first_variant["Q"]
+            
+            # Create combined metadata with variant results
+            combined_metadata = {
+                "variant_results": variant_results,
+                "dda_output_file": str(output_path)
+            }
+            
+            return main_Q, combined_metadata
+        else:
+            # Fallback to standard processing if no variant files found
+            logger.info("No variant-specific files found, using standard output processing")
+            return self._process_output(output_path)
 
 
 def patch_dda_py():

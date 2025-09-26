@@ -2,8 +2,6 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
-  Play, 
-  Pause, 
   SkipBack, 
   SkipForward, 
   ZoomIn, 
@@ -26,6 +24,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { apiService, ChunkData, EDFFileInfo, Annotation } from '@/services/apiService';
+import { usePlotPersistence } from '@/hooks/useSessionPersistence';
 import { cn } from '@/lib/utils';
 import UPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
@@ -37,6 +36,8 @@ interface EEGVisualizationProps {
   onAnnotationCreate: (annotation: Omit<Annotation, 'id' | 'created_at'>) => void;
   onAnnotationUpdate: (id: string, annotation: Partial<Annotation>) => void;
   onAnnotationDelete: (id: string, filePath: string) => void;
+  saveUIElement: (elementId: string, type: 'plot' | 'form' | 'panel' | 'widget', lightweightState: Record<string, any>) => void;
+  getUIElement: (elementId: string) => any;
   className?: string;
 }
 
@@ -71,8 +72,21 @@ export function EEGVisualization({
   onAnnotationCreate,
   onAnnotationUpdate,
   onAnnotationDelete,
+  saveUIElement,
+  getUIElement,
   className
 }: EEGVisualizationProps) {
+  // Plot persistence
+  const plotId = `eeg-plot-${file.file_path}`;
+  const {
+    plotState,
+    updateZoom,
+    updatePan,
+    updateTimeRange,
+    updateChannels,
+    updateSettings
+  } = usePlotPersistence(plotId, saveUIElement, getUIElement);
+
   const plotContainerRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<UPlot | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -80,8 +94,6 @@ export function EEGVisualization({
   const [loading, setLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [chunkSize, setChunkSize] = useState(30); // seconds
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [settings, setSettings] = useState<VisualizationSettings>(DEFAULT_SETTINGS);
   const [mousePosition, setMousePosition] = useState<{ x: number; y: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -147,8 +159,11 @@ export function EEGVisualization({
       return;
     }
 
-    // Destroy existing chart
-    if (uplotRef.current) {
+    // Only destroy if we need to recreate due to structure changes
+    const needsRecreation = !uplotRef.current || 
+      (uplotRef.current.series.length - 1) !== filteredChannelNames.length;
+    
+    if (needsRecreation && uplotRef.current) {
       uplotRef.current.destroy();
       uplotRef.current = null;
     }
@@ -348,11 +363,25 @@ export function EEGVisualization({
     };
 
     try {
-      // Create uPlot instance
-      uplotRef.current = new UPlot(opts, plotData, plotContainerRef.current);
-      console.log('EEG uPlot created successfully');
+      if (uplotRef.current && !needsRecreation) {
+        // Update existing plot with new data
+        console.log('Updating existing EEG uPlot with new data');
+        uplotRef.current.setData(plotData);
+        
+        // Update scales if needed
+        if (plotData[0] && plotData[0].length > 0) {
+          uplotRef.current.setScale('x', {
+            min: plotData[0][0],
+            max: plotData[0][plotData[0].length - 1]
+          });
+        }
+      } else {
+        // Create new plot only if none exists or recreation is needed
+        uplotRef.current = new UPlot(opts, plotData, plotContainerRef.current);
+        console.log('EEG uPlot created successfully');
+      }
     } catch (error) {
-      console.error('Failed to create EEG uPlot:', error);
+      console.error('Failed to create/update EEG uPlot:', error);
       uplotRef.current = null;
     }
 
@@ -399,23 +428,6 @@ export function EEGVisualization({
     setCurrentTime(newTime);
   }, [currentTime, file.duration, chunkSize]);
 
-  // Auto-play functionality
-  useEffect(() => {
-    if (!isPlaying) return;
-
-    const interval = setInterval(() => {
-      setCurrentTime(prev => {
-        const newTime = prev + (0.1 * playbackSpeed);
-        if (newTime >= file.duration - chunkSize) {
-          setIsPlaying(false);
-          return file.duration - chunkSize;
-        }
-        return newTime;
-      });
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, [isPlaying, playbackSpeed, file.duration, chunkSize]);
 
   return (
     <div className={cn("flex flex-col h-full", className)}>
@@ -454,7 +466,7 @@ export function EEGVisualization({
           </div>
         </div>
 
-        {/* Playback Controls */}
+        {/* Navigation Controls */}
         <div className="flex items-center justify-center gap-4">
           <Button
             variant="outline"
@@ -468,37 +480,11 @@ export function EEGVisualization({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setIsPlaying(!isPlaying)}
-          >
-            {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-          </Button>
-          
-          <Button
-            variant="outline"
-            size="sm"
             onClick={() => handleTimeJump(chunkSize)}
             disabled={currentTime >= file.duration - chunkSize}
           >
             <SkipForward className="h-4 w-4" />
           </Button>
-          
-          <Separator orientation="vertical" className="h-6" />
-          
-          <div className="flex items-center gap-2">
-            <Label className="text-sm">Speed:</Label>
-            <Select value={playbackSpeed.toString()} onValueChange={(value) => setPlaybackSpeed(parseFloat(value))}>
-              <SelectTrigger className="w-20">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0.25">0.25x</SelectItem>
-                <SelectItem value="0.5">0.5x</SelectItem>
-                <SelectItem value="1">1x</SelectItem>
-                <SelectItem value="2">2x</SelectItem>
-                <SelectItem value="4">4x</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
         </div>
 
         {/* Time Slider */}

@@ -4,16 +4,36 @@ import { useState, useEffect } from 'react'
 import { TauriService } from '@/services/tauriService'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { WelcomeScreen } from '@/components/WelcomeScreen'
+import { StatePersistenceProvider } from '@/components/StatePersistenceProvider'
+import { useAppStore } from '@/store/appStore'
 
 export default function Home() {
   const [isApiConnected, setIsApiConnected] = useState<boolean | null>(null)
   const [apiUrl, setApiUrl] = useState('http://localhost:8000')
   const [isTauri, setIsTauri] = useState(false)
+  const { initializeFromTauri, isInitialized } = useAppStore()
 
   useEffect(() => {
-    setIsTauri(TauriService.isTauri())
+    const tauriDetected = TauriService.isTauri()
+    console.log('DEBUG: Tauri detection:', {
+      isTauri: tauriDetected,
+      hasWindow: typeof window !== 'undefined',
+      hasTauriGlobal: typeof window !== 'undefined' && '__TAURI__' in window,
+      windowTauri: typeof window !== 'undefined' ? (window as any).__TAURI__ : undefined,
+      windowKeys: typeof window !== 'undefined' ? Object.keys(window).filter(k => k.includes('TAURI') || k.includes('tauri')) : [],
+      userAgent: typeof window !== 'undefined' ? window.navigator.userAgent : undefined
+    })
+    setIsTauri(tauriDetected)
+    
+    // Initialize persistence BEFORE checking API connection
+    if (!isInitialized) {
+      console.log('DEBUG: Forcing persistence initialization for testing...')
+      console.log('DEBUG: tauriDetected =', tauriDetected)
+      initializeFromTauri()
+    }
+    
     loadPreferences()
-  }, [])
+  }, [isInitialized, initializeFromTauri])
 
   useEffect(() => {
     if (apiUrl) {
@@ -111,5 +131,9 @@ export default function Home() {
     )
   }
 
-  return <DashboardLayout apiUrl={apiUrl} />
+  return (
+    <StatePersistenceProvider>
+      <DashboardLayout apiUrl={apiUrl} />
+    </StatePersistenceProvider>
+  )
 }
