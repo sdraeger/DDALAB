@@ -235,6 +235,16 @@ app.add_middleware(
     max_age=3600,
 )
 
+# Health check endpoint
+@app.get("/health", tags=["health"])
+async def health_check():
+    """Health check endpoint for Docker and monitoring."""
+    return {
+        "status": "healthy",
+        "service": service_settings.service_name,
+        "version": "0.0.1"
+    }
+
 # Include GraphQL router
 app.include_router(graphql_app, prefix="/graphql")
 
