@@ -93,3 +93,5 @@ packages/configmanager/test-results/
 e2e-output/
 
 packages/web30/.next/
+
+.backup/
