@@ -313,7 +313,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
             }
 
             // Clear the selection box
-            u.setSelect({width: 0, height: 0}, false)
+            u.setSelect({left: 0, top: 0, width: 0, height: 0}, false)
           }
         ]
       }
