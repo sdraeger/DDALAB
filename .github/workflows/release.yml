@@ -1,49 +1,141 @@
-name: Release
+name: 'Release Tauri App'
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (without v prefix)'
+        description: 'Release version (e.g., 1.0.0)'
         required: true
         type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - 'v*'
 
 jobs:
-  create-release:
+  check-version:
     runs-on: ubuntu-latest
     outputs:
-      release_id: ${{ steps.create_release.outputs.release_id }}
-      version: ${{ steps.get_version.outputs.version }}
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Get version
-        id: get_version
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-          else
-            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            echo "prerelease=${{ github.event.inputs.prerelease }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            # Extract version from tag (remove 'v' prefix)
+            VERSION=${GITHUB_REF#refs/tags/v}
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            # Check if it's a prerelease (contains alpha, beta, rc)
+            if [[ $VERSION =~ (alpha|beta|rc) ]]; then
+              echo "prerelease=true" >> $GITHUB_OUTPUT
+            else
+              echo "prerelease=false" >> $GITHUB_OUTPUT
+            fi
           fi
-      
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
+
+  create-release:
+    needs: check-version
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+            target: 'aarch64-apple-darwin'
+            arch: 'aarch64'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+            target: 'x86_64-apple-darwin'
+            arch: 'x86_64'
+          - platform: 'ubuntu-22.04'
+            args: ''
+            target: 'x86_64-unknown-linux-gnu'
+            arch: 'x86_64'
+          - platform: 'windows-latest'
+            args: '--target x86_64-pc-windows-msvc'
+            target: 'x86_64-pc-windows-msvc'
+            arch: 'x86_64'
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './packages/ddalab-tauri/src-tauri -> target'
+
+      - name: Sync node version and setup cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Update Tauri config version
+        working-directory: packages/ddalab-tauri
+        run: |
+          # Update version in tauri.conf.json
+          node -e "
+            const fs = require('fs');
+            const config = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+            config.version = '${{ needs.check-version.outputs.version }}';
+            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(config, null, 2));
+          "
+
+          # Update version in Cargo.toml
+          sed -i.bak 's/^version = ".*"/version = "${{ needs.check-version.outputs.version }}"/' src-tauri/Cargo.toml
+
+          # Update version in package.json
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '${{ needs.check-version.outputs.version }}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ steps.get_version.outputs.version }}
-          release_name: DDALAB v${{ steps.get_version.outputs.version }}
-          body: |
-            # DDALAB v${{ steps.get_version.outputs.version }}
+          tagName: v${{ needs.check-version.outputs.version }}
+          releaseName: 'DDALAB v${{ needs.check-version.outputs.version }}'
+          releaseBody: |
+            # DDALAB v${{ needs.check-version.outputs.version }}
 
             ## What's New
             - Built with Tauri v2
             - Cross-platform desktop application for EEG analysis
             - Delay Differential Analysis (DDA) support
+            - Self-contained Docker stack management
 
             ## Downloads
             Choose the appropriate installer for your platform below.
@@ -54,125 +146,43 @@ jobs:
 
             **Linux**: Download the .AppImage file, make it executable (`chmod +x`), and run it. Alternatively, use the .deb package for Debian-based distributions.
 
-            **Windows**: Download and run the .msi or .exe installer.
+            **Windows**: Download and run the .msi installer.
 
             ## System Requirements
-            - macOS 10.15 or later
+            - macOS 10.15 or later (Apple Silicon and Intel supported)
             - Linux: Ubuntu 20.04 or later (or equivalent)
-            - Windows 10 or later
-          draft: true
-          prerelease: false
+            - Windows 10 or later (x64)
 
-  build-tauri:
-    needs: create-release
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: 'macos-latest'
-            args: '--target aarch64-apple-darwin'
-            suffix: 'macOS-aarch64'
-          - platform: 'macos-latest'
-            args: '--target x86_64-apple-darwin'
-            suffix: 'macOS-x86_64'
-          - platform: 'ubuntu-20.04'
-            args: ''
-            suffix: 'Linux-x86_64'
-          - platform: 'windows-latest'
-            args: ''
-            suffix: 'Windows-x86_64'
+            ## Docker Requirements
+            DDALAB requires Docker to be installed and running for the backend API services.
+            - **macOS/Windows**: Docker Desktop
+            - **Linux**: Docker Engine + Docker Compose
 
-    runs-on: ${{ matrix.platform }}
+            ---
+
+            See the [README](https://github.com/sdraeger/DDALAB/blob/main/README.md) for full installation and usage instructions.
+          releaseDraft: true
+          prerelease: ${{ needs.check-version.outputs.prerelease }}
+          includeDebug: false
+          includeRelease: true
+          projectPath: packages/ddalab-tauri
+          args: ${{ matrix.args }}
+
+  finalize-release:
+    needs: [check-version, create-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-
-      - name: Install Linux Dependencies
-        if: matrix.platform == 'ubuntu-20.04'
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev
+          # Publish the draft release
+          gh release edit v${{ needs.check-version.outputs.version }} --draft=false
 
-      - name: Install Dependencies
-        run: |
-          npm install
-          cd packages/ddalab-tauri
-          npm install
-
-      - name: Build Tauri App
-        run: |
-          cd packages/ddalab-tauri
-          npm run tauri build -- ${{ matrix.args }}
-
-      - name: Upload macOS Artifacts
-        if: matrix.platform == 'macos-latest'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./packages/ddalab-tauri/src-tauri/target/release/bundle/dmg/DDALAB_${{ needs.create-release.outputs.version }}_${{ contains(matrix.args, 'aarch64') && 'aarch64' || 'x64' }}.dmg
-          asset_name: DDALAB-${{ needs.create-release.outputs.version }}-${{ matrix.suffix }}.dmg
-          asset_content_type: application/x-apple-diskimage
-
-      - name: Upload Linux AppImage
-        if: matrix.platform == 'ubuntu-20.04'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./packages/ddalab-tauri/src-tauri/target/release/bundle/appimage/ddalab_${{ needs.create-release.outputs.version }}_amd64.AppImage
-          asset_name: DDALAB-${{ needs.create-release.outputs.version }}-${{ matrix.suffix }}.AppImage
-          asset_content_type: application/vnd.appimage
-
-      - name: Upload Linux DEB
-        if: matrix.platform == 'ubuntu-20.04'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./packages/ddalab-tauri/src-tauri/target/release/bundle/deb/ddalab_${{ needs.create-release.outputs.version }}_amd64.deb
-          asset_name: DDALAB-${{ needs.create-release.outputs.version }}-${{ matrix.suffix }}.deb
-          asset_content_type: application/vnd.debian.binary-package
-
-      - name: Upload Windows MSI
-        if: matrix.platform == 'windows-latest'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./packages/ddalab-tauri/src-tauri/target/release/bundle/msi/DDALAB_${{ needs.create-release.outputs.version }}_x64_en-US.msi
-          asset_name: DDALAB-${{ needs.create-release.outputs.version }}-${{ matrix.suffix }}.msi
-          asset_content_type: application/x-msi
-
-      - name: Upload Windows EXE
-        if: matrix.platform == 'windows-latest'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./packages/ddalab-tauri/src-tauri/target/release/bundle/nsis/DDALAB_${{ needs.create-release.outputs.version }}_x64-setup.exe
-          asset_name: DDALAB-${{ needs.create-release.outputs.version }}-${{ matrix.suffix }}-Setup.exe
-          asset_content_type: application/x-msdownload
+          echo "✅ Release v${{ needs.check-version.outputs.version }} published successfully!"
+          echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.check-version.outputs.version }}"

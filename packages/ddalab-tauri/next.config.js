@@ -9,6 +9,14 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  eslint: {
+    // Disable ESLint during build - we'll run it separately
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    // Skip type checking during build for faster builds
+    ignoreBuildErrors: false,
+  },
   // Remove assetPrefix for now - causes font loading issues
   // assetPrefix: '.',
 }

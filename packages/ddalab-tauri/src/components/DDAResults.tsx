@@ -347,7 +347,7 @@ export function DDAResults({ result }: DDAResultsProps) {
               }
 
               // Clear the selection box
-              u.setSelect({width: 0, height: 0}, false)
+              u.setSelect({left: 0, top: 0, width: 0, height: 0}, false)
             }
           ],
           draw: [
@@ -412,7 +412,7 @@ export function DDAResults({ result }: DDAResultsProps) {
       // Final check before creating plot
       if (!heatmapRef.current) {
         console.log('Heatmap ref became null before creating uPlot')
-        setIsRenderingPlots(false)
+        setIsRenderingHeatmap(false)
         return
       }
 
@@ -575,7 +575,7 @@ export function DDAResults({ result }: DDAResultsProps) {
               }
 
               // Clear the selection box
-              u.setSelect({width: 0, height: 0}, false)
+              u.setSelect({left: 0, top: 0, width: 0, height: 0}, false)
             }
           ]
         }
