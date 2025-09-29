@@ -9,10 +9,10 @@ GET  /api/v1/status/health       → Detailed health check
 GET  /api/v1/status/services     → Individual service status
 ```
 
-### Lifecycle Operations  
+### Lifecycle Operations
 ```
 POST /api/v1/lifecycle/start     → Start DDALAB stack
-POST /api/v1/lifecycle/stop      → Stop DDALAB stack  
+POST /api/v1/lifecycle/stop      → Stop DDALAB stack
 POST /api/v1/lifecycle/restart   → Restart DDALAB stack
 POST /api/v1/lifecycle/update    → Update DDALAB to latest
 ```
@@ -58,7 +58,7 @@ POST /api/v1/maintenance/cleanup → Cleanup resources
 }
 ```
 
-### Error Response  
+### Error Response
 ```json
 {
   "success": false,
@@ -68,7 +68,7 @@ POST /api/v1/maintenance/cleanup → Cleanup resources
     "details": "No docker-compose.yml found in specified path"
   },
   "metadata": {
-    "timestamp": "2025-01-01T00:00:00Z", 
+    "timestamp": "2025-01-01T00:00:00Z",
     "api_version": "v1"
   }
 }
@@ -85,7 +85,7 @@ POST /api/v1/maintenance/cleanup → Cleanup resources
     {
       "name": "ddalab",
       "status": "running",
-      "health": "healthy|unhealthy|starting", 
+      "health": "healthy|unhealthy|starting",
       "uptime": "2h30m"
     }
   ],

@@ -13,7 +13,7 @@ This document describes the modular architecture of the DDALAB Tauri backend, fo
 
 #### `models.rs`
 - **Responsibility**: Data structures and type definitions (Single Responsibility)
-- **Contains**: 
+- **Contains**:
   - `AppState`, `FileManagerState`, `PlotState`, `DDAState`
   - `AnalysisResult`, `WindowState`, `AppPreferences`
   - Default implementations for all models
@@ -107,7 +107,7 @@ Commands are now logically grouped:
 // State Management
 get_app_state, update_file_manager_state, save_analysis_result
 
-// API Operations  
+// API Operations
 check_api_connection
 
 // Window Management

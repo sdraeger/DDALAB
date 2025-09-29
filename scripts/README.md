@@ -1,51 +1,56 @@
 # DDALAB Scripts
 
-## Development Scripts
+Essential scripts for DDALAB development and deployment.
 
-### Primary Development
-- `dev.sh` - Main development environment (Docker Compose with all services)
-- `dev-local.sh` - Local development without Docker containers
-- `dev-minimal.sh` - Minimal development setup (core services only)
+## Release & Build
 
-### Development Utilities
-- `setup-dev.sh` - Quick development environment setup
-- `check-setup.sh` - Verify development environment is properly configured
-- `check-python-env.sh` - Ensure Python virtual environment exists  
-- `dev-configmanager.sh/.bat` - Run ConfigManager in development mode
+### `build-and-release.sh`
+Triggers GitHub Actions workflow to build and release the Tauri desktop application.
 
-## Deployment Scripts
+```bash
+# Create stable release
+./scripts/build-and-release.sh false
 
-### Configuration & Validation
-- `config-validator.js` - Validate environment configurations
-- `create-deployment-package.js` - Generate deployment packages
-- `validate-deployment.js` - Check deployment readiness
+# Create pre-release
+./scripts/build-and-release.sh true
+```
 
-### SSL/Security
-- `generate-certs.sh` - Generate SSL certificates using mkcert
-- `check-ssl-status.sh` - Verify SSL certificate status
+**Features:**
+- Cross-platform builds (macOS, Linux, Windows)
+- Automatic GitHub release creation
+- Multi-architecture support (Intel + Apple Silicon)
+- Generated artifacts: `.dmg`, `.AppImage`, `.deb`, `.msi`
 
-## Docker Management
+## Development
 
-- `build-docker-images.sh/.bat` - Build all Docker images
-- `start-core-services.sh` - Start PostgreSQL, Redis, MinIO
-- `docker-profiles.sh` - Manage Docker Compose profiles
-- `stop-containers.sh` - Stop all running containers
+### `start-api-only.sh`
+Starts the DDALAB API server and dependencies for Tauri desktop development.
 
-## Testing Scripts
+```bash
+# Start API server
+./scripts/start-api-only.sh
 
-- `local-test.sh` - Run tests locally (mimics CI environment)
-- `test-docker-config.sh` - Test Docker configuration
+# Stop API server
+./scripts/start-api-only.sh down
 
-## CI/CD Scripts (CircleCI)
+# View logs
+./scripts/start-api-only.sh logs
+```
 
-- `circleci-quick-test.sh` - Quick CI pipeline trigger (recommended)
-- `circleci-follow.sh` - Monitor existing CI pipelines
-- `circleci-test-safe.sh` - CI testing excluding sensitive files
-- Other CircleCI scripts for specialized workflows
+**Services:**
+- API Server: `http://localhost:8000`
+- PostgreSQL: `localhost:5433`
+- Redis: `localhost:6380`
+- MinIO: `http://localhost:9003`
 
-## Utility Scripts
+**Perfect for Tauri development** - provides backend API without full web interface.
 
-- `setup-python-env.sh` - Setup Python virtual environment
-- `setup-dev-env.sh` - Comprehensive development environment setup
-- `generate-volumes.sh` - Generate Docker volume configurations
-- `update-minio.sh` - Update MinIO Docker image
+## Usage
+
+All scripts should be run from the repository root:
+
+```bash
+cd /path/to/DDALAB
+./scripts/build-and-release.sh false
+./scripts/start-api-only.sh
+```
