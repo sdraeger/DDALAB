@@ -56,7 +56,7 @@ async function handleRequest(
     // Get request body if it exists
     let body: string | FormData | undefined;
     const contentType = request.headers.get('content-type');
-    
+
     if (method !== 'GET' && method !== 'DELETE') {
       if (contentType?.includes('application/json')) {
         body = await request.text();
@@ -84,7 +84,7 @@ async function handleRequest(
 
     // Forward the response
     const responseData = await response.text();
-    
+
     // Create response with same status and headers
     const nextResponse = new NextResponse(responseData, {
       status: response.status,

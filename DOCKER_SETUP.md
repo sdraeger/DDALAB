@@ -11,7 +11,7 @@ This repository contains a simplified Docker setup focused on supporting the DDA
 
 Provides only the backend API services required by the Tauri desktop application:
 - **PostgreSQL** database (port 5433)
-- **Redis** cache (port 6380) 
+- **Redis** cache (port 6380)
 - **MinIO** object storage (port 9002)
 - **API Server** (port 8000)
 
@@ -45,7 +45,7 @@ docker-compose down
 
 Lightweight Docker image containing only the FastAPI backend:
 - Python 3.11 slim base
-- FastAPI + dependencies 
+- FastAPI + dependencies
 - Health checks
 - Non-root user security
 - Optimized for API-only deployment
@@ -107,7 +107,7 @@ The backend API provides these key endpoints for the Tauri app:
 
 Previous Docker configurations have been backed up to `.backup/docker-files/` including:
 - Legacy web application Docker configs
-- E2E testing configurations  
+- E2E testing configurations
 - Docker Swarm stack files
 - Multi-environment development setups
 
@@ -119,7 +119,7 @@ Key environment variables for configuration:
 
 ### Development (API-only)
 - `DB_HOST=postgres-dev`
-- `DB_PORT=5432` 
+- `DB_PORT=5432`
 - `MINIO_HOST=minio-dev:9000`
 - `API_PORT=8001`
 - `CORS_ORIGINS=tauri://localhost,http://localhost:3000`
