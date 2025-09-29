@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Code Style
+
+Always write code by the SOLID principles of Software Engineering. Always write modular and maintainable code. Avoid redefinitions of constants.
+
 ## Project Overview
 
 DDALAB (Delay Differential Analysis Laboratory) is a scientific computing application for performing Delay Differential Analysis on EDF and ASCII files. It uses a microservices architecture with:
@@ -66,10 +70,10 @@ npm run typecheck
 ### Docker Operations
 
 ```bash
-# Start all services
-docker-compose up --build
+# Development mode - API backend only for Tauri app
+docker-compose -f docker-compose.api-only.yml up --build -d
 
-# Start in detached mode
+# Production mode - Full stack with web interface
 docker-compose up --build -d
 
 # View logs
@@ -77,10 +81,11 @@ docker-compose logs -f [service_name]
 
 # Stop services
 docker-compose down
+# or for API-only development:
+docker-compose -f docker-compose.api-only.yml down
 
-# Build and push Docker images
-npm run build:docker
-npm run push:docker
+# Build Docker API image
+docker build -f Dockerfile.api -t ddalab-api:latest .
 ```
 
 ### ConfigManager Packaging
@@ -170,9 +175,10 @@ Services:
 
 ### Environment Configuration
 
-- Root `.env` for Docker services
-- Package-specific `.env.local` files
-- ConfigManager manages environment setup
+- **New System**: `.env.master` as single source of truth
+- **Generated configs**: Use `npm run deploy:dev` or `npm run deploy:prod`
+- **Validation**: `npm run config:validate` for configuration checks
+- **ConfigManager**: Integrated with unified configuration system
 - SSL certificates in `certs/` directory
 
 ## Important Conventions
@@ -197,7 +203,7 @@ Services:
 - React components: PascalCase.tsx
 - Utilities: camelCase.ts
 - Python modules: snake_case.py
-- Test files: _.test.ts or test\__.py
+- Test files: \_.test.ts or test\_\_.py
 
 ## Critical Notes
 
