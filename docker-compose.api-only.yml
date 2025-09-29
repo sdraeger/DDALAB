@@ -58,8 +58,7 @@ services:
   api-dev:
     build:
       context: .
-      dockerfile: Dockerfile.isolated-dev
-      target: api-dev
+      dockerfile: Dockerfile.api
     container_name: ddalab-api-only
     environment:
       # Core settings
