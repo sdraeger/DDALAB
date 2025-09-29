@@ -10,12 +10,12 @@ import { DDAAnalysis } from '@/components/DDAAnalysis'
 import { DDAResults } from '@/components/DDAResults'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
-import { 
-  Brain, 
-  FileText, 
-  BarChart3, 
-  Activity, 
-  Settings, 
+import {
+  Brain,
+  FileText,
+  BarChart3,
+  Activity,
+  Settings,
   PanelLeftClose,
   PanelLeftOpen,
   Maximize2,
@@ -29,17 +29,17 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
   const [apiService] = useState(() => new ApiService(apiUrl))
-  const { 
-    ui, 
-    fileManager, 
+  const {
+    ui,
+    fileManager,
     dda,
-    setSidebarOpen, 
+    setSidebarOpen,
     setActiveTab,
     setLayout,
     setCurrentAnalysis,
     setAnalysisHistory
   } = useAppStore()
-  
+
   const [autoLoadingResults, setAutoLoadingResults] = useState(false)
 
   // Auto-load most recent analysis from MinIO on component mount
@@ -64,7 +64,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
         try {
           console.log('Auto-loading most recent analysis from dashboard:', dda.analysisHistory[0].id)
           await new Promise(resolve => setTimeout(resolve, 100))
-          
+
           const fullAnalysis = await apiService.getAnalysisFromHistory(dda.analysisHistory[0].id)
           if (fullAnalysis) {
             console.log('Setting current analysis from dashboard:', fullAnalysis.id)
@@ -77,7 +77,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
         }
       }
     }
-    
+
     if ('requestIdleCallback' in window) {
       requestIdleCallback(() => autoLoadMostRecent())
     } else {
@@ -114,12 +114,12 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
             onClick={() => setSidebarOpen(!ui.sidebarOpen)}
             className="h-8 w-8"
           >
-            {ui.sidebarOpen ? 
-              <PanelLeftClose className="h-4 w-4" /> : 
+            {ui.sidebarOpen ?
+              <PanelLeftClose className="h-4 w-4" /> :
               <PanelLeftOpen className="h-4 w-4" />
             }
           </Button>
-          
+
           <div className="flex items-center space-x-2">
             <Brain className="h-6 w-6 text-primary" />
             <div>
@@ -132,7 +132,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
           <div className="text-sm text-muted-foreground">
             {fileManager.selectedFile?.file_name || 'No file selected'}
           </div>
-          
+
           {TauriService.isTauri() && (
             <div className="flex items-center space-x-1">
               <Button
@@ -167,16 +167,24 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar */}
-        {ui.sidebarOpen && (
-          <div className="w-80 border-r bg-background overflow-hidden flex flex-col">
+        {ui.sidebarOpen ? (
+          <div className="w-80 flex-shrink-0 border-r bg-background overflow-hidden flex flex-col">
             <FileManager apiService={apiService} />
+          </div>
+        ) : (
+          <div
+            className="w-12 flex-shrink-0 border-r bg-background hover:bg-accent transition-colors cursor-pointer flex items-center justify-center"
+            onClick={() => setSidebarOpen(true)}
+            title="Click to expand sidebar"
+          >
+            <PanelLeftOpen className="h-5 w-5 text-muted-foreground" />
           </div>
         )}
 
         {/* Content Area */}
         <div className="flex-1 flex flex-col">
-          <Tabs 
-            value={ui.activeTab} 
+          <Tabs
+            value={ui.activeTab}
             onValueChange={setActiveTab}
             className="flex-1 flex flex-col"
           >
@@ -238,7 +246,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
                               </div>
                             </div>
                           </div>
-                          
+
                           {fileManager.selectedFile.channels.length > 0 && (
                             <div className="mt-6">
                               <h4 className="font-medium mb-3">Available Channels:</h4>

@@ -24,6 +24,11 @@ reqwest = { version = "0.12.23", features = ["json"] }
 dirs = "6.0.0"
 parking_lot = "0.12"
 chrono = { version = "0.4", features = ["serde"] }
+# git2 = "0.19"  # Temporarily disabled due to OpenSSL linking issues on macOS
+uuid = { version = "1.0", features = ["v4", "serde"] }
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.11"
 
 [[bin]]
 name = "ddalab-tauri"

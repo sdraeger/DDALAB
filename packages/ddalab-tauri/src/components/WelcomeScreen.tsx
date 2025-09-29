@@ -5,6 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Brain, Server, AlertCircle, RefreshCw, Settings } from 'lucide-react'
+import { DockerStackManager } from '@/components/DockerStackManager'
+import { TauriService } from '@/services/tauriService'
 
 interface WelcomeScreenProps {
   apiUrl: string
@@ -14,9 +16,15 @@ interface WelcomeScreenProps {
 
 export function WelcomeScreen({ apiUrl, onApiUrlChange, onRetryConnection }: WelcomeScreenProps) {
   const [localApiUrl, setLocalApiUrl] = useState(apiUrl)
+  const isTauri = TauriService.isTauri()
 
   const handleUrlUpdate = () => {
     onApiUrlChange(localApiUrl)
+  }
+
+  const handleApiReady = (apiUrl: string) => {
+    onApiUrlChange(apiUrl)
+    onRetryConnection()
   }
 
   return (
@@ -38,43 +46,50 @@ export function WelcomeScreen({ apiUrl, onApiUrlChange, onRetryConnection }: Wel
           </div>
 
           {/* Connection Status */}
-          <div className="grid md:grid-cols-2 gap-8 mb-12">
-            <Card className="border-l-4 border-l-red-500">
-              <CardHeader>
-                <CardTitle className="flex items-center text-red-700 dark:text-red-400">
-                  <AlertCircle className="h-5 w-5 mr-2" />
-                  API Connection Failed
-                </CardTitle>
-                <CardDescription>
-                  Unable to connect to the DDALAB Python API server. Please ensure the server is running.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="api-url" className="block text-sm font-medium mb-2">
-                      API Server URL
-                    </label>
-                    <div className="flex space-x-2">
-                      <Input
-                        id="api-url"
-                        value={localApiUrl}
-                        onChange={(e) => setLocalApiUrl(e.target.value)}
-                        placeholder="http://localhost:8000"
-                        className="flex-1"
-                      />
-                      <Button onClick={handleUrlUpdate} variant="outline" size="icon">
-                        <Settings className="h-4 w-4" />
-                      </Button>
+          <div className="space-y-8 mb-12">
+            {/* Docker Stack Manager - Only show in Tauri */}
+            {isTauri && (
+              <DockerStackManager onApiReady={handleApiReady} />
+            )}
+
+            <div className="grid md:grid-cols-2 gap-8">
+              <Card className="border-l-4 border-l-red-500">
+                <CardHeader>
+                  <CardTitle className="flex items-center text-red-700 dark:text-red-400">
+                    <AlertCircle className="h-5 w-5 mr-2" />
+                    API Connection Failed
+                  </CardTitle>
+                  <CardDescription>
+                    Unable to connect to the DDALAB Python API server.
+                    {isTauri ? ' Use the Docker services manager above to start the backend services, or manually configure the API URL below.' : ' Please ensure the server is running.'}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="api-url" className="block text-sm font-medium mb-2">
+                        API Server URL
+                      </label>
+                      <div className="flex space-x-2">
+                        <Input
+                          id="api-url"
+                          value={localApiUrl}
+                          onChange={(e) => setLocalApiUrl(e.target.value)}
+                          placeholder="http://localhost:8000"
+                          className="flex-1"
+                        />
+                        <Button onClick={handleUrlUpdate} variant="outline" size="icon">
+                          <Settings className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
+                    <Button onClick={onRetryConnection} className="w-full">
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Retry Connection
+                    </Button>
                   </div>
-                  <Button onClick={onRetryConnection} className="w-full">
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Retry Connection
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
             <Card>
               <CardHeader>
@@ -90,19 +105,20 @@ export function WelcomeScreen({ apiUrl, onApiUrlChange, onRetryConnection }: Wel
                 <ol className="space-y-2 text-sm">
                   <li className="flex items-start">
                     <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">1</span>
-                    Start the Python API server
+                    {isTauri ? 'Use the Docker manager above to start services' : 'Start the Python API server'}
                   </li>
                   <li className="flex items-start">
                     <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">2</span>
-                    Ensure the server is running on the correct port
+                    {isTauri ? 'Docker will automatically configure the API URL' : 'Ensure the server is running on the correct port'}
                   </li>
                   <li className="flex items-start">
                     <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">3</span>
-                    Click "Retry Connection" to connect
+                    {isTauri ? 'The app will connect automatically when services are ready' : 'Click "Retry Connection" to connect'}
                   </li>
                 </ol>
               </CardContent>
             </Card>
+            </div>
           </div>
 
           {/* Features */}

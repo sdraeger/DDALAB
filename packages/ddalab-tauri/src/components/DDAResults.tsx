@@ -10,7 +10,7 @@ import { Slider } from '@/components/ui/slider'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
-import { 
+import {
   Download,
   Palette,
   ZoomIn,
@@ -138,7 +138,7 @@ export function DDAResults({ result }: DDAResultsProps) {
       variantsLength: result.results.variants?.length,
       variants: result.results.variants?.map(v => ({ id: v.variant_id, name: v.variant_name }))
     });
-    
+
     if (result.results.variants && result.results.variants.length > 0) {
       return result.results.variants
     }
@@ -164,14 +164,14 @@ export function DDAResults({ result }: DDAResultsProps) {
   useEffect(() => {
     const processData = async () => {
       setIsProcessingData(true)
-      
+
       // Small delay to prevent UI blocking
       await new Promise(resolve => setTimeout(resolve, 50))
-      
+
       const channels = selectedChannels
       const scales = result.results.scales
       const currentVariant = availableVariants[selectedVariant] || availableVariants[0]
-      
+
       if (!currentVariant || !currentVariant.dda_matrix) {
         console.log('No variant data available for heatmap');
         setIsProcessingData(false)
@@ -206,14 +206,14 @@ export function DDAResults({ result }: DDAResultsProps) {
       });
 
       setHeatmapData(data)
-      
+
       if (autoScale) {
         setColorRange([minVal, maxVal])
       }
-      
+
       setIsProcessingData(false)
     }
-    
+
     // Use requestIdleCallback if available
     if ('requestIdleCallback' in window) {
       requestIdleCallback(() => processData())
@@ -229,7 +229,7 @@ export function DDAResults({ result }: DDAResultsProps) {
       selectedChannelsLength: selectedChannels.length,
       resultScalesLength: result.results.scales?.length
     })
-    
+
     if (!heatmapRef.current || heatmapData.length === 0) {
       console.log('Early return from renderHeatmap:', {
         hasRef: !!heatmapRef.current,
@@ -238,14 +238,14 @@ export function DDAResults({ result }: DDAResultsProps) {
       setIsRenderingHeatmap(false)
       return
     }
-    
+
     setIsRenderingHeatmap(true)
-    
+
     // Use requestAnimationFrame to ensure DOM is ready
     requestAnimationFrame(() => {
       try {
         console.log('Starting heatmap rendering process...')
-        
+
         // Double-check ref is still available
         if (!heatmapRef.current) {
           console.log('Heatmap ref became null')
@@ -254,7 +254,7 @@ export function DDAResults({ result }: DDAResultsProps) {
         }
 
         console.log('Cleaning up existing plot...')
-        
+
         // Clean up existing plot
         if (uplotHeatmapRef.current) {
           uplotHeatmapRef.current.destroy()
@@ -263,7 +263,7 @@ export function DDAResults({ result }: DDAResultsProps) {
 
         const width = heatmapRef.current.clientWidth || 800 // Fallback width
         const height = Math.max(300, selectedChannels.length * 30 + 100)
-      
+
       console.log('Canvas dimensions:', { width, height })
 
       // Prepare data for uPlot
@@ -271,7 +271,7 @@ export function DDAResults({ result }: DDAResultsProps) {
         result.results.scales,
         new Array(result.results.scales.length).fill(0) // Dummy data for positioning
       ]
-      
+
       console.log('Heatmap plot data prepared:', {
         scalesLength: result.results.scales.length,
         channelsLength: selectedChannels.length,
@@ -314,6 +314,18 @@ export function DDAResults({ result }: DDAResultsProps) {
             points: { show: false }
           }
         ],
+        cursor: {
+          lock: false,
+          focus: {
+            prox: 1e6,
+          },
+          drag: {
+            x: true,
+            y: false,
+            uni: 50,
+            dist: 10,
+          }
+        },
         hooks: {
           ready: [
             u => {
@@ -322,29 +334,45 @@ export function DDAResults({ result }: DDAResultsProps) {
               u.redraw()
             }
           ],
+          setSelect: [
+            u => {
+              const min = u.select.left
+              const max = u.select.left + u.select.width
+
+              if (u.select.width >= 10) { // Only zoom if selection is wide enough
+                u.setScale('x', {
+                  min: u.posToVal(min, 'x'),
+                  max: u.posToVal(max, 'x')
+                })
+              }
+
+              // Clear the selection box
+              u.setSelect({width: 0, height: 0}, false)
+            }
+          ],
           draw: [
             u => {
               console.log('Heatmap draw hook called')
               const ctx = u.ctx
               const { left, top, width: plotWidth, height: plotHeight } = u.bbox
-              
+
               // Check if we have valid dimensions
               if (plotWidth <= 0 || plotHeight <= 0) {
                 console.warn('Invalid plot dimensions:', { plotWidth, plotHeight })
                 return
               }
-              
+
               // Save context state
               ctx.save()
-              
+
               // Clip to plot area
               ctx.beginPath()
               ctx.rect(left, top, plotWidth, plotHeight)
               ctx.clip()
-              
+
               const cellWidth = plotWidth / result.results.scales.length
               const cellHeight = plotHeight / selectedChannels.length
-              
+
               console.log('Drawing heatmap cells:', {
                 cellWidth,
                 cellHeight,
@@ -352,16 +380,16 @@ export function DDAResults({ result }: DDAResultsProps) {
                 colorRange,
                 colorScheme
               })
-              
+
               // Draw heatmap cells
               for (let y = 0; y < selectedChannels.length; y++) {
                 for (let x = 0; x < result.results.scales.length; x++) {
                   const value = heatmapData[y]?.[x] || 0
                   const normalized = (value - colorRange[0]) / (colorRange[1] - colorRange[0])
                   const clamped = Math.max(0, Math.min(1, normalized))
-                  
+
                   const color = colorSchemes[colorScheme](clamped)
-                  
+
                   ctx.fillStyle = color
                   ctx.fillRect(
                     left + x * cellWidth,
@@ -371,10 +399,10 @@ export function DDAResults({ result }: DDAResultsProps) {
                   )
                 }
               }
-              
+
               // Restore context state
               ctx.restore()
-              
+
               console.log('Heatmap drawing complete')
             }
           ]
@@ -388,15 +416,15 @@ export function DDAResults({ result }: DDAResultsProps) {
         return
       }
 
-      console.log('Creating uPlot with:', { 
-        optsWidth: opts.width, 
+      console.log('Creating uPlot with:', {
+        optsWidth: opts.width,
         optsHeight: opts.height,
         plotDataLength: plotData.length,
         containerElement: heatmapRef.current
       })
-      
+
       uplotHeatmapRef.current = new uPlot(opts, plotData, heatmapRef.current)
-      
+
       console.log('uPlot created successfully for heatmap')
 
       // Handle resize
@@ -430,7 +458,7 @@ export function DDAResults({ result }: DDAResultsProps) {
           uplotHeatmapRef.current = null
         }
       }
-      
+
       } catch (error) {
         console.error('Error rendering heatmap:', error)
         setIsRenderingHeatmap(false)
@@ -443,9 +471,9 @@ export function DDAResults({ result }: DDAResultsProps) {
       setIsRenderingLinePlot(false)
       return
     }
-    
+
     const currentVariant = availableVariants[selectedVariant] || availableVariants[0]
-    
+
     if (!currentVariant || !currentVariant.dda_matrix) {
       console.log('No variant data available for line plot');
       setIsRenderingLinePlot(false)
@@ -522,7 +550,34 @@ export function DDAResults({ result }: DDAResultsProps) {
           show: true,
           x: true,
           y: true,
-          lock: true
+          lock: false,
+          focus: {
+            prox: 30,
+          },
+          drag: {
+            x: true,
+            y: false,
+            uni: 50,
+            dist: 10,
+          }
+        },
+        hooks: {
+          setSelect: [
+            u => {
+              const min = u.select.left
+              const max = u.select.left + u.select.width
+
+              if (u.select.width >= 10) { // Only zoom if selection is wide enough
+                u.setScale('x', {
+                  min: u.posToVal(min, 'x'),
+                  max: u.posToVal(max, 'x')
+                })
+              }
+
+              // Clear the selection box
+              u.setSelect({width: 0, height: 0}, false)
+            }
+          ]
         }
       }
 
@@ -575,7 +630,7 @@ export function DDAResults({ result }: DDAResultsProps) {
   }
 
   const handleChannelToggle = (channel: string) => {
-    setSelectedChannels(prev => 
+    setSelectedChannels(prev =>
       prev.includes(channel)
         ? prev.filter(ch => ch !== channel)
         : [...prev, channel]
@@ -602,8 +657,8 @@ export function DDAResults({ result }: DDAResultsProps) {
 
   // Re-render plots when dependencies change
   useEffect(() => {
-    console.log('Heatmap render effect triggered:', { 
-      viewMode, 
+    console.log('Heatmap render effect triggered:', {
+      viewMode,
       shouldRender: viewMode === 'heatmap' || viewMode === 'both',
       heatmapDataLength: heatmapData.length,
       hasRef: !!heatmapRef.current,
@@ -632,8 +687,8 @@ export function DDAResults({ result }: DDAResultsProps) {
   }, [renderHeatmap, viewMode, heatmapData])
 
   useEffect(() => {
-    console.log('Line plot render effect triggered:', { 
-      viewMode, 
+    console.log('Line plot render effect triggered:', {
+      viewMode,
       shouldRender: viewMode === 'lineplot' || viewMode === 'both',
       availableVariantsLength: availableVariants.length,
       hasRef: !!linePlotRef.current,
@@ -666,7 +721,7 @@ export function DDAResults({ result }: DDAResultsProps) {
     const ddaResultsData = {
       result
     }
-    
+
     broadcastToType('dda-results', 'data-update', ddaResultsData).catch(console.error)
   }, [result, broadcastToType])
 
@@ -703,7 +758,7 @@ export function DDAResults({ result }: DDAResultsProps) {
             </div>
           </div>
         </CardHeader>
-        
+
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
             {/* View Mode */}
@@ -764,6 +819,26 @@ export function DDAResults({ result }: DDAResultsProps) {
             }}>
               <RotateCcw className="h-4 w-4 mr-2" />
               Reset
+            </Button>
+
+            {/* Reset Zoom button */}
+            <Button variant="outline" size="sm" onClick={() => {
+              // Reset zoom for both plots
+              if (uplotHeatmapRef.current) {
+                uplotHeatmapRef.current.setScale('x', {
+                  min: result.results.scales[0],
+                  max: result.results.scales[result.results.scales.length - 1]
+                })
+              }
+              if (uplotLinePlotRef.current) {
+                uplotLinePlotRef.current.setScale('x', {
+                  min: result.results.scales[0],
+                  max: result.results.scales[result.results.scales.length - 1]
+                })
+              }
+            }}>
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Reset Zoom
             </Button>
           </div>
 
@@ -834,7 +909,7 @@ export function DDAResults({ result }: DDAResultsProps) {
               </TabsTrigger>
             ))}
           </TabsList>
-          
+
           {availableVariants.map((variant, index) => (
             <TabsContent key={variant.variant_id} value={index.toString()} className="flex-1 flex flex-col space-y-4">
               {selectedVariant === index && (

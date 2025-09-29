@@ -13,10 +13,10 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { 
-  SkipBack, 
-  SkipForward, 
-  ZoomIn, 
+import {
+  SkipBack,
+  SkipForward,
+  ZoomIn,
   ZoomOut,
   Settings,
   Download,
@@ -43,18 +43,18 @@ interface TimeSeriesPlotProps {
 export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   const { fileManager, plot, updatePlotState, setCurrentChunk } = useAppStore()
   const { createWindow, updateWindowData, broadcastToType } = usePopoutWindows()
-  
+
   // Remove debug console.log to prevent infinite re-render loop
   const plotRef = useRef<HTMLDivElement>(null)
   const uplotRef = useRef<uPlot | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
-  
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [loadChunkTimeout, setLoadChunkTimeout] = useState<NodeJS.Timeout | null>(null)
-  
+
   // Preprocessing controls
   const [showPreprocessing, setShowPreprocessing] = useState(false)
   const [preprocessing, setPreprocessing] = useState<PreprocessingOptions>({
@@ -70,6 +70,18 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   const [selectedChannels, setSelectedChannels] = useState<string[]>([])
   const [channelOffset, setChannelOffset] = useState(50) // Default spacing between channels
 
+  // Initialize refs with default values after state is declared
+  const amplitudeScaleRef = useRef(amplitudeScale)
+  const channelOffsetRef = useRef(channelOffset)
+  const timeWindowRef = useRef(timeWindow)
+
+  // Update refs when values change
+  useEffect(() => {
+    amplitudeScaleRef.current = amplitudeScale
+    channelOffsetRef.current = channelOffset
+    timeWindowRef.current = timeWindow
+  }, [amplitudeScale, channelOffset, timeWindow])
+
   useEffect(() => {
     console.log('File selection changed:', {
       hasFile: !!fileManager.selectedFile,
@@ -79,7 +91,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       channelsCount: fileManager.selectedFile?.channels?.length,
       firstChannels: fileManager.selectedFile?.channels?.slice(0, 5)
     })
-    
+
     if (fileManager.selectedFile && fileManager.selectedFile.channels.length > 0) {
       setDuration(fileManager.selectedFile.duration || 0)
       // Auto-select first 4 channels for better performance and visibility
@@ -93,11 +105,12 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   }, [fileManager.selectedFile])
 
   const renderPlot = useCallback((chunkData: ChunkData) => {
+
     if (!plotRef.current) {
       console.error('Plot ref is not available')
       return
     }
-    
+
     if (!chunkData.data || chunkData.data.length === 0) {
       console.error('No data available for plotting:', chunkData)
       setError('No data available for plotting')
@@ -129,23 +142,23 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         console.error(`Channel ${index} data is not an array:`, typeof channelData, channelData)
         return Array(dataLength).fill(0)
       }
-      
+
       const processed = channelData.map(value => {
         if (typeof value !== 'number') {
           console.warn(`Non-numeric value found:`, value, typeof value)
           return 0
         }
-        
+
         // Apply amplitude scaling with proper normalization
         // EEG values are typically in microvolts, scale them appropriately
-        let scaled = value * (amplitudeScale / 1000) // More conservative scaling
-        
+        let scaled = value * (amplitudeScaleRef.current / 1000) // More conservative scaling
+
         // Add channel offset for stacking
-        scaled = scaled + (index * channelOffset)
-        
+        scaled = scaled + (index * channelOffsetRef.current)
+
         return isNaN(scaled) ? 0 : scaled
       })
-      
+
       console.log(`Channel ${index} (${chunkData.channels[index]}) processed:`, {
         originalLength: channelData.length,
         processedLength: processed.length,
@@ -161,7 +174,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     })
 
     const data: uPlot.AlignedData = [timeData, ...processedData]
-    
+
     console.log('Final uPlot data:', {
       seriesCount: data.length,
       timeLength: data[0].length,
@@ -185,19 +198,19 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         }
       })
     })
-    
+
     // Validate data integrity
     const hasValidData = data.every(series => Array.isArray(series) && series.length > 0)
-    const hasNumericData = data.slice(1).every((series: any) => 
+    const hasNumericData = data.slice(1).every((series: any) =>
       series.every((val: any) => typeof val === 'number' && !isNaN(val))
     )
-    
+
     console.log('Data validation:', {
       hasValidData,
       hasNumericData,
       allLengthsEqual: data.every(series => series.length === data[0].length)
     })
-    
+
     if (!hasValidData || !hasNumericData) {
       console.error('Invalid data detected, aborting plot creation')
       setError('Invalid data format received')
@@ -218,7 +231,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         // }
       }))
     ]
-    
+
     console.log('Series configuration:', {
       seriesCount: series.length,
       channelLabels: chunkData.channels,
@@ -228,18 +241,18 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     const scales: uPlot.Scales = {
       x: {
         time: false,
-        range: [0, timeWindow]
+        range: [0, timeWindowRef.current]
       },
       y: {
         range: (u, min, max) => {
           console.log('Y-axis range calculation:', { min, max })
-          
+
           // If all data is zero or invalid, use a default range
           if (isNaN(min) || isNaN(max) || min === max) {
             console.log('Using default Y range due to invalid data')
             return [-100, 100]
           }
-          
+
           const padding = Math.max(Math.abs(max - min) * 0.1, 10)
           const range = [min - padding, max + padding]
           console.log('Calculated Y range:', range)
@@ -275,7 +288,34 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         show: true,
         x: true,
         y: true,
-        lock: true
+        lock: false,
+        focus: {
+          prox: 30,
+        },
+        drag: {
+          x: true,
+          y: false,
+          uni: 50,
+          dist: 10,
+        }
+      },
+      hooks: {
+        setSelect: [
+          u => {
+            const min = u.select.left
+            const max = u.select.left + u.select.width
+
+            if (u.select.width >= 10) { // Only zoom if selection is wide enough
+              u.setScale('x', {
+                min: u.posToVal(min, 'x'),
+                max: u.posToVal(max, 'x')
+              })
+            }
+
+            // Clear the selection box
+            u.setSelect({width: 0, height: 0}, false)
+          }
+        ]
       }
     }
 
@@ -305,14 +345,21 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
             sample: series?.slice(0, 3)
           }))
         })
+        // Store current zoom state before updating data
+        const currentScales = uplotRef.current.scales.x
+        const wasZoomed = Math.abs((currentScales.min ?? 0) - 0) > 0.01 ||
+                         Math.abs((currentScales.max ?? timeWindowRef.current) - timeWindowRef.current) > 0.01
+
         uplotRef.current.setData(data)
-        
-        // Update scales to use relative time (0 to timeWindow)
-        uplotRef.current.setScale('x', {
-          min: 0,
-          max: timeWindow
-        })
-        
+
+        // Restore zoom if it was previously zoomed
+        if (wasZoomed && currentScales.min != null && currentScales.max != null) {
+          uplotRef.current.setScale('x', {
+            min: currentScales.min,
+            max: currentScales.max
+          })
+        }
+
         // Force a redraw to ensure the plot updates visually
         uplotRef.current.redraw()
       } else {
@@ -322,7 +369,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           plotCreated: !!uplotRef.current,
           series: uplotRef.current.series.map(s => ({ label: s.label, show: s.show }))
         })
-        
+
         // Set up resize observer for the plot
         if (!resizeObserverRef.current && plotRef.current) {
           resizeObserverRef.current = new ResizeObserver(entries => {
@@ -340,7 +387,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       return
     }
 
-  }, [amplitudeScale, channelOffset, timeWindow])
+  }, [])
 
   // Clean up plot and observer on unmount
   useEffect(() => {
@@ -361,9 +408,10 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       startTime,
       hasFile: !!fileManager.selectedFile,
       fileName: fileManager.selectedFile?.file_name,
-      selectedChannelsCount: selectedChannels.length
+      selectedChannelsCount: selectedChannels.length,
+      callStack: new Error().stack?.split('\n').slice(1, 6).join('\n')
     })
-    
+
     if (!fileManager.selectedFile || selectedChannels.length === 0) {
       console.log('Cannot load chunk: no file or channels selected')
       return
@@ -391,12 +439,12 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       const chunkSize = Math.floor(timeWindow * fileManager.selectedFile.sample_rate)
       const chunkStart = Math.floor(startTime * fileManager.selectedFile.sample_rate)
 
-      console.log('Calculated chunk params:', { 
-        chunkStart, 
+      console.log('Calculated chunk params:', {
+        chunkStart,
         chunkSize,
         timeWindowSeconds: timeWindow,
         expectedDataPoints: chunkSize,
-        startTimeSamples: chunkStart 
+        startTimeSamples: chunkStart
       })
 
       const chunkData = await apiService.getChunkData(
@@ -427,14 +475,14 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       setCurrentChunk(chunkData)
       renderPlot(chunkData)
       setCurrentTime(startTime)
-      
+
     } catch (err) {
       console.error('Failed to load chunk:', err)
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
       setLoading(false)
     }
-  }, [fileManager.selectedFile, selectedChannels, timeWindow, preprocessing, apiService, setCurrentChunk, renderPlot])
+  }, [fileManager.selectedFile, selectedChannels, timeWindow, preprocessing, apiService, setCurrentChunk])
 
 
   const getChannelColor = (index: number): string => {
@@ -449,24 +497,24 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   const handleSeek = useCallback((time: number) => {
     console.log('Seek requested to:', time)
     setCurrentTime(time)
-    
+
     // Debounce the chunk loading to avoid rapid API calls while dragging
     if (loadChunkTimeout) {
       clearTimeout(loadChunkTimeout)
       console.log('Clearing previous chunk load timeout')
     }
-    
+
     const timeoutId = setTimeout(() => {
       console.log('Debounced seek - loading chunk at time:', time)
       loadChunk(time)
     }, 200) // 200ms debounce
-    
+
     setLoadChunkTimeout(timeoutId)
   }, [loadChunk, loadChunkTimeout])
 
   const handleChannelToggle = (channel: string, checked: boolean) => {
-    setSelectedChannels(prev => 
-      checked 
+    setSelectedChannels(prev =>
+      checked
         ? [...prev, channel]
         : prev.filter(ch => ch !== channel)
     )
@@ -502,7 +550,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       selectedChannelsCount: selectedChannels.length,
       selectedChannels: selectedChannels
     })
-    
+
     if (fileManager.selectedFile && selectedChannels.length > 0) {
       console.log('Conditions met - triggering initial chunk load')
       // Destroy existing plot when file changes to ensure clean state
@@ -519,14 +567,20 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       })
     }
   }, [fileManager.selectedFile, selectedChannels, loadChunk])
-  
+
   // Handle time window changes separately to avoid recreating plot
   useEffect(() => {
     if (fileManager.selectedFile && selectedChannels.length > 0 && currentTime >= 0) {
-      console.log('Time window changed, reloading chunk at current time:', currentTime)
+      console.log('TimeWindow useEffect triggered, reloading chunk at current time:', currentTime, {
+        timeWindow,
+        fileName: fileManager.selectedFile?.file_name,
+        selectedChannelsCount: selectedChannels.length
+      })
+      // Don't reload on every currentTime change as this would reset zoom constantly
+      // Only reload when timeWindow itself changes
       loadChunk(currentTime)
     }
-  }, [timeWindow, loadChunk, currentTime, fileManager.selectedFile, selectedChannels])
+  }, [timeWindow, loadChunk, fileManager.selectedFile, selectedChannels])
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -550,7 +604,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         currentTime: currentTime,
         filters: preprocessing
       }
-      
+
       broadcastToType('timeseries', 'data-update', timeSeriesData).catch(console.error)
     }
   }, [plot.currentChunk, currentTime, timeWindow, preprocessing, broadcastToType])
@@ -609,7 +663,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
             </div>
           </div>
         </CardHeader>
-        
+
         <CardContent className="space-y-4">
           {/* Navigation Controls */}
           <div className="flex items-center space-x-4">
@@ -691,7 +745,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
               />
             </div>
 
-            <div className="flex items-end">
+            <div className="flex items-end space-x-2">
               <Button
                 variant="outline"
                 size="sm"
@@ -704,6 +758,21 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                 <RotateCcw className="h-4 w-4 mr-2" />
                 Reset
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (uplotRef.current) {
+                    uplotRef.current.setScale('x', {
+                      min: 0,
+                      max: timeWindow
+                    })
+                  }
+                }}
+                title="Reset X-axis zoom"
+              >
+                <ZoomOut className="h-4 w-4" />
+              </Button>
             </div>
           </div>
 
@@ -711,16 +780,16 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           {showPreprocessing && (
             <div className="border rounded-lg p-4 space-y-4">
               <h4 className="font-medium">Preprocessing Options</h4>
-              
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-sm">High-pass Filter (Hz)</Label>
                   <Input
                     type="number"
                     value={preprocessing.highpass || ''}
-                    onChange={(e) => setPreprocessing(prev => ({ 
-                      ...prev, 
-                      highpass: parseFloat(e.target.value) || undefined 
+                    onChange={(e) => setPreprocessing(prev => ({
+                      ...prev,
+                      highpass: parseFloat(e.target.value) || undefined
                     }))}
                     placeholder="0.5"
                     step="0.1"
@@ -733,9 +802,9 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                   <Input
                     type="number"
                     value={preprocessing.lowpass || ''}
-                    onChange={(e) => setPreprocessing(prev => ({ 
-                      ...prev, 
-                      lowpass: parseFloat(e.target.value) || undefined 
+                    onChange={(e) => setPreprocessing(prev => ({
+                      ...prev,
+                      lowpass: parseFloat(e.target.value) || undefined
                     }))}
                     placeholder="70"
                     step="1"
@@ -752,20 +821,20 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                     onCheckedChange={(checked) => {
                       setPreprocessing(prev => ({
                         ...prev,
-                        notch: checked 
+                        notch: checked
                           ? [...(prev.notch || []), 50]
                           : (prev.notch || []).filter(f => f !== 50)
                       }))
                     }}
                   />
                   <Label className="text-sm">50Hz (EU)</Label>
-                  
+
                   <Checkbox
                     checked={preprocessing.notch?.includes(60) || false}
                     onCheckedChange={(checked) => {
                       setPreprocessing(prev => ({
                         ...prev,
-                        notch: checked 
+                        notch: checked
                           ? [...(prev.notch || []), 60]
                           : (prev.notch || []).filter(f => f !== 60)
                       }))
@@ -779,7 +848,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                 <Label className="text-sm">Detrending</Label>
                 <Select
                   value={preprocessing.detrending || 'linear'}
-                  onValueChange={(value: 'linear' | 'polynomial' | 'none') => 
+                  onValueChange={(value: 'linear' | 'polynomial' | 'none') =>
                     setPreprocessing(prev => ({ ...prev, detrending: value }))
                   }
                 >
@@ -826,7 +895,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
               <span className="text-sm">{error}</span>
             </div>
           )}
-          
+
           {loading && (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
