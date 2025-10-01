@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { AlertTriangle, Zap, Container, Play, Square, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Zap, Container, Play, Square, RefreshCw, Download } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { TauriService } from '@/services/tauriService'
 
@@ -26,6 +26,33 @@ export function SettingsPanel() {
     error?: string
   }>({ status: 'unknown', healthy: false })
   const [isLoading, setIsLoading] = useState(false)
+  const [updateInfo, setUpdateInfo] = useState<{
+    available: boolean
+    current_version: string
+    latest_version?: string
+    release_notes?: string
+    release_date?: string
+    download_url?: string
+  } | null>(null)
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
+  const [updateError, setUpdateError] = useState<string | null>(null)
+
+  const checkForUpdates = async () => {
+    if (!TauriService.isTauri()) return
+
+    setIsCheckingUpdate(true)
+    setUpdateError(null)
+
+    try {
+      const result = await TauriService.checkForUpdates()
+      setUpdateInfo(result)
+    } catch (error) {
+      console.error('Failed to check for updates:', error)
+      setUpdateError(error instanceof Error ? error.message : 'Failed to check for updates')
+    } finally {
+      setIsCheckingUpdate(false)
+    }
+  }
 
   const refreshEmbeddedApiStatus = async () => {
     if (!TauriService.isTauri()) return
@@ -310,6 +337,100 @@ export function SettingsPanel() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Update Checker */}
+      {TauriService.isTauri() && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Download className="w-5 h-5" />
+              Software Updates
+            </CardTitle>
+            <CardDescription>Check for updates to DDALAB</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Current Version</p>
+                  <p className="text-sm text-muted-foreground">
+                    {updateInfo?.current_version || '0.1.0'}
+                  </p>
+                </div>
+                <Button
+                  onClick={checkForUpdates}
+                  disabled={isCheckingUpdate}
+                  variant="outline"
+                >
+                  {isCheckingUpdate ? (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                      Checking...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Check for Updates
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {updateError && (
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>{updateError}</AlertDescription>
+                </Alert>
+              )}
+
+              {updateInfo && !updateInfo.available && (
+                <Alert>
+                  <AlertDescription>
+                    <strong>You're up to date!</strong> You have the latest version of DDALAB.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {updateInfo && updateInfo.available && (
+                <Alert>
+                  <AlertDescription>
+                    <div className="space-y-2">
+                      <p className="font-medium">
+                        <strong>Update Available:</strong> Version {updateInfo.latest_version}
+                      </p>
+                      {updateInfo.release_date && (
+                        <p className="text-sm">
+                          Released: {new Date(updateInfo.release_date).toLocaleDateString()}
+                        </p>
+                      )}
+                      {updateInfo.release_notes && (
+                        <div className="mt-2 text-sm">
+                          <p className="font-medium">Release Notes:</p>
+                          <div className="mt-1 max-h-32 overflow-y-auto rounded bg-muted p-2">
+                            <pre className="whitespace-pre-wrap text-xs">
+                              {updateInfo.release_notes.slice(0, 300)}
+                              {updateInfo.release_notes.length > 300 && '...'}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+                      {updateInfo.download_url && (
+                        <Button
+                          onClick={() => window.open(updateInfo.download_url, '_blank')}
+                          className="mt-2"
+                        >
+                          <Download className="mr-2 h-4 w-4" />
+                          Download Update
+                        </Button>
+                      )}
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
