@@ -4,6 +4,7 @@ pub mod window_commands;
 pub mod preference_commands;
 pub mod embedded_api_commands;
 pub mod data_directory_commands;
+pub mod update_commands;
 
 pub use state_commands::*;
 pub use api_commands::*;
@@ -11,3 +12,4 @@ pub use window_commands::*;
 pub use preference_commands::*;
 pub use embedded_api_commands::*;
 pub use data_directory_commands::*;
+pub use update_commands::*;
