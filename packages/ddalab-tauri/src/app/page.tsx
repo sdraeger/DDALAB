@@ -64,12 +64,17 @@ export default function Home() {
           return
         }
 
-        // User has chosen mode - apply it
+        // User has chosen mode - apply it IMMEDIATELY
         const mode = preferences.api_config.mode || 'embedded'
+        console.log('Setting API mode to:', mode)
         setApiMode(mode)
-        setApiUrl(preferences.api_config.url)
 
-        console.log('Applied saved API mode:', mode)
+        // Set the correct URL based on mode
+        const url = mode === 'embedded' ? 'http://localhost:8765' : preferences.api_config.url
+        console.log('Setting API URL to:', url)
+        setApiUrl(url)
+
+        console.log('Applied saved API mode:', mode, 'with URL:', url)
       } catch (error) {
         console.error('Failed to load preferences:', error)
         // On error, show setup screen for Tauri
@@ -133,6 +138,9 @@ export default function Home() {
     try {
       console.log('User selected API mode:', mode, 'URL:', externalUrl)
 
+      // Update app store FIRST before anything else
+      setApiMode(mode)
+
       // Save the choice to preferences
       const preferences = await TauriService.getAppPreferences()
       preferences.api_config.mode = mode
@@ -149,17 +157,14 @@ export default function Home() {
 
       await TauriService.saveAppPreferences(preferences)
 
-      // Update app store
-      setApiMode(mode)
-
-      // Hide setup screen and continue initialization
-      setShowApiModeSetup(false)
-
-      // For embedded mode, start the server
+      // For embedded mode, start the server before showing dashboard
       if (mode === 'embedded') {
         try {
+          console.log('Starting embedded API server...')
           await TauriService.startEmbeddedApiServer()
-          await new Promise(resolve => setTimeout(resolve, 1000))
+          // Wait longer for server to fully start
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          console.log('Embedded API server started successfully')
           setIsApiConnected(true)
         } catch (error) {
           console.error('Failed to start embedded API:', error)
@@ -169,6 +174,9 @@ export default function Home() {
         // For external mode, check connection
         checkApiConnection()
       }
+
+      // Hide setup screen AFTER server is ready
+      setShowApiModeSetup(false)
     } catch (error) {
       console.error('Failed to save API mode preference:', error)
     }
