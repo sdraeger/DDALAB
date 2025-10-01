@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { TauriService } from '@/services/tauriService'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { WelcomeScreen } from '@/components/WelcomeScreen'
+import { ApiModeSetup } from '@/components/ApiModeSetup'
 import { StatePersistenceProvider } from '@/components/StatePersistenceProvider'
 import { useAppStore } from '@/store/appStore'
 
@@ -11,7 +12,8 @@ export default function Home() {
   const [isApiConnected, setIsApiConnected] = useState<boolean | null>(null)
   const [apiUrl, setApiUrl] = useState('http://localhost:8000')
   const [isTauri, setIsTauri] = useState(false)
-  const { initializeFromTauri, isInitialized } = useAppStore()
+  const [showApiModeSetup, setShowApiModeSetup] = useState(false)
+  const { initializeFromTauri, isInitialized, setApiMode } = useAppStore()
 
   useEffect(() => {
     const tauriDetected = TauriService.isTauri()
@@ -54,11 +56,24 @@ export default function Home() {
         console.log('Loading Tauri preferences...')
         const preferences = await TauriService.getAppPreferences()
         console.log('Loaded preferences:', preferences)
+
+        // Check if user has chosen API mode on first launch
+        if (!preferences.api_config.has_chosen_mode) {
+          console.log('First launch detected - showing API mode setup')
+          setShowApiModeSetup(true)
+          return
+        }
+
+        // User has chosen mode - apply it
+        const mode = preferences.api_config.mode || 'embedded'
+        setApiMode(mode)
         setApiUrl(preferences.api_config.url)
+
+        console.log('Applied saved API mode:', mode)
       } catch (error) {
         console.error('Failed to load preferences:', error)
-        // Use default on error
-        console.log('Using default API URL')
+        // On error, show setup screen for Tauri
+        setShowApiModeSetup(true)
       }
     } else {
       console.log('Not in Tauri, using default API URL')
@@ -112,6 +127,56 @@ export default function Home() {
         console.error('Failed to save API URL:', error)
       }
     }
+  }
+
+  const handleSelectApiMode = async (mode: 'embedded' | 'external', externalUrl?: string) => {
+    try {
+      console.log('User selected API mode:', mode, 'URL:', externalUrl)
+
+      // Save the choice to preferences
+      const preferences = await TauriService.getAppPreferences()
+      preferences.api_config.mode = mode
+      preferences.api_config.has_chosen_mode = true
+
+      if (mode === 'external' && externalUrl) {
+        preferences.api_config.url = externalUrl
+        setApiUrl(externalUrl)
+      } else if (mode === 'embedded') {
+        // Embedded API uses local Rust server
+        preferences.api_config.url = 'http://localhost:8765'
+        setApiUrl('http://localhost:8765')
+      }
+
+      await TauriService.saveAppPreferences(preferences)
+
+      // Update app store
+      setApiMode(mode)
+
+      // Hide setup screen and continue initialization
+      setShowApiModeSetup(false)
+
+      // For embedded mode, start the server
+      if (mode === 'embedded') {
+        try {
+          await TauriService.startEmbeddedApiServer()
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          setIsApiConnected(true)
+        } catch (error) {
+          console.error('Failed to start embedded API:', error)
+          setIsApiConnected(false)
+        }
+      } else {
+        // For external mode, check connection
+        checkApiConnection()
+      }
+    } catch (error) {
+      console.error('Failed to save API mode preference:', error)
+    }
+  }
+
+  // Show API mode setup on first launch (Tauri only)
+  if (isTauri && showApiModeSetup) {
+    return <ApiModeSetup onSelectMode={handleSelectApiMode} />
   }
 
   if (isApiConnected === null) {

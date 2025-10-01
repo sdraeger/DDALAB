@@ -89,7 +89,7 @@ export function SettingsPanel() {
     setTimeout(autoStartEmbedded, 500)
   }, [ui.apiMode, embeddedApiStatus.running])
 
-  const handleApiModeChange = async (newMode: 'docker' | 'embedded') => {
+  const handleApiModeChange = async (newMode: 'external' | 'embedded') => {
     console.log('🐛 DEBUG: TauriService.isTauri():', TauriService.isTauri())
     console.log('🐛 DEBUG: window location:', window.location.protocol, window.location.port)
     console.log('🐛 DEBUG: NODE_ENV:', process.env.NODE_ENV)
@@ -114,11 +114,16 @@ export function SettingsPanel() {
         }
         await new Promise(resolve => setTimeout(resolve, 2000)) // Wait longer for server to start
         await refreshEmbeddedApiStatus()
-      } else if (newMode === 'docker' && embeddedApiStatus.running) {
-        console.log('Switching to docker mode, stopping embedded server...')
+      } else if (newMode === 'external' && embeddedApiStatus.running) {
+        console.log('Switching to external mode, stopping embedded server...')
         await TauriService.stopEmbeddedApiServer()
         await refreshEmbeddedApiStatus()
       }
+
+      // Save preference
+      const preferences = await TauriService.getAppPreferences()
+      preferences.api_config.mode = newMode
+      await TauriService.saveAppPreferences(preferences)
 
       setApiMode(newMode)
       console.log('API mode switched to:', newMode)
@@ -180,51 +185,41 @@ export function SettingsPanel() {
             value={ui.apiMode}
             onValueChange={(value) => {
               console.log('🔴 RadioGroup onValueChange triggered with:', value)
-              handleApiModeChange(value as 'docker' | 'embedded')
+              handleApiModeChange(value as 'external' | 'embedded')
             }}
             className="space-y-4"
             disabled={isLoading}
           >
             <div className="space-y-2">
               <div className="flex items-center space-x-2">
-                <RadioGroupItem value="docker" id="docker" />
-                <Label htmlFor="docker" className="flex items-center gap-2 cursor-pointer">
-                  <Container className="h-4 w-4" />
-                  Docker Backend
-                  <Badge variant="secondary">Current</Badge>
+                <RadioGroupItem value="embedded" id="embedded" />
+                <Label htmlFor="embedded" className="flex items-center gap-2 cursor-pointer">
+                  <Zap className="h-4 w-4" />
+                  Embedded Engine
+                  <Badge variant="secondary">Recommended</Badge>
                 </Label>
               </div>
               <p className="text-sm text-muted-foreground ml-6">
-                Uses the Python FastAPI server running in Docker containers.
-                Requires Docker to be installed and running.
+                Built-in Rust analysis engine. Fast local processing, data never leaves your computer.
+                No setup required.
               </p>
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center space-x-2">
-                <RadioGroupItem value="embedded" id="embedded" />
-                <Label htmlFor="embedded" className="flex items-center gap-2 cursor-pointer">
-                  <Zap className="h-4 w-4" />
-                  Embedded Backend
-                  <Badge variant="outline">Experimental</Badge>
+                <RadioGroupItem value="external" id="external" />
+                <Label htmlFor="external" className="flex items-center gap-2 cursor-pointer">
+                  <Container className="h-4 w-4" />
+                  External Server
+                  <Badge variant="outline">Advanced</Badge>
                 </Label>
               </div>
               <p className="text-sm text-muted-foreground ml-6">
-                Uses the built-in Rust API server. No Docker required,
-                faster performance, but feature set may be limited.
+                Connect to an external FastAPI backend server.
+                Useful for shared team analyses or custom deployments.
               </p>
             </div>
           </RadioGroup>
-
-          {ui.apiMode === 'embedded' && (
-            <Alert>
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>
-                <strong>Experimental Feature:</strong> The embedded backend is still in development.
-                Some features may not work as expected. Switch back to Docker mode if you encounter issues.
-              </AlertDescription>
-            </Alert>
-          )}
 
           <div className="mt-4 p-4 bg-muted rounded-lg">
             <div className="flex items-center justify-between mb-2">
@@ -241,14 +236,14 @@ export function SettingsPanel() {
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span>Backend Mode:</span>
-                <span className="font-medium capitalize">{ui.apiMode}</span>
+                <span className="font-medium capitalize">{ui.apiMode === 'embedded' ? 'Embedded Engine' : 'External Server'}</span>
               </div>
               <div className="flex justify-between">
                 <span>API Endpoint:</span>
                 <span className="font-mono text-xs">
-                  {ui.apiMode === 'docker'
-                    ? 'http://localhost:8000'
-                    : embeddedApiStatus.url || 'http://localhost:8765'}
+                  {ui.apiMode === 'embedded'
+                    ? embeddedApiStatus.url || 'http://localhost:8765'
+                    : 'http://localhost:8000'}
                 </span>
               </div>
               {ui.apiMode === 'embedded' && (
