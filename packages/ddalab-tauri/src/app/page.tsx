@@ -74,6 +74,20 @@ export default function Home() {
         console.log('Setting API URL to:', url)
         setApiUrl(url)
 
+        // Start embedded server if in embedded mode
+        if (mode === 'embedded') {
+          try {
+            console.log('Starting embedded API server from saved preferences...')
+            await TauriService.startEmbeddedApiServer()
+            await new Promise(resolve => setTimeout(resolve, 2000))
+            console.log('Embedded API server started successfully')
+            setIsApiConnected(true)
+          } catch (error) {
+            console.error('Failed to start embedded API:', error)
+            setIsApiConnected(false)
+          }
+        }
+
         console.log('Applied saved API mode:', mode, 'with URL:', url)
       } catch (error) {
         console.error('Failed to load preferences:', error)
