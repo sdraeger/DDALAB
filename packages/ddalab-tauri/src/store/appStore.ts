@@ -60,6 +60,7 @@ export interface UIState {
   panelSizes: number[]
   layout: 'default' | 'analysis' | 'plots'
   theme: 'light' | 'dark' | 'auto'
+  apiMode: 'docker' | 'embedded'
 }
 
 export interface AppState {
@@ -104,6 +105,7 @@ export interface AppState {
   setPanelSizes: (sizes: number[]) => void
   setLayout: (layout: UIState['layout']) => void
   setTheme: (theme: UIState['theme']) => void
+  setApiMode: (mode: UIState['apiMode']) => void
 
   // State persistence
   saveCurrentState: () => Promise<void>
@@ -164,18 +166,17 @@ const defaultUIState: UIState = {
   sidebarOpen: true,
   panelSizes: [25, 50, 25],
   layout: 'default',
-  theme: 'auto'
+  theme: 'auto',
+  apiMode: 'docker'
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
   isInitialized: false,
   persistenceService: null,
-  
+
   initializePersistence: async () => {
-    console.log('DEBUG: initializePersistence called, isTauri:', TauriService.isTauri());
     if (TauriService.isTauri()) {
       try {
-        console.log('DEBUG: Creating persistence service...');
         const service = getStatePersistenceService({
           autoSave: true,
           saveInterval: 30000,
@@ -184,18 +185,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           maxHistoryItems: 50
         });
 
-        console.log('DEBUG: Initializing persistence service...');
         const persistedState = await service.initialize();
-        console.log('DEBUG: Persisted state loaded:', {
-          version: persistedState.version,
-          activeTab: persistedState.active_tab,
-          selectedFile: persistedState.file_manager.selected_file,
-          selectedChannels: persistedState.file_manager.selected_channels,
-          ddaVariants: persistedState.dda.selected_variants,
-          hasCurrentAnalysis: !!persistedState.dda.current_analysis,
-          analysisHistoryCount: persistedState.dda.analysis_history.length
-        });
-        
+
         // Set up the current state getter for auto-save
         service.setCurrentStateGetter(() => {
           const currentState = get();
@@ -273,64 +264,37 @@ export const useAppStore = create<AppState>((set, get) => ({
                 persistedState.panel_sizes.sidebar * 100,
                 persistedState.panel_sizes.main * 100 - persistedState.panel_sizes.sidebar * 100,
                 25
-              ]
+              ],
+              apiMode: persistedState.ui?.apiMode || 'docker'
             }
           };
         });
 
-        console.log('State persistence initialized successfully');
-        
-        // Debug what was actually set
-        const currentState = get();
-        console.log('DEBUG: Final state after persistence load:', {
-          activeTab: currentState.ui.activeTab,
-          sidebarOpen: currentState.ui.sidebarOpen,
-          selectedFile: currentState.fileManager.selectedFile?.file_name,
-          selectedChannels: currentState.fileManager.selectedChannels,
-          ddaVariants: currentState.dda.analysisParameters.variants,
-          ddaParams: currentState.dda.analysisParameters,
-          hasCurrentAnalysis: !!currentState.dda.currentAnalysis
-        });
+        // State persistence initialized successfully
       } catch (error) {
-        console.error('Failed to initialize persistence:', error);
-        console.error('Error details:', {
-          name: (error as Error)?.name,
-          message: (error as Error)?.message,
-          stack: (error as Error)?.stack
-        });
+        console.error('Failed to initialize persistence:', (error as Error)?.message);
         set({ persistenceService: null });
       }
     }
   },
-  
+
   initializeFromTauri: async () => {
-    console.log('🟢 DEBUG: initializeFromTauri called, isTauri:', TauriService.isTauri());
-    console.error('🟢 DEBUG: initializeFromTauri called, isTauri:', TauriService.isTauri()); // Use error to make it more visible
-    
     if (TauriService.isTauri()) {
-      console.log('🟢 DEBUG: Calling initializePersistence...');
-      console.error('🟢 DEBUG: Calling initializePersistence...');
       await get().initializePersistence();
-      console.log('🟢 DEBUG: Persistence initialization completed');
-      console.error('🟢 DEBUG: Persistence initialization completed');
       set({ isInitialized: true });
     } else {
-      console.log('🔴 DEBUG: Not in Tauri environment, skipping persistence');
-      console.error('🔴 DEBUG: Not in Tauri environment, skipping persistence');
       set({ isInitialized: true });
     }
-    console.log('🟢 DEBUG: initializeFromTauri completed');
-    console.error('🟢 DEBUG: initializeFromTauri completed');
   },
 
   // File management
   fileManager: defaultFileManagerState,
-  
+
   setCurrentPath: (path) => {
     set((state) => ({
       fileManager: { ...state.fileManager, currentPath: path }
     }))
-    
+
     if (TauriService.isTauri()) {
       const { fileManager, persistenceService } = get()
       const fileManagerState = {
@@ -342,21 +306,21 @@ export const useAppStore = create<AppState>((set, get) => ({
         sort_order: fileManager.sortOrder,
         show_hidden: fileManager.showHidden
       }
-      
+
       TauriService.updateFileManagerState(fileManagerState)
-      
+
       // Auto-save via persistence service
       if (persistenceService) {
         persistenceService.saveFileManagerState(fileManagerState).catch(console.error)
       }
     }
   },
-  
+
   setSelectedFile: (file) => {
     set((state) => ({
       fileManager: { ...state.fileManager, selectedFile: file }
     }))
-    
+
     if (TauriService.isTauri()) {
       const { fileManager } = get()
       TauriService.updateFileManagerState({
@@ -370,12 +334,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       })
     }
   },
-  
+
   setSelectedChannels: (channels) => {
     set((state) => ({
       fileManager: { ...state.fileManager, selectedChannels: channels }
     }))
-    
+
     if (TauriService.isTauri()) {
       const { fileManager } = get()
       TauriService.updateFileManagerState({
@@ -389,18 +353,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       })
     }
   },
-  
+
   setTimeWindow: (window) => {
     set((state) => ({
       fileManager: { ...state.fileManager, timeWindow: window }
     }))
   },
-  
+
   updateFileManagerState: (updates) => {
     set((state) => ({
       fileManager: { ...state.fileManager, ...updates }
     }))
-    
+
     if (TauriService.isTauri()) {
       const { fileManager } = get()
       TauriService.updateFileManagerState({
@@ -423,14 +387,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Plotting
   plot: defaultPlotState,
-  
+
   setCurrentChunk: (chunk) => {
     set((state) => ({ plot: { ...state.plot, currentChunk: chunk } }))
   },
-  
+
   updatePlotState: (updates) => {
     set((state) => ({ plot: { ...state.plot, ...updates } }))
-    
+
     if (TauriService.isTauri()) {
       const { plot } = get()
       TauriService.updatePlotState({
@@ -444,11 +408,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // DDA Analysis
   dda: defaultDDAState,
-  
+
   setCurrentAnalysis: (analysis) => {
     set((state) => ({ dda: { ...state.dda, currentAnalysis: analysis } }))
   },
-  
+
   addAnalysisToHistory: (analysis) => {
     set((state) => ({
       dda: {
@@ -461,7 +425,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setAnalysisHistory: (analyses) => {
     set((state) => ({ dda: { ...state.dda, analysisHistory: analyses } }))
   },
-  
+
   updateAnalysisParameters: (parameters) => {
     set((state) => ({
       dda: {
@@ -469,7 +433,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         analysisParameters: { ...state.dda.analysisParameters, ...parameters }
       }
     }))
-    
+
     if (TauriService.isTauri()) {
       const { dda } = get()
       TauriService.updateDDAState({
@@ -486,14 +450,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       })
     }
   },
-  
+
   setDDARunning: (running) => {
     set((state) => ({ dda: { ...state.dda, isRunning: running } }))
   },
 
   // Health monitoring
   health: defaultHealthState,
-  
+
   updateHealthStatus: (status) => {
     if (typeof status === 'function') {
       set((state) => ({ health: { ...state.health, ...status(state.health) } }))
@@ -504,44 +468,52 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // UI state
   ui: defaultUIState,
-  
+
   setActiveTab: (tab) => {
     set((state) => ({ ui: { ...state.ui, activeTab: tab } }))
-    
+
     if (TauriService.isTauri()) {
       TauriService.updateUIState({ activeTab: tab })
     }
   },
-  
+
   setSidebarOpen: (open) => {
     set((state) => ({ ui: { ...state.ui, sidebarOpen: open } }))
-    
+
     if (TauriService.isTauri()) {
       TauriService.updateUIState({ sidebarOpen: open })
     }
   },
-  
+
   setPanelSizes: (sizes) => {
     set((state) => ({ ui: { ...state.ui, panelSizes: sizes } }))
-    
+
     if (TauriService.isTauri()) {
       TauriService.updateUIState({ panelSizes: sizes })
     }
   },
-  
+
   setLayout: (layout) => {
     set((state) => ({ ui: { ...state.ui, layout } }))
-    
+
     if (TauriService.isTauri()) {
       TauriService.updateUIState({ layout })
     }
   },
-  
+
   setTheme: (theme) => {
     set((state) => ({ ui: { ...state.ui, theme } }))
-    
+
     if (TauriService.isTauri()) {
       TauriService.updateUIState({ theme })
+    }
+  },
+
+  setApiMode: (apiMode) => {
+    set((state) => ({ ui: { ...state.ui, apiMode } }))
+
+    if (TauriService.isTauri()) {
+      TauriService.updateUIState({ apiMode })
     }
   },
 
@@ -572,7 +544,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   saveCurrentState: async () => {
     const service = get().persistenceService;
     const currentState = get();
-    
+
     if (service) {
       const stateToSave = {
         version: '1.0.0',
@@ -627,7 +599,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           sidebarOpen: currentState.ui.sidebarOpen,
           panelSizes: currentState.ui.panelSizes,
           layout: currentState.ui.layout,
-          theme: currentState.ui.theme
+          theme: currentState.ui.theme,
+          apiMode: currentState.ui.apiMode
         },
         windows: {},
         active_tab: currentState.ui.activeTab,

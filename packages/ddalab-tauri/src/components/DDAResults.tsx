@@ -506,7 +506,7 @@ export function DDAResults({ result }: DDAResultsProps) {
       const series: uPlot.Series[] = [
         {}, // x-axis
         ...selectedChannels.map((channel, index) => ({
-          label: `${channel} (α=${currentVariant.exponents[channel]?.toFixed(3) || 'N/A'})`,
+          label: `${channel}`,
           stroke: getChannelColor(index),
           width: 2,
           points: { show: false }

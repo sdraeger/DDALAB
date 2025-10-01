@@ -10,10 +10,13 @@ mod commands;
 mod docker_stack;
 mod app_setup;
 mod utils;
+mod embedded_api;
+mod edf;
 
 // Import required modules
 use app_setup::setup_app;
 use commands::*;
+use commands::embedded_api_commands::EmbeddedApiState;
 
 fn main() {
     // Initialize logging
@@ -56,8 +59,19 @@ fn main() {
             docker_stack::stop_docker_stack,
             docker_stack::get_docker_stack_status,
             docker_stack::check_docker_requirements,
-            docker_stack::update_docker_config
+            docker_stack::update_docker_config,
+            // Embedded API commands
+            start_embedded_api_server,
+            stop_embedded_api_server,
+            get_embedded_api_status,
+            check_embedded_api_health,
+            // Data directory commands
+            select_data_directory,
+            get_data_directory,
+            set_data_directory
         ])
+        .manage(EmbeddedApiState::default())
+        .manage(parking_lot::RwLock::new(None::<commands::data_directory_commands::DataDirectoryConfig>))
         .setup(|app| {
             setup_app(app).map_err(|e| e.to_string())?;
             Ok(())
