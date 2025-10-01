@@ -24,18 +24,24 @@ export default function Home() {
       userAgent: typeof window !== 'undefined' ? window.navigator.userAgent : undefined
     })
     setIsTauri(tauriDetected)
-    
+
     // Initialize persistence BEFORE checking API connection
     if (!isInitialized) {
       console.log('DEBUG: Forcing persistence initialization for testing...')
       console.log('DEBUG: tauriDetected =', tauriDetected)
       initializeFromTauri()
     }
-    
+
     loadPreferences()
   }, [isInitialized, initializeFromTauri])
 
   useEffect(() => {
+    // Skip API health check in Tauri - embedded API is always available
+    if (isTauri) {
+      setIsApiConnected(true)
+      return
+    }
+
     if (apiUrl) {
       checkApiConnection()
     }
@@ -63,7 +69,7 @@ export default function Home() {
     try {
       console.log('Checking API connection to:', apiUrl)
       let connected = false
-      
+
       if (isTauri) {
         console.log('Using Tauri native API check')
         connected = await TauriService.checkApiConnection(apiUrl)
@@ -74,10 +80,10 @@ export default function Home() {
         connected = response.ok
         console.log('Web API check result:', connected, 'Status:', response.status)
       }
-      
+
       setIsApiConnected(connected)
       console.log('API connection state set to:', connected)
-      
+
       if (connected && isTauri) {
         await TauriService.setWindowTitle('DDALAB - Connected')
         await TauriService.showNotification('DDALAB', 'Successfully connected to API server')
@@ -87,7 +93,7 @@ export default function Home() {
     } catch (error) {
       console.error('Failed to connect to API:', error)
       setIsApiConnected(false)
-      
+
       if (isTauri) {
         await TauriService.setWindowTitle('DDALAB - Disconnected')
       }
@@ -96,7 +102,7 @@ export default function Home() {
 
   const handleApiUrlChange = async (newUrl: string) => {
     setApiUrl(newUrl)
-    
+
     if (isTauri) {
       try {
         const preferences = await TauriService.getAppPreferences()
@@ -123,7 +129,7 @@ export default function Home() {
 
   if (!isApiConnected) {
     return (
-      <WelcomeScreen 
+      <WelcomeScreen
         apiUrl={apiUrl}
         onApiUrlChange={handleApiUrlChange}
         onRetryConnection={checkApiConnection}
