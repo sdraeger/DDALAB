@@ -28,6 +28,7 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             // State management commands
             get_app_state,
@@ -68,7 +69,9 @@ fn main() {
             // Data directory commands
             select_data_directory,
             get_data_directory,
-            set_data_directory
+            set_data_directory,
+            // Update commands
+            check_for_updates
         ])
         .manage(EmbeddedApiState::default())
         .manage(parking_lot::RwLock::new(None::<commands::data_directory_commands::DataDirectoryConfig>))

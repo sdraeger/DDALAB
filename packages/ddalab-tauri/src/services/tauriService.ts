@@ -420,5 +420,19 @@ export class TauriService {
     // In development, if we're on port 3003, assume it's Tauri dev mode
     // This is a reasonable assumption since that's the configured dev port
     return process.env.NODE_ENV === 'development' && window.location.port === '3003'
+  },
+
+  // Update Commands
+  async checkForUpdates(): Promise<{
+    available: boolean
+    current_version: string
+    latest_version?: string
+    release_notes?: string
+    release_date?: string
+    download_url?: string
+  }> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('check_for_updates')
   }
 }
