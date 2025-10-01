@@ -1,15 +1,48 @@
 use crate::models::AppPreferences;
+use tauri::Manager;
+use std::fs;
+use std::path::PathBuf;
 
-#[tauri::command]
-pub async fn get_app_preferences() -> Result<AppPreferences, String> {
-    // Load preferences from config file or return defaults
-    Ok(AppPreferences::default())
+fn get_preferences_path(app: tauri::AppHandle) -> Result<PathBuf, String> {
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+
+    fs::create_dir_all(&app_data_dir)
+        .map_err(|e| format!("Failed to create app data dir: {}", e))?;
+
+    Ok(app_data_dir.join("preferences.json"))
 }
 
 #[tauri::command]
-pub async fn save_app_preferences(preferences: AppPreferences) -> Result<(), String> {
-    // Save preferences to config file
-    log::info!("Saving preferences: {:?}", preferences);
+pub async fn get_app_preferences(app: tauri::AppHandle) -> Result<AppPreferences, String> {
+    let prefs_path = get_preferences_path(app)?;
+
+    if prefs_path.exists() {
+        let contents = fs::read_to_string(&prefs_path)
+            .map_err(|e| format!("Failed to read preferences: {}", e))?;
+
+        let preferences: AppPreferences = serde_json::from_str(&contents)
+            .map_err(|e| format!("Failed to parse preferences: {}", e))?;
+
+        log::info!("Loaded preferences from: {:?}", prefs_path);
+        Ok(preferences)
+    } else {
+        log::info!("No preferences file found, returning defaults");
+        Ok(AppPreferences::default())
+    }
+}
+
+#[tauri::command]
+pub async fn save_app_preferences(app: tauri::AppHandle, preferences: AppPreferences) -> Result<(), String> {
+    let prefs_path = get_preferences_path(app)?;
+
+    let json = serde_json::to_string_pretty(&preferences)
+        .map_err(|e| format!("Failed to serialize preferences: {}", e))?;
+
+    fs::write(&prefs_path, json)
+        .map_err(|e| format!("Failed to write preferences: {}", e))?;
+
+    log::info!("Saved preferences to: {:?}", prefs_path);
     Ok(())
 }
 

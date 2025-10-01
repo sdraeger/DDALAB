@@ -5,21 +5,30 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Server, Zap, ExternalLink } from 'lucide-react'
+import { Server, Zap, ExternalLink, Loader2 } from 'lucide-react'
 
 interface ApiModeSetupProps {
-  onSelectMode: (mode: 'embedded' | 'external', externalUrl?: string) => void
+  onSelectMode: (mode: 'embedded' | 'external', externalUrl?: string) => Promise<void>
 }
 
 export function ApiModeSetup({ onSelectMode }: ApiModeSetupProps) {
   const [selectedMode, setSelectedMode] = useState<'embedded' | 'external' | null>(null)
   const [externalUrl, setExternalUrl] = useState('http://localhost:8000')
+  const [isLoading, setIsLoading] = useState(false)
 
-  const handleContinue = () => {
-    if (selectedMode === 'embedded') {
-      onSelectMode('embedded')
-    } else if (selectedMode === 'external') {
-      onSelectMode('external', externalUrl)
+  const handleContinue = async () => {
+    if (!selectedMode) return
+
+    setIsLoading(true)
+    try {
+      if (selectedMode === 'embedded') {
+        await onSelectMode('embedded')
+      } else if (selectedMode === 'external') {
+        await onSelectMode('external', externalUrl)
+      }
+    } catch (error) {
+      console.error('Failed to initialize API mode:', error)
+      setIsLoading(false)
     }
   }
 
@@ -141,11 +150,20 @@ export function ApiModeSetup({ onSelectMode }: ApiModeSetupProps) {
           <Button
             size="lg"
             onClick={handleContinue}
-            disabled={!selectedMode}
+            disabled={!selectedMode || isLoading}
             className="min-w-[200px]"
           >
-            Continue
-            <ExternalLink className="ml-2 h-4 w-4" />
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {selectedMode === 'embedded' ? 'Starting Engine...' : 'Connecting...'}
+              </>
+            ) : (
+              <>
+                Continue
+                <ExternalLink className="ml-2 h-4 w-4" />
+              </>
+            )}
           </Button>
         </div>
 
