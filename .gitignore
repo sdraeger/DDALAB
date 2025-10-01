@@ -95,3 +95,5 @@ e2e-output/
 packages/web30/.next/
 
 .backup/
+
+dda_history/

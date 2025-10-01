@@ -19,13 +19,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { 
-  Search, 
-  Folder, 
-  FileText, 
-  SortAsc, 
-  SortDesc, 
-  RefreshCw, 
+import {
+  Search,
+  Folder,
+  FileText,
+  SortAsc,
+  SortDesc,
+  RefreshCw,
   Download,
   Calendar,
   HardDrive,
@@ -33,8 +33,10 @@ import {
   EyeOff,
   ChevronRight,
   Home,
-  Check
+  Check,
+  FolderOpen
 } from 'lucide-react'
+import { TauriService } from '@/services/tauriService'
 import { formatBytes, formatDate } from '@/lib/utils'
 
 interface FileManagerProps {
@@ -50,7 +52,7 @@ export function FileManager({ apiService }: FileManagerProps) {
     setCurrentPath,
     clearPendingFileSelection
   } = useAppStore()
-  
+
   const [files, setFiles] = useState<EDFFileInfo[]>([])
   const [directories, setDirectories] = useState<Array<{name: string, path: string}>>([])
   const [loading, setLoading] = useState(true) // Start with loading true
@@ -76,35 +78,35 @@ export function FileManager({ apiService }: FileManagerProps) {
     try {
       setLoading(true)
       setError(null)
-      
+
       const pathStr = fileManager.currentPath.join('/')
       console.log('Loading directory:', pathStr || 'root')
-      
+
       // Add a timeout to prevent infinite loading
-      const timeoutPromise = new Promise((_, reject) => 
+      const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Loading timeout - please try refreshing')), 10000)
       )
-      
+
       // Get directory listing with timeout
       const result = await Promise.race([
         apiService.listDirectory(pathStr),
         timeoutPromise
       ]) as Awaited<ReturnType<typeof apiService.listDirectory>>
-      
+
       if (result.files) {
         // Separate directories and files
         const dirs = result.files.filter(f => f.is_directory)
         const fileList = result.files.filter(f => !f.is_directory)
-        
+
         setDirectories(dirs.map(d => ({
           name: d.name,
           path: d.path
         })))
-        
+
         // Convert to EDFFileInfo format
         const edfFiles: EDFFileInfo[] = fileList
-          .filter(file => 
-            file.name.toLowerCase().endsWith('.edf') || 
+          .filter(file =>
+            file.name.toLowerCase().endsWith('.edf') ||
             file.name.toLowerCase().endsWith('.ascii') ||
             file.name.toLowerCase().endsWith('.txt')
           )
@@ -120,7 +122,7 @@ export function FileManager({ apiService }: FileManagerProps) {
             end_time: file.last_modified || new Date().toISOString(),
             annotations_count: 0
           }))
-        
+
         setFiles(edfFiles)
       }
     } catch (err) {
@@ -150,7 +152,7 @@ export function FileManager({ apiService }: FileManagerProps) {
     // Apply search filter
     if (fileManager.searchQuery) {
       const query = fileManager.searchQuery.toLowerCase()
-      filtered = filtered.filter(file => 
+      filtered = filtered.filter(file =>
         file.file_name.toLowerCase().includes(query)
       )
     }
@@ -163,7 +165,7 @@ export function FileManager({ apiService }: FileManagerProps) {
     // Apply sorting
     filtered.sort((a, b) => {
       let comparison = 0
-      
+
       switch (fileManager.sortBy) {
         case 'name':
           comparison = a.file_name.localeCompare(b.file_name)
@@ -177,7 +179,7 @@ export function FileManager({ apiService }: FileManagerProps) {
         default:
           comparison = a.file_name.localeCompare(b.file_name)
       }
-      
+
       return fileManager.sortOrder === 'desc' ? -comparison : comparison
     })
 
@@ -198,17 +200,17 @@ export function FileManager({ apiService }: FileManagerProps) {
   const loadFileInfo = async (file: EDFFileInfo) => {
     try {
       setLoading(true)
-      
+
       // Get detailed file information
       const fileInfo = await apiService.getFileInfo(file.file_path)
       setSelectedFile(fileInfo)
-      
+
       // Auto-select first few channels if none selected
       if (fileInfo.channels.length > 0 && fileManager.selectedChannels.length === 0) {
         const defaultChannels = fileInfo.channels.slice(0, Math.min(4, fileInfo.channels.length))
         setSelectedChannels(defaultChannels)
       }
-      
+
     } catch (error) {
       console.error('Failed to load file info:', error)
       setError(error instanceof Error ? error.message : 'Failed to load file info')
@@ -259,6 +261,19 @@ export function FileManager({ apiService }: FileManagerProps) {
     }
   }
 
+  const handleChangeDataDirectory = async () => {
+    if (!TauriService.isTauri()) return
+
+    try {
+      const selectedPath = await TauriService.selectDataDirectory()
+      // Reload the directory after selection
+      await loadCurrentDirectory()
+    } catch (error) {
+      console.error('Failed to select data directory:', error)
+      // User probably cancelled
+    }
+  }
+
   return (
     <Card className="h-full flex flex-col">
       <CardHeader className="flex-shrink-0">
@@ -272,19 +287,31 @@ export function FileManager({ apiService }: FileManagerProps) {
               Browse and select EDF/ASCII files for analysis
             </CardDescription>
           </div>
-          
+
           <div className="flex items-center gap-2">
+            {TauriService.isTauri() && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleChangeDataDirectory}
+                title="Change data directory"
+              >
+                <FolderOpen className="h-4 w-4 mr-2" />
+                Change Directory
+              </Button>
+            )}
+
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => updateFileManagerState({ 
-                showHidden: !fileManager.showHidden 
+              onClick={() => updateFileManagerState({
+                showHidden: !fileManager.showHidden
               })}
               title={fileManager.showHidden ? "Hide hidden files" : "Show hidden files"}
             >
               {fileManager.showHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </Button>
-            
+
             <Button
               variant="ghost"
               size="icon"
@@ -307,7 +334,7 @@ export function FileManager({ apiService }: FileManagerProps) {
           >
             <Home className="h-3 w-3" />
           </Button>
-          
+
           {fileManager.currentPath.map((segment, index) => (
             <div key={index} className="flex items-center gap-1">
               <ChevronRight className="h-3 w-3" />
@@ -321,7 +348,7 @@ export function FileManager({ apiService }: FileManagerProps) {
               </Button>
             </div>
           ))}
-          
+
           {fileManager.currentPath.length > 0 && (
             <Button
               variant="ghost"
@@ -346,7 +373,7 @@ export function FileManager({ apiService }: FileManagerProps) {
               className="pl-8"
             />
           </div>
-          
+
           <Select
             value={fileManager.sortBy}
             onValueChange={(value: typeof fileManager.sortBy) => toggleSort(value)}
@@ -360,15 +387,15 @@ export function FileManager({ apiService }: FileManagerProps) {
               <SelectItem value="date">Date</SelectItem>
             </SelectContent>
           </Select>
-          
+
           <Button
             variant="ghost"
             size="icon"
             onClick={() => toggleSort(fileManager.sortBy)}
             title={`Sort ${fileManager.sortOrder === 'asc' ? 'descending' : 'ascending'}`}
           >
-            {fileManager.sortOrder === 'asc' ? 
-              <SortAsc className="h-4 w-4" /> : 
+            {fileManager.sortOrder === 'asc' ?
+              <SortAsc className="h-4 w-4" /> :
               <SortDesc className="h-4 w-4" />
             }
           </Button>
@@ -416,13 +443,13 @@ export function FileManager({ apiService }: FileManagerProps) {
                 key={`${file.file_path}-${index}`}
                 onClick={() => handleFileSelect(file)}
                 className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all
-                  ${fileManager.selectedFile?.file_path === file.file_path 
-                    ? 'bg-primary/10 border-primary shadow-sm ring-2 ring-primary/20' 
+                  ${fileManager.selectedFile?.file_path === file.file_path
+                    ? 'bg-primary/10 border-primary shadow-sm ring-2 ring-primary/20'
                     : 'hover:bg-accent hover:shadow-sm'
                   }`}
               >
                 <FileText className="h-5 w-5 text-green-600" />
-                
+
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">{file.file_name}</div>
                   <div className="flex items-center gap-4 text-sm text-muted-foreground">
@@ -436,7 +463,7 @@ export function FileManager({ apiService }: FileManagerProps) {
                     </span>
                   </div>
                 </div>
-                
+
                 <div className="flex flex-col items-end gap-1">
                   {fileManager.selectedFile?.file_path === file.file_path && (
                     <div className="flex items-center gap-1 text-primary mb-1">
@@ -445,7 +472,7 @@ export function FileManager({ apiService }: FileManagerProps) {
                     </div>
                   )}
                   <Badge variant="secondary" className="text-xs">
-                    {file.file_name.toLowerCase().endsWith('.edf') ? 'EDF' : 
+                    {file.file_name.toLowerCase().endsWith('.edf') ? 'EDF' :
                      file.file_name.toLowerCase().endsWith('.ascii') ? 'ASCII' : 'TXT'}
                   </Badge>
                   {file.channels.length > 0 && (
@@ -462,7 +489,7 @@ export function FileManager({ apiService }: FileManagerProps) {
                 <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>No files found</p>
                 <p className="text-sm mt-2">
-                  {fileManager.searchQuery 
+                  {fileManager.searchQuery
                     ? 'Try adjusting your search query'
                     : 'No EDF or ASCII files in this directory'
                   }
@@ -472,7 +499,7 @@ export function FileManager({ apiService }: FileManagerProps) {
           </div>
         )}
       </CardContent>
-      
+
       {/* Confirmation Dialog */}
       <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
         <AlertDialogContent>

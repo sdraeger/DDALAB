@@ -1,46 +1,212 @@
 # DDALAB - Delay Differential Analysis Laboratory
 
-DDALAB is an application for performing Delay Differential Analysis (DDA) on EDF and ASCII files, consisting of a web-based GUI client and a FastAPI backend server.
-The application is designed to be run on a local machine, but can be deployed to a remote server with the appropriate configuration. In the local case, the data does not leave the local machine. Additionally, the
-traffic within the virtualized network is encrypted via SSL.
+DDALAB is a desktop application for performing Delay Differential Analysis (DDA) on EDF and ASCII files. Built with Tauri and React, it provides a native desktop experience with powerful analysis capabilities while keeping all data processing local to your machine for maximum privacy.
 
-## Prerequisites
+## Download & Installation
 
-### Installing Docker
+### macOS
 
-1. **For macOS**:
-   - Download [Docker Desktop for Mac](https://www.docker.com/products/docker-desktop)
-   - Double-click the downloaded .dmg file and drag Docker to Applications
-   - Open Docker from Applications folder
-
-2. **For Windows**:
-   - Download [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop)
-   - Run the ConfigManager and follow the prompts
-   - Start Docker Desktop from the Start menu
-
-3. **For Linux (Ubuntu/Debian)**:
+1. Download the latest `.dmg` file from [Releases](https://github.com/sdraeger/DDALAB/releases)
+2. Open the `.dmg` file and drag DDALAB to your Applications folder
+3. **Important**: macOS will block unsigned applications. To run DDALAB, execute this command in Terminal:
 
    ```bash
-   sudo apt update
-   sudo apt install docker.io docker-compose
-   sudo systemctl enable --now docker
-   sudo usermod -aG docker $USER
-   # Log out and back in for group changes to take effect
+   sudo xattr -r -d com.apple.quarantine /Applications/DDALAB.app
    ```
 
-Verify installation:
+   This is necessary because DDALAB is not signed with a paid Apple Developer license. Your data remains private and secure - all processing happens locally on your machine.
+
+4. Launch DDALAB from Applications
+
+### Windows
+
+1. Download the latest `.msi` installer from [Releases](https://github.com/sdraeger/DDALAB/releases)
+2. Run the installer and follow the setup wizard
+3. Launch DDALAB from the Start menu
+
+### Linux
+
+1. Download the latest `.AppImage` or `.deb` package from [Releases](https://github.com/sdraeger/DDALAB/releases)
+2. For AppImage:
+   ```bash
+   chmod +x DDALAB-*.AppImage
+   ./DDALAB-*.AppImage
+   ```
+3. For Debian/Ubuntu (.deb):
+   ```bash
+   sudo dpkg -i DDALAB-*.deb
+   sudo apt-get install -f  # Install dependencies if needed
+   ```
+
+## Features
+
+- **Native Desktop App**: Fast, responsive interface built with Tauri
+- **Embedded Rust API**: High-performance local analysis with no external dependencies
+- **Docker API Option**: Alternative backend using Docker containers (for advanced users)
+- **Complete Privacy**: All data processing happens on your local machine
+- **EDF File Support**: Native support for European Data Format files
+- **Real-time Analysis**: View DDA results with interactive heatmaps and plots
+- **Analysis History**: Persistent storage of previous analyses for easy comparison
+
+## Architecture
+
+DDALAB offers two API backend options:
+
+### 1. Embedded Rust API (Default, Recommended)
+
+The embedded Rust API runs directly within the Tauri application, providing:
+
+- Zero setup required
+- No external dependencies
+- Fast startup time
+- Native performance
+- Complete offline functionality
+
+This is the **recommended** approach for most users.
+
+### 2. Docker API Backend (Advanced)
+
+For users who prefer the Docker-based architecture, DDALAB can connect to a separate API container:
 
 ```bash
-docker --version
-docker-compose --version
+# Start API backend only
+docker-compose -f docker-compose.api-only.yml up -d
+
+# Configure DDALAB to use Docker API
+# Settings → API Backend → Docker (http://localhost:8001)
 ```
 
-## DDALAB Launcher 🚀
+The Docker backend includes:
 
-For the easiest way to manage DDALAB, use the **DDALAB Launcher** - a user-friendly GUI tool:
+- Python FastAPI server
+- PostgreSQL database
+- Redis cache
+- MinIO object storage
+- Full web interface at https://localhost
+
+## Quick Start
+
+1. **Launch DDALAB** from your Applications folder (macOS), Start menu (Windows), or application launcher (Linux)
+
+2. **Select Data Directory**: Choose where your EDF files are located
+
+3. **Load EDF File**: Click "Browse Files" and select an EDF file to analyze
+
+4. **Configure Analysis**:
+   - Select channels to analyze
+   - Set window parameters (length, step size)
+   - Choose scale range (delay parameters)
+
+5. **Run Analysis**: Click "Run DDA Analysis" and view results in real-time
+
+6. **View Results**: Interactive heatmaps and line plots show complexity across time and scales
+
+## Development
+
+### Prerequisites
+
+- **Rust**: Install from [rustup.rs](https://rustup.rs/)
+- **Node.js**: Version 18+ ([nodejs.org](https://nodejs.org/))
+- **npm**: Comes with Node.js
+- **DDA Binary**: Place `run_DDA_ASCII` in `bin/` directory (see grant report for details)
+
+### Getting Started
 
 ```bash
-# Clone the launcher (standalone repository)
+# Clone the repository
+git clone https://github.com/sdraeger/DDALAB.git
+cd DDALAB
+
+# Install dependencies
+npm install
+
+# Run Tauri app in development mode
+cd packages/ddalab-tauri
+npm run tauri:dev
+```
+
+### Project Structure
+
+```
+DDALAB/
+├── packages/
+│   └── ddalab-tauri/          # Tauri desktop application
+│       ├── src/               # React frontend
+│       ├── src-tauri/         # Rust backend
+│       │   ├── src/
+│       │   │   ├── embedded_api.rs    # Embedded Rust API
+│       │   │   ├── edf.rs             # EDF file reader
+│       │   │   └── commands/          # Tauri commands
+│       │   └── Cargo.toml
+│       └── package.json
+├── bin/                       # DDA binary executables
+├── docs/                      # Documentation
+└── README.md
+```
+
+### Building for Production
+
+```bash
+# Build for your current platform
+cd packages/ddalab-tauri
+npm run tauri build
+
+# Outputs will be in src-tauri/target/release/bundle/
+```
+
+### Key Technologies
+
+- **Tauri**: Desktop app framework (Rust + WebView)
+- **React**: UI framework with TypeScript
+- **Axum**: High-performance Rust web framework for embedded API
+- **Next.js**: React framework for frontend
+- **uPlot**: Fast, lightweight plotting library
+- **Tailwind CSS**: Utility-first CSS framework
+
+## Docker-based Deployment (Optional)
+
+For users who want to deploy DDALAB as a web service:
+
+```bash
+# 1. Clone repository
+git clone https://github.com/sdraeger/DDALAB.git
+cd DDALAB
+
+# 2. Configure environment
+cp .env.production.example .env
+nano .env  # Update passwords and settings
+
+# 3. Start full stack
+docker-compose up -d
+
+# 4. Access web interface
+# Open https://localhost in your browser
+```
+
+This deployment includes:
+
+- Python FastAPI backend
+- PostgreSQL database
+- Redis cache
+- MinIO object storage (for EDF files)
+- Traefik reverse proxy with SSL
+- Web interface for remote access
+
+### Docker Services
+
+- **API Server**: http://localhost:8001 (direct) or https://localhost/api (via Traefik)
+- **Web Interface**: https://localhost
+- **MinIO Console**: http://localhost:9001
+- **Traefik Dashboard**: https://localhost:8080
+
+To stop: `docker-compose down`
+
+## DDALAB Launcher (CLI Tool)
+
+For managing Docker deployments, use the DDALAB Launcher:
+
+```bash
+# Clone launcher
 git clone https://github.com/sdraeger/DDALAB-launcher.git
 cd DDALAB-launcher
 
@@ -49,256 +215,147 @@ make build
 ./bin/ddalab-launcher
 ```
 
-The launcher provides:
-- 🔍 **Auto-detection** of DDALAB installations
-- 🎯 **Interactive menu** for all operations
-- ⚡ **Interrupt support** (Ctrl+C) for long operations
-- 🖥️ **Cross-platform** support (Linux, macOS, Windows)
-- 📊 **Status monitoring** and log viewing
+Features:
 
-## DDALAB Docker Extension 🐳
+- Auto-detection of DDALAB installations
+- Interactive menu for all operations
+- Status monitoring and log viewing
+- Cross-platform support
 
-For Docker Desktop users, there's also a **Docker Extension** available:
+## Configuration
 
-```bash
-# Clone the extension (standalone repository)
-git clone https://github.com/sdraeger/DDALAB-docker-ext.git
-cd DDALAB-docker-ext
+### Embedded API Settings
 
-# Build and install the extension
-make build-extension
-docker extension install ddalab/desktop-extension:latest
-```
+The embedded Rust API stores data in:
 
-The extension provides Docker Desktop integration with multiple UI variants.
+- **macOS**: `~/Library/Application Support/ddalab`
+- **Windows**: `%APPDATA%/ddalab`
+- **Linux**: `~/.local/share/ddalab`
 
-## Quick Start (Docker) 🚀
+Configuration includes:
 
-For manual setup, the traditional way to run DDALAB:
+- Data directory path
+- Analysis history
+- Application preferences
 
-```bash
-# 1. Clone the repository
-git clone https://github.com/sdraeger/DDALAB.git
-cd DDALAB
+### Docker API Settings
 
-# 2. Copy environment template
-cp .env.production.example .env
+For Docker deployments, edit `.env` file to configure:
 
-# 3. Edit .env - CHANGE ALL PASSWORDS!
-nano .env  # or your preferred editor
+- Database credentials
+- MinIO storage settings
+- SSL certificates
+- Port mappings
 
-# 4. Start everything
-docker-compose up -d
+## SSL Certificates
 
-# 5. Access DDALAB
-# Open https://localhost in your browser
-# (Accept the self-signed certificate warning)
-```
-
-That's it! DDALAB is now running at:
-- **Web Interface**: https://localhost (accept the SSL warning)
-- **API Documentation**: http://localhost:8001/docs (API server direct access)
-- **MinIO Console**: http://localhost:9001 (optional admin interface)
-
-To stop: `docker-compose down`
-
-## Alternative Deployment Methods
-
-### Option 1: Using ConfigManager (Desktop App)
-
-DDALAB includes a desktop application that can manage deployments:
+For Docker deployments with Traefik:
 
 ```bash
-# Build and run ConfigManager
-cd packages/configmanager
-npm install
-npm run dev
+# Generate self-signed certificate
+openssl genrsa -out certs/server.key 2048
+openssl req -new -key certs/server.key -out certs/server.csr
+openssl x509 -req -days 365 -in certs/server.csr -signkey certs/server.key -out certs/server.crt
 ```
 
-### Option 2: Development Mode
-
-For local development with hot-reload:
-
-```bash
-# Start only infrastructure services
-docker-compose -f docker-compose.dev.yml up -d
-
-# Run API and Web locally
-npm run dev:local:concurrent
-
-# Access the application
-# Web interface: https://localhost
-# API documentation: https://localhost/api/docs
-```
-
-### Option 2: Manual Setup
-
-1. **Clone the repository**:
-
-   ```bash
-   git clone https://github.com/sdraeger/DDALAB.git
-   cd DDALAB
-   ```
-
-2. **Configure environment variables**:
-   - Copy the example .env files (root and ddalab-web):
-
-     ```bash
-     cp .env.example .env
-     ```
-
-     ```bash
-     cp ddalab-web/.env.example ddalab-web/.env.local
-     ```
-
-   - Edit the .env files with your preferred settings:
-
-     ```bash
-     vim .env
-     ```
-
-     ```bash
-     vim ddalab-web/.env.local
-     ```
-
-3. **Start the application**:
-
-   ```bash
-   docker-compose up --build
-   ```
-
-   Add `-d` flag to run in detached mode:
-
-   ```bash
-   docker-compose up --build -d
-   ```
-
-4. **Access the application**:
-   - Web interface: `https://localhost`
-   - API documentation: `https://localhost/docs`
-
-5. **Stop the application**:
-
-   ```bash
-   docker-compose down
-   ```
-
-## Docker Hub Setup
-
-If you want to contribute to the project and have your changes automatically build and push Docker images to Docker Hub, see [DOCKER_HUB_SETUP.md](DOCKER_HUB_SETUP.md) for detailed instructions on setting up the required credentials.
-
-### Push Images to Docker Hub
-
-```bash
-# Build images first
-npm run build:docker
-
-# Push to Docker Hub
-npm run push:docker
-
-# On Windows
-npm run push:docker:win
-```
-
-For detailed instructions, see [DOCKER_PUSH_GUIDE.md](DOCKER_PUSH_GUIDE.md).
-
-## Development
-
-### Getting Submodules (for developers)
-
-The DDALAB Launcher and Docker Extension are included as git submodules. To get them when cloning:
-
-```bash
-# Clone with submodules
-git clone --recursive https://github.com/sdraeger/DDALAB.git
-
-# Or if already cloned, initialize submodules
-git submodule update --init --recursive
-```
-
-The submodules will be available in:
-- `launcher/` - DDALAB Launcher (CLI tool)
-- `docker-extension/` - Docker Desktop Extension
-
-### ConfigManager Development
-
-To run the ConfigManager application in development mode:
-
-```bash
-# Start ConfigManager in development mode with hot reloading
-npm run dev:configmanager
-
-# Or use the shell script
-./scripts/dev-configmanager.sh
-
-# For Windows users
-scripts\dev-configmanager.bat
-```
-
-For detailed development instructions, see [packages/configmanager/DEV_README.md](packages/configmanager/DEV_README.md).
-
-## SSL Configuration
-
-If using `traefik` for SSL:
-
-1. Create `server.crt` and `server.key` in the `certs/` directory
-
-   ```bash
-   openssl genrsa -out server.key 2048
-   openssl req -new -key server.key -out server.csr
-   openssl x509 -req -days 365 -in server.csr -signkey server.key -out server.crt
-   ```
-
-2. Generate a username and password hash for the traefik dashboard
-
-   ```bash
-   echo -n "admin" | htpasswd -c auth admin
-   ```
-
-3. Set the hash in your configuration:
-
-   **New configuration system:**
-   ```bash
-   # Generate production deployment with secure defaults
-   npm run deploy:prod
-   cd deployments/production-docker-compose
-   # Edit .env to set TRAEFIK_PASSWORD_HASH
-   ```
-
-   **Legacy approach:**
-   ```
-   TRAEFIK_PASSWORD_HASH='$2y$...'  # Make sure to use single quotes
-   ```
+For production deployments, use proper SSL certificates from Let's Encrypt or your certificate authority.
 
 ## Troubleshooting
 
-1. **Container startup issues**:
-   - Check logs: `docker-compose logs`
-   - Specific service logs: `docker-compose logs server`
+### macOS: "App is damaged and can't be opened"
 
-2. **Connection issues**:
-   - Ensure ports aren't blocked by firewall
-   - Verify ports aren't being used by other services
+This is due to Apple's Gatekeeper. Run:
 
-3. **Performance issues**:
-   - Check Docker resource allocation in Docker Desktop settings
-   - Increase memory/CPU limits if needed
-
-## Project Structure
-
+```bash
+sudo xattr -r -d com.apple.quarantine /Applications/DDALAB.app
 ```
-├── docker-compose.yml    # Docker configuration
-├── .env                  # Environment configuration
-├── python/               # Application code
-│   ├── ddalab/           # GUI client package
-│   ├── server/           # FastAPI server package
-│   └── ...
-└── data/                 # Default data directory
+
+### Windows: "Windows protected your PC"
+
+Click "More info" → "Run anyway". This message appears because the app is not signed with an EV certificate.
+
+### Linux: AppImage won't run
+
+Make sure it's executable:
+
+```bash
+chmod +x DDALAB-*.AppImage
+```
+
+### Analysis fails to run
+
+1. Verify DDA binary is present:
+   - macOS/Linux: Check `~/.local/bin/run_DDA_ASCII` or system PATH
+   - Windows: Check application directory for `run_DDA_ASCII.exe`
+
+2. Check file permissions:
+
+   ```bash
+   chmod +x /path/to/run_DDA_ASCII
+   ```
+
+3. View logs in Settings → Debug Information
+
+### Docker deployment issues
+
+```bash
+# Check logs
+docker-compose logs
+
+# Specific service logs
+docker-compose logs api
+
+# Restart services
+docker-compose restart
+
+# Clean restart
+docker-compose down
+docker-compose up -d
 ```
 
 ## API Documentation
 
-Once running, access the API documentation at:
+When using Docker deployment, API documentation is available at:
 
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+- **Swagger UI**: https://localhost/api/docs
+- **ReDoc**: https://localhost/api/redoc
+- **GraphQL Playground**: https://localhost/graphql
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
+
+This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.
+
+## Citation
+
+If you use DDALAB in your research, please cite:
+
+```bibtex
+@software{ddalab2024,
+  author = {Draeger, Simon},
+  title = {DDALAB: Delay Differential Analysis Laboratory},
+  year = {2024},
+  url = {https://github.com/sdraeger/DDALAB}
+}
+```
+
+## Acknowledgments
+
+DDALAB was developed as part of an NIH research grant to provide accessible tools for delay differential analysis of physiological signals.
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/sdraeger/DDALAB/issues)
+- **Documentation**: [docs/](docs/)
+
+## Related Projects
+
+- **DDALAB Launcher**: CLI tool for managing DDALAB installations
+- **DDA Binary**: Core analysis engine (contact for access)
+
+---
+
+**Note**: This is an open-source scientific tool. While it has been tested extensively, always validate results against known standards for your specific use case.
