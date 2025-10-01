@@ -274,7 +274,10 @@ impl ApiState {
                                     result.channels.len() as i32
                                 };
 
-                                let scales: Vec<i32> = (scale_min..=scale_max).collect();
+                                // Create scales array as time axis (x-axis for heatmap)
+                                // Get the number of time points from the Q matrix
+                                let num_timepoints = q_matrix.get(0).map(|row| row.len()).unwrap_or(0);
+                                let scales: Vec<f64> = (0..num_timepoints).map(|i| i as f64 * 0.1).collect();
 
                                 // For old analyses without proper channel info, use generic names
                                 // This migration handles the case where no channel info exists at all
@@ -936,10 +939,8 @@ pub async fn run_dda_analysis(
         );
     }
 
-    // Create scales array (delay values)
-    let delay_min = request.scale_parameters.scale_min as i32;
-    let delay_max = request.scale_parameters.scale_max as i32;
-    let scales: Vec<i32> = (delay_min..=delay_max).collect();
+    // Create scales array (time axis for heatmap x-axis)
+    let scales: Vec<f64> = (0..num_timepoints).map(|i| i as f64 * 0.1).collect();
 
     // Update results to include variants format expected by frontend
     let results = serde_json::json!({
