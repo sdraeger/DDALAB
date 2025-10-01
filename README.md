@@ -101,6 +101,27 @@ The Docker backend includes:
 
 6. **View Results**: Interactive heatmaps and line plots show complexity across time and scales
 
+## Updating DDALAB
+
+DDALAB includes a built-in update checker to help you stay current with the latest features and bug fixes.
+
+### Manual Update Check
+
+1. Open DDALAB
+2. Navigate to **Settings** (gear icon)
+3. Scroll to the **Software Updates** section
+4. Click **Check for Updates**
+5. If an update is available, click **Download Update** to open the GitHub releases page
+6. Download and install the latest version for your platform
+
+The update checker will:
+- Display your current version
+- Compare with the latest GitHub release
+- Show release notes and release date
+- Provide a direct download link
+
+**Note**: Updates are not installed automatically. You must manually download and install new versions.
+
 ## Development
 
 ### Prerequisites
