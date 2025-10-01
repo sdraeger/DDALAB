@@ -29,6 +29,25 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 anyhow = "1.0"
 log = "0.4"
 env_logger = "0.11"
+# Embedded API server dependencies
+axum = { version = "0.7", features = ["json", "tokio"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
+hyper = { version = "1.0", features = ["full"] }
+bytes = "1.0"
+mime = "0.3"
+walkdir = "2.4"
+edf-reader = "0.3"
+
+[dev-dependencies]
+hyper = "1.0"
+http-body-util = "0.1"
+tempfile = "3.8"
+urlencoding = "2.1"
+
+[lib]
+name = "ddalab_tauri"
+path = "src/lib.rs"
 
 [[bin]]
 name = "ddalab-tauri"

@@ -25,11 +25,17 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
 
   // Helper functions to handle both new and legacy data formats
   const getAvailableVariants = () => {
+    console.log('[PREVIEW] analysis.results:', analysis.results)
+    console.log('[PREVIEW] analysis.results?.variants:', analysis.results?.variants)
+    console.log('[PREVIEW] analysis.results?.dda_matrix:', analysis.results?.dda_matrix)
+
     if (analysis.results?.variants && analysis.results.variants.length > 0) {
+      console.log('[PREVIEW] Using variants format, count:', analysis.results.variants.length)
       return analysis.results.variants
     }
     // Fallback to legacy format
     if (analysis.results?.dda_matrix) {
+      console.log('[PREVIEW] Using legacy dda_matrix format')
       return [{
         variant_id: 'legacy',
         variant_name: 'Combined Results',
@@ -38,12 +44,20 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
         quality_metrics: analysis.results.quality_metrics || {}
       }]
     }
+    console.log('[PREVIEW] No variants or dda_matrix found!')
     return []
   }
 
   const getCurrentVariantData = () => {
     const variants = getAvailableVariants()
-    return variants[selectedVariant] || variants[0]
+    console.log('[PREVIEW] getCurrentVariantData variants:', variants)
+    console.log('[PREVIEW] selectedVariant:', selectedVariant)
+    const current = variants[selectedVariant] || variants[0]
+    console.log('[PREVIEW] current variant:', current)
+    if (current) {
+      console.log('[PREVIEW] current.dda_matrix keys:', Object.keys(current.dda_matrix || {}))
+    }
+    return current
   }
 
   // Create both plots in a single useEffect to prevent duplicates
@@ -58,7 +72,7 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
     if (channels.length === 0) return
 
     const scales = analysis.results.scales || []
-    
+
     // Clear any existing content in the containers
     if (heatmapRef.current) {
       heatmapRef.current.innerHTML = ''
@@ -66,17 +80,23 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
     if (linePlotRef.current) {
       linePlotRef.current.innerHTML = ''
     }
-    
+
     // Create heatmap
     const createHeatmap = () => {
       const width = heatmapRef.current!.clientWidth
       const height = Math.max(200, channels.length * 25 + 100)
 
+      // Get number of timepoints from first channel
+      const firstChannelData = currentVariant.dda_matrix[channels[0]] || []
+      const numTimepoints = firstChannelData.length
+
       // Create canvas for heatmap rendering
       const canvas = document.createElement('canvas')
-      canvas.width = scales.length
+      canvas.width = numTimepoints
       canvas.height = channels.length
       const ctx = canvas.getContext('2d')!
+
+      console.log('[PREVIEW HEATMAP] Canvas size:', canvas.width, 'x', canvas.height)
 
       // Find min/max values for normalization (use log transform for better visualization)
       let minVal = Infinity
@@ -98,11 +118,11 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
       const data = imageData.data
 
       for (let y = 0; y < channels.length; y++) {
-        for (let x = 0; x < scales.length; x++) {
+        for (let x = 0; x < numTimepoints; x++) {
           const value = heatmapData[y]?.[x] || 0
           const normalized = (value - minVal) / (maxVal - minVal)
           const clamped = Math.max(0, Math.min(1, normalized))
-          
+
           // Viridis color scheme
           const colors = [
             [68, 1, 84], [72, 40, 120], [62, 73, 137], [49, 104, 142],
@@ -116,7 +136,7 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
           const r = Math.round(c1[0] + frac * (c2[0] - c1[0]))
           const g = Math.round(c1[1] + frac * (c2[1] - c1[1]))
           const b = Math.round(c1[2] + frac * (c2[2] - c1[2]))
-          
+
           const pixelIndex = (y * canvas.width + x) * 4
           data[pixelIndex] = r
           data[pixelIndex + 1] = g
@@ -132,7 +152,7 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
 
       // Prepare data for uPlot (just coordinates for image positioning)
       const plotData: uPlot.AlignedData = [
-        new Float64Array([0, scales[scales.length - 1]]),
+        new Float64Array([0, numTimepoints - 1]),
         new Float64Array([0, channels.length - 1])
       ]
 
@@ -142,7 +162,7 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
         scales: {
           x: {
             time: false,
-            range: [scales[0] || 0, scales[scales.length - 1] || 100]
+            range: [0, numTimepoints - 1]
           },
           y: {
             range: [-0.5, channels.length - 0.5]
@@ -150,7 +170,7 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
         },
         axes: [
           {
-            label: scales.length > 100 ? 'Time Points' : 'Scale',
+            label: 'Time Points',
             labelSize: 30,
             size: 50
           },
@@ -200,26 +220,32 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
 
     // Create line plot
     const createLinePlot = () => {
-      // Get scales from the first channel or generate default
+      // Get number of timepoints from first channel
       const firstChannelData = currentVariant.dda_matrix[channels[0]] || []
-      const plotScales = analysis.results.scales || Array.from({ length: firstChannelData.length }, (_, i) => i)
+      const numTimepoints = firstChannelData.length
+
+      // X-axis is timepoints (0, 1, 2, ..., numTimepoints-1)
+      const timepoints = Array.from({ length: numTimepoints }, (_, i) => i)
+
+      console.log('[PREVIEW LINE PLOT] Number of timepoints:', numTimepoints)
+      console.log('[PREVIEW LINE PLOT] Number of channels:', channels.length)
 
       // Prepare data for uPlot - [x-values, ...y-values for each channel]
       const plotData: uPlot.AlignedData = [
-        new Float64Array(plotScales),
+        new Float64Array(timepoints),
         ...channels.map(channel => new Float64Array(currentVariant.dda_matrix[channel] || []))
       ]
 
       const opts: uPlot.Options = {
-        title: 'DDA Results',
+        title: 'DDA Results Over Time',
         width: linePlotRef.current!.clientWidth,
         height: 400,
         series: [
           {
-            label: plotScales.length > 100 ? 'Time Points' : 'Scale'
+            label: 'Time Points'
           },
           ...channels.map((channel, idx) => ({
-            label: `${channel} (α=${currentVariant.exponents[channel]?.toFixed(3) || 'N/A'})`,
+            label: channel,
             stroke: getChannelColor(idx),
             width: 2,
             points: { show: false }
@@ -227,7 +253,7 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
         ],
         axes: [
           {
-            label: plotScales.length > 100 ? 'Time Points' : 'Scale',
+            label: 'Time Points',
             stroke: '#64748b',
             grid: { stroke: '#e2e8f0' }
           },
@@ -264,7 +290,7 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
     // Create both plots
     createHeatmap()
     createLinePlot()
-    
+
     // Mark plots as initialized
     plotsInitialized.current = true
 
@@ -410,7 +436,7 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
             {/* Heatmap */}
             <div>
               <div className="mb-2 text-sm font-medium">Heatmap</div>
-              <div 
+              <div
                 ref={heatmapRef}
                 className="w-full"
                 style={{ minHeight: '300px' }}
@@ -420,7 +446,7 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
             {/* Line Plot */}
             <div>
               <div className="mb-2 text-sm font-medium">Line Plot</div>
-              <div 
+              <div
                 ref={linePlotRef}
                 className="w-full"
                 style={{ minHeight: '400px' }}

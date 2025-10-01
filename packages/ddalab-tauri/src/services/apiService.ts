@@ -27,12 +27,12 @@ export class ApiService {
     try {
       // Get files from root directory (which is mapped to data/edf by the API server)
       const rootResponse = await this.client.get<{ files: any[] }>('/api/files/list')
-      
+
       if (rootResponse.data && Array.isArray(rootResponse.data.files)) {
         // Filter for EDF files only (API server already handles the directory mapping)
         const edfFiles = rootResponse.data.files
-          .filter(file => !file.is_directory && 
-                         (file.name.toLowerCase().endsWith('.edf') || 
+          .filter(file => !file.is_directory &&
+                         (file.name.toLowerCase().endsWith('.edf') ||
                           file.name.toLowerCase().endsWith('.ascii')))
           .map(file => ({
             file_path: file.path,
@@ -46,10 +46,10 @@ export class ApiService {
             end_time: file.last_modified || new Date().toISOString(),
             annotations_count: 0
           }))
-        
+
         return edfFiles
       }
-      
+
       return []
     } catch (error) {
       console.error('Failed to get available files:', error)
@@ -65,38 +65,40 @@ export class ApiService {
           file_path: filePath
         }
       })
-      
+
+      console.log('Raw EDF response:', edfResponse.data)
+
       // Get file size from files list endpoint
       let fileSize = 0
       try {
         const directory = filePath.substring(0, filePath.lastIndexOf('/'))
         const fileName = filePath.split('/').pop() || filePath
-        
+
         const filesResponse = await this.client.get(`/api/files/list`, {
           params: {
             path: directory
           }
         })
-        
+
         const fileEntry = filesResponse.data.files?.find((f: any) => f.name === fileName)
         fileSize = fileEntry?.file_size || fileEntry?.size || 0
       } catch (filesError) {
         console.warn('Could not get file size from files endpoint:', filesError)
       }
-      
+
       const fileInfo: EDFFileInfo = {
         file_path: filePath,
         file_name: filePath.split('/').pop() || filePath,
         file_size: fileSize,
-        duration: edfResponse.data.total_duration || 0,
-        sample_rate: edfResponse.data.sampling_rate || 256,
+        duration: edfResponse.data.duration || edfResponse.data.total_duration || 0,
+        sample_rate: edfResponse.data.sample_rate || edfResponse.data.sampling_rate || 256,
         channels: edfResponse.data.channels || [],
         total_samples: edfResponse.data.total_samples || 0,
         start_time: new Date().toISOString(),
         end_time: new Date().toISOString(),
         annotations_count: 0
       }
-      
+
       console.log('Processed file info:', fileInfo)
       return fileInfo
     } catch (error) {
@@ -144,19 +146,19 @@ export class ApiService {
       console.log('Making chunk data request with params:', params)
       const response = await this.client.get('/api/edf/data', { params })
       console.log('Raw chunk data response:', response.data)
-      
+
       // Extract data structure first
       const data = response.data.data || []
       const channels = response.data.channel_labels || response.data.channels || []
       const actualChunkSize = response.data.chunk_size || chunkSize
       const sampleRate = response.data.sampling_frequency || response.data.sample_rate || 256
-      
+
       // Generate timestamps if not provided
       let timestamps = response.data.timestamps || []
       if (timestamps.length === 0 && actualChunkSize > 0) {
         timestamps = Array.from({ length: actualChunkSize }, (_, i) => (chunkStart + i) / sampleRate)
       }
-      
+
       console.log('Data validation check:', {
         hasData: Array.isArray(data),
         dataLength: data.length,
@@ -164,11 +166,11 @@ export class ApiService {
         channelsLength: channels.length,
         dataIsArrayOfArrays: data.every((item: any) => Array.isArray(item)),
         firstChannelLength: data[0]?.length,
-        sampleDataTypes: data.slice(0, 2).map((channel: any) => 
+        sampleDataTypes: data.slice(0, 2).map((channel: any) =>
           channel?.slice(0, 3).map((val: any) => typeof val)
         )
       })
-      
+
       const chunkData: ChunkData = {
         data: data,
         channels: channels,
@@ -178,7 +180,7 @@ export class ApiService {
         chunk_size: actualChunkSize,
         file_path: response.data.file_path || filePath
       }
-      
+
       console.log('Processed chunk data:', chunkData)
       return chunkData
     } catch (error) {
@@ -209,44 +211,44 @@ export class ApiService {
       id: Date.now().toString(),
       created_at: new Date().toISOString(),
     }
-    
+
     const existing = await this.getAnnotations(annotation.file_path)
     const updated = [...existing, newAnnotation]
-    
+
     await this.client.post('/api/widget-data', {
       key: `annotations:${annotation.file_path}`,
       data: { annotations: updated },
       widgetId: 'annotations',
       metadata: { type: 'annotations', file_path: annotation.file_path }
     })
-    
+
     return newAnnotation
   }
 
   async updateAnnotation(id: string, annotation: Partial<Annotation>): Promise<Annotation> {
     if (!annotation.file_path) throw new Error('file_path required for annotation update')
-    
+
     const existing = await this.getAnnotations(annotation.file_path)
     const index = existing.findIndex(a => a.id === id)
     if (index === -1) throw new Error('Annotation not found')
-    
+
     const updated = { ...existing[index], ...annotation }
     existing[index] = updated
-    
+
     await this.client.post('/api/widget-data', {
       key: `annotations:${annotation.file_path}`,
       data: { annotations: existing },
       widgetId: 'annotations',
       metadata: { type: 'annotations', file_path: annotation.file_path }
     })
-    
+
     return updated
   }
 
   async deleteAnnotation(id: string, filePath: string): Promise<void> {
     const existing = await this.getAnnotations(filePath)
     const filtered = existing.filter(a => a.id !== id)
-    
+
     await this.client.post('/api/widget-data', {
       key: `annotations:${filePath}`,
       data: { annotations: filtered },
@@ -259,7 +261,7 @@ export class ApiService {
   private getVariantName(variantId: string): string {
     const variantNames: Record<string, string> = {
       'single_timeseries': 'Single Timeseries (ST)',
-      'cross_timeseries': 'Cross Timeseries (CT)', 
+      'cross_timeseries': 'Cross Timeseries (CT)',
       'cross_dynamical': 'Cross Dynamical (CD)',
       'dynamical_ergodicity': 'Dynamical Ergodicity (DE)'
     }
@@ -306,7 +308,7 @@ export class ApiService {
 
       console.log('Submitting DDA request:', ddaRequest)
       const response = await this.client.post('/api/dda', ddaRequest)
-      
+
       console.log('Raw DDA API response:', response.data);
       console.log('Response structure:', {
         hasQ: !!response.data.Q,
@@ -326,12 +328,12 @@ export class ApiService {
 
       // Process the real API response
       const job_id = `dda_${Date.now()}`;
-      
+
       // Create scales array (fallback to default values if no Q matrix)
       const scaleMin = request.scale_min || 1;
       const scaleMax = request.scale_max || 20;
       const scaleNum = request.scale_num || 20;
-      
+
       let scales: number[] = [];
       let dda_matrix: Record<string, number[]> = {};
       const exponents: Record<string, number> = {};
@@ -339,15 +341,15 @@ export class ApiService {
 
       // Check if response contains variant-specific results
       const variants = [];
-      
+
       // First, let's check what the backend actually returned
       console.log('Checking backend response structure for variants...');
       console.log('Response data keys:', Object.keys(response.data));
       console.log('Request variants:', request.variants);
-      
+
       // Look for variant-specific results in different possible formats
       let foundVariantData = false;
-      
+
       // Option 1: Check if variants are nested under a 'variants' key
       if (response.data.variants && typeof response.data.variants === 'object') {
         console.log('Found variants object in response:', Object.keys(response.data.variants));
@@ -356,15 +358,15 @@ export class ApiService {
             foundVariantData = true;
             const variantData = response.data.variants[variantId];
             console.log(`Processing variant ${variantId} from variants object`);
-            
+
             const variantMatrix: Record<string, number[]> = {};
             const variantExponents: Record<string, number> = {};
-            
+
             // Process variant-specific Q matrix
             if (variantData.Q && Array.isArray(variantData.Q)) {
               const timePoints = variantData.Q[0]?.length || 100;
               scales = Array.from({ length: timePoints }, (_, i) => i);
-              
+
               request.channels.forEach((channel, idx) => {
                 if (idx < variantData.Q.length && Array.isArray(variantData.Q[idx])) {
                   variantMatrix[channel] = variantData.Q[idx];
@@ -372,7 +374,7 @@ export class ApiService {
                 }
               });
             }
-            
+
             variants.push({
               variant_id: variantId,
               variant_name: this.getVariantName(variantId),
@@ -385,7 +387,7 @@ export class ApiService {
           }
         }
       }
-      
+
       // Option 2: Check for individual variant keys in the root response
       if (!foundVariantData) {
         console.log('Looking for individual variant keys in response root...');
@@ -396,12 +398,12 @@ export class ApiService {
             variantId.toUpperCase(),
             variantId.toLowerCase(),
             // Map to common backend naming patterns
-            variantId === 'single_timeseries' ? 'ST' : 
+            variantId === 'single_timeseries' ? 'ST' :
             variantId === 'cross_timeseries' ? 'CT' :
             variantId === 'cross_dynamical' ? 'CD' :
             variantId === 'dynamical_ergodicity' ? 'DE' : variantId
           ];
-          
+
           let variantData = null;
           for (const key of possibleKeys) {
             if (response.data[key]) {
@@ -410,16 +412,16 @@ export class ApiService {
               break;
             }
           }
-          
+
           if (variantData) {
             foundVariantData = true;
             const variantMatrix: Record<string, number[]> = {};
             const variantExponents: Record<string, number> = {};
-            
+
             if (variantData.Q && Array.isArray(variantData.Q)) {
               const timePoints = variantData.Q[0]?.length || 100;
               scales = Array.from({ length: timePoints }, (_, i) => i);
-              
+
               request.channels.forEach((channel, idx) => {
                 if (idx < variantData.Q.length && Array.isArray(variantData.Q[idx])) {
                   variantMatrix[channel] = variantData.Q[idx];
@@ -430,7 +432,7 @@ export class ApiService {
               // Some backends might return Q matrix directly as the variant value
               const timePoints = variantData[0]?.length || 100;
               scales = Array.from({ length: timePoints }, (_, i) => i);
-              
+
               request.channels.forEach((channel, idx) => {
                 if (idx < variantData.length && Array.isArray(variantData[idx])) {
                   variantMatrix[channel] = variantData[idx];
@@ -438,7 +440,7 @@ export class ApiService {
                 }
               });
             }
-            
+
             variants.push({
               variant_id: variantId,
               variant_name: this.getVariantName(variantId),
@@ -451,19 +453,19 @@ export class ApiService {
           }
         }
       }
-      
+
       // Option 3: If still no variant-specific data found, check if there's a single Q matrix to replicate
       if (!foundVariantData) {
         console.warn('No variant-specific data found in backend response');
         console.log('Available response keys:', Object.keys(response.data));
-        
+
         if (response.data.Q && Array.isArray(response.data.Q) && response.data.Q.length > 0) {
           console.log('Using single Q matrix for all variants (backend does not support multiple variants)');
-          
+
           // Process the single Q matrix
           const timePoints = response.data.Q[0]?.length || 100;
           scales = Array.from({ length: timePoints }, (_, i) => i);
-          
+
           request.channels.forEach((channel, idx) => {
             if (idx < response.data.Q.length && Array.isArray(response.data.Q[idx])) {
               dda_matrix[channel] = response.data.Q[idx];
@@ -473,7 +475,7 @@ export class ApiService {
               }
             }
           });
-          
+
           // Create identical results for each requested variant
           // Note: This means the backend doesn't actually compute different variants
           for (const variantId of request.variants) {
@@ -485,7 +487,7 @@ export class ApiService {
               quality_metrics: response.data.quality_metrics || {}
             });
           }
-          
+
           console.warn(`Created ${variants.length} identical variant results - backend may not support multiple variants`);
         } else {
           console.error('No Q matrix found in backend response');
@@ -495,7 +497,7 @@ export class ApiService {
       }
 
       console.log('Final variants array:', variants.map(v => ({ id: v.variant_id, name: v.variant_name })));
-      
+
       // Create and return the result
       const result: DDAResult = {
         id: job_id,
@@ -534,7 +536,7 @@ export class ApiService {
       const params: any = {}
       if (jobId) params.job_id = jobId
       if (filePath) params.file_path = filePath
-      
+
       const response = await this.client.get('/api/dda/results', { params })
       return response.data.results || []
     } catch (error) {
@@ -571,14 +573,14 @@ export class ApiService {
         file_path: result.file_path,
         channels_count: result.channels.length
       })
-      
+
       const response = await this.client.post('/api/dda/history/save', {
         result_id: result.id,
         analysis_data: result
       })
-      
+
       console.log('Save response:', response.data)
-      
+
       // Check for both success formats
       return response.data.success === true || response.data.status === 'success'
     } catch (error) {
@@ -600,7 +602,7 @@ export class ApiService {
         dataKeys: response.data ? Object.keys(response.data) : 'null',
         analysesCount: response.data.analyses?.length || response.data?.length || 0
       })
-      
+
       // Handle both array and object responses
       let analyses = []
       if (Array.isArray(response.data)) {
@@ -608,7 +610,7 @@ export class ApiService {
       } else {
         analyses = response.data.analyses || []
       }
-      
+
       // Flatten analysis data structure if needed
       return analyses.map((item: any) => {
         // If the item has analysis_data nested inside, flatten it
@@ -638,22 +640,36 @@ export class ApiService {
     try {
       const response = await this.client.get(`/api/dda/history/${resultId}`)
       const analysisWrapper = response.data.analysis
-      
+
+      console.log('[DEBUG] getAnalysisFromHistory raw response keys:', Object.keys(response.data))
+      console.log('[DEBUG] analysisWrapper keys:', analysisWrapper ? Object.keys(analysisWrapper) : 'null')
+
       if (!analysisWrapper) return null
-      
+
       // Flatten analysis data structure if needed
       if (analysisWrapper.analysis_data && typeof analysisWrapper.analysis_data === 'object') {
-        return {
+        console.log('[DEBUG] analysis_data keys:', Object.keys(analysisWrapper.analysis_data))
+        console.log('[DEBUG] analysis_data.channels:', analysisWrapper.analysis_data.channels)
+        console.log('[DEBUG] analysis_data.Q present:', 'Q' in analysisWrapper.analysis_data)
+        console.log('[DEBUG] analysis_data.plot_data present:', !!analysisWrapper.analysis_data.plot_data)
+
+        const result = {
           ...analysisWrapper.analysis_data,
           // Use the backend storage ID as the primary ID
           id: analysisWrapper.id,
-          // Preserve the original analysis ID and other metadata  
+          // Preserve the original analysis ID and other metadata
           analysis_id: analysisWrapper.analysis_data.id,
           result_id: analysisWrapper.result_id,
           storage_created_at: analysisWrapper.created_at
         }
+
+        console.log('[DEBUG] Final result channels:', result.channels)
+        console.log('[DEBUG] Final result Q present:', 'Q' in result)
+        console.log('[DEBUG] Final result plot_data present:', !!result.plot_data)
+
+        return result
       }
-      
+
       return analysisWrapper
     } catch (error) {
       console.error(`Failed to get analysis ${resultId} from history:`, error)

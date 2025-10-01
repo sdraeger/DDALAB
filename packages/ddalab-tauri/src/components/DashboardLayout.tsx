@@ -8,6 +8,7 @@ import { HealthStatusBar } from '@/components/HealthStatusBar'
 import { TimeSeriesPlot } from '@/components/TimeSeriesPlot'
 import { DDAAnalysis } from '@/components/DDAAnalysis'
 import { DDAResults } from '@/components/DDAResults'
+import { SettingsPanel } from '@/components/SettingsPanel'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import {
@@ -28,7 +29,7 @@ interface DashboardLayoutProps {
 }
 
 export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
-  const [apiService] = useState(() => new ApiService(apiUrl))
+  const [apiService, setApiService] = useState(() => new ApiService(apiUrl))
   const {
     ui,
     fileManager,
@@ -41,6 +42,22 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
   } = useAppStore()
 
   const [autoLoadingResults, setAutoLoadingResults] = useState(false)
+
+  // Update API service when mode changes
+  useEffect(() => {
+    const getApiUrl = () => {
+      if (ui.apiMode === 'embedded') {
+        return 'http://localhost:8765' // Embedded API server port
+      } else {
+        return apiUrl // Docker API URL
+      }
+    }
+
+    const newApiUrl = getApiUrl()
+    if (apiService.baseURL !== newApiUrl) {
+      setApiService(new ApiService(newApiUrl))
+    }
+  }, [ui.apiMode, apiUrl, apiService.baseURL])
 
   // Auto-load most recent analysis from MinIO on component mount
   useEffect(() => {
@@ -204,8 +221,12 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
                   DDA Analysis
                 </TabsTrigger>
                 <TabsTrigger value="results" className="flex items-center gap-2">
-                  <Settings className="h-4 w-4" />
+                  <BarChart3 className="h-4 w-4" />
                   Results
+                </TabsTrigger>
+                <TabsTrigger value="settings" className="flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  Settings
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -335,6 +356,10 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
                     </div>
                   )}
                 </div>
+              </TabsContent>
+
+              <TabsContent value="settings" className="h-full m-0">
+                <SettingsPanel />
               </TabsContent>
             </div>
           </Tabs>

@@ -4,9 +4,11 @@ import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Brain, Server, AlertCircle, RefreshCw, Settings } from 'lucide-react'
+import { Brain, Server, AlertCircle, RefreshCw, Settings, Layers } from 'lucide-react'
 import { DockerStackManager } from '@/components/DockerStackManager'
+import { EmbeddedApiManager } from '@/components/EmbeddedApiManager'
 import { TauriService } from '@/services/tauriService'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 interface WelcomeScreenProps {
   apiUrl: string
@@ -47,21 +49,46 @@ export function WelcomeScreen({ apiUrl, onApiUrlChange, onRetryConnection }: Wel
 
           {/* Connection Status */}
           <div className="space-y-8 mb-12">
-            {/* Docker Stack Manager - Only show in Tauri */}
+            {/* API Options - Only show in Tauri */}
             {isTauri && (
-              <DockerStackManager onApiReady={handleApiReady} />
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Layers className="h-5 w-5" />
+                    Choose Your API Backend
+                  </CardTitle>
+                  <CardDescription>
+                    Select how you want to run the DDALAB API server
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Tabs defaultValue="embedded" className="w-full">
+                    <TabsList className="grid w-full grid-cols-2">
+                      <TabsTrigger value="embedded">Embedded (Recommended)</TabsTrigger>
+                      <TabsTrigger value="docker">Docker Services</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="embedded" className="mt-6">
+                      <EmbeddedApiManager onApiReady={handleApiReady} />
+                    </TabsContent>
+                    <TabsContent value="docker" className="mt-6">
+                      <DockerStackManager onApiReady={handleApiReady} />
+                    </TabsContent>
+                  </Tabs>
+                </CardContent>
+              </Card>
             )}
 
             <div className="grid md:grid-cols-2 gap-8">
-              <Card className="border-l-4 border-l-red-500">
+              <Card className="border-l-4 border-l-amber-500">
                 <CardHeader>
-                  <CardTitle className="flex items-center text-red-700 dark:text-red-400">
+                  <CardTitle className="flex items-center text-amber-700 dark:text-amber-400">
                     <AlertCircle className="h-5 w-5 mr-2" />
-                    API Connection Failed
+                    {isTauri ? 'No API Connected' : 'API Connection Failed'}
                   </CardTitle>
                   <CardDescription>
-                    Unable to connect to the DDALAB Python API server.
-                    {isTauri ? ' Use the Docker services manager above to start the backend services, or manually configure the API URL below.' : ' Please ensure the server is running.'}
+                    {isTauri
+                      ? 'Start the Embedded API or Docker services above, or manually configure a custom API URL below.'
+                      : 'Unable to connect to the DDALAB API server. Please ensure the server is running.'}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -105,15 +132,15 @@ export function WelcomeScreen({ apiUrl, onApiUrlChange, onRetryConnection }: Wel
                 <ol className="space-y-2 text-sm">
                   <li className="flex items-start">
                     <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">1</span>
-                    {isTauri ? 'Use the Docker manager above to start services' : 'Start the Python API server'}
+                    {isTauri ? 'Choose Embedded API (recommended) or Docker services above' : 'Start the Python API server'}
                   </li>
                   <li className="flex items-start">
                     <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">2</span>
-                    {isTauri ? 'Docker will automatically configure the API URL' : 'Ensure the server is running on the correct port'}
+                    {isTauri ? 'Click "Start" to launch your chosen backend' : 'Ensure the server is running on the correct port'}
                   </li>
                   <li className="flex items-start">
                     <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">3</span>
-                    {isTauri ? 'The app will connect automatically when services are ready' : 'Click "Retry Connection" to connect'}
+                    {isTauri ? 'The app will connect automatically once the API is ready' : 'Click "Retry Connection" to connect'}
                   </li>
                 </ol>
               </CardContent>
