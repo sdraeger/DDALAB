@@ -5,6 +5,10 @@ use std::collections::HashMap;
 pub struct ApiConfig {
     pub url: String,
     pub timeout: u64,
+    #[serde(default)]
+    pub mode: Option<String>, // 'embedded' | 'external'
+    #[serde(default)]
+    pub has_chosen_mode: Option<bool>, // Whether user has made initial choice
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,6 +154,8 @@ impl Default for AppPreferences {
             api_config: ApiConfig {
                 url: "http://localhost:8000".to_string(),
                 timeout: 30,
+                mode: None,
+                has_chosen_mode: None,
             },
             window_state: HashMap::new(),
             theme: "auto".to_string(),
