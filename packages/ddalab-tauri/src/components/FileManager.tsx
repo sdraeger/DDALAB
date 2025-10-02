@@ -167,16 +167,20 @@ export function FileManager({ apiService }: FileManagerProps) {
   }
 
   // Handle pending file selection after files are loaded
+  // Only restore file selection when server is ready and not loading to avoid blocking UI
   useEffect(() => {
-    if (fileManager.pendingFileSelection && files.length > 0) {
+    if (fileManager.pendingFileSelection && files.length > 0 && ui.isServerReady && !loading) {
       const fileToSelect = files.find(f => f.file_path === fileManager.pendingFileSelection)
       if (fileToSelect) {
         console.log('Restoring selected file from persistence:', fileToSelect.file_name)
-        handleFileSelect(fileToSelect)
-        clearPendingFileSelection()
+        // Defer the file load slightly to ensure directory listing is fully rendered
+        setTimeout(() => {
+          handleFileSelect(fileToSelect)
+          clearPendingFileSelection()
+        }, 100)
       }
     }
-  }, [files, fileManager.pendingFileSelection, clearPendingFileSelection])
+  }, [files, fileManager.pendingFileSelection, clearPendingFileSelection, ui.isServerReady, loading])
 
   // Filter and sort files
   const filteredAndSortedFiles = useMemo(() => {
@@ -234,8 +238,17 @@ export function FileManager({ apiService }: FileManagerProps) {
     try {
       setLoading(true)
 
-      // Get detailed file information
-      const fileInfo = await apiService.getFileInfo(file.file_path)
+      // Add timeout to prevent UI blocking
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('File info loading timeout')), 10000)
+      )
+
+      // Get detailed file information with timeout
+      const fileInfo = await Promise.race([
+        apiService.getFileInfo(file.file_path),
+        timeoutPromise
+      ]) as Awaited<ReturnType<typeof apiService.getFileInfo>>
+
       setSelectedFile(fileInfo)
 
       // Auto-select first few channels if none selected

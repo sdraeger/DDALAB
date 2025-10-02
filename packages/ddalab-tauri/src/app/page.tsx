@@ -16,6 +16,23 @@ export default function Home() {
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false)
   const { initializeFromTauri, isInitialized, setApiMode, setServerReady } = useAppStore()
 
+  // Show window once page is loaded (prevents freeze during Next.js compilation)
+  useEffect(() => {
+    if (TauriService.isTauri()) {
+      const showWindow = async () => {
+        try {
+          const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+          const window = getCurrentWebviewWindow()
+          await window.show()
+          console.log('[MAIN_WINDOW] Window shown after page load')
+        } catch (error) {
+          console.error('[MAIN_WINDOW] Failed to show window:', error)
+        }
+      }
+      showWindow()
+    }
+  }, [])
+
   useEffect(() => {
     const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
     const tauriDetected = TauriService.isTauri()
