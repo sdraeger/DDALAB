@@ -60,7 +60,7 @@ export interface UIState {
   panelSizes: number[]
   layout: 'default' | 'analysis' | 'plots'
   theme: 'light' | 'dark' | 'auto'
-  apiMode: 'docker' | 'embedded'
+  apiMode: 'embedded' | 'external'
   isServerReady: boolean  // Tracks if API server is ready to accept requests
 }
 
@@ -169,7 +169,7 @@ const defaultUIState: UIState = {
   panelSizes: [25, 50, 25],
   layout: 'default',
   theme: 'auto',
-  apiMode: 'docker',
+  apiMode: 'embedded',
   isServerReady: false
 }
 
@@ -268,7 +268,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                 persistedState.panel_sizes.main * 100 - persistedState.panel_sizes.sidebar * 100,
                 25
               ],
-              apiMode: persistedState.ui?.apiMode || 'docker'
+              apiMode: persistedState.ui?.apiMode || 'embedded'
             }
           };
         });
