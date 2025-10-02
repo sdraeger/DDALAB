@@ -80,6 +80,7 @@ pub struct ApiState {
     pub chunks_cache: Arc<RwLock<HashMap<String, ChunkData>>>,
     pub data_directory: PathBuf,
     pub history_directory: PathBuf,
+    pub dda_binary_path: Option<PathBuf>,  // Resolved DDA binary path for bundled apps
 }
 
 impl ApiState {
@@ -100,6 +101,7 @@ impl ApiState {
             chunks_cache: Arc::new(RwLock::new(HashMap::new())),
             data_directory,
             history_directory,
+            dda_binary_path: None,  // Will be set via set_dda_binary_path if in Tauri context
         };
 
         // Load existing history from disk
@@ -367,6 +369,12 @@ impl ApiState {
             log::info!("Deleted analysis {} from disk", analysis_id);
         }
         Ok(())
+    }
+
+    /// Set the DDA binary path (should be called with Tauri-resolved path)
+    pub fn set_dda_binary_path(&mut self, path: PathBuf) {
+        log::info!("Setting DDA binary path to: {:?}", path);
+        self.dda_binary_path = Some(path);
     }
 }
 
@@ -669,12 +677,15 @@ pub async fn run_dda_analysis(
     log::info!("Scale parameters: {:?}", request.scale_parameters);
     log::info!("Variants: {:?}", request.algorithm_selection.enabled_variants);
 
-    // Get DDA binary path - try multiple locations
-    let dda_binary_path = if let Ok(env_path) = std::env::var("DDA_BINARY_PATH") {
+    // Get DDA binary path - check state first (for Tauri-resolved paths), then try multiple locations
+    let dda_binary_path = if let Some(ref resolved_path) = state.dda_binary_path {
+        // Use Tauri-resolved path if available (best for bundled apps)
+        resolved_path.to_string_lossy().to_string()
+    } else if let Ok(env_path) = std::env::var("DDA_BINARY_PATH") {
         // Use environment variable if set
         env_path
     } else {
-        // Try to find the binary in common locations
+        // Fallback: Try to find the binary in common locations (for development or non-Tauri contexts)
         let possible_paths = vec![
             // Development: project bin directory (CARGO_MANIFEST_DIR is src-tauri, need to go up 3 levels)
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().parent().unwrap().join("bin/run_DDA_ASCII"),
@@ -1540,10 +1551,13 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
 mod embedded_api_tests;
 
 // Start the embedded API server
-pub async fn start_embedded_api_server(port: u16, data_directory: PathBuf) -> anyhow::Result<()> {
+pub async fn start_embedded_api_server(port: u16, data_directory: PathBuf, dda_binary_path: Option<PathBuf>) -> anyhow::Result<()> {
     log::info!("🚀 Initializing embedded API server...");
     log::info!("📁 Data directory: {:?}", data_directory);
     log::info!("🔌 Port: {}", port);
+    if let Some(ref path) = dda_binary_path {
+        log::info!("🔧 DDA binary path: {:?}", path);
+    }
 
     // First, test if port is available
     let bind_addr = format!("127.0.0.1:{}", port);
@@ -1576,7 +1590,11 @@ pub async fn start_embedded_api_server(port: u16, data_directory: PathBuf) -> an
     drop(test_listener); // Release the test listener
 
     log::info!("🏗️  Creating API state and router...");
-    let state = Arc::new(ApiState::new(data_directory));
+    let mut api_state = ApiState::new(data_directory);
+    if let Some(binary_path) = dda_binary_path {
+        api_state.set_dda_binary_path(binary_path);
+    }
+    let state = Arc::new(api_state);
     let app = create_router(state);
     log::info!("✅ Router created successfully");
 
