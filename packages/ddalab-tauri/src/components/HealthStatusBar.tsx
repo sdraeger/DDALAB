@@ -3,14 +3,15 @@
 import { useEffect, useCallback } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { ApiService } from '@/services/apiService'
+import { TauriService } from '@/services/tauriService'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { 
-  Wifi, 
-  WifiOff, 
-  Activity, 
-  AlertCircle, 
-  CheckCircle, 
+import {
+  Wifi,
+  WifiOff,
+  Activity,
+  AlertCircle,
+  CheckCircle,
   Clock,
   RefreshCw,
   Server
@@ -22,27 +23,46 @@ interface HealthStatusBarProps {
 }
 
 export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
-  const { health, updateHealthStatus } = useAppStore()
+  const { health, ui, updateHealthStatus } = useAppStore()
 
   const checkApiHealth = useCallback(async () => {
     const startTime = Date.now()
-    
+
     try {
       updateHealthStatus({ apiStatus: 'checking' })
-      
-      await apiService.checkHealth()
-      const responseTime = Date.now() - startTime
-      
-      updateHealthStatus({
-        apiStatus: 'healthy',
-        lastCheck: Date.now(),
-        responseTime,
-        errors: []
-      })
+
+      // For embedded mode in Tauri, use the Tauri command instead of axios
+      // This avoids CORS and connection issues during startup
+      if (ui.apiMode === 'embedded' && TauriService.isTauri()) {
+        const isConnected = await TauriService.checkApiConnection(apiService.baseURL)
+        const responseTime = Date.now() - startTime
+
+        if (isConnected) {
+          updateHealthStatus({
+            apiStatus: 'healthy',
+            lastCheck: Date.now(),
+            responseTime,
+            errors: []
+          })
+        } else {
+          throw new Error('Embedded API server not responding')
+        }
+      } else {
+        // For external mode, use regular HTTP request
+        await apiService.checkHealth()
+        const responseTime = Date.now() - startTime
+
+        updateHealthStatus({
+          apiStatus: 'healthy',
+          lastCheck: Date.now(),
+          responseTime,
+          errors: []
+        })
+      }
     } catch (error) {
       const responseTime = Date.now() - startTime
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      
+
       // Get current errors from the store to avoid stale closure
       updateHealthStatus((currentHealth) => ({
         apiStatus: 'unhealthy',
@@ -51,7 +71,7 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
         errors: [errorMessage, ...currentHealth.errors.slice(0, 4)] // Keep last 5 errors
       }))
     }
-  }, [apiService, updateHealthStatus])
+  }, [apiService, ui.apiMode, updateHealthStatus])
 
   const setupWebSocket = useCallback(() => {
     // WebSocket endpoint not yet implemented in API
@@ -63,12 +83,20 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
 
   // Initial health check and setup periodic checks
   useEffect(() => {
-    checkApiHealth()
-    
+    // For embedded mode, delay initial health check to allow server startup
+    const initialDelay = ui.apiMode === 'embedded' && TauriService.isTauri() ? 1000 : 0
+
+    const initialTimeout = setTimeout(() => {
+      checkApiHealth()
+    }, initialDelay)
+
     const interval = setInterval(checkApiHealth, 120000) // Check every 2 minutes
-    
-    return () => clearInterval(interval)
-  }, [checkApiHealth])
+
+    return () => {
+      clearTimeout(initialTimeout)
+      clearInterval(interval)
+    }
+  }, [checkApiHealth, ui.apiMode])
 
   // Setup WebSocket connection
   useEffect(() => {
@@ -121,7 +149,7 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
                 API: {health.apiStatus}
               </span>
             </div>
-            
+
             {health.responseTime > 0 && (
               <Badge variant="outline" className="text-xs">
                 {formatResponseTime(health.responseTime)}
