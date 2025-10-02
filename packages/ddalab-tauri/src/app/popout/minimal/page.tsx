@@ -9,13 +9,13 @@ function PopoutContent() {
   const searchParams = useSearchParams()
   const windowType = searchParams.get('type')
   const windowId = searchParams.get('id')
-  
+
   const [isClient, setIsClient] = useState(false)
   const [isLocked, setIsLocked] = useState(false)
   const [currentData, setCurrentData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState('Initializing...')
-  
+
   // Refs for plot containers
   const timeSeriesPlotRef = useRef<HTMLDivElement>(null)
   const ddaHeatmapRef = useRef<HTMLDivElement>(null)
@@ -44,7 +44,7 @@ function PopoutContent() {
       try {
         console.log(`[POPOUT] Initializing Tauri for window ID: ${windowId}, type: ${windowType}`)
         setStatus('Connecting to Tauri...')
-        
+
         // Dynamic import to avoid SSR issues
         const [
           { listen, emit },
@@ -53,7 +53,7 @@ function PopoutContent() {
           import('@tauri-apps/api/event'),
           import('@tauri-apps/api/window')
         ])
-        
+
         console.log('[POPOUT] Tauri API imports successful')
 
         setStatus('Setting up event listeners...')
@@ -61,7 +61,7 @@ function PopoutContent() {
         // Listen for data updates
         const eventName = `data-update-${windowId}`
         console.log(`Setting up listener for event: ${eventName}`)
-        
+
         unlistenData = await listen(eventName, (event: any) => {
           console.log(`[POPOUT] Received data update event: ${eventName}`, {
             eventPayload: event.payload,
@@ -69,7 +69,7 @@ function PopoutContent() {
             windowId,
             dataKeys: event.payload?.data ? Object.keys(event.payload.data) : 'no data'
           })
-          
+
           if (!isLocked) {
             setCurrentData(event.payload.data)
             setStatus(`Last update: ${new Date().toLocaleTimeString()}`)
@@ -78,7 +78,7 @@ function PopoutContent() {
             console.log('[POPOUT] Window locked, ignoring data update')
           }
         })
-        
+
         console.log(`[POPOUT] Successfully set up listener for ${eventName}`)
 
         // Listen for lock state changes
@@ -153,10 +153,10 @@ function PopoutContent() {
 
     try {
       const { data, timestamps, channels } = currentData
-      
+
       // Prepare data for uPlot: [timestamps, ...channel_data]
       const plotData: uPlot.AlignedData = [timestamps || []]
-      
+
       // Add channel data
       if (Array.isArray(data) && data.length > 0) {
         // If data is array of arrays (multiple channels)
@@ -209,7 +209,7 @@ function PopoutContent() {
       }
 
       uplotTimeSeriesRef.current = new uPlot(opts, plotData, timeSeriesPlotRef.current)
-      
+
       // Handle resize
       const resizeObserver = new ResizeObserver(() => {
         if (uplotTimeSeriesRef.current && timeSeriesPlotRef.current) {
@@ -254,10 +254,14 @@ function PopoutContent() {
 
     try {
       const result = currentData.result
-      const scales = result.results.scales
-      const dda_matrix = result.results.dda_matrix
-      
-      if (!scales || !dda_matrix) return
+      const scales = result.results?.scales
+      const dda_matrix = result.results?.dda_matrix
+      const exponents = result.results?.exponents || {}
+
+      if (!scales || !dda_matrix) {
+        console.warn('[POPOUT] Missing scales or dda_matrix in result data')
+        return
+      }
 
       // Prepare data for line plot
       const plotData: uPlot.AlignedData = [scales]
@@ -274,7 +278,7 @@ function PopoutContent() {
       const series: uPlot.Series[] = [
         {}, // x-axis
         ...channels.map((channel, index) => ({
-          label: `${channel} (α=${result.results.exponents[channel]?.toFixed(3) || 'N/A'})`,
+          label: `${channel} (α=${exponents[channel]?.toFixed(3) || 'N/A'})`,
           stroke: getChannelColor(index),
           width: 2,
           points: { show: false }
@@ -346,15 +350,15 @@ function PopoutContent() {
   // Lock toggle function
   const toggleLock = useCallback(async () => {
     if (!windowId) return
-    
+
     const newLockState = !isLocked
     setIsLocked(newLockState)
-    
+
     try {
       const { emit } = await import('@tauri-apps/api/event')
-      await emit(`toggle-lock-${windowId}`, { 
-        windowId, 
-        locked: newLockState 
+      await emit(`toggle-lock-${windowId}`, {
+        windowId,
+        locked: newLockState
       })
       console.log(`[POPOUT] Lock toggled to: ${newLockState ? 'locked' : 'unlocked'}`)
     } catch (error) {
@@ -413,7 +417,7 @@ function PopoutContent() {
     return (
       <div className="p-4 h-full flex flex-col">
         <h2 className="text-lg font-semibold mb-4">Time Series Plot</h2>
-        
+
         {/* Metadata */}
         <div className="grid grid-cols-4 gap-4 mb-4 text-sm">
           <div>
@@ -433,25 +437,25 @@ function PopoutContent() {
             <div className="font-semibold">{data.data ? (Array.isArray(data.data[0]) ? data.data[0].length : data.data.length) : 0}</div>
           </div>
         </div>
-        
+
         {/* Plot Container */}
         <div className="flex-1 min-h-0">
-          <div 
-            ref={timeSeriesPlotRef} 
+          <div
+            ref={timeSeriesPlotRef}
             className="w-full h-full border border-gray-200 rounded bg-white"
           />
         </div>
-        
+
         {/* Channel List */}
         {data.channels && data.channels.length > 0 && (
           <div className="mt-4">
             <label className="block text-sm font-medium text-gray-600 mb-2">Channels</label>
             <div className="flex flex-wrap gap-2">
               {data.channels.map((ch: string, idx: number) => (
-                <span 
-                  key={ch} 
+                <span
+                  key={ch}
                   className="px-2 py-1 rounded text-xs font-medium"
-                  style={{ 
+                  style={{
                     backgroundColor: getChannelColor(idx) + '20',
                     borderColor: getChannelColor(idx),
                     color: getChannelColor(idx),
@@ -478,7 +482,7 @@ function PopoutContent() {
     return (
       <div className="p-4 h-full flex flex-col">
         <h2 className="text-lg font-semibold mb-4">DDA Analysis Results</h2>
-        
+
         {/* Metadata */}
         <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
           <div>
@@ -490,48 +494,50 @@ function PopoutContent() {
             <div className="font-semibold">{result.channels ? result.channels.length : 0}</div>
           </div>
         </div>
-        
+
         {/* DDA Line Plot */}
         <div className="flex-1 min-h-0 mb-4">
           <h3 className="text-sm font-medium mb-2">DDA Time Series</h3>
-          <div 
-            ref={ddaLinePlotRef} 
+          <div
+            ref={ddaLinePlotRef}
             className="w-full h-full border border-gray-200 rounded bg-white"
           />
         </div>
-        
+
         {/* Statistics */}
-        {result.results?.exponents && (
+        {result.results?.exponents && Object.keys(result.results.exponents).length > 0 && (
           <div className="mb-4">
             <h3 className="text-sm font-medium mb-2">Channel Exponents</h3>
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <label className="block text-gray-600">Mean α</label>
                 <div className="font-semibold">
-                  {Object.values(result.results.exponents).length > 0 
-                    ? ((Object.values(result.results.exponents) as number[]).reduce((a: number, b: number) => a + b, 0) / Object.values(result.results.exponents).length).toFixed(3)
-                    : 'N/A'
-                  }
+                  {(() => {
+                    const exps = Object.values(result.results.exponents) as number[]
+                    return exps.length > 0
+                      ? (exps.reduce((a, b) => a + b, 0) / exps.length).toFixed(3)
+                      : 'N/A'
+                  })()}
                 </div>
               </div>
               <div>
                 <label className="block text-gray-600">Processing Time</label>
-                <div className="font-semibold">{result.results?.quality_metrics?.processing_time || 'N/A'}s</div>
+                <div className="font-semibold">{result.results?.quality_metrics?.processing_time?.toFixed(2) || 'N/A'}s</div>
               </div>
             </div>
           </div>
         )}
-        
+
         {/* Channel List */}
         {result.channels && result.channels.length > 0 && (
           <div>
             <label className="block text-sm font-medium text-gray-600 mb-2">Channels</label>
             <div className="flex flex-wrap gap-2">
               {result.channels.map((ch: string, idx: number) => (
-                <span 
-                  key={ch} 
+                <span
+                  key={ch}
                   className="px-2 py-1 rounded text-xs font-medium"
-                  style={{ 
+                  style={{
                     backgroundColor: getChannelColor(idx) + '20',
                     borderColor: getChannelColor(idx),
                     color: getChannelColor(idx),
@@ -563,20 +569,20 @@ function PopoutContent() {
         <div className="text-sm font-medium text-gray-700">
           {titleMap[windowType || ''] || 'DDALAB Popout'}
         </div>
-        
+
         <div className="flex items-center space-x-1">
           <button
             onClick={toggleLock}
             className={`w-7 h-7 rounded flex items-center justify-center text-xs transition-colors ${
-              isLocked 
-                ? 'bg-red-100 hover:bg-red-200 text-red-700' 
+              isLocked
+                ? 'bg-red-100 hover:bg-red-200 text-red-700'
                 : 'bg-green-100 hover:bg-green-200 text-green-700'
             }`}
             title={isLocked ? "Unlock window (currently not receiving updates)" : "Lock window (stop receiving updates)"}
           >
             {isLocked ? '🔒' : '🔓'}
           </button>
-          
+
           <button
             onClick={() => (window as any).refreshContent?.()}
             className="w-7 h-7 rounded hover:bg-gray-200 flex items-center justify-center text-xs"
@@ -584,7 +590,7 @@ function PopoutContent() {
           >
             ↻
           </button>
-          
+
           <button
             onClick={() => (window as any).minimizeWindow?.()}
             className="w-7 h-7 rounded hover:bg-gray-200 flex items-center justify-center text-xs"
@@ -592,7 +598,7 @@ function PopoutContent() {
           >
             −
           </button>
-          
+
           <button
             onClick={() => (window as any).closeWindow?.()}
             className="w-7 h-7 rounded hover:bg-red-500 hover:text-white flex items-center justify-center text-xs"
