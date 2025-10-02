@@ -4,6 +4,11 @@ import { TauriService } from '@/services/tauriService'
 import { getStatePersistenceService, StatePersistenceService } from '@/services/statePersistenceService'
 import { AppState as PersistedAppState, AnalysisResult } from '@/types/persistence'
 
+// Module-level flag to prevent re-initialization during Hot Module Reload
+// This persists across Fast Refresh unlike Zustand store state
+let isInitializingPersistence = false
+let hasInitializedPersistence = false
+
 export interface FileManagerState {
   currentPath: string[]
   selectedFile: EDFFileInfo | null
@@ -179,12 +184,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   initializePersistence: async () => {
     if (TauriService.isTauri()) {
-      // Check if already initialized - prevent re-initialization during Hot Reload/Fast Refresh
-      const currentState = get()
-      if (currentState.persistenceService) {
-        console.log('[STORE] Persistence already initialized, skipping re-initialization')
+      // Check module-level flags first - these persist across Fast Refresh unlike Zustand state
+      if (hasInitializedPersistence || isInitializingPersistence) {
+        console.log('[STORE] Persistence already initialized/initializing (module-level check), skipping')
         return
       }
+
+      // Set flag to prevent concurrent initialization
+      isInitializingPersistence = true
 
       try {
         console.log('[STORE] Initializing persistence service...')
@@ -283,10 +290,15 @@ export const useAppStore = create<AppState>((set, get) => ({
           };
         });
 
+        // Mark as successfully initialized at module level
+        hasInitializedPersistence = true
         console.log('[STORE] Persistence service initialized successfully')
       } catch (error) {
         console.error('[STORE] Failed to initialize persistence:', (error as Error)?.message);
         set({ persistenceService: null });
+      } finally {
+        // Always clear the initializing flag
+        isInitializingPersistence = false
       }
     }
   },
