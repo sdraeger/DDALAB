@@ -81,12 +81,12 @@ class WindowManager {
     try {
       // Import Tauri invoke function
       const { invoke } = await import('@tauri-apps/api/core')
-      
+
       // Update the URL to include the generated windowId instead of the original id
       const updatedUrl = config.url.replace(`id=${id}`, `id=${windowId}`)
-      
+
       console.log(`[WINDOW_MANAGER] Creating window with ID: ${windowId}, URL: ${updatedUrl}`)
-      
+
       // Call the Rust command to create the window
       const windowLabel = await invoke('create_popout_window', {
         windowType: type,
@@ -109,17 +109,15 @@ class WindowManager {
       }
       this.windowStates.set(windowId, state)
 
-      // Send initial data to the window after a short delay to ensure window is ready
-      console.log(`[WINDOW_MANAGER] Scheduling initial data send for window: ${windowId}`, {
-        dataKeys: data ? Object.keys(data) : 'null',
-        delay: 1000
+      // Listen for the popout-ready event from the window
+      console.log(`[WINDOW_MANAGER] Setting up popout-ready listener for window: ${windowId}`)
+      const readyListener = await listen(`popout-ready-${windowId}`, async (event: any) => {
+        console.log(`[WINDOW_MANAGER] Received popout-ready event from window: ${windowId}`, event.payload)
+        // Send initial data now that the window is ready
+        console.log(`[WINDOW_MANAGER] Sending initial data to ready window: ${windowId}`)
+        await this.sendDataToWindow(windowId, data)
       })
-      
-      
-      setTimeout(() => {
-        console.log(`[WINDOW_MANAGER] Timeout triggered - attempting to send initial data to window: ${windowId}`)
-        this.sendDataToWindow(windowId, data)
-      }, 1000)
+      this.listeners.set(`${windowId}-ready`, readyListener)
 
       return windowId
     } catch (error) {
@@ -180,6 +178,7 @@ class WindowManager {
     const closeListener = this.listeners.get(`${windowId}-close`)
     const lockListener = this.listeners.get(`${windowId}-lock`)
     const unlockListener = this.listeners.get(`${windowId}-unlock`)
+    const readyListener = this.listeners.get(`${windowId}-ready`)
 
     if (closeListener) {
       closeListener()
@@ -192,6 +191,10 @@ class WindowManager {
     if (unlockListener) {
       unlockListener()
       this.listeners.delete(`${windowId}-unlock`)
+    }
+    if (readyListener) {
+      readyListener()
+      this.listeners.delete(`${windowId}-ready`)
     }
 
     console.log(`Cleaned up window: ${windowId}`)

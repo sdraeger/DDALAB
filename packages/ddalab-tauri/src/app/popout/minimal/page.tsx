@@ -90,6 +90,10 @@ function PopoutContent() {
         setStatus(`Ready - Window ID: ${windowId}`)
         console.log(`[POPOUT] Initialization complete for window ${windowId}, waiting for data events`)
 
+        // Emit ready event to request initial data
+        await emit(`popout-ready-${windowId}`, { windowId, timestamp: Date.now() })
+        console.log(`[POPOUT] Emitted popout-ready-${windowId} event to request initial data`)
+
         // Setup window controls
         const setupControls = () => {
           window.addEventListener('keydown', async (e) => {
