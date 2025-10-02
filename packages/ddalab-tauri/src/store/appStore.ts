@@ -202,7 +202,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           const selectedFile = null;
 
           // Create properly typed DDA results with missing properties
-          const currentAnalysis = persistedState.dda.current_analysis ? {
+          // IMPORTANT: Preserve existing currentAnalysis if it exists, don't overwrite with persisted state
+          // This prevents losing the current analysis when Hot Reload or Fast Refresh triggers re-initialization
+          const currentAnalysis = state.dda.currentAnalysis || (persistedState.dda.current_analysis ? {
             id: persistedState.dda.current_analysis.id,
             file_path: persistedState.dda.current_analysis.file_path,
             created_at: persistedState.dda.current_analysis.created_at,
@@ -211,7 +213,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             plot_data: persistedState.dda.current_analysis.plot_data,
             channels: persistedState.file_manager.selected_channels,
             status: 'completed' as const
-          } : null;
+          } : null);
 
           const analysisHistory = persistedState.dda.analysis_history.map(item => ({
             id: item.id,
