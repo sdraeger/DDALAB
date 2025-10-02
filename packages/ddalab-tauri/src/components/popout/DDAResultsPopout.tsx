@@ -313,7 +313,7 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
     const series: uPlot.Series[] = [
       {}, // x-axis
       ...selectedChannels.map((channel, index) => ({
-        label: `${channel} (α=${result.results.exponents?.[channel]?.toFixed(3) || 'N/A'})`,
+        label: `${channel}`,
         stroke: getChannelColor(index),
         width: 2,
         points: { show: false }
@@ -497,7 +497,7 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
                   className="cursor-pointer text-xs"
                   onClick={() => handleChannelToggle(channel)}
                 >
-                  {channel} ({result.results.exponents?.[channel]?.toFixed(3) || 'N/A'})
+                  {channel}
                 </Badge>
               ))}
             </div>
