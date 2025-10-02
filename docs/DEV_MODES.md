@@ -30,7 +30,7 @@ DDALAB offers multiple ways to run the development environment:
 
 ## 3. Local Development
 
-**Commands**: 
+**Commands**:
 - `npm run dev:local` - Start API + Web20 (requires core services running)
 - `npm run dev:local:auto` - Start core services + API + Web20 automatically
 - `npm run dev:local:concurrent` - Alternative using concurrently package

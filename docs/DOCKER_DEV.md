@@ -23,9 +23,9 @@ This will start:
 
 The `docker-compose.dev.yml` file sets up:
 
-1. **Core Services**: 
+1. **Core Services**:
    - PostgreSQL (port 5432)
-   - Redis (port 6379) 
+   - Redis (port 6379)
    - MinIO (ports 9000/9001)
 
 2. **Application Services**:
@@ -210,7 +210,7 @@ services:
   api:
     environment:
       - CUSTOM_VAR=value
-  
+
   custom-service:
     image: custom:latest
     networks:
