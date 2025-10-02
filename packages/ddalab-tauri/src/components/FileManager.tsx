@@ -61,6 +61,7 @@ export function FileManager({ apiService }: FileManagerProps) {
   const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [pendingFileSelection, setPendingFileSelection] = useState<EDFFileInfo | null>(null)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+  const [showDirectoryChangeWarning, setShowDirectoryChangeWarning] = useState(false)
 
   // Load files when component mounts or path changes
   useEffect(() => {
@@ -266,14 +267,27 @@ export function FileManager({ apiService }: FileManagerProps) {
 
   const handleChangeDataDirectory = async () => {
     if (!TauriService.isTauri()) return
+    setShowDirectoryChangeWarning(true)
+  }
+
+  const confirmChangeDirectory = async () => {
+    setShowDirectoryChangeWarning(false)
 
     try {
+      setLoading(true)
       const selectedPath = await TauriService.selectDataDirectory()
+      console.log('[FILEMANAGER] Data directory changed to:', selectedPath)
+
+      // Wait a moment for any server updates
+      await new Promise(resolve => setTimeout(resolve, 500))
+
       // Reload the directory after selection
       await loadCurrentDirectory()
     } catch (error) {
       console.error('Failed to select data directory:', error)
       // User probably cancelled
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -297,7 +311,7 @@ export function FileManager({ apiService }: FileManagerProps) {
                 variant="outline"
                 size="sm"
                 onClick={handleChangeDataDirectory}
-                title="Change data directory"
+                title="Change data directory (Note: Dialog may be slow when browsing directories with many files)"
               >
                 <FolderOpen className="h-4 w-4 mr-2" />
                 Change Directory
@@ -525,6 +539,35 @@ export function FileManager({ apiService }: FileManagerProps) {
           <AlertDialogFooter>
             <AlertDialogCancel onClick={cancelFileSelection}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirmFileSelection}>Change File</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Directory Change Warning Dialog */}
+      <AlertDialog open={showDirectoryChangeWarning} onOpenChange={setShowDirectoryChangeWarning}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change Data Directory</AlertDialogTitle>
+            <AlertDialogDescription>
+              <div className="space-y-3">
+                <p>
+                  You are about to open a folder selection dialog. Please note:
+                </p>
+                <ul className="list-disc pl-5 space-y-1 text-sm">
+                  <li>The dialog may freeze temporarily when navigating folders with many files (thousands of items)</li>
+                  <li>This is a limitation of the native OS file picker, not DDALAB</li>
+                  <li>Avoid browsing into very large directories if possible</li>
+                  <li>Select your target directory directly when you reach it</li>
+                </ul>
+                <p className="text-sm font-medium pt-2">
+                  Tip: If the dialog freezes, wait a moment - it should recover after scanning completes.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmChangeDirectory}>Continue</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
