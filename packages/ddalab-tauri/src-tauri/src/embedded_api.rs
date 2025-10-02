@@ -693,9 +693,16 @@ pub async fn run_dda_analysis(
         env_path
     } else {
         // Fallback: Try to find the binary in common locations (for development or non-Tauri contexts)
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        log::debug!("CARGO_MANIFEST_DIR: {:?}", manifest_dir);
+
+        // For development: go up from packages/ddalab-tauri/src-tauri to DDALAB root
+        let repo_root = manifest_dir.parent().unwrap().parent().unwrap().parent().unwrap();
+        log::debug!("Computed repo root: {:?}", repo_root);
+
         let possible_paths = vec![
-            // Development: project bin directory (CARGO_MANIFEST_DIR is src-tauri, need to go up 3 levels)
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().parent().unwrap().join("bin/run_DDA_ASCII"),
+            // Development: project bin directory
+            repo_root.join("bin/run_DDA_ASCII"),
             // Bundled with app (Tauri resources) - Tauri preserves directory structure
             PathBuf::from("./bin/run_DDA_ASCII"),
             // macOS app bundle - resources go in Contents/Resources/
@@ -708,15 +715,18 @@ pub async fn run_dda_analysis(
             PathBuf::from("/app/bin/run_DDA_ASCII"),
         ];
 
+        let paths_for_error: Vec<_> = possible_paths.iter().cloned().collect();
         let found_path = possible_paths.into_iter()
-            .find(|p| p.exists())
+            .find(|p| {
+                let exists = p.exists();
+                log::debug!("Checking path: {:?} - exists: {}", p, exists);
+                exists
+            })
             .ok_or_else(|| {
                 log::error!("DDA binary not found in any expected location. Tried:");
-                log::error!("  - Project bin directory");
-                log::error!("  - ./bin/run_DDA_ASCII");
-                log::error!("  - ../Resources/bin/run_DDA_ASCII");
-                log::error!("  - ./resources/bin/run_DDA_ASCII");
-                log::error!("  - /app/bin/run_DDA_ASCII");
+                for path in &paths_for_error {
+                    log::error!("  - {:?}", path);
+                }
                 log::error!("Set DDA_BINARY_PATH environment variable to specify location");
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
