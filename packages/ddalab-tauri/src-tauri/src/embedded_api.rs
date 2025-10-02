@@ -735,6 +735,7 @@ pub async fn run_dda_analysis(
     };
 
     log::info!("Using DDA binary at: {}", dda_binary_path);
+    let start_time = std::time::Instant::now();
 
     // Verify the binary exists
     if !PathBuf::from(&dda_binary_path).exists() {
@@ -749,6 +750,8 @@ pub async fn run_dda_analysis(
         return Err(StatusCode::NOT_FOUND);
     }
 
+    log::info!("⏱️  [TIMING] Starting EDF metadata read...");
+    let metadata_start = std::time::Instant::now();
     let file_path_for_edf = file_path.clone();
     let end_bound = tokio::task::spawn_blocking(move || -> Result<u64, String> {
         let edf = EDFReader::new(&file_path_for_edf)?;
@@ -772,6 +775,8 @@ pub async fn run_dda_analysis(
         log::error!("EDF reading error: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+
+    log::info!("⏱️  [TIMING] EDF metadata read completed in {:.2}s", metadata_start.elapsed().as_secs_f64());
 
     // Create temporary output file
     let temp_dir = std::env::temp_dir();
@@ -829,10 +834,14 @@ pub async fn run_dda_analysis(
     log::info!("Executing DDA command: {:?}", command);
 
     // Execute DDA binary asynchronously
+    log::info!("⏱️  [TIMING] Starting DDA binary execution...");
+    let binary_start = std::time::Instant::now();
     let output = command.output().await.map_err(|e| {
         log::error!("Failed to execute DDA binary: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+
+    log::info!("⏱️  [TIMING] DDA binary execution completed in {:.2}s", binary_start.elapsed().as_secs_f64());
 
     if !output.status.success() {
         log::error!("DDA binary failed with status: {}", output.status);
@@ -871,17 +880,22 @@ pub async fn run_dda_analysis(
     log::info!("Reading DDA output from: {:?}", actual_output_file);
 
     // Read and parse DDA output
+    log::info!("⏱️  [TIMING] Reading DDA output file...");
+    let read_start = std::time::Instant::now();
     let output_content = tokio::fs::read_to_string(&actual_output_file).await.map_err(|e| {
         log::error!("Failed to read DDA output file: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    // Log the output file path for debugging
+    log::info!("⏱️  [TIMING] File read completed in {:.2}s", read_start.elapsed().as_secs_f64());
     log::info!("DDA output file saved at: {:?}", actual_output_file);
     log::info!("Output file size: {} bytes", output_content.len());
 
     // Parse the output file to extract Q matrix [channels × timepoints]
+    log::info!("⏱️  [TIMING] Parsing DDA output...");
+    let parse_start = std::time::Instant::now();
     let q_matrix = parse_dda_output(&output_content);
+    log::info!("⏱️  [TIMING] Parsing completed in {:.2}s", parse_start.elapsed().as_secs_f64());
 
     // Clean up temporary files (temporarily disabled for debugging)
     // let _ = tokio::fs::remove_file(&output_file).await;
@@ -1023,9 +1037,14 @@ pub async fn run_dda_analysis(
     }
 
     // Save to disk for persistence
+    log::info!("⏱️  [TIMING] Saving result to disk...");
+    let save_start = std::time::Instant::now();
     if let Err(e) = state.save_to_disk(&result) {
         log::error!("Failed to save analysis to disk: {}", e);
     }
+    log::info!("⏱️  [TIMING] Save completed in {:.2}s", save_start.elapsed().as_secs_f64());
+
+    log::info!("⏱️  [TIMING] ✅ Total DDA analysis completed in {:.2}s", start_time.elapsed().as_secs_f64());
 
     Ok(Json(result))
 }
@@ -1117,10 +1136,19 @@ fn parse_dda_output(content: &str) -> Vec<Vec<f64>> {
         // This gives us [channel/scale][timepoint] format expected by frontend
         let mut transposed: Vec<Vec<f64>> = vec![Vec::new(); num_cols];
 
-        for row in &extracted {
+        for (row_idx, row) in extracted.iter().enumerate() {
+            if row.len() != num_cols {
+                log::warn!("Row {} has {} columns, expected {}. Skipping this row.", row_idx, row.len(), num_cols);
+                continue;
+            }
             for (col_idx, &value) in row.iter().enumerate() {
                 transposed[col_idx].push(value);
             }
+        }
+
+        if transposed.is_empty() || transposed[0].is_empty() {
+            log::error!("Transpose resulted in empty data");
+            return Vec::new();
         }
 
         log::info!("Transposed to: {} channels × {} timepoints", transposed.len(), transposed[0].len());
