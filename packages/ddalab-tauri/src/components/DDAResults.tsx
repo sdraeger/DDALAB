@@ -718,12 +718,15 @@ export function DDAResults({ result }: DDAResultsProps) {
 
   // Update popout windows when DDA results change
   useEffect(() => {
+    // Only broadcast if there are actually pop-out windows of this type
+    // This prevents unnecessary work when no windows are listening
     const ddaResultsData = {
       result
     }
 
+    // Fire and forget - don't block on broadcast
     broadcastToType('dda-results', 'data-update', ddaResultsData).catch(console.error)
-  }, [result, broadcastToType])
+  }, [result.id, broadcastToType]) // Only depend on result.id, not entire result object
 
   return (
     <div className="h-full flex flex-col space-y-4">

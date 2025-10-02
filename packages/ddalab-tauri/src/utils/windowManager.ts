@@ -274,7 +274,9 @@ class WindowManager {
       windowCount: windowIds.length,
       windowIds
     })
-    for (const windowId of windowIds) {
+
+    // Send to all windows in parallel to avoid blocking
+    const promises = windowIds.map(async (windowId) => {
       const state = this.windowStates.get(windowId)
       if (state && !state.isLocked) {
         try {
@@ -284,7 +286,12 @@ class WindowManager {
           console.error(`Failed to broadcast to window ${windowId}:`, error)
         }
       }
-    }
+    })
+
+    // Don't await - let broadcasts happen in background
+    Promise.all(promises).catch(err =>
+      console.error('[WINDOW_MANAGER] Broadcast error:', err)
+    )
   }
 
   isWindowOpen(windowId: string): boolean {
