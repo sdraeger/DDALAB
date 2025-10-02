@@ -399,10 +399,17 @@ pub async fn list_files(
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let path = params.get("path").map(|p| p.as_str()).unwrap_or("");
+
+    // If path is absolute, use it directly. Otherwise, join with data_directory
     let search_path = if path.is_empty() {
         state.data_directory.clone()
     } else {
-        state.data_directory.join(path)
+        let path_buf = PathBuf::from(path);
+        if path_buf.is_absolute() {
+            path_buf
+        } else {
+            state.data_directory.join(path)
+        }
     };
 
     let mut items = Vec::new();

@@ -50,6 +50,7 @@ export function FileManager({ apiService }: FileManagerProps) {
     updateFileManagerState,
     setSelectedChannels,
     setCurrentPath,
+    resetCurrentPathSync,
     clearPendingFileSelection,
     ui
   } = useAppStore()
@@ -62,38 +63,66 @@ export function FileManager({ apiService }: FileManagerProps) {
   const [pendingFileSelection, setPendingFileSelection] = useState<EDFFileInfo | null>(null)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [showDirectoryChangeWarning, setShowDirectoryChangeWarning] = useState(false)
+  const [dataDirectoryPath, setDataDirectoryPath] = useState<string>('')
+
+  // Load the data directory path on mount
+  useEffect(() => {
+    const loadDataDirectoryPath = async () => {
+      if (TauriService.isTauri()) {
+        try {
+          const path = await TauriService.getDataDirectory()
+          console.log('[FILEMANAGER] Loaded data directory path:', path)
+          setDataDirectoryPath(path)
+        } catch (error) {
+          console.error('[FILEMANAGER] Failed to load data directory path:', error)
+        }
+      }
+    }
+    loadDataDirectoryPath()
+  }, [])
 
   // Load files when component mounts or path changes
+  // Only load if server is ready to avoid blocking UI with failed requests
   useEffect(() => {
-    loadCurrentDirectory()
-  }, [fileManager.currentPath])
+    if (dataDirectoryPath && ui.isServerReady && !isInitialLoad) {
+      loadCurrentDirectory()
+    }
+  }, [fileManager.currentPath, dataDirectoryPath, ui.isServerReady])
 
   // Ensure we load on mount even if currentPath hasn't changed
   // Wait for server to be ready before loading
   useEffect(() => {
-    if (isInitialLoad && ui.isServerReady) {
+    if (isInitialLoad && ui.isServerReady && dataDirectoryPath) {
       console.log('[FILEMANAGER] Server ready, loading initial directory')
       setIsInitialLoad(false)
       loadCurrentDirectory()
     }
-  }, [ui.isServerReady, isInitialLoad])
+  }, [ui.isServerReady, isInitialLoad, dataDirectoryPath])
 
   const loadCurrentDirectory = async () => {
     try {
       setLoading(true)
       setError(null)
 
-      const pathStr = fileManager.currentPath.join('/')
-      console.log('Loading directory:', pathStr || 'root')
+      // Build absolute path: dataDirectoryPath + relative currentPath
+      const relativePath = fileManager.currentPath.join('/')
+      const absolutePath = relativePath ? `${dataDirectoryPath}/${relativePath}` : dataDirectoryPath
+
+      console.log('[FILEMANAGER] Loading directory:', {
+        dataDirectoryPath,
+        relativePath,
+        absolutePath,
+        currentPathArray: fileManager.currentPath
+      })
 
       // Add a timeout to prevent infinite loading
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Loading timeout - please try refreshing')), 10000)
       )
 
-      // Get directory listing with timeout
+      // Get directory listing with timeout - pass absolute path
       const result = await Promise.race([
-        apiService.listDirectory(pathStr),
+        apiService.listDirectory(absolutePath),
         timeoutPromise
       ]) as Awaited<ReturnType<typeof apiService.listDirectory>>
 
@@ -237,7 +266,25 @@ export function FileManager({ apiService }: FileManagerProps) {
   }
 
   const handleDirectorySelect = (dir: {name: string, path: string}) => {
-    const newPath = dir.path.split('/').filter(p => p.length > 0)
+    // dir.path is absolute - we need to make it relative to dataDirectoryPath
+    const absolutePath = dir.path
+
+    // Remove the dataDirectoryPath prefix to get relative path
+    let relativePath = absolutePath
+    if (absolutePath.startsWith(dataDirectoryPath)) {
+      relativePath = absolutePath.slice(dataDirectoryPath.length)
+    }
+
+    // Split and filter empty segments
+    const newPath = relativePath.split('/').filter(p => p.length > 0)
+
+    console.log('[FILEMANAGER] Directory selected:', {
+      dirPath: dir.path,
+      dataDirectoryPath,
+      relativePath,
+      newPath
+    })
+
     setCurrentPath(newPath)
   }
 
@@ -275,16 +322,43 @@ export function FileManager({ apiService }: FileManagerProps) {
 
     try {
       setLoading(true)
-      const selectedPath = await TauriService.selectDataDirectory()
-      console.log('[FILEMANAGER] Data directory changed to:', selectedPath)
+      setError(null)
 
-      // Wait a moment for any server updates
-      await new Promise(resolve => setTimeout(resolve, 500))
+      // Open folder picker dialog (without saving to backend config)
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Select Data Directory'
+      })
 
-      // Reload the directory after selection
-      await loadCurrentDirectory()
+      if (!selected || typeof selected !== 'string') {
+        console.log('[FILEMANAGER] Directory selection cancelled')
+        return
+      }
+
+      console.log('[FILEMANAGER] ===== DIRECTORY CHANGE START =====')
+      console.log('[FILEMANAGER] Selected directory:', selected)
+      console.log('[FILEMANAGER] Type of selected:', typeof selected)
+      console.log('[FILEMANAGER] Current dataDirectoryPath:', dataDirectoryPath)
+      console.log('[FILEMANAGER] Current path array:', fileManager.currentPath)
+
+      // Reset currentPath to [] and persist synchronously before changing directory
+      console.log('[FILEMANAGER] Calling resetCurrentPathSync...')
+      await resetCurrentPathSync()
+      console.log('[FILEMANAGER] resetCurrentPathSync complete')
+
+      // Update the local data directory path (client-side only - don't save to backend)
+      console.log('[FILEMANAGER] Calling setDataDirectoryPath with:', selected)
+      setDataDirectoryPath(selected)
+      console.log('[FILEMANAGER] ===== DIRECTORY CHANGE END =====')
+
+      // The useEffect will reload automatically when dataDirectoryPath changes
     } catch (error) {
       console.error('Failed to select data directory:', error)
+      if (error instanceof Error && !error.message.includes('cancelled') && !error.message.includes('No directory selected')) {
+        setError('Failed to change directory: ' + error.message)
+      }
       // User probably cancelled
     } finally {
       setLoading(false)
@@ -548,18 +622,18 @@ export function FileManager({ apiService }: FileManagerProps) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Change Data Directory</AlertDialogTitle>
-            <AlertDialogDescription>
-              <div className="space-y-3">
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
                 <p>
                   You are about to open a folder selection dialog. Please note:
                 </p>
-                <ul className="list-disc pl-5 space-y-1 text-sm">
+                <ul className="list-disc pl-5 space-y-1">
                   <li>The dialog may freeze temporarily when navigating folders with many files (thousands of items)</li>
                   <li>This is a limitation of the native OS file picker, not DDALAB</li>
                   <li>Avoid browsing into very large directories if possible</li>
                   <li>Select your target directory directly when you reach it</li>
                 </ul>
-                <p className="text-sm font-medium pt-2">
+                <p className="font-medium pt-2">
                   Tip: If the dialog freezes, wait a moment - it should recover after scanning completes.
                 </p>
               </div>
