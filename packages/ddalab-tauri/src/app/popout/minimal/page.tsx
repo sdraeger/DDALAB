@@ -289,7 +289,7 @@ function PopoutContent() {
       let minVal = Infinity
       let maxVal = -Infinity
 
-      channels.forEach(channel => {
+      channels.forEach((channel: string) => {
         if (dda_matrix[channel]) {
           const channelData = dda_matrix[channel].map((val: number) => {
             // Log transform for better visualization
