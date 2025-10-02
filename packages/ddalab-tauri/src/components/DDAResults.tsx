@@ -879,7 +879,7 @@ export function DDAResults({ result }: DDAResultsProps) {
                   className="cursor-pointer text-xs"
                   onClick={() => handleChannelToggle(channel)}
                 >
-                  {channel} ({getCurrentVariantData()?.exponents[channel]?.toFixed(3) || 'N/A'})
+                  {channel}
                 </Badge>
               ))}
             </div>
