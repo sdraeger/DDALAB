@@ -115,16 +115,8 @@ export function FileManager({ apiService }: FileManagerProps) {
         currentPathArray: fileManager.currentPath
       })
 
-      // Add a timeout to prevent infinite loading
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Loading timeout - please try refreshing')), 10000)
-      )
-
-      // Get directory listing with timeout - pass absolute path
-      const result = await Promise.race([
-        apiService.listDirectory(absolutePath),
-        timeoutPromise
-      ]) as Awaited<ReturnType<typeof apiService.listDirectory>>
+      // Get directory listing - pass absolute path
+      const result = await apiService.listDirectory(absolutePath)
 
       if (result.files) {
         // Separate directories and files
@@ -173,11 +165,8 @@ export function FileManager({ apiService }: FileManagerProps) {
       const fileToSelect = files.find(f => f.file_path === fileManager.pendingFileSelection)
       if (fileToSelect) {
         console.log('Restoring selected file from persistence:', fileToSelect.file_name)
-        // Defer the file load slightly to ensure directory listing is fully rendered
-        setTimeout(() => {
-          handleFileSelect(fileToSelect)
-          clearPendingFileSelection()
-        }, 100)
+        handleFileSelect(fileToSelect)
+        clearPendingFileSelection()
       }
     }
   }, [files, fileManager.pendingFileSelection, clearPendingFileSelection, ui.isServerReady, loading])
@@ -238,17 +227,8 @@ export function FileManager({ apiService }: FileManagerProps) {
     try {
       setLoading(true)
 
-      // Add timeout to prevent UI blocking
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('File info loading timeout')), 10000)
-      )
-
-      // Get detailed file information with timeout
-      const fileInfo = await Promise.race([
-        apiService.getFileInfo(file.file_path),
-        timeoutPromise
-      ]) as Awaited<ReturnType<typeof apiService.getFileInfo>>
-
+      // Get detailed file information
+      const fileInfo = await apiService.getFileInfo(file.file_path)
       setSelectedFile(fileInfo)
 
       // Auto-select first few channels if none selected
