@@ -136,13 +136,16 @@ export default function Home() {
             if (connected) {
               console.log('Embedded API server started successfully')
               setIsApiConnected(true)
+              setServerReady(true)  // Signal that server is ready for requests
             } else {
               console.error('Embedded API server failed to respond after', maxRetries, 'retries')
               setIsApiConnected(false)
+              setServerReady(false)
             }
           } catch (error) {
             console.error('Failed to start embedded API:', error)
             setIsApiConnected(false)
+            setServerReady(false)
           }
         }
 
