@@ -179,7 +179,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   initializePersistence: async () => {
     if (TauriService.isTauri()) {
+      // Check if already initialized - prevent re-initialization during Hot Reload/Fast Refresh
+      const currentState = get()
+      if (currentState.persistenceService) {
+        console.log('[STORE] Persistence already initialized, skipping re-initialization')
+        return
+      }
+
       try {
+        console.log('[STORE] Initializing persistence service...')
         const service = getStatePersistenceService({
           autoSave: true,
           saveInterval: 30000,
@@ -275,9 +283,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           };
         });
 
-        // State persistence initialized successfully
+        console.log('[STORE] Persistence service initialized successfully')
       } catch (error) {
-        console.error('Failed to initialize persistence:', (error as Error)?.message);
+        console.error('[STORE] Failed to initialize persistence:', (error as Error)?.message);
         set({ persistenceService: null });
       }
     }
