@@ -13,10 +13,26 @@ export default function Home() {
   const [apiUrl, setApiUrl] = useState('http://localhost:8000')
   const [isTauri, setIsTauri] = useState(false)
   const [showApiModeSetup, setShowApiModeSetup] = useState(false)
+  const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false)
   const { initializeFromTauri, isInitialized, setApiMode } = useAppStore()
 
   useEffect(() => {
+    const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
     const tauriDetected = TauriService.isTauri()
+
+    console.log('[MAIN_WINDOW] page.tsx useEffect running', {
+      pathname,
+      isTauri: tauriDetected,
+      isInitialized,
+      timestamp: new Date().toISOString()
+    })
+
+    // CRITICAL: Only run on the main window, not popouts
+    if (pathname !== '/') {
+      console.log('[MAIN_WINDOW] Skipping initialization - not on main route:', pathname)
+      return
+    }
+
     console.log('DEBUG: Tauri detection:', {
       isTauri: tauriDetected,
       hasWindow: typeof window !== 'undefined',
@@ -28,7 +44,8 @@ export default function Home() {
     setIsTauri(tauriDetected)
 
     // Initialize persistence BEFORE checking API connection
-    if (!isInitialized) {
+    // ONLY run initialization on the main window (not pop-outs)
+    if (!isInitialized && typeof window !== 'undefined' && window.location.pathname === '/') {
       console.log('DEBUG: Forcing persistence initialization for testing...')
       console.log('DEBUG: tauriDetected =', tauriDetected)
       initializeFromTauri()
@@ -50,12 +67,27 @@ export default function Home() {
   }, [apiUrl, isTauri])
 
   const loadPreferences = async () => {
+    // IMPORTANT: Only load preferences on the main window, NOT on pop-outs
+    if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+      console.log('Skipping preference loading - not on main window. Path:', window.location.pathname)
+      return
+    }
+
+    // CRITICAL: Don't reload preferences if already loaded in this session
+    if (hasLoadedPreferences) {
+      console.log('[MAIN_WINDOW] Preferences already loaded this session, skipping')
+      return
+    }
+
     console.log('Loading preferences, isTauri:', TauriService.isTauri())
     if (TauriService.isTauri()) {
       try {
         console.log('Loading Tauri preferences...')
         const preferences = await TauriService.getAppPreferences()
         console.log('Loaded preferences:', preferences)
+
+        // Mark as loaded
+        setHasLoadedPreferences(true)
 
         // Check if user has chosen API mode on first launch
         if (!preferences.api_config.has_chosen_mode) {
