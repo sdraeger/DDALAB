@@ -736,6 +736,8 @@ pub async fn run_dda_analysis(
 
     log::info!("Using DDA binary at: {}", dda_binary_path);
     let start_time = std::time::Instant::now();
+    eprintln!("\n⏱️  [DDA TIMING] ========== Starting DDA analysis ==========");
+    eprintln!("⏱️  [DDA TIMING] File: {}", request.file_path);
 
     // Verify the binary exists
     if !PathBuf::from(&dda_binary_path).exists() {
@@ -777,6 +779,7 @@ pub async fn run_dda_analysis(
     })?;
 
     log::info!("⏱️  [TIMING] EDF metadata read completed in {:.2}s", metadata_start.elapsed().as_secs_f64());
+    eprintln!("⏱️  [DDA TIMING] EDF metadata read: {:.2}s", metadata_start.elapsed().as_secs_f64());
 
     // Create temporary output file
     let temp_dir = std::env::temp_dir();
@@ -842,6 +845,7 @@ pub async fn run_dda_analysis(
     })?;
 
     log::info!("⏱️  [TIMING] DDA binary execution completed in {:.2}s", binary_start.elapsed().as_secs_f64());
+    eprintln!("⏱️  [DDA TIMING] DDA binary execution: {:.2}s", binary_start.elapsed().as_secs_f64());
 
     if !output.status.success() {
         log::error!("DDA binary failed with status: {}", output.status);
@@ -888,6 +892,7 @@ pub async fn run_dda_analysis(
     })?;
 
     log::info!("⏱️  [TIMING] File read completed in {:.2}s", read_start.elapsed().as_secs_f64());
+    eprintln!("⏱️  [DDA TIMING] Output file read: {:.2}s", read_start.elapsed().as_secs_f64());
     log::info!("DDA output file saved at: {:?}", actual_output_file);
     log::info!("Output file size: {} bytes", output_content.len());
 
@@ -896,6 +901,7 @@ pub async fn run_dda_analysis(
     let parse_start = std::time::Instant::now();
     let q_matrix = parse_dda_output(&output_content);
     log::info!("⏱️  [TIMING] Parsing completed in {:.2}s", parse_start.elapsed().as_secs_f64());
+    eprintln!("⏱️  [DDA TIMING] Output parsing: {:.2}s", parse_start.elapsed().as_secs_f64());
 
     // Clean up temporary files (temporarily disabled for debugging)
     // let _ = tokio::fs::remove_file(&output_file).await;
@@ -1043,8 +1049,10 @@ pub async fn run_dda_analysis(
         log::error!("Failed to save analysis to disk: {}", e);
     }
     log::info!("⏱️  [TIMING] Save completed in {:.2}s", save_start.elapsed().as_secs_f64());
+    eprintln!("⏱️  [DDA TIMING] Result persistence: {:.2}s", save_start.elapsed().as_secs_f64());
 
     log::info!("⏱️  [TIMING] ✅ Total DDA analysis completed in {:.2}s", start_time.elapsed().as_secs_f64());
+    eprintln!("⏱️  [DDA TIMING] ========== TOTAL: {:.2}s ==========\n", start_time.elapsed().as_secs_f64());
 
     Ok(Json(result))
 }
