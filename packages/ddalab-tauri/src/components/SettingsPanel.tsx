@@ -271,10 +271,10 @@ export function SettingsPanel() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {ui.apiMode === 'docker' && (
+            {ui.apiMode === 'external' && (
               <div className="text-sm">
                 <p className="text-muted-foreground">
-                  To start the Docker backend, run:
+                  To start the external backend, run:
                 </p>
                 <code className="block mt-2 p-2 bg-muted rounded text-xs">
                   ./scripts/start-api-only.sh
