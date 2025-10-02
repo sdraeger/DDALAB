@@ -341,7 +341,12 @@ export function FileManager({ apiService }: FileManagerProps) {
       await resetCurrentPathSync()
       console.log('[FILEMANAGER] resetCurrentPathSync complete')
 
-      // Update the local data directory path (client-side only - don't save to backend)
+      // Save to backend (persists to OS config directory)
+      console.log('[FILEMANAGER] Saving to backend with TauriService.setDataDirectory...')
+      await TauriService.setDataDirectory(selected)
+      console.log('[FILEMANAGER] Backend save complete')
+
+      // Update the store (which also persists via state manager)
       console.log('[FILEMANAGER] Calling setDataDirectoryPath with:', selected)
       setDataDirectoryPath(selected)
       console.log('[FILEMANAGER] ===== DIRECTORY CHANGE END =====')
