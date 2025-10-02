@@ -328,6 +328,15 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
 
               <TabsContent value="results" className="h-full m-0">
                 <div className="p-4 h-full">
+                  {(() => {
+                    console.log('[DASHBOARD] Results tab render:', {
+                      hasCurrentAnalysis: !!dda.currentAnalysis,
+                      analysisId: dda.currentAnalysis?.id,
+                      autoLoadingResults,
+                      historyLength: dda.analysisHistory.length
+                    })
+                    return null
+                  })()}
                   {dda.currentAnalysis ? (
                     <DDAResults result={dda.currentAnalysis} />
                   ) : autoLoadingResults ? (

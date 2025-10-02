@@ -413,6 +413,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   dda: defaultDDAState,
 
   setCurrentAnalysis: (analysis) => {
+    console.log('[STORE] setCurrentAnalysis called:', {
+      hasAnalysis: !!analysis,
+      analysisId: analysis?.id,
+      stack: new Error().stack
+    })
     set((state) => ({ dda: { ...state.dda, currentAnalysis: analysis } }))
   },
 
