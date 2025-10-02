@@ -741,14 +741,18 @@ pub async fn run_dda_analysis(
 
     // Verify the binary exists
     if !PathBuf::from(&dda_binary_path).exists() {
-        log::error!("DDA binary not found at: {}", dda_binary_path);
+        let error_msg = format!("DDA binary not found at: {}", dda_binary_path);
+        log::error!("{}", error_msg);
+        eprintln!("❌ ERROR: {}", error_msg);
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     // Read EDF file to get metadata in a blocking task
     let file_path = PathBuf::from(&request.file_path);
     if !file_path.exists() {
-        log::error!("Input file not found: {}", request.file_path);
+        let error_msg = format!("Input file not found: {}", request.file_path);
+        log::error!("{}", error_msg);
+        eprintln!("❌ ERROR: {}", error_msg);
         return Err(StatusCode::NOT_FOUND);
     }
 
