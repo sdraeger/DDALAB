@@ -678,12 +678,14 @@ pub async fn run_dda_analysis(
         let possible_paths = vec![
             // Development: project bin directory (CARGO_MANIFEST_DIR is src-tauri, need to go up 3 levels)
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().parent().unwrap().join("bin/run_DDA_ASCII"),
-            // Bundled with app (Tauri resources)
+            // Bundled with app (Tauri resources) - Tauri preserves directory structure
             PathBuf::from("./bin/run_DDA_ASCII"),
-            // macOS app bundle
+            // macOS app bundle - resources go in Contents/Resources/
             PathBuf::from("../Resources/bin/run_DDA_ASCII"),
+            PathBuf::from("../Resources/run_DDA_ASCII"),  // In case directory structure is flattened
             // Linux/Windows relative
             PathBuf::from("./resources/bin/run_DDA_ASCII"),
+            PathBuf::from("./resources/run_DDA_ASCII"),  // Flattened fallback
             // Absolute fallback for Docker
             PathBuf::from("/app/bin/run_DDA_ASCII"),
         ];
