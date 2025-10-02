@@ -243,6 +243,184 @@ function PopoutContent() {
     return colors[index % colors.length]
   }
 
+  const getColorSchemeFunction = (t: number): string => {
+    // Viridis color scheme
+    const colors = [
+      [68, 1, 84], [72, 40, 120], [62, 73, 137], [49, 104, 142],
+      [38, 130, 142], [31, 158, 137], [53, 183, 121], [109, 205, 89],
+      [180, 222, 44], [253, 231, 37]
+    ]
+    const idx = Math.floor(t * (colors.length - 1))
+    const frac = t * (colors.length - 1) - idx
+    const c1 = colors[idx] || colors[0]
+    const c2 = colors[idx + 1] || colors[colors.length - 1]
+    const r = Math.round(c1[0] + frac * (c2[0] - c1[0]))
+    const g = Math.round(c1[1] + frac * (c2[1] - c1[1]))
+    const b = Math.round(c1[2] + frac * (c2[2] - c1[2]))
+    return `rgb(${r},${g},${b})`
+  }
+
+  const renderDDAHeatmap = useCallback(() => {
+    if (!ddaHeatmapRef.current || !currentData || !currentData.result) return
+
+    // Clean up existing plot
+    if (uplotHeatmapRef.current) {
+      uplotHeatmapRef.current.destroy()
+      uplotHeatmapRef.current = null
+    }
+
+    try {
+      const result = currentData.result
+      const scales = result.results?.scales
+      const dda_matrix = result.results?.dda_matrix
+      const channels = result.channels || Object.keys(dda_matrix || {})
+
+      if (!scales || !dda_matrix || channels.length === 0) {
+        console.warn('[POPOUT] Missing data for heatmap:', { scales: !!scales, dda_matrix: !!dda_matrix, channels: channels.length })
+        return
+      }
+
+      // Process heatmap data
+      const heatmapData: number[][] = []
+      let minVal = Infinity
+      let maxVal = -Infinity
+
+      channels.forEach(channel => {
+        if (dda_matrix[channel]) {
+          const channelData = dda_matrix[channel].map((val: number) => {
+            // Log transform for better visualization
+            const logVal = Math.log10(Math.max(0.001, val))
+            minVal = Math.min(minVal, logVal)
+            maxVal = Math.max(maxVal, logVal)
+            return logVal
+          })
+          heatmapData.push(channelData)
+        }
+      })
+
+      const colorRange: [number, number] = [minVal, maxVal]
+
+      const width = ddaHeatmapRef.current.clientWidth
+      const height = Math.max(300, channels.length * 30 + 100)
+
+      // Prepare data for uPlot
+      const plotData: uPlot.AlignedData = [
+        scales,
+        new Array(scales.length).fill(0) // Dummy data for positioning
+      ]
+
+      const opts: uPlot.Options = {
+        width,
+        height,
+        scales: {
+          x: {
+            time: false,
+            range: [scales[0], scales[scales.length - 1]]
+          },
+          y: {
+            range: [-0.5, channels.length - 0.5]
+          }
+        },
+        axes: [
+          {
+            label: 'Time Points',
+            labelSize: 30,
+            size: 50
+          },
+          {
+            label: 'Channels',
+            labelSize: 100,
+            size: 120,
+            values: (u, ticks) => ticks.map(tick => {
+              const idx = Math.round(tick)
+              return idx >= 0 && idx < channels.length ? channels[idx] : ''
+            })
+          }
+        ],
+        series: [
+          {},
+          {
+            paths: () => null,
+            points: { show: false }
+          }
+        ],
+        cursor: {
+          lock: false,
+          focus: {
+            prox: 1e6,
+          }
+        },
+        hooks: {
+          draw: [
+            u => {
+              const ctx = u.ctx
+              const { left, top, width: plotWidth, height: plotHeight } = u.bbox
+
+              if (plotWidth <= 0 || plotHeight <= 0) return
+
+              ctx.save()
+              ctx.beginPath()
+              ctx.rect(left, top, plotWidth, plotHeight)
+              ctx.clip()
+
+              const cellWidth = plotWidth / scales.length
+              const cellHeight = plotHeight / channels.length
+
+              // Draw heatmap cells
+              for (let y = 0; y < channels.length; y++) {
+                for (let x = 0; x < scales.length; x++) {
+                  const value = heatmapData[y]?.[x] || 0
+                  const normalized = (value - colorRange[0]) / (colorRange[1] - colorRange[0])
+                  const clamped = Math.max(0, Math.min(1, normalized))
+
+                  const color = getColorSchemeFunction(clamped)
+
+                  ctx.fillStyle = color
+                  ctx.fillRect(
+                    left + x * cellWidth,
+                    top + y * cellHeight,
+                    cellWidth + 1,
+                    cellHeight + 1
+                  )
+                }
+              }
+
+              ctx.restore()
+            }
+          ]
+        }
+      }
+
+      uplotHeatmapRef.current = new uPlot(opts, plotData, ddaHeatmapRef.current)
+
+      // Handle resize
+      const resizeObserver = new ResizeObserver(() => {
+        if (uplotHeatmapRef.current && ddaHeatmapRef.current) {
+          const newWidth = ddaHeatmapRef.current.clientWidth
+          const newHeight = Math.max(300, channels.length * 30 + 100)
+          uplotHeatmapRef.current.setSize({
+            width: newWidth,
+            height: newHeight
+          })
+          uplotHeatmapRef.current.redraw()
+        }
+      })
+
+      resizeObserver.observe(ddaHeatmapRef.current)
+
+      return () => {
+        resizeObserver.disconnect()
+        if (uplotHeatmapRef.current) {
+          uplotHeatmapRef.current.destroy()
+          uplotHeatmapRef.current = null
+        }
+      }
+    } catch (error) {
+      console.error('Error rendering DDA heatmap:', error)
+      setError(`Failed to render DDA heatmap: ${error}`)
+    }
+  }, [currentData])
+
   const renderDDALinePlot = useCallback(() => {
     if (!ddaLinePlotRef.current || !currentData || !currentData.result) return
 
@@ -373,9 +551,10 @@ function PopoutContent() {
     if (windowType === 'timeseries' && currentData && !isLocked) {
       renderTimeSeriesPlot()
     } else if (windowType === 'dda-results' && currentData && !isLocked) {
+      renderDDAHeatmap()
       renderDDALinePlot()
     }
-  }, [currentData, windowType, isLocked, renderTimeSeriesPlot, renderDDALinePlot])
+  }, [currentData, windowType, isLocked, renderTimeSeriesPlot, renderDDAHeatmap, renderDDALinePlot])
 
   const renderContent = () => {
     if (error) {
@@ -493,6 +672,16 @@ function PopoutContent() {
             <label className="block text-gray-600">Channels</label>
             <div className="font-semibold">{result.channels ? result.channels.length : 0}</div>
           </div>
+        </div>
+
+        {/* DDA Heatmap */}
+        <div className="flex-shrink-0 mb-4">
+          <h3 className="text-sm font-medium mb-2">DDA Heatmap</h3>
+          <div
+            ref={ddaHeatmapRef}
+            className="w-full border border-gray-200 rounded bg-white"
+            style={{ minHeight: '300px' }}
+          />
         </div>
 
         {/* DDA Line Plot */}
