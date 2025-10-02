@@ -65,12 +65,20 @@ pub async fn start_embedded_api_server(
     // Resolve DDA binary path using Tauri's path resolution
     let dda_binary_path = app_handle.path()
         .resolve("bin/run_DDA_ASCII", tauri::path::BaseDirectory::Resource)
-        .ok();
+        .ok()
+        .and_then(|path| {
+            // Only use the resolved path if it actually exists
+            if path.exists() {
+                log::info!("✅ Resolved DDA binary path: {:?}", path);
+                Some(path)
+            } else {
+                log::warn!("⚠️ Tauri resolved path doesn't exist: {:?}, will fall back to development paths", path);
+                None
+            }
+        });
 
-    if let Some(ref path) = dda_binary_path {
-        log::info!("✅ Resolved DDA binary path: {:?}", path);
-    } else {
-        log::warn!("⚠️ Could not resolve DDA binary from resources, will fall back to development paths");
+    if dda_binary_path.is_none() {
+        log::info!("🔍 No bundled binary found, will use development fallback paths");
     }
 
     let is_running_ref = state.is_running.clone();
