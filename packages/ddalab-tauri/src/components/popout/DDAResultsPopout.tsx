@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
-import { 
+import {
   Download,
   Grid3x3,
   TrendingUp,
@@ -158,7 +158,7 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
     })
 
     setHeatmapData(data)
-    
+
     if (autoScale) {
       setColorRange([minVal, maxVal])
     }
@@ -191,10 +191,10 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
         const value = heatmapData[y]?.[x] || 0
         const normalized = (value - colorRange[0]) / (colorRange[1] - colorRange[0])
         const clamped = Math.max(0, Math.min(1, normalized))
-        
+
         const color = colorSchemes[colorScheme](clamped)
         const rgb = color.match(/\d+/g)!.map(Number)
-        
+
         const pixelIndex = (y * canvas.width + x) * 4
         data[pixelIndex] = rgb[0]     // R
         data[pixelIndex + 1] = rgb[1] // G
@@ -282,14 +282,32 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
 
     // Prepare data for line plot
     const scales = result.results.scales
+
+    // Defensive check for scales data
+    if (!scales || !Array.isArray(scales) || scales.length === 0) {
+      console.error('Invalid scales data for line plot:', scales);
+      return
+    }
+
     const data: uPlot.AlignedData = [scales]
 
     // Add DDA matrix data for selected channels
     selectedChannels.forEach(channel => {
       if (result.results.dda_matrix?.[channel]) {
-        data.push(result.results.dda_matrix[channel])
+        const channelData = result.results.dda_matrix[channel]
+        if (Array.isArray(channelData) && channelData.length > 0) {
+          data.push(channelData)
+        } else {
+          console.warn(`Invalid data for channel ${channel}:`, channelData)
+        }
       }
     })
+
+    // Check we have at least one data series besides x-axis
+    if (data.length < 2) {
+      console.error('No valid channel data for line plot');
+      return
+    }
 
     // Create series configuration
     const series: uPlot.Series[] = [
@@ -349,7 +367,7 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
   }
 
   const handleChannelToggle = (channel: string) => {
-    setSelectedChannels(prev => 
+    setSelectedChannels(prev =>
       prev.includes(channel)
         ? prev.filter(ch => ch !== channel)
         : [...prev, channel]
@@ -400,7 +418,7 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
             <div>
               <CardTitle className="text-lg">DDA Results Visualization</CardTitle>
               <CardDescription>
-                Analysis from {new Date(result.created_at).toLocaleDateString()} • 
+                Analysis from {new Date(result.created_at).toLocaleDateString()} •
                 {result.channels.length} channels
               </CardDescription>
             </div>
@@ -412,7 +430,7 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
             </div>
           </div>
         </CardHeader>
-        
+
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
             {/* View Mode */}
@@ -525,13 +543,13 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
 
 export default function DDAResultsPopout() {
   const { data, isLocked, windowId } = usePopoutListener()
-  
+
   return (
     <PopoutLayout
       title="DDA Analysis Results"
       showRefresh={true}
     >
-      <DDAResultsPopoutContent 
+      <DDAResultsPopoutContent
         data={data}
         isLocked={isLocked}
         windowId={windowId || undefined}
