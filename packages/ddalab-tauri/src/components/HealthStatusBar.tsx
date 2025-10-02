@@ -82,21 +82,26 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
   }, [updateHealthStatus])
 
   // Initial health check and setup periodic checks
+  // Wait for server to be ready before starting health checks
   useEffect(() => {
-    // For embedded mode, delay initial health check to allow server startup
-    const initialDelay = ui.apiMode === 'embedded' && TauriService.isTauri() ? 1000 : 0
+    // Don't start health checks until server is ready
+    if (!ui.isServerReady) {
+      console.log('[HEALTH] Waiting for server to be ready before health checks')
+      return
+    }
 
-    const initialTimeout = setTimeout(() => {
-      checkApiHealth()
-    }, initialDelay)
+    console.log('[HEALTH] Server ready, starting health checks')
 
+    // Start health check immediately
+    checkApiHealth()
+
+    // Setup periodic health checks
     const interval = setInterval(checkApiHealth, 120000) // Check every 2 minutes
 
     return () => {
-      clearTimeout(initialTimeout)
       clearInterval(interval)
     }
-  }, [checkApiHealth, ui.apiMode])
+  }, [ui.isServerReady, checkApiHealth])
 
   // Setup WebSocket connection
   useEffect(() => {

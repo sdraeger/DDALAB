@@ -61,6 +61,7 @@ export interface UIState {
   layout: 'default' | 'analysis' | 'plots'
   theme: 'light' | 'dark' | 'auto'
   apiMode: 'docker' | 'embedded'
+  isServerReady: boolean  // Tracks if API server is ready to accept requests
 }
 
 export interface AppState {
@@ -106,6 +107,7 @@ export interface AppState {
   setLayout: (layout: UIState['layout']) => void
   setTheme: (theme: UIState['theme']) => void
   setApiMode: (mode: UIState['apiMode']) => void
+  setServerReady: (ready: boolean) => void
 
   // State persistence
   saveCurrentState: () => Promise<void>
@@ -167,7 +169,8 @@ const defaultUIState: UIState = {
   panelSizes: [25, 50, 25],
   layout: 'default',
   theme: 'auto',
-  apiMode: 'docker'
+  apiMode: 'docker',
+  isServerReady: false
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -515,6 +518,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (TauriService.isTauri()) {
       TauriService.updateUIState({ apiMode })
     }
+  },
+
+  setServerReady: (ready) => {
+    console.log('[SERVER_READY] Setting server ready state:', ready)
+    set((state) => ({ ui: { ...state.ui, isServerReady: ready } }))
   },
 
   // Additional persistence methods that weren't in the original implementation

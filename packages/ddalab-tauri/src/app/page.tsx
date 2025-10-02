@@ -14,7 +14,7 @@ export default function Home() {
   const [isTauri, setIsTauri] = useState(false)
   const [showApiModeSetup, setShowApiModeSetup] = useState(false)
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false)
-  const { initializeFromTauri, isInitialized, setApiMode } = useAppStore()
+  const { initializeFromTauri, isInitialized, setApiMode, setServerReady } = useAppStore()
 
   useEffect(() => {
     const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
@@ -260,17 +260,21 @@ export default function Home() {
           if (connected) {
             console.log('Embedded API server started successfully')
             setIsApiConnected(true)
+            setServerReady(true)  // Signal that server is ready for requests
           } else {
             console.error('Embedded API server failed to respond after', maxRetries, 'retries')
             setIsApiConnected(false)
+            setServerReady(false)
           }
         } catch (error) {
           console.error('Failed to start embedded API:', error)
           setIsApiConnected(false)
+          setServerReady(false)
         }
       } else {
-        // For external mode, check connection
-        checkApiConnection()
+        // For external mode, check connection and set server ready
+        await checkApiConnection()
+        setServerReady(true)  // External API is assumed ready if connection succeeds
       }
 
       // Hide setup screen AFTER server is ready

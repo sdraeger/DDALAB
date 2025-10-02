@@ -1,0 +1,173 @@
+% DDALAB Architecture Diagram
+% Compile with: pdflatex architecture_diagram.tex
+
+\documentclass[border=10pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows, positioning, fit, backgrounds, shadows, decorations.pathmorphing}
+
+\begin{document}
+
+\definecolor{tauri}{RGB}{255, 199, 6}
+\definecolor{rust}{RGB}{206, 92, 0}
+\definecolor{react}{RGB}{97, 218, 251}
+\definecolor{docker}{RGB}{0, 182, 255}
+\definecolor{fastapi}{RGB}{0, 150, 136}
+\definecolor{postgres}{RGB}{51, 103, 145}
+\definecolor{redis}{RGB}{220, 47, 2}
+\definecolor{minio}{RGB}{194, 77, 148}
+
+\begin{tikzpicture}[
+    node distance=1.5cm,
+    box/.style={rectangle, draw, rounded corners, minimum width=2.5cm, minimum height=1cm, text centered, drop shadow, font=\footnotesize},
+    bigbox/.style={rectangle, draw, rounded corners, minimum width=3.5cm, minimum height=1.5cm, text centered, drop shadow, font=\small, fill=white},
+    container/.style={rectangle, draw, dashed, rounded corners, minimum width=2cm, minimum height=0.8cm, text centered},
+    layer/.style={rectangle, draw, thick, rounded corners, inner sep=10pt},
+    arrow/.style={->, >=stealth, thick},
+    bidiarrow/.style={<->, >=stealth, thick},
+    dashedarrow/.style={->, >=stealth, thick, dashed},
+]
+
+% Title
+\node[font=\Large\bfseries] at (0, 11) {DDALAB System Architecture};
+
+% ============== LEFT SIDE: Standalone Deployment ==============
+\node[font=\large\bfseries] at (-6, 9.5) {Standalone Desktop};
+
+% Desktop Application Layer
+\node[bigbox, fill=tauri!30] (desktop-ui-left) at (-6, 8) {
+    \textbf{Tauri Desktop App} \\
+    React + TypeScript UI
+};
+
+% Embedded API Layer
+\node[bigbox, fill=rust!30] (embedded-api) at (-6, 6) {
+    \textbf{Embedded Rust API} \\
+    Axum Web Server
+};
+
+% Components inside Embedded API
+\node[box, fill=rust!20, minimum width=2cm] (edf-reader) at (-8, 4.2) {
+    Custom EDF \\
+    Reader
+};
+\node[box, fill=rust!20, minimum width=2cm] (dda-exec) at (-4, 4.2) {
+    DDA Binary \\
+    Executor
+};
+
+% Local filesystem
+\node[box, fill=gray!20] (local-files) at (-6, 2) {
+    \textbf{Local Filesystem} \\
+    EDF Files \& Results
+};
+
+% Connections for standalone
+\draw[bidiarrow] (desktop-ui-left) -- (embedded-api) node[midway, right, font=\tiny] {localhost:8765};
+\draw[arrow] (embedded-api) -- (edf-reader);
+\draw[arrow] (embedded-api) -- (dda-exec);
+\draw[bidiarrow] (edf-reader) -- (local-files);
+\draw[bidiarrow] (dda-exec) -- (local-files);
+
+% Grouping box for standalone
+\begin{scope}[on background layer]
+    \node[layer, fill=blue!5, fit={(desktop-ui-left) (embedded-api) (edf-reader) (dda-exec) (local-files)}, label={[font=\small]above:\textbf{User's Computer}}] (standalone-box) {};
+\end{scope}
+
+% Features annotation
+\node[text width=3cm, font=\tiny, align=left] at (-6, 0.5) {
+    \textbf{Features:} \\
+    • Zero configuration \\
+    • Complete data privacy \\
+    • No dependencies \\
+    • Instant startup
+};
+
+% ============== RIGHT SIDE: Institutional Deployment ==============
+\node[font=\large\bfseries] at (6, 9.5) {Institutional Deployment};
+
+% Desktop Application Layer
+\node[bigbox, fill=tauri!30] (desktop-ui-right) at (6, 8) {
+    \textbf{Tauri Desktop App} \\
+    React + TypeScript UI
+};
+
+% Docker Infrastructure
+\node[font=\small\bfseries] at (6, 6.2) {Docker Services};
+
+% API Gateway
+\node[box, fill=docker!20] (traefik) at (6, 5.5) {
+    Traefik \\
+    (SSL/Proxy)
+};
+
+% FastAPI Server
+\node[bigbox, fill=fastapi!30] (fastapi) at (6, 3.8) {
+    \textbf{FastAPI Server} \\
+    GraphQL + REST
+};
+
+% Backend Services Row
+\node[box, fill=postgres!30, minimum width=1.8cm] (postgres) at (2.5, 1.8) {
+    PostgreSQL \\
+    \tiny{Database}
+};
+\node[box, fill=redis!30, minimum width=1.8cm] (redis) at (5.5, 1.8) {
+    Redis \\
+    \tiny{Cache}
+};
+\node[box, fill=minio!30, minimum width=1.8cm] (minio) at (8.5, 1.8) {
+    MinIO \\
+    \tiny{Storage}
+};
+
+% DDA components
+\node[box, fill=rust!20, minimum width=1.8cm] (dda-py) at (6, 0.3) {
+    dda\_py \\
+    \tiny{Python Package}
+};
+
+% Connections for institutional
+\draw[bidiarrow] (desktop-ui-right) -- (traefik) node[midway, right, font=\tiny] {HTTPS};
+\draw[bidiarrow] (traefik) -- (fastapi);
+\draw[bidiarrow] (fastapi) -- (postgres) node[midway, above, sloped, font=\tiny] {Data};
+\draw[bidiarrow] (fastapi) -- (redis) node[midway, above, sloped, font=\tiny] {Cache};
+\draw[bidiarrow] (fastapi) -- (minio) node[midway, above, sloped, font=\tiny] {Files};
+\draw[arrow] (fastapi) -- (dda-py) node[midway, right, font=\tiny] {Execute};
+
+% Docker container grouping
+\begin{scope}[on background layer]
+    \node[layer, fill=docker!5, fit={(traefik) (fastapi) (postgres) (redis) (minio) (dda-py)}, label={[font=\small]above:\textbf{Institutional Server}}] (docker-box) {};
+\end{scope}
+
+% Features annotation
+\node[text width=3cm, font=\tiny, align=left] at (6, -1.2) {
+    \textbf{Features:} \\
+    • Centralized deployment \\
+    • Multi-user support \\
+    • Shared storage \\
+    • Scalability
+};
+
+% ============== Common Components ==============
+% Data Flow Legend
+\node[font=\small\bfseries] at (0, -2.5) {Legend};
+\draw[arrow] (-2, -3) -- (-1, -3) node[right, font=\tiny] {Data Flow};
+\draw[bidiarrow] (-2, -3.5) -- (-1, -3.5) node[right, font=\tiny] {Bidirectional};
+\draw[dashedarrow] (-2, -4) -- (-1, -4) node[right, font=\tiny] {Optional};
+
+% Technology stack
+\node[box, fill=tauri!30, minimum width=1.5cm, minimum height=0.6cm] at (1.5, -3) {\tiny Tauri};
+\node[box, fill=rust!30, minimum width=1.5cm, minimum height=0.6cm] at (1.5, -3.5) {\tiny Rust};
+\node[box, fill=react!30, minimum width=1.5cm, minimum height=0.6cm] at (1.5, -4) {\tiny React};
+\node[box, fill=docker!30, minimum width=1.5cm, minimum height=0.6cm] at (3.2, -3) {\tiny Docker};
+\node[box, fill=fastapi!30, minimum width=1.5cm, minimum height=0.6cm] at (3.2, -3.5) {\tiny FastAPI};
+
+% Common features across both deployments
+\node[text width=6cm, font=\tiny, align=center] at (0, -5) {
+    \textbf{Shared Capabilities:} \\
+    Custom EDF Reader • DDA Analysis • Real-time Visualization • State Persistence • Cross-platform Support
+};
+
+\end{tikzpicture}
+
+\end{document}

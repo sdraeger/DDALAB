@@ -79,7 +79,7 @@ services:
   ddalab:
     image: ddalab:latest
     ports:
-      - "8001:8001" 
+      - "8001:8001"
       - "3000:3000"
     volumes:
       - ./my-config.yml:/config/config.yml:ro
@@ -194,7 +194,7 @@ Use environment variables for quick testing:
 docker run -e DDA_MODE=development -e DDA_DEBUG=true ddalab:latest
 ```
 
-### Staging/Production  
+### Staging/Production
 Use mounted configuration files for full control:
 ```bash
 docker run -v /etc/ddalab/prod-config.yml:/config/config.yml:ro ddalab:latest

@@ -60,30 +60,16 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
   }, [ui.apiMode, apiUrl, apiService.baseURL])
 
   // Auto-load most recent analysis from MinIO on component mount
+  // Only load after server is ready to avoid connection errors
   useEffect(() => {
     const loadAnalysisHistory = async () => {
-      // For embedded mode, wait for server to be ready before fetching history
-      if (ui.apiMode === 'embedded') {
-        let retries = 0
-        const maxRetries = 10
-
-        while (retries < maxRetries) {
-          try {
-            // Quick health check before fetching history
-            await apiService.checkHealth()
-            break // Server is ready
-          } catch (error) {
-            retries++
-            if (retries < maxRetries) {
-              // Wait 300ms between retries (total max wait: 3 seconds)
-              await new Promise(resolve => setTimeout(resolve, 300))
-            } else {
-              console.error('Embedded API server not ready after retries')
-              return
-            }
-          }
-        }
+      // Wait for server to be ready before attempting to fetch
+      if (!ui.isServerReady) {
+        console.log('[DASHBOARD] Waiting for server to be ready before loading analysis history')
+        return
       }
+
+      console.log('[DASHBOARD] Server is ready, loading analysis history')
 
       try {
         const history = await apiService.getAnalysisHistory()
@@ -94,7 +80,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
     }
 
     loadAnalysisHistory()
-  }, [apiService, setAnalysisHistory, ui.apiMode])
+  }, [ui.isServerReady, apiService, setAnalysisHistory])
 
   // Auto-load most recent analysis if no current analysis is set
   useEffect(() => {
