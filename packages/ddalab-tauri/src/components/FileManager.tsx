@@ -50,6 +50,7 @@ export function FileManager({ apiService }: FileManagerProps) {
     updateFileManagerState,
     setSelectedChannels,
     setCurrentPath,
+    setDataDirectoryPath,
     resetCurrentPathSync,
     clearPendingFileSelection,
     ui
@@ -63,12 +64,11 @@ export function FileManager({ apiService }: FileManagerProps) {
   const [pendingFileSelection, setPendingFileSelection] = useState<EDFFileInfo | null>(null)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [showDirectoryChangeWarning, setShowDirectoryChangeWarning] = useState(false)
-  const [dataDirectoryPath, setDataDirectoryPath] = useState<string>('')
 
-  // Load the data directory path on mount
+  // Load the data directory path on mount if not already set
   useEffect(() => {
     const loadDataDirectoryPath = async () => {
-      if (TauriService.isTauri()) {
+      if (TauriService.isTauri() && !fileManager.dataDirectoryPath) {
         try {
           const path = await TauriService.getDataDirectory()
           console.log('[FILEMANAGER] Loaded data directory path:', path)
@@ -84,20 +84,20 @@ export function FileManager({ apiService }: FileManagerProps) {
   // Load files when component mounts or path changes
   // Only load if server is ready to avoid blocking UI with failed requests
   useEffect(() => {
-    if (dataDirectoryPath && ui.isServerReady && !isInitialLoad) {
+    if (fileManager.dataDirectoryPath && ui.isServerReady && !isInitialLoad) {
       loadCurrentDirectory()
     }
-  }, [fileManager.currentPath, dataDirectoryPath, ui.isServerReady])
+  }, [fileManager.currentPath, fileManager.dataDirectoryPath, ui.isServerReady])
 
   // Ensure we load on mount even if currentPath hasn't changed
   // Wait for server to be ready before loading
   useEffect(() => {
-    if (isInitialLoad && ui.isServerReady && dataDirectoryPath) {
+    if (isInitialLoad && ui.isServerReady && fileManager.dataDirectoryPath) {
       console.log('[FILEMANAGER] Server ready, loading initial directory')
       setIsInitialLoad(false)
       loadCurrentDirectory()
     }
-  }, [ui.isServerReady, isInitialLoad, dataDirectoryPath])
+  }, [ui.isServerReady, isInitialLoad, fileManager.dataDirectoryPath])
 
   const loadCurrentDirectory = async () => {
     try {
@@ -106,10 +106,10 @@ export function FileManager({ apiService }: FileManagerProps) {
 
       // Build absolute path: dataDirectoryPath + relative currentPath
       const relativePath = fileManager.currentPath.join('/')
-      const absolutePath = relativePath ? `${dataDirectoryPath}/${relativePath}` : dataDirectoryPath
+      const absolutePath = relativePath ? `${fileManager.dataDirectoryPath}/${relativePath}` : fileManager.dataDirectoryPath
 
       console.log('[FILEMANAGER] Loading directory:', {
-        dataDirectoryPath,
+        dataDirectoryPath: fileManager.dataDirectoryPath,
         relativePath,
         absolutePath,
         currentPathArray: fileManager.currentPath
@@ -264,8 +264,8 @@ export function FileManager({ apiService }: FileManagerProps) {
 
     // Remove the dataDirectoryPath prefix to get relative path
     let relativePath = absolutePath
-    if (absolutePath.startsWith(dataDirectoryPath)) {
-      relativePath = absolutePath.slice(dataDirectoryPath.length)
+    if (absolutePath.startsWith(fileManager.dataDirectoryPath)) {
+      relativePath = absolutePath.slice(fileManager.dataDirectoryPath.length)
     }
 
     // Split and filter empty segments
@@ -273,7 +273,7 @@ export function FileManager({ apiService }: FileManagerProps) {
 
     console.log('[FILEMANAGER] Directory selected:', {
       dirPath: dir.path,
-      dataDirectoryPath,
+      dataDirectoryPath: fileManager.dataDirectoryPath,
       relativePath,
       newPath
     })
@@ -333,7 +333,7 @@ export function FileManager({ apiService }: FileManagerProps) {
       console.log('[FILEMANAGER] ===== DIRECTORY CHANGE START =====')
       console.log('[FILEMANAGER] Selected directory:', selected)
       console.log('[FILEMANAGER] Type of selected:', typeof selected)
-      console.log('[FILEMANAGER] Current dataDirectoryPath:', dataDirectoryPath)
+      console.log('[FILEMANAGER] Current dataDirectoryPath:', fileManager.dataDirectoryPath)
       console.log('[FILEMANAGER] Current path array:', fileManager.currentPath)
 
       // Reset currentPath to [] and persist synchronously before changing directory

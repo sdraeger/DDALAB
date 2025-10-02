@@ -10,6 +10,7 @@ let isInitializingPersistence = false
 let hasInitializedPersistence = false
 
 export interface FileManagerState {
+  dataDirectoryPath: string
   currentPath: string[]
   selectedFile: EDFFileInfo | null
   selectedChannels: string[]
@@ -78,6 +79,7 @@ export interface AppState {
 
   // File management
   fileManager: FileManagerState
+  setDataDirectoryPath: (path: string) => void
   setCurrentPath: (path: string[]) => void
   resetCurrentPathSync: () => Promise<void>
   setSelectedFile: (file: EDFFileInfo | null) => void
@@ -124,6 +126,7 @@ export interface AppState {
 }
 
 const defaultFileManagerState: FileManagerState = {
+  dataDirectoryPath: '',
   currentPath: [],
   selectedFile: null,
   selectedChannels: [],
@@ -247,6 +250,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             persistenceService: service,
             fileManager: {
               ...state.fileManager,
+              dataDirectoryPath: persistedState.file_manager.data_directory_path || state.fileManager.dataDirectoryPath,
               currentPath: persistedState.file_manager.current_path,
               selectedFile,
               selectedChannels: persistedState.file_manager.selected_channels,
@@ -316,6 +320,33 @@ export const useAppStore = create<AppState>((set, get) => ({
   // File management
   fileManager: defaultFileManagerState,
 
+  setDataDirectoryPath: (path) => {
+    set((state) => ({
+      fileManager: { ...state.fileManager, dataDirectoryPath: path }
+    }))
+
+    if (TauriService.isTauri()) {
+      const { fileManager, persistenceService } = get()
+      const fileManagerState = {
+        data_directory_path: path,
+        selected_file: fileManager.selectedFile?.file_path || null,
+        current_path: fileManager.currentPath,
+        selected_channels: fileManager.selectedChannels,
+        search_query: fileManager.searchQuery,
+        sort_by: fileManager.sortBy,
+        sort_order: fileManager.sortOrder,
+        show_hidden: fileManager.showHidden
+      }
+
+      TauriService.updateFileManagerState(fileManagerState)
+
+      // Auto-save via persistence service
+      if (persistenceService) {
+        persistenceService.saveFileManagerState(fileManagerState).catch(console.error)
+      }
+    }
+  },
+
   setCurrentPath: (path) => {
     set((state) => ({
       fileManager: { ...state.fileManager, currentPath: path }
@@ -324,6 +355,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (TauriService.isTauri()) {
       const { fileManager, persistenceService } = get()
       const fileManagerState = {
+        data_directory_path: fileManager.dataDirectoryPath,
         selected_file: fileManager.selectedFile?.file_path || null,
         current_path: path,
         selected_channels: fileManager.selectedChannels,
@@ -351,6 +383,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (TauriService.isTauri()) {
       const { fileManager, persistenceService } = get()
       const fileManagerState = {
+        data_directory_path: fileManager.dataDirectoryPath,
         selected_file: null, // Clear selected file too when changing directory
         current_path: [],
         selected_channels: fileManager.selectedChannels,
