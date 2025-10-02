@@ -111,9 +111,35 @@ export default function Home() {
           try {
             console.log('Starting embedded API server from saved preferences...')
             await TauriService.startEmbeddedApiServer()
-            await new Promise(resolve => setTimeout(resolve, 2000))
-            console.log('Embedded API server started successfully')
-            setIsApiConnected(true)
+
+            // Wait for server to be ready with exponential backoff
+            let retries = 0
+            let connected = false
+            const maxRetries = 15
+
+            while (retries < maxRetries && !connected) {
+              await new Promise(resolve => setTimeout(resolve, Math.min(500 * Math.pow(1.3, retries), 2000)))
+
+              try {
+                connected = await TauriService.checkApiConnection(url)
+                if (connected) {
+                  console.log(`Embedded API server ready after ${retries + 1} attempts`)
+                  break
+                }
+              } catch (error) {
+                // Server not ready yet, continue retrying
+              }
+
+              retries++
+            }
+
+            if (connected) {
+              console.log('Embedded API server started successfully')
+              setIsApiConnected(true)
+            } else {
+              console.error('Embedded API server failed to respond after', maxRetries, 'retries')
+              setIsApiConnected(false)
+            }
           } catch (error) {
             console.error('Failed to start embedded API:', error)
             setIsApiConnected(false)
@@ -208,10 +234,36 @@ export default function Home() {
         try {
           console.log('Starting embedded API server...')
           await TauriService.startEmbeddedApiServer()
-          // Wait longer for server to fully start
-          await new Promise(resolve => setTimeout(resolve, 2000))
-          console.log('Embedded API server started successfully')
-          setIsApiConnected(true)
+
+          // Wait for server to be ready with exponential backoff
+          let retries = 0
+          let connected = false
+          const maxRetries = 15
+          const serverUrl = 'http://localhost:8765'
+
+          while (retries < maxRetries && !connected) {
+            await new Promise(resolve => setTimeout(resolve, Math.min(500 * Math.pow(1.3, retries), 2000)))
+
+            try {
+              connected = await TauriService.checkApiConnection(serverUrl)
+              if (connected) {
+                console.log(`Embedded API server ready after ${retries + 1} attempts`)
+                break
+              }
+            } catch (error) {
+              // Server not ready yet, continue retrying
+            }
+
+            retries++
+          }
+
+          if (connected) {
+            console.log('Embedded API server started successfully')
+            setIsApiConnected(true)
+          } else {
+            console.error('Embedded API server failed to respond after', maxRetries, 'retries')
+            setIsApiConnected(false)
+          }
         } catch (error) {
           console.error('Failed to start embedded API:', error)
           setIsApiConnected(false)
