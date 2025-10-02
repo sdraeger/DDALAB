@@ -269,11 +269,17 @@ class WindowManager {
 
   async broadcastToType(type: WindowType, eventName: string, data: any): Promise<void> {
     const windowIds = this.getWindowsByType(type)
+    console.log(`[WINDOW_MANAGER] Broadcasting to type ${type}:`, {
+      eventName,
+      windowCount: windowIds.length,
+      windowIds
+    })
     for (const windowId of windowIds) {
       const state = this.windowStates.get(windowId)
       if (state && !state.isLocked) {
         try {
-          await emit(`${eventName}-${windowId}`, data)
+          // Use sendDataToWindow to ensure consistent data format
+          await this.sendDataToWindow(windowId, data)
         } catch (error) {
           console.error(`Failed to broadcast to window ${windowId}:`, error)
         }
