@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::path::PathBuf;
 use parking_lot::RwLock;
-use tauri::{State, AppHandle};
+use tauri::{Manager, State, AppHandle};
 use tokio::task::JoinHandle;
 use crate::embedded_api;
 
@@ -62,6 +62,17 @@ pub async fn start_embedded_api_server(
     // Start the server in a background task with proper error handling
     log::info!("🚀 Starting embedded API server on port {} with data dir: {:?}", port, data_dir);
 
+    // Resolve DDA binary path using Tauri's path resolution
+    let dda_binary_path = app_handle.path()
+        .resolve("bin/run_DDA_ASCII", tauri::path::BaseDirectory::Resource)
+        .ok();
+
+    if let Some(ref path) = dda_binary_path {
+        log::info!("✅ Resolved DDA binary path: {:?}", path);
+    } else {
+        log::warn!("⚠️ Could not resolve DDA binary from resources, will fall back to development paths");
+    }
+
     let is_running_ref = state.is_running.clone();
     let server_handle = tokio::spawn(async move {
         log::info!("📡 Embedded API server task started");
@@ -70,7 +81,7 @@ pub async fn start_embedded_api_server(
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         log::info!("⏰ About to call embedded_api::start_embedded_api_server...");
 
-        if let Err(e) = embedded_api::start_embedded_api_server(port, data_dir).await {
+        if let Err(e) = embedded_api::start_embedded_api_server(port, data_dir, dda_binary_path).await {
             log::error!("❌ Embedded API server startup failed: {}", e);
             // Update the running state on failure
             {
