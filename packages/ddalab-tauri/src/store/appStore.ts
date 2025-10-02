@@ -79,6 +79,7 @@ export interface AppState {
   // File management
   fileManager: FileManagerState
   setCurrentPath: (path: string[]) => void
+  resetCurrentPathSync: () => Promise<void>
   setSelectedFile: (file: EDFFileInfo | null) => void
   setSelectedChannels: (channels: string[]) => void
   setTimeWindow: (window: { start: number; end: number }) => void
@@ -337,6 +338,34 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Auto-save via persistence service
       if (persistenceService) {
         persistenceService.saveFileManagerState(fileManagerState).catch(console.error)
+      }
+    }
+  },
+
+  // Synchronously clear currentPath and persist immediately - used when changing data directory
+  resetCurrentPathSync: async () => {
+    set((state) => ({
+      fileManager: { ...state.fileManager, currentPath: [] }
+    }))
+
+    if (TauriService.isTauri()) {
+      const { fileManager, persistenceService } = get()
+      const fileManagerState = {
+        selected_file: null, // Clear selected file too when changing directory
+        current_path: [],
+        selected_channels: fileManager.selectedChannels,
+        search_query: fileManager.searchQuery,
+        sort_by: fileManager.sortBy,
+        sort_order: fileManager.sortOrder,
+        show_hidden: fileManager.showHidden
+      }
+
+      TauriService.updateFileManagerState(fileManagerState)
+
+      // Synchronously save to ensure it's persisted before any reloads
+      if (persistenceService) {
+        await persistenceService.saveFileManagerState(fileManagerState)
+        await persistenceService.forceSave()
       }
     }
   },
