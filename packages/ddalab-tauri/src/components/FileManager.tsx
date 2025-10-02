@@ -50,7 +50,8 @@ export function FileManager({ apiService }: FileManagerProps) {
     updateFileManagerState,
     setSelectedChannels,
     setCurrentPath,
-    clearPendingFileSelection
+    clearPendingFileSelection,
+    ui
   } = useAppStore()
 
   const [files, setFiles] = useState<EDFFileInfo[]>([])
@@ -67,12 +68,14 @@ export function FileManager({ apiService }: FileManagerProps) {
   }, [fileManager.currentPath])
 
   // Ensure we load on mount even if currentPath hasn't changed
+  // Wait for server to be ready before loading
   useEffect(() => {
-    if (isInitialLoad) {
+    if (isInitialLoad && ui.isServerReady) {
+      console.log('[FILEMANAGER] Server ready, loading initial directory')
       setIsInitialLoad(false)
       loadCurrentDirectory()
     }
-  }, [])
+  }, [ui.isServerReady, isInitialLoad])
 
   const loadCurrentDirectory = async () => {
     try {

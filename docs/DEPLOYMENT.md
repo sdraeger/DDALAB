@@ -77,7 +77,7 @@ DDALAB_PUBLIC_APP_URL=https://app.yourdomain.com
    # Install Docker and Docker Compose
    curl -fsSL https://get.docker.com | sh
    sudo usermod -aG docker $USER
-   
+
    # Install Docker Compose
    sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
      -o /usr/local/bin/docker-compose
@@ -195,7 +195,7 @@ The application exports metrics to:
    # Restore PostgreSQL
    docker-compose -f docker-compose.prod.yml up -d postgres
    docker-compose -f docker-compose.prod.yml exec -T postgres psql -U ddalab < backups/*/postgres_backup.sql
-   
+
    # Restore other volumes
    for volume in postgres-data redis-data minio-data ddalab-data; do
      docker run --rm -v ${volume}:/data -v ./backups/*/:/backup alpine \
