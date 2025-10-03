@@ -1058,8 +1058,19 @@ export function DDAResults({ result }: DDAResultsProps) {
                 <div
                   className="w-full h-full min-h-[400px] relative"
                   onContextMenu={(e) => {
-                    if (!uplotLinePlotRef.current) return
+                    console.log('[ANNOTATION] Right-click detected on line plot', {
+                      hasPlot: !!uplotLinePlotRef.current,
+                      hasScales: !!result.results.scales,
+                      scalesLength: result.results.scales?.length
+                    })
+
                     e.preventDefault()
+                    e.stopPropagation()
+
+                    if (!uplotLinePlotRef.current) {
+                      console.warn('[ANNOTATION] Plot ref not available yet')
+                      return
+                    }
 
                     const rect = e.currentTarget.getBoundingClientRect()
                     const plotX = e.clientX - rect.left
@@ -1067,12 +1078,16 @@ export function DDAResults({ result }: DDAResultsProps) {
 
                     // Convert pixel position to scale value
                     const scales = result.results.scales
-                    if (!scales || scales.length === 0) return
+                    if (!scales || scales.length === 0) {
+                      console.warn('[ANNOTATION] No scales available')
+                      return
+                    }
 
                     const plotWidth = rect.width
                     const scaleIndex = Math.floor((plotX / plotWidth) * scales.length)
                     const scaleValue = scales[scaleIndex] || 0
 
+                    console.log('[ANNOTATION] Opening context menu at scale:', scaleValue)
                     linePlotAnnotations.openContextMenu(e.clientX, e.clientY, scaleValue)
                   }}
                 >
