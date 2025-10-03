@@ -680,6 +680,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       return { annotations }
     })
+
+    // Trigger save after adding annotation
+    const { saveCurrentState } = get()
+    saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save after adding:', err))
   },
 
   updateTimeSeriesAnnotation: (filePath, annotationId, updates, channel) => {
@@ -700,6 +704,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       return { annotations }
     })
+
+    // Trigger save after updating annotation
+    const { saveCurrentState } = get()
+    saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save after updating:', err))
   },
 
   deleteTimeSeriesAnnotation: (filePath, annotationId, channel) => {
@@ -717,6 +725,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       return { annotations }
     })
+
+    // Trigger save after deleting annotation
+    const { saveCurrentState } = get()
+    saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save after deleting:', err))
   },
 
   getTimeSeriesAnnotations: (filePath, channel) => {
@@ -748,6 +760,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       annotations.ddaResults[key].annotations.push(annotation)
       return { annotations }
     })
+
+    // Trigger save after adding annotation
+    const { saveCurrentState } = get()
+    saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save after adding:', err))
   },
 
   updateDDAAnnotation: (resultId, variantId, plotType, annotationId, updates) => {
@@ -764,6 +780,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       return { annotations }
     })
+
+    // Trigger save after updating annotation
+    const { saveCurrentState } = get()
+    saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save after updating:', err))
   },
 
   deleteDDAAnnotation: (resultId, variantId, plotType, annotationId) => {
@@ -777,6 +797,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       plotAnnotations.annotations = plotAnnotations.annotations.filter(a => a.id !== annotationId)
       return { annotations }
     })
+
+    // Trigger save after deleting annotation
+    const { saveCurrentState } = get()
+    saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save after deleting:', err))
   },
 
   getDDAAnnotations: (resultId, variantId, plotType) => {
