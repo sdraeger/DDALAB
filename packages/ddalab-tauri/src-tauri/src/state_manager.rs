@@ -46,7 +46,6 @@ impl AppStateManager {
     }
 
     pub fn save(&self) -> Result<(), String> {
-        eprintln!("📝 [STATE_MANAGER] Attempting to save state to: {:?}", self.config_path);
         let state = self.state.read();
         let content = serde_json::to_string_pretty(&*state)
             .map_err(|e| {
@@ -62,7 +61,6 @@ impl AppStateManager {
                 msg
             })?;
 
-        eprintln!("✅ [STATE_MANAGER] State saved successfully to: {:?}", self.config_path);
         Ok(())
     }
 
@@ -74,16 +72,13 @@ impl AppStateManager {
     where
         F: FnOnce(&mut AppState),
     {
-        eprintln!("🔄 [STATE_MANAGER] update_state called, auto_save_enabled: {}", self.auto_save_enabled);
         {
             let mut state = self.state.write();
             updater(&mut state);
         }
         if self.auto_save_enabled {
-            eprintln!("💾 [STATE_MANAGER] Auto-save is enabled, calling save()");
             self.save()
         } else {
-            eprintln!("⏭️  [STATE_MANAGER] Auto-save is disabled, skipping save");
             Ok(())
         }
     }

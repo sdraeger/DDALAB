@@ -14,12 +14,19 @@ interface UseDDAAnnotationsOptions {
 }
 
 export const useTimeSeriesAnnotations = ({ filePath, channel }: UseTimeSeriesAnnotationsOptions) => {
-  const {
-    getTimeSeriesAnnotations,
-    addTimeSeriesAnnotation,
-    updateTimeSeriesAnnotation,
-    deleteTimeSeriesAnnotation
-  } = useAppStore()
+  const addTimeSeriesAnnotation = useAppStore(state => state.addTimeSeriesAnnotation)
+  const updateTimeSeriesAnnotation = useAppStore(state => state.updateTimeSeriesAnnotation)
+  const deleteTimeSeriesAnnotation = useAppStore(state => state.deleteTimeSeriesAnnotation)
+
+  const annotations = useAppStore(state => {
+    const fileAnnotations = state.annotations.timeSeries[filePath]
+    if (!fileAnnotations) return []
+
+    if (channel && fileAnnotations.channelAnnotations?.[channel]) {
+      return [...fileAnnotations.globalAnnotations, ...fileAnnotations.channelAnnotations[channel]]
+    }
+    return fileAnnotations.globalAnnotations
+  })
 
   const [contextMenu, setContextMenu] = useState<{
     x: number
@@ -27,8 +34,6 @@ export const useTimeSeriesAnnotations = ({ filePath, channel }: UseTimeSeriesAnn
     plotPosition: number
     annotation?: PlotAnnotation
   } | null>(null)
-
-  const annotations = getTimeSeriesAnnotations(filePath, channel)
 
   const handleCreateAnnotation = useCallback(
     (position: number, label: string, description?: string) => {
@@ -69,6 +74,13 @@ export const useTimeSeriesAnnotations = ({ filePath, channel }: UseTimeSeriesAnn
     setContextMenu(null)
   }, [])
 
+  const handleAnnotationClick = useCallback(
+    (annotation: PlotAnnotation, x: number, y: number) => {
+      setContextMenu({ x, y, plotPosition: annotation.position, annotation })
+    },
+    []
+  )
+
   return {
     annotations,
     contextMenu,
@@ -76,17 +88,20 @@ export const useTimeSeriesAnnotations = ({ filePath, channel }: UseTimeSeriesAnn
     handleUpdateAnnotation,
     handleDeleteAnnotation,
     openContextMenu,
-    closeContextMenu
+    closeContextMenu,
+    handleAnnotationClick
   }
 }
 
 export const useDDAAnnotations = ({ resultId, variantId, plotType }: UseDDAAnnotationsOptions) => {
-  const {
-    getDDAAnnotations,
-    addDDAAnnotation,
-    updateDDAAnnotation,
-    deleteDDAAnnotation
-  } = useAppStore()
+  const addDDAAnnotation = useAppStore(state => state.addDDAAnnotation)
+  const updateDDAAnnotation = useAppStore(state => state.updateDDAAnnotation)
+  const deleteDDAAnnotation = useAppStore(state => state.deleteDDAAnnotation)
+
+  const annotations = useAppStore(state => {
+    const key = `${resultId}_${variantId}_${plotType}`
+    return state.annotations.ddaResults[key]?.annotations || []
+  })
 
   const [contextMenu, setContextMenu] = useState<{
     x: number
@@ -94,18 +109,6 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType }: UseDDAAnnot
     plotPosition: number
     annotation?: PlotAnnotation
   } | null>(null)
-
-  const annotations = getDDAAnnotations(resultId, variantId, plotType)
-
-  // Debug: Log loaded annotations
-  useEffect(() => {
-    const key = `${resultId}_${variantId}_${plotType}`
-    console.log('[ANNOTATION] Loaded annotations:', {
-      key,
-      count: annotations.length,
-      annotations
-    })
-  }, [resultId, variantId, plotType, annotations])
 
   const handleCreateAnnotation = useCallback(
     (position: number, label: string, description?: string) => {
@@ -146,6 +149,13 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType }: UseDDAAnnot
     setContextMenu(null)
   }, [])
 
+  const handleAnnotationClick = useCallback(
+    (annotation: PlotAnnotation, x: number, y: number) => {
+      setContextMenu({ x, y, plotPosition: annotation.position, annotation })
+    },
+    []
+  )
+
   return {
     annotations,
     contextMenu,
@@ -153,6 +163,7 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType }: UseDDAAnnot
     handleUpdateAnnotation,
     handleDeleteAnnotation,
     openContextMenu,
-    closeContextMenu
+    closeContextMenu,
+    handleAnnotationClick
   }
 }

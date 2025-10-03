@@ -1094,10 +1094,11 @@ export function DDAResults({ result }: DDAResultsProps) {
                   {/* Annotation overlay */}
                   {uplotHeatmapRef.current && heatmapAnnotations.annotations.length > 0 && (
                     <svg
-                      className="absolute top-0 left-0 pointer-events-none"
+                      className="absolute top-0 left-0"
                       style={{
                         width: heatmapRef.current?.clientWidth || 0,
-                        height: heatmapRef.current?.clientHeight || 0
+                        height: heatmapRef.current?.clientHeight || 0,
+                        pointerEvents: 'none'
                       }}
                     >
                       {heatmapAnnotations.annotations.map((annotation) => {
@@ -1107,14 +1108,17 @@ export function DDAResults({ result }: DDAResultsProps) {
                         const scaleIndex = scales.findIndex(s => Math.abs(s - annotation.position) < 0.01)
                         if (scaleIndex === -1) return null
 
-                        const plotWidth = heatmapRef.current?.clientWidth || 800
+                        // Get uPlot bbox for accurate dimensions
+                        const bbox = uplotHeatmapRef.current?.bbox
+                        const plotWidth = bbox?.width || heatmapRef.current?.clientWidth || 800
+                        const plotHeight = bbox?.height || heatmapRef.current?.clientHeight || 300
                         const xPosition = (scaleIndex / scales.length) * plotWidth
 
                         return (
                           <AnnotationMarker
                             key={annotation.id}
                             annotation={annotation}
-                            plotHeight={heatmapRef.current?.clientHeight || 300}
+                            plotHeight={plotHeight}
                             xPosition={xPosition}
                             onRightClick={(e, ann) => {
                               e.preventDefault()
@@ -1124,6 +1128,12 @@ export function DDAResults({ result }: DDAResultsProps) {
                                 ann.position,
                                 ann
                               )
+                            }}
+                            onClick={(ann) => {
+                              const rect = heatmapRef.current?.getBoundingClientRect()
+                              if (rect) {
+                                heatmapAnnotations.handleAnnotationClick(ann, rect.left + xPosition, rect.top + 50)
+                              }
                             }}
                           />
                         )
@@ -1212,10 +1222,11 @@ export function DDAResults({ result }: DDAResultsProps) {
                   {/* Annotation overlay */}
                   {uplotLinePlotRef.current && linePlotAnnotations.annotations.length > 0 && (
                     <svg
-                      className="absolute top-0 left-0 pointer-events-none"
+                      className="absolute top-0 left-0"
                       style={{
                         width: linePlotRef.current?.clientWidth || 0,
-                        height: linePlotRef.current?.clientHeight || 0
+                        height: linePlotRef.current?.clientHeight || 0,
+                        pointerEvents: 'none'
                       }}
                     >
                       {linePlotAnnotations.annotations.map((annotation) => {
@@ -1225,14 +1236,17 @@ export function DDAResults({ result }: DDAResultsProps) {
                         const scaleIndex = scales.findIndex(s => Math.abs(s - annotation.position) < 0.01)
                         if (scaleIndex === -1) return null
 
-                        const plotWidth = linePlotRef.current?.clientWidth || 800
+                        // Get uPlot bbox for accurate dimensions
+                        const bbox = uplotLinePlotRef.current?.bbox
+                        const plotWidth = bbox?.width || linePlotRef.current?.clientWidth || 800
+                        const plotHeight = bbox?.height || linePlotRef.current?.clientHeight || 400
                         const xPosition = (scaleIndex / scales.length) * plotWidth
 
                         return (
                           <AnnotationMarker
                             key={annotation.id}
                             annotation={annotation}
-                            plotHeight={linePlotRef.current?.clientHeight || 400}
+                            plotHeight={plotHeight}
                             xPosition={xPosition}
                             onRightClick={(e, ann) => {
                               e.preventDefault()
@@ -1242,6 +1256,12 @@ export function DDAResults({ result }: DDAResultsProps) {
                                 ann.position,
                                 ann
                               )
+                            }}
+                            onClick={(ann) => {
+                              const rect = linePlotRef.current?.getBoundingClientRect()
+                              if (rect) {
+                                linePlotAnnotations.handleAnnotationClick(ann, rect.left + xPosition, rect.top + 50)
+                              }
                             }}
                           />
                         )
