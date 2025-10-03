@@ -28,6 +28,9 @@ import {
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import { usePopoutWindows } from '@/hooks/usePopoutWindows'
+import { useTimeSeriesAnnotations } from '@/hooks/useAnnotations'
+import { AnnotationContextMenu } from '@/components/annotations/AnnotationContextMenu'
+import { AnnotationMarker } from '@/components/annotations/AnnotationMarker'
 
 interface PreprocessingOptions {
   highpass?: number
@@ -43,6 +46,12 @@ interface TimeSeriesPlotProps {
 export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   const { fileManager, plot, updatePlotState, setCurrentChunk } = useAppStore()
   const { createWindow, updateWindowData, broadcastToType } = usePopoutWindows()
+
+  // Annotation support for time series
+  const timeSeriesAnnotations = useTimeSeriesAnnotations({
+    filePath: fileManager.selectedFile?.file_path || '',
+    // For time series, we use global annotations (not per-channel)
+  })
 
   // Remove debug console.log to prevent infinite re-render loop
   const plotRef = useRef<HTMLDivElement>(null)
@@ -905,7 +914,90 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
             </div>
           )}
 
-          <div ref={plotRef} className="w-full h-full min-h-[400px]" />
+          <div
+            className="w-full h-full min-h-[400px] relative"
+            onContextMenu={(e) => {
+              console.log('[ANNOTATION] Right-click detected on time series plot', {
+                hasPlot: !!uplotRef.current,
+                hasChunk: !!plot.currentChunk,
+                currentTime
+              })
+
+              e.preventDefault()
+              e.stopPropagation()
+
+              if (!uplotRef.current || !plot.currentChunk) {
+                console.warn('[ANNOTATION] Plot or data not available yet')
+                return
+              }
+
+              const rect = e.currentTarget.getBoundingClientRect()
+              const plotX = e.clientX - rect.left
+
+              // Convert pixel position to time value
+              const plotWidth = rect.width
+              const timeValue = currentTime + (plotX / plotWidth) * timeWindow
+
+              console.log('[ANNOTATION] Opening time series context menu at time:', timeValue)
+              timeSeriesAnnotations.openContextMenu(e.clientX, e.clientY, timeValue)
+            }}
+          >
+            <div ref={plotRef} className="w-full h-full min-h-[400px]" />
+
+            {/* Annotation overlay */}
+            {uplotRef.current && plot.currentChunk && timeSeriesAnnotations.annotations.length > 0 && (
+              <svg
+                className="absolute top-0 left-0 pointer-events-none"
+                style={{
+                  width: plotRef.current?.clientWidth || 0,
+                  height: plotRef.current?.clientHeight || 0
+                }}
+              >
+                {timeSeriesAnnotations.annotations.map((annotation) => {
+                  // Only show annotations in current time window
+                  if (annotation.position < currentTime || annotation.position > currentTime + timeWindow) {
+                    return null
+                  }
+
+                  const plotWidth = plotRef.current?.clientWidth || 800
+                  const relativeTime = annotation.position - currentTime
+                  const xPosition = (relativeTime / timeWindow) * plotWidth
+
+                  return (
+                    <AnnotationMarker
+                      key={annotation.id}
+                      annotation={annotation}
+                      plotHeight={plotRef.current?.clientHeight || 400}
+                      xPosition={xPosition}
+                      onRightClick={(e, ann) => {
+                        e.preventDefault()
+                        timeSeriesAnnotations.openContextMenu(
+                          e.clientX,
+                          e.clientY,
+                          ann.position,
+                          ann
+                        )
+                      }}
+                    />
+                  )
+                })}
+              </svg>
+            )}
+          </div>
+
+          {/* Annotation context menu */}
+          {timeSeriesAnnotations.contextMenu && (
+            <AnnotationContextMenu
+              x={timeSeriesAnnotations.contextMenu.x}
+              y={timeSeriesAnnotations.contextMenu.y}
+              plotPosition={timeSeriesAnnotations.contextMenu.plotPosition}
+              existingAnnotation={timeSeriesAnnotations.contextMenu.annotation}
+              onCreateAnnotation={timeSeriesAnnotations.handleCreateAnnotation}
+              onEditAnnotation={timeSeriesAnnotations.handleUpdateAnnotation}
+              onDeleteAnnotation={timeSeriesAnnotations.handleDeleteAnnotation}
+              onClose={timeSeriesAnnotations.closeContextMenu}
+            />
+          )}
         </CardContent>
       </Card>
     </div>
