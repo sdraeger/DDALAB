@@ -64,11 +64,8 @@ pub async fn sync_share_result(
     access_policy: AccessPolicy,
     state: State<'_, AppSyncState>,
 ) -> Result<String, String> {
-    let client = state
-        .sync_client
-        .read()
-        .as_ref()
-        .ok_or("Sync is not connected")?;
+    let guard = state.sync_client.read();
+    let client = guard.as_ref().ok_or("Sync is not connected")?;
 
     let share_link = client
         .share_result(&result_id, &title, description, access_policy)
