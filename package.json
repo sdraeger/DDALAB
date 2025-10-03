@@ -11,7 +11,7 @@
     "dev:docker:minimal": "./scripts/dev-minimal.sh up",
     "dev:local": "./scripts/dev-local.sh",
     "dev:local:auto": "./scripts/dev-local.sh --start-services",
-    "dev:local:concurrent": "concurrently \"cd packages/api && ./start.sh\" \"cd packages/web20 && npm run dev\"",
+    "dev:tauri": "cd packages/ddalab-tauri && npm run tauri:dev",
     "build": "turbo run build",
     "install-deps": "npm install",
     "dev:configmanager": "cd packages/configmanager && npm run dev",
@@ -34,11 +34,7 @@
     "deploy:generate": "node scripts/generate-deployment.js",
     "deploy:dev": "node scripts/generate-deployment.js development local",
     "deploy:prod": "node scripts/generate-deployment.js production docker-compose",
-    "deploy:configmanager": "node scripts/generate-deployment.js production configmanager",
-    "test:e2e": "cd packages/web20 && npm run test:e2e",
-    "test:e2e:install": "cd packages/web20 && npm run test:e2e:install",
-    "test:e2e:ui": "cd packages/web20 && npm run test:e2e:ui",
-    "test:e2e:debug": "cd packages/web20 && npm run test:e2e:debug"
+    "deploy:configmanager": "node scripts/generate-deployment.js production configmanager"
   },
   "volta": {
     "node": "20.18.2",
@@ -52,7 +48,9 @@
     "@types/lodash": "^4.17.20",
     "@types/node": "^22.13.10",
     "@types/node-fetch": "^2.6.13",
+    "autoprefixer": "^10.4.21",
     "concurrently": "^9.1.0",
+    "postcss": "^8.5.6",
     "turbo": "^2.5.3",
     "typescript": "^5.3.3"
   },
