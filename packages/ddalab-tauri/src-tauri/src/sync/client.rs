@@ -1,5 +1,6 @@
-use super::types::{AccessPolicy, ShareMetadata, ShareToken, SharedResultInfo, SyncMessage, UserId};
+use super::types::{AccessPolicy, ShareMetadata, SharedResultInfo, SyncMessage};
 use anyhow::{anyhow, Result};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use parking_lot::RwLock;
@@ -211,7 +212,7 @@ async fn write_task(
             }
         };
 
-        if let Err(e) = write.send(Message::Text(json)).await {
+        if let Err(e) = write.send(Message::Text(json.into())).await {
             error!("Failed to send WebSocket message: {}", e);
             break;
         }
@@ -282,5 +283,5 @@ fn generate_share_token() -> String {
     use rand::Rng;
     let mut rng = rand::thread_rng();
     let bytes: [u8; 16] = rng.gen();
-    base64::encode_config(bytes, base64::URL_SAFE_NO_PAD)
+    URL_SAFE_NO_PAD.encode(bytes)
 }
