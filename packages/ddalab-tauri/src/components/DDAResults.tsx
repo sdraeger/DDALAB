@@ -64,6 +64,13 @@ export function DDAResults({ result }: DDAResultsProps) {
     plotType: 'line'
   })
 
+  // Annotation support for heatmap
+  const heatmapAnnotations = useDDAAnnotations({
+    resultId: result.id,
+    variantId: result.results.variants[selectedVariant]?.variant_id || 'default',
+    plotType: 'heatmap'
+  })
+
   // Color schemes
   const colorSchemes: Record<ColorScheme, (t: number) => string> = {
     viridis: (t: number) => {
@@ -1026,7 +1033,40 @@ export function DDAResults({ result }: DDAResultsProps) {
                 </CardDescription>
               </CardHeader>
               <CardContent className="h-full">
-                <div className="w-full h-full min-h-[300px] relative">
+                <div
+                  className="w-full h-full min-h-[300px] relative"
+                  onContextMenu={(e) => {
+                    console.log('[ANNOTATION] Right-click detected on heatmap', {
+                      hasPlot: !!uplotHeatmapRef.current,
+                      hasScales: !!result.results.scales,
+                      scalesLength: result.results.scales?.length
+                    })
+
+                    e.preventDefault()
+                    e.stopPropagation()
+
+                    if (!uplotHeatmapRef.current) {
+                      console.warn('[ANNOTATION] Heatmap ref not available yet')
+                      return
+                    }
+
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const plotX = e.clientX - rect.left
+
+                    const scales = result.results.scales
+                    if (!scales || scales.length === 0) {
+                      console.warn('[ANNOTATION] No scales available for heatmap')
+                      return
+                    }
+
+                    const plotWidth = rect.width
+                    const scaleIndex = Math.floor((plotX / plotWidth) * scales.length)
+                    const scaleValue = scales[scaleIndex] || 0
+
+                    console.log('[ANNOTATION] Opening heatmap context menu at scale:', scaleValue)
+                    heatmapAnnotations.openContextMenu(e.clientX, e.clientY, scaleValue)
+                  }}
+                >
                   {(isProcessingData || isRenderingHeatmap) && (
                     <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
                       <div className="flex flex-col items-center space-y-2">
@@ -1038,7 +1078,61 @@ export function DDAResults({ result }: DDAResultsProps) {
                     </div>
                   )}
                   <div ref={heatmapRef} className="w-full h-full" />
+
+                  {/* Annotation overlay */}
+                  {uplotHeatmapRef.current && heatmapAnnotations.annotations.length > 0 && (
+                    <svg
+                      className="absolute top-0 left-0 pointer-events-none"
+                      style={{
+                        width: heatmapRef.current?.clientWidth || 0,
+                        height: heatmapRef.current?.clientHeight || 0
+                      }}
+                    >
+                      {heatmapAnnotations.annotations.map((annotation) => {
+                        const scales = result.results.scales
+                        if (!scales || scales.length === 0) return null
+
+                        const scaleIndex = scales.findIndex(s => Math.abs(s - annotation.position) < 0.01)
+                        if (scaleIndex === -1) return null
+
+                        const plotWidth = heatmapRef.current?.clientWidth || 800
+                        const xPosition = (scaleIndex / scales.length) * plotWidth
+
+                        return (
+                          <AnnotationMarker
+                            key={annotation.id}
+                            annotation={annotation}
+                            plotHeight={heatmapRef.current?.clientHeight || 300}
+                            xPosition={xPosition}
+                            onRightClick={(e, ann) => {
+                              e.preventDefault()
+                              heatmapAnnotations.openContextMenu(
+                                e.clientX,
+                                e.clientY,
+                                ann.position,
+                                ann
+                              )
+                            }}
+                          />
+                        )
+                      })}
+                    </svg>
+                  )}
                 </div>
+
+                {/* Annotation context menu */}
+                {heatmapAnnotations.contextMenu && (
+                  <AnnotationContextMenu
+                    x={heatmapAnnotations.contextMenu.x}
+                    y={heatmapAnnotations.contextMenu.y}
+                    plotPosition={heatmapAnnotations.contextMenu.plotPosition}
+                    existingAnnotation={heatmapAnnotations.contextMenu.annotation}
+                    onCreateAnnotation={heatmapAnnotations.handleCreateAnnotation}
+                    onEditAnnotation={heatmapAnnotations.handleUpdateAnnotation}
+                    onDeleteAnnotation={heatmapAnnotations.handleDeleteAnnotation}
+                    onClose={heatmapAnnotations.closeContextMenu}
+                  />
+                )}
               </CardContent>
             </Card>
           )}
