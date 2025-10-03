@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { PlotAnnotation } from '@/types/annotations'
 
@@ -96,6 +96,16 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType }: UseDDAAnnot
   } | null>(null)
 
   const annotations = getDDAAnnotations(resultId, variantId, plotType)
+
+  // Debug: Log loaded annotations
+  useEffect(() => {
+    const key = `${resultId}_${variantId}_${plotType}`
+    console.log('[ANNOTATION] Loaded annotations:', {
+      key,
+      count: annotations.length,
+      annotations
+    })
+  }, [resultId, variantId, plotType, annotations])
 
   const handleCreateAnnotation = useCallback(
     (position: number, label: string, description?: string) => {
