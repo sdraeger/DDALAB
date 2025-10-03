@@ -5,8 +5,10 @@ pub fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let window = app.get_webview_window("main")
         .ok_or("Failed to get main window")?;
 
-    // Initialize state manager
-    let state_manager = AppStateManager::new()
+    // Initialize state manager with Tauri's app_config_dir for consistency
+    let config_dir = app.path().app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {}", e))?;
+    let state_manager = AppStateManager::new(config_dir)
         .map_err(|e| format!("Failed to initialize state manager: {}", e))?;
 
     app.manage(state_manager);
