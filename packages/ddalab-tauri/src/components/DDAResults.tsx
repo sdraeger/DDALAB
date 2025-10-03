@@ -27,6 +27,10 @@ import {
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import { usePopoutWindows } from '@/hooks/usePopoutWindows'
+import { useDDAAnnotations } from '@/hooks/useAnnotations'
+import { AnnotationContextMenu } from '@/components/annotations/AnnotationContextMenu'
+import { AnnotationMarker } from '@/components/annotations/AnnotationMarker'
+import { PlotAnnotation } from '@/types/annotations'
 
 interface DDAResultsProps {
   result: DDAResult
@@ -52,6 +56,13 @@ export function DDAResults({ result }: DDAResultsProps) {
   const [isProcessingData, setIsProcessingData] = useState(true)
   const [isRenderingHeatmap, setIsRenderingHeatmap] = useState(false)
   const [isRenderingLinePlot, setIsRenderingLinePlot] = useState(false)
+
+  // Annotation support for line plot
+  const linePlotAnnotations = useDDAAnnotations({
+    resultId: result.id,
+    variantId: result.results.variants[selectedVariant]?.variant_id || 'default',
+    plotType: 'line'
+  })
 
   // Color schemes
   const colorSchemes: Record<ColorScheme, (t: number) => string> = {
@@ -1044,7 +1055,27 @@ export function DDAResults({ result }: DDAResultsProps) {
                 </CardDescription>
               </CardHeader>
               <CardContent className="h-full">
-                <div className="w-full h-full min-h-[400px] relative">
+                <div
+                  className="w-full h-full min-h-[400px] relative"
+                  onContextMenu={(e) => {
+                    if (!uplotLinePlotRef.current) return
+                    e.preventDefault()
+
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const plotX = e.clientX - rect.left
+                    const plotY = e.clientY - rect.top
+
+                    // Convert pixel position to scale value
+                    const scales = result.results.scales
+                    if (!scales || scales.length === 0) return
+
+                    const plotWidth = rect.width
+                    const scaleIndex = Math.floor((plotX / plotWidth) * scales.length)
+                    const scaleValue = scales[scaleIndex] || 0
+
+                    linePlotAnnotations.openContextMenu(e.clientX, e.clientY, scaleValue)
+                  }}
+                >
                   {(isProcessingData || isRenderingLinePlot) && (
                     <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
                       <div className="flex flex-col items-center space-y-2">
@@ -1056,7 +1087,61 @@ export function DDAResults({ result }: DDAResultsProps) {
                     </div>
                   )}
                   <div ref={linePlotRef} className="w-full h-full" />
+
+                  {/* Annotation overlay */}
+                  {uplotLinePlotRef.current && linePlotAnnotations.annotations.length > 0 && (
+                    <svg
+                      className="absolute top-0 left-0 pointer-events-none"
+                      style={{
+                        width: linePlotRef.current?.clientWidth || 0,
+                        height: linePlotRef.current?.clientHeight || 0
+                      }}
+                    >
+                      {linePlotAnnotations.annotations.map((annotation) => {
+                        const scales = result.results.scales
+                        if (!scales || scales.length === 0) return null
+
+                        const scaleIndex = scales.findIndex(s => Math.abs(s - annotation.position) < 0.01)
+                        if (scaleIndex === -1) return null
+
+                        const plotWidth = linePlotRef.current?.clientWidth || 800
+                        const xPosition = (scaleIndex / scales.length) * plotWidth
+
+                        return (
+                          <AnnotationMarker
+                            key={annotation.id}
+                            annotation={annotation}
+                            plotHeight={linePlotRef.current?.clientHeight || 400}
+                            xPosition={xPosition}
+                            onRightClick={(e, ann) => {
+                              e.preventDefault()
+                              linePlotAnnotations.openContextMenu(
+                                e.clientX,
+                                e.clientY,
+                                ann.position,
+                                ann
+                              )
+                            }}
+                          />
+                        )
+                      })}
+                    </svg>
+                  )}
                 </div>
+
+                {/* Annotation context menu */}
+                {linePlotAnnotations.contextMenu && (
+                  <AnnotationContextMenu
+                    x={linePlotAnnotations.contextMenu.x}
+                    y={linePlotAnnotations.contextMenu.y}
+                    plotPosition={linePlotAnnotations.contextMenu.plotPosition}
+                    existingAnnotation={linePlotAnnotations.contextMenu.annotation}
+                    onCreateAnnotation={linePlotAnnotations.handleCreateAnnotation}
+                    onEditAnnotation={linePlotAnnotations.handleUpdateAnnotation}
+                    onDeleteAnnotation={linePlotAnnotations.handleDeleteAnnotation}
+                    onClose={linePlotAnnotations.closeContextMenu}
+                  />
+                )}
               </CardContent>
             </Card>
           )}
