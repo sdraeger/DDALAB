@@ -58,16 +58,28 @@ export function DDAResults({ result }: DDAResultsProps) {
   const [isRenderingLinePlot, setIsRenderingLinePlot] = useState(false)
 
   // Annotation support for line plot
+  const currentVariantId = result.results.variants[selectedVariant]?.variant_id || 'default'
+
+  // Debug: Log the annotation key being used
+  useEffect(() => {
+    console.log('[ANNOTATION] Using key for line plot:', {
+      resultId: result.id,
+      variantId: currentVariantId,
+      plotType: 'line',
+      fullKey: `${result.id}_${currentVariantId}_line`
+    })
+  }, [result.id, currentVariantId])
+
   const linePlotAnnotations = useDDAAnnotations({
     resultId: result.id,
-    variantId: result.results.variants[selectedVariant]?.variant_id || 'default',
+    variantId: currentVariantId,
     plotType: 'line'
   })
 
   // Annotation support for heatmap
   const heatmapAnnotations = useDDAAnnotations({
     resultId: result.id,
-    variantId: result.results.variants[selectedVariant]?.variant_id || 'default',
+    variantId: currentVariantId,
     plotType: 'heatmap'
   })
 
