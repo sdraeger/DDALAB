@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "DDALAB Desktop Application"
 authors = ["DDALAB Team"]
 license = "MIT"
-repository = "https://github.com/ddalab/ddalab"
+repository = "https://github.com/sdraeger/DDALAB"
 edition = "2021"
 
 [build-dependencies]
