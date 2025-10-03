@@ -3,6 +3,7 @@ import { EDFFileInfo, ChunkData, DDAResult, Annotation } from '@/types/api'
 import { TauriService } from '@/services/tauriService'
 import { getStatePersistenceService, StatePersistenceService } from '@/services/statePersistenceService'
 import { AppState as PersistedAppState, AnalysisResult } from '@/types/persistence'
+import { PlotAnnotation, TimeSeriesAnnotations, DDAResultAnnotations } from '@/types/annotations'
 
 // Module-level flag to prevent re-initialization during Hot Module Reload
 // This persists across Fast Refresh unlike Zustand store state
@@ -70,6 +71,11 @@ export interface UIState {
   isServerReady: boolean  // Tracks if API server is ready to accept requests
 }
 
+export interface AnnotationState {
+  timeSeries: Record<string, TimeSeriesAnnotations>
+  ddaResults: Record<string, DDAResultAnnotations>
+}
+
 export interface AppState {
   // Initialization
   isInitialized: boolean
@@ -116,6 +122,17 @@ export interface AppState {
   setTheme: (theme: UIState['theme']) => void
   setApiMode: (mode: UIState['apiMode']) => void
   setServerReady: (ready: boolean) => void
+
+  // Annotations
+  annotations: AnnotationState
+  addTimeSeriesAnnotation: (filePath: string, annotation: PlotAnnotation, channel?: string) => void
+  updateTimeSeriesAnnotation: (filePath: string, annotationId: string, updates: Partial<PlotAnnotation>, channel?: string) => void
+  deleteTimeSeriesAnnotation: (filePath: string, annotationId: string, channel?: string) => void
+  getTimeSeriesAnnotations: (filePath: string, channel?: string) => PlotAnnotation[]
+  addDDAAnnotation: (resultId: string, variantId: string, plotType: 'heatmap' | 'line', annotation: PlotAnnotation) => void
+  updateDDAAnnotation: (resultId: string, variantId: string, plotType: 'heatmap' | 'line', annotationId: string, updates: Partial<PlotAnnotation>) => void
+  deleteDDAAnnotation: (resultId: string, variantId: string, plotType: 'heatmap' | 'line', annotationId: string) => void
+  getDDAAnnotations: (resultId: string, variantId: string, plotType: 'heatmap' | 'line') => PlotAnnotation[]
 
   // State persistence
   saveCurrentState: () => Promise<void>
@@ -180,6 +197,11 @@ const defaultUIState: UIState = {
   theme: 'auto',
   apiMode: 'embedded',
   isServerReady: false
+}
+
+const defaultAnnotationState: AnnotationState = {
+  timeSeries: {},
+  ddaResults: {}
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -291,6 +313,10 @@ export const useAppStore = create<AppState>((set, get) => ({
               },
               currentAnalysis,
               analysisHistory
+            },
+            annotations: {
+              timeSeries: persistedState.annotations?.timeSeries || {},
+              ddaResults: persistedState.annotations?.ddaResults || {}
             },
             ui: {
               ...state.ui,
@@ -625,6 +651,140 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({ ui: { ...state.ui, isServerReady: ready } }))
   },
 
+  // Annotations
+  annotations: defaultAnnotationState,
+
+  addTimeSeriesAnnotation: (filePath, annotation, channel) => {
+    set((state) => {
+      const annotations = { ...state.annotations }
+
+      if (!annotations.timeSeries[filePath]) {
+        annotations.timeSeries[filePath] = {
+          filePath,
+          globalAnnotations: [],
+          channelAnnotations: {}
+        }
+      }
+
+      if (channel) {
+        if (!annotations.timeSeries[filePath].channelAnnotations) {
+          annotations.timeSeries[filePath].channelAnnotations = {}
+        }
+        if (!annotations.timeSeries[filePath].channelAnnotations![channel]) {
+          annotations.timeSeries[filePath].channelAnnotations![channel] = []
+        }
+        annotations.timeSeries[filePath].channelAnnotations![channel].push(annotation)
+      } else {
+        annotations.timeSeries[filePath].globalAnnotations.push(annotation)
+      }
+
+      return { annotations }
+    })
+  },
+
+  updateTimeSeriesAnnotation: (filePath, annotationId, updates, channel) => {
+    set((state) => {
+      const annotations = { ...state.annotations }
+      const fileAnnotations = annotations.timeSeries[filePath]
+
+      if (!fileAnnotations) return state
+
+      const updateAnnotationInArray = (arr: PlotAnnotation[]) =>
+        arr.map(a => a.id === annotationId ? { ...a, ...updates, updatedAt: new Date().toISOString() } : a)
+
+      if (channel && fileAnnotations.channelAnnotations?.[channel]) {
+        fileAnnotations.channelAnnotations[channel] = updateAnnotationInArray(fileAnnotations.channelAnnotations[channel])
+      } else {
+        fileAnnotations.globalAnnotations = updateAnnotationInArray(fileAnnotations.globalAnnotations)
+      }
+
+      return { annotations }
+    })
+  },
+
+  deleteTimeSeriesAnnotation: (filePath, annotationId, channel) => {
+    set((state) => {
+      const annotations = { ...state.annotations }
+      const fileAnnotations = annotations.timeSeries[filePath]
+
+      if (!fileAnnotations) return state
+
+      if (channel && fileAnnotations.channelAnnotations?.[channel]) {
+        fileAnnotations.channelAnnotations[channel] = fileAnnotations.channelAnnotations[channel].filter(a => a.id !== annotationId)
+      } else {
+        fileAnnotations.globalAnnotations = fileAnnotations.globalAnnotations.filter(a => a.id !== annotationId)
+      }
+
+      return { annotations }
+    })
+  },
+
+  getTimeSeriesAnnotations: (filePath, channel) => {
+    const state = get()
+    const fileAnnotations = state.annotations.timeSeries[filePath]
+
+    if (!fileAnnotations) return []
+
+    if (channel && fileAnnotations.channelAnnotations?.[channel]) {
+      return [...fileAnnotations.globalAnnotations, ...fileAnnotations.channelAnnotations[channel]]
+    }
+    return fileAnnotations.globalAnnotations
+  },
+
+  addDDAAnnotation: (resultId, variantId, plotType, annotation) => {
+    set((state) => {
+      const annotations = { ...state.annotations }
+      const key = `${resultId}_${variantId}_${plotType}`
+
+      if (!annotations.ddaResults[key]) {
+        annotations.ddaResults[key] = {
+          resultId,
+          variantId,
+          plotType,
+          annotations: []
+        }
+      }
+
+      annotations.ddaResults[key].annotations.push(annotation)
+      return { annotations }
+    })
+  },
+
+  updateDDAAnnotation: (resultId, variantId, plotType, annotationId, updates) => {
+    set((state) => {
+      const annotations = { ...state.annotations }
+      const key = `${resultId}_${variantId}_${plotType}`
+      const plotAnnotations = annotations.ddaResults[key]
+
+      if (!plotAnnotations) return state
+
+      plotAnnotations.annotations = plotAnnotations.annotations.map(a =>
+        a.id === annotationId ? { ...a, ...updates, updatedAt: new Date().toISOString() } : a
+      )
+
+      return { annotations }
+    })
+  },
+
+  deleteDDAAnnotation: (resultId, variantId, plotType, annotationId) => {
+    set((state) => {
+      const annotations = { ...state.annotations }
+      const key = `${resultId}_${variantId}_${plotType}`
+      const plotAnnotations = annotations.ddaResults[key]
+
+      if (!plotAnnotations) return state
+
+      plotAnnotations.annotations = plotAnnotations.annotations.filter(a => a.id !== annotationId)
+      return { annotations }
+    })
+  },
+
+  getDDAAnnotations: (resultId, variantId, plotType) => {
+    const state = get()
+    const key = `${resultId}_${variantId}_${plotType}`
+    return state.annotations.ddaResults[key]?.annotations || []
+  },
+
   // Additional persistence methods that weren't in the original implementation
   savePlotData: async (plotData, analysisId) => {
     const service = get().persistenceService;
@@ -701,6 +861,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           })),
           analysis_parameters: currentState.dda.analysisParameters,
           running: currentState.dda.isRunning
+        },
+        annotations: {
+          timeSeries: currentState.annotations.timeSeries,
+          ddaResults: currentState.annotations.ddaResults
         },
         ui: {
           activeTab: currentState.ui.activeTab,
