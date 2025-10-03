@@ -35,7 +35,7 @@ if [ -f .env.dev ]; then
     set -a
     source .env.dev
     set +a
-    
+
     # Map DDALAB_ prefixed variables to standard names
     export DB_HOST=${DDALAB_DB_HOST:-localhost}
     export DB_PORT=${DDALAB_DB_PORT:-5432}
@@ -135,13 +135,13 @@ echo "  cd packages/api"
 echo "  python -m main"
 echo "  # → http://localhost:8001"
 echo
-echo -e "${YELLOW}Terminal 2 - Web20 Frontend:${NC}"
-echo "  cd packages/web20"
-echo "  npm run dev"
-echo "  # → http://localhost:3000"
+echo -e "${YELLOW}Terminal 2 - Tauri Desktop App:${NC}"
+echo "  cd packages/ddalab-tauri"
+echo "  npm run tauri:dev"
+echo "  # → Desktop application"
 echo
 echo -e "${BLUE}Development URLs:${NC}"
-echo "  🌐 Web App:        http://localhost:3000"
+echo "  🖥️  Desktop App:    packages/ddalab-tauri (Tauri)"
 echo "  🔧 API:            http://localhost:8001"
 echo "  📚 API Docs:       http://localhost:8001/docs"
 echo "  🗄️  MinIO Console:  http://localhost:9001"

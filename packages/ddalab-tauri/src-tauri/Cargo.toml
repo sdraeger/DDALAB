@@ -39,6 +39,12 @@ bytes = "1.0"
 mime = "0.3"
 walkdir = "2.4"
 edf-reader = "0.3"
+# Sync client dependencies
+tokio-tungstenite = "0.26"
+futures-util = "0.3"
+rand = "0.8"
+base64 = "0.22"
+tracing = "0.1"
 
 [dev-dependencies]
 hyper = "1.0"

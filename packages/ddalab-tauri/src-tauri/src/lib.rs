@@ -2,3 +2,4 @@
 
 pub mod embedded_api;
 pub mod edf;
+pub mod sync;
