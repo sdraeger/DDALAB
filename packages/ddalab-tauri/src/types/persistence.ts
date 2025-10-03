@@ -9,6 +9,7 @@ export interface ApiConfig {
 }
 
 export interface FileManagerState {
+  data_directory_path?: string;
   selected_file: string | null;
   current_path: string[];
   selected_channels: string[];

@@ -1,5 +1,4 @@
 use crate::models::AppState;
-use crate::utils::get_app_config_dir;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fs;
@@ -14,9 +13,14 @@ pub struct AppStateManager {
 }
 
 impl AppStateManager {
-    pub fn new() -> Result<Self, String> {
-        let app_config_dir = get_app_config_dir()?;
+    pub fn new(app_config_dir: PathBuf) -> Result<Self, String> {
+        // Ensure the config directory exists
+        std::fs::create_dir_all(&app_config_dir)
+            .map_err(|e| format!("Failed to create config directory: {}", e))?;
+
         let config_path = app_config_dir.join("state.json");
+        eprintln!("📂 [STATE_MANAGER] Using config directory: {:?}", app_config_dir);
+        eprintln!("📄 [STATE_MANAGER] State file path: {:?}", config_path);
 
         let state = if config_path.exists() {
             let content = fs::read_to_string(&config_path)
@@ -42,13 +46,23 @@ impl AppStateManager {
     }
 
     pub fn save(&self) -> Result<(), String> {
+        eprintln!("📝 [STATE_MANAGER] Attempting to save state to: {:?}", self.config_path);
         let state = self.state.read();
         let content = serde_json::to_string_pretty(&*state)
-            .map_err(|e| format!("Failed to serialize state: {}", e))?;
+            .map_err(|e| {
+                let msg = format!("Failed to serialize state: {}", e);
+                eprintln!("❌ [STATE_MANAGER] {}", msg);
+                msg
+            })?;
 
         fs::write(&self.config_path, content)
-            .map_err(|e| format!("Failed to write state file: {}", e))?;
+            .map_err(|e| {
+                let msg = format!("Failed to write state file: {}", e);
+                eprintln!("❌ [STATE_MANAGER] {}", msg);
+                msg
+            })?;
 
+        eprintln!("✅ [STATE_MANAGER] State saved successfully to: {:?}", self.config_path);
         Ok(())
     }
 
@@ -60,13 +74,16 @@ impl AppStateManager {
     where
         F: FnOnce(&mut AppState),
     {
+        eprintln!("🔄 [STATE_MANAGER] update_state called, auto_save_enabled: {}", self.auto_save_enabled);
         {
             let mut state = self.state.write();
             updater(&mut state);
         }
         if self.auto_save_enabled {
+            eprintln!("💾 [STATE_MANAGER] Auto-save is enabled, calling save()");
             self.save()
         } else {
+            eprintln!("⏭️  [STATE_MANAGER] Auto-save is disabled, skipping save");
             Ok(())
         }
     }

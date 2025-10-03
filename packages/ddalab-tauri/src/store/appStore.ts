@@ -209,6 +209,17 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         const persistedState = await service.initialize();
 
+        // Load data directory from backend (primary source of truth)
+        let dataDirectoryPath = ''
+        try {
+          dataDirectoryPath = await TauriService.getDataDirectory()
+          console.log('[STORE] Loaded data directory from backend:', dataDirectoryPath)
+        } catch (error) {
+          console.error('[STORE] Failed to load data directory from backend:', error)
+          // Fall back to persisted state value
+          dataDirectoryPath = persistedState.file_manager.data_directory_path || ''
+        }
+
         // Set up the current state getter for auto-save
         service.setCurrentStateGetter(() => {
           const currentState = get();
@@ -250,7 +261,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             persistenceService: service,
             fileManager: {
               ...state.fileManager,
-              dataDirectoryPath: persistedState.file_manager.data_directory_path || state.fileManager.dataDirectoryPath,
+              dataDirectoryPath,  // Use backend value as primary source
               currentPath: persistedState.file_manager.current_path,
               selectedFile,
               selectedChannels: persistedState.file_manager.selected_channels,
