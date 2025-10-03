@@ -947,10 +947,11 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
             {/* Annotation overlay */}
             {uplotRef.current && plot.currentChunk && timeSeriesAnnotations.annotations.length > 0 && (
               <svg
-                className="absolute top-0 left-0 pointer-events-none"
+                className="absolute top-0 left-0"
                 style={{
                   width: plotRef.current?.clientWidth || 0,
-                  height: plotRef.current?.clientHeight || 0
+                  height: plotRef.current?.clientHeight || 0,
+                  pointerEvents: 'none'
                 }}
               >
                 {timeSeriesAnnotations.annotations.map((annotation) => {
@@ -959,7 +960,10 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                     return null
                   }
 
-                  const plotWidth = plotRef.current?.clientWidth || 800
+                  // Get uPlot bbox for accurate dimensions
+                  const bbox = uplotRef.current?.bbox
+                  const plotWidth = bbox?.width || plotRef.current?.clientWidth || 800
+                  const plotHeight = bbox?.height || plotRef.current?.clientHeight || 400
                   const relativeTime = annotation.position - currentTime
                   const xPosition = (relativeTime / timeWindow) * plotWidth
 
@@ -967,7 +971,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                     <AnnotationMarker
                       key={annotation.id}
                       annotation={annotation}
-                      plotHeight={plotRef.current?.clientHeight || 400}
+                      plotHeight={plotHeight}
                       xPosition={xPosition}
                       onRightClick={(e, ann) => {
                         e.preventDefault()
@@ -977,6 +981,12 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                           ann.position,
                           ann
                         )
+                      }}
+                      onClick={(ann) => {
+                        const rect = plotRef.current?.getBoundingClientRect()
+                        if (rect) {
+                          timeSeriesAnnotations.handleAnnotationClick(ann, rect.left + xPosition, rect.top + 50)
+                        }
                       }}
                     />
                   )

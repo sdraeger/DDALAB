@@ -21,14 +21,19 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
   return (
     <g
       className="annotation-marker cursor-pointer"
+      style={{ pointerEvents: 'auto' }}
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
         onRightClick(e, annotation)
       }}
-      onClick={() => onClick?.(annotation)}
+      onClick={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        onClick?.(annotation)
+      }}
     >
-      {/* Vertical line */}
+      {/* Vertical line - uses full plot height from bbox */}
       <line
         x1={xPosition}
         y1={0}
@@ -38,7 +43,7 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
         strokeWidth={2}
         strokeDasharray="5,5"
         opacity={0.7}
-        className="pointer-events-none"
+        style={{ pointerEvents: 'none' }}
       />
 
       {/* Label background */}
@@ -49,7 +54,7 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
         ry={3}
         fill={color}
         opacity={0.9}
-        className="pointer-events-none"
+        style={{ pointerEvents: 'none' }}
         width={annotation.label.length * 7 + 10}
         height={20}
       />
@@ -61,19 +66,20 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
         fill="white"
         fontSize="12"
         fontWeight="500"
-        className="pointer-events-none select-none"
+        style={{ pointerEvents: 'none' }}
+        className="select-none"
       >
         {annotation.label}
       </text>
 
-      {/* Hover area for better UX */}
+      {/* Clickable area for better UX */}
       <rect
         x={xPosition - 5}
         y={0}
-        width={10}
+        width={Math.max(10, annotation.label.length * 7 + 20)}
         height={plotHeight}
         fill="transparent"
-        className="hover:fill-gray-200 hover:fill-opacity-10"
+        style={{ pointerEvents: 'auto' }}
       />
     </g>
   )

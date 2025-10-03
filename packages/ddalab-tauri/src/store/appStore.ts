@@ -315,8 +315,8 @@ export const useAppStore = create<AppState>((set, get) => ({
               analysisHistory
             },
             annotations: {
-              timeSeries: persistedState.annotations?.timeSeries || {},
-              ddaResults: persistedState.annotations?.ddaResults || {}
+              timeSeries: persistedState.ui?.frontend_state?.annotations?.timeSeries || persistedState.annotations?.timeSeries || {},
+              ddaResults: persistedState.ui?.frontend_state?.annotations?.ddaResults || persistedState.annotations?.ddaResults || {}
             },
             ui: {
               ...state.ui,
@@ -761,9 +761,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { annotations }
     })
 
-    // Trigger save after adding annotation
     const { saveCurrentState } = get()
-    saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save after adding:', err))
+    saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save:', err))
   },
 
   updateDDAAnnotation: (resultId, variantId, plotType, annotationId, updates) => {
