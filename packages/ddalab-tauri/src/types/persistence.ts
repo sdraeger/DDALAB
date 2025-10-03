@@ -56,11 +56,19 @@ export interface WindowState {
   tab: string;
 }
 
+export interface AnnotationState {
+  // Annotations for time series plots, keyed by file path
+  timeSeries: Record<string, any>;
+  // Annotations for DDA result plots, keyed by composite key (resultId_variantId_plotType)
+  ddaResults: Record<string, any>;
+}
+
 export interface AppState {
   version: string;
   file_manager: FileManagerState;
   plot: PlotState;
   dda: DDAState;
+  annotations?: AnnotationState;
   ui: Record<string, any>;
   windows: Record<string, WindowState>;
   active_tab: string;
