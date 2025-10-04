@@ -61,6 +61,13 @@ export interface HealthState {
   errors: string[]
 }
 
+export interface SyncState {
+  isConnected: boolean
+  isLoading: boolean
+  error: string | null
+  lastStatusCheck: number
+}
+
 export interface UIState {
   activeTab: string
   sidebarOpen: boolean
@@ -112,6 +119,10 @@ export interface AppState {
   // Health monitoring
   health: HealthState
   updateHealthStatus: (status: Partial<HealthState> | ((current: HealthState) => Partial<HealthState>)) => void
+
+  // Sync state
+  sync: SyncState
+  updateSyncStatus: (status: Partial<SyncState>) => void
 
   // UI state
   ui: UIState
@@ -179,6 +190,13 @@ const defaultDDAState: DDAState = {
     scaleNum: 20
   },
   isRunning: false
+}
+
+const defaultSyncState: SyncState = {
+  isConnected: false,
+  isLoading: false,
+  error: null,
+  lastStatusCheck: Date.now(),
 }
 
 const defaultHealthState: HealthState = {
@@ -593,6 +611,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     } else {
       set((state) => ({ health: { ...state.health, ...status } }))
     }
+  },
+
+  // Sync state
+  sync: defaultSyncState,
+
+  updateSyncStatus: (status) => {
+    set((state) => ({ sync: { ...state.sync, ...status, lastStatusCheck: Date.now() } }))
   },
 
   // UI state

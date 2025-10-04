@@ -1,60 +1,67 @@
 import { invoke } from '@tauri-apps/api/core';
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
+import { useAppStore } from '@/store/appStore';
 import type { AccessPolicy, SharedResultInfo, SyncConnectionConfig, DiscoveredBroker } from '@/types/sync';
 
 export function useSync() {
-  const [isConnected, setIsConnected] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { sync, updateSyncStatus } = useAppStore();
+  const { isConnected, isLoading, error } = sync;
 
   const checkConnection = useCallback(async () => {
     try {
       const connected = await invoke<boolean>('sync_is_connected');
-      setIsConnected(connected);
+      updateSyncStatus({ isConnected: connected });
     } catch (err) {
-      setIsConnected(false);
+      updateSyncStatus({ isConnected: false });
       console.error('Failed to check sync connection:', err);
     }
-  }, []);
+  }, [updateSyncStatus]);
 
   useEffect(() => {
+    // Initial check
     checkConnection();
+
+    // Periodic check every 5 seconds to keep status up to date
+    const interval = setInterval(checkConnection, 5000);
+
+    return () => clearInterval(interval);
   }, [checkConnection]);
 
   const connect = useCallback(async (config: SyncConnectionConfig) => {
-    setIsLoading(true);
-    setError(null);
+    updateSyncStatus({ isLoading: true, error: null });
     try {
       await invoke('sync_connect', {
         brokerUrl: config.broker_url,
         userId: config.user_id,
         localEndpoint: config.local_endpoint,
       });
-      setIsConnected(true);
+      // Immediately update connection state
+      updateSyncStatus({ isConnected: true, isLoading: false });
+
+      // Double-check connection status from backend (async, doesn't block UI)
+      setTimeout(() => checkConnection(), 100);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      setIsConnected(false);
+      updateSyncStatus({ error: message, isConnected: false, isLoading: false });
       throw err;
-    } finally {
-      setIsLoading(false);
     }
-  }, []);
+  }, [checkConnection, updateSyncStatus]);
 
   const disconnect = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+    updateSyncStatus({ isLoading: true, error: null });
     try {
       await invoke('sync_disconnect');
-      setIsConnected(false);
+      // Immediately update connection state
+      updateSyncStatus({ isConnected: false, isLoading: false });
+
+      // Double-check connection status from backend (async, doesn't block UI)
+      setTimeout(() => checkConnection(), 100);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      updateSyncStatus({ error: message, isLoading: false });
       throw err;
-    } finally {
-      setIsLoading(false);
     }
-  }, []);
+  }, [checkConnection, updateSyncStatus]);
 
   const shareResult = useCallback(async (
     resultId: string,
@@ -62,7 +69,7 @@ export function useSync() {
     description: string | null,
     accessPolicy: AccessPolicy
   ): Promise<string> => {
-    setError(null);
+    updateSyncStatus({ error: null });
     try {
       const shareLink = await invoke<string>('sync_share_result', {
         resultId,
@@ -73,55 +80,55 @@ export function useSync() {
       return shareLink;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      updateSyncStatus({ error: message });
       throw err;
     }
-  }, []);
+  }, [updateSyncStatus]);
 
   const accessShare = useCallback(async (token: string): Promise<SharedResultInfo> => {
-    setError(null);
+    updateSyncStatus({ error: null });
     try {
       const info = await invoke<SharedResultInfo>('sync_access_share', { token });
       return info;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      updateSyncStatus({ error: message });
       throw err;
     }
-  }, []);
+  }, [updateSyncStatus]);
 
   const revokeShare = useCallback(async (token: string): Promise<void> => {
-    setError(null);
+    updateSyncStatus({ error: null });
     try {
       await invoke('sync_revoke_share', { token });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      updateSyncStatus({ error: message });
       throw err;
     }
-  }, []);
+  }, [updateSyncStatus]);
 
   const discoverBrokers = useCallback(async (timeoutSecs: number = 5): Promise<DiscoveredBroker[]> => {
-    setError(null);
+    updateSyncStatus({ error: null });
     try {
       const brokers = await invoke<DiscoveredBroker[]>('sync_discover_brokers', { timeoutSecs });
       return brokers;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      updateSyncStatus({ error: message });
       throw err;
     }
-  }, []);
+  }, [updateSyncStatus]);
 
   const verifyPassword = useCallback(async (password: string, authHash: string): Promise<boolean> => {
     try {
       return await invoke<boolean>('sync_verify_password', { password, authHash });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      updateSyncStatus({ error: message });
       return false;
     }
-  }, []);
+  }, [updateSyncStatus]);
 
   return {
     isConnected,
