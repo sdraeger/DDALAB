@@ -91,6 +91,18 @@ case "$COMMAND" in
     export DATABASE_URL="postgres://ddalab:test_password@localhost:5432/ddalab_broker"
     export RUST_LOG="ddalab_broker=debug,tower_http=debug"
 
+    # mDNS Discovery configuration
+    export INSTITUTION_NAME="${INSTITUTION_NAME:-Development Lab}"
+    export BROKER_PASSWORD="${BROKER_PASSWORD:-dev_password}"
+    export USE_TLS="${USE_TLS:-false}"
+
+    echo ""
+    echo -e "${BLUE}Discovery Configuration:${NC}"
+    echo "  Institution: $INSTITUTION_NAME"
+    echo "  Password: $BROKER_PASSWORD"
+    echo "  TLS: $USE_TLS"
+    echo ""
+
     # Use cargo-watch if available, otherwise regular run
     if command -v cargo-watch &> /dev/null; then
       cargo watch -x run
@@ -131,9 +143,14 @@ case "$COMMAND" in
     echo "  help       Show this help"
     echo ""
     echo "Examples:"
-    echo "  ./dev.sh start          # Start with Docker Compose"
-    echo "  ./dev.sh dev            # Development with auto-reload"
-    echo "  ./dev.sh logs           # Watch logs"
-    echo "  ./dev.sh test           # Run tests"
+    echo "  ./dev.sh dev                                    # Development mode"
+    echo "  INSTITUTION_NAME=\"My Lab\" ./dev.sh dev        # Custom institution"
+    echo "  ./dev.sh start                                  # Docker Compose"
+    echo "  ./dev.sh logs                                   # Watch logs"
+    echo ""
+    echo "Environment Variables (for dev mode):"
+    echo "  INSTITUTION_NAME    Institution name for mDNS discovery"
+    echo "  BROKER_PASSWORD     Pre-shared key for authentication"
+    echo "  USE_TLS             Set to 'true' for WSS"
     ;;
 esac
