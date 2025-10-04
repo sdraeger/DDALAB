@@ -3,7 +3,7 @@ use axum::{
     Router,
 };
 use ddalab_broker::{
-    handle_websocket, BrokerState, PostgresShareStore, UserRegistry,
+    discovery::BrokerDiscovery, handle_websocket, BrokerState, PostgresShareStore, UserRegistry,
 };
 use sqlx::postgres::PgPoolOptions;
 use std::env;
@@ -37,6 +37,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(300); // 5 minutes default
+
+    // Discovery configuration
+    let institution_name = env::var("INSTITUTION_NAME")
+        .unwrap_or_else(|_| "Default Institution".to_string());
+    let broker_password = env::var("BROKER_PASSWORD")
+        .unwrap_or_else(|_| "default_password".to_string());
+    let use_tls = env::var("USE_TLS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(false);
 
     // Connect to database
     info!("Connecting to database...");
@@ -100,9 +110,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("🎧 Listening on {}", addr);
     info!("📡 WebSocket endpoint: ws://{}/ws", addr);
 
+    // Initialize and start mDNS discovery announcement
+    let port = addr.port();
+    let mut discovery = BrokerDiscovery::new()?;
+    let auth_hash = ddalab_broker::discovery::hash_psk(&broker_password);
+
+    match discovery.announce(port, &institution_name, &auth_hash, use_tls) {
+        Ok(_) => {
+            info!("🔍 mDNS discovery announcement started");
+            info!("   Institution: {}", institution_name);
+            info!("   Port: {}", port);
+            info!("   TLS: {}", use_tls);
+        }
+        Err(e) => {
+            warn!("Failed to start mDNS discovery: {}", e);
+            warn!("Broker will continue without network discovery");
+        }
+    }
+
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app.into_make_service())
         .await?;
+
+    // Clean up mDNS announcement on shutdown
+    if let Err(e) = discovery.unannounce() {
+        warn!("Failed to unannounce mDNS service: {}", e);
+    }
 
     Ok(())
 }
