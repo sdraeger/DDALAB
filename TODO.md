@@ -31,15 +31,28 @@
    -  Connect/disconnect functionality with error handling
    -  Connected state showing user ID confirmation
 
-### =� In Progress / TODO
+4. **Broker Discovery (mDNS)**
+   - Created broker-side discovery announcement system
+   - Created client-side discovery scanning
+   - SHA256 pre-shared key authentication (password never transmitted)
+   - TLS/WSS support flags
+   - Discovery UI in SettingsPanel with broker list display
+   - Password input for authenticated brokers
+   - Security indicators (Lock/Shield icons)
+   - Integrated into broker startup
+   - Environment config: INSTITUTION_NAME, BROKER_PASSWORD, USE_TLS
+   - Added sync commands: sync_discover_brokers, sync_verify_password
+   - Updated useSync hook with discoverBrokers and verifyPassword methods
 
-4. **Peer Download Endpoint** (Step 5 - NOT STARTED)
+### In Progress / TODO
+
+5. **Peer Download Endpoint** (NOT STARTED)
    - [ ] Add HTTP endpoint in `embedded_api.rs` to serve shared results
    - [ ] Validate share tokens before allowing downloads
    - [ ] Serve result files securely via `/api/share/{token}/download`
    - [ ] Handle CORS for cross-origin requests
 
-5. **Share/Access UI Components** (Step 6 - NOT STARTED)
+6. **Share/Access UI Components** (NOT STARTED)
    - [ ] Create `ShareResultDialog.tsx` component
      - [ ] Share button on analysis results
      - [ ] Access policy selector (public/team/specific users)
