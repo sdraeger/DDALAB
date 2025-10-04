@@ -28,13 +28,20 @@ impl BrokerDiscovery {
         auth_hash: &str, // SHA256 hash of the pre-shared key
         use_tls: bool,
     ) -> Result<()> {
-        let hostname = hostname::get()
+        let hostname_base = hostname::get()
             .ok()
             .and_then(|h| h.into_string().ok())
-            .unwrap_or_else(|| "unknown".to_string());
+            .unwrap_or_else(|| "ddalab-broker".to_string());
+
+        // Hostname must end with .local. for mDNS
+        let hostname = if hostname_base.ends_with(".local.") {
+            hostname_base
+        } else {
+            format!("{}.local.", hostname_base)
+        };
 
         let service_type = "_ddalab-broker._tcp.local.";
-        let instance_name = format!("DDALAB Broker @ {}", hostname);
+        let instance_name = format!("DDALAB Broker @ {}", hostname.trim_end_matches(".local."));
 
         let mut properties = HashMap::new();
         properties.insert("version".to_string(), "1.0".to_string());
