@@ -12,11 +12,13 @@ mod app_setup;
 mod utils;
 mod embedded_api;
 mod edf;
+mod sync;
 
 // Import required modules
 use app_setup::setup_app;
 use commands::*;
 use commands::embedded_api_commands::EmbeddedApiState;
+use sync::AppSyncState;
 
 fn main() {
     // Initialize logging
@@ -71,9 +73,17 @@ fn main() {
             get_data_directory,
             set_data_directory,
             // Update commands
-            check_for_updates
+            check_for_updates,
+            // Sync commands
+            sync::commands::sync_connect,
+            sync::commands::sync_disconnect,
+            sync::commands::sync_is_connected,
+            sync::commands::sync_share_result,
+            sync::commands::sync_access_share,
+            sync::commands::sync_revoke_share
         ])
         .manage(EmbeddedApiState::default())
+        .manage(AppSyncState::new())
         .manage(parking_lot::RwLock::new(None::<commands::data_directory_commands::DataDirectoryConfig>))
         .setup(|app| {
             setup_app(app).map_err(|e| e.to_string())?;

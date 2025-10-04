@@ -7,13 +7,25 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { AlertTriangle, Zap, Container, Play, Square, RefreshCw, Download } from 'lucide-react'
+import { AlertTriangle, Zap, Container, Play, Square, RefreshCw, Download, Cloud, Link2 } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Input } from '@/components/ui/input'
 import { TauriService } from '@/services/tauriService'
+import { useSync } from '@/hooks/useSync'
 
 export function SettingsPanel() {
   const { ui, setApiMode } = useAppStore()
+  const { isConnected, isLoading: syncLoading, error: syncError, connect, disconnect } = useSync()
   console.log('🎨 SettingsPanel rendered, current apiMode:', ui.apiMode)
+
+  // Sync configuration state
+  const [syncConfig, setSyncConfig] = useState({
+    brokerUrl: '',
+    userId: '',
+    localEndpoint: 'http://localhost:8765'
+  })
+  const [showSyncConfig, setShowSyncConfig] = useState(false)
+
   const [embeddedApiStatus, setEmbeddedApiStatus] = useState<{
     running: boolean
     port: number
@@ -160,6 +172,31 @@ export function SettingsPanel() {
       console.error('Failed to stop embedded API:', error)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleSyncConnect = async () => {
+    if (!syncConfig.brokerUrl || !syncConfig.userId) {
+      return
+    }
+
+    try {
+      await connect({
+        broker_url: syncConfig.brokerUrl,
+        user_id: syncConfig.userId,
+        local_endpoint: syncConfig.localEndpoint
+      })
+      setShowSyncConfig(false)
+    } catch (error) {
+      console.error('Failed to connect to sync broker:', error)
+    }
+  }
+
+  const handleSyncDisconnect = async () => {
+    try {
+      await disconnect()
+    } catch (error) {
+      console.error('Failed to disconnect from sync broker:', error)
     }
   }
 
@@ -332,6 +369,126 @@ export function SettingsPanel() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Sync Configuration */}
+      {TauriService.isTauri() && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Cloud className="w-5 h-5" />
+              Institutional Sync
+            </CardTitle>
+            <CardDescription>
+              Connect to an institutional broker to share analysis results with collaborators
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    isConnected ? 'bg-green-500' : 'bg-gray-300'
+                  }`} />
+                  <span className="text-sm font-medium">
+                    {isConnected ? 'Connected' : 'Not Connected'}
+                  </span>
+                </div>
+                {!isConnected ? (
+                  <Button
+                    onClick={() => setShowSyncConfig(!showSyncConfig)}
+                    variant="outline"
+                    size="sm"
+                  >
+                    <Link2 className="mr-2 h-4 w-4" />
+                    Configure
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleSyncDisconnect}
+                    variant="outline"
+                    size="sm"
+                    disabled={syncLoading}
+                  >
+                    Disconnect
+                  </Button>
+                )}
+              </div>
+
+              {showSyncConfig && (
+                <div className="space-y-3 pt-2 border-t">
+                  <div className="space-y-2">
+                    <Label htmlFor="broker-url">Broker URL</Label>
+                    <Input
+                      id="broker-url"
+                      placeholder="wss://broker.institution.edu"
+                      value={syncConfig.brokerUrl}
+                      onChange={(e) => setSyncConfig({ ...syncConfig, brokerUrl: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="user-id">User ID</Label>
+                    <Input
+                      id="user-id"
+                      placeholder="your.email@institution.edu"
+                      value={syncConfig.userId}
+                      onChange={(e) => setSyncConfig({ ...syncConfig, userId: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="local-endpoint">Local Endpoint</Label>
+                    <Input
+                      id="local-endpoint"
+                      placeholder="http://localhost:8765"
+                      value={syncConfig.localEndpoint}
+                      onChange={(e) => setSyncConfig({ ...syncConfig, localEndpoint: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Your local API endpoint for peer-to-peer transfers
+                    </p>
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      onClick={handleSyncConnect}
+                      disabled={syncLoading || !syncConfig.brokerUrl || !syncConfig.userId}
+                    >
+                      {syncLoading ? 'Connecting...' : 'Connect'}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setShowSyncConfig(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {syncError && (
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>{syncError}</AlertDescription>
+                </Alert>
+              )}
+
+              {isConnected && (
+                <Alert>
+                  <AlertDescription>
+                    <div className="flex items-center gap-2">
+                      <Cloud className="h-4 w-4" />
+                      <span>
+                        Connected as <strong>{syncConfig.userId}</strong>
+                      </span>
+                    </div>
+                    <p className="text-xs mt-2 text-muted-foreground">
+                      You can now share and access analysis results with your collaborators
+                    </p>
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Update Checker */}
       {TauriService.isTauri() && (
