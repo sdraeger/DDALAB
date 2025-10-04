@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// A discovered broker on the local network
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,7 +120,7 @@ pub async fn discover_brokers(timeout_secs: u64) -> Result<Vec<DiscoveredBroker>
 
                     let broker = DiscoveredBroker {
                         name: info.get_fullname().to_string(),
-                        url: format!("{}://{}:{}", protocol, host, info.get_port()),
+                        url: format!("{}://{}:{}/ws", protocol, host, info.get_port()),
                         institution: institution.to_string(),
                         version: version.to_string(),
                         auth_required,
@@ -143,6 +143,12 @@ pub async fn discover_brokers(timeout_secs: u64) -> Result<Vec<DiscoveredBroker>
 
     let brokers: Vec<DiscoveredBroker> = brokers_map.into_values().collect();
     info!("Discovery complete. Found {} unique broker(s)", brokers.len());
+
+    // Shutdown the mDNS daemon to clean up resources
+    // Note: mdns-sd library produces harmless "sending on closed channel" errors
+    // during shutdown which can be safely ignored (internal library issue)
+    let _ = mdns.shutdown();
+
     Ok(brokers)
 }
 

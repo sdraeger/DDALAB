@@ -2,27 +2,17 @@
 
 import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Brain, Server, AlertCircle, RefreshCw, Settings, Layers } from 'lucide-react'
-import { DockerStackManager } from '@/components/DockerStackManager'
+import { Brain, Server } from 'lucide-react'
 import { EmbeddedApiManager } from '@/components/EmbeddedApiManager'
 import { TauriService } from '@/services/tauriService'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 interface WelcomeScreenProps {
-  apiUrl: string
   onApiUrlChange: (url: string) => void
   onRetryConnection: () => void
 }
 
-export function WelcomeScreen({ apiUrl, onApiUrlChange, onRetryConnection }: WelcomeScreenProps) {
-  const [localApiUrl, setLocalApiUrl] = useState(apiUrl)
+export function WelcomeScreen({ onApiUrlChange, onRetryConnection }: WelcomeScreenProps) {
   const isTauri = TauriService.isTauri()
-
-  const handleUrlUpdate = () => {
-    onApiUrlChange(localApiUrl)
-  }
 
   const handleApiReady = (apiUrl: string) => {
     onApiUrlChange(apiUrl)
@@ -49,74 +39,23 @@ export function WelcomeScreen({ apiUrl, onApiUrlChange, onRetryConnection }: Wel
 
           {/* Connection Status */}
           <div className="space-y-8 mb-12">
-            {/* API Options - Only show in Tauri */}
+            {/* Embedded API - Only show in Tauri */}
             {isTauri && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Layers className="h-5 w-5" />
-                    Choose Your API Backend
+                    <Server className="h-5 w-5" />
+                    Embedded API Backend
                   </CardTitle>
                   <CardDescription>
-                    Select how you want to run the DDALAB API server
+                    DDALAB runs a local Rust-based API server for all analysis operations
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <Tabs defaultValue="embedded" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2">
-                      <TabsTrigger value="embedded">Embedded (Recommended)</TabsTrigger>
-                      <TabsTrigger value="docker">Docker Services</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="embedded" className="mt-6">
-                      <EmbeddedApiManager onApiReady={handleApiReady} />
-                    </TabsContent>
-                    <TabsContent value="docker" className="mt-6">
-                      <DockerStackManager onApiReady={handleApiReady} />
-                    </TabsContent>
-                  </Tabs>
+                  <EmbeddedApiManager onApiReady={handleApiReady} />
                 </CardContent>
               </Card>
             )}
-
-            <div className="grid md:grid-cols-2 gap-8">
-              <Card className="border-l-4 border-l-amber-500">
-                <CardHeader>
-                  <CardTitle className="flex items-center text-amber-700 dark:text-amber-400">
-                    <AlertCircle className="h-5 w-5 mr-2" />
-                    {isTauri ? 'No API Connected' : 'API Connection Failed'}
-                  </CardTitle>
-                  <CardDescription>
-                    {isTauri
-                      ? 'Start the Embedded API or Docker services above, or manually configure a custom API URL below.'
-                      : 'Unable to connect to the DDALAB API server. Please ensure the server is running.'}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <label htmlFor="api-url" className="block text-sm font-medium mb-2">
-                        API Server URL
-                      </label>
-                      <div className="flex space-x-2">
-                        <Input
-                          id="api-url"
-                          value={localApiUrl}
-                          onChange={(e) => setLocalApiUrl(e.target.value)}
-                          placeholder="http://localhost:8000"
-                          className="flex-1"
-                        />
-                        <Button onClick={handleUrlUpdate} variant="outline" size="icon">
-                          <Settings className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                    <Button onClick={onRetryConnection} className="w-full">
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Retry Connection
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
 
             <Card>
               <CardHeader>
@@ -132,20 +71,19 @@ export function WelcomeScreen({ apiUrl, onApiUrlChange, onRetryConnection }: Wel
                 <ol className="space-y-2 text-sm">
                   <li className="flex items-start">
                     <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">1</span>
-                    {isTauri ? 'Choose Embedded API (recommended) or Docker services above' : 'Start the Python API server'}
+                    {isTauri ? 'Click "Start Embedded API" above to launch the local backend' : 'Start the API server'}
                   </li>
                   <li className="flex items-start">
                     <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">2</span>
-                    {isTauri ? 'Click "Start" to launch your chosen backend' : 'Ensure the server is running on the correct port'}
+                    {isTauri ? 'The app will connect automatically once the API is ready' : 'Ensure the server is running on the correct port'}
                   </li>
                   <li className="flex items-start">
                     <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">3</span>
-                    {isTauri ? 'The app will connect automatically once the API is ready' : 'Click "Retry Connection" to connect'}
+                    {isTauri ? 'Start analyzing your EDF and ASCII files' : 'Click "Retry Connection" to connect'}
                   </li>
                 </ol>
               </CardContent>
             </Card>
-            </div>
           </div>
 
           {/* Features */}

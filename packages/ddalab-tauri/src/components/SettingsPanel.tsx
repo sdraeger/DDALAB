@@ -87,6 +87,9 @@ export function SettingsPanel() {
   useEffect(() => {
     if (!TauriService.isTauri()) return
 
+    // Don't run auto-discovery if already connected
+    if (isConnected) return
+
     // Initial discovery
     const performAutoDiscovery = async () => {
       try {
@@ -101,11 +104,11 @@ export function SettingsPanel() {
 
     performAutoDiscovery()
 
-    // Periodic auto-discovery every 30 seconds
-    const discoveryInterval = setInterval(performAutoDiscovery, 30000)
+    // Periodic auto-discovery every 60 seconds (reduced frequency)
+    const discoveryInterval = setInterval(performAutoDiscovery, 60000)
 
     return () => clearInterval(discoveryInterval)
-  }, [discoverBrokers])
+  }, [discoverBrokers, isConnected])
 
   useEffect(() => {
     refreshEmbeddedApiStatus()
@@ -173,11 +176,15 @@ export function SettingsPanel() {
   }
 
   const handleSelectBroker = (broker: DiscoveredBroker) => {
+    console.log('Selected broker:', broker)
+    console.log('Auth required:', broker.auth_required)
     setSelectedBroker(broker)
     setSyncConfig({
       ...syncConfig,
       brokerUrl: broker.url
     })
+    // Show the sync config form so password field appears
+    setShowSyncConfig(true)
   }
 
   const handleSyncConnect = async () => {
