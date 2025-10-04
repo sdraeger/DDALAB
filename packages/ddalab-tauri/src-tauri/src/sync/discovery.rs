@@ -43,11 +43,11 @@ pub async fn discover_brokers(timeout_secs: u64) -> Result<Vec<DiscoveredBroker>
 
                     let institution = properties
                         .get_property_val_str("institution")
-                        .unwrap_or_else(|| "Unknown Institution".to_string());
+                        .unwrap_or("Unknown Institution");
 
                     let version = properties
                         .get_property_val_str("version")
-                        .unwrap_or_else(|| "1.0".to_string());
+                        .unwrap_or("1.0");
 
                     let auth_required = properties
                         .get_property_val_str("auth_required")
@@ -76,10 +76,10 @@ pub async fn discover_brokers(timeout_secs: u64) -> Result<Vec<DiscoveredBroker>
                     let broker = DiscoveredBroker {
                         name: info.get_fullname().to_string(),
                         url: format!("{}://{}:{}", protocol, host, info.get_port()),
-                        institution,
-                        version,
+                        institution: institution.to_string(),
+                        version: version.to_string(),
                         auth_required,
-                        auth_hash,
+                        auth_hash: auth_hash.to_string(),
                         uses_tls,
                     };
 
