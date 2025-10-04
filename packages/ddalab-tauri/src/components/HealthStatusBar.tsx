@@ -4,6 +4,7 @@ import { useEffect, useCallback } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { ApiService } from '@/services/apiService'
 import { TauriService } from '@/services/tauriService'
+import { useSync } from '@/hooks/useSync'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,7 +15,9 @@ import {
   CheckCircle,
   Clock,
   RefreshCw,
-  Server
+  Server,
+  Cloud,
+  CloudOff
 } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
 
@@ -24,6 +27,7 @@ interface HealthStatusBarProps {
 
 export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
   const { health, ui, updateHealthStatus } = useAppStore()
+  const { isConnected: syncConnected, isLoading: syncLoading } = useSync()
 
   const checkApiHealth = useCallback(async () => {
     const startTime = Date.now()
@@ -162,15 +166,17 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
             )}
           </div>
 
-          {/* WebSocket Status */}
+          {/* Sync Broker Status */}
           <div className="flex items-center space-x-1">
-            {health.websocketConnected ? (
-              <Wifi className="h-4 w-4 text-green-600" />
+            {syncLoading ? (
+              <RefreshCw className="h-4 w-4 text-yellow-600 animate-spin" />
+            ) : syncConnected ? (
+              <Cloud className="h-4 w-4 text-green-600" />
             ) : (
-              <WifiOff className="h-4 w-4 text-gray-400" />
+              <CloudOff className="h-4 w-4 text-gray-400" />
             )}
-            <span className="text-muted-foreground">
-              WS: {health.websocketConnected ? 'connected' : 'disconnected'}
+            <span className={syncConnected ? 'text-green-600' : 'text-muted-foreground'}>
+              Sync: {syncLoading ? 'connecting...' : syncConnected ? 'connected' : 'offline'}
             </span>
           </div>
 
@@ -206,13 +212,15 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
           <div className="flex items-center space-x-1">
             <Activity className="h-4 w-4 text-muted-foreground" />
             <div className="flex space-x-1">
+              {/* API Status Dot */}
               <div className={`w-2 h-2 rounded-full ${
                 health.apiStatus === 'healthy' ? 'bg-green-500 animate-pulse' :
                 health.apiStatus === 'checking' ? 'bg-yellow-500 animate-pulse' :
                 'bg-red-500'
               }`} />
+              {/* Sync Broker Status Dot */}
               <div className={`w-2 h-2 rounded-full ${
-                health.websocketConnected ? 'bg-blue-500 animate-pulse' : 'bg-gray-300'
+                syncConnected ? 'bg-blue-500 animate-pulse' : 'bg-gray-300'
               }`} />
             </div>
           </div>
