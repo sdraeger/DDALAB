@@ -2,6 +2,8 @@ use anyhow::Result;
 use mdns_sd::{ServiceDaemon, ServiceEvent};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::net::IpAddr;
 use std::time::Duration;
 use tracing::{debug, info};
 
@@ -25,7 +27,8 @@ pub async fn discover_brokers(timeout_secs: u64) -> Result<Vec<DiscoveredBroker>
     info!("Starting broker discovery (timeout: {}s)", timeout_secs);
 
     let receiver = mdns.browse(service_type)?;
-    let mut brokers = Vec::new();
+    // Use HashMap to deduplicate by hostname
+    let mut brokers_map: HashMap<String, DiscoveredBroker> = HashMap::new();
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_secs);
 
@@ -65,13 +68,32 @@ pub async fn discover_brokers(timeout_secs: u64) -> Result<Vec<DiscoveredBroker>
 
                     let protocol = if uses_tls { "wss" } else { "ws" };
 
-                    // Get first IP address
+                    // Get best IP address (prefer IPv4, avoid loopback and link-local)
                     let host = info
                         .get_addresses()
                         .iter()
-                        .next()
-                        .map(|addr| addr.to_string())
+                        .filter(|ip| {
+                            // Skip loopback and link-local addresses
+                            if ip.is_loopback() {
+                                return false;
+                            }
+                            if let IpAddr::V6(ipv6) = ip {
+                                // Skip IPv6 link-local (fe80::)
+                                if ipv6.segments()[0] == 0xfe80 {
+                                    return false;
+                                }
+                            }
+                            true
+                        })
+                        // Prefer IPv4 over IPv6
+                        .min_by_key(|ip| if ip.is_ipv4() { 0 } else { 1 })
+                        .map(|ip| ip.to_string())
                         .unwrap_or_else(|| info.get_hostname().to_string());
+
+                    let hostname = info.get_hostname();
+
+                    // Use hostname as deduplication key
+                    let key = hostname.to_string();
 
                     let broker = DiscoveredBroker {
                         name: info.get_fullname().to_string(),
@@ -88,14 +110,16 @@ pub async fn discover_brokers(timeout_secs: u64) -> Result<Vec<DiscoveredBroker>
                         broker.institution, broker.url, broker.uses_tls, broker.auth_required
                     );
 
-                    brokers.push(broker);
+                    // Only keep the first (best) broker for each hostname
+                    brokers_map.entry(key).or_insert(broker);
                 }
             }
             _ => continue,
         }
     }
 
-    info!("Discovery complete. Found {} broker(s)", brokers.len());
+    let brokers: Vec<DiscoveredBroker> = brokers_map.into_values().collect();
+    info!("Discovery complete. Found {} unique broker(s)", brokers.len());
     Ok(brokers)
 }
 
