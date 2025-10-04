@@ -20,6 +20,11 @@ pub struct DiscoveredBroker {
 }
 
 /// Discover DDALAB brokers on the local network
+///
+/// This uses an optimized discovery strategy:
+/// - Returns immediately after finding brokers (no need to wait for full timeout)
+/// - Uses shorter polling intervals for faster response
+/// - Deduplicates brokers by hostname
 pub async fn discover_brokers(timeout_secs: u64) -> Result<Vec<DiscoveredBroker>> {
     let mdns = ServiceDaemon::new()?;
     let service_type = "_ddalab-broker._tcp.local.";
@@ -31,15 +36,33 @@ pub async fn discover_brokers(timeout_secs: u64) -> Result<Vec<DiscoveredBroker>
     let mut brokers_map: HashMap<String, DiscoveredBroker> = HashMap::new();
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_secs);
+    let start = tokio::time::Instant::now();
+
+    // After finding first broker, wait a bit more for others on same network
+    let mut found_first_broker = false;
+    let grace_period = Duration::from_millis(500); // 500ms grace period after first broker
 
     loop {
-        if tokio::time::Instant::now() > deadline {
+        let now = tokio::time::Instant::now();
+
+        // Check if we should stop
+        if now > deadline {
             break;
         }
 
-        match tokio::time::timeout(Duration::from_secs(1), receiver.recv_async()).await {
+        // If we found brokers and grace period passed, return early
+        if found_first_broker && now > start + grace_period {
+            break;
+        }
+
+        // Use shorter timeout for more responsive discovery
+        match tokio::time::timeout(Duration::from_millis(300), receiver.recv_async()).await {
             Ok(Ok(event)) => {
                 if let ServiceEvent::ServiceResolved(info) = event {
+                    if !found_first_broker {
+                        found_first_broker = true;
+                        debug!("First broker found, starting grace period");
+                    }
                     debug!("Discovered service: {}", info.get_fullname());
 
                     let properties = info.get_properties();

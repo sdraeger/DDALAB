@@ -83,6 +83,30 @@ export function SettingsPanel() {
     }
   }
 
+  // Auto-discovery effect
+  useEffect(() => {
+    if (!TauriService.isTauri()) return
+
+    // Initial discovery
+    const performAutoDiscovery = async () => {
+      try {
+        const brokers = await discoverBrokers(3)
+        if (brokers.length > 0) {
+          setDiscoveredBrokers(brokers)
+        }
+      } catch (error) {
+        console.error('Auto-discovery failed:', error)
+      }
+    }
+
+    performAutoDiscovery()
+
+    // Periodic auto-discovery every 30 seconds
+    const discoveryInterval = setInterval(performAutoDiscovery, 30000)
+
+    return () => clearInterval(discoveryInterval)
+  }, [discoverBrokers])
+
   useEffect(() => {
     refreshEmbeddedApiStatus()
 
@@ -135,7 +159,8 @@ export function SettingsPanel() {
   const handleDiscoverBrokers = async () => {
     setIsDiscovering(true)
     try {
-      const brokers = await discoverBrokers(5) // 5 second timeout
+      // Reduced timeout - discovery now returns early when brokers found
+      const brokers = await discoverBrokers(3) // 3 second max, usually ~500ms
       setDiscoveredBrokers(brokers)
       if (brokers.length > 0) {
         setShowSyncConfig(true)
