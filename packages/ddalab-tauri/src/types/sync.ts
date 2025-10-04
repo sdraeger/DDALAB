@@ -29,4 +29,15 @@ export interface SyncConnectionConfig {
   broker_url: string;
   user_id: string;
   local_endpoint: string;
+  password?: string; // For authenticated brokers
+}
+
+export interface DiscoveredBroker {
+  name: string;
+  url: string;
+  institution: string;
+  version: string;
+  auth_required: boolean;
+  auth_hash: string;
+  uses_tls: boolean;
 }
