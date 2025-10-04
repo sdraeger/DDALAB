@@ -25,9 +25,15 @@ services:
       BIND_ADDR: 0.0.0.0:8080
       HEARTBEAT_TIMEOUT_SECONDS: 300
       RUST_LOG: ddalab_broker=info,tower_http=debug
+      # mDNS Discovery Configuration
+      INSTITUTION_NAME: ${INSTITUTION_NAME:-Default Institution}
+      BROKER_PASSWORD: ${BROKER_PASSWORD:-change_me_in_production}
+      USE_TLS: ${USE_TLS:-false}
     ports:
       - "8080:8080"
     restart: unless-stopped
+    # Required for mDNS multicast
+    network_mode: host
 
 volumes:
   postgres_data:

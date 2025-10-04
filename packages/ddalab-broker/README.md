@@ -31,6 +31,7 @@ All data transfers happen **peer-to-peer** - the broker only provides the connec
 - ✅ WebSocket real-time communication
 - ✅ HTTP REST API for share lookups
 - ✅ PostgreSQL storage for shares
+- ✅ **mDNS Network Discovery** (automatic broker discovery on local networks)
 
 ### Optional Features
 - ⏳ State backup/restore (schema ready, handlers TODO)
@@ -57,7 +58,14 @@ HEARTBEAT_TIMEOUT_SECONDS=300
 
 # Logging level
 RUST_LOG=ddalab_broker=info,tower_http=debug
+
+# mDNS Network Discovery (NEW)
+INSTITUTION_NAME=My University          # Name shown to clients
+BROKER_PASSWORD=secure_password_2024    # Pre-shared key for authentication
+USE_TLS=false                           # Set to true if using WSS
 ```
+
+See `.env.example` for a complete configuration template.
 
 ### Build and Run
 
@@ -184,12 +192,53 @@ CREATE TABLE user_backups (
 );
 ```
 
+## Network Discovery (mDNS)
+
+The broker automatically announces itself on the local network using mDNS (Multicast DNS). This allows DDALAB clients to discover available brokers without manual configuration.
+
+### How It Works
+
+1. **Broker announces** itself as `_ddalab-broker._tcp.local.`
+2. **Clients scan** the network for available brokers
+3. **Authentication** via SHA256 pre-shared key (password never transmitted)
+4. **Security indicators** show TLS and authentication status
+
+### Discovery Configuration
+
+The broker announces:
+- **Institution Name**: Displayed to users
+- **Port**: WebSocket port
+- **Authentication Hash**: SHA256 of BROKER_PASSWORD
+- **TLS Status**: Whether broker uses WSS
+
+### Client Discovery
+
+Clients see:
+- 🏛️ Institution name
+- 🔒 Authentication required (lock icon)
+- 🛡️ TLS enabled (shield icon)
+- 📍 Broker URL (ws:// or wss://)
+
+### Security
+
+- Password is **never transmitted** over the network
+- Client verifies password locally against SHA256 hash
+- Supports TLS/WSS for encrypted connections
+- Discovery limited to local network (multicast)
+
+### Network Requirements
+
+- **UDP port 5353**: mDNS protocol
+- **Multicast address**: 224.0.0.251 (IPv4) or FF02::FB (IPv6)
+- **Same subnet**: Broker and clients must be on same local network
+
 ## Security Considerations
 
 1. **TLS Required**: Deploy behind HTTPS/WSS in production
-2. **Authentication**: Add JWT or OAuth before production use
+2. **Authentication**: Pre-shared key authentication via BROKER_PASSWORD
 3. **Rate Limiting**: Consider adding rate limits for share creation
 4. **Access Control**: Team-based policies need institutional directory integration
+5. **Network Discovery**: mDNS limited to local network, password protected
 
 ## License
 
