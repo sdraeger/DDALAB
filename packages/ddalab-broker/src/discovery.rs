@@ -2,7 +2,6 @@ use anyhow::Result;
 use mdns_sd::{ServiceDaemon, ServiceInfo};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::net::IpAddr;
 use tracing::{info, warn};
 
 /// Broker discovery service using mDNS
@@ -45,17 +44,24 @@ impl BrokerDiscovery {
         properties.insert("tls".to_string(), use_tls.to_string());
 
         // Get local IP address
-        let my_addrs = mdns_sd::IfKind::All.get_if_addrs()
+        let my_addrs: Vec<std::net::IpAddr> = if_addrs::get_if_addrs()
             .unwrap_or_default()
             .into_iter()
+            .map(|iface| iface.addr.ip())
             .filter(|addr| !addr.is_loopback())
-            .collect::<Vec<_>>();
+            .collect();
+
+        // Create service info - use empty () for addresses if none available
+        let addresses = my_addrs.first().copied().unwrap_or_else(|| {
+            warn!("No non-loopback addresses found, using localhost");
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))
+        });
 
         let service_info = ServiceInfo::new(
             service_type,
             &instance_name,
             &hostname,
-            my_addrs.first().map(|a| *a).as_ref(),
+            addresses,
             port,
             Some(properties),
         )?;

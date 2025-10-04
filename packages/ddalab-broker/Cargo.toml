@@ -40,6 +40,7 @@ thiserror = "2.0"
 # Discovery
 mdns-sd = "0.11"
 hostname = "0.4"
+if-addrs = "0.13"
 
 # Security
 sha2 = "0.10"
