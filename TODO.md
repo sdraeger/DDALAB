@@ -1,0 +1,79 @@
+# DDALAB TODO
+
+## Sync UI Integration Progress (feature/sync-ui-integration branch)
+
+###  Completed
+1. **Backend Integration**
+   -  Registered sync commands in `main.rs`
+   -  Added `AppSyncState` to managed state
+   -  Fixed `parking_lot::RwLock` ’ `tokio::sync::RwLock` for Send compatibility
+   -  All 6 sync commands working: connect, disconnect, is_connected, share_result, access_share, revoke_share
+
+2. **TypeScript Integration**
+   -  Created `src/types/sync.ts` with AccessPolicy, ShareMetadata, SharedResultInfo interfaces
+   -  Created `src/hooks/useSync.ts` hook with full React API
+   -  Hook provides: isConnected, isLoading, error, connect, disconnect, shareResult, accessShare, revokeShare
+
+3. **Settings UI**
+   -  Added "Institutional Sync" card to SettingsPanel.tsx
+   -  Connection status indicator (green dot when connected)
+   -  Configuration form with broker URL, user ID, local endpoint inputs
+   -  Connect/disconnect functionality with error handling
+   -  Connected state showing user ID confirmation
+
+### =§ In Progress / TODO
+
+4. **Peer Download Endpoint** (Step 5 - NOT STARTED)
+   - [ ] Add HTTP endpoint in `embedded_api.rs` to serve shared results
+   - [ ] Validate share tokens before allowing downloads
+   - [ ] Serve result files securely via `/api/share/{token}/download`
+   - [ ] Handle CORS for cross-origin requests
+
+5. **Share/Access UI Components** (Step 6 - NOT STARTED)
+   - [ ] Create `ShareResultDialog.tsx` component
+     - [ ] Share button on analysis results
+     - [ ] Access policy selector (public/team/specific users)
+     - [ ] Share link display with copy button
+     - [ ] Active shares list with revoke option
+   - [ ] Create `AccessShareDialog.tsx` component
+     - [ ] Paste share link input
+     - [ ] Preview shared result metadata
+     - [ ] Download button
+   - [ ] Integrate dialogs into DDAResults.tsx or main UI
+
+### <¯ Mobile Compatibility Considerations
+
+**Current Architecture:** P2P direct downloads between peers
+-  Works on Desktop (macOS/Windows/Linux)
+- L Won't work on iOS/Android (devices behind NAT, cannot accept incoming HTTP)
+
+**Mobile Solutions:**
+1. **Broker-Proxied Mode** (Recommended)
+   - Broker temporarily stores small result files
+   - Mobile devices download from broker instead of peer
+   - Add platform detection: `cfg!(target_os = "ios") || cfg!(target_os = "android")`
+
+2. **WebRTC Data Channels**
+   - NAT traversal works on mobile
+   - More complex implementation
+
+3. **Hybrid Approach**
+   - Desktop: Direct P2P (current design)
+   - Mobile: Broker-proxied downloads
+
+### =Á Key Files Modified
+- `src-tauri/src/main.rs` - Registered sync commands
+- `src-tauri/src/sync/commands.rs` - Fixed tokio::RwLock compatibility
+- `src/types/sync.ts` - Type definitions
+- `src/hooks/useSync.ts` - React hook
+- `src/components/SettingsPanel.tsx` - Sync configuration UI
+
+### = Related Packages
+- `packages/ddalab-broker/` - Institutional sync broker (Rust WebSocket server)
+- `packages/ddalab-tauri/src-tauri/src/sync/` - SyncClient implementation
+
+### =Ý Notes
+- Sync is completely optional - app fully functional offline
+- Local-first architecture - all data stays on device unless explicitly shared
+- Broker only coordinates - actual data transfers are peer-to-peer (on desktop)
+- No authentication on broker yet - user ID is self-declared
