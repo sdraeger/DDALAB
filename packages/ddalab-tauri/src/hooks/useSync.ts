@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useState, useEffect, useCallback } from 'react';
-import type { AccessPolicy, SharedResultInfo, SyncConnectionConfig } from '@/types/sync';
+import type { AccessPolicy, SharedResultInfo, SyncConnectionConfig, DiscoveredBroker } from '@/types/sync';
 
 export function useSync() {
   const [isConnected, setIsConnected] = useState(false);
@@ -101,6 +101,28 @@ export function useSync() {
     }
   }, []);
 
+  const discoverBrokers = useCallback(async (timeoutSecs: number = 5): Promise<DiscoveredBroker[]> => {
+    setError(null);
+    try {
+      const brokers = await invoke<DiscoveredBroker[]>('sync_discover_brokers', { timeoutSecs });
+      return brokers;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      throw err;
+    }
+  }, []);
+
+  const verifyPassword = useCallback(async (password: string, authHash: string): Promise<boolean> => {
+    try {
+      return await invoke<boolean>('sync_verify_password', { password, authHash });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      return false;
+    }
+  }, []);
+
   return {
     isConnected,
     isLoading,
@@ -111,5 +133,7 @@ export function useSync() {
     accessShare,
     revokeShare,
     checkConnection,
+    discoverBrokers,
+    verifyPassword,
   };
 }

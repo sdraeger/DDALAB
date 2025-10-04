@@ -80,7 +80,9 @@ fn main() {
             sync::commands::sync_is_connected,
             sync::commands::sync_share_result,
             sync::commands::sync_access_share,
-            sync::commands::sync_revoke_share
+            sync::commands::sync_revoke_share,
+            sync::commands::sync_discover_brokers,
+            sync::commands::sync_verify_password
         ])
         .manage(EmbeddedApiState::default())
         .manage(AppSyncState::new())

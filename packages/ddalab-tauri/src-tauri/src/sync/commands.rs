@@ -1,4 +1,5 @@
 use super::client::SyncClient;
+use super::discovery::{self, DiscoveredBroker};
 use super::types::AccessPolicy;
 use std::sync::Arc;
 use tauri::State;
@@ -107,4 +108,18 @@ pub async fn sync_revoke_share(
         .map_err(|e| format!("Failed to revoke share: {}", e))?;
 
     Ok(())
+}
+
+/// Discover brokers on the local network
+#[tauri::command]
+pub async fn sync_discover_brokers(timeout_secs: u64) -> Result<Vec<DiscoveredBroker>, String> {
+    discovery::discover_brokers(timeout_secs)
+        .await
+        .map_err(|e| format!("Discovery failed: {}", e))
+}
+
+/// Verify password against broker's auth hash
+#[tauri::command]
+pub fn sync_verify_password(password: String, auth_hash: String) -> Result<bool, String> {
+    Ok(discovery::verify_password(&password, &auth_hash))
 }
