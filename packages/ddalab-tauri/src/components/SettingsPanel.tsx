@@ -4,22 +4,29 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { AlertTriangle, Play, Square, RefreshCw, Download, Cloud, Link2, Activity } from 'lucide-react'
+import { AlertTriangle, Play, Square, RefreshCw, Download, Cloud, Link2, Activity, Search, Lock, Shield } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
 import { TauriService } from '@/services/tauriService'
 import { useSync } from '@/hooks/useSync'
+import type { DiscoveredBroker } from '@/types/sync'
 
 export function SettingsPanel() {
-  const { isConnected, isLoading: syncLoading, error: syncError, connect, disconnect } = useSync()
+  const { isConnected, isLoading: syncLoading, error: syncError, connect, disconnect, discoverBrokers, verifyPassword } = useSync()
 
   // Sync configuration state
   const [syncConfig, setSyncConfig] = useState({
     brokerUrl: '',
     userId: '',
-    localEndpoint: 'http://localhost:8765'
+    localEndpoint: 'http://localhost:8765',
+    password: ''
   })
   const [showSyncConfig, setShowSyncConfig] = useState(false)
+
+  // Discovery state
+  const [discoveredBrokers, setDiscoveredBrokers] = useState<DiscoveredBroker[]>([])
+  const [isDiscovering, setIsDiscovering] = useState(false)
+  const [selectedBroker, setSelectedBroker] = useState<DiscoveredBroker | null>(null)
 
   const [embeddedApiStatus, setEmbeddedApiStatus] = useState<{
     running: boolean
@@ -125,18 +132,53 @@ export function SettingsPanel() {
     }
   }
 
+  const handleDiscoverBrokers = async () => {
+    setIsDiscovering(true)
+    try {
+      const brokers = await discoverBrokers(5) // 5 second timeout
+      setDiscoveredBrokers(brokers)
+      if (brokers.length > 0) {
+        setShowSyncConfig(true)
+      }
+    } catch (error) {
+      console.error('Failed to discover brokers:', error)
+    } finally {
+      setIsDiscovering(false)
+    }
+  }
+
+  const handleSelectBroker = (broker: DiscoveredBroker) => {
+    setSelectedBroker(broker)
+    setSyncConfig({
+      ...syncConfig,
+      brokerUrl: broker.url
+    })
+  }
+
   const handleSyncConnect = async () => {
     if (!syncConfig.brokerUrl || !syncConfig.userId) {
       return
+    }
+
+    // If broker requires auth, verify password first
+    if (selectedBroker?.auth_required && syncConfig.password) {
+      const isValid = await verifyPassword(syncConfig.password, selectedBroker.auth_hash)
+      if (!isValid) {
+        console.error('Invalid password for broker')
+        return
+      }
     }
 
     try {
       await connect({
         broker_url: syncConfig.brokerUrl,
         user_id: syncConfig.userId,
-        local_endpoint: syncConfig.localEndpoint
+        local_endpoint: syncConfig.localEndpoint,
+        password: syncConfig.password
       })
       setShowSyncConfig(false)
+      setDiscoveredBrokers([])
+      setSelectedBroker(null)
     } catch (error) {
       console.error('Failed to connect to sync broker:', error)
     }
@@ -262,14 +304,25 @@ export function SettingsPanel() {
                   </span>
                 </div>
                 {!isConnected ? (
-                  <Button
-                    onClick={() => setShowSyncConfig(!showSyncConfig)}
-                    variant="outline"
-                    size="sm"
-                  >
-                    <Link2 className="mr-2 h-4 w-4" />
-                    Configure
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleDiscoverBrokers}
+                      variant="outline"
+                      size="sm"
+                      disabled={isDiscovering}
+                    >
+                      <Search className="mr-2 h-4 w-4" />
+                      {isDiscovering ? 'Searching...' : 'Discover'}
+                    </Button>
+                    <Button
+                      onClick={() => setShowSyncConfig(!showSyncConfig)}
+                      variant="outline"
+                      size="sm"
+                    >
+                      <Link2 className="mr-2 h-4 w-4" />
+                      Manual
+                    </Button>
+                  </div>
                 ) : (
                   <Button
                     onClick={handleSyncDisconnect}
@@ -281,6 +334,44 @@ export function SettingsPanel() {
                   </Button>
                 )}
               </div>
+
+              {/* Discovered Brokers List */}
+              {discoveredBrokers.length > 0 && !isConnected && (
+                <div className="space-y-2 pt-2 border-t">
+                  <h4 className="text-sm font-medium">Discovered Brokers ({discoveredBrokers.length})</h4>
+                  {discoveredBrokers.map((broker) => (
+                    <div
+                      key={broker.url}
+                      className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                        selectedBroker?.url === broker.url
+                          ? 'border-primary bg-primary/5'
+                          : 'hover:bg-muted'
+                      }`}
+                      onClick={() => handleSelectBroker(broker)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{broker.institution}</span>
+                            {broker.uses_tls && (
+                              <Shield className="h-3 w-3 text-green-600" title="Secure (TLS)" />
+                            )}
+                            {broker.auth_required && (
+                              <Lock className="h-3 w-3 text-amber-600" title="Authentication Required" />
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {broker.url}
+                          </div>
+                        </div>
+                        {selectedBroker?.url === broker.url && (
+                          <div className="w-2 h-2 rounded-full bg-primary" />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {showSyncConfig && (
                 <div className="space-y-3 pt-2 border-t">
@@ -302,6 +393,24 @@ export function SettingsPanel() {
                       onChange={(e) => setSyncConfig({ ...syncConfig, userId: e.target.value })}
                     />
                   </div>
+                  {selectedBroker?.auth_required && (
+                    <div className="space-y-2">
+                      <Label htmlFor="broker-password" className="flex items-center gap-2">
+                        <Lock className="h-3 w-3" />
+                        Broker Password
+                      </Label>
+                      <Input
+                        id="broker-password"
+                        type="password"
+                        placeholder="Enter broker password"
+                        value={syncConfig.password}
+                        onChange={(e) => setSyncConfig({ ...syncConfig, password: e.target.value })}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        This broker requires authentication
+                      </p>
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <Label htmlFor="local-endpoint">Local Endpoint</Label>
                     <Input
