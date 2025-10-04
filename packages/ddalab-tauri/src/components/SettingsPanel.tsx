@@ -1,22 +1,17 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useAppStore } from '@/store/appStore'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { AlertTriangle, Zap, Container, Play, Square, RefreshCw, Download, Cloud, Link2 } from 'lucide-react'
+import { AlertTriangle, Play, Square, RefreshCw, Download, Cloud, Link2, Activity } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
 import { TauriService } from '@/services/tauriService'
 import { useSync } from '@/hooks/useSync'
 
 export function SettingsPanel() {
-  const { ui, setApiMode } = useAppStore()
   const { isConnected, isLoading: syncLoading, error: syncError, connect, disconnect } = useSync()
-  console.log('🎨 SettingsPanel rendered, current apiMode:', ui.apiMode)
 
   // Sync configuration state
   const [syncConfig, setSyncConfig] = useState({
@@ -84,9 +79,9 @@ export function SettingsPanel() {
   useEffect(() => {
     refreshEmbeddedApiStatus()
 
-    // Auto-start embedded API if it's the selected mode but not running
+    // Auto-start embedded API on component mount
     const autoStartEmbedded = async () => {
-      if (ui.apiMode === 'embedded' && !embeddedApiStatus.running && TauriService.isTauri()) {
+      if (!embeddedApiStatus.running && TauriService.isTauri()) {
         try {
           await TauriService.startEmbeddedApiServer()
           await new Promise(resolve => setTimeout(resolve, 1000))
@@ -99,52 +94,7 @@ export function SettingsPanel() {
 
     // Delay auto-start to ensure state is properly initialized
     setTimeout(autoStartEmbedded, 500)
-  }, [ui.apiMode, embeddedApiStatus.running])
-
-  const handleApiModeChange = async (newMode: 'external' | 'embedded') => {
-    console.log('🐛 DEBUG: TauriService.isTauri():', TauriService.isTauri())
-    console.log('🐛 DEBUG: window location:', window.location.protocol, window.location.port)
-    console.log('🐛 DEBUG: NODE_ENV:', process.env.NODE_ENV)
-
-    if (!TauriService.isTauri()) {
-      console.log('🐛 DEBUG: Not in Tauri, setting mode without server management')
-      setApiMode(newMode)
-      return
-    }
-
-    try {
-      setIsLoading(true)
-
-      if (newMode === 'embedded') {
-        console.log('🐛 DEBUG: Switching to embedded mode, starting server...')
-        try {
-          console.log('🐛 DEBUG: About to call TauriService.startEmbeddedApiServer()')
-          const result = await TauriService.startEmbeddedApiServer()
-          console.log('🐛 DEBUG: Server start result:', result)
-        } catch (error) {
-          console.error('🐛 DEBUG: Start server error:', error)
-        }
-        await new Promise(resolve => setTimeout(resolve, 2000)) // Wait longer for server to start
-        await refreshEmbeddedApiStatus()
-      } else if (newMode === 'external' && embeddedApiStatus.running) {
-        console.log('Switching to external mode, stopping embedded server...')
-        await TauriService.stopEmbeddedApiServer()
-        await refreshEmbeddedApiStatus()
-      }
-
-      // Save preference
-      const preferences = await TauriService.getAppPreferences()
-      preferences.api_config.mode = newMode
-      await TauriService.saveAppPreferences(preferences)
-
-      setApiMode(newMode)
-      console.log('API mode switched to:', newMode)
-    } catch (error) {
-      console.error('Failed to switch API mode:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  }, [embeddedApiStatus.running])
 
   const handleStartEmbeddedApi = async () => {
     if (!TauriService.isTauri()) return
@@ -210,57 +160,17 @@ export function SettingsPanel() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Zap className="h-5 w-5" />
-            API Backend Mode
+            <Activity className="h-5 w-5" />
+            Analysis Engine Status
           </CardTitle>
           <CardDescription>
-            Choose how DDALAB connects to the analysis backend
+            Built-in Rust analysis engine - auto-starts when needed
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <RadioGroup
-            value={ui.apiMode}
-            onValueChange={(value) => {
-              console.log('🔴 RadioGroup onValueChange triggered with:', value)
-              handleApiModeChange(value as 'external' | 'embedded')
-            }}
-            className="space-y-4"
-            disabled={isLoading}
-          >
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="embedded" id="embedded" />
-                <Label htmlFor="embedded" className="flex items-center gap-2 cursor-pointer">
-                  <Zap className="h-4 w-4" />
-                  Embedded Engine
-                  <Badge variant="secondary">Recommended</Badge>
-                </Label>
-              </div>
-              <p className="text-sm text-muted-foreground ml-6">
-                Built-in Rust analysis engine. Fast local processing, data never leaves your computer.
-                No setup required.
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="external" id="external" />
-                <Label htmlFor="external" className="flex items-center gap-2 cursor-pointer">
-                  <Container className="h-4 w-4" />
-                  External Server
-                  <Badge variant="outline">Advanced</Badge>
-                </Label>
-              </div>
-              <p className="text-sm text-muted-foreground ml-6">
-                Connect to an external FastAPI backend server.
-                Useful for shared team analyses or custom deployments.
-              </p>
-            </div>
-          </RadioGroup>
-
-          <div className="mt-4 p-4 bg-muted rounded-lg">
+          <div className="p-4 bg-muted rounded-lg">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="font-medium">Current Configuration</h4>
+              <h4 className="font-medium">Engine Information</h4>
               <Button
                 variant="ghost"
                 size="sm"
@@ -272,100 +182,58 @@ export function SettingsPanel() {
             </div>
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
-                <span>Backend Mode:</span>
-                <span className="font-medium capitalize">{ui.apiMode === 'embedded' ? 'Embedded Engine' : 'External Server'}</span>
-              </div>
-              <div className="flex justify-between">
                 <span>API Endpoint:</span>
                 <span className="font-mono text-xs">
-                  {ui.apiMode === 'embedded'
-                    ? embeddedApiStatus.url || 'http://localhost:8765'
-                    : 'http://localhost:8000'}
+                  {embeddedApiStatus.url || 'http://localhost:8765'}
                 </span>
               </div>
-              {ui.apiMode === 'embedded' && (
-                <div className="flex justify-between">
-                  <span>Server Status:</span>
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${
-                      embeddedApiHealth.healthy ? 'bg-green-500' : 'bg-red-500'
-                    }`} />
-                    <span className="text-xs">
-                      {embeddedApiStatus.running ? 'Running' : 'Stopped'}
-                    </span>
-                  </div>
+              <div className="flex justify-between">
+                <span>Status:</span>
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    embeddedApiHealth.healthy ? 'bg-green-500' : 'bg-red-500'
+                  }`} />
+                  <span className="text-xs">
+                    {embeddedApiStatus.running ? 'Running' : 'Stopped'}
+                  </span>
                 </div>
-              )}
+              </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Backend Status</CardTitle>
-          <CardDescription>Current status of the selected backend</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {ui.apiMode === 'external' && (
-              <div className="text-sm">
-                <p className="text-muted-foreground">
-                  To start the external backend, run:
-                </p>
-                <code className="block mt-2 p-2 bg-muted rounded text-xs">
-                  ./scripts/start-api-only.sh
-                </code>
-              </div>
-            )}
-            {ui.apiMode === 'embedded' && (
-              <div className="space-y-3">
-                <div className="text-sm">
-                  <p className="text-muted-foreground">
-                    Manage the embedded API server directly from the application.
-                  </p>
-                </div>
+          {embeddedApiHealth.error && (
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                <strong>Engine Error:</strong> {embeddedApiHealth.error}
+              </AlertDescription>
+            </Alert>
+          )}
 
-                <div className="flex gap-2">
-                  <Button
-                    variant={embeddedApiStatus.running ? "secondary" : "default"}
-                    size="sm"
-                    onClick={async () => {
-                      if (!TauriService.isTauri()) return;
-                      try {
-                        await TauriService.startEmbeddedApiServer();
-                        await new Promise(resolve => setTimeout(resolve, 2000));
-                        await refreshEmbeddedApiStatus();
-                      } catch (error) {
-                        console.error('Failed to start server:', error);
-                      }
-                    }}
-                    disabled={isLoading}
-                  >
-                    <Play className="h-4 w-4 mr-1" />
-                    Start Server
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleStopEmbeddedApi}
-                    disabled={isLoading || !embeddedApiStatus.running}
-                  >
-                    <Square className="h-4 w-4 mr-1" />
-                    Stop Server
-                  </Button>
-                </div>
-
-                {embeddedApiHealth.error && (
-                  <Alert>
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertDescription>
-                      <strong>Server Error:</strong> {embeddedApiHealth.error}
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </div>
-            )}
+          <div className="pt-2 border-t">
+            <p className="text-xs text-muted-foreground mb-3">
+              Emergency controls (normally not needed):
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant={embeddedApiStatus.running ? "outline" : "default"}
+                size="sm"
+                onClick={handleStartEmbeddedApi}
+                disabled={isLoading || embeddedApiStatus.running}
+              >
+                <Play className="h-4 w-4 mr-1" />
+                Start
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleStopEmbeddedApi}
+                disabled={isLoading || !embeddedApiStatus.running}
+              >
+                <Square className="h-4 w-4 mr-1" />
+                Stop
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
