@@ -852,9 +852,22 @@ pub async fn run_dda_analysis(
     eprintln!("⏱️  [DDA TIMING] DDA binary execution: {:.2}s", binary_start.elapsed().as_secs_f64());
 
     if !output.status.success() {
-        log::error!("DDA binary failed with status: {}", output.status);
-        log::error!("stdout: {}", String::from_utf8_lossy(&output.stdout));
-        log::error!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        let stderr_str = String::from_utf8_lossy(&output.stderr);
+
+        log::error!("❌ DDA binary failed with status: {}", output.status);
+        log::error!("📤 Binary stdout: {}", stdout_str);
+        log::error!("📤 Binary stderr: {}", stderr_str);
+
+        eprintln!("\n❌ ========== DDA BINARY FAILURE ==========");
+        eprintln!("Status: {}", output.status);
+        eprintln!("Command: {:?}", command);
+        eprintln!("Binary path: {}", dda_binary_path);
+        eprintln!("Binary exists: {}", PathBuf::from(&dda_binary_path).exists());
+        eprintln!("stdout: {}", stdout_str);
+        eprintln!("stderr: {}", stderr_str);
+        eprintln!("==========================================\n");
+
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 

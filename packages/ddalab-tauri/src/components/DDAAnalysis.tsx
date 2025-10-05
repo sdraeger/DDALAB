@@ -16,8 +16,8 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
-import { 
-  Play, 
+import {
+  Play,
   Settings,
   Download,
   BarChart3,
@@ -53,7 +53,7 @@ interface DDAParameters {
 
 export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const { fileManager, dda, setCurrentAnalysis, addAnalysisToHistory, setAnalysisHistory, updateAnalysisParameters, setDDARunning } = useAppStore()
-  
+
   // Use store parameters and merge with local time and channel selections
   const [localParameters, setLocalParameters] = useState<Omit<DDAParameters, 'variants' | 'windowLength' | 'windowStep' | 'detrending' | 'scaleMin' | 'scaleMax' | 'scaleNum'>>({
     timeStart: 0,
@@ -65,7 +65,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       notch: [50]
     }
   })
-  
+
   // Combine store and local parameters
   const parameters: DDAParameters = {
     ...dda.analysisParameters,
@@ -104,7 +104,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     try {
       console.log('Attempting to save analysis to history:', result.id)
       setSaveStatus({ type: null, message: 'Saving analysis to history...' })
-      
+
       const success = await apiService.saveAnalysisToHistory(result)
       if (success) {
         console.log('Analysis saved to history successfully')
@@ -142,10 +142,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         // Import TauriService dynamically to avoid SSR issues
         const { TauriService } = await import('@/services/tauriService')
         const tauriService = TauriService.getInstance()
-        
+
         // Open analysis preview in dedicated window
         await tauriService.openAnalysisPreviewWindow(fullAnalysis)
-        
+
         // Still set the previewing analysis for the blue notification
         setPreviewingAnalysis(fullAnalysis)
       } else {
@@ -196,13 +196,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     const timeRange = parameters.timeEnd - parameters.timeStart
     const windowCount = Math.floor(timeRange / parameters.windowStep)
     const variantCount = parameters.variants.length
-    
+
     // Rough estimate: base time + channels * windows * variants * scale points
     const baseTime = 2 // seconds
     const perOperationTime = 0.01 // seconds per operation
     const totalOperations = channelCount * windowCount * variantCount * parameters.scaleNum
     const estimated = baseTime + (totalOperations * perOperationTime)
-    
+
     setEstimatedTime(Math.round(estimated))
   }, [parameters])
 
@@ -236,30 +236,49 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
       setAnalysisStatus('Running DDA analysis on server...')
       setProgress(50)
-      
+
       // Use the real API result
       const result = await apiService.submitDDAAnalysis(request)
-      
+
       setAnalysisStatus('Processing results...')
       setProgress(95)
-      
+
       setResults(result)
       setCurrentAnalysis(result)
       addAnalysisToHistory(result)
-      
+
       // Save to MinIO history
       setAnalysisStatus('Saving to history...')
       await saveAnalysisToHistory(result)
-      
+
       setAnalysisStatus('Analysis completed and saved successfully!')
       setProgress(100)
 
       // Parameters are already saved in the store, no need to update them here
 
     } catch (err) {
-      console.error('DDA analysis failed:', err)
-      setError(err instanceof Error ? err.message : 'Analysis failed')
-      setAnalysisStatus('Analysis failed')
+      console.error('❌ DDA analysis failed:', err)
+
+      // Extract detailed error message
+      let errorMessage = 'Analysis failed';
+      if (err instanceof Error) {
+        errorMessage = err.message;
+        console.error('📤 Error name:', err.name)
+        console.error('📤 Error message:', err.message)
+        console.error('📤 Error stack:', err.stack)
+      } else {
+        console.error('📤 Non-Error object thrown:', err)
+      }
+
+      console.error('📤 Analysis request parameters:', {
+        file_path: fileManager.selectedFile?.file_path,
+        channels: parameters.selectedChannels,
+        time_range: [parameters.timeStart, parameters.timeEnd],
+        variants: parameters.variants,
+      })
+
+      setError(errorMessage)
+      setAnalysisStatus('Analysis failed - see console for details')
     } finally {
       setIsRunning(false)
       setDDARunning(false)
@@ -291,7 +310,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const handleChannelToggle = (channel: string, checked: boolean) => {
     setLocalParameters(prev => ({
       ...prev,
-      selectedChannels: checked 
+      selectedChannels: checked
         ? [...prev.selectedChannels, channel]
         : prev.selectedChannels.filter(ch => ch !== channel)
     }))
@@ -322,13 +341,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             <TabsTrigger value="results">Results</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
           </TabsList>
-          
+
           <div className="flex items-center space-x-2">
             <Button variant="outline" size="sm" onClick={resetParameters}>
               Reset
             </Button>
-            <Button 
-              onClick={runAnalysis} 
+            <Button
+              onClick={runAnalysis}
               disabled={isRunning || parameters.selectedChannels.length === 0}
               className="min-w-[120px]"
             >
@@ -375,11 +394,11 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                       </div>
                     )}
                   </div>
-                  
+
                   {isRunning && (
                     <Progress value={progress} className="w-full" />
                   )}
-                  
+
                   {error && (
                     <div className="flex items-center space-x-2 text-red-600">
                       <AlertCircle className="h-4 w-4" />
@@ -404,7 +423,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     <Checkbox
                       checked={parameters.variants.includes(variant.id)}
                       onCheckedChange={(checked) => {
-                        const newVariants = checked 
+                        const newVariants = checked
                           ? [...parameters.variants, variant.id]
                           : parameters.variants.filter(v => v !== variant.id)
                         updateAnalysisParameters({ variants: newVariants })
@@ -432,8 +451,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   <Input
                     type="number"
                     value={parameters.timeStart}
-                    onChange={(e) => setLocalParameters(prev => ({ 
-                      ...prev, 
+                    onChange={(e) => setLocalParameters(prev => ({
+                      ...prev,
                       timeStart: Math.max(0, parseFloat(e.target.value) || 0)
                     }))}
                     disabled={isRunning}
@@ -447,8 +466,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   <Input
                     type="number"
                     value={parameters.timeEnd}
-                    onChange={(e) => setLocalParameters(prev => ({ 
-                      ...prev, 
+                    onChange={(e) => setLocalParameters(prev => ({
+                      ...prev,
                       timeEnd: Math.min(fileManager.selectedFile?.duration || 0, parseFloat(e.target.value) || 30)
                     }))}
                     disabled={isRunning}
@@ -500,7 +519,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   <Label className="text-sm">Detrending</Label>
                   <Select
                     value={parameters.detrending}
-                    onValueChange={(value: 'linear' | 'polynomial' | 'none') => 
+                    onValueChange={(value: 'linear' | 'polynomial' | 'none') =>
                       updateAnalysisParameters({ detrending: value })
                     }
                     disabled={isRunning}
@@ -531,7 +550,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     <Input
                       type="number"
                       value={parameters.scaleMin}
-                      onChange={(e) => updateAnalysisParameters({ 
+                      onChange={(e) => updateAnalysisParameters({
                         scaleMin: Math.max(1, parseInt(e.target.value) || 1)
                       })}
                       disabled={isRunning}
@@ -544,7 +563,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     <Input
                       type="number"
                       value={parameters.scaleMax}
-                      onChange={(e) => updateAnalysisParameters({ 
+                      onChange={(e) => updateAnalysisParameters({
                         scaleMax: Math.max(parameters.scaleMin + 1, parseInt(e.target.value) || 20)
                       })}
                       disabled={isRunning}
@@ -666,8 +685,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
               {saveStatus.message && (
                 <div className={`p-4 mb-4 text-sm rounded-lg ${
-                  saveStatus.type === 'success' 
-                    ? 'text-green-800 bg-green-100 border border-green-200' 
+                  saveStatus.type === 'success'
+                    ? 'text-green-800 bg-green-100 border border-green-200'
                     : saveStatus.type === 'error'
                     ? 'text-red-800 bg-red-100 border border-red-200'
                     : 'text-blue-800 bg-blue-100 border border-blue-200'
@@ -680,7 +699,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   </div>
                 </div>
               )}
-              
+
               {previewingAnalysis && (
                 <div className="p-3 mb-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="flex items-center justify-between">
