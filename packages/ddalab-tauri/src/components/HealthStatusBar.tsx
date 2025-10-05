@@ -35,9 +35,9 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
     try {
       updateHealthStatus({ apiStatus: 'checking' })
 
-      // For embedded mode in Tauri, use the Tauri command instead of axios
+      // In Tauri, use the Tauri command instead of axios
       // This avoids CORS and connection issues during startup
-      if (ui.apiMode === 'embedded' && TauriService.isTauri()) {
+      if (TauriService.isTauri()) {
         const isConnected = await TauriService.checkApiConnection(apiService.baseURL)
         const responseTime = Date.now() - startTime
 
@@ -75,7 +75,7 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
         errors: [errorMessage, ...currentHealth.errors.slice(0, 4)] // Keep last 5 errors
       }))
     }
-  }, [apiService, ui.apiMode, updateHealthStatus])
+  }, [apiService, updateHealthStatus])
 
   const setupWebSocket = useCallback(() => {
     // WebSocket endpoint not yet implemented in API

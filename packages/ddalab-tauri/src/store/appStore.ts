@@ -75,7 +75,6 @@ export interface UIState {
   panelSizes: number[]
   layout: 'default' | 'analysis' | 'plots'
   theme: 'light' | 'dark' | 'auto'
-  apiMode: 'embedded' | 'external'
   isServerReady: boolean  // Tracks if API server is ready to accept requests
 }
 
@@ -132,7 +131,6 @@ export interface AppState {
   setPanelSizes: (sizes: number[]) => void
   setLayout: (layout: UIState['layout']) => void
   setTheme: (theme: UIState['theme']) => void
-  setApiMode: (mode: UIState['apiMode']) => void
   setServerReady: (ready: boolean) => void
 
   // Annotations
@@ -214,7 +212,6 @@ const defaultUIState: UIState = {
   panelSizes: [25, 50, 25],
   layout: 'default',
   theme: 'auto',
-  apiMode: 'embedded',
   isServerReady: false
 }
 
@@ -346,8 +343,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                 persistedState.panel_sizes.sidebar * 100,
                 persistedState.panel_sizes.main * 100 - persistedState.panel_sizes.sidebar * 100,
                 25
-              ],
-              apiMode: persistedState.ui?.apiMode || 'embedded'
+              ]
             }
           };
         });
@@ -670,13 +666,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  setApiMode: (apiMode) => {
-    set((state) => ({ ui: { ...state.ui, apiMode } }))
-
-    if (TauriService.isTauri()) {
-      TauriService.updateUIState({ apiMode })
-    }
-  },
 
   setServerReady: (ready) => {
     console.log('[SERVER_READY] Setting server ready state:', ready)
@@ -926,8 +915,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           sidebarOpen: currentState.ui.sidebarOpen,
           panelSizes: currentState.ui.panelSizes,
           layout: currentState.ui.layout,
-          theme: currentState.ui.theme,
-          apiMode: currentState.ui.apiMode
+          theme: currentState.ui.theme
         },
         windows: {},
         active_tab: currentState.ui.activeTab,

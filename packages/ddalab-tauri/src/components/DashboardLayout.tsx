@@ -43,21 +43,15 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
 
   const [autoLoadingResults, setAutoLoadingResults] = useState(false)
 
-  // Update API service when mode changes
+  // Update API service when URL changes
   useEffect(() => {
-    const getApiUrl = () => {
-      if (ui.apiMode === 'embedded') {
-        return 'http://localhost:8765' // Embedded API server port
-      } else {
-        return apiUrl // Docker API URL
-      }
-    }
+    // Always use embedded API in Tauri (port 8765)
+    const newApiUrl = TauriService.isTauri() ? 'http://localhost:8765' : apiUrl
 
-    const newApiUrl = getApiUrl()
     if (apiService.baseURL !== newApiUrl) {
       setApiService(new ApiService(newApiUrl))
     }
-  }, [ui.apiMode, apiUrl, apiService.baseURL])
+  }, [apiUrl, apiService.baseURL])
 
   // Auto-load most recent analysis from MinIO on component mount
   // Only load after server is ready to avoid connection errors
