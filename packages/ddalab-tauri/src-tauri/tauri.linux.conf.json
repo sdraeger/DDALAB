@@ -1,0 +1,8 @@
+{
+  "bundle": {
+    "resources": {
+      "popout.html": "popout.html",
+      "../../../bin/run_DDA_ASCII": "bin/run_DDA_ASCII"
+    }
+  }
+}
