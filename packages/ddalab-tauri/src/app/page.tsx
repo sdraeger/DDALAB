@@ -16,6 +16,16 @@ export default function Home() {
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false)
   const { initializeFromTauri, isInitialized, setServerReady } = useAppStore()
 
+  // DIAGNOSTIC LOGGING - helps debug startup issues
+  console.log('=== HOME COMPONENT RENDER ===')
+  console.log('isTauri:', isTauri)
+  console.log('isApiConnected:', isApiConnected)
+  console.log('apiUrl:', apiUrl)
+  console.log('hasLoadedPreferences:', hasLoadedPreferences)
+  console.log('isInitialized:', isInitialized)
+  console.log('window.__TAURI__:', typeof window !== 'undefined' ? '__TAURI__' in window : 'no window')
+  console.log('=================================')
+
   useEffect(() => {
     const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
     const tauriDetected = TauriService.isTauri()
@@ -195,7 +205,9 @@ export default function Home() {
   // In Tauri, always show dashboard - EmbeddedApiManager will handle connection
   // In web mode, show welcome/loading screens
   if (!isTauri) {
+    console.log('>>> RENDERING: Web mode branch (isTauri=false)')
     if (isApiConnected === null) {
+      console.log('>>> SHOWING: Web loading screen')
       return (
         <div className="flex items-center justify-center min-h-screen bg-background">
           <div className="text-center">
@@ -207,6 +219,7 @@ export default function Home() {
     }
 
     if (!isApiConnected) {
+      console.log('>>> SHOWING: WelcomeScreen (web mode, not connected)')
       return (
         <WelcomeScreen
           onApiUrlChange={handleApiUrlChange}
@@ -219,6 +232,7 @@ export default function Home() {
   // For Tauri, always show dashboard immediately
   // The embedded API will auto-start and components will wait for server ready signal
   if (isTauri && isApiConnected === null) {
+    console.log('>>> SHOWING: Tauri loading screen')
     // Still initializing - show loading
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
@@ -230,6 +244,7 @@ export default function Home() {
     )
   }
 
+  console.log('>>> SHOWING: Dashboard')
   return (
     <StatePersistenceProvider>
       <DashboardLayout apiUrl={apiUrl} />

@@ -66,5 +66,6 @@ name = "ddalab-tauri"
 path = "src/main.rs"
 
 [features]
-default = ["custom-protocol"]
+default = ["custom-protocol", "devtools"]
 custom-protocol = ["tauri/custom-protocol"]
+devtools = ["tauri/devtools"]
