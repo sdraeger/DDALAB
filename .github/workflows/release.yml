@@ -53,7 +53,7 @@ jobs:
       matrix:
         include:
           - platform: 'macos-latest'
-            args: '--target aarch64-apple-darwin'
+            args: '--target aarch64-apple-darwin --bundles app'
             target: 'aarch64-apple-darwin'
             arch: 'aarch64'
           - platform: 'macos-latest'
