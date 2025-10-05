@@ -43,11 +43,18 @@
       "icons/128x128@2x.png",
       "icons/icon.ico"
     ],
-    "resources": [
-      "popout.html",
-      "../../../bin/run_DDA_ASCII",
-      "../../../bin/run_DDA_ASCII.exe"
-    ],
+    "resources": {
+      "targets": {
+        "windows": [
+          "popout.html",
+          "../../../bin/run_DDA_ASCII.exe"
+        ],
+        "default": [
+          "popout.html",
+          "../../../bin/run_DDA_ASCII"
+        ]
+      }
+    },
     "copyright": "",
     "category": "Education",
     "shortDescription": "Delay Differential Analysis Laboratory",
