@@ -45,45 +45,53 @@ export function WelcomeScreen({ onApiUrlChange, onRetryConnection }: WelcomeScre
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Server className="h-5 w-5" />
-                    Embedded API Backend
+                    Starting DDALAB
                   </CardTitle>
                   <CardDescription>
-                    DDALAB runs a local Rust-based API server for all analysis operations
+                    Initializing local analysis engine...
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <EmbeddedApiManager onApiReady={handleApiReady} />
+                  <div className="mt-4 p-3 bg-muted rounded-lg">
+                    <p className="text-sm text-muted-foreground">
+                      DDALAB is starting its embedded Rust-based API server.
+                      This may take a few moments on first launch.
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
             )}
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Server className="h-5 w-5 mr-2" />
-                  Getting Started
-                </CardTitle>
-                <CardDescription>
-                  Follow these steps to start using DDALAB
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ol className="space-y-2 text-sm">
-                  <li className="flex items-start">
-                    <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">1</span>
-                    {isTauri ? 'Click "Start Embedded API" above to launch the local backend' : 'Start the API server'}
-                  </li>
-                  <li className="flex items-start">
-                    <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">2</span>
-                    {isTauri ? 'The app will connect automatically once the API is ready' : 'Ensure the server is running on the correct port'}
-                  </li>
-                  <li className="flex items-start">
-                    <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">3</span>
-                    {isTauri ? 'Start analyzing your EDF and ASCII files' : 'Click "Retry Connection" to connect'}
-                  </li>
-                </ol>
-              </CardContent>
-            </Card>
+            {!isTauri && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Server className="h-5 w-5 mr-2" />
+                    Getting Started
+                  </CardTitle>
+                  <CardDescription>
+                    Follow these steps to start using DDALAB
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ol className="space-y-2 text-sm">
+                    <li className="flex items-start">
+                      <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">1</span>
+                      Start the API server
+                    </li>
+                    <li className="flex items-start">
+                      <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">2</span>
+                      Ensure the server is running on the correct port
+                    </li>
+                    <li className="flex items-start">
+                      <span className="bg-primary text-primary-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">3</span>
+                      Click "Retry Connection" to connect
+                    </li>
+                  </ol>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           {/* Features */}
