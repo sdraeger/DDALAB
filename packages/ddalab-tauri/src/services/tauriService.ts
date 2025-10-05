@@ -54,8 +54,6 @@ export interface AppPreferences {
   api_config: {
     url: string
     timeout: number
-    mode?: 'embedded' | 'external' // User's chosen API mode
-    has_chosen_mode?: boolean // Whether user has made initial choice
   }
   window_state: Record<string, any>
   theme: string
