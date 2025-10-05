@@ -106,19 +106,59 @@ And:
 - **Cause**: Port 8765 already in use or Rust backend crash
 - **Fix**: Check if another app is using port 8765
 
-## Enabling Additional Rust Logs
+## Rust Backend Logs
 
-To see Rust backend logs, set the `RUST_LOG` environment variable:
+The Rust backend automatically logs to a file for debugging purposes.
 
-**Windows (PowerShell):**
+### Log File Location
+
+**Windows:**
+```
+C:\Users\<YourUsername>\AppData\Local\Temp\ddalab.log
+```
+You can open this quickly by:
+1. Press `Win+R`
+2. Type `%TEMP%\ddalab.log`
+3. Press Enter
+
+**macOS:**
+```
+/tmp/ddalab.log
+```
+
+**Linux:**
+```
+/tmp/ddalab.log
+```
+
+### Viewing Logs
+
+**Windows (Notepad):**
 ```powershell
-$env:RUST_LOG="debug"
-.\DDALAB.exe
+notepad %TEMP%\ddalab.log
+```
+
+**Windows (PowerShell - tail mode):**
+```powershell
+Get-Content $env:TEMP\ddalab.log -Wait -Tail 50
 ```
 
 **macOS/Linux:**
 ```bash
-RUST_LOG=debug ./DDALAB
+tail -f /tmp/ddalab.log
 ```
 
-Log levels: `error`, `warn`, `info`, `debug`, `trace`
+### What to Look For
+
+When DDA analysis fails, look for:
+```
+❌ ========== DDA BINARY FAILURE ==========
+Status: <exit code>
+Binary path: <path to run_DDA_ASCII>
+Binary exists: true/false
+stdout: <output from binary>
+stderr: <errors from binary>
+==========================================
+```
+
+This will show exactly why the `run_DDA_ASCII` binary is failing.
