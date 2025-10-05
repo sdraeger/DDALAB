@@ -21,8 +21,19 @@ use commands::embedded_api_commands::EmbeddedApiState;
 use sync::AppSyncState;
 
 fn main() {
-    // Initialize logging
-    env_logger::init();
+    // Initialize logging to file in user's temp directory
+    let log_file = std::env::temp_dir().join("ddalab.log");
+    let log_file_str = log_file.to_string_lossy().to_string();
+
+    // Try to initialize file logging, fall back to env_logger if it fails
+    if let Err(_) = simple_logging::log_to_file(&log_file_str, log::LevelFilter::Debug) {
+        env_logger::init();
+        eprintln!("⚠️  Failed to initialize file logging, using stderr instead");
+    } else {
+        // Also log to stderr for terminal users
+        eprintln!("📝 Logging to: {}", log_file_str);
+        eprintln!("📝 Use this file to debug DDA failures on Windows");
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
