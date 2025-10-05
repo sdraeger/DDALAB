@@ -10,6 +10,7 @@
     "frontendDist": "../out"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",
@@ -29,7 +30,8 @@
     ],
     "security": {
       "csp": null,
-      "capabilities": ["default"]
+      "capabilities": ["default"],
+      "devCsp": null
     }
   },
   "bundle": {
