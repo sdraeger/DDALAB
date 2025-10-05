@@ -19,6 +19,40 @@ export interface FileManagerState {
   show_hidden: boolean;
 }
 
+export interface PreprocessingOptions {
+  // Filters
+  highpass?: number;           // Hz, e.g., 0.5 (removes DC drift)
+  lowpass?: number;            // Hz, e.g., 70 (anti-aliasing)
+  notch?: number[];            // Hz, e.g., [50, 60] (line noise)
+
+  // Signal enhancement
+  smoothing?: {
+    enabled: boolean;
+    method: 'moving_average' | 'savitzky_golay';
+    windowSize: number;        // samples
+    polynomialOrder?: number;  // for Savitzky-Golay
+  };
+  detrending?: 'none' | 'linear' | 'polynomial';
+  polynomialDegree?: number;   // for polynomial detrending
+  baselineCorrection?: 'none' | 'mean' | 'median';
+
+  // Artifact removal
+  outlierRemoval?: {
+    enabled: boolean;
+    method: 'clip' | 'remove' | 'interpolate';
+    threshold: number;         // in standard deviations
+  };
+  spikeRemoval?: {
+    enabled: boolean;
+    threshold: number;         // in standard deviations
+    windowSize: number;        // samples for detection
+  };
+
+  // Normalization
+  normalization?: 'none' | 'zscore' | 'minmax';
+  normalizationRange?: [number, number]; // for minmax, e.g., [-1, 1]
+}
+
 export interface PlotState {
   visible_channels: string[];
   time_range: [number, number];
@@ -28,6 +62,7 @@ export interface PlotState {
   color_scheme: string;
   plot_mode: string;
   filters: Record<string, any>;
+  preprocessing?: PreprocessingOptions;
 }
 
 export interface AnalysisResult {

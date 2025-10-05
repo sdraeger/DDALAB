@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { EDFFileInfo, ChunkData, DDAResult, Annotation } from '@/types/api'
 import { TauriService } from '@/services/tauriService'
 import { getStatePersistenceService, StatePersistenceService } from '@/services/statePersistenceService'
-import { AppState as PersistedAppState, AnalysisResult } from '@/types/persistence'
+import { AppState as PersistedAppState, AnalysisResult, PreprocessingOptions } from '@/types/persistence'
 import { PlotAnnotation, TimeSeriesAnnotations, DDAResultAnnotations } from '@/types/annotations'
 
 // Module-level flag to prevent re-initialization during Hot Module Reload
@@ -36,6 +36,7 @@ export interface PlotState {
   amplitude: number
   showAnnotations: boolean
   selectedChannelColors: Record<string, string>
+  preprocessing?: PreprocessingOptions
 }
 
 export interface DDAState {
@@ -315,7 +316,8 @@ export const useAppStore = create<AppState>((set, get) => ({
               ...state.plot,
               chunkSize: persistedState.plot.filters?.chunkSize || state.plot.chunkSize,
               amplitude: persistedState.plot.filters?.amplitude || state.plot.amplitude,
-              showAnnotations: Boolean(persistedState.plot.filters?.showAnnotations ?? state.plot.showAnnotations)
+              showAnnotations: Boolean(persistedState.plot.filters?.showAnnotations ?? state.plot.showAnnotations),
+              preprocessing: persistedState.plot.preprocessing
             },
             dda: {
               ...state.dda,
@@ -543,7 +545,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         visible_channels: plot.selectedChannelColors ? Object.keys(plot.selectedChannelColors) : [],
         time_range: [plot.chunkStart, plot.chunkStart + plot.chunkSize],
         amplitude_range: [-100 * plot.amplitude, 100 * plot.amplitude],
-        zoom_level: 1.0
+        zoom_level: 1.0,
+        preprocessing: plot.preprocessing,
+        annotations: [],
+        color_scheme: 'default',
+        plot_mode: 'timeseries',
+        filters: {}
       })
     }
   },
