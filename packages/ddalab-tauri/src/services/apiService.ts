@@ -525,9 +525,39 @@ export class ApiService {
 
       console.log('Result contains', result.results.variants.length, 'variants');
       return result;
-    } catch (error) {
-      console.error('Failed to submit DDA analysis:', error)
-      throw new Error('Failed to submit DDA analysis: ' + (error instanceof Error ? error.message : 'Unknown error'))
+    } catch (error: any) {
+      console.error('❌ Failed to submit DDA analysis:', error)
+
+      // Log detailed error information
+      if (error.response) {
+        console.error('📤 Backend response status:', error.response.status)
+        console.error('📤 Backend response data:', error.response.data)
+        console.error('📤 Backend response headers:', error.response.headers)
+      } else if (error.request) {
+        console.error('📤 Request was made but no response:', error.request)
+      } else {
+        console.error('📤 Error setting up request:', error.message)
+      }
+      console.error('📤 Full error config:', error.config)
+
+      // Create detailed error message
+      let errorMessage = 'Failed to submit DDA analysis';
+      if (error.response) {
+        errorMessage += ` (HTTP ${error.response.status})`;
+        if (error.response.data) {
+          if (typeof error.response.data === 'string') {
+            errorMessage += `: ${error.response.data}`;
+          } else if (error.response.data.message) {
+            errorMessage += `: ${error.response.data.message}`;
+          } else if (error.response.data.error) {
+            errorMessage += `: ${error.response.data.error}`;
+          }
+        }
+      } else if (error.message) {
+        errorMessage += `: ${error.message}`;
+      }
+
+      throw new Error(errorMessage)
     }
   }
 
