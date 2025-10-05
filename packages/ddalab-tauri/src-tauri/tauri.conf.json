@@ -45,7 +45,8 @@
     ],
     "resources": [
       "popout.html",
-      "../../../bin/run_DDA_ASCII"
+      "../../../bin/run_DDA_ASCII",
+      "../../../bin/run_DDA_ASCII.exe"
     ],
     "copyright": "",
     "category": "Education",

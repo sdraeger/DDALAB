@@ -700,19 +700,28 @@ pub async fn run_dda_analysis(
         let repo_root = manifest_dir.parent().unwrap().parent().unwrap().parent().unwrap();
         log::debug!("Computed repo root: {:?}", repo_root);
 
+        // Binary name with platform-specific extension
+        let binary_name = if cfg!(target_os = "windows") {
+            "run_DDA_ASCII.exe"
+        } else {
+            "run_DDA_ASCII"
+        };
+
         let possible_paths = vec![
             // Development: project bin directory
-            repo_root.join("bin/run_DDA_ASCII"),
+            repo_root.join("bin").join(binary_name),
             // Bundled with app (Tauri resources) - Tauri preserves directory structure
-            PathBuf::from("./bin/run_DDA_ASCII"),
+            PathBuf::from("./bin").join(binary_name),
             // macOS app bundle - resources go in Contents/Resources/
-            PathBuf::from("../Resources/bin/run_DDA_ASCII"),
-            PathBuf::from("../Resources/run_DDA_ASCII"),  // In case directory structure is flattened
+            PathBuf::from("../Resources/bin").join(binary_name),
+            PathBuf::from("../Resources").join(binary_name),  // In case directory structure is flattened
+            // Windows - resources next to exe
+            PathBuf::from(".").join(binary_name),
             // Linux/Windows relative
-            PathBuf::from("./resources/bin/run_DDA_ASCII"),
-            PathBuf::from("./resources/run_DDA_ASCII"),  // Flattened fallback
+            PathBuf::from("./resources/bin").join(binary_name),
+            PathBuf::from("./resources").join(binary_name),  // Flattened fallback
             // Absolute fallback for Docker
-            PathBuf::from("/app/bin/run_DDA_ASCII"),
+            PathBuf::from("/app/bin").join(binary_name),
         ];
 
         let paths_for_error: Vec<_> = possible_paths.iter().cloned().collect();
