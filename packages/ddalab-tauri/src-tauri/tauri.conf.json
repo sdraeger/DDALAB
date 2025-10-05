@@ -44,8 +44,7 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "popout.html": "popout.html",
-      "../../../bin/run_DDA_ASCII": "bin/run_DDA_ASCII"
+      "popout.html": "popout.html"
     },
     "copyright": "",
     "category": "Education",
