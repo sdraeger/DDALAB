@@ -4,17 +4,15 @@ import { useState, useEffect } from 'react'
 import { TauriService } from '@/services/tauriService'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { WelcomeScreen } from '@/components/WelcomeScreen'
-import { ApiModeSetup } from '@/components/ApiModeSetup'
 import { StatePersistenceProvider } from '@/components/StatePersistenceProvider'
 import { useAppStore } from '@/store/appStore'
 
 export default function Home() {
   const [isApiConnected, setIsApiConnected] = useState<boolean | null>(null)
-  const [apiUrl, setApiUrl] = useState('http://localhost:8000')
+  const [apiUrl, setApiUrl] = useState('http://localhost:8765') // Embedded API default
   const [isTauri, setIsTauri] = useState(false)
-  const [showApiModeSetup, setShowApiModeSetup] = useState(false)
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false)
-  const { initializeFromTauri, isInitialized, setApiMode, setServerReady } = useAppStore()
+  const { initializeFromTauri, isInitialized, setServerReady } = useAppStore()
 
   useEffect(() => {
     const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
@@ -89,71 +87,55 @@ export default function Home() {
         // Mark as loaded
         setHasLoadedPreferences(true)
 
-        // Check if user has chosen API mode on first launch
-        if (!preferences.api_config.has_chosen_mode) {
-          console.log('First launch detected - showing API mode setup')
-          setShowApiModeSetup(true)
-          return
-        }
-
-        // User has chosen mode - apply it IMMEDIATELY
-        const mode = preferences.api_config.mode || 'embedded'
-        console.log('Setting API mode to:', mode)
-        setApiMode(mode)
-
-        // Set the correct URL based on mode
-        const url = mode === 'embedded' ? 'http://localhost:8765' : preferences.api_config.url
-        console.log('Setting API URL to:', url)
+        // Always use embedded API URL (port 8765)
+        const url = 'http://localhost:8765'
+        console.log('Using embedded API URL:', url)
         setApiUrl(url)
 
-        // Start embedded server if in embedded mode
-        if (mode === 'embedded') {
-          try {
-            console.log('Starting embedded API server from saved preferences...')
-            await TauriService.startEmbeddedApiServer()
+        // Start embedded API server
+        try {
+          console.log('Starting embedded API server...')
+          await TauriService.startEmbeddedApiServer()
 
-            // Wait for server to be ready with exponential backoff
-            let retries = 0
-            let connected = false
-            const maxRetries = 15
+          // Wait for server to be ready with exponential backoff
+          let retries = 0
+          let connected = false
+          const maxRetries = 15
 
-            while (retries < maxRetries && !connected) {
-              await new Promise(resolve => setTimeout(resolve, Math.min(500 * Math.pow(1.3, retries), 2000)))
+          while (retries < maxRetries && !connected) {
+            await new Promise(resolve => setTimeout(resolve, Math.min(500 * Math.pow(1.3, retries), 2000)))
 
-              try {
-                connected = await TauriService.checkApiConnection(url)
-                if (connected) {
-                  console.log(`Embedded API server ready after ${retries + 1} attempts`)
-                  break
-                }
-              } catch (error) {
-                // Server not ready yet, continue retrying
+            try {
+              connected = await TauriService.checkApiConnection(url)
+              if (connected) {
+                console.log(`Embedded API server ready after ${retries + 1} attempts`)
+                break
               }
-
-              retries++
+            } catch (error) {
+              // Server not ready yet, continue retrying
             }
 
-            if (connected) {
-              console.log('Embedded API server started successfully')
-              setIsApiConnected(true)
-              setServerReady(true)  // Signal that server is ready for requests
-            } else {
-              console.error('Embedded API server failed to respond after', maxRetries, 'retries')
-              setIsApiConnected(false)
-              setServerReady(false)
-            }
-          } catch (error) {
-            console.error('Failed to start embedded API:', error)
+            retries++
+          }
+
+          if (connected) {
+            console.log('Embedded API server started successfully')
+            setIsApiConnected(true)
+            setServerReady(true)  // Signal that server is ready for requests
+          } else {
+            console.error('Embedded API server failed to respond after', maxRetries, 'retries')
             setIsApiConnected(false)
             setServerReady(false)
           }
+        } catch (error) {
+          console.error('Failed to start embedded API:', error)
+          setIsApiConnected(false)
+          setServerReady(false)
         }
-
-        console.log('Applied saved API mode:', mode, 'with URL:', url)
       } catch (error) {
         console.error('Failed to load preferences:', error)
-        // On error, show setup screen for Tauri
-        setShowApiModeSetup(true)
+        setIsApiConnected(false)
+        setServerReady(false)
       }
     } else {
       console.log('Not in Tauri, using default API URL')
@@ -207,89 +189,6 @@ export default function Home() {
         console.error('Failed to save API URL:', error)
       }
     }
-  }
-
-  const handleSelectApiMode = async (mode: 'embedded' | 'external', externalUrl?: string) => {
-    try {
-      console.log('User selected API mode:', mode, 'URL:', externalUrl)
-
-      // Update app store FIRST before anything else
-      setApiMode(mode)
-
-      // Save the choice to preferences
-      const preferences = await TauriService.getAppPreferences()
-      preferences.api_config.mode = mode
-      preferences.api_config.has_chosen_mode = true
-
-      if (mode === 'external' && externalUrl) {
-        preferences.api_config.url = externalUrl
-        setApiUrl(externalUrl)
-      } else if (mode === 'embedded') {
-        // Embedded API uses local Rust server
-        preferences.api_config.url = 'http://localhost:8765'
-        setApiUrl('http://localhost:8765')
-      }
-
-      await TauriService.saveAppPreferences(preferences)
-
-      // For embedded mode, start the server before showing dashboard
-      if (mode === 'embedded') {
-        try {
-          console.log('Starting embedded API server...')
-          await TauriService.startEmbeddedApiServer()
-
-          // Wait for server to be ready with exponential backoff
-          let retries = 0
-          let connected = false
-          const maxRetries = 15
-          const serverUrl = 'http://localhost:8765'
-
-          while (retries < maxRetries && !connected) {
-            await new Promise(resolve => setTimeout(resolve, Math.min(500 * Math.pow(1.3, retries), 2000)))
-
-            try {
-              connected = await TauriService.checkApiConnection(serverUrl)
-              if (connected) {
-                console.log(`Embedded API server ready after ${retries + 1} attempts`)
-                break
-              }
-            } catch (error) {
-              // Server not ready yet, continue retrying
-            }
-
-            retries++
-          }
-
-          if (connected) {
-            console.log('Embedded API server started successfully')
-            setIsApiConnected(true)
-            setServerReady(true)  // Signal that server is ready for requests
-          } else {
-            console.error('Embedded API server failed to respond after', maxRetries, 'retries')
-            setIsApiConnected(false)
-            setServerReady(false)
-          }
-        } catch (error) {
-          console.error('Failed to start embedded API:', error)
-          setIsApiConnected(false)
-          setServerReady(false)
-        }
-      } else {
-        // For external mode, check connection and set server ready
-        await checkApiConnection()
-        setServerReady(true)  // External API is assumed ready if connection succeeds
-      }
-
-      // Hide setup screen AFTER server is ready
-      setShowApiModeSetup(false)
-    } catch (error) {
-      console.error('Failed to save API mode preference:', error)
-    }
-  }
-
-  // Show API mode setup on first launch (Tauri only)
-  if (isTauri && showApiModeSetup) {
-    return <ApiModeSetup onSelectMode={handleSelectApiMode} />
   }
 
   if (isApiConnected === null) {

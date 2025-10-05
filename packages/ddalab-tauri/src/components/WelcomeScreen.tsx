@@ -41,26 +41,7 @@ export function WelcomeScreen({ onApiUrlChange, onRetryConnection }: WelcomeScre
           <div className="space-y-8 mb-12">
             {/* Embedded API - Only show in Tauri */}
             {isTauri && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Server className="h-5 w-5" />
-                    Starting DDALAB
-                  </CardTitle>
-                  <CardDescription>
-                    Initializing local analysis engine...
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <EmbeddedApiManager onApiReady={handleApiReady} />
-                  <div className="mt-4 p-3 bg-muted rounded-lg">
-                    <p className="text-sm text-muted-foreground">
-                      DDALAB is starting its embedded Rust-based API server.
-                      This may take a few moments on first launch.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+              <EmbeddedApiManager onApiReady={handleApiReady} />
             )}
 
             {!isTauri && (

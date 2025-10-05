@@ -29,9 +29,22 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiRea
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Load initial status
+  // Load initial status and auto-start if not running
   useEffect(() => {
-    checkStatus()
+    const initializeServer = async () => {
+      await checkStatus()
+
+      // Get status to check if server is running
+      const currentStatus = await TauriService.getEmbeddedApiStatus()
+
+      // Auto-start server if not running
+      if (!currentStatus.running) {
+        console.log('Embedded API not running, auto-starting...')
+        await startServer()
+      }
+    }
+
+    initializeServer()
   }, [])
 
   // Auto-refresh status every 10 seconds when running
