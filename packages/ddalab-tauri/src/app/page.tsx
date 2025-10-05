@@ -308,7 +308,6 @@ export default function Home() {
   if (!isApiConnected) {
     return (
       <WelcomeScreen
-        apiUrl={apiUrl}
         onApiUrlChange={handleApiUrlChange}
         onRetryConnection={checkApiConnection}
       />
