@@ -386,10 +386,14 @@ export function SettingsPanel() {
                           <div className="flex items-center gap-2">
                             <span className="font-medium">{broker.institution}</span>
                             {broker.uses_tls && (
-                              <Shield className="h-3 w-3 text-green-600" title="Secure (TLS)" />
+                              <span title="Secure (TLS)">
+                                <Shield className="h-3 w-3 text-green-600" />
+                              </span>
                             )}
                             {broker.auth_required && (
-                              <Lock className="h-3 w-3 text-amber-600" title="Authentication Required" />
+                              <span title="Authentication Required">
+                                <Lock className="h-3 w-3 text-amber-600" />
+                              </span>
                             )}
                           </div>
                           <div className="text-xs text-muted-foreground mt-1">

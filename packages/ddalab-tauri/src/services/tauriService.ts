@@ -30,6 +30,11 @@ export interface PlotState {
   time_range: [number, number]
   amplitude_range: [number, number]
   zoom_level: number
+  annotations?: any[]
+  color_scheme?: string
+  plot_mode?: string
+  filters?: Record<string, any>
+  preprocessing?: any
 }
 
 export interface DDAState {
