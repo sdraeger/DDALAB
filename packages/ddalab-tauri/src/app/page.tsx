@@ -191,25 +191,41 @@ export default function Home() {
     }
   }
 
-  if (isApiConnected === null) {
+  // In Tauri, always show dashboard - EmbeddedApiManager will handle connection
+  // In web mode, show welcome/loading screens
+  if (!isTauri) {
+    if (isApiConnected === null) {
+      return (
+        <div className="flex items-center justify-center min-h-screen bg-background">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Connecting to DDALAB API...</p>
+          </div>
+        </div>
+      )
+    }
+
+    if (!isApiConnected) {
+      return (
+        <WelcomeScreen
+          onApiUrlChange={handleApiUrlChange}
+          onRetryConnection={checkApiConnection}
+        />
+      )
+    }
+  }
+
+  // For Tauri, always show dashboard immediately
+  // The embedded API will auto-start and components will wait for server ready signal
+  if (isTauri && isApiConnected === null) {
+    // Still initializing - show loading
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">
-            {isTauri ? 'Initializing desktop app...' : 'Connecting to DDALAB API...'}
-          </p>
+          <p className="text-muted-foreground">Starting DDALAB...</p>
         </div>
       </div>
-    )
-  }
-
-  if (!isApiConnected) {
-    return (
-      <WelcomeScreen
-        onApiUrlChange={handleApiUrlChange}
-        onRetryConnection={checkApiConnection}
-      />
     )
   }
 
