@@ -8,9 +8,11 @@ import { StatePersistenceProvider } from '@/components/StatePersistenceProvider'
 import { useAppStore } from '@/store/appStore'
 
 export default function Home() {
+  // Detect Tauri immediately - don't use state to avoid initial false value
+  const isTauri = TauriService.isTauri()
+
   const [isApiConnected, setIsApiConnected] = useState<boolean | null>(null)
   const [apiUrl, setApiUrl] = useState('http://localhost:8765') // Embedded API default
-  const [isTauri, setIsTauri] = useState(false)
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false)
   const { initializeFromTauri, isInitialized, setServerReady } = useAppStore()
 
@@ -39,7 +41,6 @@ export default function Home() {
       windowKeys: typeof window !== 'undefined' ? Object.keys(window).filter(k => k.includes('TAURI') || k.includes('tauri')) : [],
       userAgent: typeof window !== 'undefined' ? window.navigator.userAgent : undefined
     })
-    setIsTauri(tauriDetected)
 
     // Initialize persistence BEFORE checking API connection
     // ONLY run initialization on the main window (not pop-outs)
