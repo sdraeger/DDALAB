@@ -1,8 +1,8 @@
 {
   "bundle": {
-    "resources": [
-      "popout.html",
-      "../../../bin/run_DDA_ASCII.exe"
-    ]
+    "resources": {
+      "popout.html": "popout.html",
+      "../../../bin/run_DDA_ASCII.exe": "bin/run_DDA_ASCII.exe"
+    }
   }
 }

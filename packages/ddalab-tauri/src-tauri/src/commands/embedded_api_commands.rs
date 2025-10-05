@@ -63,8 +63,15 @@ pub async fn start_embedded_api_server(
     log::info!("🚀 Starting embedded API server on port {} with data dir: {:?}", port, data_dir);
 
     // Resolve DDA binary path using Tauri's path resolution
+    // Platform-specific binary name (APE binary needs .exe extension on Windows)
+    let binary_resource_path = if cfg!(target_os = "windows") {
+        "bin/run_DDA_ASCII.exe"
+    } else {
+        "bin/run_DDA_ASCII"
+    };
+
     let dda_binary_path = app_handle.path()
-        .resolve("bin/run_DDA_ASCII", tauri::path::BaseDirectory::Resource)
+        .resolve(binary_resource_path, tauri::path::BaseDirectory::Resource)
         .ok()
         .and_then(|path| {
             // Only use the resolved path if it actually exists
