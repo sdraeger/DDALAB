@@ -31,13 +31,8 @@ import { usePopoutWindows } from '@/hooks/usePopoutWindows'
 import { useTimeSeriesAnnotations } from '@/hooks/useAnnotations'
 import { AnnotationContextMenu } from '@/components/annotations/AnnotationContextMenu'
 import { AnnotationMarker } from '@/components/annotations/AnnotationMarker'
-
-interface PreprocessingOptions {
-  highpass?: number
-  lowpass?: number
-  notch?: number[]
-  detrending?: 'linear' | 'polynomial' | 'none'
-}
+import { PreprocessingOptions } from '@/types/persistence'
+import { applyPreprocessing, getDefaultPreprocessing } from '@/utils/preprocessing'
 
 interface TimeSeriesPlotProps {
   apiService: ApiService
@@ -64,14 +59,19 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   const [duration, setDuration] = useState(0)
   const [loadChunkTimeout, setLoadChunkTimeout] = useState<NodeJS.Timeout | null>(null)
 
-  // Preprocessing controls
+  // Preprocessing controls - initialize from plot state or defaults
   const [showPreprocessing, setShowPreprocessing] = useState(false)
-  const [preprocessing, setPreprocessing] = useState<PreprocessingOptions>({
-    highpass: 0.5,
-    lowpass: 70,
-    notch: [50],
-    detrending: 'linear'
-  })
+  const [preprocessing, setPreprocessing] = useState<PreprocessingOptions>(
+    plot.preprocessing || getDefaultPreprocessing()
+  )
+
+  // Sync local preprocessing state with plot state on mount
+  useEffect(() => {
+    if (plot.preprocessing) {
+      console.log('Loading preprocessing from saved state:', plot.preprocessing)
+      setPreprocessing(plot.preprocessing)
+    }
+  }, []) // Empty deps - only run on mount
 
   // Display controls
   const [timeWindow, setTimeWindow] = useState(10) // seconds - default 10s chunks
@@ -460,8 +460,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         fileManager.selectedFile.file_path,
         chunkStart,
         chunkSize,
-        selectedChannels,
-        preprocessing
+        selectedChannels
       )
 
       console.log('Received chunk data:', {
@@ -478,11 +477,25 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         return
       }
 
-      // Quick test: create dummy data to see if uPlot works
-      console.log('Testing with real data first, then will try dummy data if needed')
+      // Apply preprocessing to each channel
+      const preprocessedData = chunkData.data.map((channelData) =>
+        applyPreprocessing(channelData, fileManager.selectedFile!.sample_rate, preprocessing)
+      )
 
-      setCurrentChunk(chunkData)
-      renderPlot(chunkData)
+      console.log('Applied preprocessing:', {
+        originalFirstValues: chunkData.data[0]?.slice(0, 5),
+        preprocessedFirstValues: preprocessedData[0]?.slice(0, 5),
+        preprocessingOptions: preprocessing
+      })
+
+      // Create processed chunk data
+      const processedChunk: ChunkData = {
+        ...chunkData,
+        data: preprocessedData
+      }
+
+      setCurrentChunk(processedChunk)
+      renderPlot(processedChunk)
       setCurrentTime(startTime)
 
     } catch (err) {
@@ -599,6 +612,19 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       }
     }
   }, [loadChunkTimeout])
+
+  // Persist preprocessing options to plot state
+  useEffect(() => {
+    updatePlotState({ preprocessing })
+  }, [preprocessing, updatePlotState])
+
+  // Reload chunk when preprocessing changes
+  useEffect(() => {
+    if (fileManager.selectedFile && selectedChannels.length > 0) {
+      console.log('Preprocessing changed, reloading chunk at current time:', currentTime)
+      loadChunk(currentTime)
+    }
+  }, [preprocessing])
 
   // Update popout windows when data changes
   useEffect(() => {
@@ -787,89 +813,338 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
 
           {/* Preprocessing Controls */}
           {showPreprocessing && (
-            <div className="border rounded-lg p-4 space-y-4">
-              <h4 className="font-medium">Preprocessing Options</h4>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-sm">High-pass Filter (Hz)</Label>
-                  <Input
-                    type="number"
-                    value={preprocessing.highpass || ''}
-                    onChange={(e) => setPreprocessing(prev => ({
-                      ...prev,
-                      highpass: parseFloat(e.target.value) || undefined
-                    }))}
-                    placeholder="0.5"
-                    step="0.1"
-                    min="0"
-                  />
-                </div>
-
-                <div>
-                  <Label className="text-sm">Low-pass Filter (Hz)</Label>
-                  <Input
-                    type="number"
-                    value={preprocessing.lowpass || ''}
-                    onChange={(e) => setPreprocessing(prev => ({
-                      ...prev,
-                      lowpass: parseFloat(e.target.value) || undefined
-                    }))}
-                    placeholder="70"
-                    step="1"
-                    min="1"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <Label className="text-sm">Notch Filters (Hz)</Label>
-                <div className="flex items-center space-x-2 mt-1">
-                  <Checkbox
-                    checked={preprocessing.notch?.includes(50) || false}
-                    onCheckedChange={(checked) => {
-                      setPreprocessing(prev => ({
-                        ...prev,
-                        notch: checked
-                          ? [...(prev.notch || []), 50]
-                          : (prev.notch || []).filter(f => f !== 50)
-                      }))
-                    }}
-                  />
-                  <Label className="text-sm">50Hz (EU)</Label>
-
-                  <Checkbox
-                    checked={preprocessing.notch?.includes(60) || false}
-                    onCheckedChange={(checked) => {
-                      setPreprocessing(prev => ({
-                        ...prev,
-                        notch: checked
-                          ? [...(prev.notch || []), 60]
-                          : (prev.notch || []).filter(f => f !== 60)
-                      }))
-                    }}
-                  />
-                  <Label className="text-sm">60Hz (US)</Label>
-                </div>
-              </div>
-
-              <div>
-                <Label className="text-sm">Detrending</Label>
-                <Select
-                  value={preprocessing.detrending || 'linear'}
-                  onValueChange={(value: 'linear' | 'polynomial' | 'none') =>
-                    setPreprocessing(prev => ({ ...prev, detrending: value }))
-                  }
+            <div className="border rounded-lg p-4 space-y-4 max-h-96 overflow-y-auto">
+              <div className="flex items-center justify-between sticky top-0 bg-background pb-2">
+                <h4 className="font-medium">Preprocessing Options</h4>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setPreprocessing(getDefaultPreprocessing())}
                 >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    <SelectItem value="linear">Linear</SelectItem>
-                    <SelectItem value="polynomial">Polynomial</SelectItem>
-                  </SelectContent>
-                </Select>
+                  Reset All
+                </Button>
+              </div>
+
+              {/* Filters */}
+              <Separator />
+              <div className="space-y-3">
+                <h5 className="text-sm font-medium">Filters</h5>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">High-pass (Hz)</Label>
+                    <Input
+                      type="number"
+                      value={preprocessing.highpass || ''}
+                      onChange={(e) => setPreprocessing(prev => ({
+                        ...prev,
+                        highpass: e.target.value ? parseFloat(e.target.value) : undefined
+                      }))}
+                      placeholder="0.5"
+                      step="0.1"
+                      min="0"
+                      className="h-8"
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">Low-pass (Hz)</Label>
+                    <Input
+                      type="number"
+                      value={preprocessing.lowpass || ''}
+                      onChange={(e) => setPreprocessing(prev => ({
+                        ...prev,
+                        lowpass: e.target.value ? parseFloat(e.target.value) : undefined
+                      }))}
+                      placeholder="70"
+                      step="1"
+                      min="1"
+                      className="h-8"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-xs">Notch Filters</Label>
+                  <div className="flex items-center space-x-3 mt-1">
+                    <div className="flex items-center space-x-1">
+                      <Checkbox
+                        id="notch-50"
+                        checked={preprocessing.notch?.includes(50) || false}
+                        onCheckedChange={(checked) => {
+                          setPreprocessing(prev => ({
+                            ...prev,
+                            notch: checked
+                              ? [...(prev.notch || []), 50]
+                              : (prev.notch || []).filter(f => f !== 50)
+                          }))
+                        }}
+                      />
+                      <Label htmlFor="notch-50" className="text-xs">50Hz</Label>
+                    </div>
+
+                    <div className="flex items-center space-x-1">
+                      <Checkbox
+                        id="notch-60"
+                        checked={preprocessing.notch?.includes(60) || false}
+                        onCheckedChange={(checked) => {
+                          setPreprocessing(prev => ({
+                            ...prev,
+                            notch: checked
+                              ? [...(prev.notch || []), 60]
+                              : (prev.notch || []).filter(f => f !== 60)
+                          }))
+                        }}
+                      />
+                      <Label htmlFor="notch-60" className="text-xs">60Hz</Label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Signal Enhancement */}
+              <Separator />
+              <div className="space-y-3">
+                <h5 className="text-sm font-medium">Signal Enhancement</h5>
+
+                <div>
+                  <Label className="text-xs">Baseline Correction</Label>
+                  <Select
+                    value={preprocessing.baselineCorrection || 'none'}
+                    onValueChange={(value: 'none' | 'mean' | 'median') =>
+                      setPreprocessing(prev => ({ ...prev, baselineCorrection: value }))
+                    }
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="mean">Mean</SelectItem>
+                      <SelectItem value="median">Median</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label className="text-xs">Detrending</Label>
+                  <Select
+                    value={preprocessing.detrending || 'none'}
+                    onValueChange={(value: 'linear' | 'polynomial' | 'none') =>
+                      setPreprocessing(prev => ({ ...prev, detrending: value }))
+                    }
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="linear">Linear</SelectItem>
+                      <SelectItem value="polynomial">Polynomial</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="smoothing-enabled"
+                      checked={preprocessing.smoothing?.enabled || false}
+                      onCheckedChange={(checked) => {
+                        setPreprocessing(prev => ({
+                          ...prev,
+                          smoothing: {
+                            ...prev.smoothing,
+                            enabled: !!checked,
+                            method: prev.smoothing?.method || 'moving_average',
+                            windowSize: prev.smoothing?.windowSize || 5
+                          }
+                        }))
+                      }}
+                    />
+                    <Label htmlFor="smoothing-enabled" className="text-xs">Smoothing</Label>
+                  </div>
+                  {preprocessing.smoothing?.enabled && (
+                    <div className="pl-6 space-y-2">
+                      <Select
+                        value={preprocessing.smoothing.method}
+                        onValueChange={(value: 'moving_average' | 'savitzky_golay') =>
+                          setPreprocessing(prev => ({
+                            ...prev,
+                            smoothing: { ...prev.smoothing!, method: value }
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="moving_average">Moving Average</SelectItem>
+                          <SelectItem value="savitzky_golay">Savitzky-Golay</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <div>
+                        <Label className="text-xs">Window Size: {preprocessing.smoothing.windowSize}</Label>
+                        <Slider
+                          value={[preprocessing.smoothing.windowSize]}
+                          onValueChange={([value]) =>
+                            setPreprocessing(prev => ({
+                              ...prev,
+                              smoothing: { ...prev.smoothing!, windowSize: value }
+                            }))
+                          }
+                          min={3}
+                          max={21}
+                          step={2}
+                          className="mt-1"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Artifact Removal */}
+              <Separator />
+              <div className="space-y-3">
+                <h5 className="text-sm font-medium">Artifact Removal</h5>
+
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="outlier-enabled"
+                      checked={preprocessing.outlierRemoval?.enabled || false}
+                      onCheckedChange={(checked) => {
+                        setPreprocessing(prev => ({
+                          ...prev,
+                          outlierRemoval: {
+                            enabled: !!checked,
+                            method: prev.outlierRemoval?.method || 'clip',
+                            threshold: prev.outlierRemoval?.threshold || 3
+                          }
+                        }))
+                      }}
+                    />
+                    <Label htmlFor="outlier-enabled" className="text-xs">Outlier Removal</Label>
+                  </div>
+                  {preprocessing.outlierRemoval?.enabled && (
+                    <div className="pl-6 space-y-2">
+                      <Select
+                        value={preprocessing.outlierRemoval.method}
+                        onValueChange={(value: 'clip' | 'remove' | 'interpolate') =>
+                          setPreprocessing(prev => ({
+                            ...prev,
+                            outlierRemoval: { ...prev.outlierRemoval!, method: value }
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="clip">Clip</SelectItem>
+                          <SelectItem value="remove">Remove</SelectItem>
+                          <SelectItem value="interpolate">Interpolate</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <div>
+                        <Label className="text-xs">Threshold (σ): {preprocessing.outlierRemoval.threshold}</Label>
+                        <Slider
+                          value={[preprocessing.outlierRemoval.threshold]}
+                          onValueChange={([value]) =>
+                            setPreprocessing(prev => ({
+                              ...prev,
+                              outlierRemoval: { ...prev.outlierRemoval!, threshold: value }
+                            }))
+                          }
+                          min={1}
+                          max={6}
+                          step={0.5}
+                          className="mt-1"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="spike-enabled"
+                      checked={preprocessing.spikeRemoval?.enabled || false}
+                      onCheckedChange={(checked) => {
+                        setPreprocessing(prev => ({
+                          ...prev,
+                          spikeRemoval: {
+                            enabled: !!checked,
+                            threshold: prev.spikeRemoval?.threshold || 4,
+                            windowSize: prev.spikeRemoval?.windowSize || 10
+                          }
+                        }))
+                      }}
+                    />
+                    <Label htmlFor="spike-enabled" className="text-xs">Spike Removal</Label>
+                  </div>
+                  {preprocessing.spikeRemoval?.enabled && (
+                    <div className="pl-6 space-y-2">
+                      <div>
+                        <Label className="text-xs">Threshold (σ): {preprocessing.spikeRemoval.threshold}</Label>
+                        <Slider
+                          value={[preprocessing.spikeRemoval.threshold]}
+                          onValueChange={([value]) =>
+                            setPreprocessing(prev => ({
+                              ...prev,
+                              spikeRemoval: { ...prev.spikeRemoval!, threshold: value }
+                            }))
+                          }
+                          min={2}
+                          max={8}
+                          step={0.5}
+                          className="mt-1"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Window Size: {preprocessing.spikeRemoval.windowSize}</Label>
+                        <Slider
+                          value={[preprocessing.spikeRemoval.windowSize]}
+                          onValueChange={([value]) =>
+                            setPreprocessing(prev => ({
+                              ...prev,
+                              spikeRemoval: { ...prev.spikeRemoval!, windowSize: value }
+                            }))
+                          }
+                          min={5}
+                          max={25}
+                          step={5}
+                          className="mt-1"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Normalization */}
+              <Separator />
+              <div className="space-y-3">
+                <h5 className="text-sm font-medium">Normalization</h5>
+                <div>
+                  <Label className="text-xs">Method</Label>
+                  <Select
+                    value={preprocessing.normalization || 'none'}
+                    onValueChange={(value: 'none' | 'zscore' | 'minmax') =>
+                      setPreprocessing(prev => ({ ...prev, normalization: value }))
+                    }
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="zscore">Z-score</SelectItem>
+                      <SelectItem value="minmax">Min-Max</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
           )}

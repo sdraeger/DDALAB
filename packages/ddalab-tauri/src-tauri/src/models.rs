@@ -32,6 +32,8 @@ pub struct PlotState {
     pub color_scheme: String,
     pub plot_mode: String, // 'raw', 'filtered', etc.
     pub filters: HashMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preprocessing: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +110,7 @@ impl Default for PlotState {
             color_scheme: "default".to_string(),
             plot_mode: "raw".to_string(),
             filters: HashMap::new(),
+            preprocessing: None,
         }
     }
 }
