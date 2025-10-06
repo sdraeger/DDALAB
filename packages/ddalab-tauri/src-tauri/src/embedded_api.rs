@@ -15,6 +15,7 @@ use axum::{
 use tower_http::cors::{CorsLayer, Any};
 use parking_lot::RwLock;
 use crate::edf::EDFReader;
+use crate::text_reader::TextFileReader;
 
 // API Models
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1355,7 +1356,7 @@ pub async fn get_edf_data(
         }
     }
 
-    // Read actual EDF data in a blocking task to avoid blocking the async runtime
+    // Read actual data in a blocking task to avoid blocking the async runtime
     let file_path_clone = file_path.clone();
     let chunk = tokio::task::spawn_blocking(move || -> Result<ChunkData, String> {
         let path = std::path::Path::new(&file_path_clone);
@@ -1363,88 +1364,25 @@ pub async fn get_edf_data(
             return Err(format!("File not found: {}", file_path_clone));
         }
 
-        // Use our custom EDF reader
-        let mut edf = EDFReader::new(path)?;
+        // Detect file type based on extension
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-        // Get all channel labels
-        let all_channel_labels: Vec<String> = edf.signal_headers
-            .iter()
-            .map(|sh| sh.label.trim().to_string())
-            .collect();
-
-        if all_channel_labels.is_empty() {
-            return Err(format!("No channels found in EDF file '{}'", file_path_clone));
-        }
-
-        // Determine which channels to read
-        let (channels_to_read, channel_labels): (Vec<usize>, Vec<String>) = if let Some(ref selected) = selected_channels {
-            // Filter to only selected channels
-            let mut indices = Vec::new();
-            let mut labels = Vec::new();
-
-            for channel_name in selected {
-                if let Some(idx) = all_channel_labels.iter().position(|label| label == channel_name) {
-                    indices.push(idx);
-                    labels.push(channel_name.clone());
-                } else {
-                    log::warn!("Channel '{}' not found in file", channel_name);
-                }
+        match extension.to_lowercase().as_str() {
+            "csv" => {
+                // Read CSV file
+                let reader = TextFileReader::from_csv(path)?;
+                read_text_file_chunk(reader, &file_path_clone, start_time, duration, needs_sample_rate, selected_channels)
             }
-
-            if indices.is_empty() {
-                return Err(format!("None of the selected channels found in file"));
+            "ascii" | "txt" => {
+                // Read ASCII file
+                let reader = TextFileReader::from_ascii(path)?;
+                read_text_file_chunk(reader, &file_path_clone, start_time, duration, needs_sample_rate, selected_channels)
             }
-
-            (indices, labels)
-        } else {
-            // Read all channels
-            ((0..all_channel_labels.len()).collect(), all_channel_labels)
-        };
-
-        // Get sampling rate (use first channel to be read)
-        let sample_rate = edf.signal_headers[channels_to_read[0]].sample_frequency(edf.header.duration_of_data_record);
-
-        // Convert sample-based parameters to time-based
-        let (actual_start_time, actual_duration) = if needs_sample_rate {
-            let start_samples = start_time as usize;
-            let num_samples = duration as usize;
-            (start_samples as f64 / sample_rate, num_samples as f64 / sample_rate)
-        } else {
-            (start_time, duration)
-        };
-
-        log::info!(
-            "Reading chunk from '{}': start_time={:.2}s, duration={:.2}s, channels={:?}",
-            file_path_clone, actual_start_time, actual_duration, channel_labels
-        );
-
-        // Read data window for selected channels only
-        let mut data: Vec<Vec<f64>> = Vec::new();
-        for &signal_idx in &channels_to_read {
-            let signal_data = edf.read_signal_window(signal_idx, actual_start_time, actual_duration)?;
-            data.push(signal_data);
+            _ => {
+                // Read EDF file
+                read_edf_file_chunk(path, &file_path_clone, start_time, duration, needs_sample_rate, selected_channels)
+            }
         }
-
-        let chunk_start_sample = (actual_start_time * sample_rate) as usize;
-        let chunk_size = data.get(0).map(|v| v.len()).unwrap_or(0);
-
-        // Calculate total samples
-        let samples_per_record = edf.signal_headers[channels_to_read[0]].num_samples_per_record as u64;
-        let total_samples_per_channel = edf.header.num_data_records as u64 * samples_per_record;
-
-        log::info!(
-            "Read {} channels, {} samples per channel",
-            data.len(), chunk_size
-        );
-
-        Ok(ChunkData {
-            data,
-            channel_labels,
-            sampling_frequency: sample_rate,
-            chunk_size,
-            chunk_start: chunk_start_sample,
-            total_samples: Some(total_samples_per_channel),
-        })
     })
     .await
     .map_err(|e| {
@@ -1493,6 +1431,177 @@ pub async fn get_analysis_status(
 }
 
 // Helper functions
+fn read_edf_file_chunk(
+    path: &std::path::Path,
+    file_path_clone: &str,
+    start_time: f64,
+    duration: f64,
+    needs_sample_rate: bool,
+    selected_channels: Option<Vec<String>>,
+) -> Result<ChunkData, String> {
+    // Use our custom EDF reader
+    let mut edf = EDFReader::new(path)?;
+
+    // Get all channel labels
+    let all_channel_labels: Vec<String> = edf.signal_headers
+        .iter()
+        .map(|sh| sh.label.trim().to_string())
+        .collect();
+
+    if all_channel_labels.is_empty() {
+        return Err(format!("No channels found in EDF file '{}'", file_path_clone));
+    }
+
+    // Determine which channels to read
+    let (channels_to_read, channel_labels): (Vec<usize>, Vec<String>) = if let Some(ref selected) = selected_channels {
+        // Filter to only selected channels
+        let mut indices = Vec::new();
+        let mut labels = Vec::new();
+
+        for channel_name in selected {
+            if let Some(idx) = all_channel_labels.iter().position(|label| label == channel_name) {
+                indices.push(idx);
+                labels.push(channel_name.clone());
+            } else {
+                log::warn!("Channel '{}' not found in file", channel_name);
+            }
+        }
+
+        if indices.is_empty() {
+            return Err(format!("None of the selected channels found in file"));
+        }
+
+        (indices, labels)
+    } else {
+        // Read all channels
+        ((0..all_channel_labels.len()).collect(), all_channel_labels)
+    };
+
+    // Get sampling rate (use first channel to be read)
+    let sample_rate = edf.signal_headers[channels_to_read[0]].sample_frequency(edf.header.duration_of_data_record);
+
+    // Convert sample-based parameters to time-based
+    let (actual_start_time, actual_duration) = if needs_sample_rate {
+        let start_samples = start_time as usize;
+        let num_samples = duration as usize;
+        (start_samples as f64 / sample_rate, num_samples as f64 / sample_rate)
+    } else {
+        (start_time, duration)
+    };
+
+    log::info!(
+        "Reading chunk from '{}': start_time={:.2}s, duration={:.2}s, channels={:?}",
+        file_path_clone, actual_start_time, actual_duration, channel_labels
+    );
+
+    // Read data window for selected channels only
+    let mut data: Vec<Vec<f64>> = Vec::new();
+    for &signal_idx in &channels_to_read {
+        let signal_data = edf.read_signal_window(signal_idx, actual_start_time, actual_duration)?;
+        data.push(signal_data);
+    }
+
+    let chunk_start_sample = (actual_start_time * sample_rate) as usize;
+    let chunk_size = data.get(0).map(|v| v.len()).unwrap_or(0);
+
+    // Calculate total samples
+    let samples_per_record = edf.signal_headers[channels_to_read[0]].num_samples_per_record as u64;
+    let total_samples_per_channel = edf.header.num_data_records as u64 * samples_per_record;
+
+    log::info!(
+        "Read {} channels, {} samples per channel",
+        data.len(), chunk_size
+    );
+
+    Ok(ChunkData {
+        data,
+        channel_labels,
+        sampling_frequency: sample_rate,
+        chunk_size,
+        chunk_start: chunk_start_sample,
+        total_samples: Some(total_samples_per_channel),
+    })
+}
+
+fn read_text_file_chunk(
+    reader: TextFileReader,
+    file_path_clone: &str,
+    start_time: f64,
+    duration: f64,
+    needs_sample_rate: bool,
+    selected_channels: Option<Vec<String>>,
+) -> Result<ChunkData, String> {
+    let all_channel_labels = &reader.info.channel_labels;
+
+    if all_channel_labels.is_empty() {
+        return Err(format!("No channels found in file '{}'", file_path_clone));
+    }
+
+    // Determine which channels to read
+    let (channels_to_read, channel_labels): (Vec<usize>, Vec<String>) = if let Some(ref selected) = selected_channels {
+        // Filter to only selected channels
+        let mut indices = Vec::new();
+        let mut labels = Vec::new();
+
+        for channel_name in selected {
+            if let Some(idx) = all_channel_labels.iter().position(|label| label == channel_name) {
+                indices.push(idx);
+                labels.push(channel_name.clone());
+            } else {
+                log::warn!("Channel '{}' not found in file", channel_name);
+            }
+        }
+
+        if indices.is_empty() {
+            return Err(format!("None of the selected channels found in file"));
+        }
+
+        (indices, labels)
+    } else {
+        // Read all channels
+        ((0..all_channel_labels.len()).collect(), all_channel_labels.clone())
+    };
+
+    // For text files, assume 1.0 Hz sample rate (1 sample per second)
+    let sample_rate = 1.0;
+
+    // Convert parameters based on sample rate
+    let (start_sample, num_samples) = if needs_sample_rate {
+        // Already in samples
+        (start_time as usize, duration as usize)
+    } else {
+        // Convert from time to samples (at 1 Hz, time == samples)
+        (
+            (start_time * sample_rate) as usize,
+            (duration * sample_rate) as usize
+        )
+    };
+
+    log::info!(
+        "Reading chunk from '{}': start_sample={}, num_samples={}, channels={:?}",
+        file_path_clone, start_sample, num_samples, channel_labels
+    );
+
+    // Read data window for selected channels
+    let data = reader.read_window(start_sample, num_samples, &channels_to_read)?;
+
+    let chunk_size = data.get(0).map(|v| v.len()).unwrap_or(0);
+
+    log::info!(
+        "Read {} channels, {} samples per channel",
+        data.len(), chunk_size
+    );
+
+    Ok(ChunkData {
+        data,
+        channel_labels,
+        sampling_frequency: sample_rate,
+        chunk_size,
+        chunk_start: start_sample,
+        total_samples: Some(reader.info.num_samples as u64),
+    })
+}
+
 async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
     // Run EDF reading in a blocking task to avoid blocking the async runtime
     tokio::task::spawn_blocking(move || {
@@ -1521,62 +1630,137 @@ async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
             })
             .unwrap_or_else(|| last_modified.clone());
 
-        // Read actual EDF file header using our custom EDF reader
-        match EDFReader::new(&path) {
-            Ok(edf) => {
-                let header = &edf.header;
+        // Detect file type based on extension
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-                // Get channel labels from EDF header
-                let channels: Vec<String> = edf.signal_headers
-                    .iter()
-                    .map(|sh| sh.label.trim().to_string())
-                    .collect();
+        match extension.to_lowercase().as_str() {
+            "csv" => {
+                // Read CSV file
+                match TextFileReader::from_csv(&path) {
+                    Ok(reader) => {
+                        let channels = reader.info.channel_labels.clone();
+                        let num_channels = channels.len();
+                        let num_samples = reader.info.num_samples;
 
-                let num_channels = channels.len();
-                log::info!("Read EDF file '{}' with {} channels", file_name, num_channels);
+                        log::info!("Read CSV file '{}' with {} channels, {} samples", file_name, num_channels, num_samples);
 
-                // Get sampling rate (use first channel's rate if available)
-                let sample_rate = if num_channels > 0 {
-                    edf.signal_headers[0].sample_frequency(header.duration_of_data_record)
-                } else {
-                    256.0
-                };
+                        // For text files, we don't have a real sampling rate, use 1.0 Hz (1 sample per second)
+                        let sample_rate = 1.0;
+                        let duration = num_samples as f64 / sample_rate;
 
-                // Calculate total samples per channel
-                let samples_per_record = if num_channels > 0 {
-                    edf.signal_headers[0].num_samples_per_record as u64
-                } else {
-                    1
-                };
-                let total_samples_per_channel = header.num_data_records as u64 * samples_per_record;
+                        let file_info = EDFFileInfo {
+                            file_path,
+                            file_name,
+                            file_size: metadata.len(),
+                            duration: Some(duration),
+                            sample_rate,
+                            total_samples: Some(num_samples as u64),
+                            channels,
+                            created_at,
+                            last_modified,
+                        };
 
-                // Calculate duration in seconds
-                let duration = edf.total_duration();
-
-                log::info!(
-                    "EDF file '{}': channels={}, sample_rate={:.2}Hz, data_records={}, samples/record={}, total_samples={}, duration={:.2}s ({:.1}min)",
-                    file_name, num_channels, sample_rate, header.num_data_records, samples_per_record, total_samples_per_channel, duration, duration / 60.0
-                );
-
-                let file_info = EDFFileInfo {
-                    file_path,
-                    file_name,
-                    file_size: metadata.len(),
-                    duration: Some(duration),
-                    sample_rate,
-                    total_samples: Some(total_samples_per_channel),
-                    channels,
-                    created_at,
-                    last_modified,
-                };
-
-                log::info!("Returning file info with duration: {:?}", file_info.duration);
-
-                Some(file_info)
+                        Some(file_info)
+                    }
+                    Err(e) => {
+                        log::error!("Failed to read CSV file '{}': {}", file_name, e);
+                        None
+                    }
+                }
             }
-            Err(e) => {
-                log::error!("Failed to read EDF file '{}': {}", file_name, e);
-                None
+            "ascii" | "txt" => {
+                // Read ASCII file (whitespace-separated)
+                match TextFileReader::from_ascii(&path) {
+                    Ok(reader) => {
+                        let channels = reader.info.channel_labels.clone();
+                        let num_channels = channels.len();
+                        let num_samples = reader.info.num_samples;
+
+                        log::info!("Read ASCII file '{}' with {} channels, {} samples", file_name, num_channels, num_samples);
+
+                        // For text files, we don't have a real sampling rate, use 1.0 Hz (1 sample per second)
+                        let sample_rate = 1.0;
+                        let duration = num_samples as f64 / sample_rate;
+
+                        let file_info = EDFFileInfo {
+                            file_path,
+                            file_name,
+                            file_size: metadata.len(),
+                            duration: Some(duration),
+                            sample_rate,
+                            total_samples: Some(num_samples as u64),
+                            channels,
+                            created_at,
+                            last_modified,
+                        };
+
+                        Some(file_info)
+                    }
+                    Err(e) => {
+                        log::error!("Failed to read ASCII file '{}': {}", file_name, e);
+                        None
+                    }
+                }
+            }
+            _ => {
+                // Default to EDF reader for .edf files and unknown extensions
+                match EDFReader::new(&path) {
+                    Ok(edf) => {
+                        let header = &edf.header;
+
+                        // Get channel labels from EDF header
+                        let channels: Vec<String> = edf.signal_headers
+                            .iter()
+                            .map(|sh| sh.label.trim().to_string())
+                            .collect();
+
+                        let num_channels = channels.len();
+                        log::info!("Read EDF file '{}' with {} channels", file_name, num_channels);
+
+                        // Get sampling rate (use first channel's rate if available)
+                        let sample_rate = if num_channels > 0 {
+                            edf.signal_headers[0].sample_frequency(header.duration_of_data_record)
+                        } else {
+                            256.0
+                        };
+
+                        // Calculate total samples per channel
+                        let samples_per_record = if num_channels > 0 {
+                            edf.signal_headers[0].num_samples_per_record as u64
+                        } else {
+                            1
+                        };
+                        let total_samples_per_channel = header.num_data_records as u64 * samples_per_record;
+
+                        // Calculate duration in seconds
+                        let duration = edf.total_duration();
+
+                        log::info!(
+                            "EDF file '{}': channels={}, sample_rate={:.2}Hz, data_records={}, samples/record={}, total_samples={}, duration={:.2}s ({:.1}min)",
+                            file_name, num_channels, sample_rate, header.num_data_records, samples_per_record, total_samples_per_channel, duration, duration / 60.0
+                        );
+
+                        let file_info = EDFFileInfo {
+                            file_path,
+                            file_name,
+                            file_size: metadata.len(),
+                            duration: Some(duration),
+                            sample_rate,
+                            total_samples: Some(total_samples_per_channel),
+                            channels,
+                            created_at,
+                            last_modified,
+                        };
+
+                        log::info!("Returning file info with duration: {:?}", file_info.duration);
+
+                        Some(file_info)
+                    }
+                    Err(e) => {
+                        log::error!("Failed to read EDF file '{}': {}", file_name, e);
+                        None
+                    }
+                }
             }
         }
     })
