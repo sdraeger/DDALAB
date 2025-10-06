@@ -1,0 +1,20 @@
+[package]
+name = "dda-rs"
+version = "0.1.0"
+edition = "2021"
+authors = ["DDALAB Contributors"]
+description = "Rust interface for the run_DDA_ASCII (run_AsciiEdf) binary (Cosmopolitan Libc APE) for Delay Differential Analysis"
+license = "MIT"
+
+[dependencies]
+tokio = { version = "1", features = ["process", "fs", "io-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+log = "0.4"
+thiserror = "2.0.17"
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3"
