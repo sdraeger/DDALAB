@@ -1370,12 +1370,22 @@ pub async fn get_edf_data(
         match extension.to_lowercase().as_str() {
             "csv" => {
                 // Read CSV file
-                let reader = TextFileReader::from_csv(path)?;
+                log::info!("Reading CSV file: {}", file_path_clone);
+                let reader = TextFileReader::from_csv(path).map_err(|e| {
+                    log::error!("Failed to parse CSV file '{}': {}", file_path_clone, e);
+                    e
+                })?;
+                log::info!("CSV file loaded: {} channels, {} samples", reader.info.num_channels, reader.info.num_samples);
                 read_text_file_chunk(reader, &file_path_clone, start_time, duration, needs_sample_rate, selected_channels)
             }
             "ascii" | "txt" => {
                 // Read ASCII file
-                let reader = TextFileReader::from_ascii(path)?;
+                log::info!("Reading ASCII file: {}", file_path_clone);
+                let reader = TextFileReader::from_ascii(path).map_err(|e| {
+                    log::error!("Failed to parse ASCII file '{}': {}", file_path_clone, e);
+                    e
+                })?;
+                log::info!("ASCII file loaded: {} channels, {} samples", reader.info.num_channels, reader.info.num_samples);
                 read_text_file_chunk(reader, &file_path_clone, start_time, duration, needs_sample_rate, selected_channels)
             }
             _ => {
