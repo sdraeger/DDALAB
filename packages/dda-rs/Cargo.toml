@@ -3,8 +3,14 @@ name = "dda-rs"
 version = "0.1.0"
 edition = "2021"
 authors = ["DDALAB Contributors"]
-description = "Rust interface for the run_DDA_ASCII (run_AsciiEdf) binary (Cosmopolitan Libc APE) for Delay Differential Analysis"
+description = "Rust interface for the run_DDA_ASCII binary (Cosmopolitan Libc APE) for Delay Differential Analysis"
 license = "MIT"
+repository = "https://github.com/sdraeger/DDALAB"
+homepage = "https://github.com/sdraeger/DDALAB/tree/main/packages/dda-rs"
+documentation = "https://docs.rs/dda-rs"
+keywords = ["dda", "delay-differential", "analysis", "eeg", "time-series"]
+categories = ["science", "api-bindings"]
+readme = "README.md"
 
 [dependencies]
 tokio = { version = "1", features = ["process", "fs", "io-util"] }
