@@ -104,13 +104,28 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     if (fileManager.selectedFile && fileManager.selectedFile.channels.length > 0) {
       setDuration(fileManager.selectedFile.duration || 0)
 
-      // Only auto-select if no channels are already selected
-      if (fileManager.selectedChannels.length === 0) {
-        // Auto-select first 4 channels for better performance and visibility
-        const defaultChannels = fileManager.selectedFile.channels.slice(0, Math.min(4, fileManager.selectedFile.channels.length))
-        console.log('Auto-selecting channels:', defaultChannels, 'from total:', fileManager.selectedFile.channels.length)
+      // Validate that persisted channels exist in the current file
+      const availableChannels = fileManager.selectedFile.channels
+      const validPersistedChannels = fileManager.selectedChannels.filter(ch =>
+        availableChannels.includes(ch)
+      )
+
+      if (validPersistedChannels.length === 0) {
+        // No valid persisted channels, auto-select first 4 channels
+        // Skip common time columns (Time, Timestamp, etc.) from auto-selection
+        const dataChannels = availableChannels.filter(ch =>
+          !ch.toLowerCase().match(/^(time|timestamp|t|sample)$/i)
+        )
+        const channelsToSelect = dataChannels.length > 0 ? dataChannels : availableChannels
+        const defaultChannels = channelsToSelect.slice(0, Math.min(4, channelsToSelect.length))
+        console.log('Auto-selecting channels (no valid persisted):', defaultChannels, 'from total:', availableChannels.length)
         persistSelectedChannels(defaultChannels)
+      } else if (validPersistedChannels.length !== fileManager.selectedChannels.length) {
+        // Some persisted channels are invalid, use only the valid ones
+        console.log('Using valid persisted channels:', validPersistedChannels, '(filtered from', fileManager.selectedChannels, ')')
+        persistSelectedChannels(validPersistedChannels)
       } else {
+        // All persisted channels are valid
         console.log('Using persisted channels:', fileManager.selectedChannels)
       }
     } else {
@@ -575,6 +590,15 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     })
 
     if (fileManager.selectedFile && selectedChannels.length > 0) {
+      // Validate that selected channels exist in the file before loading
+      const availableChannels = fileManager.selectedFile.channels
+      const allChannelsValid = selectedChannels.every(ch => availableChannels.includes(ch))
+
+      if (!allChannelsValid) {
+        console.log('Skipping chunk load - selected channels not yet validated for this file')
+        return
+      }
+
       console.log('Conditions met - triggering initial chunk load')
       // Destroy existing plot when file changes to ensure clean state
       if (uplotRef.current) {
@@ -594,6 +618,15 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   // Handle time window changes separately to avoid recreating plot
   useEffect(() => {
     if (fileManager.selectedFile && selectedChannels.length > 0 && currentTime >= 0) {
+      // Validate that selected channels exist in the file before loading
+      const availableChannels = fileManager.selectedFile.channels
+      const allChannelsValid = selectedChannels.every(ch => availableChannels.includes(ch))
+
+      if (!allChannelsValid) {
+        console.log('Skipping time window chunk load - selected channels not yet validated for this file')
+        return
+      }
+
       console.log('TimeWindow useEffect triggered, reloading chunk at current time:', currentTime, {
         timeWindow,
         fileName: fileManager.selectedFile?.file_name,
@@ -622,6 +655,15 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   // Reload chunk when preprocessing changes
   useEffect(() => {
     if (fileManager.selectedFile && selectedChannels.length > 0) {
+      // Validate that selected channels exist in the file before loading
+      const availableChannels = fileManager.selectedFile.channels
+      const allChannelsValid = selectedChannels.every(ch => availableChannels.includes(ch))
+
+      if (!allChannelsValid) {
+        console.log('Skipping preprocessing chunk load - selected channels not yet validated for this file')
+        return
+      }
+
       console.log('Preprocessing changed, reloading chunk at current time:', currentTime)
       loadChunk(currentTime)
     }
