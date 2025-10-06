@@ -63,7 +63,6 @@ export function FileManager({ apiService }: FileManagerProps) {
   const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [pendingFileSelection, setPendingFileSelection] = useState<EDFFileInfo | null>(null)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
-  const [showDirectoryChangeWarning, setShowDirectoryChangeWarning] = useState(false)
 
   // Load the data directory path on mount if not already set
   useEffect(() => {
@@ -308,11 +307,6 @@ export function FileManager({ apiService }: FileManagerProps) {
 
   const handleChangeDataDirectory = async () => {
     if (!TauriService.isTauri()) return
-    setShowDirectoryChangeWarning(true)
-  }
-
-  const confirmChangeDirectory = async () => {
-    setShowDirectoryChangeWarning(false)
 
     try {
       setLoading(true)
@@ -578,13 +572,24 @@ export function FileManager({ apiService }: FileManagerProps) {
             {filteredAndSortedFiles.length === 0 && directories.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
                 <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>No files found</p>
-                <p className="text-sm mt-2">
-                  {fileManager.searchQuery
-                    ? 'Try adjusting your search query'
-                    : 'No EDF or ASCII files in this directory'
-                  }
-                </p>
+                {!fileManager.dataDirectoryPath ? (
+                  <div className="space-y-3">
+                    <p className="font-medium text-foreground">No Data Directory Selected</p>
+                    <p className="text-sm">
+                      Choose a data directory using the "Change Directory" button above to get started
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p>No files found</p>
+                    <p className="text-sm">
+                      {fileManager.searchQuery
+                        ? 'Try adjusting your search query'
+                        : 'No EDF, CSV, or ASCII files in this directory'
+                      }
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -617,34 +622,6 @@ export function FileManager({ apiService }: FileManagerProps) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Directory Change Warning Dialog */}
-      <AlertDialog open={showDirectoryChangeWarning} onOpenChange={setShowDirectoryChangeWarning}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Change Data Directory</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3 text-sm text-muted-foreground">
-                <p>
-                  You are about to open a folder selection dialog. Please note:
-                </p>
-                <ul className="list-disc pl-5 space-y-1">
-                  <li>The dialog may freeze temporarily when navigating folders with many files (thousands of items)</li>
-                  <li>This is a limitation of the native OS file picker, not DDALAB</li>
-                  <li>Avoid browsing into very large directories if possible</li>
-                  <li>Select your target directory directly when you reach it</li>
-                </ul>
-                <p className="font-medium pt-2">
-                  Tip: If the dialog freezes, wait a moment - it should recover after scanning completes.
-                </p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmChangeDirectory}>Continue</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </Card>
   )
 }
