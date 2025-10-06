@@ -774,8 +774,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setAmplitudeScale(100)
-                  setChannelOffset(0)
+                  setChannelOffset(50)
                   setCurrentTime(0)
                 }}
               >
