@@ -16,6 +16,7 @@ use tower_http::cors::{CorsLayer, Any};
 use parking_lot::RwLock;
 use crate::edf::EDFReader;
 use crate::text_reader::TextFileReader;
+use dda_rs::DDARunner;
 
 // File type detection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -761,11 +762,81 @@ pub struct DDARequest {
     pub scale_parameters: ScaleParameters,
 }
 
+// Get DDA binary path from state or search for it
+fn get_dda_binary_path(state: &ApiState) -> Result<PathBuf, StatusCode> {
+    if let Some(ref resolved_path) = state.dda_binary_path {
+        return Ok(resolved_path.clone());
+    }
+
+    if let Ok(env_path) = std::env::var("DDA_BINARY_PATH") {
+        return Ok(PathBuf::from(env_path));
+    }
+
+    // Fallback: search common locations
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir.parent().unwrap().parent().unwrap().parent().unwrap();
+
+    let binary_name = if cfg!(target_os = "windows") {
+        "run_DDA_ASCII.exe"
+    } else {
+        "run_DDA_ASCII"
+    };
+
+    let possible_paths = vec![
+        repo_root.join("bin").join(binary_name),
+        PathBuf::from("./bin").join(binary_name),
+        PathBuf::from("../Resources/bin").join(binary_name),
+        PathBuf::from("../Resources").join(binary_name),
+        PathBuf::from(".").join(binary_name),
+        PathBuf::from("./resources/bin").join(binary_name),
+        PathBuf::from("./resources").join(binary_name),
+        PathBuf::from("/app/bin").join(binary_name),
+    ];
+
+    for path in &possible_paths {
+        if path.exists() {
+            log::info!("Found DDA binary at: {:?}", path);
+            return Ok(path.clone());
+        }
+    }
+
+    log::error!("DDA binary not found. Tried: {:?}", possible_paths);
+    Err(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+// Convert API request to dda-rs request
+fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
+    dda_rs::DDARequest {
+        file_path: api_req.file_path.clone(),
+        channels: api_req.channels.clone(),
+        time_range: dda_rs::TimeRange {
+            start: api_req.time_range.start,
+            end: api_req.time_range.end,
+        },
+        preprocessing_options: dda_rs::PreprocessingOptions {
+            detrending: api_req.preprocessing_options.detrending.clone(),
+            highpass: api_req.preprocessing_options.highpass,
+            lowpass: api_req.preprocessing_options.lowpass,
+        },
+        algorithm_selection: dda_rs::AlgorithmSelection {
+            enabled_variants: api_req.algorithm_selection.enabled_variants.clone(),
+        },
+        window_parameters: dda_rs::WindowParameters {
+            window_length: api_req.window_parameters.window_length,
+            window_step: api_req.window_parameters.window_step,
+        },
+        scale_parameters: dda_rs::ScaleParameters {
+            scale_min: api_req.scale_parameters.scale_min,
+            scale_max: api_req.scale_parameters.scale_max,
+            scale_num: api_req.scale_parameters.scale_num,
+        },
+    }
+}
+
 pub async fn run_dda_analysis(
     State(state): State<Arc<ApiState>>,
     Json(request): Json<DDARequest>,
 ) -> Result<Json<DDAResult>, StatusCode> {
-    let analysis_id = Uuid::new_v4().to_string();
 
     // Check file type - DDA binary only supports EDF files currently
     let file_path = PathBuf::from(&request.file_path);
@@ -776,100 +847,22 @@ pub async fn run_dda_analysis(
     }
 
     log::info!("Starting DDA analysis for file: {}", request.file_path);
-    log::info!("Channel indices: {:?}", request.channels);
-    log::info!("Time range: {:?}", request.time_range);
-    log::info!("Window parameters: {:?}", request.window_parameters);
-    log::info!("Scale parameters: {:?}", request.scale_parameters);
-    log::info!("Variants: {:?}", request.algorithm_selection.enabled_variants);
 
-    // Get DDA binary path - check state first (for Tauri-resolved paths), then try multiple locations
-    let dda_binary_path = if let Some(ref resolved_path) = state.dda_binary_path {
-        // Use Tauri-resolved path if available (best for bundled apps)
-        resolved_path.to_string_lossy().to_string()
-    } else if let Ok(env_path) = std::env::var("DDA_BINARY_PATH") {
-        // Use environment variable if set
-        env_path
-    } else {
-        // Fallback: Try to find the binary in common locations (for development or non-Tauri contexts)
-        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        log::debug!("CARGO_MANIFEST_DIR: {:?}", manifest_dir);
-
-        // For development: go up from packages/ddalab-tauri/src-tauri to DDALAB root
-        let repo_root = manifest_dir.parent().unwrap().parent().unwrap().parent().unwrap();
-        log::debug!("Computed repo root: {:?}", repo_root);
-
-        // Binary name with platform-specific extension
-        let binary_name = if cfg!(target_os = "windows") {
-            "run_DDA_ASCII.exe"
-        } else {
-            "run_DDA_ASCII"
-        };
-
-        let possible_paths = vec![
-            // Development: project bin directory
-            repo_root.join("bin").join(binary_name),
-            // Bundled with app (Tauri resources) - Tauri preserves directory structure
-            PathBuf::from("./bin").join(binary_name),
-            // macOS app bundle - resources go in Contents/Resources/
-            PathBuf::from("../Resources/bin").join(binary_name),
-            PathBuf::from("../Resources").join(binary_name),  // In case directory structure is flattened
-            // Windows - resources next to exe
-            PathBuf::from(".").join(binary_name),
-            // Linux/Windows relative
-            PathBuf::from("./resources/bin").join(binary_name),
-            PathBuf::from("./resources").join(binary_name),  // Flattened fallback
-            // Absolute fallback for Docker
-            PathBuf::from("/app/bin").join(binary_name),
-        ];
-
-        let paths_for_error: Vec<_> = possible_paths.iter().cloned().collect();
-        let found_path = possible_paths.into_iter()
-            .find(|p| {
-                let exists = p.exists();
-                log::debug!("Checking path: {:?} - exists: {}", p, exists);
-                exists
-            })
-            .ok_or_else(|| {
-                log::error!("DDA binary not found in any expected location. Tried:");
-                for path in &paths_for_error {
-                    log::error!("  - {:?}", path);
-                }
-                log::error!("Set DDA_BINARY_PATH environment variable to specify location");
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-
-        found_path.to_string_lossy().to_string()
-    };
-
-    log::info!("Using DDA binary at: {}", dda_binary_path);
-    let start_time = std::time::Instant::now();
-    eprintln!("\n⏱️  [DDA TIMING] ========== Starting DDA analysis ==========");
-    eprintln!("⏱️  [DDA TIMING] File: {}", request.file_path);
-
-    // Verify the binary exists
-    if !PathBuf::from(&dda_binary_path).exists() {
-        let error_msg = format!("DDA binary not found at: {}", dda_binary_path);
-        log::error!("{}", error_msg);
-        eprintln!("❌ ERROR: {}", error_msg);
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    }
+    // Get DDA binary path
+    let dda_binary_path = get_dda_binary_path(&state)?;
+    log::info!("Using DDA binary at: {}", dda_binary_path.display());
 
     // Read EDF file to get metadata in a blocking task
-    let file_path = PathBuf::from(&request.file_path);
     if !file_path.exists() {
-        let error_msg = format!("Input file not found: {}", request.file_path);
-        log::error!("{}", error_msg);
-        eprintln!("❌ ERROR: {}", error_msg);
+        log::error!("Input file not found: {}", request.file_path);
         return Err(StatusCode::NOT_FOUND);
     }
 
+    let start_time = std::time::Instant::now();
     log::info!("⏱️  [TIMING] Starting EDF metadata read...");
-    let metadata_start = std::time::Instant::now();
     let file_path_for_edf = file_path.clone();
     let end_bound = tokio::task::spawn_blocking(move || -> Result<u64, String> {
         let edf = EDFReader::new(&file_path_for_edf)?;
-
-        // Calculate bounds (total samples with safety margin)
         let samples_per_record = if !edf.signal_headers.is_empty() {
             edf.signal_headers[0].num_samples_per_record as u64
         } else {
@@ -889,155 +882,26 @@ pub async fn run_dda_analysis(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    log::info!("⏱️  [TIMING] EDF metadata read completed in {:.2}s", metadata_start.elapsed().as_secs_f64());
-    eprintln!("⏱️  [DDA TIMING] EDF metadata read: {:.2}s", metadata_start.elapsed().as_secs_f64());
+    log::info!("⏱️  [TIMING] EDF metadata read completed in {:.2}s", start_time.elapsed().as_secs_f64());
 
-    // Create temporary output file
-    let temp_dir = std::env::temp_dir();
-    let output_file = temp_dir.join(format!("dda_output_{}.txt", analysis_id));
+    // Use dda-rs to run analysis
+    let runner = DDARunner::new(&dda_binary_path)
+        .map_err(|e| {
+            log::error!("Failed to create DDA runner: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    // Use channel indices from request (convert to 1-based for DDA binary)
-    let channel_indices: Vec<String> = if let Some(ref channels) = request.channels {
-        channels.iter().map(|&idx| (idx + 1).to_string()).collect()
-    } else {
-        vec!["1".to_string()]  // Default to first channel
-    };
+    let dda_request = convert_to_dda_request(&request);
 
-    // Build DDA command - APE binary needs to run through sh on Unix systems (macOS/Linux)
-    // APE (Actually Portable Executable) binaries have a shell script header for portability
-    let mut command = if cfg!(target_os = "windows") {
-        // Windows: run .exe directly
-        tokio::process::Command::new(&dda_binary_path)
-    } else {
-        // Unix (macOS/Linux): run through sh to handle APE polyglot format
-        let mut cmd = tokio::process::Command::new("sh");
-        cmd.arg(&dda_binary_path);
-        cmd
-    };
+    log::info!("⏱️  [TIMING] Running DDA analysis via dda-rs...");
+    let dda_result = runner.run(&dda_request, end_bound).await
+        .map_err(|e| {
+            log::error!("DDA analysis failed: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    // Add DDA parameters
-    command
-        .arg("-DATA_FN").arg(&request.file_path)
-        .arg("-OUT_FN").arg(output_file.to_str().unwrap())
-        .arg("-EDF")
-        .arg("-CH_list");
-
-    // Add channel indices as separate arguments (not comma-separated)
-    for ch in &channel_indices {
-        command.arg(ch);
-    }
-
-    // Add base parameters (matching dda-py BASE_PARAMS)
-    command
-        .arg("-dm").arg("4")
-        .arg("-order").arg("4")
-        .arg("-nr_tau").arg("2")
-        .arg("-WL").arg(request.window_parameters.window_length.to_string())
-        .arg("-WS").arg(request.window_parameters.window_step.to_string())
-        .arg("-SELECT").arg("1").arg("0").arg("0").arg("0")
-        .arg("-MODEL").arg("1").arg("2").arg("10");
-
-    // Generate delay values from scale parameters
-    let delay_min = request.scale_parameters.scale_min as i32;
-    let delay_max = request.scale_parameters.scale_max as i32;
-    command.arg("-TAU");
-    for delay in delay_min..=delay_max {
-        command.arg(delay.to_string());
-    }
-
-    // Add time bounds
-    command.arg("-StartEnd").arg("0").arg(end_bound.to_string());
-
-    log::info!("Executing DDA command: {:?}", command);
-
-    // Execute DDA binary asynchronously
-    log::info!("⏱️  [TIMING] Starting DDA binary execution...");
-    let binary_start = std::time::Instant::now();
-    let output = command.output().await.map_err(|e| {
-        log::error!("Failed to execute DDA binary: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    log::info!("⏱️  [TIMING] DDA binary execution completed in {:.2}s", binary_start.elapsed().as_secs_f64());
-    eprintln!("⏱️  [DDA TIMING] DDA binary execution: {:.2}s", binary_start.elapsed().as_secs_f64());
-
-    if !output.status.success() {
-        let stdout_str = String::from_utf8_lossy(&output.stdout);
-        let stderr_str = String::from_utf8_lossy(&output.stderr);
-
-        log::error!("❌ DDA binary failed with status: {}", output.status);
-        log::error!("📤 Binary stdout: {}", stdout_str);
-        log::error!("📤 Binary stderr: {}", stderr_str);
-
-        eprintln!("\n❌ ========== DDA BINARY FAILURE ==========");
-        eprintln!("Status: {}", output.status);
-        eprintln!("Command: {:?}", command);
-        eprintln!("Binary path: {}", dda_binary_path);
-        eprintln!("Binary exists: {}", PathBuf::from(&dda_binary_path).exists());
-        eprintln!("stdout: {}", stdout_str);
-        eprintln!("stderr: {}", stderr_str);
-        eprintln!("==========================================\n");
-
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    }
-
-    log::info!("DDA binary execution completed successfully");
-
-    // DDA binary creates output file with _ST suffix
-    // Try both possible naming conventions:
-    // 1. filename_ST (expected)
-    // 2. filename.ext_ST (actual format sometimes used)
-    let output_file_stem = output_file.file_stem()
-        .and_then(|s| s.to_str())
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    let output_dir = output_file.parent().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let st_file_path = output_dir.join(format!("{}_ST", output_file_stem));
-    let st_file_with_ext = output_file.to_str()
-        .map(|s| PathBuf::from(format!("{}_ST", s)))
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let actual_output_file = if st_file_path.exists() {
-        st_file_path
-    } else if st_file_with_ext.exists() {
-        st_file_with_ext
-    } else {
-        log::error!("DDA output file not found. Tried:");
-        log::error!("  - {:?}", st_file_path);
-        log::error!("  - {:?}", st_file_with_ext);
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    };
-
-    log::info!("Reading DDA output from: {:?}", actual_output_file);
-
-    // Read and parse DDA output
-    log::info!("⏱️  [TIMING] Reading DDA output file...");
-    let read_start = std::time::Instant::now();
-    let output_content = tokio::fs::read_to_string(&actual_output_file).await.map_err(|e| {
-        log::error!("Failed to read DDA output file: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    log::info!("⏱️  [TIMING] File read completed in {:.2}s", read_start.elapsed().as_secs_f64());
-    eprintln!("⏱️  [DDA TIMING] Output file read: {:.2}s", read_start.elapsed().as_secs_f64());
-    log::info!("DDA output file saved at: {:?}", actual_output_file);
-    log::info!("Output file size: {} bytes", output_content.len());
-
-    // Parse the output file to extract Q matrix [channels × timepoints]
-    log::info!("⏱️  [TIMING] Parsing DDA output...");
-    let parse_start = std::time::Instant::now();
-    let q_matrix = parse_dda_output(&output_content);
-    log::info!("⏱️  [TIMING] Parsing completed in {:.2}s", parse_start.elapsed().as_secs_f64());
-    eprintln!("⏱️  [DDA TIMING] Output parsing: {:.2}s", parse_start.elapsed().as_secs_f64());
-
-    // Clean up temporary files (temporarily disabled for debugging)
-    // let _ = tokio::fs::remove_file(&output_file).await;
-    // let _ = tokio::fs::remove_file(&actual_output_file).await;
-
-    if q_matrix.is_empty() {
-        log::error!("Failed to parse DDA output - no data extracted");
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    }
+    let q_matrix = dda_result.q_matrix.clone();
+    let analysis_id = dda_result.id.clone();
 
     let num_channels = q_matrix.len();
     let num_timepoints = q_matrix[0].len();
@@ -1183,118 +1047,6 @@ pub async fn run_dda_analysis(
 
     Ok(Json(result))
 }
-
-// Helper function to parse DDA output and return as 2D matrix [channels × timepoints]
-// Based on dda-py _process_output: skip first 2 columns, take every 4th column, then transpose
-fn parse_dda_output(content: &str) -> Vec<Vec<f64>> {
-    let mut matrix: Vec<Vec<f64>> = Vec::new();
-
-    // Parse the file into a matrix (rows = time windows, columns = various outputs)
-    for line in content.lines() {
-        // Skip comments and empty lines
-        if line.trim().is_empty() || line.trim().starts_with('#') {
-            continue;
-        }
-
-        // Parse all values in the line
-        let values: Vec<f64> = line
-            .split_whitespace()
-            .filter_map(|s| s.parse::<f64>().ok())
-            .filter(|v| v.is_finite())
-            .collect();
-
-        if !values.is_empty() {
-            matrix.push(values);
-        }
-    }
-
-    if matrix.is_empty() {
-        log::warn!("DDA output file contained no valid data");
-        return Vec::new();
-    }
-
-    log::info!("Loaded DDA output shape: {} rows × {} columns", matrix.len(), matrix[0].len());
-
-    // Log first row for debugging
-    if !matrix.is_empty() && matrix[0].len() >= 10 {
-        log::info!("First row sample (first 10 values): {:?}", &matrix[0][0..10]);
-    }
-
-    // Process according to DDA format: skip first 2 columns, then take every 4th column
-    // Python does: Q[:, 2:] then Q[:, 1::4]
-    // This means: skip first 2, then from remaining take indices 1, 5, 9... = original columns 3, 7, 11...
-    if matrix[0].len() > 2 {
-        // First, skip first 2 columns to match Python's Q[:, 2:]
-        let mut after_skip: Vec<Vec<f64>> = Vec::new();
-        for row in &matrix {
-            let skipped: Vec<f64> = row.iter().skip(2).copied().collect();
-            after_skip.push(skipped);
-        }
-
-        log::info!("After skipping first 2 columns: {} rows × {} columns", after_skip.len(), after_skip[0].len());
-
-        // Log some values from after_skip to see what we have
-        if !after_skip.is_empty() && after_skip[0].len() >= 10 {
-            log::info!("After skip, first row (first 10 values): {:?}", &after_skip[0][0..10]);
-        }
-
-        // Now take every 4th column starting from index 0 (0-indexed from the skipped array)
-        // Try index 0 first: [:, 0::4] which takes indices 0, 4, 8, 12...
-        let mut extracted: Vec<Vec<f64>> = Vec::new();
-
-        for row in &after_skip {
-            let mut row_values = Vec::new();
-            let mut col_idx = 0; // Start at column index 0 of the already-skipped array
-            while col_idx < row.len() {
-                row_values.push(row[col_idx]);
-                col_idx += 4;
-            }
-            extracted.push(row_values);
-        }
-
-        // Log extracted sample
-        if !extracted.is_empty() && extracted[0].len() >= 5 {
-            log::info!("First extracted row sample (first 5 values): {:?}", &extracted[0][0..5]);
-        }
-
-        if extracted.is_empty() || extracted[0].is_empty() {
-            log::warn!("No data after column extraction");
-            return Vec::new();
-        }
-
-        let num_rows = extracted.len();
-        let num_cols = extracted[0].len();
-
-        log::info!("Extracted matrix shape: {} rows × {} columns (time windows × delays/scales)", num_rows, num_cols);
-
-        // Transpose: convert from [time_windows × scales] to [scales × time_windows]
-        // This gives us [channel/scale][timepoint] format expected by frontend
-        let mut transposed: Vec<Vec<f64>> = vec![Vec::new(); num_cols];
-
-        for (row_idx, row) in extracted.iter().enumerate() {
-            if row.len() != num_cols {
-                log::warn!("Row {} has {} columns, expected {}. Skipping this row.", row_idx, row.len(), num_cols);
-                continue;
-            }
-            for (col_idx, &value) in row.iter().enumerate() {
-                transposed[col_idx].push(value);
-            }
-        }
-
-        if transposed.is_empty() || transposed[0].is_empty() {
-            log::error!("Transpose resulted in empty data");
-            return Vec::new();
-        }
-
-        log::info!("Transposed to: {} channels × {} timepoints", transposed.len(), transposed[0].len());
-
-        transposed
-    } else {
-        // If we have <= 2 columns, return as single channel
-        vec![matrix.into_iter().flatten().collect()]
-    }
-}
-
 // Helper function to calculate mean
 fn calculate_mean(values: &[f64]) -> f64 {
     if values.is_empty() {
