@@ -39,7 +39,7 @@ interface TimeSeriesPlotProps {
 }
 
 export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
-  const { fileManager, plot, updatePlotState, setCurrentChunk } = useAppStore()
+  const { fileManager, plot, updatePlotState, setCurrentChunk, setSelectedChannels: persistSelectedChannels } = useAppStore()
   const { createWindow, updateWindowData, broadcastToType } = usePopoutWindows()
 
   // Annotation support for time series
@@ -75,21 +75,20 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
 
   // Display controls
   const [timeWindow, setTimeWindow] = useState(10) // seconds - default 10s chunks
-  const [amplitudeScale, setAmplitudeScale] = useState(100) // microvolts
-  const [selectedChannels, setSelectedChannels] = useState<string[]>([])
   const [channelOffset, setChannelOffset] = useState(50) // Default spacing between channels
 
+  // Use selectedChannels from store instead of local state
+  const selectedChannels = fileManager.selectedChannels
+
   // Initialize refs with default values after state is declared
-  const amplitudeScaleRef = useRef(amplitudeScale)
   const channelOffsetRef = useRef(channelOffset)
   const timeWindowRef = useRef(timeWindow)
 
   // Update refs when values change
   useEffect(() => {
-    amplitudeScaleRef.current = amplitudeScale
     channelOffsetRef.current = channelOffset
     timeWindowRef.current = timeWindow
-  }, [amplitudeScale, channelOffset, timeWindow])
+  }, [channelOffset, timeWindow])
 
   useEffect(() => {
     console.log('File selection changed:', {
@@ -98,20 +97,27 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       duration: fileManager.selectedFile?.duration,
       sampleRate: fileManager.selectedFile?.sample_rate,
       channelsCount: fileManager.selectedFile?.channels?.length,
-      firstChannels: fileManager.selectedFile?.channels?.slice(0, 5)
+      firstChannels: fileManager.selectedFile?.channels?.slice(0, 5),
+      persistedChannels: fileManager.selectedChannels
     })
 
     if (fileManager.selectedFile && fileManager.selectedFile.channels.length > 0) {
       setDuration(fileManager.selectedFile.duration || 0)
-      // Auto-select first 4 channels for better performance and visibility
-      const defaultChannels = fileManager.selectedFile.channels.slice(0, Math.min(4, fileManager.selectedFile.channels.length))
-      console.log('Auto-selecting channels:', defaultChannels, 'from total:', fileManager.selectedFile.channels.length)
-      setSelectedChannels(defaultChannels)
+
+      // Only auto-select if no channels are already selected
+      if (fileManager.selectedChannels.length === 0) {
+        // Auto-select first 4 channels for better performance and visibility
+        const defaultChannels = fileManager.selectedFile.channels.slice(0, Math.min(4, fileManager.selectedFile.channels.length))
+        console.log('Auto-selecting channels:', defaultChannels, 'from total:', fileManager.selectedFile.channels.length)
+        persistSelectedChannels(defaultChannels)
+      } else {
+        console.log('Using persisted channels:', fileManager.selectedChannels)
+      }
     } else {
       console.log('No valid file selected or no channels available')
-      setSelectedChannels([])
+      persistSelectedChannels([])
     }
-  }, [fileManager.selectedFile])
+  }, [fileManager.selectedFile, persistSelectedChannels])
 
   const renderPlot = useCallback((chunkData: ChunkData) => {
 
@@ -158,14 +164,10 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           return 0
         }
 
-        // Apply amplitude scaling with proper normalization
-        // EEG values are typically in microvolts, scale them appropriately
-        let scaled = value * (amplitudeScaleRef.current / 1000) // More conservative scaling
-
         // Add channel offset for stacking
-        scaled = scaled + (index * channelOffsetRef.current)
+        const offsetValue = value + (index * channelOffsetRef.current)
 
-        return isNaN(scaled) ? 0 : scaled
+        return isNaN(offsetValue) ? 0 : offsetValue
       })
 
       console.log(`Channel ${index} (${chunkData.channels[index]}) processed:`, {
@@ -535,11 +537,10 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   }, [loadChunk, loadChunkTimeout])
 
   const handleChannelToggle = (channel: string, checked: boolean) => {
-    setSelectedChannels(prev =>
-      checked
-        ? [...prev, channel]
-        : prev.filter(ch => ch !== channel)
-    )
+    const newChannels = checked
+      ? [...selectedChannels, channel]
+      : selectedChannels.filter(ch => ch !== channel)
+    persistSelectedChannels(newChannels)
   }
 
   const handlePopOut = useCallback(async () => {
@@ -754,18 +755,6 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                   <SelectItem value="120">120s</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-
-            <div>
-              <Label className="text-sm">Amplitude (µV)</Label>
-              <Input
-                type="number"
-                value={amplitudeScale}
-                onChange={(e) => setAmplitudeScale(parseInt(e.target.value) || 100)}
-                min="10"
-                max="1000"
-                step="10"
-              />
             </div>
 
             <div>
