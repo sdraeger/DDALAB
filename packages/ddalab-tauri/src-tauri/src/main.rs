@@ -12,6 +12,7 @@ mod app_setup;
 mod utils;
 mod embedded_api;
 mod edf;
+mod text_reader;
 mod sync;
 
 // Import required modules
