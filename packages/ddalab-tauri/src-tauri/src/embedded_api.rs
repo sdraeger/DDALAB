@@ -17,6 +17,31 @@ use parking_lot::RwLock;
 use crate::edf::EDFReader;
 use crate::text_reader::TextFileReader;
 
+// File type detection
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileType {
+    CSV,
+    ASCII,
+    EDF,
+}
+
+impl FileType {
+    fn from_extension(ext: &str) -> Self {
+        match ext.to_lowercase().as_str() {
+            "csv" => FileType::CSV,
+            "ascii" | "txt" => FileType::ASCII,
+            _ => FileType::EDF, // Default to EDF for .edf and unknown extensions
+        }
+    }
+
+    fn from_path(path: &std::path::Path) -> Self {
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|ext| Self::from_extension(ext))
+            .unwrap_or(FileType::EDF)
+    }
+}
+
 // API Models
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EDFFileInfo {
@@ -447,10 +472,12 @@ pub async fn list_files(
                             "is_directory": true
                         }));
                     } else if entry_path.is_file() {
-                        // Check if it's a supported data file (EDF, CSV, ASCII, TXT)
+                        // Check if it's a supported data file
                         if let Some(extension) = entry_path.extension() {
-                            let ext = extension.to_str().unwrap_or("").to_lowercase();
-                            if ext == "edf" || ext == "csv" || ext == "ascii" || ext == "txt" {
+                            let ext = extension.to_str().unwrap_or("");
+                            // Accept all file types that we can read
+                            let file_type = FileType::from_extension(ext);
+                            if matches!(file_type, FileType::EDF | FileType::CSV | FileType::ASCII) {
                                 log::debug!("Found data file: {:?}", entry_path);
 
                                 // Get file metadata
@@ -551,7 +578,12 @@ pub async fn get_file_chunk(
         }
     }
 
-    // Read actual EDF data in a blocking task to avoid blocking the async runtime
+    // Parse channels parameter if provided
+    let channels: Option<Vec<String>> = params
+        .get("channels")
+        .and_then(|s| serde_json::from_str(s).ok());
+
+    // Detect file type and read data in a blocking task
     let file_path_clone = file_path.clone();
     let chunk = tokio::task::spawn_blocking(move || -> Result<ChunkData, String> {
         let path = std::path::Path::new(&file_path_clone);
@@ -559,55 +591,20 @@ pub async fn get_file_chunk(
             return Err(format!("File not found: {}", file_path_clone));
         }
 
-        // Use our custom EDF reader
-        let mut edf = EDFReader::new(path)?;
-
-        // Get channel information
-        let channel_labels: Vec<String> = edf.signal_headers
-            .iter()
-            .map(|sh| sh.label.trim().to_string())
-            .collect();
-
-        let num_channels = channel_labels.len();
-        if num_channels == 0 {
-            return Err(format!("No channels found in EDF file '{}'", file_path_clone));
+        // Detect file type and route to appropriate reader
+        match FileType::from_path(&path) {
+            FileType::CSV => {
+                let reader = TextFileReader::from_csv(&path)?;
+                read_text_file_chunk(reader, &file_path_clone, start_time, duration, false, channels)
+            }
+            FileType::ASCII => {
+                let reader = TextFileReader::from_ascii(&path)?;
+                read_text_file_chunk(reader, &file_path_clone, start_time, duration, false, channels)
+            }
+            FileType::EDF => {
+                read_edf_file_chunk(&path, &file_path_clone, start_time, duration, false, channels)
+            }
         }
-
-        // Get sampling rate (use first channel)
-        let sample_rate = edf.signal_headers[0].sample_frequency(edf.header.duration_of_data_record);
-
-        log::info!(
-            "Reading chunk from '{}': start_time={:.2}s, duration={:.2}s",
-            file_path_clone, start_time, duration
-        );
-
-        // Read data window for each channel
-        let mut data: Vec<Vec<f64>> = Vec::new();
-        for signal_idx in 0..num_channels {
-            let signal_data = edf.read_signal_window(signal_idx, start_time, duration)?;
-            data.push(signal_data);
-        }
-
-        let chunk_start_sample = (start_time * sample_rate) as usize;
-        let chunk_size = data.get(0).map(|v| v.len()).unwrap_or(0);
-
-        // Calculate total samples
-        let samples_per_record = edf.signal_headers[0].num_samples_per_record as u64;
-        let total_samples_per_channel = edf.header.num_data_records as u64 * samples_per_record;
-
-        log::info!(
-            "Read {} channels, {} samples per channel",
-            data.len(), chunk_size
-        );
-
-        Ok(ChunkData {
-            data,
-            channel_labels,
-            sampling_frequency: sample_rate,
-            chunk_size,
-            chunk_start: chunk_start_sample,
-            total_samples: Some(total_samples_per_channel),
-        })
     })
     .await
     .map_err(|e| {
@@ -615,7 +612,7 @@ pub async fn get_file_chunk(
         StatusCode::INTERNAL_SERVER_ERROR
     })?
     .map_err(|e| {
-        log::error!("EDF reading error: {}", e);
+        log::error!("File reading error: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -626,6 +623,98 @@ pub async fn get_file_chunk(
     }
 
     Ok(Json(chunk))
+}
+
+fn read_edf_file_chunk(
+    path: &std::path::Path,
+    file_path_clone: &str,
+    start_time: f64,
+    duration: f64,
+    needs_sample_rate: bool,
+    channels: Option<Vec<String>>,
+) -> Result<ChunkData, String> {
+    // Use our custom EDF reader
+    let mut edf = EDFReader::new(path)?;
+
+    // Get all channel information
+    let all_channel_labels: Vec<String> = edf.signal_headers
+        .iter()
+        .map(|sh| sh.label.trim().to_string())
+        .collect();
+
+    if all_channel_labels.is_empty() {
+        return Err(format!("No channels found in EDF file '{}'", file_path_clone));
+    }
+
+    // Determine which channels to read
+    let (channels_to_read, channel_labels): (Vec<usize>, Vec<String>) = if let Some(ref selected) = channels {
+        // Filter to only selected channels
+        let mut indices = Vec::new();
+        let mut labels = Vec::new();
+
+        for channel_name in selected {
+            if let Some(idx) = all_channel_labels.iter().position(|label| label == channel_name) {
+                indices.push(idx);
+                labels.push(channel_name.clone());
+            } else {
+                log::warn!("Channel '{}' not found in file", channel_name);
+            }
+        }
+
+        if indices.is_empty() {
+            return Err(format!("None of the selected channels found in file"));
+        }
+
+        (indices, labels)
+    } else {
+        // Read all channels
+        ((0..all_channel_labels.len()).collect(), all_channel_labels.clone())
+    };
+
+    // Get sampling rate (use first channel to be read)
+    let sample_rate = edf.signal_headers[channels_to_read[0]].sample_frequency(edf.header.duration_of_data_record);
+
+    // Convert sample-based parameters to time-based if needed
+    let (actual_start_time, actual_duration) = if needs_sample_rate {
+        let start_samples = start_time as usize;
+        let num_samples = duration as usize;
+        (start_samples as f64 / sample_rate, num_samples as f64 / sample_rate)
+    } else {
+        (start_time, duration)
+    };
+
+    log::info!(
+        "Reading chunk from '{}': start_time={:.2}s, duration={:.2}s, channels={:?}",
+        file_path_clone, actual_start_time, actual_duration, channel_labels
+    );
+
+    // Read data window for selected channels
+    let mut data: Vec<Vec<f64>> = Vec::new();
+    for &signal_idx in &channels_to_read {
+        let signal_data = edf.read_signal_window(signal_idx, actual_start_time, actual_duration)?;
+        data.push(signal_data);
+    }
+
+    let chunk_start_sample = (actual_start_time * sample_rate) as usize;
+    let chunk_size = data.get(0).map(|v| v.len()).unwrap_or(0);
+
+    // Calculate total samples
+    let samples_per_record = edf.signal_headers[channels_to_read[0]].num_samples_per_record as u64;
+    let total_samples_per_channel = edf.header.num_data_records as u64 * samples_per_record;
+
+    log::info!(
+        "Read {} channels, {} samples per channel",
+        data.len(), chunk_size
+    );
+
+    Ok(ChunkData {
+        data,
+        channel_labels,
+        sampling_frequency: sample_rate,
+        chunk_size,
+        chunk_start: chunk_start_sample,
+        total_samples: Some(total_samples_per_channel),
+    })
 }
 
 // DDA Analysis endpoints
@@ -677,6 +766,14 @@ pub async fn run_dda_analysis(
     Json(request): Json<DDARequest>,
 ) -> Result<Json<DDAResult>, StatusCode> {
     let analysis_id = Uuid::new_v4().to_string();
+
+    // Check file type - DDA binary only supports EDF files currently
+    let file_path = PathBuf::from(&request.file_path);
+    let file_type = FileType::from_path(&file_path);
+    if file_type != FileType::EDF {
+        log::error!("DDA analysis not supported for {:?} files. The run_DDA_ASCII binary only processes EDF format.", file_type);
+        return Err(StatusCode::BAD_REQUEST);
+    }
 
     log::info!("Starting DDA analysis for file: {}", request.file_path);
     log::info!("Channel indices: {:?}", request.channels);
@@ -1364,12 +1461,9 @@ pub async fn get_edf_data(
             return Err(format!("File not found: {}", file_path_clone));
         }
 
-        // Detect file type based on extension
-        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-
-        match extension.to_lowercase().as_str() {
-            "csv" => {
-                // Read CSV file
+        // Detect file type and route to appropriate reader
+        match FileType::from_path(&path) {
+            FileType::CSV => {
                 log::info!("Reading CSV file: {}", file_path_clone);
                 let reader = TextFileReader::from_csv(path).map_err(|e| {
                     log::error!("Failed to parse CSV file '{}': {}", file_path_clone, e);
@@ -1378,8 +1472,7 @@ pub async fn get_edf_data(
                 log::info!("CSV file loaded: {} channels, {} samples", reader.info.num_channels, reader.info.num_samples);
                 read_text_file_chunk(reader, &file_path_clone, start_time, duration, needs_sample_rate, selected_channels)
             }
-            "ascii" | "txt" => {
-                // Read ASCII file
+            FileType::ASCII => {
                 log::info!("Reading ASCII file: {}", file_path_clone);
                 let reader = TextFileReader::from_ascii(path).map_err(|e| {
                     log::error!("Failed to parse ASCII file '{}': {}", file_path_clone, e);
@@ -1388,8 +1481,7 @@ pub async fn get_edf_data(
                 log::info!("ASCII file loaded: {} channels, {} samples", reader.info.num_channels, reader.info.num_samples);
                 read_text_file_chunk(reader, &file_path_clone, start_time, duration, needs_sample_rate, selected_channels)
             }
-            _ => {
-                // Read EDF file
+            FileType::EDF => {
                 read_edf_file_chunk(path, &file_path_clone, start_time, duration, needs_sample_rate, selected_channels)
             }
         }
@@ -1441,98 +1533,6 @@ pub async fn get_analysis_status(
 }
 
 // Helper functions
-fn read_edf_file_chunk(
-    path: &std::path::Path,
-    file_path_clone: &str,
-    start_time: f64,
-    duration: f64,
-    needs_sample_rate: bool,
-    selected_channels: Option<Vec<String>>,
-) -> Result<ChunkData, String> {
-    // Use our custom EDF reader
-    let mut edf = EDFReader::new(path)?;
-
-    // Get all channel labels
-    let all_channel_labels: Vec<String> = edf.signal_headers
-        .iter()
-        .map(|sh| sh.label.trim().to_string())
-        .collect();
-
-    if all_channel_labels.is_empty() {
-        return Err(format!("No channels found in EDF file '{}'", file_path_clone));
-    }
-
-    // Determine which channels to read
-    let (channels_to_read, channel_labels): (Vec<usize>, Vec<String>) = if let Some(ref selected) = selected_channels {
-        // Filter to only selected channels
-        let mut indices = Vec::new();
-        let mut labels = Vec::new();
-
-        for channel_name in selected {
-            if let Some(idx) = all_channel_labels.iter().position(|label| label == channel_name) {
-                indices.push(idx);
-                labels.push(channel_name.clone());
-            } else {
-                log::warn!("Channel '{}' not found in file", channel_name);
-            }
-        }
-
-        if indices.is_empty() {
-            return Err(format!("None of the selected channels found in file"));
-        }
-
-        (indices, labels)
-    } else {
-        // Read all channels
-        ((0..all_channel_labels.len()).collect(), all_channel_labels)
-    };
-
-    // Get sampling rate (use first channel to be read)
-    let sample_rate = edf.signal_headers[channels_to_read[0]].sample_frequency(edf.header.duration_of_data_record);
-
-    // Convert sample-based parameters to time-based
-    let (actual_start_time, actual_duration) = if needs_sample_rate {
-        let start_samples = start_time as usize;
-        let num_samples = duration as usize;
-        (start_samples as f64 / sample_rate, num_samples as f64 / sample_rate)
-    } else {
-        (start_time, duration)
-    };
-
-    log::info!(
-        "Reading chunk from '{}': start_time={:.2}s, duration={:.2}s, channels={:?}",
-        file_path_clone, actual_start_time, actual_duration, channel_labels
-    );
-
-    // Read data window for selected channels only
-    let mut data: Vec<Vec<f64>> = Vec::new();
-    for &signal_idx in &channels_to_read {
-        let signal_data = edf.read_signal_window(signal_idx, actual_start_time, actual_duration)?;
-        data.push(signal_data);
-    }
-
-    let chunk_start_sample = (actual_start_time * sample_rate) as usize;
-    let chunk_size = data.get(0).map(|v| v.len()).unwrap_or(0);
-
-    // Calculate total samples
-    let samples_per_record = edf.signal_headers[channels_to_read[0]].num_samples_per_record as u64;
-    let total_samples_per_channel = edf.header.num_data_records as u64 * samples_per_record;
-
-    log::info!(
-        "Read {} channels, {} samples per channel",
-        data.len(), chunk_size
-    );
-
-    Ok(ChunkData {
-        data,
-        channel_labels,
-        sampling_frequency: sample_rate,
-        chunk_size,
-        chunk_start: chunk_start_sample,
-        total_samples: Some(total_samples_per_channel),
-    })
-}
-
 fn read_text_file_chunk(
     reader: TextFileReader,
     file_path_clone: &str,
@@ -1640,12 +1640,9 @@ async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
             })
             .unwrap_or_else(|| last_modified.clone());
 
-        // Detect file type based on extension
-        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-
-        match extension.to_lowercase().as_str() {
-            "csv" => {
-                // Read CSV file
+        // Detect file type and route to appropriate reader
+        match FileType::from_path(&path) {
+            FileType::CSV => {
                 match TextFileReader::from_csv(&path) {
                     Ok(reader) => {
                         let channels = reader.info.channel_labels.clone();
@@ -1678,8 +1675,7 @@ async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
                     }
                 }
             }
-            "ascii" | "txt" => {
-                // Read ASCII file (whitespace-separated)
+            FileType::ASCII => {
                 match TextFileReader::from_ascii(&path) {
                     Ok(reader) => {
                         let channels = reader.info.channel_labels.clone();
@@ -1712,8 +1708,7 @@ async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
                     }
                 }
             }
-            _ => {
-                // Default to EDF reader for .edf files and unknown extensions
+            FileType::EDF => {
                 match EDFReader::new(&path) {
                     Ok(edf) => {
                         let header = &edf.header;

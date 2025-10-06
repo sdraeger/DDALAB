@@ -77,7 +77,7 @@ impl TextFileReader {
             // Generate default channel labels
             let num_channels = first_row.len();
             let labels: Vec<String> = (0..num_channels)
-                .map(|i| format!("Channel_{}", i + 1))
+                .map(|i| format!("Channel {}", i + 1))
                 .collect();
             (labels, 0)
         };
@@ -230,7 +230,7 @@ mod tests {
         assert_eq!(reader.info.num_channels, 3);
         assert_eq!(reader.info.num_samples, 3);
         assert!(!reader.info.has_header);
-        assert_eq!(reader.info.channel_labels, vec!["Channel_1", "Channel_2", "Channel_3"]);
+        assert_eq!(reader.info.channel_labels, vec!["Channel 1", "Channel 2", "Channel 3"]);
     }
 
     #[test]
