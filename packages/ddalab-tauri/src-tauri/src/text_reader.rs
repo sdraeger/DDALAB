@@ -44,7 +44,7 @@ impl TextFileReader {
             .map_err(|e| format!("Failed to open file: {}", e))?;
 
         let reader = BufReader::new(file);
-        let mut lines: Vec<String> = reader.lines()
+        let lines: Vec<String> = reader.lines()
             .collect::<Result<_, _>>()
             .map_err(|e| format!("Failed to read file: {}", e))?;
 
@@ -133,7 +133,7 @@ impl TextFileReader {
 
     /// Parse a line into values based on delimiter
     fn parse_line(line: &str, delimiter: Option<char>) -> Result<Vec<String>, String> {
-        let values = match delimiter {
+        let values: Vec<String> = match delimiter {
             Some(delim) => {
                 // Split by specific delimiter (e.g., comma for CSV)
                 line.split(delim)
@@ -171,7 +171,6 @@ impl TextFileReader {
         }
 
         let end_sample = (start_sample + num_samples).min(self.info.num_samples);
-        let actual_samples = end_sample - start_sample;
 
         let mut window_data = Vec::new();
 
