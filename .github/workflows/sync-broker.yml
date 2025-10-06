@@ -1,0 +1,141 @@
+name: Build and Push Sync Broker
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Broker version (e.g., 1.0.0)'
+        required: true
+        type: string
+      tag-latest:
+        description: 'Also tag as latest'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  DOCKER_REGISTRY: docker.io
+  DOCKER_IMAGE: sdraeger1/ddalab-sync-broker
+  PLATFORMS: linux/amd64,linux/arm64
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=host
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Prepare tags
+        id: tags
+        run: |
+          TAGS="${{ env.DOCKER_IMAGE }}:v${{ github.event.inputs.version }}"
+          if [ "${{ github.event.inputs.tag-latest }}" = "true" ]; then
+            TAGS="${TAGS},${{ env.DOCKER_IMAGE }}:latest"
+          fi
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "Building with tags: ${TAGS}"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./packages/ddalab-broker
+          file: ./packages/ddalab-broker/Dockerfile
+          platforms: ${{ env.PLATFORMS }}
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.title=DDALAB Sync Broker
+            org.opencontainers.image.description=Institution-level sync coordination server for DDALAB
+            org.opencontainers.image.version=${{ github.event.inputs.version }}
+            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
+            org.opencontainers.image.source=${{ github.event.repository.html_url }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.DOCKER_IMAGE }}:v${{ github.event.inputs.version }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Test broker image
+        run: |
+          echo "Testing broker image startup..."
+
+          # Pull the newly built image
+          docker pull ${{ env.DOCKER_IMAGE }}:v${{ github.event.inputs.version }}
+
+          # Test broker container startup
+          docker run -d --name broker-test \
+            -e INSTITUTION_NAME="Test Institution" \
+            -e BROKER_PASSWORD="test-password" \
+            -e USE_TLS=false \
+            -p 8080:8080 \
+            ${{ env.DOCKER_IMAGE }}:v${{ github.event.inputs.version }}
+
+          # Wait for startup
+          sleep 5
+
+          # Check logs
+          LOGS=$(docker logs broker-test 2>&1)
+
+          if echo "$LOGS" | grep -q "Broker started"; then
+            echo "✓ Broker starts successfully"
+          else
+            echo "✗ Broker failed to start"
+            docker logs broker-test
+            exit 1
+          fi
+
+          # Cleanup
+          docker stop broker-test
+          docker rm broker-test
+
+      - name: Build summary
+        run: |
+          echo "## 🎉 Sync Broker Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ env.DOCKER_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`v${{ github.event.inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms:** \`${{ env.PLATFORMS }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Tags pushed:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.tags.outputs.tags }}" | tr ',' '\n' >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pull command:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.DOCKER_IMAGE }}:v${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Security scan completed - check Security tab for results" >> $GITHUB_STEP_SUMMARY
