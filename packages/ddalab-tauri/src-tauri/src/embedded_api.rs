@@ -903,13 +903,16 @@ pub async fn run_dda_analysis(
         vec!["1".to_string()]  // Default to first channel
     };
 
-    // Build DDA command - APE binary on macOS needs to run through sh
-    let mut command = if cfg!(target_os = "macos") {
+    // Build DDA command - APE binary needs to run through sh on Unix systems (macOS/Linux)
+    // APE (Actually Portable Executable) binaries have a shell script header for portability
+    let mut command = if cfg!(target_os = "windows") {
+        // Windows: run .exe directly
+        tokio::process::Command::new(&dda_binary_path)
+    } else {
+        // Unix (macOS/Linux): run through sh to handle APE polyglot format
         let mut cmd = tokio::process::Command::new("sh");
         cmd.arg(&dda_binary_path);
         cmd
-    } else {
-        tokio::process::Command::new(&dda_binary_path)
     };
 
     // Add DDA parameters
