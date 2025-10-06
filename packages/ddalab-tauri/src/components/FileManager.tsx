@@ -132,6 +132,7 @@ export function FileManager({ apiService }: FileManagerProps) {
         const edfFiles: EDFFileInfo[] = fileList
           .filter(file =>
             file.name.toLowerCase().endsWith('.edf') ||
+            file.name.toLowerCase().endsWith('.csv') ||
             file.name.toLowerCase().endsWith('.ascii') ||
             file.name.toLowerCase().endsWith('.txt')
           )
@@ -562,6 +563,7 @@ export function FileManager({ apiService }: FileManagerProps) {
                   )}
                   <Badge variant="secondary" className="text-xs">
                     {file.file_name.toLowerCase().endsWith('.edf') ? 'EDF' :
+                     file.file_name.toLowerCase().endsWith('.csv') ? 'CSV' :
                      file.file_name.toLowerCase().endsWith('.ascii') ? 'ASCII' : 'TXT'}
                   </Badge>
                   {file.channels.length > 0 && (
