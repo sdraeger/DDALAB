@@ -1,5 +1,42 @@
 # DDALAB TODO
 
+## v1.0.0 Release Status (January 2025)
+
+### ✅ Completed for v1.0.0
+
+1. **CSV/ASCII File Support** ✅
+   - Full support for .csv, .ascii, and .txt time series files
+   - Automatic header detection
+   - Default channel naming ("Channel 1", "Channel 2", etc.) for headerless files
+   - FileType enum for centralized file type detection
+   - Race condition fix - no 500 errors when switching file types
+   - Channel validation before chunk loading
+   - Test files created (with and without headers)
+   - DDA analysis remains EDF-only (as intended)
+
+2. **UI Scrolling Fix** ✅
+   - Proper overflow hierarchy in all tabs
+   - Vertical scrollbars appear when window is too small
+   - Each tab independently scrollable
+   - Prevents content from being cut off
+
+3. **Core Features** ✅
+   - EDF file reading and visualization
+   - Multi-channel time series plotting
+   - DDA analysis (Single Timeseries, Cross Timeseries, Cross Dynamical, Dynamical Ergodicity)
+   - Preprocessing options (highpass, lowpass, notch filters)
+   - Channel selection and persistence
+   - Analysis history with MinIO storage
+   - File manager with directory browsing
+   - Embedded Rust API (auto-starts, no Docker required)
+   - Settings panel with update checker
+
+### 🚀 Ready for v1.0.0 Release
+
+All essential features are complete and working. The application is stable and ready for initial release.
+
+---
+
 ## Architecture Update (October 2025)
 
 **New Backend Strategy:**
