@@ -447,10 +447,10 @@ pub async fn list_files(
                             "is_directory": true
                         }));
                     } else if entry_path.is_file() {
-                        // Check if it's an EDF file
+                        // Check if it's a supported data file (EDF, CSV, ASCII, TXT)
                         if let Some(extension) = entry_path.extension() {
                             let ext = extension.to_str().unwrap_or("").to_lowercase();
-                            if ext == "edf" || ext == "ascii" || ext == "txt" {
+                            if ext == "edf" || ext == "csv" || ext == "ascii" || ext == "txt" {
                                 log::debug!("Found data file: {:?}", entry_path);
 
                                 // Get file metadata
