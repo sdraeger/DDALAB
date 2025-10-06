@@ -704,7 +704,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   }
 
   return (
-    <div className="h-full flex flex-col space-y-4">
+    <div className="h-full flex flex-col space-y-4 overflow-y-auto">
       {/* Controls Panel */}
       <Card>
         <CardHeader className="pb-4">

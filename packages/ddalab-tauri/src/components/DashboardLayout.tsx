@@ -202,14 +202,14 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
         )}
 
         {/* Content Area */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col overflow-hidden">
           <Tabs
             value={ui.activeTab}
             onValueChange={setActiveTab}
-            className="flex-1 flex flex-col"
+            className="flex-1 flex flex-col overflow-hidden"
           >
             {/* Tab Navigation */}
-            <div className="border-b px-4 py-2">
+            <div className="border-b px-4 py-2 flex-shrink-0">
               <TabsList>
                 <TabsTrigger value="files" className="flex items-center gap-2">
                   <FileText className="h-4 w-4" />
@@ -235,9 +235,9 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
             </div>
 
             {/* Tab Content */}
-            <div className="flex-1 overflow-auto">
-              <TabsContent value="files" className="h-full m-0">
-                <div className="p-6 h-full">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden">
+              <TabsContent value="files" className="m-0 h-full">
+                <div className="p-6">
                   {fileManager.selectedFile ? (
                     <div className="space-y-6">
                       <div>
@@ -308,19 +308,19 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
                 </div>
               </TabsContent>
 
-              <TabsContent value="plots" className="h-full m-0">
+              <TabsContent value="plots" className="m-0 h-full">
                 <div className="p-4 h-full">
                   <TimeSeriesPlot apiService={apiService} />
                 </div>
               </TabsContent>
 
-              <TabsContent value="analysis" className="h-full m-0">
+              <TabsContent value="analysis" className="m-0 h-full">
                 <div className="p-4 h-full">
                   <DDAAnalysis apiService={apiService} />
                 </div>
               </TabsContent>
 
-              <TabsContent value="results" className="h-full m-0">
+              <TabsContent value="results" className="m-0 h-full">
                 <div className="p-4 h-full">
                   {(() => {
                     console.log('[DASHBOARD] Results tab render:', {
@@ -370,8 +370,10 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
                 </div>
               </TabsContent>
 
-              <TabsContent value="settings" className="h-full m-0">
-                <SettingsPanel />
+              <TabsContent value="settings" className="m-0 h-full">
+                <div className="h-full">
+                  <SettingsPanel />
+                </div>
               </TabsContent>
             </div>
           </Tabs>
