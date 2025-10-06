@@ -5,6 +5,7 @@
 ### ✅ Completed for v1.0.0
 
 1. **CSV/ASCII File Support** ✅
+
    - Full support for .csv, .ascii, and .txt time series files
    - Automatic header detection
    - Default channel naming ("Channel 1", "Channel 2", etc.) for headerless files
@@ -15,6 +16,7 @@
    - DDA analysis remains EDF-only (as intended)
 
 2. **UI Scrolling Fix** ✅
+
    - Proper overflow hierarchy in all tabs
    - Vertical scrollbars appear when window is too small
    - Each tab independently scrollable
@@ -113,6 +115,226 @@ All essential features are complete and working. The application is stable and r
    - [ ] Find out what cli arguments to pass to binary to run on .csv/.ascii files
 
 8. **BIDS + OpenNeuro + NEMAR Support **
+
+9. **MATLAB-inspired Session Recording** (NOT STARTED)
+
+   **Goal**: Record user actions in the UI and export to executable .jl (Julia) or .py (Python) scripts that reproduce the analysis and plots.
+
+   **Current State**: Only simple export buttons exist for plots. No recording infrastructure.
+
+   ### Architecture Components
+
+   #### Phase 1: Core Infrastructure
+   - [ ] Create type definitions (`src/types/recording.ts`)
+     ```typescript
+     interface RecordableAction {
+       type: 'FILE_LOAD' | 'CHANNEL_SELECT' | 'PREPROCESSING' | 'VISUALIZATION' | 'DDA_ANALYSIS'
+       timestamp: number
+       data: Record<string, any>
+     }
+     interface SessionRecording {
+       id: string
+       startTime: number
+       endTime?: number
+       actions: RecordableAction[]
+       metadata: { appVersion: string, platform: string }
+     }
+     ```
+   - [ ] Create session recorder service (`src/services/sessionRecorder.ts`)
+     - State management for active recording
+     - Action capture and storage
+     - Export coordination
+   - [ ] Extend appStore with recording state (`src/store/appStore.ts`)
+     - Add `isRecording: boolean`
+     - Add `recordingActions: RecordableAction[]`
+     - Add `startRecording()`, `stopRecording()`, `clearRecording()`
+     - Add middleware to intercept state changes
+   - [ ] Create SessionRecorder UI component (`src/components/SessionRecorder.tsx`)
+     - Start/Stop recording button
+     - Recording indicator (red dot when active)
+     - Action counter display
+     - Clear recording option
+
+   #### Phase 2: Action Interception
+   - [ ] Hook into file management actions
+     - Intercept `setSelectedFile()` → Record file path
+     - Intercept `setSelectedChannels()` → Record channel names
+   - [ ] Hook into visualization actions
+     - Intercept `updatePlotState({ preprocessing })` → Record filter parameters
+     - Intercept time window changes → Record visualization settings
+   - [ ] Hook into DDA actions
+     - Intercept `updateAnalysisParameters()` → Record DDA parameters
+     - Intercept analysis submission → Record execution with all params
+   - [ ] Capture action metadata
+     - Timestamp each action
+     - Track action sequence/order
+     - Store relevant state snapshots
+
+   #### Phase 3: Code Generation (Python)
+   - [ ] Create Python code generator (`src/services/codeGenerators/pythonGenerator.ts`)
+   - [ ] Implement action-to-code mapping
+     - File load → `file_path = "/path/to/file.edf"`
+     - Channel selection → `channels = ["LAT1", "LAT2", ...]`
+     - Preprocessing → Filter parameter definitions
+     - DDA analysis → Analysis function calls with parameters
+     - Visualization → Matplotlib plotting code
+   - [ ] Generate imports and setup
+     ```python
+     import numpy as np
+     import matplotlib.pyplot as plt
+     from scipy import signal
+     # Additional imports based on actions
+     ```
+   - [ ] Add inline comments explaining each step
+   - [ ] Include dependency documentation
+
+   #### Phase 4: Code Generation (Julia)
+   - [ ] Create Julia code generator (`src/services/codeGenerators/juliaGenerator.ts`)
+   - [ ] Implement action-to-code mapping
+     - File load → `file_path = "/path/to/file.edf"`
+     - Channel selection → `channels = ["LAT1", "LAT2", ...]`
+     - Preprocessing → DSP filter definitions
+     - DDA analysis → Analysis calls
+     - Visualization → Plots.jl code
+   - [ ] Generate imports and setup
+     ```julia
+     using Plots, DSP, DelimitedFiles
+     # Additional packages based on actions
+     ```
+   - [ ] Add inline comments
+   - [ ] Include package requirements
+
+   #### Phase 5: Export Functionality
+   - [ ] Add Tauri command for file export (`src-tauri/src/main.rs`)
+     ```rust
+     #[tauri::command]
+     async fn export_session_script(
+         recording: SessionRecording,
+         format: String, // "julia" or "python"
+         output_path: String
+     ) -> Result<(), String>
+     ```
+   - [ ] Implement export dialog component
+     - Format selection (Julia/Python radio buttons)
+     - File name input (auto-generated: `ddalab_session_YYYYMMDD_HHMMSS.{jl|py}`)
+     - Preview pane showing generated code
+     - Save location picker (Tauri file dialog)
+   - [ ] Add "Export Session" button to DashboardLayout header
+   - [ ] Implement file write with error handling
+
+   #### Phase 6: Testing & Polish
+   - [ ] Test Python scripts execute correctly
+     - Verify imports resolve
+     - Verify data loads correctly
+     - Verify preprocessing runs
+     - Verify plots render
+   - [ ] Test Julia scripts execute correctly
+     - Verify packages available
+     - Verify data loads correctly
+     - Verify DSP operations work
+     - Verify plots render
+   - [ ] Add session preview/edit functionality
+     - Show list of recorded actions
+     - Allow removing individual actions
+     - Allow reordering actions
+   - [ ] Add action filtering options
+     - Toggle recording for specific action types
+     - Option to exclude file paths (use placeholders)
+   - [ ] Documentation
+     - User guide for session recording
+     - Example recorded sessions
+     - Dependency installation instructions (pip/julia packages)
+
+   ### Action Mapping Reference
+
+   **File Operations:**
+   ```python
+   # Python
+   file_path = "/Users/data/recording.edf"
+
+   # Julia
+   file_path = "/Users/data/recording.edf"
+   ```
+
+   **Channel Selection:**
+   ```python
+   # Python
+   channels = ["LAT1", "LAT2", "LAT3", "LAT4"]
+
+   # Julia
+   channels = ["LAT1", "LAT2", "LAT3", "LAT4"]
+   ```
+
+   **Preprocessing:**
+   ```python
+   # Python
+   highpass_cutoff = 0.5  # Hz
+   lowpass_cutoff = 70    # Hz
+   notch_frequencies = [50]  # Hz
+
+   # Julia
+   highpass_cutoff = 0.5  # Hz
+   lowpass_cutoff = 70    # Hz
+   notch_frequencies = [50]  # Hz
+   ```
+
+   **DDA Analysis:**
+   ```python
+   # Python
+   variants = ["single_timeseries", "cross_timeseries"]
+   window_length = 1000
+   window_step = 100
+   scale_min = 4
+   scale_max = 100
+   scale_num = 20
+
+   # Julia
+   variants = ["single_timeseries", "cross_timeseries"]
+   window_length = 1000
+   window_step = 100
+   scale_min = 4
+   scale_max = 100
+   scale_num = 20
+   ```
+
+   **Visualization:**
+   ```python
+   # Python
+   time_window = (0, 30)  # seconds
+   amplitude_scale = 100
+   plt.figure(figsize=(12, 8))
+   # ... plotting code
+
+   # Julia
+   time_window = (0, 30)  # seconds
+   amplitude_scale = 100
+   plot(...)
+   ```
+
+   ### Files to Create
+   - `src/types/recording.ts`
+   - `src/services/sessionRecorder.ts`
+   - `src/services/codeGenerators/pythonGenerator.ts`
+   - `src/services/codeGenerators/juliaGenerator.ts`
+   - `src/components/SessionRecorder.tsx`
+   - `src/components/dialogs/ExportSessionDialog.tsx`
+
+   ### Files to Modify
+   - `src/store/appStore.ts` - Add recording state and middleware
+   - `src/components/DashboardLayout.tsx` - Integrate SessionRecorder component
+   - `src-tauri/src/main.rs` - Add export_session_script command
+   - `src-tauri/Cargo.toml` - Add dependencies if needed
+
+   ### Success Criteria
+   - [ ] Can start/stop recording from UI with visual feedback
+   - [ ] All major actions captured (file, channels, preprocessing, DDA, viz)
+   - [ ] Can export to .jl file that executes successfully
+   - [ ] Can export to .py file that executes successfully
+   - [ ] Generated code is readable and well-commented
+   - [ ] Generated code includes necessary imports
+   - [ ] Can preview recorded actions before export
+   - [ ] Can clear/reset recording
+   - [ ] Session metadata included in exported files (version, date, platform)
 
 ### <� Mobile Compatibility Considerations
 
