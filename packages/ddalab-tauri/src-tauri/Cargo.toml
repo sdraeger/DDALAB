@@ -51,6 +51,8 @@ mdns-sd = "0.11"
 # Security
 sha2 = "0.10"
 hex = "0.4"
+# DDA binary interface
+dda-rs = { path = "../../dda-rs" }
 
 [dev-dependencies]
 hyper = "1.0"
