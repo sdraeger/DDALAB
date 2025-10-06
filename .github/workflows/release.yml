@@ -64,6 +64,10 @@ jobs:
             args: ''
             target: 'x86_64-unknown-linux-gnu'
             arch: 'x86_64'
+          - platform: 'ubuntu-22.04-arm'
+            args: '--target aarch64-unknown-linux-gnu'
+            target: 'aarch64-unknown-linux-gnu'
+            arch: 'aarch64'
           - platform: 'windows-latest'
             args: '--target x86_64-pc-windows-msvc'
             target: 'x86_64-pc-windows-msvc'
@@ -74,8 +78,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
+      - name: Install dependencies (ubuntu x86_64)
+        if: matrix.platform == 'ubuntu-22.04' && matrix.arch == 'x86_64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+
+      - name: Install dependencies (ubuntu arm64)
+        if: matrix.platform == 'ubuntu-22.04-arm' && matrix.arch == 'aarch64'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
@@ -144,13 +154,13 @@ jobs:
 
             **macOS**: Download the .dmg file, open it, and drag DDALAB to your Applications folder.
 
-            **Linux**: Download the .AppImage file, make it executable (`chmod +x`), and run it. Alternatively, use the .deb package for Debian-based distributions.
+            **Linux**: Download the .AppImage file for your architecture (x86_64 or aarch64/arm64), make it executable (`chmod +x`), and run it. Alternatively, use the .deb package for Debian-based distributions.
 
             **Windows**: Download and run the .msi installer.
 
             ## System Requirements
             - macOS 10.15 or later (Apple Silicon and Intel supported)
-            - Linux: Ubuntu 20.04 or later (or equivalent)
+            - Linux: Ubuntu 20.04 or later (x86_64 and arm64/aarch64 supported)
             - Windows 10 or later (x64)
 
             ## Docker Requirements
