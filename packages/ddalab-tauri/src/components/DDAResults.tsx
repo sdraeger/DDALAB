@@ -780,7 +780,7 @@ export function DDAResults({ result }: DDAResultsProps) {
   }, [result.id, broadcastToType]) // Only depend on result.id, not entire result object
 
   return (
-    <div className="h-full flex flex-col space-y-4">
+    <div className="h-full flex flex-col space-y-4 overflow-y-auto">
       {/* Controls */}
       <Card>
         <CardHeader className="pb-4">
@@ -970,7 +970,7 @@ export function DDAResults({ result }: DDAResultsProps) {
                 <>
                   {/* Heatmap */}
                   {(viewMode === 'heatmap' || viewMode === 'both') && (
-                    <Card className="flex-1">
+                    <Card>
                       <CardHeader className="pb-2">
                         <CardTitle className="text-base">
                           DDA Matrix Heatmap - {variant.variant_name}
@@ -979,8 +979,8 @@ export function DDAResults({ result }: DDAResultsProps) {
                           Log-transformed DDA matrix values across time points and channels
                         </CardDescription>
                       </CardHeader>
-                      <CardContent className="h-full">
-                        <div className="w-full h-full min-h-[300px] relative">
+                      <CardContent>
+                        <div className="w-full min-h-[300px] relative">
                           {(isProcessingData || isRenderingHeatmap) && (
                             <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
                               <div className="flex flex-col items-center space-y-2">
@@ -999,7 +999,7 @@ export function DDAResults({ result }: DDAResultsProps) {
 
                   {/* Line Plot */}
                   {(viewMode === 'lineplot' || viewMode === 'both') && (
-                    <Card className="flex-1">
+                    <Card>
                       <CardHeader className="pb-2">
                         <CardTitle className="text-base">
                           DDA Time Series - {variant.variant_name}
@@ -1008,8 +1008,8 @@ export function DDAResults({ result }: DDAResultsProps) {
                           DDA output time series - one line per channel (each row of the DDA matrix)
                         </CardDescription>
                       </CardHeader>
-                      <CardContent className="h-full">
-                        <div className="w-full h-full min-h-[400px] relative">
+                      <CardContent>
+                        <div className="w-full min-h-[400px] relative">
                           {(isProcessingData || isRenderingLinePlot) && (
                             <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
                               <div className="flex flex-col items-center space-y-2">
@@ -1031,11 +1031,11 @@ export function DDAResults({ result }: DDAResultsProps) {
           ))}
         </Tabs>
       ) : (
-        <div className="flex-1 flex flex-col space-y-4">
+        <div className="flex flex-col space-y-4">
           {/* Single variant view */}
           {/* Heatmap */}
           {(viewMode === 'heatmap' || viewMode === 'both') && (
-            <Card className="flex-1">
+            <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">
                   DDA Matrix Heatmap - {getCurrentVariantData()?.variant_name || 'Unknown'}
@@ -1044,9 +1044,9 @@ export function DDAResults({ result }: DDAResultsProps) {
                   Log-transformed DDA matrix values across time points and channels
                 </CardDescription>
               </CardHeader>
-              <CardContent className="h-full">
+              <CardContent>
                 <div
-                  className="w-full h-full min-h-[300px] relative"
+                  className="w-full min-h-[300px] relative"
                   onContextMenu={(e) => {
                     console.log('[ANNOTATION] Right-click detected on heatmap', {
                       hasPlot: !!uplotHeatmapRef.current,
@@ -1161,7 +1161,7 @@ export function DDAResults({ result }: DDAResultsProps) {
 
           {/* Line Plot */}
           {(viewMode === 'lineplot' || viewMode === 'both') && (
-            <Card className="flex-1">
+            <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">
                   DDA Time Series - {getCurrentVariantData()?.variant_name || 'Unknown'}
@@ -1170,9 +1170,9 @@ export function DDAResults({ result }: DDAResultsProps) {
                   DDA output time series - one line per channel (each row of the DDA matrix)
                 </CardDescription>
               </CardHeader>
-              <CardContent className="h-full">
+              <CardContent>
                 <div
-                  className="w-full h-full min-h-[400px] relative"
+                  className="w-full min-h-[400px] relative"
                   onContextMenu={(e) => {
                     console.log('[ANNOTATION] Right-click detected on line plot', {
                       hasPlot: !!uplotLinePlotRef.current,
