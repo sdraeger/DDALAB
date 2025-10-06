@@ -333,7 +333,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   }
 
   return (
-    <div className="h-full flex flex-col space-y-4">
+    <div className="h-full flex flex-col space-y-4 overflow-y-auto">
       <Tabs defaultValue="parameters" className="flex-1 flex flex-col">
         <div className="flex items-center justify-between">
           <TabsList>
