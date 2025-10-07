@@ -99,6 +99,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './packages/ddalab-tauri/src-tauri -> target'
+          key: ${{ needs.check-version.outputs.version }}
 
       - name: Sync node version and setup cache
         uses: actions/setup-node@v4
