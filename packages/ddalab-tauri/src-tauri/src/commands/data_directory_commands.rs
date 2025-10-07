@@ -26,10 +26,11 @@ pub async fn get_data_directory(app_handle: AppHandle) -> Result<String, String>
         return Ok(cfg.path);
     }
 
-    // Try to load from disk
+    // Try to load from disk - if nothing saved, return empty string
+    // This ensures the UI shows the "No Data Directory Selected" message
     match load_data_directory(&app_handle).await {
         Ok(path) => Ok(path),
-        Err(_) => get_default_data_directory(),
+        Err(_) => Ok(String::new()), // Return empty string instead of creating default directory
     }
 }
 
@@ -115,23 +116,6 @@ pub async fn load_data_directory(app_handle: &AppHandle) -> Result<String, Strin
         }
     }
 
-    // Fall back to default
-    get_default_data_directory()
-}
-
-fn get_default_data_directory() -> Result<String, String> {
-    // Default to user's home directory + Desktop/DDALAB/data
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_string());
-
-    let default_path = PathBuf::from(home).join("Desktop/DDALAB/data");
-
-    // Create the directory if it doesn't exist
-    if !default_path.exists() {
-        std::fs::create_dir_all(&default_path)
-            .map_err(|e| format!("Failed to create default data directory: {}", e))?;
-    }
-
-    Ok(default_path.to_string_lossy().to_string())
+    // No saved config found - return error to trigger empty string
+    Err("No data directory configured".to_string())
 }
