@@ -1,6 +1,6 @@
 [package]
 name = "ddalab-tauri"
-version = "0.1.0"
+version = "1.0.0"
 description = "DDALAB Desktop Application"
 authors = ["DDALAB Team"]
 license = "MIT"
