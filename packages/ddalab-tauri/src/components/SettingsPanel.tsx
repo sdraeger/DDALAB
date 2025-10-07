@@ -60,9 +60,13 @@ export function SettingsPanel() {
 
     try {
       const result = await TauriService.checkNativeUpdate()
+      console.log('[UPDATE] Raw result from checkNativeUpdate:', result)
+      console.log('[UPDATE] Current version:', result.current_version)
+      console.log('[UPDATE] Latest version:', result.latest_version)
+      console.log('[UPDATE] Update available:', result.available)
       setUpdateInfo(result)
     } catch (error) {
-      console.error('Failed to check for updates:', error)
+      console.error('[UPDATE] Failed to check for updates:', error)
       setUpdateError(error instanceof Error ? error.message : 'Failed to check for updates')
     } finally {
       setIsCheckingUpdate(false)
