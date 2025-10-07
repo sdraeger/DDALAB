@@ -23,21 +23,31 @@ pub async fn check_native_update(app: AppHandle) -> Result<UpdateStatus, String>
     let current_version = env!("CARGO_PKG_VERSION").to_string();
 
     log::info!("========================================");
-    log::info!("UPDATE CHECK - CARGO_PKG_VERSION: {}", env!("CARGO_PKG_VERSION"));
-    log::info!("UPDATE CHECK - current_version string: {}", current_version);
+    log::info!("UPDATE CHECK START");
+    log::info!("CARGO_PKG_VERSION (compile-time constant): {}", env!("CARGO_PKG_VERSION"));
+    log::info!("current_version variable: {}", current_version);
+    log::info!("current_version bytes: {:?}", current_version.as_bytes());
+    log::info!("current_version length: {}", current_version.len());
     log::info!("========================================");
-
-    log::info!("Checking for native updates. Current version: {}", current_version);
 
     // Import the updater
     use tauri_plugin_updater::UpdaterExt;
 
+    log::info!("Building updater...");
     let updater = app.updater_builder().build()
-        .map_err(|e| format!("Failed to build updater: {}", e))?;
+        .map_err(|e| {
+            log::error!("Failed to build updater: {}", e);
+            format!("Failed to build updater: {}", e)
+        })?;
 
+    log::info!("Calling updater.check()...");
     match updater.check().await {
         Ok(Some(update)) => {
-            log::info!("Update available: {}", update.version);
+            log::info!("========================================");
+            log::info!("UPDATE FOUND");
+            log::info!("Latest version: {}", update.version);
+            log::info!("Current version: {}", current_version);
+            log::info!("========================================");
 
             Ok(UpdateStatus {
                 available: true,
@@ -48,7 +58,10 @@ pub async fn check_native_update(app: AppHandle) -> Result<UpdateStatus, String>
             })
         }
         Ok(None) => {
-            log::info!("No updates available");
+            log::info!("========================================");
+            log::info!("NO UPDATE AVAILABLE");
+            log::info!("Current version: {}", current_version);
+            log::info!("========================================");
             Ok(UpdateStatus {
                 available: false,
                 current_version,
@@ -58,7 +71,12 @@ pub async fn check_native_update(app: AppHandle) -> Result<UpdateStatus, String>
             })
         }
         Err(e) => {
-            log::error!("Error checking for updates: {}", e);
+            log::error!("========================================");
+            log::error!("ERROR DURING UPDATE CHECK");
+            log::error!("Error: {}", e);
+            log::error!("Error debug: {:?}", e);
+            log::error!("Current version that was being checked: {}", current_version);
+            log::error!("========================================");
             Err(format!("Failed to check for updates: {}", e))
         }
     }

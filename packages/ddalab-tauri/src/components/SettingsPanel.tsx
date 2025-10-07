@@ -55,18 +55,31 @@ export function SettingsPanel() {
   const checkForUpdates = async () => {
     if (!TauriService.isTauri()) return
 
+    console.log('[UPDATE] ========================================')
+    console.log('[UPDATE] Starting update check...')
+    console.log('[UPDATE] ========================================')
+
     setIsCheckingUpdate(true)
     setUpdateError(null)
 
     try {
+      console.log('[UPDATE] About to call TauriService.checkNativeUpdate()...')
       const result = await TauriService.checkNativeUpdate()
+      console.log('[UPDATE] ========================================')
+      console.log('[UPDATE] Successfully received result from checkNativeUpdate')
       console.log('[UPDATE] Raw result from checkNativeUpdate:', result)
       console.log('[UPDATE] Current version:', result.current_version)
       console.log('[UPDATE] Latest version:', result.latest_version)
       console.log('[UPDATE] Update available:', result.available)
+      console.log('[UPDATE] ========================================')
       setUpdateInfo(result)
     } catch (error) {
-      console.error('[UPDATE] Failed to check for updates:', error)
+      console.log('[UPDATE] ========================================')
+      console.error('[UPDATE] CAUGHT ERROR in checkForUpdates')
+      console.error('[UPDATE] Error object:', error)
+      console.error('[UPDATE] Error message:', error instanceof Error ? error.message : 'Unknown error')
+      console.error('[UPDATE] Error stack:', error instanceof Error ? error.stack : 'No stack')
+      console.log('[UPDATE] ========================================')
       setUpdateError(error instanceof Error ? error.message : 'Failed to check for updates')
     } finally {
       setIsCheckingUpdate(false)
