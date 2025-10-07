@@ -22,6 +22,11 @@ pub async fn check_native_update(app: AppHandle) -> Result<UpdateStatus, String>
     // Use CARGO_PKG_VERSION which is set at compile time from Cargo.toml
     let current_version = env!("CARGO_PKG_VERSION").to_string();
 
+    log::info!("========================================");
+    log::info!("UPDATE CHECK - CARGO_PKG_VERSION: {}", env!("CARGO_PKG_VERSION"));
+    log::info!("UPDATE CHECK - current_version string: {}", current_version);
+    log::info!("========================================");
+
     log::info!("Checking for native updates. Current version: {}", current_version);
 
     // Import the updater
