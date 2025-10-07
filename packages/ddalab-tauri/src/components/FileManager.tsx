@@ -95,6 +95,11 @@ export function FileManager({ apiService }: FileManagerProps) {
       console.log('[FILEMANAGER] Server ready, loading initial directory')
       setIsInitialLoad(false)
       loadCurrentDirectory()
+    } else if (isInitialLoad && ui.isServerReady && !fileManager.dataDirectoryPath) {
+      // Server is ready but no directory selected - stop loading and show message
+      console.log('[FILEMANAGER] Server ready, no directory selected')
+      setIsInitialLoad(false)
+      setLoading(false)
     }
   }, [ui.isServerReady, isInitialLoad, fileManager.dataDirectoryPath])
 
