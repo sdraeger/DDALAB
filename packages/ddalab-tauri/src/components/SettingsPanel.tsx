@@ -50,6 +50,7 @@ export function SettingsPanel() {
   } | null>(null)
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
+  const [isDownloading, setIsDownloading] = useState(false)
 
   const checkForUpdates = async () => {
     if (!TauriService.isTauri()) return
@@ -58,13 +59,31 @@ export function SettingsPanel() {
     setUpdateError(null)
 
     try {
-      const result = await TauriService.checkForUpdates()
+      const result = await TauriService.checkNativeUpdate()
       setUpdateInfo(result)
     } catch (error) {
       console.error('Failed to check for updates:', error)
       setUpdateError(error instanceof Error ? error.message : 'Failed to check for updates')
     } finally {
       setIsCheckingUpdate(false)
+    }
+  }
+
+  const handleDownloadUpdate = async () => {
+    if (!TauriService.isTauri()) return
+
+    setIsDownloading(true)
+    setUpdateError(null)
+
+    try {
+      await TauriService.downloadAndInstallUpdate()
+      // Update installed successfully - prompt to restart
+      alert('Update downloaded and installed successfully! Please restart the application to apply the update.')
+    } catch (error) {
+      console.error('Failed to download update:', error)
+      setUpdateError(error instanceof Error ? error.message : 'Failed to download update')
+    } finally {
+      setIsDownloading(false)
     }
   }
 
@@ -579,15 +598,14 @@ export function SettingsPanel() {
                           </div>
                         </div>
                       )}
-                      {updateInfo.download_url && (
-                        <Button
-                          onClick={() => window.open(updateInfo.download_url, '_blank')}
-                          className="mt-2"
-                        >
-                          <Download className="mr-2 h-4 w-4" />
-                          Download Update
-                        </Button>
-                      )}
+                      <Button
+                        onClick={handleDownloadUpdate}
+                        disabled={isDownloading}
+                        className="mt-2"
+                      >
+                        <Download className="mr-2 h-4 w-4" />
+                        {isDownloading ? 'Downloading...' : 'Download and Install Update'}
+                      </Button>
                     </div>
                   </AlertDescription>
                 </Alert>
