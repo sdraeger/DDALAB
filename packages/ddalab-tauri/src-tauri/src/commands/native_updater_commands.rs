@@ -19,7 +19,8 @@ pub struct DownloadProgress {
 /// Check for updates using Tauri's native updater
 #[tauri::command]
 pub async fn check_native_update(app: AppHandle) -> Result<UpdateStatus, String> {
-    let current_version = app.package_info().version.to_string();
+    // Use CARGO_PKG_VERSION which is set at compile time from Cargo.toml
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
 
     log::info!("Checking for native updates. Current version: {}", current_version);
 
