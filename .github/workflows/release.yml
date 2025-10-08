@@ -137,6 +137,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          includeUpdaterJson: true
           tagName: v${{ needs.check-version.outputs.version }}
           releaseName: 'DDALAB v${{ needs.check-version.outputs.version }}'
           releaseBody: |
