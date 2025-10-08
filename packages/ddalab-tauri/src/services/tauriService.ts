@@ -441,6 +441,13 @@ export class TauriService {
     return await api.invoke('check_for_updates')
   }
 
+  // Get app version
+  static async getAppVersion(): Promise<string> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('get_app_version')
+  }
+
   // Native Update Commands (uses Tauri updater plugin)
   static async checkNativeUpdate(): Promise<{
     available: boolean

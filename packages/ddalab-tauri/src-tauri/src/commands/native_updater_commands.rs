@@ -16,6 +16,12 @@ pub struct DownloadProgress {
     pub content_length: Option<u64>,
 }
 
+/// Get the current app version
+#[tauri::command]
+pub fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 /// Check for updates using Tauri's native updater
 #[tauri::command]
 pub async fn check_native_update(app: AppHandle) -> Result<UpdateStatus, String> {
