@@ -40,6 +40,7 @@ export function SettingsPanel() {
     error?: string
   }>({ status: 'unknown', healthy: false })
   const [isLoading, setIsLoading] = useState(false)
+  const [appVersion, setAppVersion] = useState<string>('0.1.0')
   const [updateInfo, setUpdateInfo] = useState<{
     available: boolean
     current_version: string
@@ -51,6 +52,20 @@ export function SettingsPanel() {
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [isDownloading, setIsDownloading] = useState(false)
+
+  // Fetch app version on mount
+  useEffect(() => {
+    const fetchVersion = async () => {
+      if (!TauriService.isTauri()) return
+      try {
+        const version = await TauriService.getAppVersion()
+        setAppVersion(version)
+      } catch (error) {
+        console.error('Failed to fetch app version:', error)
+      }
+    }
+    fetchVersion()
+  }, [])
 
   const checkForUpdates = async () => {
     if (!TauriService.isTauri()) return
@@ -555,7 +570,7 @@ export function SettingsPanel() {
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Current Version</p>
                   <p className="text-sm text-muted-foreground">
-                    {updateInfo?.current_version || '0.1.0'}
+                    {appVersion}
                   </p>
                 </div>
                 <Button
