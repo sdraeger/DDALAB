@@ -74,6 +74,9 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   const plotRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const userZoomRef = useRef<{ min: number; max: number } | null>(null);
+  const currentChunkRangeRef = useRef<{ min: number; max: number }>({ min: 0, max: 10 });
+  const stableOffsetRef = useRef<number | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -180,7 +183,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     }
   }, [fileManager.selectedFile, persistSelectedChannels]);
 
-  const renderPlot = useCallback((chunkData: ChunkData) => {
+  const renderPlot = useCallback((chunkData: ChunkData, startTime: number) => {
     if (!plotRef.current) {
       console.error("Plot ref is not available");
       return;
@@ -200,21 +203,54 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       timestampsLength: chunkData.timestamps?.length,
       sampleRate: chunkData.sample_rate,
       channels: chunkData.channels?.length,
+      startTime,
     });
 
     // Prepare data for uPlot
     const dataLength = chunkData.data?.[0]?.length || 0;
-    // Generate relative time data (0 to timeWindow) instead of absolute timestamps
+    // Generate absolute time data starting from current position in file
     const timeData = Array.from(
       { length: dataLength },
-      (_, i) => i / chunkData.sample_rate
+      (_, i) => startTime + (i / chunkData.sample_rate)
     );
 
     console.log("Generated time data:", {
+      startTime,
       timeDataLength: timeData.length,
       firstFew: timeData.slice(0, 5),
       lastFew: timeData.slice(-5),
+      expectedRange: [startTime, startTime + timeWindowRef.current],
     });
+
+    // Calculate auto-scaled offset based on maximum data range across all channels
+    // Use stable offset if already calculated, otherwise calculate and store it
+    let autoOffset = stableOffsetRef.current;
+    if (autoOffset === null && chunkData.data.length > 1) {
+      const channelRanges = chunkData.data.map((channelData) => {
+        const validData = channelData.filter((v) => typeof v === "number" && !isNaN(v));
+        if (validData.length === 0) return 0;
+        const min = Math.min(...validData);
+        const max = Math.max(...validData);
+        return max - min;
+      });
+      const maxRange = Math.max(...channelRanges);
+      // Use 2x the maximum channel range as offset to ensure clear separation
+      autoOffset = Math.max(maxRange * 2, channelOffsetRef.current);
+      // Store for consistent use across all chunks
+      stableOffsetRef.current = autoOffset;
+      console.log("Auto-calculated STABLE channel offset:", {
+        channelRanges,
+        maxRange,
+        autoOffset,
+        userOffset: channelOffsetRef.current,
+      });
+    } else if (autoOffset === null) {
+      // Fallback if only one channel
+      autoOffset = channelOffsetRef.current;
+      stableOffsetRef.current = autoOffset;
+    } else {
+      console.log("Using previously calculated stable offset:", autoOffset);
+    }
 
     // Stack channels with offset for visibility
     const processedData = chunkData.data.map((channelData, index) => {
@@ -234,7 +270,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         }
 
         // Add channel offset for stacking
-        const offsetValue = value + index * channelOffsetRef.current;
+        const offsetValue = value + index * autoOffset;
 
         return isNaN(offsetValue) ? 0 : offsetValue;
       });
@@ -321,6 +357,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         stroke: getChannelColor(index),
         width: 1.5,
         points: { show: false },
+        focus: { alpha: 1.0 },
         // Use default linear paths instead of custom function
         // paths: (u: uPlot, seriesIdx: number, idx0: number, idx1: number) => {
         //   return uPlot.paths?.linear?.()(u, seriesIdx, idx0, idx1) || null
@@ -337,19 +374,27 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     const scales: uPlot.Scales = {
       x: {
         time: false,
-        range: [0, timeWindowRef.current],
+        range: (u, dataMin, dataMax) => {
+          // Use user zoom if set, otherwise use current chunk range
+          if (userZoomRef.current) {
+            return [userZoomRef.current.min, userZoomRef.current.max];
+          }
+          return [currentChunkRangeRef.current.min, currentChunkRangeRef.current.max];
+        },
       },
       y: {
         range: (u, min, max) => {
           console.log("Y-axis range calculation:", { min, max });
 
-          // If all data is zero or invalid, use a default range
+          // If all data is zero or invalid, use a default range based on number of channels
           if (isNaN(min) || isNaN(max) || min === max) {
             console.log("Using default Y range due to invalid data");
-            return [-100, 100];
+            const totalOffset = (chunkData.channels.length - 1) * autoOffset;
+            return [-autoOffset, totalOffset + autoOffset];
           }
 
-          const padding = Math.max(Math.abs(max - min) * 0.1, 10);
+          // Add padding to show all channels clearly
+          const padding = autoOffset * 0.5;
           const range = [min - padding, max + padding];
           console.log("Calculated Y range:", range);
           return range as [number, number];
@@ -364,53 +409,86 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         size: 50,
       },
       {
-        label: "Amplitude (µV)",
-        labelSize: 60,
-        size: 80,
+        label: "",
+        labelSize: 0,
+        size: 100,
+        values: () => {
+          return chunkData.channels.map((channel) => channel);
+        },
+        splits: () => {
+          return chunkData.channels.map((_, idx) => {
+            return idx * autoOffset;
+          });
+        },
+        gap: 5,
       },
     ];
 
     const opts: uPlot.Options = {
       width: plotRef.current.clientWidth,
-      height: 400,
+      height: plotRef.current.clientHeight || 400,
       series,
       scales,
       axes,
       legend: {
-        show: true,
-        live: true,
+        show: false,
       },
       cursor: {
         show: true,
         x: true,
         y: true,
         lock: false,
-        focus: {
-          prox: 30,
-        },
         drag: {
           x: true,
           y: false,
-          uni: 50,
-          dist: 10,
         },
+      },
+      select: {
+        show: true,
+        left: 0,
+        top: 0,
+        width: 0,
+        height: 0,
       },
       hooks: {
         setSelect: [
           (u) => {
-            const min = u.select.left;
-            const max = u.select.left + u.select.width;
-
-            if (u.select.width >= 10) {
-              // Only zoom if selection is wide enough
-              u.setScale("x", {
-                min: u.posToVal(min, "x"),
-                max: u.posToVal(max, "x"),
-              });
+            if (!u.select.width || u.select.width < 10) {
+              return;
             }
 
+            const minX = u.posToVal(u.select.left, "x");
+            const maxX = u.posToVal(u.select.left + u.select.width, "x");
+
+            console.log("Zoom selected:", { minX, maxX });
+
+            // Track user zoom
+            userZoomRef.current = { min: minX, max: maxX };
+
+            u.setScale("x", {
+              min: minX,
+              max: maxX,
+            });
+
             // Clear the selection box
-            u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
+            setTimeout(() => {
+              u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
+            }, 10);
+          },
+        ],
+        ready: [
+          (u) => {
+            // Add double-click handler to reset zoom
+            const plotElement = u.root.querySelector(".u-over");
+            if (plotElement) {
+              plotElement.addEventListener("dblclick", () => {
+                console.log("Double-click detected - resetting zoom");
+                // Clear user zoom
+                userZoomRef.current = null;
+                // Redraw with current chunk range
+                u.redraw();
+              });
+            }
           },
         ],
       },
@@ -442,35 +520,48 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
             sample: series?.slice(0, 3),
           })),
         });
-        // Store current zoom state before updating data
-        const currentScales = uplotRef.current.scales.x;
-        const wasZoomed =
-          Math.abs((currentScales.min ?? 0) - 0) > 0.01 ||
-          Math.abs(
-            (currentScales.max ?? timeWindowRef.current) - timeWindowRef.current
-          ) > 0.01;
+        // Update the chunk range ref BEFORE setting data
+        currentChunkRangeRef.current = {
+          min: startTime,
+          max: startTime + timeWindowRef.current,
+        };
+
+        console.log("Setting x-axis scale after data update:", {
+          startTime,
+          hasUserZoom: !!userZoomRef.current,
+          userZoom: userZoomRef.current,
+          chunkRange: currentChunkRangeRef.current,
+          currentScaleBeforeSet: {
+            min: uplotRef.current.scales.x.min,
+            max: uplotRef.current.scales.x.max,
+          },
+        });
 
         uplotRef.current.setData(data);
 
-        // Restore zoom if it was previously zoomed
-        if (
-          wasZoomed &&
-          currentScales.min != null &&
-          currentScales.max != null
-        ) {
-          uplotRef.current.setScale("x", {
-            min: currentScales.min,
-            max: currentScales.max,
-          });
-        }
+        console.log("X-axis scale after setData:", {
+          min: uplotRef.current.scales.x.min,
+          max: uplotRef.current.scales.x.max,
+        });
 
         // Force a redraw to ensure the plot updates visually
         uplotRef.current.redraw();
       } else {
+        // Set chunk range BEFORE creating plot
+        currentChunkRangeRef.current = {
+          min: startTime,
+          max: startTime + timeWindowRef.current,
+        };
+
         // Create new plot only if none exists
         uplotRef.current = new uPlot(opts, data, plotRef.current);
         console.log("uPlot created successfully:", {
           plotCreated: !!uplotRef.current,
+          chunkRange: currentChunkRangeRef.current,
+          scaleRange: {
+            min: uplotRef.current.scales.x.min,
+            max: uplotRef.current.scales.x.max,
+          },
           series: uplotRef.current.series.map((s) => ({
             label: s.label,
             show: s.show,
@@ -481,8 +572,8 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         if (!resizeObserverRef.current && plotRef.current) {
           resizeObserverRef.current = new ResizeObserver((entries) => {
             if (uplotRef.current && entries[0]) {
-              const { width } = entries[0].contentRect;
-              uplotRef.current.setSize({ width, height: 400 });
+              const { width, height } = entries[0].contentRect;
+              uplotRef.current.setSize({ width, height });
             }
           });
           resizeObserverRef.current.observe(plotRef.current);
@@ -601,7 +692,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         };
 
         setCurrentChunk(processedChunk);
-        renderPlot(processedChunk);
+        renderPlot(processedChunk, startTime);
         setCurrentTime(startTime);
       } catch (err) {
         console.error("Failed to load chunk:", err);
@@ -617,6 +708,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       preprocessing,
       apiService,
       setCurrentChunk,
+      renderPlot,
     ]
   );
 
@@ -640,6 +732,9 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     (time: number) => {
       console.log("Seek requested to:", time);
       setCurrentTime(time);
+
+      // Clear user zoom when seeking to new time
+      userZoomRef.current = null;
 
       // Debounce the chunk loading to avoid rapid API calls while dragging
       if (loadChunkTimeout) {
@@ -715,6 +810,8 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         uplotRef.current.destroy();
         uplotRef.current = null;
       }
+      // Reset stable offset for new file
+      stableOffsetRef.current = null;
       loadChunk(0); // Always load from start when file/channels change
       setCurrentTime(0); // Reset to start
     } else {
@@ -841,9 +938,9 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   }
 
   return (
-    <div className="h-full flex flex-col space-y-4 overflow-y-auto">
+    <div className="h-full flex flex-col space-y-4">
       {/* Controls Panel */}
-      <Card>
+      <Card className="flex-shrink-0">
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
             <div>
@@ -977,11 +1074,15 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                 variant="outline"
                 size="sm"
                 onClick={() => {
+                  // Clear user zoom
+                  userZoomRef.current = null;
+                  // Update chunk range and redraw
+                  currentChunkRangeRef.current = {
+                    min: currentTime,
+                    max: currentTime + timeWindow,
+                  };
                   if (uplotRef.current) {
-                    uplotRef.current.setScale("x", {
-                      min: 0,
-                      max: timeWindow,
-                    });
+                    uplotRef.current.redraw();
                   }
                 }}
                 title="Reset X-axis zoom"
@@ -1420,8 +1521,8 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       </Card>
 
       {/* Plot Area */}
-      <Card className="flex-1">
-        <CardContent className="p-4 h-full">
+      <Card className="flex-1 flex flex-col min-h-0">
+        <CardContent className="p-4 flex-1 flex flex-col min-h-0">
           {error && (
             <div className="flex items-center space-x-2 text-red-600 mb-4">
               <AlertCircle className="h-4 w-4" />
@@ -1439,7 +1540,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           )}
 
           <div
-            className="w-full h-full min-h-[400px] relative"
+            className="w-full flex-1 relative"
             onContextMenu={(e) => {
               console.log(
                 "[ANNOTATION] Right-click detected on time series plot",
@@ -1476,7 +1577,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
               );
             }}
           >
-            <div ref={plotRef} className="w-full h-full min-h-[400px]" />
+            <div ref={plotRef} className="w-full h-full" />
 
             {/* Annotation overlay */}
             {uplotRef.current &&

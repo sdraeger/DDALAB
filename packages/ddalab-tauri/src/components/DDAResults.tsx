@@ -346,9 +346,6 @@ export function DDAResults({ result }: DDAResultsProps) {
         ],
         cursor: {
           lock: false,
-          focus: {
-            prox: 1e6,
-          },
           drag: {
             x: true,
             y: false,
@@ -602,9 +599,6 @@ export function DDAResults({ result }: DDAResultsProps) {
           x: true,
           y: true,
           lock: false,
-          focus: {
-            prox: 30,
-          },
           drag: {
             x: true,
             y: false,
