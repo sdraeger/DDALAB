@@ -55,7 +55,7 @@
     "updater": {
       "active": true,
       "endpoints": [
-        "https://api.github.com/repos/sdraeger/DDALAB/releases/latest"
+        "https://github.com/sdraeger/DDALAB/releases/latest/download/latest.json"
       ],
       "pubkey": ""
     }
