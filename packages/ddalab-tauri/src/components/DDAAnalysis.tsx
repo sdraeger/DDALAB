@@ -182,13 +182,19 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   useEffect(() => {
     if (fileManager.selectedFile) {
       const defaultChannels = fileManager.selectedFile.channels.slice(0, Math.min(8, fileManager.selectedFile.channels.length))
+      // Calculate default window length as 1/4 second (0.25 * sampling_rate)
+      const defaultWindowLength = Math.round(0.25 * fileManager.selectedFile.sample_rate)
+
       setLocalParameters(prev => ({
         ...prev,
         selectedChannels: defaultChannels,
         timeEnd: Math.min(30, fileManager.selectedFile?.duration || 30)
       }))
+
+      // Update window length based on sampling rate
+      updateAnalysisParameters({ windowLength: defaultWindowLength })
     }
-  }, [fileManager.selectedFile])
+  }, [fileManager.selectedFile, updateAnalysisParameters])
 
   // Estimate processing time
   useEffect(() => {
@@ -286,9 +292,14 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   }
 
   const resetParameters = () => {
+    // Calculate default window length based on sampling rate (0.25 seconds)
+    const defaultWindowLength = fileManager.selectedFile
+      ? Math.round(0.25 * fileManager.selectedFile.sample_rate)
+      : 64 // Fallback for 256 Hz: 0.25 * 256 = 64
+
     updateAnalysisParameters({
       variants: ['single_timeseries'],
-      windowLength: 100,
+      windowLength: defaultWindowLength,
       windowStep: 10,
       detrending: 'linear',
       scaleMin: 1,

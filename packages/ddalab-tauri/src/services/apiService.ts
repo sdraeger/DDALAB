@@ -296,7 +296,7 @@ export class ApiService {
           enabled_variants: request.variants || ['single_timeseries']
         },
         window_parameters: {
-          window_length: request.window_length || 100,
+          window_length: request.window_length || 64, // Default: 0.25 seconds at 256 Hz
           window_step: request.window_step || 10
         },
         scale_parameters: {
