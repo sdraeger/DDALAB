@@ -99,6 +99,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './packages/ddalab-tauri/src-tauri -> target'
+          key: ${{ needs.check-version.outputs.version }}
 
       - name: Sync node version and setup cache
         uses: actions/setup-node@v4
@@ -135,7 +136,9 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
+          includeUpdaterJson: true
           tagName: v${{ needs.check-version.outputs.version }}
           releaseName: 'DDALAB v${{ needs.check-version.outputs.version }}'
           releaseBody: |

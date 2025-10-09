@@ -1,18 +1,30 @@
-'use client'
+"use client";
 
-import { useEffect, useRef, useState, useCallback } from 'react'
-import { useAppStore } from '@/store/appStore'
-import { ApiService } from '@/services/apiService'
-import { ChunkData } from '@/types/api'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Slider } from '@/components/ui/slider'
-import { Label } from '@/components/ui/label'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Separator } from '@/components/ui/separator'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useAppStore } from "@/store/appStore";
+import { ApiService } from "@/services/apiService";
+import { ChunkData } from "@/types/api";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   SkipBack,
   SkipForward,
@@ -23,224 +35,318 @@ import {
   RotateCcw,
   Activity,
   AlertCircle,
-  ExternalLink
-} from 'lucide-react'
-import uPlot from 'uplot'
-import 'uplot/dist/uPlot.min.css'
-import { usePopoutWindows } from '@/hooks/usePopoutWindows'
-import { useTimeSeriesAnnotations } from '@/hooks/useAnnotations'
-import { AnnotationContextMenu } from '@/components/annotations/AnnotationContextMenu'
-import { AnnotationMarker } from '@/components/annotations/AnnotationMarker'
-import { PreprocessingOptions } from '@/types/persistence'
-import { applyPreprocessing, getDefaultPreprocessing } from '@/utils/preprocessing'
+  ExternalLink,
+} from "lucide-react";
+import uPlot from "uplot";
+import "uplot/dist/uPlot.min.css";
+import { usePopoutWindows } from "@/hooks/usePopoutWindows";
+import { useTimeSeriesAnnotations } from "@/hooks/useAnnotations";
+import { AnnotationContextMenu } from "@/components/annotations/AnnotationContextMenu";
+import { AnnotationMarker } from "@/components/annotations/AnnotationMarker";
+import { PreprocessingOptions } from "@/types/persistence";
+import {
+  applyPreprocessing,
+  getDefaultPreprocessing,
+} from "@/utils/preprocessing";
 
 interface TimeSeriesPlotProps {
-  apiService: ApiService
+  apiService: ApiService;
 }
 
 export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
-  const { fileManager, plot, updatePlotState, setCurrentChunk, setSelectedChannels: persistSelectedChannels } = useAppStore()
-  const { createWindow, updateWindowData, broadcastToType } = usePopoutWindows()
+  const {
+    fileManager,
+    plot,
+    updatePlotState,
+    setCurrentChunk,
+    setSelectedChannels: persistSelectedChannels,
+  } = useAppStore();
+  const { createWindow, updateWindowData, broadcastToType } =
+    usePopoutWindows();
 
   // Annotation support for time series
   const timeSeriesAnnotations = useTimeSeriesAnnotations({
-    filePath: fileManager.selectedFile?.file_path || '',
+    filePath: fileManager.selectedFile?.file_path || "",
     // For time series, we use global annotations (not per-channel)
-  })
+  });
 
   // Remove debug console.log to prevent infinite re-render loop
-  const plotRef = useRef<HTMLDivElement>(null)
-  const uplotRef = useRef<uPlot | null>(null)
-  const resizeObserverRef = useRef<ResizeObserver | null>(null)
+  const plotRef = useRef<HTMLDivElement>(null);
+  const uplotRef = useRef<uPlot | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const userZoomRef = useRef<{ min: number; max: number } | null>(null);
+  const currentChunkRangeRef = useRef<{ min: number; max: number }>({ min: 0, max: 10 });
+  const stableOffsetRef = useRef<number | null>(null);
 
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
-  const [loadChunkTimeout, setLoadChunkTimeout] = useState<NodeJS.Timeout | null>(null)
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [loadChunkTimeout, setLoadChunkTimeout] =
+    useState<NodeJS.Timeout | null>(null);
 
   // Preprocessing controls - initialize from plot state or defaults
-  const [showPreprocessing, setShowPreprocessing] = useState(false)
+  const [showPreprocessing, setShowPreprocessing] = useState(false);
   const [preprocessing, setPreprocessing] = useState<PreprocessingOptions>(
     plot.preprocessing || getDefaultPreprocessing()
-  )
+  );
 
   // Sync local preprocessing state with plot state on mount
   useEffect(() => {
     if (plot.preprocessing) {
-      console.log('Loading preprocessing from saved state:', plot.preprocessing)
-      setPreprocessing(plot.preprocessing)
+      console.log(
+        "Loading preprocessing from saved state:",
+        plot.preprocessing
+      );
+      setPreprocessing(plot.preprocessing);
     }
-  }, []) // Empty deps - only run on mount
+  }, []); // Empty deps - only run on mount
 
   // Display controls
-  const [timeWindow, setTimeWindow] = useState(10) // seconds - default 10s chunks
-  const [channelOffset, setChannelOffset] = useState(50) // Default spacing between channels
+  const [timeWindow, setTimeWindow] = useState(10); // seconds - default 10s chunks
+  const [channelOffset, setChannelOffset] = useState(50); // Default spacing between channels
 
   // Use selectedChannels from store instead of local state
-  const selectedChannels = fileManager.selectedChannels
+  const selectedChannels = fileManager.selectedChannels;
 
   // Initialize refs with default values after state is declared
-  const channelOffsetRef = useRef(channelOffset)
-  const timeWindowRef = useRef(timeWindow)
+  const channelOffsetRef = useRef(channelOffset);
+  const timeWindowRef = useRef(timeWindow);
 
   // Update refs when values change
   useEffect(() => {
-    channelOffsetRef.current = channelOffset
-    timeWindowRef.current = timeWindow
-  }, [channelOffset, timeWindow])
+    channelOffsetRef.current = channelOffset;
+    timeWindowRef.current = timeWindow;
+  }, [channelOffset, timeWindow]);
 
   useEffect(() => {
-    console.log('File selection changed:', {
+    console.log("File selection changed:", {
       hasFile: !!fileManager.selectedFile,
       fileName: fileManager.selectedFile?.file_name,
       duration: fileManager.selectedFile?.duration,
       sampleRate: fileManager.selectedFile?.sample_rate,
       channelsCount: fileManager.selectedFile?.channels?.length,
       firstChannels: fileManager.selectedFile?.channels?.slice(0, 5),
-      persistedChannels: fileManager.selectedChannels
-    })
+      persistedChannels: fileManager.selectedChannels,
+    });
 
-    if (fileManager.selectedFile && fileManager.selectedFile.channels.length > 0) {
-      setDuration(fileManager.selectedFile.duration || 0)
+    if (
+      fileManager.selectedFile &&
+      fileManager.selectedFile.channels.length > 0
+    ) {
+      setDuration(fileManager.selectedFile.duration || 0);
 
       // Validate that persisted channels exist in the current file
-      const availableChannels = fileManager.selectedFile.channels
-      const validPersistedChannels = fileManager.selectedChannels.filter(ch =>
+      const availableChannels = fileManager.selectedFile.channels;
+      const validPersistedChannels = fileManager.selectedChannels.filter((ch) =>
         availableChannels.includes(ch)
-      )
+      );
 
       if (validPersistedChannels.length === 0) {
         // No valid persisted channels, auto-select first 4 channels
         // Skip common time columns (Time, Timestamp, etc.) from auto-selection
-        const dataChannels = availableChannels.filter(ch =>
-          !ch.toLowerCase().match(/^(time|timestamp|t|sample)$/i)
-        )
-        const channelsToSelect = dataChannels.length > 0 ? dataChannels : availableChannels
-        const defaultChannels = channelsToSelect.slice(0, Math.min(4, channelsToSelect.length))
-        console.log('Auto-selecting channels (no valid persisted):', defaultChannels, 'from total:', availableChannels.length)
-        persistSelectedChannels(defaultChannels)
-      } else if (validPersistedChannels.length !== fileManager.selectedChannels.length) {
+        const dataChannels = availableChannels.filter(
+          (ch) => !ch.toLowerCase().match(/^(time|timestamp|t|sample)$/i)
+        );
+        const channelsToSelect =
+          dataChannels.length > 0 ? dataChannels : availableChannels;
+        const defaultChannels = channelsToSelect.slice(
+          0,
+          Math.min(4, channelsToSelect.length)
+        );
+        console.log(
+          "Auto-selecting channels (no valid persisted):",
+          defaultChannels,
+          "from total:",
+          availableChannels.length
+        );
+        persistSelectedChannels(defaultChannels);
+      } else if (
+        validPersistedChannels.length !== fileManager.selectedChannels.length
+      ) {
         // Some persisted channels are invalid, use only the valid ones
-        console.log('Using valid persisted channels:', validPersistedChannels, '(filtered from', fileManager.selectedChannels, ')')
-        persistSelectedChannels(validPersistedChannels)
+        console.log(
+          "Using valid persisted channels:",
+          validPersistedChannels,
+          "(filtered from",
+          fileManager.selectedChannels,
+          ")"
+        );
+        persistSelectedChannels(validPersistedChannels);
       } else {
         // All persisted channels are valid
-        console.log('Using persisted channels:', fileManager.selectedChannels)
+        console.log("Using persisted channels:", fileManager.selectedChannels);
       }
     } else {
-      console.log('No valid file selected or no channels available')
-      persistSelectedChannels([])
+      console.log("No valid file selected or no channels available");
+      persistSelectedChannels([]);
     }
-  }, [fileManager.selectedFile, persistSelectedChannels])
+  }, [fileManager.selectedFile, persistSelectedChannels]);
 
-  const renderPlot = useCallback((chunkData: ChunkData) => {
-
+  const renderPlot = useCallback((chunkData: ChunkData, startTime: number) => {
     if (!plotRef.current) {
-      console.error('Plot ref is not available')
-      return
+      console.error("Plot ref is not available");
+      return;
     }
 
     if (!chunkData.data || chunkData.data.length === 0) {
-      console.error('No data available for plotting:', chunkData)
-      setError('No data available for plotting')
-      return
+      console.error("No data available for plotting:", chunkData);
+      setError("No data available for plotting");
+      return;
     }
 
-    console.log('Processing data for plot:', {
+    console.log("Processing data for plot:", {
       chunkDataKeys: Object.keys(chunkData),
-      dataShape: chunkData.data ? `${chunkData.data.length} x ${chunkData.data[0]?.length || 0}` : 'no data',
+      dataShape: chunkData.data
+        ? `${chunkData.data.length} x ${chunkData.data[0]?.length || 0}`
+        : "no data",
       timestampsLength: chunkData.timestamps?.length,
       sampleRate: chunkData.sample_rate,
-      channels: chunkData.channels?.length
-    })
+      channels: chunkData.channels?.length,
+      startTime,
+    });
 
     // Prepare data for uPlot
-    const dataLength = chunkData.data?.[0]?.length || 0
-    // Generate relative time data (0 to timeWindow) instead of absolute timestamps
-    const timeData = Array.from({ length: dataLength }, (_, i) => i / chunkData.sample_rate)
+    const dataLength = chunkData.data?.[0]?.length || 0;
+    // Generate absolute time data starting from current position in file
+    const timeData = Array.from(
+      { length: dataLength },
+      (_, i) => startTime + (i / chunkData.sample_rate)
+    );
 
-    console.log('Generated time data:', {
+    console.log("Generated time data:", {
+      startTime,
       timeDataLength: timeData.length,
       firstFew: timeData.slice(0, 5),
-      lastFew: timeData.slice(-5)
-    })
+      lastFew: timeData.slice(-5),
+      expectedRange: [startTime, startTime + timeWindowRef.current],
+    });
+
+    // Calculate auto-scaled offset based on maximum data range across all channels
+    // Use stable offset if already calculated, otherwise calculate and store it
+    let autoOffset = stableOffsetRef.current;
+    if (autoOffset === null && chunkData.data.length > 1) {
+      const channelRanges = chunkData.data.map((channelData) => {
+        const validData = channelData.filter((v) => typeof v === "number" && !isNaN(v));
+        if (validData.length === 0) return 0;
+        const min = Math.min(...validData);
+        const max = Math.max(...validData);
+        return max - min;
+      });
+      const maxRange = Math.max(...channelRanges);
+      // Use 2x the maximum channel range as offset to ensure clear separation
+      autoOffset = Math.max(maxRange * 2, channelOffsetRef.current);
+      // Store for consistent use across all chunks
+      stableOffsetRef.current = autoOffset;
+      console.log("Auto-calculated STABLE channel offset:", {
+        channelRanges,
+        maxRange,
+        autoOffset,
+        userOffset: channelOffsetRef.current,
+      });
+    } else if (autoOffset === null) {
+      // Fallback if only one channel
+      autoOffset = channelOffsetRef.current;
+      stableOffsetRef.current = autoOffset;
+    } else {
+      console.log("Using previously calculated stable offset:", autoOffset);
+    }
 
     // Stack channels with offset for visibility
     const processedData = chunkData.data.map((channelData, index) => {
       if (!Array.isArray(channelData)) {
-        console.error(`Channel ${index} data is not an array:`, typeof channelData, channelData)
-        return Array(dataLength).fill(0)
+        console.error(
+          `Channel ${index} data is not an array:`,
+          typeof channelData,
+          channelData
+        );
+        return Array(dataLength).fill(0);
       }
 
-      const processed = channelData.map(value => {
-        if (typeof value !== 'number') {
-          console.warn(`Non-numeric value found:`, value, typeof value)
-          return 0
+      const processed = channelData.map((value) => {
+        if (typeof value !== "number") {
+          console.warn(`Non-numeric value found:`, value, typeof value);
+          return 0;
         }
 
         // Add channel offset for stacking
-        const offsetValue = value + (index * channelOffsetRef.current)
+        const offsetValue = value + index * autoOffset;
 
-        return isNaN(offsetValue) ? 0 : offsetValue
-      })
+        return isNaN(offsetValue) ? 0 : offsetValue;
+      });
 
-      console.log(`Channel ${index} (${chunkData.channels[index]}) processed:`, {
-        originalLength: channelData.length,
-        processedLength: processed.length,
-        originalRange: [Math.min(...channelData.slice(0, 100)), Math.max(...channelData.slice(0, 100))],
-        processedRange: [Math.min(...processed.slice(0, 100)), Math.max(...processed.slice(0, 100))],
-        sampleValues: {
-          original: channelData.slice(0, 5),
-          processed: processed.slice(0, 5)
-        },
-        hasNaN: processed.some(v => isNaN(v))
-      })
-      return processed
-    })
+      console.log(
+        `Channel ${index} (${chunkData.channels[index]}) processed:`,
+        {
+          originalLength: channelData.length,
+          processedLength: processed.length,
+          originalRange: [
+            Math.min(...channelData.slice(0, 100)),
+            Math.max(...channelData.slice(0, 100)),
+          ],
+          processedRange: [
+            Math.min(...processed.slice(0, 100)),
+            Math.max(...processed.slice(0, 100)),
+          ],
+          sampleValues: {
+            original: channelData.slice(0, 5),
+            processed: processed.slice(0, 5),
+          },
+          hasNaN: processed.some((v) => isNaN(v)),
+        }
+      );
+      return processed;
+    });
 
-    const data: uPlot.AlignedData = [timeData, ...processedData]
+    const data: uPlot.AlignedData = [timeData, ...processedData];
 
-    console.log('Final uPlot data:', {
+    console.log("Final uPlot data:", {
       seriesCount: data.length,
       timeLength: data[0].length,
-      dataLengths: data.slice(1).map(series => series.length),
+      dataLengths: data.slice(1).map((series) => series.length),
       timeDataSample: data[0].slice(0, 10),
       dataSeriesSamples: data.slice(1).map((series, idx) => ({
         channel: idx,
         values: series.slice(0, 10),
-        range: [Math.min(...(series as number[])), Math.max(...(series as number[]))]
+        range: [
+          Math.min(...(series as number[])),
+          Math.max(...(series as number[])),
+        ],
       })),
       hasVariation: data.slice(1).map((series, idx) => {
-        const arr = series as number[]
-        const min = Math.min(...arr)
-        const max = Math.max(...arr)
+        const arr = series as number[];
+        const min = Math.min(...arr);
+        const max = Math.max(...arr);
         return {
           channel: idx,
           min,
           max,
           range: max - min,
-          hasVariation: (max - min) > 0.01
-        }
-      })
-    })
+          hasVariation: max - min > 0.01,
+        };
+      }),
+    });
 
     // Validate data integrity
-    const hasValidData = data.every(series => Array.isArray(series) && series.length > 0)
-    const hasNumericData = data.slice(1).every((series: any) =>
-      series.every((val: any) => typeof val === 'number' && !isNaN(val))
-    )
+    const hasValidData = data.every(
+      (series) => Array.isArray(series) && series.length > 0
+    );
+    const hasNumericData = data
+      .slice(1)
+      .every((series: any) =>
+        series.every((val: any) => typeof val === "number" && !isNaN(val))
+      );
 
-    console.log('Data validation:', {
+    console.log("Data validation:", {
       hasValidData,
       hasNumericData,
-      allLengthsEqual: data.every(series => series.length === data[0].length)
-    })
+      allLengthsEqual: data.every((series) => series.length === data[0].length),
+    });
 
     if (!hasValidData || !hasNumericData) {
-      console.error('Invalid data detected, aborting plot creation')
-      setError('Invalid data format received')
-      return
+      console.error("Invalid data detected, aborting plot creation");
+      setError("Invalid data format received");
+      return;
     }
 
     // Create series config
@@ -251,112 +357,155 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         stroke: getChannelColor(index),
         width: 1.5,
         points: { show: false },
+        focus: { alpha: 1.0 },
         // Use default linear paths instead of custom function
         // paths: (u: uPlot, seriesIdx: number, idx0: number, idx1: number) => {
         //   return uPlot.paths?.linear?.()(u, seriesIdx, idx0, idx1) || null
         // }
-      }))
-    ]
+      })),
+    ];
 
-    console.log('Series configuration:', {
+    console.log("Series configuration:", {
       seriesCount: series.length,
       channelLabels: chunkData.channels,
-      seriesLabels: series.slice(1).map(s => s.label)
-    })
+      seriesLabels: series.slice(1).map((s) => s.label),
+    });
 
     const scales: uPlot.Scales = {
       x: {
         time: false,
-        range: [0, timeWindowRef.current]
+        range: (u, dataMin, dataMax) => {
+          // Use user zoom if set, otherwise use current chunk range
+          if (userZoomRef.current) {
+            return [userZoomRef.current.min, userZoomRef.current.max];
+          }
+          return [currentChunkRangeRef.current.min, currentChunkRangeRef.current.max];
+        },
       },
       y: {
         range: (u, min, max) => {
-          console.log('Y-axis range calculation:', { min, max })
+          console.log("Y-axis range calculation:", { min, max });
 
-          // If all data is zero or invalid, use a default range
+          // If all data is zero or invalid, use a default range based on number of channels
           if (isNaN(min) || isNaN(max) || min === max) {
-            console.log('Using default Y range due to invalid data')
-            return [-100, 100]
+            console.log("Using default Y range due to invalid data");
+            const totalOffset = (chunkData.channels.length - 1) * autoOffset;
+            return [-autoOffset, totalOffset + autoOffset];
           }
 
-          const padding = Math.max(Math.abs(max - min) * 0.1, 10)
-          const range = [min - padding, max + padding]
-          console.log('Calculated Y range:', range)
-          return range as [number, number]
-        }
-      }
-    }
+          // Add padding to show all channels clearly
+          const padding = autoOffset * 0.5;
+          const range = [min - padding, max + padding];
+          console.log("Calculated Y range:", range);
+          return range as [number, number];
+        },
+      },
+    };
 
     const axes: uPlot.Axis[] = [
       {
-        label: 'Time (s)',
+        label: "Time (s)",
         labelSize: 30,
-        size: 50
+        size: 50,
       },
       {
-        label: 'Amplitude (µV)',
-        labelSize: 60,
-        size: 80
-      }
-    ]
+        label: "",
+        labelSize: 0,
+        size: 100,
+        values: () => {
+          return chunkData.channels.map((channel) => channel);
+        },
+        splits: () => {
+          return chunkData.channels.map((_, idx) => {
+            return idx * autoOffset;
+          });
+        },
+        gap: 5,
+      },
+    ];
 
     const opts: uPlot.Options = {
       width: plotRef.current.clientWidth,
-      height: 400,
+      height: plotRef.current.clientHeight || 400,
       series,
       scales,
       axes,
       legend: {
-        show: true,
-        live: true
+        show: false,
       },
       cursor: {
         show: true,
         x: true,
         y: true,
         lock: false,
-        focus: {
-          prox: 30,
-        },
         drag: {
           x: true,
           y: false,
-          uni: 50,
-          dist: 10,
-        }
+        },
+      },
+      select: {
+        show: true,
+        left: 0,
+        top: 0,
+        width: 0,
+        height: 0,
       },
       hooks: {
         setSelect: [
-          u => {
-            const min = u.select.left
-            const max = u.select.left + u.select.width
-
-            if (u.select.width >= 10) { // Only zoom if selection is wide enough
-              u.setScale('x', {
-                min: u.posToVal(min, 'x'),
-                max: u.posToVal(max, 'x')
-              })
+          (u) => {
+            if (!u.select.width || u.select.width < 10) {
+              return;
             }
 
-            // Clear the selection box
-            u.setSelect({left: 0, top: 0, width: 0, height: 0}, false)
-          }
-        ]
-      }
-    }
+            const minX = u.posToVal(u.select.left, "x");
+            const maxX = u.posToVal(u.select.left + u.select.width, "x");
 
-    console.log('Creating uPlot with options:', {
+            console.log("Zoom selected:", { minX, maxX });
+
+            // Track user zoom
+            userZoomRef.current = { min: minX, max: maxX };
+
+            u.setScale("x", {
+              min: minX,
+              max: maxX,
+            });
+
+            // Clear the selection box
+            setTimeout(() => {
+              u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
+            }, 10);
+          },
+        ],
+        ready: [
+          (u) => {
+            // Add double-click handler to reset zoom
+            const plotElement = u.root.querySelector(".u-over");
+            if (plotElement) {
+              plotElement.addEventListener("dblclick", () => {
+                console.log("Double-click detected - resetting zoom");
+                // Clear user zoom
+                userZoomRef.current = null;
+                // Redraw with current chunk range
+                u.redraw();
+              });
+            }
+          },
+        ],
+      },
+    };
+
+    console.log("Creating uPlot with options:", {
       width: opts.width,
       height: opts.height,
       dataLength: data.length,
-      plotContainer: !!plotRef.current
-    })
+      plotContainer: !!plotRef.current,
+    });
 
     try {
       if (uplotRef.current) {
         // Update existing plot with new data
-        console.log('Updating existing uPlot with new data')
-        console.log('Data being set:', {
+        console.log("Updating existing uPlot with new data");
+        console.log("Data being set:", {
           dataType: typeof data,
           isArray: Array.isArray(data),
           length: data.length,
@@ -368,198 +517,250 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
             type: typeof series,
             isArray: Array.isArray(series),
             length: series?.length,
-            sample: series?.slice(0, 3)
-          }))
-        })
-        // Store current zoom state before updating data
-        const currentScales = uplotRef.current.scales.x
-        const wasZoomed = Math.abs((currentScales.min ?? 0) - 0) > 0.01 ||
-                         Math.abs((currentScales.max ?? timeWindowRef.current) - timeWindowRef.current) > 0.01
+            sample: series?.slice(0, 3),
+          })),
+        });
+        // Update the chunk range ref BEFORE setting data
+        currentChunkRangeRef.current = {
+          min: startTime,
+          max: startTime + timeWindowRef.current,
+        };
 
-        uplotRef.current.setData(data)
+        console.log("Setting x-axis scale after data update:", {
+          startTime,
+          hasUserZoom: !!userZoomRef.current,
+          userZoom: userZoomRef.current,
+          chunkRange: currentChunkRangeRef.current,
+          currentScaleBeforeSet: {
+            min: uplotRef.current.scales.x.min,
+            max: uplotRef.current.scales.x.max,
+          },
+        });
 
-        // Restore zoom if it was previously zoomed
-        if (wasZoomed && currentScales.min != null && currentScales.max != null) {
-          uplotRef.current.setScale('x', {
-            min: currentScales.min,
-            max: currentScales.max
-          })
-        }
+        uplotRef.current.setData(data);
+
+        console.log("X-axis scale after setData:", {
+          min: uplotRef.current.scales.x.min,
+          max: uplotRef.current.scales.x.max,
+        });
 
         // Force a redraw to ensure the plot updates visually
-        uplotRef.current.redraw()
+        uplotRef.current.redraw();
       } else {
+        // Set chunk range BEFORE creating plot
+        currentChunkRangeRef.current = {
+          min: startTime,
+          max: startTime + timeWindowRef.current,
+        };
+
         // Create new plot only if none exists
-        uplotRef.current = new uPlot(opts, data, plotRef.current)
-        console.log('uPlot created successfully:', {
+        uplotRef.current = new uPlot(opts, data, plotRef.current);
+        console.log("uPlot created successfully:", {
           plotCreated: !!uplotRef.current,
-          series: uplotRef.current.series.map(s => ({ label: s.label, show: s.show }))
-        })
+          chunkRange: currentChunkRangeRef.current,
+          scaleRange: {
+            min: uplotRef.current.scales.x.min,
+            max: uplotRef.current.scales.x.max,
+          },
+          series: uplotRef.current.series.map((s) => ({
+            label: s.label,
+            show: s.show,
+          })),
+        });
 
         // Set up resize observer for the plot
         if (!resizeObserverRef.current && plotRef.current) {
-          resizeObserverRef.current = new ResizeObserver(entries => {
+          resizeObserverRef.current = new ResizeObserver((entries) => {
             if (uplotRef.current && entries[0]) {
-              const { width } = entries[0].contentRect
-              uplotRef.current.setSize({ width, height: 400 })
+              const { width, height } = entries[0].contentRect;
+              uplotRef.current.setSize({ width, height });
             }
-          })
-          resizeObserverRef.current.observe(plotRef.current)
+          });
+          resizeObserverRef.current.observe(plotRef.current);
         }
       }
     } catch (error) {
-      console.error('Failed to create/update uPlot:', error)
-      setError('Failed to create plot: ' + error)
-      return
+      console.error("Failed to create/update uPlot:", error);
+      setError("Failed to create plot: " + error);
+      return;
     }
-
-  }, [])
+  }, []);
 
   // Clean up plot and observer on unmount
   useEffect(() => {
     return () => {
       if (resizeObserverRef.current) {
-        resizeObserverRef.current.disconnect()
-        resizeObserverRef.current = null
+        resizeObserverRef.current.disconnect();
+        resizeObserverRef.current = null;
       }
       if (uplotRef.current) {
-        uplotRef.current.destroy()
-        uplotRef.current = null
+        uplotRef.current.destroy();
+        uplotRef.current = null;
       }
-    }
-  }, [])
+    };
+  }, []);
 
-  const loadChunk = useCallback(async (startTime: number) => {
-    console.log('=== LOAD CHUNK CALLED ===', {
-      startTime,
-      hasFile: !!fileManager.selectedFile,
-      fileName: fileManager.selectedFile?.file_name,
-      selectedChannelsCount: selectedChannels.length,
-      callStack: new Error().stack?.split('\n').slice(1, 6).join('\n')
-    })
-
-    if (!fileManager.selectedFile || selectedChannels.length === 0) {
-      console.log('Cannot load chunk: no file or channels selected')
-      return
-    }
-
-    if (fileManager.selectedFile.duration === 0) {
-      setError('File has no duration - data may not be properly loaded')
-      return
-    }
-
-    try {
-      setLoading(true)
-      setError(null)
-
-      console.log('Loading chunk with params:', {
-        file: fileManager.selectedFile.file_name,
+  const loadChunk = useCallback(
+    async (startTime: number) => {
+      console.log("=== LOAD CHUNK CALLED ===", {
         startTime,
-        timeWindow,
-        sampleRate: fileManager.selectedFile.sample_rate,
-        selectedChannels: selectedChannels.length,
-        selectedChannelNames: selectedChannels,
-        preprocessing
-      })
+        hasFile: !!fileManager.selectedFile,
+        fileName: fileManager.selectedFile?.file_name,
+        selectedChannelsCount: selectedChannels.length,
+        callStack: new Error().stack?.split("\n").slice(1, 6).join("\n"),
+      });
 
-      const chunkSize = Math.floor(timeWindow * fileManager.selectedFile.sample_rate)
-      const chunkStart = Math.floor(startTime * fileManager.selectedFile.sample_rate)
-
-      console.log('Calculated chunk params:', {
-        chunkStart,
-        chunkSize,
-        timeWindowSeconds: timeWindow,
-        expectedDataPoints: chunkSize,
-        startTimeSamples: chunkStart
-      })
-
-      const chunkData = await apiService.getChunkData(
-        fileManager.selectedFile.file_path,
-        chunkStart,
-        chunkSize,
-        selectedChannels
-      )
-
-      console.log('Received chunk data:', {
-        dataLength: chunkData.data?.length,
-        timestampsLength: chunkData.timestamps?.length,
-        channels: chunkData.channels?.length,
-        sampleRate: chunkData.sample_rate,
-        firstChannelFirstValues: chunkData.data?.[0]?.slice(0, 5),
-        dataTypes: chunkData.data?.map(channel => typeof channel[0])
-      })
-
-      if (!chunkData.data || chunkData.data.length === 0) {
-        setError('No data received from server')
-        return
+      if (!fileManager.selectedFile || selectedChannels.length === 0) {
+        console.log("Cannot load chunk: no file or channels selected");
+        return;
       }
 
-      // Apply preprocessing to each channel
-      const preprocessedData = chunkData.data.map((channelData) =>
-        applyPreprocessing(channelData, fileManager.selectedFile!.sample_rate, preprocessing)
-      )
-
-      console.log('Applied preprocessing:', {
-        originalFirstValues: chunkData.data[0]?.slice(0, 5),
-        preprocessedFirstValues: preprocessedData[0]?.slice(0, 5),
-        preprocessingOptions: preprocessing
-      })
-
-      // Create processed chunk data
-      const processedChunk: ChunkData = {
-        ...chunkData,
-        data: preprocessedData
+      if (fileManager.selectedFile.duration === 0) {
+        setError("File has no duration - data may not be properly loaded");
+        return;
       }
 
-      setCurrentChunk(processedChunk)
-      renderPlot(processedChunk)
-      setCurrentTime(startTime)
+      try {
+        setLoading(true);
+        setError(null);
 
-    } catch (err) {
-      console.error('Failed to load chunk:', err)
-      setError(err instanceof Error ? err.message : 'Failed to load data')
-    } finally {
-      setLoading(false)
-    }
-  }, [fileManager.selectedFile, selectedChannels, timeWindow, preprocessing, apiService, setCurrentChunk])
+        console.log("Loading chunk with params:", {
+          file: fileManager.selectedFile.file_name,
+          startTime,
+          timeWindow,
+          sampleRate: fileManager.selectedFile.sample_rate,
+          selectedChannels: selectedChannels.length,
+          selectedChannelNames: selectedChannels,
+          preprocessing,
+        });
 
+        const chunkSize = Math.floor(
+          timeWindow * fileManager.selectedFile.sample_rate
+        );
+        const chunkStart = Math.floor(
+          startTime * fileManager.selectedFile.sample_rate
+        );
+
+        console.log("Calculated chunk params:", {
+          chunkStart,
+          chunkSize,
+          timeWindowSeconds: timeWindow,
+          expectedDataPoints: chunkSize,
+          startTimeSamples: chunkStart,
+        });
+
+        const chunkData = await apiService.getChunkData(
+          fileManager.selectedFile.file_path,
+          chunkStart,
+          chunkSize,
+          selectedChannels
+        );
+
+        console.log("Received chunk data:", {
+          dataLength: chunkData.data?.length,
+          timestampsLength: chunkData.timestamps?.length,
+          channels: chunkData.channels?.length,
+          sampleRate: chunkData.sample_rate,
+          firstChannelFirstValues: chunkData.data?.[0]?.slice(0, 5),
+          dataTypes: chunkData.data?.map((channel) => typeof channel[0]),
+        });
+
+        if (!chunkData.data || chunkData.data.length === 0) {
+          setError("No data received from server");
+          return;
+        }
+
+        // Apply preprocessing to each channel
+        const preprocessedData = chunkData.data.map((channelData) =>
+          applyPreprocessing(
+            channelData,
+            fileManager.selectedFile!.sample_rate,
+            preprocessing
+          )
+        );
+
+        console.log("Applied preprocessing:", {
+          originalFirstValues: chunkData.data[0]?.slice(0, 5),
+          preprocessedFirstValues: preprocessedData[0]?.slice(0, 5),
+          preprocessingOptions: preprocessing,
+        });
+
+        // Create processed chunk data
+        const processedChunk: ChunkData = {
+          ...chunkData,
+          data: preprocessedData,
+        };
+
+        setCurrentChunk(processedChunk);
+        renderPlot(processedChunk, startTime);
+        setCurrentTime(startTime);
+      } catch (err) {
+        console.error("Failed to load chunk:", err);
+        setError(err instanceof Error ? err.message : "Failed to load data");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      fileManager.selectedFile,
+      selectedChannels,
+      timeWindow,
+      preprocessing,
+      apiService,
+      setCurrentChunk,
+      renderPlot,
+    ]
+  );
 
   const getChannelColor = (index: number): string => {
     const colors = [
-      '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
-      '#06b6d4', '#f97316', '#84cc16', '#ec4899', '#6366f1'
-    ]
-    return colors[index % colors.length]
-  }
+      "#3b82f6",
+      "#ef4444",
+      "#10b981",
+      "#f59e0b",
+      "#8b5cf6",
+      "#06b6d4",
+      "#f97316",
+      "#84cc16",
+      "#ec4899",
+      "#6366f1",
+    ];
+    return colors[index % colors.length];
+  };
 
+  const handleSeek = useCallback(
+    (time: number) => {
+      console.log("Seek requested to:", time);
+      setCurrentTime(time);
 
-  const handleSeek = useCallback((time: number) => {
-    console.log('Seek requested to:', time)
-    setCurrentTime(time)
+      // Clear user zoom when seeking to new time
+      userZoomRef.current = null;
 
-    // Debounce the chunk loading to avoid rapid API calls while dragging
-    if (loadChunkTimeout) {
-      clearTimeout(loadChunkTimeout)
-      console.log('Clearing previous chunk load timeout')
-    }
+      // Debounce the chunk loading to avoid rapid API calls while dragging
+      if (loadChunkTimeout) {
+        clearTimeout(loadChunkTimeout);
+        console.log("Clearing previous chunk load timeout");
+      }
 
-    const timeoutId = setTimeout(() => {
-      console.log('Debounced seek - loading chunk at time:', time)
-      loadChunk(time)
-    }, 200) // 200ms debounce
+      const timeoutId = setTimeout(() => {
+        console.log("Debounced seek - loading chunk at time:", time);
+        loadChunk(time);
+      }, 200); // 200ms debounce
 
-    setLoadChunkTimeout(timeoutId)
-  }, [loadChunk, loadChunkTimeout])
+      setLoadChunkTimeout(timeoutId);
+    },
+    [loadChunk, loadChunkTimeout]
+  );
 
   const handleChannelToggle = (channel: string, checked: boolean) => {
     const newChannels = checked
       ? [...selectedChannels, channel]
-      : selectedChannels.filter(ch => ch !== channel)
-    persistSelectedChannels(newChannels)
-  }
+      : selectedChannels.filter((ch) => ch !== channel);
+    persistSelectedChannels(newChannels);
+  };
 
   const handlePopOut = useCallback(async () => {
-    if (!plot.currentChunk) return
+    if (!plot.currentChunk) return;
 
     const timeSeriesData = {
       channels: plot.currentChunk.channels,
@@ -569,105 +770,130 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       chunkStart: plot.currentChunk.chunk_start,
       timeWindow: timeWindow,
       currentTime: currentTime,
-      filters: preprocessing
-    }
+      filters: preprocessing,
+    };
 
     try {
-      const windowId = await createWindow('timeseries', 'main', timeSeriesData)
-      console.log('Created timeseries popout window:', windowId)
+      const windowId = await createWindow("timeseries", "main", timeSeriesData);
+      console.log("Created timeseries popout window:", windowId);
     } catch (error) {
-      console.error('Failed to create popout window:', error)
+      console.error("Failed to create popout window:", error);
     }
-  }, [plot.currentChunk, timeWindow, currentTime, preprocessing, createWindow])
+  }, [plot.currentChunk, timeWindow, currentTime, preprocessing, createWindow]);
 
   // Load initial chunk when file or channels change
   useEffect(() => {
-    console.log('File/channel change effect triggered:', {
+    console.log("File/channel change effect triggered:", {
       hasFile: !!fileManager.selectedFile,
       fileName: fileManager.selectedFile?.file_name,
       selectedChannelsCount: selectedChannels.length,
-      selectedChannels: selectedChannels
-    })
+      selectedChannels: selectedChannels,
+    });
 
     if (fileManager.selectedFile && selectedChannels.length > 0) {
       // Validate that selected channels exist in the file before loading
-      const availableChannels = fileManager.selectedFile.channels
-      const allChannelsValid = selectedChannels.every(ch => availableChannels.includes(ch))
+      const availableChannels = fileManager.selectedFile.channels;
+      const allChannelsValid = selectedChannels.every((ch) =>
+        availableChannels.includes(ch)
+      );
 
       if (!allChannelsValid) {
-        console.log('Skipping chunk load - selected channels not yet validated for this file')
-        return
+        console.log(
+          "Skipping chunk load - selected channels not yet validated for this file"
+        );
+        return;
       }
 
-      console.log('Conditions met - triggering initial chunk load')
+      console.log("Conditions met - triggering initial chunk load");
       // Destroy existing plot when file changes to ensure clean state
       if (uplotRef.current) {
-        uplotRef.current.destroy()
-        uplotRef.current = null
+        uplotRef.current.destroy();
+        uplotRef.current = null;
       }
-      loadChunk(0) // Always load from start when file/channels change
-      setCurrentTime(0) // Reset to start
+      // Reset stable offset for new file
+      stableOffsetRef.current = null;
+      loadChunk(0); // Always load from start when file/channels change
+      setCurrentTime(0); // Reset to start
     } else {
-      console.log('Conditions not met for chunk loading:', {
+      console.log("Conditions not met for chunk loading:", {
         hasFile: !!fileManager.selectedFile,
-        hasChannels: selectedChannels.length > 0
-      })
+        hasChannels: selectedChannels.length > 0,
+      });
     }
-  }, [fileManager.selectedFile, selectedChannels, loadChunk])
+  }, [fileManager.selectedFile, selectedChannels, loadChunk]);
 
   // Handle time window changes separately to avoid recreating plot
   useEffect(() => {
-    if (fileManager.selectedFile && selectedChannels.length > 0 && currentTime >= 0) {
+    if (
+      fileManager.selectedFile &&
+      selectedChannels.length > 0 &&
+      currentTime >= 0
+    ) {
       // Validate that selected channels exist in the file before loading
-      const availableChannels = fileManager.selectedFile.channels
-      const allChannelsValid = selectedChannels.every(ch => availableChannels.includes(ch))
+      const availableChannels = fileManager.selectedFile.channels;
+      const allChannelsValid = selectedChannels.every((ch) =>
+        availableChannels.includes(ch)
+      );
 
       if (!allChannelsValid) {
-        console.log('Skipping time window chunk load - selected channels not yet validated for this file')
-        return
+        console.log(
+          "Skipping time window chunk load - selected channels not yet validated for this file"
+        );
+        return;
       }
 
-      console.log('TimeWindow useEffect triggered, reloading chunk at current time:', currentTime, {
-        timeWindow,
-        fileName: fileManager.selectedFile?.file_name,
-        selectedChannelsCount: selectedChannels.length
-      })
+      console.log(
+        "TimeWindow useEffect triggered, reloading chunk at current time:",
+        currentTime,
+        {
+          timeWindow,
+          fileName: fileManager.selectedFile?.file_name,
+          selectedChannelsCount: selectedChannels.length,
+        }
+      );
       // Don't reload on every currentTime change as this would reset zoom constantly
       // Only reload when timeWindow itself changes
-      loadChunk(currentTime)
+      loadChunk(currentTime);
     }
-  }, [timeWindow, loadChunk, fileManager.selectedFile, selectedChannels])
+  }, [timeWindow, loadChunk, fileManager.selectedFile, selectedChannels]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
       if (loadChunkTimeout) {
-        clearTimeout(loadChunkTimeout)
+        clearTimeout(loadChunkTimeout);
       }
-    }
-  }, [loadChunkTimeout])
+    };
+  }, [loadChunkTimeout]);
 
   // Persist preprocessing options to plot state
   useEffect(() => {
-    updatePlotState({ preprocessing })
-  }, [preprocessing, updatePlotState])
+    updatePlotState({ preprocessing });
+  }, [preprocessing, updatePlotState]);
 
   // Reload chunk when preprocessing changes
   useEffect(() => {
     if (fileManager.selectedFile && selectedChannels.length > 0) {
       // Validate that selected channels exist in the file before loading
-      const availableChannels = fileManager.selectedFile.channels
-      const allChannelsValid = selectedChannels.every(ch => availableChannels.includes(ch))
+      const availableChannels = fileManager.selectedFile.channels;
+      const allChannelsValid = selectedChannels.every((ch) =>
+        availableChannels.includes(ch)
+      );
 
       if (!allChannelsValid) {
-        console.log('Skipping preprocessing chunk load - selected channels not yet validated for this file')
-        return
+        console.log(
+          "Skipping preprocessing chunk load - selected channels not yet validated for this file"
+        );
+        return;
       }
 
-      console.log('Preprocessing changed, reloading chunk at current time:', currentTime)
-      loadChunk(currentTime)
+      console.log(
+        "Preprocessing changed, reloading chunk at current time:",
+        currentTime
+      );
+      loadChunk(currentTime);
     }
-  }, [preprocessing])
+  }, [preprocessing]);
 
   // Update popout windows when data changes
   useEffect(() => {
@@ -680,12 +906,20 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         chunkStart: plot.currentChunk.chunk_start,
         timeWindow: timeWindow,
         currentTime: currentTime,
-        filters: preprocessing
-      }
+        filters: preprocessing,
+      };
 
-      broadcastToType('timeseries', 'data-update', timeSeriesData).catch(console.error)
+      broadcastToType("timeseries", "data-update", timeSeriesData).catch(
+        console.error
+      );
     }
-  }, [plot.currentChunk, currentTime, timeWindow, preprocessing, broadcastToType])
+  }, [
+    plot.currentChunk,
+    currentTime,
+    timeWindow,
+    preprocessing,
+    broadcastToType,
+  ]);
 
   if (!fileManager.selectedFile) {
     return (
@@ -700,19 +934,20 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           </div>
         </CardContent>
       </Card>
-    )
+    );
   }
 
   return (
-    <div className="h-full flex flex-col space-y-4 overflow-y-auto">
+    <div className="h-full flex flex-col space-y-4">
       {/* Controls Panel */}
-      <Card>
+      <Card className="flex-shrink-0">
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-lg">Time Series Visualization</CardTitle>
+              <CardTitle className="text-lg">Data Visualization</CardTitle>
               <CardDescription>
-                {fileManager.selectedFile.file_name} • {selectedChannels.length} channels
+                {fileManager.selectedFile.file_name} • {selectedChannels.length}{" "}
+                channels
               </CardDescription>
             </div>
             <div className="flex items-center space-x-2">
@@ -749,7 +984,9 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => handleSeek(Math.max(0, currentTime - timeWindow))}
+                onClick={() =>
+                  handleSeek(Math.max(0, currentTime - timeWindow))
+                }
                 disabled={loading || currentTime <= 0}
               >
                 <SkipBack className="h-4 w-4" />
@@ -757,7 +994,11 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => handleSeek(Math.min(duration - timeWindow, currentTime + timeWindow))}
+                onClick={() =>
+                  handleSeek(
+                    Math.min(duration - timeWindow, currentTime + timeWindow)
+                  )
+                }
                 disabled={loading || currentTime >= duration - timeWindow}
               >
                 <SkipForward className="h-4 w-4" />
@@ -765,7 +1006,9 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
             </div>
 
             <div className="flex-1">
-              <Label className="text-sm">Time: {currentTime.toFixed(1)}s / {duration.toFixed(1)}s</Label>
+              <Label className="text-sm">
+                Time: {currentTime.toFixed(1)}s / {duration.toFixed(1)}s
+              </Label>
               <Slider
                 value={[currentTime]}
                 onValueChange={([time]) => handleSeek(time)}
@@ -775,7 +1018,6 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                 className="mt-1"
               />
             </div>
-
           </div>
 
           <Separator />
@@ -784,7 +1026,10 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           <div className="grid grid-cols-4 gap-4">
             <div>
               <Label className="text-sm">Time Window (s)</Label>
-              <Select value={timeWindow.toString()} onValueChange={(value) => setTimeWindow(parseInt(value))}>
+              <Select
+                value={timeWindow.toString()}
+                onValueChange={(value) => setTimeWindow(parseInt(value))}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -804,7 +1049,9 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
               <Input
                 type="number"
                 value={channelOffset}
-                onChange={(e) => setChannelOffset(parseInt(e.target.value) || 0)}
+                onChange={(e) =>
+                  setChannelOffset(parseInt(e.target.value) || 0)
+                }
                 min="0"
                 max="500"
                 step="10"
@@ -816,8 +1063,8 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setChannelOffset(50)
-                  setCurrentTime(0)
+                  setChannelOffset(50);
+                  setCurrentTime(0);
                 }}
               >
                 <RotateCcw className="h-4 w-4 mr-2" />
@@ -827,11 +1074,15 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                 variant="outline"
                 size="sm"
                 onClick={() => {
+                  // Clear user zoom
+                  userZoomRef.current = null;
+                  // Update chunk range and redraw
+                  currentChunkRangeRef.current = {
+                    min: currentTime,
+                    max: currentTime + timeWindow,
+                  };
                   if (uplotRef.current) {
-                    uplotRef.current.setScale('x', {
-                      min: 0,
-                      max: timeWindow
-                    })
+                    uplotRef.current.redraw();
                   }
                 }}
                 title="Reset X-axis zoom"
@@ -864,11 +1115,15 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                     <Label className="text-xs">High-pass (Hz)</Label>
                     <Input
                       type="number"
-                      value={preprocessing.highpass || ''}
-                      onChange={(e) => setPreprocessing(prev => ({
-                        ...prev,
-                        highpass: e.target.value ? parseFloat(e.target.value) : undefined
-                      }))}
+                      value={preprocessing.highpass || ""}
+                      onChange={(e) =>
+                        setPreprocessing((prev) => ({
+                          ...prev,
+                          highpass: e.target.value
+                            ? parseFloat(e.target.value)
+                            : undefined,
+                        }))
+                      }
                       placeholder="0.5"
                       step="0.1"
                       min="0"
@@ -880,11 +1135,15 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                     <Label className="text-xs">Low-pass (Hz)</Label>
                     <Input
                       type="number"
-                      value={preprocessing.lowpass || ''}
-                      onChange={(e) => setPreprocessing(prev => ({
-                        ...prev,
-                        lowpass: e.target.value ? parseFloat(e.target.value) : undefined
-                      }))}
+                      value={preprocessing.lowpass || ""}
+                      onChange={(e) =>
+                        setPreprocessing((prev) => ({
+                          ...prev,
+                          lowpass: e.target.value
+                            ? parseFloat(e.target.value)
+                            : undefined,
+                        }))
+                      }
                       placeholder="70"
                       step="1"
                       min="1"
@@ -901,15 +1160,17 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                         id="notch-50"
                         checked={preprocessing.notch?.includes(50) || false}
                         onCheckedChange={(checked) => {
-                          setPreprocessing(prev => ({
+                          setPreprocessing((prev) => ({
                             ...prev,
                             notch: checked
                               ? [...(prev.notch || []), 50]
-                              : (prev.notch || []).filter(f => f !== 50)
-                          }))
+                              : (prev.notch || []).filter((f) => f !== 50),
+                          }));
                         }}
                       />
-                      <Label htmlFor="notch-50" className="text-xs">50Hz</Label>
+                      <Label htmlFor="notch-50" className="text-xs">
+                        50Hz
+                      </Label>
                     </div>
 
                     <div className="flex items-center space-x-1">
@@ -917,15 +1178,17 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                         id="notch-60"
                         checked={preprocessing.notch?.includes(60) || false}
                         onCheckedChange={(checked) => {
-                          setPreprocessing(prev => ({
+                          setPreprocessing((prev) => ({
                             ...prev,
                             notch: checked
                               ? [...(prev.notch || []), 60]
-                              : (prev.notch || []).filter(f => f !== 60)
-                          }))
+                              : (prev.notch || []).filter((f) => f !== 60),
+                          }));
                         }}
                       />
-                      <Label htmlFor="notch-60" className="text-xs">60Hz</Label>
+                      <Label htmlFor="notch-60" className="text-xs">
+                        60Hz
+                      </Label>
                     </div>
                   </div>
                 </div>
@@ -939,9 +1202,12 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                 <div>
                   <Label className="text-xs">Baseline Correction</Label>
                   <Select
-                    value={preprocessing.baselineCorrection || 'none'}
-                    onValueChange={(value: 'none' | 'mean' | 'median') =>
-                      setPreprocessing(prev => ({ ...prev, baselineCorrection: value }))
+                    value={preprocessing.baselineCorrection || "none"}
+                    onValueChange={(value: "none" | "mean" | "median") =>
+                      setPreprocessing((prev) => ({
+                        ...prev,
+                        baselineCorrection: value,
+                      }))
                     }
                   >
                     <SelectTrigger className="h-8">
@@ -958,9 +1224,12 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                 <div>
                   <Label className="text-xs">Detrending</Label>
                   <Select
-                    value={preprocessing.detrending || 'none'}
-                    onValueChange={(value: 'linear' | 'polynomial' | 'none') =>
-                      setPreprocessing(prev => ({ ...prev, detrending: value }))
+                    value={preprocessing.detrending || "none"}
+                    onValueChange={(value: "linear" | "polynomial" | "none") =>
+                      setPreprocessing((prev) => ({
+                        ...prev,
+                        detrending: value,
+                      }))
                     }
                   >
                     <SelectTrigger className="h-8">
@@ -980,27 +1249,31 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                       id="smoothing-enabled"
                       checked={preprocessing.smoothing?.enabled || false}
                       onCheckedChange={(checked) => {
-                        setPreprocessing(prev => ({
+                        setPreprocessing((prev) => ({
                           ...prev,
                           smoothing: {
                             ...prev.smoothing,
                             enabled: !!checked,
-                            method: prev.smoothing?.method || 'moving_average',
-                            windowSize: prev.smoothing?.windowSize || 5
-                          }
-                        }))
+                            method: prev.smoothing?.method || "moving_average",
+                            windowSize: prev.smoothing?.windowSize || 5,
+                          },
+                        }));
                       }}
                     />
-                    <Label htmlFor="smoothing-enabled" className="text-xs">Smoothing</Label>
+                    <Label htmlFor="smoothing-enabled" className="text-xs">
+                      Smoothing
+                    </Label>
                   </div>
                   {preprocessing.smoothing?.enabled && (
                     <div className="pl-6 space-y-2">
                       <Select
                         value={preprocessing.smoothing.method}
-                        onValueChange={(value: 'moving_average' | 'savitzky_golay') =>
-                          setPreprocessing(prev => ({
+                        onValueChange={(
+                          value: "moving_average" | "savitzky_golay"
+                        ) =>
+                          setPreprocessing((prev) => ({
                             ...prev,
-                            smoothing: { ...prev.smoothing!, method: value }
+                            smoothing: { ...prev.smoothing!, method: value },
                           }))
                         }
                       >
@@ -1008,18 +1281,27 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="moving_average">Moving Average</SelectItem>
-                          <SelectItem value="savitzky_golay">Savitzky-Golay</SelectItem>
+                          <SelectItem value="moving_average">
+                            Moving Average
+                          </SelectItem>
+                          <SelectItem value="savitzky_golay">
+                            Savitzky-Golay
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                       <div>
-                        <Label className="text-xs">Window Size: {preprocessing.smoothing.windowSize}</Label>
+                        <Label className="text-xs">
+                          Window Size: {preprocessing.smoothing.windowSize}
+                        </Label>
                         <Slider
                           value={[preprocessing.smoothing.windowSize]}
                           onValueChange={([value]) =>
-                            setPreprocessing(prev => ({
+                            setPreprocessing((prev) => ({
                               ...prev,
-                              smoothing: { ...prev.smoothing!, windowSize: value }
+                              smoothing: {
+                                ...prev.smoothing!,
+                                windowSize: value,
+                              },
                             }))
                           }
                           min={3}
@@ -1044,26 +1326,33 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                       id="outlier-enabled"
                       checked={preprocessing.outlierRemoval?.enabled || false}
                       onCheckedChange={(checked) => {
-                        setPreprocessing(prev => ({
+                        setPreprocessing((prev) => ({
                           ...prev,
                           outlierRemoval: {
                             enabled: !!checked,
-                            method: prev.outlierRemoval?.method || 'clip',
-                            threshold: prev.outlierRemoval?.threshold || 3
-                          }
-                        }))
+                            method: prev.outlierRemoval?.method || "clip",
+                            threshold: prev.outlierRemoval?.threshold || 3,
+                          },
+                        }));
                       }}
                     />
-                    <Label htmlFor="outlier-enabled" className="text-xs">Outlier Removal</Label>
+                    <Label htmlFor="outlier-enabled" className="text-xs">
+                      Outlier Removal
+                    </Label>
                   </div>
                   {preprocessing.outlierRemoval?.enabled && (
                     <div className="pl-6 space-y-2">
                       <Select
                         value={preprocessing.outlierRemoval.method}
-                        onValueChange={(value: 'clip' | 'remove' | 'interpolate') =>
-                          setPreprocessing(prev => ({
+                        onValueChange={(
+                          value: "clip" | "remove" | "interpolate"
+                        ) =>
+                          setPreprocessing((prev) => ({
                             ...prev,
-                            outlierRemoval: { ...prev.outlierRemoval!, method: value }
+                            outlierRemoval: {
+                              ...prev.outlierRemoval!,
+                              method: value,
+                            },
                           }))
                         }
                       >
@@ -1073,17 +1362,25 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                         <SelectContent>
                           <SelectItem value="clip">Clip</SelectItem>
                           <SelectItem value="remove">Remove</SelectItem>
-                          <SelectItem value="interpolate">Interpolate</SelectItem>
+                          <SelectItem value="interpolate">
+                            Interpolate
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                       <div>
-                        <Label className="text-xs">Threshold (σ): {preprocessing.outlierRemoval.threshold}</Label>
+                        <Label className="text-xs">
+                          Threshold (σ):{" "}
+                          {preprocessing.outlierRemoval.threshold}
+                        </Label>
                         <Slider
                           value={[preprocessing.outlierRemoval.threshold]}
                           onValueChange={([value]) =>
-                            setPreprocessing(prev => ({
+                            setPreprocessing((prev) => ({
                               ...prev,
-                              outlierRemoval: { ...prev.outlierRemoval!, threshold: value }
+                              outlierRemoval: {
+                                ...prev.outlierRemoval!,
+                                threshold: value,
+                              },
                             }))
                           }
                           min={1}
@@ -1102,28 +1399,35 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                       id="spike-enabled"
                       checked={preprocessing.spikeRemoval?.enabled || false}
                       onCheckedChange={(checked) => {
-                        setPreprocessing(prev => ({
+                        setPreprocessing((prev) => ({
                           ...prev,
                           spikeRemoval: {
                             enabled: !!checked,
                             threshold: prev.spikeRemoval?.threshold || 4,
-                            windowSize: prev.spikeRemoval?.windowSize || 10
-                          }
-                        }))
+                            windowSize: prev.spikeRemoval?.windowSize || 10,
+                          },
+                        }));
                       }}
                     />
-                    <Label htmlFor="spike-enabled" className="text-xs">Spike Removal</Label>
+                    <Label htmlFor="spike-enabled" className="text-xs">
+                      Spike Removal
+                    </Label>
                   </div>
                   {preprocessing.spikeRemoval?.enabled && (
                     <div className="pl-6 space-y-2">
                       <div>
-                        <Label className="text-xs">Threshold (σ): {preprocessing.spikeRemoval.threshold}</Label>
+                        <Label className="text-xs">
+                          Threshold (σ): {preprocessing.spikeRemoval.threshold}
+                        </Label>
                         <Slider
                           value={[preprocessing.spikeRemoval.threshold]}
                           onValueChange={([value]) =>
-                            setPreprocessing(prev => ({
+                            setPreprocessing((prev) => ({
                               ...prev,
-                              spikeRemoval: { ...prev.spikeRemoval!, threshold: value }
+                              spikeRemoval: {
+                                ...prev.spikeRemoval!,
+                                threshold: value,
+                              },
                             }))
                           }
                           min={2}
@@ -1133,13 +1437,18 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                         />
                       </div>
                       <div>
-                        <Label className="text-xs">Window Size: {preprocessing.spikeRemoval.windowSize}</Label>
+                        <Label className="text-xs">
+                          Window Size: {preprocessing.spikeRemoval.windowSize}
+                        </Label>
                         <Slider
                           value={[preprocessing.spikeRemoval.windowSize]}
                           onValueChange={([value]) =>
-                            setPreprocessing(prev => ({
+                            setPreprocessing((prev) => ({
                               ...prev,
-                              spikeRemoval: { ...prev.spikeRemoval!, windowSize: value }
+                              spikeRemoval: {
+                                ...prev.spikeRemoval!,
+                                windowSize: value,
+                              },
                             }))
                           }
                           min={5}
@@ -1160,9 +1469,12 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                 <div>
                   <Label className="text-xs">Method</Label>
                   <Select
-                    value={preprocessing.normalization || 'none'}
-                    onValueChange={(value: 'none' | 'zscore' | 'minmax') =>
-                      setPreprocessing(prev => ({ ...prev, normalization: value }))
+                    value={preprocessing.normalization || "none"}
+                    onValueChange={(value: "none" | "zscore" | "minmax") =>
+                      setPreprocessing((prev) => ({
+                        ...prev,
+                        normalization: value,
+                      }))
                     }
                   >
                     <SelectTrigger className="h-8">
@@ -1182,15 +1494,23 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           {/* Channel Selection */}
           <div>
             <Label className="text-sm mb-2 block">
-              Channels ({selectedChannels.length} of {fileManager.selectedFile.channels.length} selected)
+              Channels ({selectedChannels.length} of{" "}
+              {fileManager.selectedFile.channels.length} selected)
             </Label>
             <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-              {fileManager.selectedFile.channels.map(channel => (
+              {fileManager.selectedFile.channels.map((channel) => (
                 <Badge
                   key={channel}
-                  variant={selectedChannels.includes(channel) ? "default" : "outline"}
+                  variant={
+                    selectedChannels.includes(channel) ? "default" : "outline"
+                  }
                   className="cursor-pointer"
-                  onClick={() => handleChannelToggle(channel, !selectedChannels.includes(channel))}
+                  onClick={() =>
+                    handleChannelToggle(
+                      channel,
+                      !selectedChannels.includes(channel)
+                    )
+                  }
                 >
                   {channel}
                 </Badge>
@@ -1201,8 +1521,8 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       </Card>
 
       {/* Plot Area */}
-      <Card className="flex-1">
-        <CardContent className="p-4 h-full">
+      <Card className="flex-1 flex flex-col min-h-0">
+        <CardContent className="p-4 flex-1 flex flex-col min-h-0">
           {error && (
             <div className="flex items-center space-x-2 text-red-600 mb-4">
               <AlertCircle className="h-4 w-4" />
@@ -1220,84 +1540,105 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           )}
 
           <div
-            className="w-full h-full min-h-[400px] relative"
+            className="w-full flex-1 relative"
             onContextMenu={(e) => {
-              console.log('[ANNOTATION] Right-click detected on time series plot', {
-                hasPlot: !!uplotRef.current,
-                hasChunk: !!plot.currentChunk,
-                currentTime
-              })
+              console.log(
+                "[ANNOTATION] Right-click detected on time series plot",
+                {
+                  hasPlot: !!uplotRef.current,
+                  hasChunk: !!plot.currentChunk,
+                  currentTime,
+                }
+              );
 
-              e.preventDefault()
-              e.stopPropagation()
+              e.preventDefault();
+              e.stopPropagation();
 
               if (!uplotRef.current || !plot.currentChunk) {
-                console.warn('[ANNOTATION] Plot or data not available yet')
-                return
+                console.warn("[ANNOTATION] Plot or data not available yet");
+                return;
               }
 
-              const rect = e.currentTarget.getBoundingClientRect()
-              const plotX = e.clientX - rect.left
+              const rect = e.currentTarget.getBoundingClientRect();
+              const plotX = e.clientX - rect.left;
 
               // Convert pixel position to time value
-              const plotWidth = rect.width
-              const timeValue = currentTime + (plotX / plotWidth) * timeWindow
+              const plotWidth = rect.width;
+              const timeValue = currentTime + (plotX / plotWidth) * timeWindow;
 
-              console.log('[ANNOTATION] Opening time series context menu at time:', timeValue)
-              timeSeriesAnnotations.openContextMenu(e.clientX, e.clientY, timeValue)
+              console.log(
+                "[ANNOTATION] Opening time series context menu at time:",
+                timeValue
+              );
+              timeSeriesAnnotations.openContextMenu(
+                e.clientX,
+                e.clientY,
+                timeValue
+              );
             }}
           >
-            <div ref={plotRef} className="w-full h-full min-h-[400px]" />
+            <div ref={plotRef} className="w-full h-full" />
 
             {/* Annotation overlay */}
-            {uplotRef.current && plot.currentChunk && timeSeriesAnnotations.annotations.length > 0 && (
-              <svg
-                className="absolute top-0 left-0"
-                style={{
-                  width: plotRef.current?.clientWidth || 0,
-                  height: plotRef.current?.clientHeight || 0,
-                  pointerEvents: 'none'
-                }}
-              >
-                {timeSeriesAnnotations.annotations.map((annotation) => {
-                  // Only show annotations in current time window
-                  if (annotation.position < currentTime || annotation.position > currentTime + timeWindow) {
-                    return null
-                  }
+            {uplotRef.current &&
+              plot.currentChunk &&
+              timeSeriesAnnotations.annotations.length > 0 && (
+                <svg
+                  className="absolute top-0 left-0"
+                  style={{
+                    width: plotRef.current?.clientWidth || 0,
+                    height: plotRef.current?.clientHeight || 0,
+                    pointerEvents: "none",
+                  }}
+                >
+                  {timeSeriesAnnotations.annotations.map((annotation) => {
+                    // Only show annotations in current time window
+                    if (
+                      annotation.position < currentTime ||
+                      annotation.position > currentTime + timeWindow
+                    ) {
+                      return null;
+                    }
 
-                  // Get uPlot bbox for accurate dimensions
-                  const bbox = uplotRef.current?.bbox
-                  const plotWidth = bbox?.width || plotRef.current?.clientWidth || 800
-                  const plotHeight = bbox?.height || plotRef.current?.clientHeight || 400
-                  const relativeTime = annotation.position - currentTime
-                  const xPosition = (relativeTime / timeWindow) * plotWidth
+                    // Get uPlot bbox for accurate dimensions
+                    const bbox = uplotRef.current?.bbox;
+                    const plotWidth =
+                      bbox?.width || plotRef.current?.clientWidth || 800;
+                    const plotHeight =
+                      bbox?.height || plotRef.current?.clientHeight || 400;
+                    const relativeTime = annotation.position - currentTime;
+                    const xPosition = (relativeTime / timeWindow) * plotWidth;
 
-                  return (
-                    <AnnotationMarker
-                      key={annotation.id}
-                      annotation={annotation}
-                      plotHeight={plotHeight}
-                      xPosition={xPosition}
-                      onRightClick={(e, ann) => {
-                        e.preventDefault()
-                        timeSeriesAnnotations.openContextMenu(
-                          e.clientX,
-                          e.clientY,
-                          ann.position,
-                          ann
-                        )
-                      }}
-                      onClick={(ann) => {
-                        const rect = plotRef.current?.getBoundingClientRect()
-                        if (rect) {
-                          timeSeriesAnnotations.handleAnnotationClick(ann, rect.left + xPosition, rect.top + 50)
-                        }
-                      }}
-                    />
-                  )
-                })}
-              </svg>
-            )}
+                    return (
+                      <AnnotationMarker
+                        key={annotation.id}
+                        annotation={annotation}
+                        plotHeight={plotHeight}
+                        xPosition={xPosition}
+                        onRightClick={(e, ann) => {
+                          e.preventDefault();
+                          timeSeriesAnnotations.openContextMenu(
+                            e.clientX,
+                            e.clientY,
+                            ann.position,
+                            ann
+                          );
+                        }}
+                        onClick={(ann) => {
+                          const rect = plotRef.current?.getBoundingClientRect();
+                          if (rect) {
+                            timeSeriesAnnotations.handleAnnotationClick(
+                              ann,
+                              rect.left + xPosition,
+                              rect.top + 50
+                            );
+                          }
+                        }}
+                      />
+                    );
+                  })}
+                </svg>
+              )}
           </div>
 
           {/* Annotation context menu */}
@@ -1316,5 +1657,5 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

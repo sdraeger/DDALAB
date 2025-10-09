@@ -181,7 +181,7 @@ const defaultDDAState: DDAState = {
   analysisHistory: [],
   analysisParameters: {
     variants: ['single_timeseries'],
-    windowLength: 100,
+    windowLength: 64, // Default: 0.25 seconds at 256 Hz (will be recalculated based on actual sampling rate)
     windowStep: 10,
     detrending: 'linear',
     scaleMin: 1,

@@ -88,6 +88,9 @@ fn main() {
             set_data_directory,
             // Update commands
             check_for_updates,
+            get_app_version,
+            check_native_update,
+            download_and_install_update,
             // Sync commands
             sync::commands::sync_connect,
             sync::commands::sync_disconnect,
