@@ -49,15 +49,31 @@ export function DDAResults({ result }: DDAResultsProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('both')
   const [colorScheme, setColorScheme] = useState<ColorScheme>('viridis')
 
+  // Get available channels from the actual dda_matrix (source of truth)
+  const availableChannels = useMemo(() => {
+    const firstVariant = result.results.variants[0]
+    if (firstVariant && firstVariant.dda_matrix) {
+      return Object.keys(firstVariant.dda_matrix)
+    }
+    return result.channels
+  }, [result.results.variants, result.channels])
+
   // Initialize selectedChannels from actual dda_matrix keys, not result.channels
   // This ensures we only select channels that actually have data
   const [selectedChannels, setSelectedChannels] = useState<string[]>(() => {
     const firstVariant = result.results.variants[0]
     if (firstVariant && firstVariant.dda_matrix) {
-      const availableChannels = Object.keys(firstVariant.dda_matrix)
-      // Only keep channels that are in both result.channels and dda_matrix
-      return result.channels.filter(ch => availableChannels.includes(ch))
+      const channels = Object.keys(firstVariant.dda_matrix)
+      console.log('[DDARESULTS] Initializing selectedChannels:', {
+        resultChannels: result.channels,
+        availableChannels: channels,
+        willUse: channels
+      })
+      // Use ALL channels from dda_matrix since those are the ones that were actually analyzed
+      // result.channels might be outdated or incomplete from persistence
+      return channels
     }
+    console.log('[DDARESULTS] No dda_matrix, using result.channels:', result.channels)
     return result.channels
   })
 
@@ -864,10 +880,10 @@ export function DDAResults({ result }: DDAResultsProps) {
           {/* Channel Selection */}
           <div>
             <Label className="text-sm mb-2 block">
-              Channels ({selectedChannels.length} of {result.channels.length} selected)
+              Channels ({selectedChannels.length} of {availableChannels.length} selected)
             </Label>
             <div className="flex flex-wrap gap-2 max-h-20 overflow-y-auto">
-              {result.channels.map(channel => (
+              {availableChannels.map(channel => (
                 <Badge
                   key={channel}
                   variant={selectedChannels.includes(channel) ? "default" : "outline"}

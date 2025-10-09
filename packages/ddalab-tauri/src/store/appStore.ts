@@ -608,6 +608,33 @@ export const useAppStore = create<AppState>((set, get) => ({
       stack: new Error().stack
     })
     set((state) => ({ dda: { ...state.dda, currentAnalysis: analysis } }))
+
+    // Persist the current analysis change immediately
+    if (TauriService.isTauri()) {
+      const { dda, persistenceService } = get()
+      const ddaState: PersistedDDAState = {
+        selected_variants: dda.analysisParameters.variants,
+        parameters: {
+          windowLength: dda.analysisParameters.windowLength,
+          windowStep: dda.analysisParameters.windowStep,
+          detrending: dda.analysisParameters.detrending,
+          scaleMin: dda.analysisParameters.scaleMin,
+          scaleMax: dda.analysisParameters.scaleMax,
+          scaleNum: dda.analysisParameters.scaleNum
+        },
+        last_analysis_id: analysis?.id || null,
+        current_analysis: analysis,
+        analysis_history: dda.analysisHistory,
+        analysis_parameters: dda.analysisParameters,
+        running: dda.isRunning
+      }
+      TauriService.updateDDAState(ddaState)
+
+      // Also save via persistence service
+      if (persistenceService) {
+        persistenceService.saveDDAState(ddaState).catch(console.error)
+      }
+    }
   },
 
   addAnalysisToHistory: (analysis) => {
@@ -617,6 +644,33 @@ export const useAppStore = create<AppState>((set, get) => ({
         analysisHistory: [analysis, ...state.dda.analysisHistory.slice(0, 9)]
       }
     }))
+
+    // Persist the analysis history change
+    if (TauriService.isTauri()) {
+      const { dda, persistenceService } = get()
+      const ddaState: PersistedDDAState = {
+        selected_variants: dda.analysisParameters.variants,
+        parameters: {
+          windowLength: dda.analysisParameters.windowLength,
+          windowStep: dda.analysisParameters.windowStep,
+          detrending: dda.analysisParameters.detrending,
+          scaleMin: dda.analysisParameters.scaleMin,
+          scaleMax: dda.analysisParameters.scaleMax,
+          scaleNum: dda.analysisParameters.scaleNum
+        },
+        last_analysis_id: dda.currentAnalysis?.id || null,
+        current_analysis: dda.currentAnalysis,
+        analysis_history: dda.analysisHistory,
+        analysis_parameters: dda.analysisParameters,
+        running: dda.isRunning
+      }
+      TauriService.updateDDAState(ddaState)
+
+      // Also save via persistence service
+      if (persistenceService) {
+        persistenceService.saveDDAState(ddaState).catch(console.error)
+      }
+    }
   },
 
   setAnalysisHistory: (analyses) => {
