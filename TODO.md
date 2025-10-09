@@ -372,121 +372,87 @@ All essential features are complete and working. The application is stable and r
    - ✅ "Openly available through GitHub with an Open Source Software license"
    - ✅ "Not depend on proprietary data formats" (BIDS is open standard)
 
-9. **MATLAB-inspired Session Recording** (NOT STARTED)
+9. **MATLAB-inspired Session Recording** (IN PROGRESS - Backend Complete, Frontend Needed)
 
    **Goal**: Record user actions in the UI and export to executable .jl (Julia) or .py (Python) scripts that reproduce the analysis and plots.
 
-   **Current State**: Only simple export buttons exist for plots. No recording infrastructure.
+   **Current State**: ✅ Full Rust backend with DAG-based workflow recording implemented. ❌ No frontend UI integration yet.
 
    ### Architecture Components
 
-   #### Phase 1: Core Infrastructure
+   #### Phase 1: Core Infrastructure (✅ BACKEND COMPLETE)
 
-   - [ ] Create type definitions (`src/types/recording.ts`)
-     ```typescript
-     interface RecordableAction {
-       type:
-         | "FILE_LOAD"
-         | "CHANNEL_SELECT"
-         | "PREPROCESSING"
-         | "VISUALIZATION"
-         | "DDA_ANALYSIS";
-       timestamp: number;
-       data: Record<string, any>;
-     }
-     interface SessionRecording {
-       id: string;
-       startTime: number;
-       endTime?: number;
-       actions: RecordableAction[];
-       metadata: { appVersion: string; platform: string };
-     }
-     ```
-   - [ ] Create session recorder service (`src/services/sessionRecorder.ts`)
-     - State management for active recording
-     - Action capture and storage
-     - Export coordination
-   - [ ] Extend appStore with recording state (`src/store/appStore.ts`)
+   - [x] Create Rust action types (`src-tauri/src/recording/actions.rs`)
+     - WorkflowAction enum with 7 action types
+     - WorkflowNode with timestamps and metadata
+     - DependencyType enum (Data, Parameter, Order)
+   - [x] Create workflow graph (`src-tauri/src/recording/workflow.rs`)
+     - DAG-based using petgraph DiGraph
+     - Cycle detection and topological sorting
+     - Node and edge management
+   - [x] Create code generators (`src-tauri/src/recording/codegen.rs`)
+     - Tera template engine integration
+     - Python template with numpy, pandas, scipy, matplotlib
+     - Julia template with CSV, DataFrames, JSON, MAT, Plots
+   - [x] Register 15 Tauri commands (`src-tauri/src/recording/commands.rs`)
+     - workflow_new, workflow_clear, workflow_add_node, workflow_remove_node
+     - workflow_add_edge, workflow_get_node, workflow_get_all_nodes
+     - workflow_get_all_edges, workflow_get_topological_order
+     - workflow_validate, workflow_generate_python, workflow_generate_julia
+     - workflow_record_action, workflow_export, workflow_import
+   - [x] Unit tests (8 tests passing)
+   - [ ] **FRONTEND NEEDED**: Create TypeScript types (`src/types/workflow.ts`)
+   - [ ] **FRONTEND NEEDED**: Create React hook (`src/hooks/useWorkflow.ts`)
+   - [ ] **FRONTEND NEEDED**: Extend appStore with workflow state (`src/store/appStore.ts`)
      - Add `isRecording: boolean`
-     - Add `recordingActions: RecordableAction[]`
+     - Add `currentWorkflow: WorkflowGraph | null`
      - Add `startRecording()`, `stopRecording()`, `clearRecording()`
      - Add middleware to intercept state changes
-   - [ ] Create SessionRecorder UI component (`src/components/SessionRecorder.tsx`)
+   - [ ] **FRONTEND NEEDED**: Create SessionRecorder UI component (`src/components/SessionRecorder.tsx`)
      - Start/Stop recording button
      - Recording indicator (red dot when active)
      - Action counter display
      - Clear recording option
 
-   #### Phase 2: Action Interception
+   #### Phase 2: Action Interception (FRONTEND NEEDED)
 
    - [ ] Hook into file management actions
-     - Intercept `setSelectedFile()` → Record file path
-     - Intercept `setSelectedChannels()` → Record channel names
+     - Intercept `setSelectedFile()` → Call `workflow_record_action` with LoadFile
+     - Intercept `setSelectedChannels()` → Call `workflow_record_action` with FilterChannels
    - [ ] Hook into visualization actions
-     - Intercept `updatePlotState({ preprocessing })` → Record filter parameters
-     - Intercept time window changes → Record visualization settings
+     - Intercept `updatePlotState({ preprocessing })` → Call `workflow_record_action` with TransformData
+     - Intercept plot generation → Call `workflow_record_action` with GeneratePlot
    - [ ] Hook into DDA actions
-     - Intercept `updateAnalysisParameters()` → Record DDA parameters
-     - Intercept analysis submission → Record execution with all params
+     - Intercept `updateAnalysisParameters()` → Call `workflow_record_action` with SetDDAParameters
+     - Intercept analysis submission → Call `workflow_record_action` with RunDDAAnalysis
    - [ ] Capture action metadata
-     - Timestamp each action
-     - Track action sequence/order
+     - Timestamps automatically added by backend
+     - Track dependencies between actions
      - Store relevant state snapshots
 
-   #### Phase 3: Code Generation (Python)
+   #### Phase 3-4: Code Generation (✅ BACKEND COMPLETE)
 
-   - [ ] Create Python code generator (`src/services/codeGenerators/pythonGenerator.ts`)
-   - [ ] Implement action-to-code mapping
-     - File load → `file_path = "/path/to/file.edf"`
-     - Channel selection → `channels = ["LAT1", "LAT2", ...]`
-     - Preprocessing → Filter parameter definitions
-     - DDA analysis → Analysis function calls with parameters
-     - Visualization → Matplotlib plotting code
-   - [ ] Generate imports and setup
-     ```python
-     import numpy as np
-     import matplotlib.pyplot as plt
-     from scipy import signal
-     # Additional imports based on actions
-     ```
-   - [ ] Add inline comments explaining each step
-   - [ ] Include dependency documentation
+   - [x] Python code generator with Tera templates
+     - Imports: numpy, pandas, scipy, matplotlib
+     - Helper functions for DDA, plotting, filtering
+     - Action-to-code mapping implemented
+   - [x] Julia code generator with Tera templates
+     - Imports: CSV, DataFrames, JSON, MAT, Plots
+     - Helper functions for DDA, plotting, filtering
+     - Action-to-code mapping implemented
 
-   #### Phase 4: Code Generation (Julia)
+   #### Phase 5: Export Functionality (PARTIALLY COMPLETE)
 
-   - [ ] Create Julia code generator (`src/services/codeGenerators/juliaGenerator.ts`)
-   - [ ] Implement action-to-code mapping
-     - File load → `file_path = "/path/to/file.edf"`
-     - Channel selection → `channels = ["LAT1", "LAT2", ...]`
-     - Preprocessing → DSP filter definitions
-     - DDA analysis → Analysis calls
-     - Visualization → Plots.jl code
-   - [ ] Generate imports and setup
-     ```julia
-     using Plots, DSP, DelimitedFiles
-     # Additional packages based on actions
-     ```
-   - [ ] Add inline comments
-   - [ ] Include package requirements
-
-   #### Phase 5: Export Functionality
-
-   - [ ] Add Tauri command for file export (`src-tauri/src/main.rs`)
-     ```rust
-     #[tauri::command]
-     async fn export_session_script(
-         recording: SessionRecording,
-         format: String, // "julia" or "python"
-         output_path: String
-     ) -> Result<(), String>
-     ```
-   - [ ] Implement export dialog component
+   - [x] Backend export commands exist (`workflow_generate_python`, `workflow_generate_julia`)
+   - [ ] **FRONTEND NEEDED**: Implement export dialog component (`src/components/dialogs/ExportSessionDialog.tsx`)
      - Format selection (Julia/Python radio buttons)
      - File name input (auto-generated: `ddalab_session_YYYYMMDD_HHMMSS.{jl|py}`)
      - Preview pane showing generated code
      - Save location picker (Tauri file dialog)
-   - [ ] Add "Export Session" button to DashboardLayout header
-   - [ ] Implement file write with error handling
+     - Call `workflow_generate_python` or `workflow_generate_julia`
+     - Write file to disk using Tauri fs API
+   - [ ] **FRONTEND NEEDED**: Add "Export Session" button to DashboardLayout header
+   - [ ] **FRONTEND NEEDED**: Implement file write with error handling
 
    #### Phase 6: Testing & Polish
 
@@ -583,24 +549,36 @@ All essential features are complete and working. The application is stable and r
    plot(...)
    ```
 
-   ### Files to Create
+   ### Files Already Created (✅ Backend Complete)
 
-   - `src/types/recording.ts`
-   - `src/services/sessionRecorder.ts`
-   - `src/services/codeGenerators/pythonGenerator.ts`
-   - `src/services/codeGenerators/juliaGenerator.ts`
-   - `src/components/SessionRecorder.tsx`
-   - `src/components/dialogs/ExportSessionDialog.tsx`
+   - [x] `src-tauri/src/recording/actions.rs` - WorkflowAction types
+   - [x] `src-tauri/src/recording/workflow.rs` - DAG graph implementation
+   - [x] `src-tauri/src/recording/codegen.rs` - Python/Julia code generators
+   - [x] `src-tauri/src/recording/commands.rs` - 15 Tauri commands
+   - [x] `src-tauri/src/recording/mod.rs` - Module exports
 
-   ### Files to Modify
+   ### Files to Create (❌ Frontend Needed)
 
-   - `src/store/appStore.ts` - Add recording state and middleware
-   - `src/components/DashboardLayout.tsx` - Integrate SessionRecorder component
-   - `src-tauri/src/main.rs` - Add export_session_script command
-   - `src-tauri/Cargo.toml` - Add dependencies if needed
+   - [ ] `src/types/workflow.ts` - TypeScript type definitions
+   - [ ] `src/hooks/useWorkflow.ts` - React hook for workflow management
+   - [ ] `src/components/SessionRecorder.tsx` - Recording UI controls
+   - [ ] `src/components/dialogs/ExportSessionDialog.tsx` - Export dialog
+
+   ### Files to Modify (❌ Frontend Needed)
+
+   - [ ] `src/store/appStore.ts` - Add recording state and middleware
+   - [ ] `src/components/DashboardLayout.tsx` - Integrate SessionRecorder component
+   - [ ] `src/components/DDAAnalysis.tsx` - Add action recording hooks
+   - [ ] `src/components/TimeSeriesPlot.tsx` - Add action recording hooks
+   - [ ] `src/components/FileManager.tsx` - Add action recording hooks
 
    ### Success Criteria
 
+   - [x] Backend can manage workflow graph (DAG)
+   - [x] Backend can generate Python scripts
+   - [x] Backend can generate Julia scripts
+   - [x] Backend has cycle detection and topological sorting
+   - [x] Backend commands are registered and tested
    - [ ] Can start/stop recording from UI with visual feedback
    - [ ] All major actions captured (file, channels, preprocessing, DDA, viz)
    - [ ] Can export to .jl file that executes successfully

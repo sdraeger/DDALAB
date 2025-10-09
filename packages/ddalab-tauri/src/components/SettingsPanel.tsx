@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
 import { TauriService } from '@/services/tauriService'
 import { useSync } from '@/hooks/useSync'
+import { SessionRecorder } from '@/components/SessionRecorder'
 import type { DiscoveredBroker } from '@/types/sync'
 
 export function SettingsPanel() {
@@ -362,6 +363,9 @@ export function SettingsPanel() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Session Recording */}
+      <SessionRecorder />
 
       {/* Sync Configuration */}
       {TauriService.isTauri() && (
