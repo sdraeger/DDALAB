@@ -163,11 +163,7 @@ export function DDAResults({ result }: DDAResultsProps) {
 
   // Get available variants - memoized to prevent recreation
   const availableVariants = useMemo(() => {
-    console.log('DDAResults - Getting available variants:', {
-      hasVariants: !!result.results.variants,
-      variantsLength: result.results.variants?.length,
-      variants: result.results.variants?.map(v => ({ id: v.variant_id, name: v.variant_name }))
-    });
+    // Removed verbose logging
 
     if (result.results.variants && result.results.variants.length > 0) {
       return result.results.variants
@@ -203,7 +199,7 @@ export function DDAResults({ result }: DDAResultsProps) {
       const currentVariant = availableVariants[selectedVariant] || availableVariants[0]
 
       if (!currentVariant || !currentVariant.dda_matrix) {
-        console.log('No variant data available for heatmap');
+        // No variant data available
         setIsProcessingData(false)
         return
       }
@@ -211,8 +207,7 @@ export function DDAResults({ result }: DDAResultsProps) {
       const dda_matrix = currentVariant.dda_matrix
 
       const data: number[][] = []
-      let minVal = Infinity
-      let maxVal = -Infinity
+      const allValues: number[] = []
 
       // Create 2D array: [channel][time_point] = dda_matrix value
       channels.forEach(channel => {
@@ -220,20 +215,35 @@ export function DDAResults({ result }: DDAResultsProps) {
           const channelData = dda_matrix[channel].map(val => {
             // Log transform for better visualization
             const logVal = Math.log10(Math.max(0.001, val))
-            minVal = Math.min(minVal, logVal)
-            maxVal = Math.max(maxVal, logVal)
+            allValues.push(logVal)
             return logVal
           })
           data.push(channelData)
         }
       })
 
-      console.log(`Heatmap data for variant ${currentVariant.variant_id}:`, {
-        channels: channels.length,
-        dataRows: data.length,
-        minVal,
-        maxVal
-      });
+      // Calculate median and standard deviation for colorscale limits
+      let minVal = Infinity
+      let maxVal = -Infinity
+
+      if (allValues.length > 0) {
+        // Calculate median
+        const sortedValues = [...allValues].sort((a, b) => a - b)
+        const median = sortedValues.length % 2 === 0
+          ? (sortedValues[sortedValues.length / 2 - 1] + sortedValues[sortedValues.length / 2]) / 2
+          : sortedValues[Math.floor(sortedValues.length / 2)]
+
+        // Calculate standard deviation
+        const mean = allValues.reduce((sum, val) => sum + val, 0) / allValues.length
+        const variance = allValues.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / allValues.length
+        const std = Math.sqrt(variance)
+
+        // Set colorscale limits to median ± 3 * std
+        minVal = median - 3 * std
+        maxVal = median + 3 * std
+
+        // Removed verbose logging
+      }
 
       setHeatmapData(data)
 
@@ -253,242 +263,157 @@ export function DDAResults({ result }: DDAResultsProps) {
   }, [result, selectedChannels, selectedVariant, autoScale])
 
   const renderHeatmap = useCallback(() => {
-    console.log('renderHeatmap called:', {
-      hasRef: !!heatmapRef.current,
-      heatmapDataLength: heatmapData.length,
-      selectedChannelsLength: selectedChannels.length,
-      resultScalesLength: result.results.scales?.length
-    })
-
     if (!heatmapRef.current || heatmapData.length === 0) {
-      console.log('Early return from renderHeatmap:', {
-        hasRef: !!heatmapRef.current,
-        heatmapDataLength: heatmapData.length
-      })
-      setIsRenderingHeatmap(false)
       return
     }
 
-    setIsRenderingHeatmap(true)
+    // Clean up existing plot
+    if (uplotHeatmapRef.current) {
+      uplotHeatmapRef.current.destroy()
+      uplotHeatmapRef.current = null
+    }
 
     // Use requestAnimationFrame to ensure DOM is ready
     requestAnimationFrame(() => {
       try {
-        console.log('Starting heatmap rendering process...')
-
         // Double-check ref is still available
         if (!heatmapRef.current) {
-          console.log('Heatmap ref became null')
-          setIsRenderingHeatmap(false)
           return
         }
 
-        console.log('Cleaning up existing plot...')
-
-        // Clean up existing plot
-        if (uplotHeatmapRef.current) {
-          uplotHeatmapRef.current.destroy()
-          uplotHeatmapRef.current = null
-        }
-
-        const width = heatmapRef.current.clientWidth || 800 // Fallback width
+        const width = heatmapRef.current.clientWidth || 800
         const height = Math.max(300, selectedChannels.length * 30 + 100)
 
-      console.log('Canvas dimensions:', { width, height })
+        // Prepare data for uPlot
+        const plotData: uPlot.AlignedData = [
+          result.results.scales,
+          new Array(result.results.scales.length).fill(0)
+        ]
 
-      // Prepare data for uPlot
-      const plotData: uPlot.AlignedData = [
-        result.results.scales,
-        new Array(result.results.scales.length).fill(0) // Dummy data for positioning
-      ]
-
-      console.log('Heatmap plot data prepared:', {
-        scalesLength: result.results.scales.length,
-        channelsLength: selectedChannels.length,
-        heatmapDataRows: heatmapData.length,
-        heatmapDataCols: heatmapData[0]?.length || 0
-      })
-
-      const opts: uPlot.Options = {
-        width,
-        height,
-        scales: {
-          x: {
-            time: false,
-            range: [result.results.scales[0], result.results.scales[result.results.scales.length - 1]]
-          },
-          y: {
-            range: [-0.5, selectedChannels.length - 0.5]
-          }
-        },
-        axes: [
-          {
-            label: 'Time Points',
-            labelSize: 30,
-            size: 50
-          },
-          {
-            label: 'Channels',
-            labelSize: 100,
-            size: 120,
-            values: (u, ticks) => ticks.map(tick => {
-              const idx = Math.round(tick)
-              return idx >= 0 && idx < selectedChannels.length ? selectedChannels[idx] : ''
-            })
-          }
-        ],
-        series: [
-          {},
-          {
-            paths: () => null,
-            points: { show: false }
-          }
-        ],
-        cursor: {
-          lock: false,
-          drag: {
-            x: true,
-            y: false,
-            uni: 50,
-            dist: 10,
-          }
-        },
-        hooks: {
-          ready: [
-            u => {
-              console.log('Heatmap uPlot ready')
-              // Force initial draw
-              u.redraw()
+        const opts: uPlot.Options = {
+          width,
+          height,
+          scales: {
+            x: {
+              time: false,
+              range: [result.results.scales[0], result.results.scales[result.results.scales.length - 1]]
+            },
+            y: {
+              range: [-0.5, selectedChannels.length - 0.5]
             }
-          ],
-          setSelect: [
-            u => {
-              const min = u.select.left
-              const max = u.select.left + u.select.width
-
-              if (u.select.width >= 10) { // Only zoom if selection is wide enough
-                u.setScale('x', {
-                  min: u.posToVal(min, 'x'),
-                  max: u.posToVal(max, 'x')
-                })
-              }
-
-              // Clear the selection box
-              u.setSelect({left: 0, top: 0, width: 0, height: 0}, false)
-            }
-          ],
-          draw: [
-            u => {
-              console.log('Heatmap draw hook called')
-              const ctx = u.ctx
-              const { left, top, width: plotWidth, height: plotHeight } = u.bbox
-
-              // Check if we have valid dimensions
-              if (plotWidth <= 0 || plotHeight <= 0) {
-                console.warn('Invalid plot dimensions:', { plotWidth, plotHeight })
-                return
-              }
-
-              // Save context state
-              ctx.save()
-
-              // Clip to plot area
-              ctx.beginPath()
-              ctx.rect(left, top, plotWidth, plotHeight)
-              ctx.clip()
-
-              const cellWidth = plotWidth / result.results.scales.length
-              const cellHeight = plotHeight / selectedChannels.length
-
-              console.log('Drawing heatmap cells:', {
-                cellWidth,
-                cellHeight,
-                totalCells: result.results.scales.length * selectedChannels.length,
-                colorRange,
-                colorScheme
+          },
+          axes: [
+            {
+              label: 'Time Points',
+              labelSize: 30,
+              size: 50
+            },
+            {
+              label: 'Channels',
+              labelSize: 100,
+              size: 120,
+              values: (u, ticks) => ticks.map(tick => {
+                const idx = Math.round(tick)
+                return idx >= 0 && idx < selectedChannels.length ? selectedChannels[idx] : ''
               })
-
-              // Draw heatmap cells
-              for (let y = 0; y < selectedChannels.length; y++) {
-                for (let x = 0; x < result.results.scales.length; x++) {
-                  const value = heatmapData[y]?.[x] || 0
-                  const normalized = (value - colorRange[0]) / (colorRange[1] - colorRange[0])
-                  const clamped = Math.max(0, Math.min(1, normalized))
-
-                  const color = colorSchemes[colorScheme](clamped)
-
-                  ctx.fillStyle = color
-                  ctx.fillRect(
-                    left + x * cellWidth,
-                    top + y * cellHeight,
-                    cellWidth + 1, // +1 to avoid gaps
-                    cellHeight + 1
-                  )
-                }
-              }
-
-              // Restore context state
-              ctx.restore()
-
-              console.log('Heatmap drawing complete')
             }
-          ]
+          ],
+          series: [
+            {},
+            {
+              paths: () => null,
+              points: { show: false }
+            }
+          ],
+          cursor: {
+            lock: false,
+            drag: {
+              x: true,
+              y: false,
+              uni: 50,
+              dist: 10,
+            }
+          },
+          hooks: {
+            setSelect: [
+              u => {
+                const min = u.select.left
+                const max = u.select.left + u.select.width
+
+                if (u.select.width >= 10) {
+                  u.setScale('x', {
+                    min: u.posToVal(min, 'x'),
+                    max: u.posToVal(max, 'x')
+                  })
+                }
+
+                u.setSelect({left: 0, top: 0, width: 0, height: 0}, false)
+              }
+            ],
+            draw: [
+              u => {
+                const ctx = u.ctx
+                const { left, top, width: plotWidth, height: plotHeight } = u.bbox
+
+                if (plotWidth <= 0 || plotHeight <= 0) return
+
+                ctx.save()
+                ctx.beginPath()
+                ctx.rect(left, top, plotWidth, plotHeight)
+                ctx.clip()
+
+                const cellWidth = plotWidth / result.results.scales.length
+                const cellHeight = plotHeight / selectedChannels.length
+
+                for (let y = 0; y < selectedChannels.length; y++) {
+                  for (let x = 0; x < result.results.scales.length; x++) {
+                    const value = heatmapData[y]?.[x] || 0
+                    const normalized = (value - colorRange[0]) / (colorRange[1] - colorRange[0])
+                    const clamped = Math.max(0, Math.min(1, normalized))
+
+                    ctx.fillStyle = colorSchemes[colorScheme](clamped)
+                    ctx.fillRect(
+                      left + x * cellWidth,
+                      top + y * cellHeight,
+                      cellWidth + 1,
+                      cellHeight + 1
+                    )
+                  }
+                }
+
+                ctx.restore()
+              }
+            ]
+          }
         }
-      }
 
-      // Final check before creating plot
-      if (!heatmapRef.current) {
-        console.log('Heatmap ref became null before creating uPlot')
-        setIsRenderingHeatmap(false)
-        return
-      }
+        if (!heatmapRef.current) return
 
-      console.log('Creating uPlot with:', {
-        optsWidth: opts.width,
-        optsHeight: opts.height,
-        plotDataLength: plotData.length,
-        containerElement: heatmapRef.current
-      })
+        uplotHeatmapRef.current = new uPlot(opts, plotData, heatmapRef.current)
 
-      uplotHeatmapRef.current = new uPlot(opts, plotData, heatmapRef.current)
+        const resizeObserver = new ResizeObserver(() => {
+          if (uplotHeatmapRef.current && heatmapRef.current) {
+            const newWidth = heatmapRef.current.clientWidth || 800
+            const newHeight = Math.max(300, selectedChannels.length * 30 + 100)
+            uplotHeatmapRef.current.setSize({ width: newWidth, height: newHeight })
+            uplotHeatmapRef.current.redraw()
+          }
+        })
 
-      console.log('uPlot created successfully for heatmap')
-
-      // Handle resize
-      const resizeObserver = new ResizeObserver(() => {
-        if (uplotHeatmapRef.current && heatmapRef.current) {
-          const newWidth = heatmapRef.current.clientWidth || 800
-          const newHeight = Math.max(300, selectedChannels.length * 30 + 100)
-          console.log('Resizing heatmap:', { newWidth, newHeight })
-          uplotHeatmapRef.current.setSize({
-            width: newWidth,
-            height: newHeight
-          })
-          // Force redraw after resize
-          uplotHeatmapRef.current.redraw()
+        if (heatmapRef.current) {
+          resizeObserver.observe(heatmapRef.current)
         }
-      })
 
-      if (heatmapRef.current) {
-        resizeObserver.observe(heatmapRef.current)
-      }
-
-      // Clear loading state after a short delay to ensure initial draw is complete
-      setTimeout(() => {
-        setIsRenderingHeatmap(false)
-      }, 100)
-
-      return () => {
-        resizeObserver.disconnect()
-        if (uplotHeatmapRef.current) {
-          uplotHeatmapRef.current.destroy()
-          uplotHeatmapRef.current = null
+        return () => {
+          resizeObserver.disconnect()
+          if (uplotHeatmapRef.current) {
+            uplotHeatmapRef.current.destroy()
+            uplotHeatmapRef.current = null
+          }
         }
-      }
 
       } catch (error) {
         console.error('Error rendering heatmap:', error)
-        setIsRenderingHeatmap(false)
       }
     })
   }, [heatmapData, selectedChannels, result.results.scales, colorRange, colorScheme])
@@ -502,7 +427,7 @@ export function DDAResults({ result }: DDAResultsProps) {
     const currentVariant = availableVariants[selectedVariant] || availableVariants[0]
 
     if (!currentVariant || !currentVariant.dda_matrix) {
-      console.log('No variant data available for line plot');
+      // No variant data available
       setIsRenderingLinePlot(false)
       return
     }
@@ -516,7 +441,7 @@ export function DDAResults({ result }: DDAResultsProps) {
         uplotLinePlotRef.current = null
       }
 
-      console.log(`Rendering line plot for variant ${currentVariant.variant_id}`);
+      // Removed verbose logging
 
       // Prepare data for line plot
       const scales = result.results.scales
@@ -530,13 +455,15 @@ export function DDAResults({ result }: DDAResultsProps) {
       }
 
       const data: uPlot.AlignedData = [scales]
+      const validChannels: string[] = []
 
-      // Add DDA matrix data for selected channels
+      // Add DDA matrix data for selected channels - only include channels with valid data
       selectedChannels.forEach(channel => {
         if (currentVariant.dda_matrix[channel]) {
           const channelData = currentVariant.dda_matrix[channel]
           if (Array.isArray(channelData) && channelData.length > 0) {
             data.push(channelData)
+            validChannels.push(channel)
           } else {
             console.warn(`Invalid data for channel ${channel}:`, channelData)
           }
@@ -544,16 +471,16 @@ export function DDAResults({ result }: DDAResultsProps) {
       })
 
       // Check we have at least one data series besides x-axis
-      if (data.length < 2) {
+      if (data.length < 2 || validChannels.length === 0) {
         console.error('No valid channel data for line plot');
         setIsRenderingLinePlot(false)
         return
       }
 
-      // Create series configuration
+      // Create series configuration - IMPORTANT: must match data array length
       const series: uPlot.Series[] = [
         {}, // x-axis
-        ...selectedChannels.map((channel, index) => ({
+        ...validChannels.map((channel, index) => ({
           label: `${channel}`,
           stroke: getChannelColor(index),
           width: 2,
@@ -700,64 +627,60 @@ export function DDAResults({ result }: DDAResultsProps) {
     console.log(`Exporting ${viewMode} as ${format}`)
   }
 
-  // Re-render plots when dependencies change
+  // Re-render plots when dependencies change - using IntersectionObserver to detect visibility
   useEffect(() => {
-    console.log('Heatmap render effect triggered:', {
-      viewMode,
-      shouldRender: viewMode === 'heatmap' || viewMode === 'both',
-      heatmapDataLength: heatmapData.length,
-      hasRef: !!heatmapRef.current,
-      refDimensions: heatmapRef.current ? {
-        width: heatmapRef.current.clientWidth,
-        height: heatmapRef.current.clientHeight,
-        offsetWidth: heatmapRef.current.offsetWidth,
-        offsetHeight: heatmapRef.current.offsetHeight
-      } : null
-    })
-    if ((viewMode === 'heatmap' || viewMode === 'both') && heatmapData.length > 0) {
-      // Wait for DOM to be fully ready with multiple checks
-      const attemptRender = (attempts = 0) => {
-        if (heatmapRef.current && heatmapRef.current.clientWidth > 0) {
-          console.log('DOM ready, rendering heatmap...')
-          renderHeatmap()
-        } else if (attempts < 10) {
-          console.log(`DOM not ready, retrying... (attempt ${attempts + 1})`)
-          setTimeout(() => attemptRender(attempts + 1), 100)
-        } else {
-          console.error('Failed to render heatmap: DOM element not ready after 10 attempts')
-        }
+    if ((viewMode === 'heatmap' || viewMode === 'both') && heatmapData.length > 0 && heatmapRef.current) {
+      // Use IntersectionObserver to detect when the element becomes visible
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting && entry.target === heatmapRef.current) {
+              // Element is visible, render the heatmap
+              renderHeatmap()
+              // Disconnect after first render
+              observer.disconnect()
+            }
+          })
+        },
+        { threshold: 0.1 } // Trigger when at least 10% is visible
+      )
+
+      observer.observe(heatmapRef.current)
+
+      // Also try immediate render in case already visible
+      if (heatmapRef.current.clientWidth > 0) {
+        renderHeatmap()
       }
-      attemptRender()
+
+      return () => observer.disconnect()
     }
   }, [renderHeatmap, viewMode, heatmapData])
 
   useEffect(() => {
-    console.log('Line plot render effect triggered:', {
-      viewMode,
-      shouldRender: viewMode === 'lineplot' || viewMode === 'both',
-      availableVariantsLength: availableVariants.length,
-      hasRef: !!linePlotRef.current,
-      refDimensions: linePlotRef.current ? {
-        width: linePlotRef.current.clientWidth,
-        height: linePlotRef.current.clientHeight,
-        offsetWidth: linePlotRef.current.offsetWidth,
-        offsetHeight: linePlotRef.current.offsetHeight
-      } : null
-    })
-    if ((viewMode === 'lineplot' || viewMode === 'both') && availableVariants.length > 0) {
-      // Wait for DOM to be fully ready with multiple checks
-      const attemptRender = (attempts = 0) => {
-        if (linePlotRef.current && linePlotRef.current.clientWidth > 0) {
-          console.log('DOM ready, rendering line plot...')
-          renderLinePlot()
-        } else if (attempts < 10) {
-          console.log(`Line plot DOM not ready, retrying... (attempt ${attempts + 1})`)
-          setTimeout(() => attemptRender(attempts + 1), 100)
-        } else {
-          console.error('Failed to render line plot: DOM element not ready after 10 attempts')
-        }
+    if ((viewMode === 'lineplot' || viewMode === 'both') && availableVariants.length > 0 && linePlotRef.current) {
+      // Use IntersectionObserver to detect when the element becomes visible
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting && entry.target === linePlotRef.current) {
+              // Element is visible, render the line plot
+              renderLinePlot()
+              // Disconnect after first render
+              observer.disconnect()
+            }
+          })
+        },
+        { threshold: 0.1 } // Trigger when at least 10% is visible
+      )
+
+      observer.observe(linePlotRef.current)
+
+      // Also try immediate render in case already visible
+      if (linePlotRef.current.clientWidth > 0) {
+        renderLinePlot()
       }
-      attemptRender()
+
+      return () => observer.disconnect()
     }
   }, [renderLinePlot, viewMode, availableVariants])
 

@@ -48,6 +48,8 @@ import {
   applyPreprocessing,
   getDefaultPreprocessing,
 } from "@/utils/preprocessing";
+import { useWorkflow } from "@/hooks/useWorkflow";
+import { createTransformDataAction } from "@/types/workflow";
 
 interface TimeSeriesPlotProps {
   apiService: ApiService;
@@ -60,7 +62,11 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     updatePlotState,
     setCurrentChunk,
     setSelectedChannels: persistSelectedChannels,
+    workflowRecording,
+    incrementActionCount,
   } = useAppStore();
+
+  const { recordAction } = useWorkflow();
   const { createWindow, updateWindowData, broadcastToType } =
     usePopoutWindows();
 
@@ -195,16 +201,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       return;
     }
 
-    console.log("Processing data for plot:", {
-      chunkDataKeys: Object.keys(chunkData),
-      dataShape: chunkData.data
-        ? `${chunkData.data.length} x ${chunkData.data[0]?.length || 0}`
-        : "no data",
-      timestampsLength: chunkData.timestamps?.length,
-      sampleRate: chunkData.sample_rate,
-      channels: chunkData.channels?.length,
-      startTime,
-    });
+    // Removed verbose logging
 
     // Prepare data for uPlot
     const dataLength = chunkData.data?.[0]?.length || 0;
@@ -214,13 +211,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       (_, i) => startTime + (i / chunkData.sample_rate)
     );
 
-    console.log("Generated time data:", {
-      startTime,
-      timeDataLength: timeData.length,
-      firstFew: timeData.slice(0, 5),
-      lastFew: timeData.slice(-5),
-      expectedRange: [startTime, startTime + timeWindowRef.current],
-    });
+    // Removed verbose logging
 
     // Calculate auto-scaled offset based on maximum data range across all channels
     // Use stable offset if already calculated, otherwise calculate and store it
@@ -249,7 +240,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       autoOffset = channelOffsetRef.current;
       stableOffsetRef.current = autoOffset;
     } else {
-      console.log("Using previously calculated stable offset:", autoOffset);
+      // Removed verbose logging
     }
 
     // Stack channels with offset for visibility
@@ -869,6 +860,31 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   // Persist preprocessing options to plot state
   useEffect(() => {
     updatePlotState({ preprocessing });
+
+    // Record preprocessing changes if recording is active
+    if (workflowRecording.isRecording && fileManager.selectedFile) {
+      const recordPreprocessing = async () => {
+        try {
+          // Record bandpass filter if highpass or lowpass is set
+          if (preprocessing.highpass || preprocessing.lowpass) {
+            const action = createTransformDataAction(
+              fileManager.selectedFile!.file_path,
+              {
+                type: 'BandpassFilter',
+                low_freq: preprocessing.highpass || 0.1,
+                high_freq: preprocessing.lowpass || 100
+              }
+            );
+            await recordAction(action);
+            incrementActionCount();
+            console.log('[WORKFLOW] Recorded bandpass filter');
+          }
+        } catch (error) {
+          console.error('[WORKFLOW] Failed to record preprocessing:', error);
+        }
+      };
+      recordPreprocessing();
+    }
   }, [preprocessing, updatePlotState]);
 
   // Reload chunk when preprocessing changes
