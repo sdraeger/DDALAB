@@ -36,6 +36,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
   const fileManager = useAppStore((state) => state.fileManager);
   const currentAnalysis = useAppStore((state) => state.dda.currentAnalysis);
   const analysisHistory = useAppStore((state) => state.dda.analysisHistory);
+  const isPersistenceRestored = useAppStore((state) => state.isPersistenceRestored);
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
   const setActiveTab = useAppStore((state) => state.setActiveTab);
   const setLayout = useAppStore((state) => state.setLayout);
@@ -96,36 +97,48 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
   }, [ui.isServerReady, apiService]); // Removed setAnalysisHistory from deps to prevent re-runs
 
   // Auto-load most recent analysis if no current analysis is set
+  // IMPORTANT: Only run this AFTER persistence has been restored to avoid overwriting persisted currentAnalysis
   useEffect(() => {
     const autoLoadMostRecent = async () => {
+      // Don't auto-load if:
+      // 1. We already have a current analysis (including from persistence)
+      // 2. Persistence hasn't been restored yet (wait for persisted currentAnalysis to load)
+      // 3. No analysis history available
+      // 4. Already in the process of loading
       if (
-        !currentAnalysis &&
-        analysisHistory.length > 0 &&
-        !autoLoadingResults
+        currentAnalysis ||
+        !isPersistenceRestored ||
+        analysisHistory.length === 0 ||
+        autoLoadingResults
       ) {
-        setAutoLoadingResults(true);
-        try {
-          console.log(
-            "Auto-loading most recent analysis from dashboard:",
-            analysisHistory[0].id
-          );
-          await new Promise((resolve) => setTimeout(resolve, 100));
-
-          const fullAnalysis = await apiService.getAnalysisFromHistory(
-            analysisHistory[0].id
-          );
-          if (fullAnalysis) {
-            console.log(
-              "Setting current analysis from dashboard:",
-              fullAnalysis.id
-            );
-            setCurrentAnalysis(fullAnalysis);
-          }
-        } catch (error) {
-          console.error("Failed to auto-load most recent analysis:", error);
-        } finally {
-          setAutoLoadingResults(false);
+        if (!currentAnalysis && !isPersistenceRestored) {
+          console.log("[DASHBOARD] Waiting for persistence to restore before auto-loading analysis");
         }
+        return;
+      }
+
+      setAutoLoadingResults(true);
+      try {
+        console.log(
+          "[DASHBOARD] Auto-loading most recent analysis from history:",
+          analysisHistory[0].id
+        );
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        const fullAnalysis = await apiService.getAnalysisFromHistory(
+          analysisHistory[0].id
+        );
+        if (fullAnalysis) {
+          console.log(
+            "[DASHBOARD] Setting current analysis from auto-load:",
+            fullAnalysis.id
+          );
+          setCurrentAnalysis(fullAnalysis);
+        }
+      } catch (error) {
+        console.error("[DASHBOARD] Failed to auto-load most recent analysis:", error);
+      } finally {
+        setAutoLoadingResults(false);
       }
     };
 
@@ -138,6 +151,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
     currentAnalysis,
     analysisHistory,
     autoLoadingResults,
+    isPersistenceRestored,
     apiService,
     setCurrentAnalysis,
   ]);
