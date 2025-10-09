@@ -440,4 +440,43 @@ export class TauriService {
     if (!api) throw new Error('Not running in Tauri environment')
     return await api.invoke('check_for_updates')
   }
+
+  // Get app version
+  static async getAppVersion(): Promise<string> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('get_app_version')
+  }
+
+  // Native Update Commands (uses Tauri updater plugin)
+  static async checkNativeUpdate(): Promise<{
+    available: boolean
+    current_version: string
+    latest_version?: string
+    release_notes?: string
+    release_date?: string
+  }> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('check_native_update')
+  }
+
+  static async downloadAndInstallUpdate(): Promise<void> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    await api.invoke('download_and_install_update')
+  }
+
+  // Open URL in default browser
+  static async openUrl(url: string): Promise<void> {
+    if (typeof window === 'undefined') return
+
+    try {
+      const { open } = await import('@tauri-apps/plugin-shell')
+      await open(url)
+    } catch (error) {
+      console.error('Failed to open URL:', error)
+      throw error
+    }
+  }
 }
