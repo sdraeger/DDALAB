@@ -1,5 +1,21 @@
 use crate::state_manager::AppStateManager;
-use tauri::{State, WebviewWindowBuilder, WebviewUrl};
+use tauri::{State, WebviewWindowBuilder, WebviewUrl, Manager};
+
+#[tauri::command]
+pub async fn focus_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_focus().map_err(|e| e.to_string())?;
+        #[cfg(target_os = "macos")]
+        {
+            // Additional macOS-specific fixes for focus issues
+            window.show().map_err(|e| e.to_string())?;
+            window.set_focus().map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    } else {
+        Err("Main window not found".to_string())
+    }
+}
 
 #[tauri::command]
 pub async fn create_popout_window(

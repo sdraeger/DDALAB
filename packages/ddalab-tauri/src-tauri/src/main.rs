@@ -14,12 +14,14 @@ mod embedded_api;
 mod edf;
 mod text_reader;
 mod sync;
+mod recording;
 
 // Import required modules
 use app_setup::setup_app;
 use commands::*;
 use commands::embedded_api_commands::EmbeddedApiState;
 use sync::AppSyncState;
+use recording::commands::WorkflowState;
 
 fn main() {
     // Initialize logging to file in user's temp directory
@@ -60,6 +62,7 @@ fn main() {
             // API commands
             check_api_connection,
             // Window management commands
+            focus_main_window,
             create_popout_window,
             store_analysis_preview_data,
             get_analysis_preview_data,
@@ -97,13 +100,50 @@ fn main() {
             sync::commands::sync_access_share,
             sync::commands::sync_revoke_share,
             sync::commands::sync_discover_brokers,
-            sync::commands::sync_verify_password
+            sync::commands::sync_verify_password,
+            // Workflow recording commands
+            recording::commands::workflow_new,
+            recording::commands::workflow_add_node,
+            recording::commands::workflow_add_edge,
+            recording::commands::workflow_remove_node,
+            recording::commands::workflow_get_node,
+            recording::commands::workflow_get_info,
+            recording::commands::workflow_get_topological_order,
+            recording::commands::workflow_validate,
+            recording::commands::workflow_generate_python,
+            recording::commands::workflow_generate_julia,
+            recording::commands::workflow_clear,
+            recording::commands::workflow_get_all_nodes,
+            recording::commands::workflow_get_all_edges,
+            recording::commands::workflow_record_action,
+            recording::commands::workflow_export,
+            recording::commands::workflow_import
         ])
         .manage(EmbeddedApiState::default())
         .manage(AppSyncState::new())
         .manage(parking_lot::RwLock::new(None::<commands::data_directory_commands::DataDirectoryConfig>))
+        .manage(std::sync::Arc::new(parking_lot::RwLock::new(
+            WorkflowState::new().expect("Failed to initialize workflow state")
+        )))
         .setup(|app| {
             setup_app(app).map_err(|e| e.to_string())?;
+
+            // Fix for macOS window focus issue in dev mode
+            // Use event listener to ensure window gets focus after creation
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::Manager;
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.set_focus();
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                });
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())

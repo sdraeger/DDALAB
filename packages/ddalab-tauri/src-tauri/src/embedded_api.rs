@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use chrono::Utc;
-use uuid::Uuid;
 use axum::{
     extract::{Path, Query, State, DefaultBodyLimit},
     http::StatusCode,
@@ -1543,20 +1542,20 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
     Router::new()
         .route("/api/health", get(health))
         .route("/api/files/list", get(list_files))
-        .route("/api/files/:file_path", get(get_file_info))
-        .route("/api/files/:file_path/chunk", get(get_file_chunk))
+        .route("/api/files/{file_path}", get(get_file_info))
+        .route("/api/files/{file_path}/chunk", get(get_file_chunk))
         .route("/api/edf/info", get(get_edf_info))
         .route("/api/edf/data", get(get_edf_data))
         .route("/api/dda", post(run_dda_analysis))
         .route("/api/dda/analyze", post(run_dda_analysis))
         .route("/api/dda/results", get(get_dda_results))
-        .route("/api/dda/results/:analysis_id", get(get_analysis_result))
-        .route("/api/dda/results/:analysis_id", delete(delete_analysis_result))
-        .route("/api/dda/status/:analysis_id", get(get_analysis_status))
+        .route("/api/dda/results/{analysis_id}", get(get_analysis_result))
+        .route("/api/dda/results/{analysis_id}", delete(delete_analysis_result))
+        .route("/api/dda/status/{analysis_id}", get(get_analysis_status))
         .route("/api/dda/history", get(list_analysis_history))
         .route("/api/dda/history/save", post(save_analysis_to_history))
-        .route("/api/dda/history/:analysis_id", get(get_analysis_result))
-        .route("/api/dda/history/:analysis_id", delete(delete_analysis_result))
+        .route("/api/dda/history/{analysis_id}", get(get_analysis_result))
+        .route("/api/dda/history/{analysis_id}", delete(delete_analysis_result))
         .fallback(handle_404)
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100 MB limit for large DDA results
         .layer(
