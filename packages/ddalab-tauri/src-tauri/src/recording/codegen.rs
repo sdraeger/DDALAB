@@ -78,7 +78,7 @@ impl CodeGenerator {
             }
             WorkflowAction::SetDDAParameters { lag, dimension, window_size, window_offset } => {
                 format!(
-                    "dda_params = {{\n    'lag': {},\n    'dimension': {},\n    'window_size': {},\n    'window_offset': {}\n}}",
+                    "dda_params = {{\n        'lag': {},\n        'dimension': {},\n        'window_size': {},\n        'window_offset': {}\n    }}",
                     lag, dimension, window_size, window_offset
                 )
             }

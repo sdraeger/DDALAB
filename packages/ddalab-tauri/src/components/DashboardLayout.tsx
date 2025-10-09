@@ -30,18 +30,20 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
   const [apiService, setApiService] = useState(() => new ApiService(apiUrl));
-  const {
-    ui,
-    fileManager,
-    dda,
-    setSidebarOpen,
-    setActiveTab,
-    setLayout,
-    setCurrentAnalysis,
-    setAnalysisHistory,
-  } = useAppStore();
+
+  // Use selectors to prevent unnecessary re-renders
+  const ui = useAppStore((state) => state.ui);
+  const fileManager = useAppStore((state) => state.fileManager);
+  const currentAnalysis = useAppStore((state) => state.dda.currentAnalysis);
+  const analysisHistory = useAppStore((state) => state.dda.analysisHistory);
+  const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
+  const setActiveTab = useAppStore((state) => state.setActiveTab);
+  const setLayout = useAppStore((state) => state.setLayout);
+  const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis);
+  const setAnalysisHistory = useAppStore((state) => state.setAnalysisHistory);
 
   const [autoLoadingResults, setAutoLoadingResults] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   // Update API service when URL changes
   useEffect(() => {
@@ -56,7 +58,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
   // Auto-load most recent analysis from MinIO on component mount
   // Only load after server is ready to avoid connection errors
   useEffect(() => {
-    const loadAnalysisHistory = async () => {
+    const loadAnalysisHistory = async (retryCount = 0) => {
       // Wait for server to be ready before attempting to fetch
       if (!ui.isServerReady) {
         console.log(
@@ -66,36 +68,51 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
       }
 
       console.log("[DASHBOARD] Server is ready, loading analysis history");
+      setIsLoadingHistory(true);
 
       try {
         const history = await apiService.getAnalysisHistory();
+        console.log("[DASHBOARD] Loaded analysis history:", history.length, "items");
         setAnalysisHistory(history);
+        setIsLoadingHistory(false);
       } catch (error) {
         console.error("Failed to load analysis history:", error);
+
+        // Retry up to 5 times with exponential backoff
+        if (retryCount < 5) {
+          const delay = Math.min(Math.pow(2, retryCount) * 500, 5000); // 500ms, 1s, 2s, 4s, 5s (capped)
+          console.log(`[DASHBOARD] Retrying history load in ${delay}ms (attempt ${retryCount + 1}/5)`);
+          setTimeout(() => loadAnalysisHistory(retryCount + 1), delay);
+        } else {
+          console.error("[DASHBOARD] Failed to load analysis history after 5 retries");
+          // Set empty array on failure so UI doesn't keep trying
+          setAnalysisHistory([]);
+          setIsLoadingHistory(false);
+        }
       }
     };
 
     loadAnalysisHistory();
-  }, [ui.isServerReady, apiService, setAnalysisHistory]);
+  }, [ui.isServerReady, apiService]); // Removed setAnalysisHistory from deps to prevent re-runs
 
   // Auto-load most recent analysis if no current analysis is set
   useEffect(() => {
     const autoLoadMostRecent = async () => {
       if (
-        !dda.currentAnalysis &&
-        dda.analysisHistory.length > 0 &&
+        !currentAnalysis &&
+        analysisHistory.length > 0 &&
         !autoLoadingResults
       ) {
         setAutoLoadingResults(true);
         try {
           console.log(
             "Auto-loading most recent analysis from dashboard:",
-            dda.analysisHistory[0].id
+            analysisHistory[0].id
           );
           await new Promise((resolve) => setTimeout(resolve, 100));
 
           const fullAnalysis = await apiService.getAnalysisFromHistory(
-            dda.analysisHistory[0].id
+            analysisHistory[0].id
           );
           if (fullAnalysis) {
             console.log(
@@ -118,8 +135,8 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
       setTimeout(() => autoLoadMostRecent(), 0);
     }
   }, [
-    dda.currentAnalysis,
-    dda.analysisHistory,
+    currentAnalysis,
+    analysisHistory,
     autoLoadingResults,
     apiService,
     setCurrentAnalysis,
@@ -264,7 +281,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
               </TabsList>
             </div>
 
-            {/* Tab Content */}
+            {/* Tab Content - Keep all tabs mounted to prevent remounting lag */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden">
               <TabsContent value="files" className="m-0 h-full">
                 <div className="p-6">
@@ -395,17 +412,20 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
 
               <TabsContent value="results" className="m-0 h-full">
                 <div className="p-4 h-full">
-                  {(() => {
-                    console.log("[DASHBOARD] Results tab render:", {
-                      hasCurrentAnalysis: !!dda.currentAnalysis,
-                      analysisId: dda.currentAnalysis?.id,
-                      autoLoadingResults,
-                      historyLength: dda.analysisHistory.length,
-                    });
-                    return null;
-                  })()}
-                  {dda.currentAnalysis ? (
-                    <DDAResults result={dda.currentAnalysis} />
+                  {currentAnalysis ? (
+                    <DDAResults result={currentAnalysis} />
+                  ) : isLoadingHistory ? (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                        <h3 className="text-lg font-medium mb-2">
+                          Loading Analysis History
+                        </h3>
+                        <p className="text-muted-foreground">
+                          Fetching saved analyses...
+                        </p>
+                      </div>
+                    </div>
                   ) : autoLoadingResults ? (
                     <div className="flex items-center justify-center h-full">
                       <div className="text-center">
@@ -419,7 +439,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
                         </p>
                       </div>
                     </div>
-                  ) : dda.analysisHistory.length > 0 ? (
+                  ) : analysisHistory.length > 0 ? (
                     <div className="flex items-center justify-center h-full">
                       <div className="text-center">
                         <Settings className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
@@ -427,8 +447,8 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
                           Analysis Available
                         </h3>
                         <p className="text-muted-foreground mb-4">
-                          Found {dda.analysisHistory.length} analysis
-                          {dda.analysisHistory.length > 1 ? "es" : ""} in
+                          Found {analysisHistory.length} analysis
+                          {analysisHistory.length > 1 ? "es" : ""} in
                           history
                         </p>
                         <p className="text-sm text-muted-foreground">

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { EDFFileInfo, ChunkData, DDAResult, Annotation } from '@/types/api'
 import { TauriService } from '@/services/tauriService'
 import { getStatePersistenceService, StatePersistenceService } from '@/services/statePersistenceService'
-import { AppState as PersistedAppState, AnalysisResult, PreprocessingOptions } from '@/types/persistence'
+import { AppState as PersistedAppState, AnalysisResult, PreprocessingOptions, DDAState as PersistedDDAState } from '@/types/persistence'
 import { PlotAnnotation, TimeSeriesAnnotations, DDAResultAnnotations } from '@/types/annotations'
 
 // Module-level flag to prevent re-initialization during Hot Module Reload
@@ -83,9 +83,17 @@ export interface AnnotationState {
   ddaResults: Record<string, DDAResultAnnotations>
 }
 
+export interface WorkflowRecordingState {
+  isRecording: boolean
+  currentSessionName: string | null
+  actionCount: number
+  lastActionTimestamp: number | null
+}
+
 export interface AppState {
   // Initialization
   isInitialized: boolean
+  isPersistenceRestored: boolean  // True after persisted state has been loaded
   persistenceService: StatePersistenceService | null
   initializeFromTauri: () => Promise<void>
   initializePersistence: () => Promise<void>
@@ -143,6 +151,13 @@ export interface AppState {
   updateDDAAnnotation: (resultId: string, variantId: string, plotType: 'heatmap' | 'line', annotationId: string, updates: Partial<PlotAnnotation>) => void
   deleteDDAAnnotation: (resultId: string, variantId: string, plotType: 'heatmap' | 'line', annotationId: string) => void
   getDDAAnnotations: (resultId: string, variantId: string, plotType: 'heatmap' | 'line') => PlotAnnotation[]
+
+  // Workflow Recording
+  workflowRecording: WorkflowRecordingState
+  startWorkflowRecording: (sessionName?: string) => void
+  stopWorkflowRecording: () => void
+  incrementActionCount: () => void
+  getRecordingStatus: () => WorkflowRecordingState
 
   // State persistence
   saveCurrentState: () => Promise<void>
@@ -220,8 +235,16 @@ const defaultAnnotationState: AnnotationState = {
   ddaResults: {}
 }
 
+const defaultWorkflowRecordingState: WorkflowRecordingState = {
+  isRecording: false,
+  currentSessionName: null,
+  actionCount: 0,
+  lastActionTimestamp: null
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   isInitialized: false,
+  isPersistenceRestored: false,
   persistenceService: null,
 
   initializePersistence: async () => {
@@ -296,6 +319,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
           return {
             ...state,
+            isPersistenceRestored: true,
             persistenceService: service,
             fileManager: {
               ...state.fileManager,
@@ -379,7 +403,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     }))
 
     if (TauriService.isTauri()) {
-      const { fileManager, persistenceService } = get()
+      const { fileManager, persistenceService, isPersistenceRestored } = get()
+
+      // During initialization, don't save to backend to avoid overwriting persisted state
+      // Wait until persistence has been restored before allowing saves
+      if (!isPersistenceRestored) {
+        console.log('[STORE] Skipping save during initialization - data directory path set to:', path)
+        return
+      }
+
       const fileManagerState = {
         data_directory_path: path,
         selected_file: fileManager.selectedFile?.file_path || null,
@@ -406,7 +438,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     }))
 
     if (TauriService.isTauri()) {
-      const { fileManager, persistenceService } = get()
+      const { fileManager, persistenceService, isPersistenceRestored } = get()
+
+      // During initialization, don't save to backend to avoid overwriting persisted state
+      if (!isPersistenceRestored) {
+        console.log('[STORE] Skipping save during initialization - current path set to:', path)
+        return
+      }
+
       const fileManagerState = {
         data_directory_path: fileManager.dataDirectoryPath,
         selected_file: fileManager.selectedFile?.file_path || null,
@@ -463,8 +502,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     if (TauriService.isTauri()) {
       const { fileManager } = get()
+      const selectedFilePath = file?.file_path || null
       TauriService.updateFileManagerState({
-        selected_file: file?.file_path || null,
+        selected_file: selectedFilePath,
         current_path: fileManager.currentPath,
         selected_channels: fileManager.selectedChannels,
         search_query: fileManager.searchQuery,
@@ -481,7 +521,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     }))
 
     if (TauriService.isTauri()) {
-      const { fileManager } = get()
+      const { fileManager, isPersistenceRestored } = get()
+
+      // During initialization, don't save to backend to avoid overwriting persisted state
+      if (!isPersistenceRestored) {
+        console.log('[STORE] Skipping save during initialization - selected channels set')
+        return
+      }
+
       TauriService.updateFileManagerState({
         selected_file: fileManager.selectedFile?.file_path || null,
         current_path: fileManager.currentPath,
@@ -584,21 +631,34 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }))
 
-    if (TauriService.isTauri()) {
-      const { dda } = get()
-      TauriService.updateDDAState({
-        selected_variants: dda.analysisParameters.variants,
-        parameters: {
-          windowLength: dda.analysisParameters.windowLength,
-          windowStep: dda.analysisParameters.windowStep,
-          detrending: dda.analysisParameters.detrending,
-          scaleMin: dda.analysisParameters.scaleMin,
-          scaleMax: dda.analysisParameters.scaleMax,
-          scaleNum: dda.analysisParameters.scaleNum
-        },
-        last_analysis_id: dda.currentAnalysis?.id || null
-      })
+    // Debounce Tauri state updates to prevent lag during UI interactions
+    // Clear existing timeout and schedule new one
+    if (typeof (window as any).__ddaStateUpdateTimeout !== 'undefined') {
+      clearTimeout((window as any).__ddaStateUpdateTimeout)
     }
+
+    (window as any).__ddaStateUpdateTimeout = setTimeout(() => {
+      if (TauriService.isTauri()) {
+        const { dda } = get()
+        const ddaState: PersistedDDAState = {
+          selected_variants: dda.analysisParameters.variants,
+          parameters: {
+            windowLength: dda.analysisParameters.windowLength,
+            windowStep: dda.analysisParameters.windowStep,
+            detrending: dda.analysisParameters.detrending,
+            scaleMin: dda.analysisParameters.scaleMin,
+            scaleMax: dda.analysisParameters.scaleMax,
+            scaleNum: dda.analysisParameters.scaleNum
+          },
+          last_analysis_id: dda.currentAnalysis?.id || null,
+          current_analysis: dda.currentAnalysis,
+          analysis_history: dda.analysisHistory,
+          analysis_parameters: dda.analysisParameters,
+          running: dda.isRunning
+        }
+        TauriService.updateDDAState(ddaState)
+      }
+    }, 300) // Wait 300ms after last change before saving
   },
 
   setDDARunning: (running) => {
@@ -645,9 +705,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   setPanelSizes: (sizes) => {
     set((state) => ({ ui: { ...state.ui, panelSizes: sizes } }))
 
-    if (TauriService.isTauri()) {
-      TauriService.updateUIState({ panelSizes: sizes })
+    // Debounce Tauri state updates - panel resizing triggers many rapid updates
+    if (typeof (window as any).__panelSizesUpdateTimeout !== 'undefined') {
+      clearTimeout((window as any).__panelSizesUpdateTimeout)
     }
+
+    (window as any).__panelSizesUpdateTimeout = setTimeout(() => {
+      if (TauriService.isTauri()) {
+        TauriService.updateUIState({ panelSizes: sizes })
+      }
+    }, 150) // Wait 150ms after last resize before saving
   },
 
   setLayout: (layout) => {
@@ -827,6 +894,46 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get()
     const key = `${resultId}_${variantId}_${plotType}`
     return state.annotations.ddaResults[key]?.annotations || []
+  },
+
+  // Workflow Recording
+  workflowRecording: defaultWorkflowRecordingState,
+
+  startWorkflowRecording: (sessionName) => {
+    const name = sessionName || `session_${new Date().toISOString().split('T')[0]}_${Date.now()}`
+    set({
+      workflowRecording: {
+        isRecording: true,
+        currentSessionName: name,
+        actionCount: 0,
+        lastActionTimestamp: Date.now()
+      }
+    })
+    console.log('[WORKFLOW] Recording started:', name)
+  },
+
+  stopWorkflowRecording: () => {
+    set((state) => ({
+      workflowRecording: {
+        ...state.workflowRecording,
+        isRecording: false
+      }
+    }))
+    console.log('[WORKFLOW] Recording stopped')
+  },
+
+  incrementActionCount: () => {
+    set((state) => ({
+      workflowRecording: {
+        ...state.workflowRecording,
+        actionCount: state.workflowRecording.actionCount + 1,
+        lastActionTimestamp: Date.now()
+      }
+    }))
+  },
+
+  getRecordingStatus: () => {
+    return get().workflowRecording
   },
 
   // Additional persistence methods that weren't in the original implementation

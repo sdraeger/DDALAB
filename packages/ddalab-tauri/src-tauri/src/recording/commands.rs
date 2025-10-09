@@ -10,6 +10,7 @@ use super::codegen::CodeGenerator;
 pub struct WorkflowState {
     workflow: Arc<RwLock<WorkflowGraph>>,
     code_generator: CodeGenerator,
+    last_node_id: Arc<RwLock<Option<String>>>,
 }
 
 impl WorkflowState {
@@ -17,12 +18,15 @@ impl WorkflowState {
         Ok(Self {
             workflow: Arc::new(RwLock::new(WorkflowGraph::new("session".to_string()))),
             code_generator: CodeGenerator::new()?,
+            last_node_id: Arc::new(RwLock::new(None)),
         })
     }
 
     pub fn new_workflow(&self, name: String) {
         let mut workflow = self.workflow.write();
         *workflow = WorkflowGraph::new(name);
+        // Reset last node ID when creating new workflow
+        *self.last_node_id.write() = None;
     }
 
     pub fn get_workflow(&self) -> WorkflowGraph {
@@ -210,6 +214,21 @@ pub async fn workflow_record_action(
 
     let node = WorkflowNode::new(node_id.clone(), action);
     workflow.add_node(node).map_err(|e| e.to_string())?;
+
+    // Create edge from previous node if one exists
+    let mut last_node = workflow_state.last_node_id.write();
+    if let Some(ref prev_node_id) = *last_node {
+        use super::actions::DependencyType;
+        let edge = WorkflowEdge {
+            source: prev_node_id.clone(),
+            target: node_id.clone(),
+            dependency_type: DependencyType::OrderDependency,
+        };
+        workflow.add_edge(edge).map_err(|e| e.to_string())?;
+    }
+
+    // Update last node ID
+    *last_node = Some(node_id.clone());
 
     Ok(node_id)
 }
