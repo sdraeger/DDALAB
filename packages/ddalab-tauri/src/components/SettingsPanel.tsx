@@ -40,6 +40,7 @@ export function SettingsPanel() {
     error?: string
   }>({ status: 'unknown', healthy: false })
   const [isLoading, setIsLoading] = useState(false)
+  const [appVersion, setAppVersion] = useState<string>('0.1.0')
   const [updateInfo, setUpdateInfo] = useState<{
     available: boolean
     current_version: string
@@ -50,21 +51,71 @@ export function SettingsPanel() {
   } | null>(null)
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
+  const [isDownloading, setIsDownloading] = useState(false)
+
+  // Fetch app version on mount
+  useEffect(() => {
+    const fetchVersion = async () => {
+      if (!TauriService.isTauri()) return
+      try {
+        const version = await TauriService.getAppVersion()
+        setAppVersion(version)
+      } catch (error) {
+        console.error('Failed to fetch app version:', error)
+      }
+    }
+    fetchVersion()
+  }, [])
 
   const checkForUpdates = async () => {
     if (!TauriService.isTauri()) return
+
+    console.log('[UPDATE] ========================================')
+    console.log('[UPDATE] Starting update check...')
+    console.log('[UPDATE] ========================================')
 
     setIsCheckingUpdate(true)
     setUpdateError(null)
 
     try {
-      const result = await TauriService.checkForUpdates()
+      console.log('[UPDATE] About to call TauriService.checkNativeUpdate()...')
+      const result = await TauriService.checkNativeUpdate()
+      console.log('[UPDATE] ========================================')
+      console.log('[UPDATE] Successfully received result from checkNativeUpdate')
+      console.log('[UPDATE] Raw result from checkNativeUpdate:', result)
+      console.log('[UPDATE] Current version:', result.current_version)
+      console.log('[UPDATE] Latest version:', result.latest_version)
+      console.log('[UPDATE] Update available:', result.available)
+      console.log('[UPDATE] ========================================')
       setUpdateInfo(result)
     } catch (error) {
-      console.error('Failed to check for updates:', error)
+      console.log('[UPDATE] ========================================')
+      console.error('[UPDATE] CAUGHT ERROR in checkForUpdates')
+      console.error('[UPDATE] Error object:', error)
+      console.error('[UPDATE] Error message:', error instanceof Error ? error.message : 'Unknown error')
+      console.error('[UPDATE] Error stack:', error instanceof Error ? error.stack : 'No stack')
+      console.log('[UPDATE] ========================================')
       setUpdateError(error instanceof Error ? error.message : 'Failed to check for updates')
     } finally {
       setIsCheckingUpdate(false)
+    }
+  }
+
+  const handleDownloadUpdate = async () => {
+    if (!TauriService.isTauri()) return
+
+    setIsDownloading(true)
+    setUpdateError(null)
+
+    try {
+      await TauriService.downloadAndInstallUpdate()
+      // Update installed successfully - prompt to restart
+      alert('Update downloaded and installed successfully! Please restart the application to apply the update.')
+    } catch (error) {
+      console.error('Failed to download update:', error)
+      setUpdateError(error instanceof Error ? error.message : 'Failed to download update')
+    } finally {
+      setIsDownloading(false)
     }
   }
 
@@ -519,7 +570,7 @@ export function SettingsPanel() {
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Current Version</p>
                   <p className="text-sm text-muted-foreground">
-                    {updateInfo?.current_version || '0.1.0'}
+                    {appVersion}
                   </p>
                 </div>
                 <Button
@@ -579,15 +630,14 @@ export function SettingsPanel() {
                           </div>
                         </div>
                       )}
-                      {updateInfo.download_url && (
-                        <Button
-                          onClick={() => window.open(updateInfo.download_url, '_blank')}
-                          className="mt-2"
-                        >
-                          <Download className="mr-2 h-4 w-4" />
-                          Download Update
-                        </Button>
-                      )}
+                      <Button
+                        onClick={handleDownloadUpdate}
+                        disabled={isDownloading}
+                        className="mt-2"
+                      >
+                        <Download className="mr-2 h-4 w-4" />
+                        {isDownloading ? 'Downloading...' : 'Download and Install Update'}
+                      </Button>
                     </div>
                   </AlertDescription>
                 </Alert>
