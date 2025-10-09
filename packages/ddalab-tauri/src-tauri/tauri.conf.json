@@ -25,7 +25,9 @@
         "decorations": true,
         "alwaysOnTop": false,
         "skipTaskbar": false,
-        "theme": "Light"
+        "theme": "Light",
+        "focus": true,
+        "visible": true
       }
     ],
     "security": {

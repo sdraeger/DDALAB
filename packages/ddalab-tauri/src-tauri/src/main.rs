@@ -62,6 +62,7 @@ fn main() {
             // API commands
             check_api_connection,
             // Window management commands
+            focus_main_window,
             create_popout_window,
             store_analysis_preview_data,
             get_analysis_preview_data,
@@ -126,6 +127,23 @@ fn main() {
         )))
         .setup(|app| {
             setup_app(app).map_err(|e| e.to_string())?;
+
+            // Fix for macOS window focus issue in dev mode
+            // Use event listener to ensure window gets focus after creation
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::Manager;
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.set_focus();
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                });
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())

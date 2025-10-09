@@ -38,6 +38,8 @@ import {
 } from 'lucide-react'
 import { TauriService } from '@/services/tauriService'
 import { formatBytes, formatDate } from '@/lib/utils'
+import { useWorkflow } from '@/hooks/useWorkflow'
+import { createLoadFileAction } from '@/types/workflow'
 
 interface FileManagerProps {
   apiService: ApiService
@@ -53,8 +55,12 @@ export function FileManager({ apiService }: FileManagerProps) {
     setDataDirectoryPath,
     resetCurrentPathSync,
     clearPendingFileSelection,
-    ui
+    ui,
+    workflowRecording,
+    incrementActionCount
   } = useAppStore()
+
+  const { recordAction } = useWorkflow()
 
   const [files, setFiles] = useState<EDFFileInfo[]>([])
   const [directories, setDirectories] = useState<Array<{name: string, path: string}>>([])
@@ -166,11 +172,36 @@ export function FileManager({ apiService }: FileManagerProps) {
   // Handle pending file selection after files are loaded
   // Only restore file selection when server is ready and not loading to avoid blocking UI
   useEffect(() => {
+    const hasPending = !!fileManager.pendingFileSelection
+    const pendingPath = fileManager.pendingFileSelection
+    const filesCount = files.length
+    const isServerReady = ui.isServerReady
+    const isLoading = loading
+
+    console.log('[FILEMANAGER] Pending file selection check:', {
+      hasPending,
+      pendingPath,
+      filesCount,
+      isServerReady,
+      isLoading,
+      willAttemptRestore: hasPending && filesCount > 0 && isServerReady && !isLoading
+    })
+
     if (fileManager.pendingFileSelection && files.length > 0 && ui.isServerReady && !loading) {
       const fileToSelect = files.find(f => f.file_path === fileManager.pendingFileSelection)
       if (fileToSelect) {
-        console.log('Restoring selected file from persistence:', fileToSelect.file_name)
+        console.log('[FILEMANAGER] ✓ Restoring selected file from persistence:', {
+          fileName: fileToSelect.file_name,
+          filePath: fileToSelect.file_path
+        })
         handleFileSelect(fileToSelect)
+        clearPendingFileSelection()
+      } else {
+        console.warn('[FILEMANAGER] ✗ Pending file not found in current directory:', {
+          pendingPath: fileManager.pendingFileSelection,
+          availableFiles: files.map(f => ({ name: f.file_name, path: f.file_path }))
+        })
+        // Clear the pending selection if file not found
         clearPendingFileSelection()
       }
     }
@@ -235,6 +266,24 @@ export function FileManager({ apiService }: FileManagerProps) {
       // Get detailed file information
       const fileInfo = await apiService.getFileInfo(file.file_path)
       setSelectedFile(fileInfo)
+
+      // Record file load action if recording is active
+      if (workflowRecording.isRecording) {
+        try {
+          // Determine file type from extension
+          const ext = file.file_path.split('.').pop()?.toLowerCase()
+          let fileType: 'EDF' | 'ASCII' | 'CSV' = 'EDF'
+          if (ext === 'csv') fileType = 'CSV'
+          else if (ext === 'ascii' || ext === 'txt') fileType = 'ASCII'
+
+          const action = createLoadFileAction(file.file_path, fileType)
+          await recordAction(action)
+          incrementActionCount()
+          console.log('[WORKFLOW] Recorded file load:', file.file_path)
+        } catch (error) {
+          console.error('[WORKFLOW] Failed to record file load:', error)
+        }
+      }
 
       // Auto-select first few channels if none selected
       if (fileInfo.channels.length > 0 && fileManager.selectedChannels.length === 0) {

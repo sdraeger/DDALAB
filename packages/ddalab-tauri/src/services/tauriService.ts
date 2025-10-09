@@ -153,11 +153,20 @@ export class TauriService {
 
   static async updateFileManagerState(state: FileManagerState): Promise<void> {
     try {
+      console.log('[TAURI] updateFileManagerState called:', {
+        selected_file: state.selected_file,
+        current_path: state.current_path,
+        selected_channels: state.selected_channels
+      })
       const api = await getTauriAPI()
-      if (!api) return
+      if (!api) {
+        console.warn('[TAURI] Tauri API not available, skipping file manager state update')
+        return
+      }
       await api.invoke('update_file_manager_state', { fileManagerState: state })
+      console.log('[TAURI] updateFileManagerState succeeded')
     } catch (error) {
-      console.error('Failed to update file manager state:', error)
+      console.error('[TAURI] Failed to update file manager state:', error)
     }
   }
 

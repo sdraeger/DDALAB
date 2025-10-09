@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { useAppStore } from '@/store/appStore'
 import type {
   WorkflowNode,
   WorkflowEdge,
@@ -14,7 +15,7 @@ import type {
  * Wraps Tauri commands from src-tauri/src/recording/commands.rs
  */
 export function useWorkflow() {
-  const [isRecording, setIsRecording] = useState(false)
+  const { workflowRecording } = useAppStore()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [workflowInfo, setWorkflowInfo] = useState<WorkflowInfo | null>(null)
@@ -27,7 +28,6 @@ export function useWorkflow() {
     setError(null)
     try {
       await invoke('workflow_new', { name })
-      setIsRecording(false)
       await refreshWorkflowInfo()
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create new workflow'
@@ -46,7 +46,6 @@ export function useWorkflow() {
     setError(null)
     try {
       await invoke('workflow_clear')
-      setIsRecording(false)
       await refreshWorkflowInfo()
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to clear workflow'
@@ -207,7 +206,7 @@ export function useWorkflow() {
    * This is the main method called when user performs actions in the UI
    */
   const recordAction = useCallback(async (action: WorkflowAction): Promise<string> => {
-    if (!isRecording) {
+    if (!workflowRecording.isRecording) {
       throw new Error('Cannot record action: recording is not active')
     }
 
@@ -224,7 +223,7 @@ export function useWorkflow() {
     } finally {
       setIsLoading(false)
     }
-  }, [isRecording])
+  }, [workflowRecording.isRecording])
 
   /**
    * Generate Python code from the workflow
@@ -329,32 +328,14 @@ export function useWorkflow() {
     }
   }, [])
 
-  /**
-   * Start recording workflow actions
-   */
-  const startRecording = useCallback(async (name?: string) => {
-    const workflowName = name || `session_${new Date().toISOString().split('T')[0]}`
-    await newWorkflow(workflowName)
-    setIsRecording(true)
-  }, [newWorkflow])
-
-  /**
-   * Stop recording workflow actions
-   */
-  const stopRecording = useCallback(() => {
-    setIsRecording(false)
-  }, [])
-
   return {
-    // Recording state
-    isRecording,
+    // Recording state (from store)
+    isRecording: workflowRecording.isRecording,
     isLoading,
     error,
     workflowInfo,
 
     // Recording controls
-    startRecording,
-    stopRecording,
     recordAction,
 
     // Workflow management

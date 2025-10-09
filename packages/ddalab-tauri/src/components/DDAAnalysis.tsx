@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { ApiService } from '@/services/apiService'
 import { DDAAnalysisRequest, DDAResult } from '@/types/api'
 import { DDAResults } from '@/components/DDAResults'
+import { useWorkflow } from '@/hooks/useWorkflow'
+import { createSetDDAParametersAction, createRunDDAAnalysisAction } from '@/types/workflow'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -52,10 +54,31 @@ interface DDAParameters {
 }
 
 export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
-  const { fileManager, dda, setCurrentAnalysis, addAnalysisToHistory, setAnalysisHistory, updateAnalysisParameters, setDDARunning } = useAppStore()
+  // Use granular selectors to prevent unnecessary re-renders
+  const fileManager = useAppStore((state) => state.fileManager)
+  const storedAnalysisParameters = useAppStore((state) => state.dda.analysisParameters)
+  const currentAnalysis = useAppStore((state) => state.dda.currentAnalysis)
+  const analysisHistory = useAppStore((state) => state.dda.analysisHistory)
+  const isRunning = useAppStore((state) => state.dda.isRunning)
+  const workflowRecording = useAppStore((state) => state.workflowRecording)
+  const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis)
+  const addAnalysisToHistory = useAppStore((state) => state.addAnalysisToHistory)
+  const setAnalysisHistory = useAppStore((state) => state.setAnalysisHistory)
+  const updateAnalysisParameters = useAppStore((state) => state.updateAnalysisParameters)
+  const setDDARunning = useAppStore((state) => state.setDDARunning)
+  const incrementActionCount = useAppStore((state) => state.incrementActionCount)
 
-  // Use store parameters and merge with local time and channel selections
-  const [localParameters, setLocalParameters] = useState<Omit<DDAParameters, 'variants' | 'windowLength' | 'windowStep' | 'detrending' | 'scaleMin' | 'scaleMax' | 'scaleNum'>>({
+  const { recordAction } = useWorkflow()
+
+  // Store ALL parameters locally for instant UI updates - only sync to store when running analysis
+  const [localParameters, setLocalParameters] = useState<DDAParameters>({
+    variants: storedAnalysisParameters.variants,
+    windowLength: storedAnalysisParameters.windowLength,
+    windowStep: storedAnalysisParameters.windowStep,
+    detrending: storedAnalysisParameters.detrending,
+    scaleMin: storedAnalysisParameters.scaleMin,
+    scaleMax: storedAnalysisParameters.scaleMax,
+    scaleNum: storedAnalysisParameters.scaleNum,
     timeStart: 0,
     timeEnd: 30,
     selectedChannels: [],
@@ -66,16 +89,12 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     }
   })
 
-  // Combine store and local parameters
-  const parameters: DDAParameters = {
-    ...dda.analysisParameters,
-    ...localParameters
-  }
+  // Use local parameters directly - no need to merge with store
+  const parameters = localParameters
 
-  const [isRunning, setIsRunning] = useState(false)
+  const [localIsRunning, setLocalIsRunning] = useState(false) // Local UI state for this component
   const [progress, setProgress] = useState(0)
   const [analysisStatus, setAnalysisStatus] = useState<string>('')
-  const [estimatedTime, setEstimatedTime] = useState<number>(0)
   const [results, setResults] = useState<DDAResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [previewingAnalysis, setPreviewingAnalysis] = useState<DDAResult | null>(null)
@@ -84,8 +103,24 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' })
   const [autoLoadingResults, setAutoLoadingResults] = useState(false)
 
-  // Load analysis history from MinIO
-  const loadAnalysisHistory = useCallback(async () => {
+  // Calculate estimated time using useMemo to avoid re-running on every render
+  const estimatedTime = useMemo(() => {
+    const channelCount = parameters.selectedChannels.length
+    const timeRange = parameters.timeEnd - parameters.timeStart
+    const windowCount = Math.floor(timeRange / parameters.windowStep)
+    const variantCount = parameters.variants.length
+
+    // Rough estimate: base time + channels * windows * variants * scale points
+    const baseTime = 2 // seconds
+    const perOperationTime = 0.01 // seconds per operation
+    const totalOperations = channelCount * windowCount * variantCount * parameters.scaleNum
+    const estimated = baseTime + (totalOperations * perOperationTime)
+
+    return Math.round(estimated)
+  }, [parameters.selectedChannels.length, parameters.timeEnd, parameters.timeStart, parameters.windowStep, parameters.variants.length, parameters.scaleNum])
+
+  // Refresh analysis history from MinIO (called by Refresh button)
+  const loadAnalysisHistoryRef = useCallback(async () => {
     setHistoryLoading(true)
     setHistoryError(null)
     try {
@@ -102,19 +137,16 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   // Save analysis to history when completed
   const saveAnalysisToHistory = useCallback(async (result: DDAResult) => {
     try {
-      console.log('Attempting to save analysis to history:', result.id)
       setSaveStatus({ type: null, message: 'Saving analysis to history...' })
 
       const success = await apiService.saveAnalysisToHistory(result)
       if (success) {
-        console.log('Analysis saved to history successfully')
         setSaveStatus({ type: 'success', message: 'Analysis saved to history successfully!' })
         // Reload history to show the new analysis
-        await loadAnalysisHistory()
+        await loadAnalysisHistoryRef()
         // Clear success message after 3 seconds
         setTimeout(() => setSaveStatus({ type: null, message: '' }), 3000)
       } else {
-        console.warn('Failed to save analysis to history')
         setSaveStatus({ type: 'error', message: 'Failed to save analysis to history. Server returned false.' })
       }
     } catch (error) {
@@ -122,7 +154,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
       setSaveStatus({ type: 'error', message: `Failed to save analysis: ${errorMessage}` })
     }
-  }, [apiService, loadAnalysisHistory])
+  }, [apiService, loadAnalysisHistoryRef])
 
   // Preview analysis from history in dedicated window
   const previewAnalysis = useCallback(async (analysis: DDAResult) => {
@@ -159,17 +191,16 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     }
   }, [apiService])
 
-  // Load history on component mount
-  useEffect(() => {
-    loadAnalysisHistory()
-  }, [loadAnalysisHistory])
+  // Note: Analysis history is loaded by DashboardLayout on app startup
+  // This component only refreshes when the user clicks the Refresh button
+  // or after saving a new analysis
 
   // Sync local results with current analysis from store
   useEffect(() => {
-    if (dda.currentAnalysis && !results) {
-      setResults(dda.currentAnalysis)
+    if (currentAnalysis && !results) {
+      setResults(currentAnalysis)
     }
-  }, [dda.currentAnalysis, results])
+  }, [currentAnalysis, results])
 
   const availableVariants = [
     { id: 'single_timeseries', name: 'Single Timeseries (ST)', description: 'Standard temporal dynamics analysis' },
@@ -178,7 +209,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     { id: 'dynamical_ergodicity', name: 'Dynamical Ergodicity (DE)', description: 'Temporal stationarity assessment' }
   ]
 
-  // Initialize with file data
+  // Initialize with file data - only run when file changes
   useEffect(() => {
     if (fileManager.selectedFile) {
       const defaultChannels = fileManager.selectedFile.channels.slice(0, Math.min(8, fileManager.selectedFile.channels.length))
@@ -192,25 +223,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       }))
 
       // Update window length based on sampling rate
-      updateAnalysisParameters({ windowLength: defaultWindowLength })
+      setLocalParameters(prev => ({ ...prev, windowLength: defaultWindowLength }))
     }
-  }, [fileManager.selectedFile, updateAnalysisParameters])
-
-  // Estimate processing time
-  useEffect(() => {
-    const channelCount = parameters.selectedChannels.length
-    const timeRange = parameters.timeEnd - parameters.timeStart
-    const windowCount = Math.floor(timeRange / parameters.windowStep)
-    const variantCount = parameters.variants.length
-
-    // Rough estimate: base time + channels * windows * variants * scale points
-    const baseTime = 2 // seconds
-    const perOperationTime = 0.01 // seconds per operation
-    const totalOperations = channelCount * windowCount * variantCount * parameters.scaleNum
-    const estimated = baseTime + (totalOperations * perOperationTime)
-
-    setEstimatedTime(Math.round(estimated))
-  }, [parameters])
+  }, [fileManager.selectedFile?.file_path]) // Only depend on file path to avoid unnecessary re-runs
 
   const runAnalysis = async () => {
     if (!fileManager.selectedFile || parameters.selectedChannels.length === 0) {
@@ -219,11 +234,22 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     }
 
     try {
-      setIsRunning(true)
+      setLocalIsRunning(true)
       setDDARunning(true)
       setError(null)
       setProgress(0)
       setAnalysisStatus('Preparing analysis...')
+
+      // Sync local parameters to store when running analysis
+      updateAnalysisParameters({
+        variants: parameters.variants,
+        windowLength: parameters.windowLength,
+        windowStep: parameters.windowStep,
+        detrending: parameters.detrending,
+        scaleMin: parameters.scaleMin,
+        scaleMax: parameters.scaleMax,
+        scaleNum: parameters.scaleNum
+      })
 
       // Prepare the analysis request
       const request: DDAAnalysisRequest = {
@@ -240,6 +266,23 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         scale_num: parameters.scaleNum
       }
 
+      // Record DDA parameters if recording is active
+      if (workflowRecording.isRecording) {
+        try {
+          const paramAction = createSetDDAParametersAction(
+            parameters.scaleMin, // lag (using scaleMin as proxy)
+            4, // dimension (default)
+            parameters.windowLength,
+            parameters.windowStep
+          )
+          await recordAction(paramAction)
+          incrementActionCount()
+          console.log('[WORKFLOW] Recorded DDA parameters')
+        } catch (error) {
+          console.error('[WORKFLOW] Failed to record DDA parameters:', error)
+        }
+      }
+
       setAnalysisStatus('Running DDA analysis on server...')
       setProgress(50)
 
@@ -252,6 +295,24 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       setResults(result)
       setCurrentAnalysis(result)
       addAnalysisToHistory(result)
+
+      // Record DDA analysis execution if recording is active
+      if (workflowRecording.isRecording && fileManager.selectedFile) {
+        try {
+          // Convert channel names to their actual indices in the file's channel list
+          const channelIndices = parameters.selectedChannels
+            .map(channelName => fileManager.selectedFile!.channels.indexOf(channelName))
+            .filter(idx => idx !== -1) // Remove any channels not found
+
+          console.log('[WORKFLOW] Recording DDA analysis with channel indices:', channelIndices)
+          const analysisAction = createRunDDAAnalysisAction(result.id, channelIndices)
+          await recordAction(analysisAction)
+          incrementActionCount()
+          console.log('[WORKFLOW] Recorded DDA analysis execution')
+        } catch (error) {
+          console.error('[WORKFLOW] Failed to record DDA analysis:', error)
+        }
+      }
 
       // Save to MinIO history
       setAnalysisStatus('Saving to history...')
@@ -286,7 +347,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       setError(errorMessage)
       setAnalysisStatus('Analysis failed - see console for details')
     } finally {
-      setIsRunning(false)
+      setLocalIsRunning(false)
       setDDARunning(false)
     }
   }
@@ -297,16 +358,14 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       ? Math.round(0.25 * fileManager.selectedFile.sample_rate)
       : 64 // Fallback for 256 Hz: 0.25 * 256 = 64
 
-    updateAnalysisParameters({
+    setLocalParameters({
       variants: ['single_timeseries'],
       windowLength: defaultWindowLength,
       windowStep: 10,
       detrending: 'linear',
       scaleMin: 1,
       scaleMax: 20,
-      scaleNum: 20
-    })
-    setLocalParameters({
+      scaleNum: 20,
       timeStart: 0,
       timeEnd: Math.min(30, fileManager.selectedFile?.duration || 30),
       selectedChannels: fileManager.selectedFile?.channels.slice(0, 8) || [],
@@ -359,10 +418,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             </Button>
             <Button
               onClick={runAnalysis}
-              disabled={isRunning || parameters.selectedChannels.length === 0}
+              disabled={localIsRunning || parameters.selectedChannels.length === 0}
               className="min-w-[120px]"
             >
-              {isRunning ? (
+              {localIsRunning ? (
                 <>
                   <Cpu className="h-4 w-4 mr-2 animate-spin" />
                   Running...
@@ -379,13 +438,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
         <TabsContent value="parameters" className="flex-1 space-y-4">
           {/* Analysis Status */}
-          {(isRunning || results || autoLoadingResults) && (
+          {(localIsRunning || results || autoLoadingResults) && (
             <Card>
               <CardContent className="pt-6">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
-                      {isRunning ? (
+                      {localIsRunning ? (
                         <Cpu className="h-4 w-4 animate-spin text-blue-600" />
                       ) : autoLoadingResults ? (
                         <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
@@ -395,10 +454,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                         <AlertCircle className="h-4 w-4 text-red-600" />
                       )}
                       <span className="text-sm font-medium">
-                        {isRunning ? analysisStatus : autoLoadingResults ? 'Loading previous analysis results...' : analysisStatus}
+                        {localIsRunning ? analysisStatus : autoLoadingResults ? 'Loading previous analysis results...' : analysisStatus}
                       </span>
                     </div>
-                    {isRunning && (
+                    {localIsRunning && (
                       <div className="flex items-center space-x-2 text-sm text-muted-foreground">
                         <Clock className="h-4 w-4" />
                         <span>~{estimatedTime}s estimated</span>
@@ -406,7 +465,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     )}
                   </div>
 
-                  {isRunning && (
+                  {localIsRunning && (
                     <Progress value={progress} className="w-full" />
                   )}
 
@@ -437,9 +496,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                         const newVariants = checked
                           ? [...parameters.variants, variant.id]
                           : parameters.variants.filter(v => v !== variant.id)
-                        updateAnalysisParameters({ variants: newVariants })
+                        setLocalParameters(prev => ({ ...prev, variants: newVariants }))
                       }}
-                      disabled={isRunning}
+                      disabled={localIsRunning}
                     />
                     <div className="flex-1 min-w-0">
                       <Label className="text-sm font-medium">{variant.name}</Label>
@@ -466,7 +525,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                       ...prev,
                       timeStart: Math.max(0, parseFloat(e.target.value) || 0)
                     }))}
-                    disabled={isRunning}
+                    disabled={localIsRunning}
                     min="0"
                     max={fileManager.selectedFile?.duration}
                     step="0.1"
@@ -481,7 +540,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                       ...prev,
                       timeEnd: Math.min(fileManager.selectedFile?.duration || 0, parseFloat(e.target.value) || 30)
                     }))}
-                    disabled={isRunning}
+                    disabled={localIsRunning}
                     min={parameters.timeStart + 1}
                     max={fileManager.selectedFile?.duration}
                     step="0.1"
@@ -506,8 +565,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   <Label className="text-sm">Window Length: {parameters.windowLength}</Label>
                   <Slider
                     value={[parameters.windowLength]}
-                    onValueChange={([value]) => updateAnalysisParameters({ windowLength: value })}
-                    disabled={isRunning}
+                    onValueChange={([value]) => setLocalParameters(prev => ({ ...prev, windowLength: value }))}
+                    disabled={localIsRunning}
                     min={50}
                     max={500}
                     step={10}
@@ -518,8 +577,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   <Label className="text-sm">Window Step: {parameters.windowStep}</Label>
                   <Slider
                     value={[parameters.windowStep]}
-                    onValueChange={([value]) => updateAnalysisParameters({ windowStep: value })}
-                    disabled={isRunning}
+                    onValueChange={([value]) => setLocalParameters(prev => ({ ...prev, windowStep: value }))}
+                    disabled={localIsRunning}
                     min={1}
                     max={50}
                     step={1}
@@ -531,9 +590,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   <Select
                     value={parameters.detrending}
                     onValueChange={(value: 'linear' | 'polynomial' | 'none') =>
-                      updateAnalysisParameters({ detrending: value })
+                      setLocalParameters(prev => ({ ...prev, detrending: value }))
                     }
-                    disabled={isRunning}
+                    disabled={localIsRunning}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -561,10 +620,11 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     <Input
                       type="number"
                       value={parameters.scaleMin}
-                      onChange={(e) => updateAnalysisParameters({
+                      onChange={(e) => setLocalParameters(prev => ({
+                        ...prev,
                         scaleMin: Math.max(1, parseInt(e.target.value) || 1)
-                      })}
-                      disabled={isRunning}
+                      }))}
+                      disabled={localIsRunning}
                       min="1"
                       max={parameters.scaleMax - 1}
                     />
@@ -574,10 +634,11 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     <Input
                       type="number"
                       value={parameters.scaleMax}
-                      onChange={(e) => updateAnalysisParameters({
+                      onChange={(e) => setLocalParameters(prev => ({
+                        ...prev,
                         scaleMax: Math.max(parameters.scaleMin + 1, parseInt(e.target.value) || 20)
-                      })}
-                      disabled={isRunning}
+                      }))}
+                      disabled={localIsRunning}
                       min={parameters.scaleMin + 1}
                       max="100"
                     />
@@ -587,8 +648,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   <Label className="text-sm">Number of Scales: {parameters.scaleNum}</Label>
                   <Slider
                     value={[parameters.scaleNum]}
-                    onValueChange={([value]) => updateAnalysisParameters({ scaleNum: value })}
-                    disabled={isRunning}
+                    onValueChange={([value]) => setLocalParameters(prev => ({ ...prev, scaleNum: value }))}
+                    disabled={localIsRunning}
                     min={5}
                     max={50}
                     step={1}
@@ -652,8 +713,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         </TabsContent>
 
         <TabsContent value="results" className="flex-1">
-          {(results || dda.currentAnalysis) ? (
-            <DDAResults result={results || dda.currentAnalysis!} />
+          {(results || currentAnalysis) ? (
+            <DDAResults result={results || currentAnalysis!} />
           ) : (
             <Card className="h-full flex items-center justify-center">
               <CardContent>
@@ -673,13 +734,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               <div>
                 <CardTitle className="text-base">Analysis History</CardTitle>
                 <CardDescription>
-                  {historyLoading ? 'Loading...' : `${dda.analysisHistory.length} analyses stored in MinIO`}
+                  {historyLoading ? 'Loading...' : `${analysisHistory.length} analyses stored in MinIO`}
                 </CardDescription>
               </div>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={loadAnalysisHistory}
+                onClick={loadAnalysisHistoryRef}
                 disabled={historyLoading}
                 className="shrink-0"
               >
@@ -732,9 +793,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                 </div>
               )}
 
-              {dda.analysisHistory.length > 0 ? (
+              {analysisHistory.length > 0 ? (
                 <div className="space-y-2">
-                  {dda.analysisHistory.map(analysis => {
+                  {analysisHistory.map(analysis => {
                     return (
                     <div
                       key={analysis.id}

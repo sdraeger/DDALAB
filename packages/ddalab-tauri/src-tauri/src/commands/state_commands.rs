@@ -17,9 +17,16 @@ pub async fn update_file_manager_state(
     state_manager: State<'_, AppStateManager>,
     file_manager_state: FileManagerState,
 ) -> Result<(), String> {
-    state_manager.update_state(|state| {
+    log::debug!("update_file_manager_state called with selected_file: {:?}, current_path: {:?}",
+        file_manager_state.selected_file, file_manager_state.current_path);
+    let result = state_manager.update_state(|state| {
         state.file_manager = file_manager_state;
-    })
+    });
+    match &result {
+        Ok(_) => log::debug!("update_file_manager_state succeeded"),
+        Err(e) => log::error!("update_file_manager_state failed: {}", e),
+    }
+    result
 }
 
 #[tauri::command]

@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// A discovered broker on the local network
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,22 +95,28 @@ pub async fn discover_brokers(timeout_secs: u64) -> Result<Vec<DiscoveredBroker>
                     let host = info
                         .get_addresses()
                         .iter()
-                        .filter(|ip| {
+                        .filter(|scoped_ip| {
+                            // ScopedIp derefs to IpAddr, so we can use methods directly
                             // Skip loopback and link-local addresses
-                            if ip.is_loopback() {
+                            if scoped_ip.is_loopback() {
                                 return false;
                             }
-                            if let IpAddr::V6(ipv6) = ip {
-                                // Skip IPv6 link-local (fe80::)
-                                if ipv6.segments()[0] == 0xfe80 {
+                            // Check if it's IPv6 link-local
+                            if scoped_ip.is_ipv6() {
+                                // For IPv6, we need to check the address manually
+                                // Skip link-local (fe80::) - best effort check via string
+                                let addr_str = scoped_ip.to_string();
+                                if addr_str.starts_with("fe80:") {
                                     return false;
                                 }
                             }
                             true
                         })
                         // Prefer IPv4 over IPv6
-                        .min_by_key(|ip| if ip.is_ipv4() { 0 } else { 1 })
-                        .map(|ip| ip.to_string())
+                        .min_by_key(|scoped_ip| {
+                            if scoped_ip.is_ipv4() { 0 } else { 1 }
+                        })
+                        .map(|scoped_ip| scoped_ip.to_string())
                         .unwrap_or_else(|| info.get_hostname().to_string());
 
                     let hostname = info.get_hostname();
