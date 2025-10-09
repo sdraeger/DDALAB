@@ -48,7 +48,19 @@ export function DDAResults({ result }: DDAResultsProps) {
 
   const [viewMode, setViewMode] = useState<ViewMode>('both')
   const [colorScheme, setColorScheme] = useState<ColorScheme>('viridis')
-  const [selectedChannels, setSelectedChannels] = useState<string[]>(result.channels)
+
+  // Initialize selectedChannels from actual dda_matrix keys, not result.channels
+  // This ensures we only select channels that actually have data
+  const [selectedChannels, setSelectedChannels] = useState<string[]>(() => {
+    const firstVariant = result.results.variants[0]
+    if (firstVariant && firstVariant.dda_matrix) {
+      const availableChannels = Object.keys(firstVariant.dda_matrix)
+      // Only keep channels that are in both result.channels and dda_matrix
+      return result.channels.filter(ch => availableChannels.includes(ch))
+    }
+    return result.channels
+  })
+
   const [selectedVariant, setSelectedVariant] = useState<number>(0)
   const [heatmapData, setHeatmapData] = useState<number[][]>([])
   const [colorRange, setColorRange] = useState<[number, number]>([0, 1])
@@ -264,13 +276,32 @@ export function DDAResults({ result }: DDAResultsProps) {
 
   const renderHeatmap = useCallback(() => {
     if (!heatmapRef.current || heatmapData.length === 0) {
+      console.log('[HEATMAP] Skipping render: ref or data not ready', {
+        hasRef: !!heatmapRef.current,
+        dataLength: heatmapData.length
+      })
       return
     }
+
+    console.log('[HEATMAP] Attempting render with colorRange:', colorRange, 'autoScale:', autoScale)
+
+    // Don't render if still using default colorRange [0, 1] - wait for data processing
+    if (autoScale && colorRange[0] === 0 && colorRange[1] === 1) {
+      console.log('[HEATMAP] Skipping render with default colorRange [0, 1], waiting for data processing')
+      return
+    }
+
+    console.log('[HEATMAP] Proceeding with render')
 
     // Clean up existing plot
     if (uplotHeatmapRef.current) {
       uplotHeatmapRef.current.destroy()
       uplotHeatmapRef.current = null
+    }
+
+    // Clear the container to remove any stale DOM elements
+    if (heatmapRef.current) {
+      heatmapRef.current.innerHTML = ''
     }
 
     // Use requestAnimationFrame to ensure DOM is ready
@@ -441,6 +472,11 @@ export function DDAResults({ result }: DDAResultsProps) {
         uplotLinePlotRef.current = null
       }
 
+      // Clear the container to remove any stale DOM elements
+      if (linePlotRef.current) {
+        linePlotRef.current.innerHTML = ''
+      }
+
       // Removed verbose logging
 
       // Prepare data for line plot
@@ -457,18 +493,27 @@ export function DDAResults({ result }: DDAResultsProps) {
       const data: uPlot.AlignedData = [scales]
       const validChannels: string[] = []
 
+      console.log('[LINE PLOT] Selected channels:', selectedChannels)
+      console.log('[LINE PLOT] Available channels in dda_matrix:', Object.keys(currentVariant.dda_matrix))
+
       // Add DDA matrix data for selected channels - only include channels with valid data
       selectedChannels.forEach(channel => {
         if (currentVariant.dda_matrix[channel]) {
           const channelData = currentVariant.dda_matrix[channel]
           if (Array.isArray(channelData) && channelData.length > 0) {
+            console.log(`[LINE PLOT] Adding channel ${channel} with ${channelData.length} data points`)
             data.push(channelData)
             validChannels.push(channel)
           } else {
-            console.warn(`Invalid data for channel ${channel}:`, channelData)
+            console.warn(`[LINE PLOT] Invalid data for channel ${channel}:`, channelData)
           }
+        } else {
+          console.warn(`[LINE PLOT] Channel ${channel} not found in dda_matrix`)
         }
       })
+
+      console.log('[LINE PLOT] Valid channels:', validChannels)
+      console.log('[LINE PLOT] Data array length:', data.length)
 
       // Check we have at least one data series besides x-axis
       if (data.length < 2 || validChannels.length === 0) {
@@ -630,6 +675,11 @@ export function DDAResults({ result }: DDAResultsProps) {
   // Re-render plots when dependencies change - using IntersectionObserver to detect visibility
   useEffect(() => {
     if ((viewMode === 'heatmap' || viewMode === 'both') && heatmapData.length > 0 && heatmapRef.current) {
+      // Skip if using default colorRange and autoScale is on (wait for data processing)
+      if (autoScale && colorRange[0] === 0 && colorRange[1] === 1) {
+        return
+      }
+
       // Use IntersectionObserver to detect when the element becomes visible
       const observer = new IntersectionObserver(
         (entries) => {
@@ -637,8 +687,6 @@ export function DDAResults({ result }: DDAResultsProps) {
             if (entry.isIntersecting && entry.target === heatmapRef.current) {
               // Element is visible, render the heatmap
               renderHeatmap()
-              // Disconnect after first render
-              observer.disconnect()
             }
           })
         },
@@ -654,7 +702,7 @@ export function DDAResults({ result }: DDAResultsProps) {
 
       return () => observer.disconnect()
     }
-  }, [renderHeatmap, viewMode, heatmapData])
+  }, [renderHeatmap, viewMode, heatmapData, colorRange, autoScale])
 
   useEffect(() => {
     if ((viewMode === 'lineplot' || viewMode === 'both') && availableVariants.length > 0 && linePlotRef.current) {
