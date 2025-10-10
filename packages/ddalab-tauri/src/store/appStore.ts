@@ -423,7 +423,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         show_hidden: fileManager.showHidden
       }
 
-      TauriService.updateFileManagerState(fileManagerState)
+      // Fire and forget - don't block UI
+      TauriService.updateFileManagerState(fileManagerState).catch(console.error)
 
       // Auto-save via persistence service
       if (persistenceService) {
@@ -457,7 +458,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         show_hidden: fileManager.showHidden
       }
 
-      TauriService.updateFileManagerState(fileManagerState)
+      // Fire and forget - don't block UI
+      TauriService.updateFileManagerState(fileManagerState).catch(console.error)
 
       // Auto-save via persistence service
       if (persistenceService) {
@@ -485,7 +487,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         show_hidden: fileManager.showHidden
       }
 
-      TauriService.updateFileManagerState(fileManagerState)
+      // Note: This is a synchronous reset, so we still await to ensure persistence
+      TauriService.updateFileManagerState(fileManagerState).catch(console.error)
 
       // Synchronously save to ensure it's persisted before any reloads
       if (persistenceService) {
@@ -503,6 +506,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (TauriService.isTauri()) {
       const { fileManager } = get()
       const selectedFilePath = file?.file_path || null
+      // Fire and forget - don't block UI
       TauriService.updateFileManagerState({
         selected_file: selectedFilePath,
         current_path: fileManager.currentPath,
@@ -511,7 +515,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         sort_by: fileManager.sortBy,
         sort_order: fileManager.sortOrder,
         show_hidden: fileManager.showHidden
-      })
+      }).catch(console.error)
     }
   },
 
@@ -529,6 +533,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         return
       }
 
+      // Fire and forget - don't block UI
       TauriService.updateFileManagerState({
         selected_file: fileManager.selectedFile?.file_path || null,
         current_path: fileManager.currentPath,
@@ -537,7 +542,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         sort_by: fileManager.sortBy,
         sort_order: fileManager.sortOrder,
         show_hidden: fileManager.showHidden
-      })
+      }).catch(console.error)
     }
   },
 
@@ -554,6 +559,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     if (TauriService.isTauri()) {
       const { fileManager } = get()
+      // Fire and forget - don't block UI
       TauriService.updateFileManagerState({
         selected_file: fileManager.selectedFile?.file_path || null,
         current_path: fileManager.currentPath,
@@ -562,7 +568,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         sort_by: fileManager.sortBy,
         sort_order: fileManager.sortOrder,
         show_hidden: fileManager.showHidden
-      })
+      }).catch(console.error)
     }
   },
 
@@ -584,6 +590,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     if (TauriService.isTauri()) {
       const { plot } = get()
+      // Fire and forget - don't block UI
       TauriService.updatePlotState({
         visible_channels: plot.selectedChannelColors ? Object.keys(plot.selectedChannelColors) : [],
         time_range: [plot.chunkStart, plot.chunkStart + plot.chunkSize],
@@ -594,7 +601,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         color_scheme: 'default',
         plot_mode: 'timeseries',
         filters: {}
-      })
+      }).catch(console.error)
     }
   },
 
@@ -609,31 +616,35 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
     set((state) => ({ dda: { ...state.dda, currentAnalysis: analysis } }))
 
-    // Persist the current analysis change immediately
+    // Persist the current analysis change asynchronously to avoid blocking UI
     if (TauriService.isTauri()) {
-      const { dda, persistenceService } = get()
-      const ddaState: PersistedDDAState = {
-        selected_variants: dda.analysisParameters.variants,
-        parameters: {
-          windowLength: dda.analysisParameters.windowLength,
-          windowStep: dda.analysisParameters.windowStep,
-          detrending: dda.analysisParameters.detrending,
-          scaleMin: dda.analysisParameters.scaleMin,
-          scaleMax: dda.analysisParameters.scaleMax,
-          scaleNum: dda.analysisParameters.scaleNum
-        },
-        last_analysis_id: analysis?.id || null,
-        current_analysis: analysis,
-        analysis_history: dda.analysisHistory,
-        analysis_parameters: dda.analysisParameters,
-        running: dda.isRunning
-      }
-      TauriService.updateDDAState(ddaState)
+      // Use setTimeout to defer persistence to next tick, keeping UI responsive
+      setTimeout(() => {
+        const { dda, persistenceService } = get()
+        const ddaState: PersistedDDAState = {
+          selected_variants: dda.analysisParameters.variants,
+          parameters: {
+            windowLength: dda.analysisParameters.windowLength,
+            windowStep: dda.analysisParameters.windowStep,
+            detrending: dda.analysisParameters.detrending,
+            scaleMin: dda.analysisParameters.scaleMin,
+            scaleMax: dda.analysisParameters.scaleMax,
+            scaleNum: dda.analysisParameters.scaleNum
+          },
+          last_analysis_id: analysis?.id || null,
+          current_analysis: analysis,
+          analysis_history: dda.analysisHistory,
+          analysis_parameters: dda.analysisParameters,
+          running: dda.isRunning
+        }
+        // Fire and forget - don't block UI
+        TauriService.updateDDAState(ddaState).catch(console.error)
 
-      // Also save via persistence service
-      if (persistenceService) {
-        persistenceService.saveDDAState(ddaState).catch(console.error)
-      }
+        // Also save via persistence service
+        if (persistenceService) {
+          persistenceService.saveDDAState(ddaState).catch(console.error)
+        }
+      }, 0)
     }
   },
 
@@ -645,31 +656,35 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }))
 
-    // Persist the analysis history change
+    // Persist the analysis history change asynchronously to avoid blocking UI
     if (TauriService.isTauri()) {
-      const { dda, persistenceService } = get()
-      const ddaState: PersistedDDAState = {
-        selected_variants: dda.analysisParameters.variants,
-        parameters: {
-          windowLength: dda.analysisParameters.windowLength,
-          windowStep: dda.analysisParameters.windowStep,
-          detrending: dda.analysisParameters.detrending,
-          scaleMin: dda.analysisParameters.scaleMin,
-          scaleMax: dda.analysisParameters.scaleMax,
-          scaleNum: dda.analysisParameters.scaleNum
-        },
-        last_analysis_id: dda.currentAnalysis?.id || null,
-        current_analysis: dda.currentAnalysis,
-        analysis_history: dda.analysisHistory,
-        analysis_parameters: dda.analysisParameters,
-        running: dda.isRunning
-      }
-      TauriService.updateDDAState(ddaState)
+      // Use setTimeout to defer persistence to next tick, keeping UI responsive
+      setTimeout(() => {
+        const { dda, persistenceService } = get()
+        const ddaState: PersistedDDAState = {
+          selected_variants: dda.analysisParameters.variants,
+          parameters: {
+            windowLength: dda.analysisParameters.windowLength,
+            windowStep: dda.analysisParameters.windowStep,
+            detrending: dda.analysisParameters.detrending,
+            scaleMin: dda.analysisParameters.scaleMin,
+            scaleMax: dda.analysisParameters.scaleMax,
+            scaleNum: dda.analysisParameters.scaleNum
+          },
+          last_analysis_id: dda.currentAnalysis?.id || null,
+          current_analysis: dda.currentAnalysis,
+          analysis_history: dda.analysisHistory,
+          analysis_parameters: dda.analysisParameters,
+          running: dda.isRunning
+        }
+        // Fire and forget - don't block UI
+        TauriService.updateDDAState(ddaState).catch(console.error)
 
-      // Also save via persistence service
-      if (persistenceService) {
-        persistenceService.saveDDAState(ddaState).catch(console.error)
-      }
+        // Also save via persistence service
+        if (persistenceService) {
+          persistenceService.saveDDAState(ddaState).catch(console.error)
+        }
+      }, 0)
     }
   },
 
@@ -710,7 +725,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           analysis_parameters: dda.analysisParameters,
           running: dda.isRunning
         }
-        TauriService.updateDDAState(ddaState)
+        // Fire and forget - don't block UI
+        TauriService.updateDDAState(ddaState).catch(console.error)
       }
     }, 300) // Wait 300ms after last change before saving
   },
@@ -744,7 +760,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({ ui: { ...state.ui, activeTab: tab } }))
 
     if (TauriService.isTauri()) {
-      TauriService.updateUIState({ activeTab: tab })
+      // Fire and forget - don't block UI
+      TauriService.updateUIState({ activeTab: tab }).catch(console.error)
     }
   },
 
@@ -752,7 +769,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({ ui: { ...state.ui, sidebarOpen: open } }))
 
     if (TauriService.isTauri()) {
-      TauriService.updateUIState({ sidebarOpen: open })
+      // Fire and forget - don't block UI
+      TauriService.updateUIState({ sidebarOpen: open }).catch(console.error)
     }
   },
 
@@ -766,7 +784,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     (window as any).__panelSizesUpdateTimeout = setTimeout(() => {
       if (TauriService.isTauri()) {
-        TauriService.updateUIState({ panelSizes: sizes })
+        // Fire and forget - don't block UI
+        TauriService.updateUIState({ panelSizes: sizes }).catch(console.error)
       }
     }, 150) // Wait 150ms after last resize before saving
   },
@@ -775,7 +794,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({ ui: { ...state.ui, layout } }))
 
     if (TauriService.isTauri()) {
-      TauriService.updateUIState({ layout })
+      // Fire and forget - don't block UI
+      TauriService.updateUIState({ layout }).catch(console.error)
     }
   },
 
@@ -783,7 +803,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({ ui: { ...state.ui, theme } }))
 
     if (TauriService.isTauri()) {
-      TauriService.updateUIState({ theme })
+      // Fire and forget - don't block UI
+      TauriService.updateUIState({ theme }).catch(console.error)
     }
   },
 

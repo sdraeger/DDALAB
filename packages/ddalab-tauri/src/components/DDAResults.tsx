@@ -292,22 +292,17 @@ export function DDAResults({ result }: DDAResultsProps) {
 
   const renderHeatmap = useCallback(() => {
     if (!heatmapRef.current || heatmapData.length === 0) {
-      console.log('[HEATMAP] Skipping render: ref or data not ready', {
-        hasRef: !!heatmapRef.current,
-        dataLength: heatmapData.length
-      })
+      setIsRenderingHeatmap(false)
       return
     }
-
-    console.log('[HEATMAP] Attempting render with colorRange:', colorRange, 'autoScale:', autoScale)
 
     // Don't render if still using default colorRange [0, 1] - wait for data processing
     if (autoScale && colorRange[0] === 0 && colorRange[1] === 1) {
-      console.log('[HEATMAP] Skipping render with default colorRange [0, 1], waiting for data processing')
       return
     }
 
-    console.log('[HEATMAP] Proceeding with render')
+    // Set loading state immediately for instant feedback
+    setIsRenderingHeatmap(true)
 
     // Clean up existing plot
     if (uplotHeatmapRef.current) {
@@ -320,8 +315,9 @@ export function DDAResults({ result }: DDAResultsProps) {
       heatmapRef.current.innerHTML = ''
     }
 
-    // Use requestAnimationFrame to ensure DOM is ready
-    requestAnimationFrame(() => {
+    // Defer heavy rendering using requestIdleCallback for non-blocking execution
+    // This allows both heatmap and line plot to render in parallel without blocking UI
+    const deferredRender = () => {
       try {
         // Double-check ref is still available
         if (!heatmapRef.current) {
@@ -451,6 +447,11 @@ export function DDAResults({ result }: DDAResultsProps) {
           resizeObserver.observe(heatmapRef.current)
         }
 
+        // Clear loading state after plot is created
+        setTimeout(() => {
+          setIsRenderingHeatmap(false)
+        }, 50)
+
         return () => {
           resizeObserver.disconnect()
           if (uplotHeatmapRef.current) {
@@ -461,8 +462,17 @@ export function DDAResults({ result }: DDAResultsProps) {
 
       } catch (error) {
         console.error('Error rendering heatmap:', error)
+        setIsRenderingHeatmap(false)
       }
-    })
+    }
+
+    // Schedule deferred render - use requestIdleCallback for parallel non-blocking execution
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(deferredRender, { timeout: 100 })
+    } else {
+      // Fallback to requestAnimationFrame for browsers without requestIdleCallback
+      requestAnimationFrame(deferredRender)
+    }
   }, [heatmapData, selectedChannels, result.results.scales, colorRange, colorScheme])
 
   const renderLinePlot = useCallback(() => {
@@ -479,9 +489,13 @@ export function DDAResults({ result }: DDAResultsProps) {
       return
     }
 
+    // Set loading state immediately for instant feedback
     setIsRenderingLinePlot(true)
 
-    try {
+    // Defer heavy rendering to prevent blocking UI during tab switch
+    // Use requestIdleCallback if available, otherwise setTimeout
+    const deferredRender = () => {
+      try {
       // Clean up existing plot
       if (uplotLinePlotRef.current) {
         uplotLinePlotRef.current.destroy()
@@ -509,27 +523,15 @@ export function DDAResults({ result }: DDAResultsProps) {
       const data: uPlot.AlignedData = [scales]
       const validChannels: string[] = []
 
-      console.log('[LINE PLOT] Selected channels:', selectedChannels)
-      console.log('[LINE PLOT] Available channels in dda_matrix:', Object.keys(currentVariant.dda_matrix))
-
       // Add DDA matrix data for selected channels - only include channels with valid data
-      selectedChannels.forEach(channel => {
-        if (currentVariant.dda_matrix[channel]) {
-          const channelData = currentVariant.dda_matrix[channel]
-          if (Array.isArray(channelData) && channelData.length > 0) {
-            console.log(`[LINE PLOT] Adding channel ${channel} with ${channelData.length} data points`)
-            data.push(channelData)
-            validChannels.push(channel)
-          } else {
-            console.warn(`[LINE PLOT] Invalid data for channel ${channel}:`, channelData)
-          }
-        } else {
-          console.warn(`[LINE PLOT] Channel ${channel} not found in dda_matrix`)
+      // Process efficiently without excessive logging
+      for (const channel of selectedChannels) {
+        const channelData = currentVariant.dda_matrix[channel]
+        if (channelData && Array.isArray(channelData) && channelData.length > 0) {
+          data.push(channelData)
+          validChannels.push(channel)
         }
-      })
-
-      console.log('[LINE PLOT] Valid channels:', validChannels)
-      console.log('[LINE PLOT] Data array length:', data.length)
+      }
 
       // Check we have at least one data series besides x-axis
       if (data.length < 2 || validChannels.length === 0) {
@@ -648,9 +650,17 @@ export function DDAResults({ result }: DDAResultsProps) {
           uplotLinePlotRef.current = null
         }
       }
-    } catch (error) {
-      console.error('Error rendering line plot:', error)
-      setIsRenderingLinePlot(false)
+      } catch (error) {
+        console.error('Error rendering line plot:', error)
+        setIsRenderingLinePlot(false)
+      }
+    }
+
+    // Schedule deferred render - use requestIdleCallback for better performance
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(deferredRender, { timeout: 100 })
+    } else {
+      setTimeout(deferredRender, 0)
     }
   }, [result, selectedChannels, selectedVariant, availableVariants])
 
@@ -696,13 +706,18 @@ export function DDAResults({ result }: DDAResultsProps) {
         return
       }
 
+      let hasRendered = false
+
       // Use IntersectionObserver to detect when the element becomes visible
       const observer = new IntersectionObserver(
         (entries) => {
           entries.forEach((entry) => {
-            if (entry.isIntersecting && entry.target === heatmapRef.current) {
+            if (entry.isIntersecting && entry.target === heatmapRef.current && !hasRendered) {
               // Element is visible, render the heatmap
+              hasRendered = true
               renderHeatmap()
+              // Disconnect after first render to prevent re-triggering
+              observer.disconnect()
             }
           })
         },
@@ -711,23 +726,22 @@ export function DDAResults({ result }: DDAResultsProps) {
 
       observer.observe(heatmapRef.current)
 
-      // Also try immediate render in case already visible
-      if (heatmapRef.current.clientWidth > 0) {
-        renderHeatmap()
-      }
-
       return () => observer.disconnect()
     }
   }, [renderHeatmap, viewMode, heatmapData, colorRange, autoScale])
 
   useEffect(() => {
     if ((viewMode === 'lineplot' || viewMode === 'both') && availableVariants.length > 0 && linePlotRef.current) {
+      let hasRendered = false
+
       // Use IntersectionObserver to detect when the element becomes visible
       const observer = new IntersectionObserver(
         (entries) => {
           entries.forEach((entry) => {
-            if (entry.isIntersecting && entry.target === linePlotRef.current) {
-              // Element is visible, render the line plot
+            if (entry.isIntersecting && entry.target === linePlotRef.current && !hasRendered) {
+              // Element is visible - render asynchronously (parallel with heatmap)
+              // Both plots use requestIdleCallback internally for non-blocking execution
+              hasRendered = true
               renderLinePlot()
               // Disconnect after first render
               observer.disconnect()
@@ -738,11 +752,6 @@ export function DDAResults({ result }: DDAResultsProps) {
       )
 
       observer.observe(linePlotRef.current)
-
-      // Also try immediate render in case already visible
-      if (linePlotRef.current.clientWidth > 0) {
-        renderLinePlot()
-      }
 
       return () => observer.disconnect()
     }
