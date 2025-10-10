@@ -63,6 +63,9 @@ RUST_LOG=ddalab_broker=info,tower_http=debug
 INSTITUTION_NAME=My University          # Name shown to clients
 BROKER_PASSWORD=secure_password_2024    # Pre-shared key for authentication
 USE_TLS=false                           # Set to true if using WSS
+
+# Version Check (NEW)
+CHECK_FOR_UPDATES=true                  # Set to false to disable update notifications
 ```
 
 See `.env.example` for a complete configuration template.
@@ -191,6 +194,45 @@ CREATE TABLE user_backups (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
+
+## Automatic Update Notifications
+
+The broker automatically checks for new versions on startup and displays a prominent notification in the logs if an update is available.
+
+### How It Works
+
+When the broker starts, it queries Docker Hub for the latest published version and compares it to the running version. If a newer version is available, you'll see:
+
+```
+🚀 Starting DDALAB Sync Broker v0.1.0
+✅ Database schema initialized
+🎧 Listening on 0.0.0.0:8080
+
+╔══════════════════════════════════════════════════════╗
+║                                                      ║
+║   📦 UPDATE AVAILABLE                                ║
+║                                                      ║
+║   New version: v0.2.0 (current: v0.1.0)             ║
+║                                                      ║
+║   Update command:                                    ║
+║   docker pull sdraeger1/ddalab-sync-broker:latest   ║
+║                                                      ║
+╚══════════════════════════════════════════════════════╝
+```
+
+### Configuration
+
+- **Enabled by default**: Update checks run automatically
+- **Non-blocking**: Version check happens in the background and won't delay startup
+- **Air-gap friendly**: Gracefully handles offline/restricted network environments
+- **Disable**: Set `CHECK_FOR_UPDATES=false` in your environment or `.env` file
+
+### Privacy
+
+The update check only:
+- Queries Docker Hub's public API (no authentication required)
+- Sends no data about your deployment
+- Times out after 5 seconds if Docker Hub is unreachable
 
 ## Network Discovery (mDNS)
 
