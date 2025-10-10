@@ -45,11 +45,13 @@ pub async fn start_embedded_api_server(
         }
     };
 
-    // Check if server is already running
+    // Check if server is already running - return success instead of error for idempotency
     {
         let is_running = state.is_running.read();
         if *is_running {
-            return Err("Embedded API server is already running".to_string());
+            let port = *state.port.read();
+            log::info!("Embedded API server is already running on port {}", port);
+            return Ok(format!("Embedded API server already running on http://127.0.0.1:{}", port));
         }
     }
 
