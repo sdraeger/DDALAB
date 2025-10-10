@@ -105,12 +105,16 @@ export default function Home() {
           await TauriService.startEmbeddedApiServer()
 
           // Wait for server to be ready with exponential backoff
+          // Start with immediate check (0ms), then use exponential backoff
           let retries = 0
           let connected = false
           const maxRetries = 15
 
           while (retries < maxRetries && !connected) {
-            await new Promise(resolve => setTimeout(resolve, Math.min(500 * Math.pow(1.3, retries), 2000)))
+            // Only delay after first attempt
+            if (retries > 0) {
+              await new Promise(resolve => setTimeout(resolve, Math.min(200 * Math.pow(1.5, retries - 1), 2000)))
+            }
 
             try {
               connected = await TauriService.checkApiConnection(url)

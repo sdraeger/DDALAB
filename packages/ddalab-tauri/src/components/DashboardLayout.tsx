@@ -297,7 +297,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
 
             {/* Tab Content - Keep all tabs mounted to prevent remounting lag */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden">
-              <TabsContent value="files" className="m-0 h-full">
+              <TabsContent value="files" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'files'}>
                 <div className="p-6">
                   {fileManager.selectedFile ? (
                     <div className="space-y-6">
@@ -412,22 +412,25 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
                 </div>
               </TabsContent>
 
-              <TabsContent value="plots" className="m-0 h-full">
+              <TabsContent value="plots" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'plots'}>
                 <div className="p-4 h-full">
                   <TimeSeriesPlot apiService={apiService} />
                 </div>
               </TabsContent>
 
-              <TabsContent value="analysis" className="m-0 h-full">
+              <TabsContent value="analysis" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'analysis'}>
                 <div className="p-4 h-full">
                   <DDAAnalysis apiService={apiService} />
                 </div>
               </TabsContent>
 
-              <TabsContent value="results" className="m-0 h-full">
+              <TabsContent value="results" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'results'}>
                 <div className="p-4 h-full">
                   {currentAnalysis ? (
-                    <DDAResults result={currentAnalysis} />
+                    // Only render DDAResults when tab is actually visible to prevent lag
+                    ui.activeTab === 'results' ? (
+                      <DDAResults result={currentAnalysis} />
+                    ) : null
                   ) : isLoadingHistory ? (
                     <div className="flex items-center justify-center h-full">
                       <div className="text-center">
@@ -486,7 +489,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
                 </div>
               </TabsContent>
 
-              <TabsContent value="settings" className="m-0 h-full">
+              <TabsContent value="settings" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'settings'}>
                 <div className="h-full">
                   <SettingsPanel />
                 </div>

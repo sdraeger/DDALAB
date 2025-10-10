@@ -106,21 +106,36 @@ export function StatePersistenceProvider({ children }: StatePersistenceProviderP
     }
 
     // Set up visibility change handler (for browser-like behavior)
+    // Debounced to prevent excessive saves when quickly switching tabs
     const setupVisibilityHandler = () => {
+      let visibilityTimeout: NodeJS.Timeout | null = null
+
       const handleVisibilityChange = async () => {
         if (document.visibilityState === 'hidden') {
-          console.debug('App became hidden, saving state...')
-          try {
-            await saveCurrentState()
-          } catch (error) {
-            console.error('Failed to save state on visibility change:', error)
+          // Debounce: only save if hidden for at least 500ms
+          if (visibilityTimeout) clearTimeout(visibilityTimeout)
+
+          visibilityTimeout = setTimeout(async () => {
+            console.debug('App became hidden, saving state...')
+            try {
+              await saveCurrentState()
+            } catch (error) {
+              console.error('Failed to save state on visibility change:', error)
+            }
+          }, 500)
+        } else {
+          // Cancel save if app becomes visible again quickly
+          if (visibilityTimeout) {
+            clearTimeout(visibilityTimeout)
+            visibilityTimeout = null
           }
         }
       }
 
       document.addEventListener('visibilitychange', handleVisibilityChange)
-      
+
       return () => {
+        if (visibilityTimeout) clearTimeout(visibilityTimeout)
         document.removeEventListener('visibilitychange', handleVisibilityChange)
       }
     }
@@ -139,7 +154,7 @@ export function StatePersistenceProvider({ children }: StatePersistenceProviderP
       }
 
       window.addEventListener('beforeunload', handleBeforeUnload)
-      
+
       return () => {
         window.removeEventListener('beforeunload', handleBeforeUnload)
       }
@@ -147,11 +162,11 @@ export function StatePersistenceProvider({ children }: StatePersistenceProviderP
 
     // Initialize all handlers
     const cleanupTasks: (() => void)[] = []
-    
+
     setupWindowCloseHandler().then(cleanup => {
       if (cleanup) cleanupTasks.push(cleanup)
     })
-    
+
     cleanupTasks.push(setupAutoSave())
     cleanupTasks.push(setupVisibilityHandler())
     cleanupTasks.push(setupBeforeUnloadHandler())
@@ -172,6 +187,12 @@ export function StatePersistenceProvider({ children }: StatePersistenceProviderP
   // Handle unhandled errors - save state before potential crash
   useEffect(() => {
     const handleError = async (event: ErrorEvent) => {
+      // Ignore ResizeObserver errors - they're harmless and frequent
+      const errorMessage = event.message || event.error?.message || ''
+      if (event.error === null || errorMessage.includes('ResizeObserver')) {
+        return
+      }
+
       console.error('Unhandled error occurred, saving state:', event.error)
       try {
         await saveCurrentState()
@@ -208,7 +229,7 @@ export function StatePersistenceProvider({ children }: StatePersistenceProviderP
  */
 export function useStatePersistence() {
   const store = useAppStore()
-  
+
   return {
     saveNow: store.saveCurrentState,
     forceSave: store.forceSave,
@@ -224,7 +245,7 @@ export function useStatePersistence() {
  */
 export function useDataPersistence() {
   const store = useAppStore()
-  
+
   return {
     savePlotData: store.savePlotData,
     saveAnalysis: store.saveAnalysisResult,

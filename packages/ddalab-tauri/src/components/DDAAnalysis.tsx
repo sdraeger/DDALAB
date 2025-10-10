@@ -58,7 +58,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const fileManager = useAppStore((state) => state.fileManager)
   const storedAnalysisParameters = useAppStore((state) => state.dda.analysisParameters)
   const currentAnalysis = useAppStore((state) => state.dda.currentAnalysis)
-  const analysisHistory = useAppStore((state) => state.dda.analysisHistory)
+  // Only subscribe to history count to avoid re-renders when history updates during analysis
+  const analysisHistoryCount = useAppStore((state) => state.dda.analysisHistory.length)
+  // Get the actual history array once initially, but don't subscribe to updates
+  const [analysisHistory, setAnalysisHistoryLocal] = useState(() => useAppStore.getState().dda.analysisHistory)
   const isRunning = useAppStore((state) => state.dda.isRunning)
   const workflowRecording = useAppStore((state) => state.workflowRecording)
   const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis)
@@ -126,6 +129,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     try {
       const history = await apiService.getAnalysisHistory()
       setAnalysisHistory(history)
+      setAnalysisHistoryLocal(history) // Update local state to show new history
     } catch (error) {
       console.error('Failed to load analysis history:', error)
       setHistoryError('Failed to load analysis history')
@@ -142,8 +146,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       const success = await apiService.saveAnalysisToHistory(result)
       if (success) {
         setSaveStatus({ type: 'success', message: 'Analysis saved to history successfully!' })
-        // Reload history to show the new analysis
-        await loadAnalysisHistoryRef()
+
+        // Add to local history immediately instead of reloading entire history (performance optimization)
+        setAnalysisHistoryLocal(prev => [result, ...prev])
+
         // Clear success message after 3 seconds
         setTimeout(() => setSaveStatus({ type: null, message: '' }), 3000)
       } else {
@@ -154,7 +160,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
       setSaveStatus({ type: 'error', message: `Failed to save analysis: ${errorMessage}` })
     }
-  }, [apiService, loadAnalysisHistoryRef])
+  }, [apiService])
 
   // Preview analysis from history in dedicated window
   const previewAnalysis = useCallback(async (analysis: DDAResult) => {
@@ -314,12 +320,14 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         }
       }
 
-      // Save to MinIO history
-      setAnalysisStatus('Saving to history...')
-      await saveAnalysisToHistory(result)
-
-      setAnalysisStatus('Analysis completed and saved successfully!')
+      // Save to MinIO history asynchronously (non-blocking)
+      setAnalysisStatus('Analysis completed successfully!')
       setProgress(100)
+
+      // Save in background without blocking UI
+      saveAnalysisToHistory(result).catch(err => {
+        console.error('Background save to history failed:', err)
+      })
 
       // Parameters are already saved in the store, no need to update them here
 
@@ -734,7 +742,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               <div>
                 <CardTitle className="text-base">Analysis History</CardTitle>
                 <CardDescription>
-                  {historyLoading ? 'Loading...' : `${analysisHistory.length} analyses stored in MinIO`}
+                  {historyLoading ? 'Loading...' : `${analysisHistoryCount} analyses stored in MinIO`}
                 </CardDescription>
               </div>
               <Button

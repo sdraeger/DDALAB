@@ -115,6 +115,9 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   // Use selectedChannels from store instead of local state
   const selectedChannels = fileManager.selectedChannels;
 
+  // Extract file path to use as stable dependency for effects
+  const filePath = fileManager.selectedFile?.file_path;
+
   // Initialize refs with default values after state is declared
   const channelOffsetRef = useRef(channelOffset);
   const timeWindowRef = useRef(timeWindow);
@@ -591,117 +594,114 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     };
   }, []);
 
-  const loadChunk = useCallback(
-    async (startTime: number) => {
-      console.log("=== LOAD CHUNK CALLED ===", {
+  // Use ref to create stable loadChunk function that doesn't recreate on every dependency change
+  const loadChunkRef = useRef<(startTime: number) => Promise<void>>();
+
+  loadChunkRef.current = async (startTime: number) => {
+    console.log("=== LOAD CHUNK CALLED ===", {
+      startTime,
+      hasFile: !!fileManager.selectedFile,
+      fileName: fileManager.selectedFile?.file_name,
+      selectedChannelsCount: selectedChannels.length,
+      callStack: new Error().stack?.split("\n").slice(1, 6).join("\n"),
+    });
+
+    if (!fileManager.selectedFile || selectedChannels.length === 0) {
+      console.log("Cannot load chunk: no file or channels selected");
+      return;
+    }
+
+    if (fileManager.selectedFile.duration === 0) {
+      setError("File has no duration - data may not be properly loaded");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      console.log("Loading chunk with params:", {
+        file: fileManager.selectedFile.file_name,
         startTime,
-        hasFile: !!fileManager.selectedFile,
-        fileName: fileManager.selectedFile?.file_name,
-        selectedChannelsCount: selectedChannels.length,
-        callStack: new Error().stack?.split("\n").slice(1, 6).join("\n"),
+        timeWindow,
+        sampleRate: fileManager.selectedFile.sample_rate,
+        selectedChannels: selectedChannels.length,
+        selectedChannelNames: selectedChannels,
+        preprocessing,
       });
 
-      if (!fileManager.selectedFile || selectedChannels.length === 0) {
-        console.log("Cannot load chunk: no file or channels selected");
+      const chunkSize = Math.floor(
+        timeWindow * fileManager.selectedFile.sample_rate
+      );
+      const chunkStart = Math.floor(
+        startTime * fileManager.selectedFile.sample_rate
+      );
+
+      console.log("Calculated chunk params:", {
+        chunkStart,
+        chunkSize,
+        timeWindowSeconds: timeWindow,
+        expectedDataPoints: chunkSize,
+        startTimeSamples: chunkStart,
+      });
+
+      const chunkData = await apiService.getChunkData(
+        fileManager.selectedFile.file_path,
+        chunkStart,
+        chunkSize,
+        selectedChannels
+      );
+
+      console.log("Received chunk data:", {
+        dataLength: chunkData.data?.length,
+        timestampsLength: chunkData.timestamps?.length,
+        channels: chunkData.channels?.length,
+        sampleRate: chunkData.sample_rate,
+        firstChannelFirstValues: chunkData.data?.[0]?.slice(0, 5),
+        dataTypes: chunkData.data?.map((channel) => typeof channel[0]),
+      });
+
+      if (!chunkData.data || chunkData.data.length === 0) {
+        setError("No data received from server");
         return;
       }
 
-      if (fileManager.selectedFile.duration === 0) {
-        setError("File has no duration - data may not be properly loaded");
-        return;
-      }
+      // Apply preprocessing to each channel
+      const preprocessedData = chunkData.data.map((channelData) =>
+        applyPreprocessing(
+          channelData,
+          fileManager.selectedFile!.sample_rate,
+          preprocessing
+        )
+      );
 
-      try {
-        setLoading(true);
-        setError(null);
+      console.log("Applied preprocessing:", {
+        originalFirstValues: chunkData.data[0]?.slice(0, 5),
+        preprocessedFirstValues: preprocessedData[0]?.slice(0, 5),
+        preprocessingOptions: preprocessing,
+      });
 
-        console.log("Loading chunk with params:", {
-          file: fileManager.selectedFile.file_name,
-          startTime,
-          timeWindow,
-          sampleRate: fileManager.selectedFile.sample_rate,
-          selectedChannels: selectedChannels.length,
-          selectedChannelNames: selectedChannels,
-          preprocessing,
-        });
+      // Create processed chunk data
+      const processedChunk: ChunkData = {
+        ...chunkData,
+        data: preprocessedData,
+      };
 
-        const chunkSize = Math.floor(
-          timeWindow * fileManager.selectedFile.sample_rate
-        );
-        const chunkStart = Math.floor(
-          startTime * fileManager.selectedFile.sample_rate
-        );
+      setCurrentChunk(processedChunk);
+      renderPlot(processedChunk, startTime);
+      setCurrentTime(startTime);
+    } catch (err) {
+      console.error("Failed to load chunk:", err);
+      setError(err instanceof Error ? err.message : "Failed to load data");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        console.log("Calculated chunk params:", {
-          chunkStart,
-          chunkSize,
-          timeWindowSeconds: timeWindow,
-          expectedDataPoints: chunkSize,
-          startTimeSamples: chunkStart,
-        });
-
-        const chunkData = await apiService.getChunkData(
-          fileManager.selectedFile.file_path,
-          chunkStart,
-          chunkSize,
-          selectedChannels
-        );
-
-        console.log("Received chunk data:", {
-          dataLength: chunkData.data?.length,
-          timestampsLength: chunkData.timestamps?.length,
-          channels: chunkData.channels?.length,
-          sampleRate: chunkData.sample_rate,
-          firstChannelFirstValues: chunkData.data?.[0]?.slice(0, 5),
-          dataTypes: chunkData.data?.map((channel) => typeof channel[0]),
-        });
-
-        if (!chunkData.data || chunkData.data.length === 0) {
-          setError("No data received from server");
-          return;
-        }
-
-        // Apply preprocessing to each channel
-        const preprocessedData = chunkData.data.map((channelData) =>
-          applyPreprocessing(
-            channelData,
-            fileManager.selectedFile!.sample_rate,
-            preprocessing
-          )
-        );
-
-        console.log("Applied preprocessing:", {
-          originalFirstValues: chunkData.data[0]?.slice(0, 5),
-          preprocessedFirstValues: preprocessedData[0]?.slice(0, 5),
-          preprocessingOptions: preprocessing,
-        });
-
-        // Create processed chunk data
-        const processedChunk: ChunkData = {
-          ...chunkData,
-          data: preprocessedData,
-        };
-
-        setCurrentChunk(processedChunk);
-        renderPlot(processedChunk, startTime);
-        setCurrentTime(startTime);
-      } catch (err) {
-        console.error("Failed to load chunk:", err);
-        setError(err instanceof Error ? err.message : "Failed to load data");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [
-      fileManager.selectedFile,
-      selectedChannels,
-      timeWindow,
-      preprocessing,
-      apiService,
-      setCurrentChunk,
-      renderPlot,
-    ]
-  );
+  // Stable wrapper function that doesn't change
+  const loadChunk = useCallback((startTime: number) => {
+    return loadChunkRef.current!(startTime);
+  }, []);
 
   const getChannelColor = (index: number): string => {
     const colors = [
@@ -773,10 +773,11 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   }, [plot.currentChunk, timeWindow, currentTime, preprocessing, createWindow]);
 
   // Load initial chunk when file or channels change
+  // Use file_path as dependency to avoid recreating on every selectedFile object change
   useEffect(() => {
     console.log("File/channel change effect triggered:", {
       hasFile: !!fileManager.selectedFile,
-      fileName: fileManager.selectedFile?.file_name,
+      filePath,
       selectedChannelsCount: selectedChannels.length,
       selectedChannels: selectedChannels,
     });
@@ -811,9 +812,13 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         hasChannels: selectedChannels.length > 0,
       });
     }
-  }, [fileManager.selectedFile, selectedChannels, loadChunk]);
+    // Only depend on file path, not entire selectedFile object to avoid unnecessary re-runs
+    // Remove loadChunk from deps to prevent infinite loops
+  }, [filePath, selectedChannels]);
 
   // Handle time window changes separately to avoid recreating plot
+  // NOTE: This effect only runs when timeWindow changes, NOT when file/channels change
+  // File/channel changes are handled by the previous effect
   useEffect(() => {
     if (
       fileManager.selectedFile &&
@@ -846,7 +851,8 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       // Only reload when timeWindow itself changes
       loadChunk(currentTime);
     }
-  }, [timeWindow, loadChunk, fileManager.selectedFile, selectedChannels]);
+    // Only depend on timeWindow to avoid duplicate loads from file/channel changes
+  }, [timeWindow]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
