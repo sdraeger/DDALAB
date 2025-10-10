@@ -160,6 +160,24 @@ export function FileManager({ apiService }: FileManagerProps) {
           }))
 
         setFiles(edfFiles)
+
+        // Immediately restore pending file selection if present
+        // This eliminates the delay between loading files and restoring selection
+        if (fileManager.pendingFileSelection && ui.isServerReady) {
+          const fileToSelect = edfFiles.find(f => f.file_path === fileManager.pendingFileSelection)
+          if (fileToSelect) {
+            console.log('[FILEMANAGER] ✓ Restoring selected file immediately:', {
+              fileName: fileToSelect.file_name,
+              filePath: fileToSelect.file_path
+            })
+            // Load file info before clearing loading state
+            await loadFileInfo(fileToSelect)
+            clearPendingFileSelection()
+          } else {
+            console.warn('[FILEMANAGER] ✗ Pending file not found:', fileManager.pendingFileSelection)
+            clearPendingFileSelection()
+          }
+        }
       }
     } catch (err) {
       console.error('Failed to load directory:', err)
@@ -169,43 +187,8 @@ export function FileManager({ apiService }: FileManagerProps) {
     }
   }
 
-  // Handle pending file selection after files are loaded
-  // Only restore file selection when server is ready and not loading to avoid blocking UI
-  useEffect(() => {
-    const hasPending = !!fileManager.pendingFileSelection
-    const pendingPath = fileManager.pendingFileSelection
-    const filesCount = files.length
-    const isServerReady = ui.isServerReady
-    const isLoading = loading
-
-    console.log('[FILEMANAGER] Pending file selection check:', {
-      hasPending,
-      pendingPath,
-      filesCount,
-      isServerReady,
-      isLoading,
-      willAttemptRestore: hasPending && filesCount > 0 && isServerReady && !isLoading
-    })
-
-    if (fileManager.pendingFileSelection && files.length > 0 && ui.isServerReady && !loading) {
-      const fileToSelect = files.find(f => f.file_path === fileManager.pendingFileSelection)
-      if (fileToSelect) {
-        console.log('[FILEMANAGER] ✓ Restoring selected file from persistence:', {
-          fileName: fileToSelect.file_name,
-          filePath: fileToSelect.file_path
-        })
-        handleFileSelect(fileToSelect)
-        clearPendingFileSelection()
-      } else {
-        console.warn('[FILEMANAGER] ✗ Pending file not found in current directory:', {
-          pendingPath: fileManager.pendingFileSelection,
-          availableFiles: files.map(f => ({ name: f.file_name, path: f.file_path }))
-        })
-        // Clear the pending selection if file not found
-        clearPendingFileSelection()
-      }
-    }
-  }, [files, fileManager.pendingFileSelection, clearPendingFileSelection, ui.isServerReady, loading])
+  // NOTE: Pending file selection is now handled inline in loadCurrentDirectory
+  // to eliminate the visible delay. The useEffect has been removed to avoid double-loading.
 
   // Filter and sort files
   const filteredAndSortedFiles = useMemo(() => {
@@ -249,6 +232,13 @@ export function FileManager({ apiService }: FileManagerProps) {
   }, [files, fileManager.searchQuery, fileManager.showHidden, fileManager.sortBy, fileManager.sortOrder])
 
   const handleFileSelect = (file: EDFFileInfo) => {
+    // Prevent file selection while persisted file is being restored
+    // This avoids race conditions and unintentional clicks during startup
+    if (fileManager.pendingFileSelection) {
+      console.log('[FILEMANAGER] Ignoring file click - pending restoration:', fileManager.pendingFileSelection)
+      return
+    }
+
     // If a file is already selected and it's different from the new selection
     if (fileManager.selectedFile && fileManager.selectedFile.file_path !== file.file_path) {
       setPendingFileSelection(file)
@@ -261,10 +251,14 @@ export function FileManager({ apiService }: FileManagerProps) {
 
   const loadFileInfo = async (file: EDFFileInfo) => {
     try {
+      // Set file as selected immediately for instant visual feedback
+      // This shows the file highlighted while metadata loads
+      setSelectedFile(file)
       setLoading(true)
 
       // Get detailed file information
       const fileInfo = await apiService.getFileInfo(file.file_path)
+      // Update with full details
       setSelectedFile(fileInfo)
 
       // Record file load action if recording is active
@@ -580,10 +574,14 @@ export function FileManager({ apiService }: FileManagerProps) {
               <div
                 key={`${file.file_path}-${index}`}
                 onClick={() => handleFileSelect(file)}
-                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all
+                className={`flex items-center gap-3 p-3 rounded-lg border transition-all
+                  ${fileManager.pendingFileSelection
+                    ? 'opacity-50 cursor-wait'
+                    : 'cursor-pointer'
+                  }
                   ${fileManager.selectedFile?.file_path === file.file_path
                     ? 'bg-primary/10 border-primary shadow-sm ring-2 ring-primary/20'
-                    : 'hover:bg-accent hover:shadow-sm'
+                    : fileManager.pendingFileSelection ? '' : 'hover:bg-accent hover:shadow-sm'
                   }`}
               >
                 <FileText className="h-5 w-5 text-green-600" />
