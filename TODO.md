@@ -48,6 +48,50 @@ All essential features are complete and working. The application is stable and r
 - 🔄 FastAPI will be phased out completely
 - 🎯 Institutional broker replaces the need for shared servers (each DDALAB instance has its own API)
 - 📱 Embedded API auto-starts when needed
+
+## Performance Optimization (October 2025)
+
+**Problem:** Large time window selections (60+ seconds) cause 60s loading times and timeouts. UI freezes when toggling channels or changing windows.
+
+**Phase 1: Client-Side Data Caching** ✅ (Completed)
+
+- [x] Implement LRU chunk cache service (`src/services/chunkCache.ts`)
+  - 100MB default max cache size
+  - Automatic eviction of least recently used chunks
+  - Cache key excludes channel selection for better hit rate
+  - Statistics tracking (hit rate, evictions, memory usage)
+- [x] Integrate cache into ApiService
+  - Check cache before API calls
+  - Store fetched chunks for reuse
+  - Filter channels from cached data (eliminates API calls when toggling visibility)
+  - Clear cache when file changes
+- [x] Add comprehensive logging for cache performance monitoring
+
+**Expected Impact:**
+- 90%+ reduction in API calls for channel toggling
+- Instant channel visibility changes (no network delay)
+- Better responsiveness for timeline navigation
+
+**Phase 2: Progressive Loading** (Planned)
+
+- [ ] Split large time windows into smaller chunks
+- [ ] Load chunks in parallel
+- [ ] Progressive rendering with loading indicators
+- [ ] Interruptible loads
+
+**Phase 3: Smart Channel Management** (Planned)
+
+- [ ] Separate "loaded channels" from "visible channels" state
+- [ ] Eliminate full reload on channel toggle
+- [ ] Optimize uPlot series updates
+
+**Phase 4: Backend Optimizations** (Planned)
+
+- [ ] Parallel channel reading in Rust
+- [ ] Smarter backend cache keys
+- [ ] LRU eviction policy in Rust cache
+
+See `packages/ddalab-tauri/PERFORMANCE_OPTIMIZATION.md` for detailed implementation plan.
 - 🚨 Emergency start/stop controls available in Settings (rarely needed)
 
 ## Sync UI Integration Progress
