@@ -1,9 +1,11 @@
 import axios, { AxiosInstance } from 'axios'
 import { EDFFileInfo, ChunkData, Annotation, DDAAnalysisRequest, DDAResult, HealthResponse } from '@/types/api'
+import { getChunkCache } from './chunkCache'
 
 export class ApiService {
   private client: AxiosInstance
   public baseURL: string
+  private chunkCache = getChunkCache()
 
   constructor(baseURL: string) {
     this.baseURL = baseURL
@@ -59,6 +61,9 @@ export class ApiService {
 
   async getFileInfo(filePath: string): Promise<EDFFileInfo> {
     try {
+      // Clear cache for this file when loading new file info
+      this.chunkCache.clearFile(filePath)
+
       // Get EDF-specific metadata from the correct endpoint
       const edfResponse = await this.client.get(`/api/edf/info`, {
         params: {
@@ -127,6 +132,19 @@ export class ApiService {
     }
   ): Promise<ChunkData> {
     try {
+      // Check cache first (cache key doesn't include channels or preprocessing)
+      const cached = this.chunkCache.get(filePath, chunkStart, chunkSize)
+      if (cached && !preprocessing) {
+        console.log('[ApiService] Cache HIT - using cached chunk data')
+        // Filter to requested channels if specified
+        if (requestedChannels && requestedChannels.length > 0) {
+          return this.chunkCache.filterChannels(cached, requestedChannels)
+        }
+        return cached
+      }
+
+      console.log('[ApiService] Cache MISS - fetching from backend')
+
       const params: any = {
         file_path: filePath,
         chunk_start: chunkStart,
@@ -182,6 +200,17 @@ export class ApiService {
       }
 
       console.log('Processed chunk data:', chunkData)
+
+      // Store in cache (only if no preprocessing applied)
+      if (!preprocessing) {
+        this.chunkCache.set(filePath, chunkStart, chunkSize, chunkData)
+      }
+
+      // Filter to requested channels if specified
+      if (requestedChannels && requestedChannels.length > 0) {
+        return this.chunkCache.filterChannels(chunkData, requestedChannels)
+      }
+
       return chunkData
     } catch (error) {
       console.error('Failed to get chunk data:', error)
