@@ -161,17 +161,17 @@ Services:
 
 ### Adding New Features
 
-1. Frontend changes: Work in appropriate package (web/web20)
-2. Backend changes: Modify Python code in packages/api
+1. Frontend changes: Work in appropriate package (ddalab-tauri)
+2. Backend changes: Modify Rust code in packages/ddalab-tauri/src-tauri/src
 3. Run tests before committing
 4. Use feature branches and PRs
 
 ### Testing Requirements
 
 - Frontend: Jest + React Testing Library
-- Backend: PyTest with async support
+- Backend: Rust tests with `cargo test`
 - Integration tests for critical paths
-- No test framework assumptions - check package.json/pyproject.toml
+- Run tests: `npm run test` (frontend) or `cargo test` (backend)
 
 ### Environment Configuration
 
