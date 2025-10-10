@@ -882,7 +882,8 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         clearTimeout(loadChunkTimeout);
       }
       const timeoutId = setTimeout(() => {
-        loadChunk(currentTime); // Reload at current position with new channels
+        // Use currentTime from closure, not dependency
+        loadChunk(currentTime);
       }, 300); // 300ms debounce
       setLoadChunkTimeout(timeoutId);
     } else {
@@ -894,9 +895,9 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         isInitialChannelSet,
       });
     }
-    // IMPORTANT: selectedChannels IS in the dependency array
-    // We reload when channels change (with debouncing) since we only load selected channels
-  }, [filePath, selectedChannels, currentTime, loadChunk, loadChunkTimeout]);
+    // CRITICAL: Only depend on filePath and selectedChannels to avoid infinite loops
+    // DO NOT add currentTime or loadChunkTimeout as dependencies!
+  }, [filePath, selectedChannels, loadChunk]);
 
   // Handle time window changes separately to avoid recreating plot
   // NOTE: This effect only runs when timeWindow changes, NOT when file/channels change
