@@ -46,14 +46,18 @@ export class ChunkCache {
 
   /**
    * Generate cache key from chunk parameters
-   * Note: Excludes channel list to enable cache hits when toggling visibility
+   * Includes channel list to cache different channel selections separately
    */
   private generateKey(
     filePath: string,
     chunkStart: number,
-    chunkSize: number
+    chunkSize: number,
+    channels?: string[]
   ): string {
-    return `${filePath}:${chunkStart}:${chunkSize}`
+    const channelKey = channels && channels.length > 0
+      ? channels.sort().join(',') // Sort for consistent cache keys
+      : 'all'
+    return `${filePath}:${chunkStart}:${chunkSize}:${channelKey}`
   }
 
   /**
@@ -113,9 +117,10 @@ export class ChunkCache {
   get(
     filePath: string,
     chunkStart: number,
-    chunkSize: number
+    chunkSize: number,
+    channels?: string[]
   ): ChunkData | null {
-    const key = this.generateKey(filePath, chunkStart, chunkSize)
+    const key = this.generateKey(filePath, chunkStart, chunkSize, channels)
     const entry = this.cache.get(key)
 
     if (entry) {
@@ -137,9 +142,10 @@ export class ChunkCache {
     filePath: string,
     chunkStart: number,
     chunkSize: number,
-    data: ChunkData
+    data: ChunkData,
+    channels?: string[]
   ): void {
-    const key = this.generateKey(filePath, chunkStart, chunkSize)
+    const key = this.generateKey(filePath, chunkStart, chunkSize, channels)
     const size = this.estimateSize(data)
 
     // Don't cache chunks larger than max size
@@ -246,36 +252,6 @@ export class ChunkCache {
     return `Cache: ${this.cache.size} entries, ${sizeMB.toFixed(1)}/${maxMB.toFixed(0)}MB, ${hitRate.toFixed(1)}% hit rate`
   }
 
-  /**
-   * Filter cached chunk data to only include specific channels
-   * This allows cache hits even when different channels are selected
-   */
-  filterChannels(chunk: ChunkData, requestedChannels: string[]): ChunkData {
-    if (!requestedChannels || requestedChannels.length === 0) {
-      return chunk
-    }
-
-    // Find indices of requested channels
-    const indices: number[] = []
-    const filteredChannels: string[] = []
-
-    for (const reqChannel of requestedChannels) {
-      const index = chunk.channels.indexOf(reqChannel)
-      if (index !== -1) {
-        indices.push(index)
-        filteredChannels.push(reqChannel)
-      }
-    }
-
-    // Extract only the requested channel data
-    const filteredData = indices.map(i => chunk.data[i])
-
-    return {
-      ...chunk,
-      data: filteredData,
-      channels: filteredChannels
-    }
-  }
 }
 
 // Singleton instance
