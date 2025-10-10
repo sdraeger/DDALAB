@@ -124,18 +124,29 @@ All essential features are complete and working. The application is stable and r
 
    #### Phase 1: BIDS Format Support
 
-   - [ ] Implement BIDS validator (`src/services/bids/validator.ts`)
+   - [x] Implement BIDS validator (`src/services/bids/validator.ts`)
      - Validate BIDS directory structure
      - Parse `dataset_description.json`
      - Parse `participants.tsv`
      - Validate subject/session folder structure
      - Check EEG/iEEG data file compliance
-   - [ ] Create BIDS reader service (`src/services/bids/reader.ts`)
+   - [x] Create BIDS reader service (`src/services/bids/reader.ts`)
      - Read BIDS-formatted EEG/iEEG datasets
      - Parse sidecar JSON metadata
      - Extract channel information from `_channels.tsv`
      - Extract event markers from `_events.tsv`
      - Map BIDS data to DDALAB internal format
+   - [x] Create BIDS detection hook (`src/hooks/useBIDSDetection.ts`)
+     - Async directory checking for BIDS compliance
+     - Parallel detection for multiple directories
+     - Metadata enrichment with dataset info
+   - [x] Create BIDS types (`src/types/bids.ts`)
+     - DirectoryEntry with BIDS metadata
+     - BIDSInfo interface for UI display
+   - [x] Integrate BIDS detection in FileManager
+     - Detect BIDS datasets in directory listings
+     - Visual indicators for BIDS directories (purple badge/border)
+     - Display dataset name, subject count, modalities
    - [ ] Create BIDS writer/exporter (`src/services/bids/exporter.ts`)
      - Export local analyses to BIDS format
      - Generate `dataset_description.json`
