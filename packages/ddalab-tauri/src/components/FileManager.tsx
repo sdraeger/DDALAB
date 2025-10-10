@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { useBIDSDetection } from '@/hooks/useBIDSDetection'
+import type { DirectoryEntry } from '@/types/bids'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -61,9 +63,10 @@ export function FileManager({ apiService }: FileManagerProps) {
   } = useAppStore()
 
   const { recordAction } = useWorkflow()
+  const { checkDirectories, checking: checkingBIDS } = useBIDSDetection()
 
   const [files, setFiles] = useState<EDFFileInfo[]>([])
-  const [directories, setDirectories] = useState<Array<{name: string, path: string}>>([])
+  const [directories, setDirectories] = useState<DirectoryEntry[]>([])
   const [loading, setLoading] = useState(true) // Start with loading true
   const [error, setError] = useState<string | null>(null)
   const [isInitialLoad, setIsInitialLoad] = useState(true)
@@ -133,10 +136,15 @@ export function FileManager({ apiService }: FileManagerProps) {
         const dirs = result.files.filter(f => f.is_directory)
         const fileList = result.files.filter(f => !f.is_directory)
 
-        setDirectories(dirs.map(d => ({
+        // Convert to DirectoryEntry format
+        const dirEntries: DirectoryEntry[] = dirs.map(d => ({
           name: d.name,
           path: d.path
-        })))
+        }))
+
+        // Check for BIDS datasets asynchronously
+        const bidsEnrichedDirs = await checkDirectories(dirEntries)
+        setDirectories(bidsEnrichedDirs)
 
         // Convert to EDFFileInfo format
         const edfFiles: EDFFileInfo[] = fileList
@@ -306,7 +314,7 @@ export function FileManager({ apiService }: FileManagerProps) {
     setShowConfirmDialog(false)
   }
 
-  const handleDirectorySelect = (dir: {name: string, path: string}) => {
+  const handleDirectorySelect = (dir: DirectoryEntry) => {
     // dir.path is absolute - we need to make it relative to dataDirectoryPath
     const absolutePath = dir.path
 
@@ -323,7 +331,9 @@ export function FileManager({ apiService }: FileManagerProps) {
       dirPath: dir.path,
       dataDirectoryPath: fileManager.dataDirectoryPath,
       relativePath,
-      newPath
+      newPath,
+      isBIDS: dir.isBIDS,
+      bidsInfo: dir.bidsInfo
     })
 
     setCurrentPath(newPath)
@@ -558,12 +568,37 @@ export function FileManager({ apiService }: FileManagerProps) {
               <div
                 key={dir.path}
                 onClick={() => handleDirectorySelect(dir)}
-                className="flex items-center gap-3 p-3 rounded-lg border hover:bg-accent cursor-pointer transition-colors"
+                className={`flex items-center gap-3 p-3 rounded-lg border hover:bg-accent cursor-pointer transition-colors ${
+                  dir.isBIDS ? 'border-purple-300 bg-purple-50/50' : ''
+                }`}
               >
-                <Folder className="h-5 w-5 text-blue-600" />
+                <Folder className={`h-5 w-5 ${dir.isBIDS ? 'text-purple-600' : 'text-blue-600'}`} />
                 <div className="flex-1">
-                  <div className="font-medium">{dir.name}</div>
-                  <div className="text-sm text-muted-foreground">Directory</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{dir.name}</span>
+                    {dir.isBIDS && (
+                      <Badge variant="secondary" className="bg-purple-100 text-purple-700 text-xs">
+                        BIDS Dataset
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {dir.isBIDS && dir.bidsInfo ? (
+                      <div className="flex items-center gap-3 mt-1">
+                        {dir.bidsInfo.datasetName && (
+                          <span className="font-medium text-purple-700">{dir.bidsInfo.datasetName}</span>
+                        )}
+                        {dir.bidsInfo.subjectCount !== undefined && (
+                          <span>{dir.bidsInfo.subjectCount} subject{dir.bidsInfo.subjectCount !== 1 ? 's' : ''}</span>
+                        )}
+                        {dir.bidsInfo.modalities && dir.bidsInfo.modalities.length > 0 && (
+                          <span className="text-xs">{dir.bidsInfo.modalities.join(', ')}</span>
+                        )}
+                      </div>
+                    ) : (
+                      'Directory'
+                    )}
+                  </div>
                 </div>
                 <ChevronRight className="h-4 w-4 text-muted-foreground" />
               </div>
