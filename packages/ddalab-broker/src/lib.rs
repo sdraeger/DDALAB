@@ -3,6 +3,7 @@ pub mod postgres;
 pub mod registry;
 pub mod traits;
 pub mod types;
+pub mod version_check;
 pub mod websocket;
 
 pub use discovery::{BrokerDiscovery, hash_psk};

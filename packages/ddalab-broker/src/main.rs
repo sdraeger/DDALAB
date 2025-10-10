@@ -48,6 +48,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(false);
 
+    // Version check configuration
+    let check_for_updates = env::var("CHECK_FOR_UPDATES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(true);
+
     // Connect to database
     info!("Connecting to database...");
     let pool = PgPoolOptions::new()
@@ -109,6 +115,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr: SocketAddr = bind_addr.parse()?;
     info!("🎧 Listening on {}", addr);
     info!("📡 WebSocket endpoint: ws://{}/ws", addr);
+
+    // Check for updates (non-blocking)
+    if check_for_updates {
+        ddalab_broker::version_check::spawn_update_check();
+    }
 
     // Initialize and start mDNS discovery announcement
     let port = addr.port();

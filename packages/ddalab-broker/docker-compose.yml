@@ -29,6 +29,8 @@ services:
       INSTITUTION_NAME: ${INSTITUTION_NAME:-Default Institution}
       BROKER_PASSWORD: ${BROKER_PASSWORD:-change_me_in_production}
       USE_TLS: ${USE_TLS:-false}
+      # Version Check (set to false to disable update notifications)
+      CHECK_FOR_UPDATES: ${CHECK_FOR_UPDATES:-true}
     ports:
       - "8080:8080"
     restart: unless-stopped
