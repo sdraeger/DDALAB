@@ -132,15 +132,13 @@ export class ApiService {
     }
   ): Promise<ChunkData> {
     try {
-      // Check cache first (cache key doesn't include channels or preprocessing)
-      const cached = this.chunkCache.get(filePath, chunkStart, chunkSize)
-      if (cached && !preprocessing) {
-        console.log('[ApiService] Cache HIT - using cached chunk data')
-        // Filter to requested channels if specified
-        if (requestedChannels && requestedChannels.length > 0) {
-          return this.chunkCache.filterChannels(cached, requestedChannels)
+      // Check cache first (only if no preprocessing)
+      if (!preprocessing) {
+        const cached = this.chunkCache.get(filePath, chunkStart, chunkSize, requestedChannels)
+        if (cached) {
+          console.log('[ApiService] Cache HIT - using cached chunk data')
+          return cached
         }
-        return cached
       }
 
       console.log('[ApiService] Cache MISS - fetching from backend')
@@ -203,12 +201,7 @@ export class ApiService {
 
       // Store in cache (only if no preprocessing applied)
       if (!preprocessing) {
-        this.chunkCache.set(filePath, chunkStart, chunkSize, chunkData)
-      }
-
-      // Filter to requested channels if specified
-      if (requestedChannels && requestedChannels.length > 0) {
-        return this.chunkCache.filterChannels(chunkData, requestedChannels)
+        this.chunkCache.set(filePath, chunkStart, chunkSize, chunkData, requestedChannels)
       }
 
       return chunkData

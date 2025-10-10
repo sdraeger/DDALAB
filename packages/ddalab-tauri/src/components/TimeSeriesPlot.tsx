@@ -680,14 +680,13 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         startTimeSamples: chunkStart,
       });
 
-      // Load ALL channels from the file, not just selected ones
-      // We'll toggle visibility via uPlot instead of reloading data
-      const allChannels = fileManager.selectedFile.channels;
+      // Load ONLY selected channels to improve performance
+      // This significantly reduces data transfer and processing time
       const chunkData = await apiService.getChunkData(
         fileManager.selectedFile.file_path,
         chunkStart,
         chunkSize,
-        allChannels // Load all channels
+        selectedChannels // Load only selected channels
       );
 
       console.log("Received chunk data:", {
@@ -786,15 +785,15 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
 
     if (checked) {
       // When adding a channel, insert it in file order
-      if (plot.currentChunk) {
-        const fileChannels = plot.currentChunk.channels;
+      if (fileManager.selectedFile) {
+        const fileChannels = fileManager.selectedFile.channels;
         newChannels = [...selectedChannels, channel].sort((a, b) => {
           const indexA = fileChannels.indexOf(a);
           const indexB = fileChannels.indexOf(b);
           return indexA - indexB;
         });
       } else {
-        // Fallback if no chunk loaded yet
+        // Fallback if no file loaded yet
         newChannels = [...selectedChannels, channel];
       }
     } else {
@@ -805,14 +804,10 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     // Update the ref synchronously
     channelsToDisplayRef.current = newChannels;
 
-    // Update the store
+    // Update the store (this will trigger useEffect to reload data)
     persistSelectedChannels(newChannels);
 
-    // Re-render with new channel selection (uses cached data, no backend reload)
-    if (plot.currentChunk) {
-      console.log(`Channel toggled: ${channel} -> ${checked}. Re-rendering with channels:`, newChannels);
-      renderPlot(plot.currentChunk, currentTime, newChannels);
-    }
+    console.log(`Channel toggled: ${channel} -> ${checked}. New selection:`, newChannels);
   };
 
   const handlePopOut = useCallback(async () => {
@@ -881,7 +876,15 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       loadedFileRef.current = currentFilePath;
       isInitialChannelSetRef.current = false; // Mark as no longer initial
     } else if (!isNewFile && !isInitialChannelSet && hasChannelsSelected) {
-      console.log("Same file, user toggled channels - already using uPlot visibility toggle (no reload needed)");
+      console.log("Same file, channels changed - reloading chunk with new channel selection");
+      // Debounce the reload to avoid rapid API calls when toggling multiple channels
+      if (loadChunkTimeout) {
+        clearTimeout(loadChunkTimeout);
+      }
+      const timeoutId = setTimeout(() => {
+        loadChunk(currentTime); // Reload at current position with new channels
+      }, 300); // 300ms debounce
+      setLoadChunkTimeout(timeoutId);
     } else {
       console.log("Conditions not met for chunk loading:", {
         hasFile: !!fileManager.selectedFile,
@@ -891,9 +894,9 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         isInitialChannelSet,
       });
     }
-    // IMPORTANT: selectedChannels IS in the dependency array, but we use isInitialChannelSetRef
-    // to distinguish between initial load and user toggling channels
-  }, [filePath, selectedChannels]);
+    // IMPORTANT: selectedChannels IS in the dependency array
+    // We reload when channels change (with debouncing) since we only load selected channels
+  }, [filePath, selectedChannels, currentTime, loadChunk, loadChunkTimeout]);
 
   // Handle time window changes separately to avoid recreating plot
   // NOTE: This effect only runs when timeWindow changes, NOT when file/channels change
