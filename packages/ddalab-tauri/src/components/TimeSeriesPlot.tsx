@@ -128,6 +128,11 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     timeWindowRef.current = timeWindow;
   }, [channelOffset, timeWindow]);
 
+  // Ref to track if this is the first time we're setting channels for a file
+  const isInitialChannelSetRef = useRef<boolean>(true);
+  // Ref to track which channels should be displayed (updated synchronously)
+  const channelsToDisplayRef = useRef<string[]>(selectedChannels);
+
   useEffect(() => {
     console.log("File selection changed:", {
       hasFile: !!fileManager.selectedFile,
@@ -151,8 +156,11 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         availableChannels.includes(ch)
       );
 
+      // Mark this as initial channel set (will trigger data load in the next effect)
+      isInitialChannelSetRef.current = true;
+
       if (validPersistedChannels.length === 0) {
-        // No valid persisted channels, auto-select first 4 channels
+        // No valid persisted channels, auto-select first 4-8 channels for better default view
         // Skip common time columns (Time, Timestamp, etc.) from auto-selection
         const dataChannels = availableChannels.filter(
           (ch) => !ch.toLowerCase().match(/^(time|timestamp|t|sample)$/i)
@@ -161,7 +169,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           dataChannels.length > 0 ? dataChannels : availableChannels;
         const defaultChannels = channelsToSelect.slice(
           0,
-          Math.min(4, channelsToSelect.length)
+          Math.min(8, channelsToSelect.length) // Show up to 8 channels by default
         );
         console.log(
           "Auto-selecting channels (no valid persisted):",
@@ -169,6 +177,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           "from total:",
           availableChannels.length
         );
+        channelsToDisplayRef.current = defaultChannels; // Update ref synchronously
         persistSelectedChannels(defaultChannels);
       } else if (
         validPersistedChannels.length !== fileManager.selectedChannels.length
@@ -181,18 +190,23 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           fileManager.selectedChannels,
           ")"
         );
+        channelsToDisplayRef.current = validPersistedChannels; // Update ref synchronously
         persistSelectedChannels(validPersistedChannels);
       } else {
         // All persisted channels are valid
         console.log("Using persisted channels:", fileManager.selectedChannels);
+        channelsToDisplayRef.current = fileManager.selectedChannels; // Update ref synchronously
       }
     } else {
       console.log("No valid file selected or no channels available");
+      channelsToDisplayRef.current = []; // Update ref synchronously
       persistSelectedChannels([]);
     }
   }, [fileManager.selectedFile, persistSelectedChannels]);
 
-  const renderPlot = useCallback((chunkData: ChunkData, startTime: number) => {
+  const renderPlot = useCallback((chunkData: ChunkData, startTime: number, channelsToShow?: string[]) => {
+    // Use provided channels, or fall back to ref (which is updated synchronously), or selectedChannels
+    const channelsToDisplay = channelsToShow || channelsToDisplayRef.current || selectedChannels;
     if (!plotRef.current) {
       console.error("Plot ref is not available");
       return;
@@ -246,11 +260,32 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       // Removed verbose logging
     }
 
-    // Stack channels with offset for visibility
-    const processedData = chunkData.data.map((channelData, index) => {
+    // Build selected channel data in the order specified by channelsToDisplay (which is already sorted by file order)
+    const selectedChannelData: Array<{ name: string; data: number[]; originalIndex: number }> = [];
+    channelsToDisplay.forEach((channelName) => {
+      const index = chunkData.channels.indexOf(channelName);
+      if (index !== -1) {
+        selectedChannelData.push({
+          name: channelName,
+          data: chunkData.data[index],
+          originalIndex: index
+        });
+      }
+    });
+
+    console.log("Processing selected channels in file order:", {
+      totalChannels: chunkData.channels.length,
+      selectedChannelsCount: selectedChannelData.length,
+      selectedChannels: selectedChannelData.map(c => `${c.name} (idx ${c.originalIndex})`),
+    });
+
+    // Stack ONLY selected channels with contiguous offsets (no gaps)
+    const processedData = selectedChannelData.map((channelInfo, displayIndex) => {
+      const channelData = channelInfo.data;
+
       if (!Array.isArray(channelData)) {
         console.error(
-          `Channel ${index} data is not an array:`,
+          `Channel ${channelInfo.name} data is not an array:`,
           typeof channelData,
           channelData
         );
@@ -263,17 +298,19 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           return 0;
         }
 
-        // Add channel offset for stacking
-        const offsetValue = value + index * autoOffset;
+        // Add channel offset for stacking - use displayIndex for contiguous stacking
+        const offsetValue = value + displayIndex * autoOffset;
 
         return isNaN(offsetValue) ? 0 : offsetValue;
       });
 
       console.log(
-        `Channel ${index} (${chunkData.channels[index]}) processed:`,
+        `Channel ${displayIndex} (${channelInfo.name}, file idx ${channelInfo.originalIndex}) processed:`,
         {
           originalLength: channelData.length,
           processedLength: processed.length,
+          displayIndex,
+          originalIndex: channelInfo.originalIndex,
           originalRange: [
             Math.min(...channelData.slice(0, 100)),
             Math.max(...channelData.slice(0, 100)),
@@ -343,15 +380,16 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       return;
     }
 
-    // Create series config
+    // Create series config for ONLY selected channels
     const series: uPlot.Series[] = [
       {}, // time axis
-      ...chunkData.channels.map((channel, index) => ({
-        label: channel,
-        stroke: getChannelColor(index),
+      ...selectedChannelData.map((channelInfo) => ({
+        label: channelInfo.name,
+        stroke: getChannelColor(channelInfo.originalIndex), // Use original index for consistent colors
         width: 1.5,
         points: { show: false },
         focus: { alpha: 1.0 },
+        // All series are visible since we only include selected channels
         // Use default linear paths instead of custom function
         // paths: (u: uPlot, seriesIdx: number, idx0: number, idx1: number) => {
         //   return uPlot.paths?.linear?.()(u, seriesIdx, idx0, idx1) || null
@@ -361,8 +399,15 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
 
     console.log("Series configuration:", {
       seriesCount: series.length,
-      channelLabels: chunkData.channels,
+      selectedChannelsCount: selectedChannelData.length,
       seriesLabels: series.slice(1).map((s) => s.label),
+      originalIndices: selectedChannelData.map(c => c.originalIndex),
+      fullSeriesDetails: series.slice(1).map((s, i) => ({
+        index: i,
+        label: s.label,
+        channelName: selectedChannelData[i]?.name,
+        fileIdx: selectedChannelData[i]?.originalIndex
+      }))
     });
 
     const scales: uPlot.Scales = {
@@ -380,10 +425,11 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         range: (u, min, max) => {
           console.log("Y-axis range calculation:", { min, max });
 
-          // If all data is zero or invalid, use a default range based on number of channels
+          // If all data is zero or invalid, use a default range based on number of selected channels
           if (isNaN(min) || isNaN(max) || min === max) {
             console.log("Using default Y range due to invalid data");
-            const totalOffset = (chunkData.channels.length - 1) * autoOffset;
+            const selectedCount = selectedChannelData.length;
+            const totalOffset = (selectedCount - 1) * autoOffset;
             return [-autoOffset, totalOffset + autoOffset];
           }
 
@@ -407,11 +453,13 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         labelSize: 0,
         size: 100,
         values: () => {
-          return chunkData.channels.map((channel) => channel);
+          // Return only selected channel names in the correct order
+          return selectedChannelData.map((ch) => ch.name);
         },
         splits: () => {
-          return chunkData.channels.map((_, idx) => {
-            return idx * autoOffset;
+          // Return Y-axis positions for only selected channels (contiguous stacking)
+          return selectedChannelData.map((_, displayIdx) => {
+            return displayIdx * autoOffset;
           });
         },
         gap: 5,
@@ -496,47 +544,34 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     });
 
     try {
-      if (uplotRef.current) {
-        // Update existing plot with new data
-        console.log("Updating existing uPlot with new data");
-        console.log("Data being set:", {
-          dataType: typeof data,
-          isArray: Array.isArray(data),
-          length: data.length,
-          timeSeriesLength: data[0]?.length,
-          firstTimeValues: data[0]?.slice(0, 5),
-          firstDataSeriesValues: data[1]?.slice(0, 5),
-          dataStructure: data.map((series, i) => ({
-            index: i,
-            type: typeof series,
-            isArray: Array.isArray(series),
-            length: series?.length,
-            sample: series?.slice(0, 3),
-          })),
+      // Check if we need to recreate the plot (series count changed)
+      if (uplotRef.current && uplotRef.current.series.length !== series.length) {
+        console.log("Series count changed - recreating uPlot", {
+          oldSeriesCount: uplotRef.current.series.length,
+          newSeriesCount: series.length,
         });
+        uplotRef.current.destroy();
+        uplotRef.current = null;
+
+        // Clear the DOM container to ensure no leftover elements
+        if (plotRef.current) {
+          // Remove all child nodes
+          while (plotRef.current.firstChild) {
+            plotRef.current.removeChild(plotRef.current.firstChild);
+          }
+        }
+      }
+
+      if (uplotRef.current) {
+        // Update existing plot with new data (same series count)
+        console.log("Updating existing uPlot with new data");
         // Update the chunk range ref BEFORE setting data
         currentChunkRangeRef.current = {
           min: startTime,
           max: startTime + timeWindowRef.current,
         };
 
-        console.log("Setting x-axis scale after data update:", {
-          startTime,
-          hasUserZoom: !!userZoomRef.current,
-          userZoom: userZoomRef.current,
-          chunkRange: currentChunkRangeRef.current,
-          currentScaleBeforeSet: {
-            min: uplotRef.current.scales.x.min,
-            max: uplotRef.current.scales.x.max,
-          },
-        });
-
         uplotRef.current.setData(data);
-
-        console.log("X-axis scale after setData:", {
-          min: uplotRef.current.scales.x.min,
-          max: uplotRef.current.scales.x.max,
-        });
 
         // Force a redraw to ensure the plot updates visually
         uplotRef.current.redraw();
@@ -645,11 +680,14 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         startTimeSamples: chunkStart,
       });
 
+      // Load ALL channels from the file, not just selected ones
+      // We'll toggle visibility via uPlot instead of reloading data
+      const allChannels = fileManager.selectedFile.channels;
       const chunkData = await apiService.getChunkData(
         fileManager.selectedFile.file_path,
         chunkStart,
         chunkSize,
-        selectedChannels
+        allChannels // Load all channels
       );
 
       console.log("Received chunk data:", {
@@ -744,10 +782,37 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   );
 
   const handleChannelToggle = (channel: string, checked: boolean) => {
-    const newChannels = checked
-      ? [...selectedChannels, channel]
-      : selectedChannels.filter((ch) => ch !== channel);
+    let newChannels: string[];
+
+    if (checked) {
+      // When adding a channel, insert it in file order
+      if (plot.currentChunk) {
+        const fileChannels = plot.currentChunk.channels;
+        newChannels = [...selectedChannels, channel].sort((a, b) => {
+          const indexA = fileChannels.indexOf(a);
+          const indexB = fileChannels.indexOf(b);
+          return indexA - indexB;
+        });
+      } else {
+        // Fallback if no chunk loaded yet
+        newChannels = [...selectedChannels, channel];
+      }
+    } else {
+      // When removing a channel, filter it out
+      newChannels = selectedChannels.filter((ch) => ch !== channel);
+    }
+
+    // Update the ref synchronously
+    channelsToDisplayRef.current = newChannels;
+
+    // Update the store
     persistSelectedChannels(newChannels);
+
+    // Re-render with new channel selection (uses cached data, no backend reload)
+    if (plot.currentChunk) {
+      console.log(`Channel toggled: ${channel} -> ${checked}. Re-rendering with channels:`, newChannels);
+      renderPlot(plot.currentChunk, currentTime, newChannels);
+    }
   };
 
   const handlePopOut = useCallback(async () => {
@@ -772,48 +837,62 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     }
   }, [plot.currentChunk, timeWindow, currentTime, preprocessing, createWindow]);
 
-  // Load initial chunk when file or channels change
+  // Track if we've loaded data for the current file
+  const loadedFileRef = useRef<string | null>(null);
+
+  // Load initial chunk when file changes OR when channels are first selected for a new file
   // Use file_path as dependency to avoid recreating on every selectedFile object change
   useEffect(() => {
-    console.log("File/channel change effect triggered:", {
+    const currentFilePath = filePath || null;
+    const hasChannelsSelected = selectedChannels.length > 0;
+    const isNewFile = currentFilePath !== loadedFileRef.current;
+    const isInitialChannelSet = isInitialChannelSetRef.current;
+
+    console.log("File/channel load effect triggered:", {
       hasFile: !!fileManager.selectedFile,
-      filePath,
-      selectedChannelsCount: selectedChannels.length,
-      selectedChannels: selectedChannels,
+      filePath: currentFilePath,
+      channelsAvailable: fileManager.selectedFile?.channels?.length || 0,
+      channelsSelected: selectedChannels.length,
+      isNewFile,
+      isInitialChannelSet,
+      loadedFile: loadedFileRef.current,
     });
 
-    if (fileManager.selectedFile && selectedChannels.length > 0) {
-      // Validate that selected channels exist in the file before loading
-      const availableChannels = fileManager.selectedFile.channels;
-      const allChannelsValid = selectedChannels.every((ch) =>
-        availableChannels.includes(ch)
-      );
+    // Load data if:
+    // 1. We have a file AND channels selected
+    // 2. AND this is either a new file OR initial channel set for the file
+    if (fileManager.selectedFile &&
+        fileManager.selectedFile.channels?.length > 0 &&
+        hasChannelsSelected &&
+        (isNewFile || isInitialChannelSet)) {
 
-      if (!allChannelsValid) {
-        console.log(
-          "Skipping chunk load - selected channels not yet validated for this file"
-        );
-        return;
-      }
-
-      console.log("Conditions met - triggering initial chunk load");
+      console.log("Triggering chunk load - new file or initial channel set");
       // Destroy existing plot when file changes to ensure clean state
-      if (uplotRef.current) {
+      if (isNewFile && uplotRef.current) {
         uplotRef.current.destroy();
         uplotRef.current = null;
       }
       // Reset stable offset for new file
-      stableOffsetRef.current = null;
-      loadChunk(0); // Always load from start when file/channels change
+      if (isNewFile) {
+        stableOffsetRef.current = null;
+      }
+      loadChunk(0); // Always load from start when file changes
       setCurrentTime(0); // Reset to start
+      loadedFileRef.current = currentFilePath;
+      isInitialChannelSetRef.current = false; // Mark as no longer initial
+    } else if (!isNewFile && !isInitialChannelSet && hasChannelsSelected) {
+      console.log("Same file, user toggled channels - already using uPlot visibility toggle (no reload needed)");
     } else {
       console.log("Conditions not met for chunk loading:", {
         hasFile: !!fileManager.selectedFile,
-        hasChannels: selectedChannels.length > 0,
+        hasChannels: (fileManager.selectedFile?.channels?.length || 0) > 0,
+        hasSelectedChannels: hasChannelsSelected,
+        isNewFile,
+        isInitialChannelSet,
       });
     }
-    // Only depend on file path, not entire selectedFile object to avoid unnecessary re-runs
-    // Remove loadChunk from deps to prevent infinite loops
+    // IMPORTANT: selectedChannels IS in the dependency array, but we use isInitialChannelSetRef
+    // to distinguish between initial load and user toggling channels
   }, [filePath, selectedChannels]);
 
   // Handle time window changes separately to avoid recreating plot
