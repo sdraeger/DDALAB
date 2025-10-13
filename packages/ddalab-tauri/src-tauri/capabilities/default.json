@@ -60,8 +60,6 @@
     "process:allow-restart",
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",
-    "notification:allow-show",
-    "window-state:allow-save-window-state",
-    "window-state:allow-restore-state"
+    "notification:allow-show"
   ]
 }
