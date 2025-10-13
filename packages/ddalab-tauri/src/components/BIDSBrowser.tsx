@@ -114,7 +114,7 @@ export function BIDSBrowser({
 
   const isFileSupported = (filePath: string): boolean => {
     const extension = filePath.split(".").pop()?.toLowerCase();
-    return ["edf", "csv", "txt", "ascii"].includes(extension || "");
+    return ["edf", "csv", "txt", "ascii", "vhdr", "set"].includes(extension || "");
   };
 
   const getModalityColor = (modality: string) => {
