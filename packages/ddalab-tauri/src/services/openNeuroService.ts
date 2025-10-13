@@ -70,25 +70,19 @@ class OpenNeuroService {
 
   // Search datasets (no authentication required)
   async searchDatasets(query?: string): Promise<OpenNeuroDataset[]> {
+    // Query with available fields from OpenNeuro schema
     const searchQuery = gql`
-      query SearchDatasets {
+      query PublicDatasets {
         datasets {
           edges {
             node {
               id
-              name
-              description
-              created
-              modified
-              public
-              analytics {
-                downloads
-                views
-              }
-              snapshots {
-                id
+              latestSnapshot {
                 tag
                 created
+                description {
+                  Name
+                }
               }
             }
           }
@@ -97,16 +91,28 @@ class OpenNeuroService {
     `;
 
     try {
-      const data = await this.client.request<SearchDatasetsResult>(searchQuery);
-      let datasets = data.datasets.edges.map(edge => edge.node);
+      const data = await this.client.request<any>(searchQuery);
+
+      // Transform OpenNeuro's structure to our interface
+      let datasets: OpenNeuroDataset[] = data.datasets.edges.map((edge: any) => ({
+        id: edge.node.id,
+        name: edge.node.latestSnapshot?.description?.Name || edge.node.id,
+        description: '', // Not available in list view
+        created: edge.node.latestSnapshot?.created,
+        public: true,
+        snapshots: edge.node.latestSnapshot ? [{
+          id: edge.node.latestSnapshot.tag,
+          tag: edge.node.latestSnapshot.tag,
+          created: edge.node.latestSnapshot.created,
+        }] : [],
+      }));
 
       // Filter by query if provided
       if (query && query.trim()) {
         const lowerQuery = query.toLowerCase();
         datasets = datasets.filter(dataset =>
           dataset.id.toLowerCase().includes(lowerQuery) ||
-          dataset.name?.toLowerCase().includes(lowerQuery) ||
-          dataset.description?.toLowerCase().includes(lowerQuery)
+          dataset.name?.toLowerCase().includes(lowerQuery)
         );
       }
 
@@ -123,31 +129,49 @@ class OpenNeuroService {
       query GetDataset($id: ID!) {
         dataset(id: $id) {
           id
-          name
-          description
-          created
-          modified
-          public
-          snapshots {
-            id
+          latestSnapshot {
             tag
             created
-            description
+            description {
+              Name
+              BIDSVersion
+              DatasetDOI
+            }
+          }
+          snapshots {
+            edges {
+              node {
+                id
+                tag
+                created
+              }
+            }
           }
           draft {
             modified
-          }
-          analytics {
-            downloads
-            views
           }
         }
       }
     `;
 
     try {
-      const data = await this.client.request<GetDatasetResult>(datasetQuery, { id: datasetId });
-      return data.dataset;
+      const data = await this.client.request<any>(datasetQuery, { id: datasetId });
+      const node = data.dataset;
+
+      return {
+        id: node.id,
+        name: node.latestSnapshot?.description?.Name || node.id,
+        description: node.latestSnapshot?.description?.BIDSVersion ?
+          `BIDS ${node.latestSnapshot.description.BIDSVersion}` : '',
+        created: node.latestSnapshot?.created,
+        modified: node.draft?.modified,
+        public: true,
+        snapshots: node.snapshots?.edges?.map((edge: any) => ({
+          id: edge.node.id,
+          tag: edge.node.tag,
+          created: edge.node.created,
+        })) || [],
+      };
     } catch (error) {
       console.error(`Failed to get dataset ${datasetId}:`, error);
       throw error;
