@@ -90,6 +90,8 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   const [duration, setDuration] = useState(0);
   const [loadChunkTimeout, setLoadChunkTimeout] =
     useState<NodeJS.Timeout | null>(null);
+  const [loadOverviewTimeout, setLoadOverviewTimeout] =
+    useState<NodeJS.Timeout | null>(null);
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
 
   // Overview plot state
@@ -559,7 +561,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       }
       const timeoutId = setTimeout(() => {
         loadChunk(currentTime);
-      }, 600); // 600ms debounce
+      }, 300); // 300ms debounce
       setLoadChunkTimeout(timeoutId);
     }
   }, [fileManager.selectedFile?.file_path, selectedChannels, loadChunk]);
@@ -608,7 +610,23 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       }
     };
 
-    loadOverview();
+    // Debounce overview loading to prevent rapid requests when selecting multiple channels
+    if (loadOverviewTimeout) {
+      clearTimeout(loadOverviewTimeout);
+    }
+
+    const timeoutId = setTimeout(() => {
+      loadOverview();
+    }, 300); // 300ms debounce for overview
+
+    setLoadOverviewTimeout(timeoutId);
+
+    // Cleanup timeout on unmount
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, [fileManager.selectedFile?.file_path, selectedChannels, apiService]);
 
   // Right-click handler for annotations
