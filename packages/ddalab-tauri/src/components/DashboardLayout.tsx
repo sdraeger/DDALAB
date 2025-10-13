@@ -9,6 +9,7 @@ import { TimeSeriesPlotECharts } from "@/components/TimeSeriesPlotECharts";
 import { DDAAnalysis } from "@/components/DDAAnalysis";
 import { DDAResults } from "@/components/DDAResults";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { OpenNeuroBrowser } from "@/components/OpenNeuroBrowser";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +22,7 @@ import {
   PanelLeftOpen,
   Maximize2,
   Minimize2,
+  Database,
 } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
 
@@ -286,6 +288,13 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
                   Results
                 </TabsTrigger>
                 <TabsTrigger
+                  value="openneuro"
+                  className="flex items-center gap-2"
+                >
+                  <Database className="h-4 w-4" />
+                  OpenNeuro
+                </TabsTrigger>
+                <TabsTrigger
                   value="settings"
                   className="flex items-center gap-2"
                 >
@@ -486,6 +495,12 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
                       </div>
                     </div>
                   )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="openneuro" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'openneuro'}>
+                <div className="h-full p-6">
+                  <OpenNeuroBrowser />
                 </div>
               </TabsContent>
 
