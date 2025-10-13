@@ -3,21 +3,32 @@
 /// Implementation of FileReader trait for BrainVision format (.vhdr, .vmrk, .eeg files).
 
 use std::path::Path;
-use bvreader::BVReader;
+use bvreader::bv_reader::BVFile;
 use super::{FileReader, FileMetadata, FileResult, FileReaderError};
 
 pub struct BrainVisionFileReader {
-    reader: BVReader,
+    file: BVFile,
     path: String,
 }
 
 impl BrainVisionFileReader {
     pub fn new(path: &Path) -> FileResult<Self> {
-        let reader = BVReader::load(path)
+        let path_str = path.to_str()
+            .ok_or_else(|| FileReaderError::ParseError("Invalid path".to_string()))?;
+
+        let mut file = BVFile::from_header(path_str)
             .map_err(|e| FileReaderError::ParseError(format!("Failed to load BrainVision file: {:?}", e)))?;
 
+        // Validate file structure
+        file.validate()
+            .map_err(|e| FileReaderError::InvalidData(format!("Invalid BrainVision file: {:?}", e)))?;
+
+        // Scale channels to physical units
+        file.bv_data.scale_channels(&file.bv_header.channel_info)
+            .map_err(|e| FileReaderError::ParseError(format!("Failed to scale channels: {:?}", e)))?;
+
         Ok(Self {
-            reader,
+            file,
             path: path.to_string_lossy().to_string(),
         })
     }
@@ -25,18 +36,22 @@ impl BrainVisionFileReader {
 
 impl FileReader for BrainVisionFileReader {
     fn metadata(&self) -> FileResult<FileMetadata> {
-        let info = &self.reader.info;
+        let header = &self.file.bv_header;
+        let channel_info = &header.channel_info;
 
         // Get channel labels
-        let channels: Vec<String> = info.channel_names
-            .iter()
-            .map(|s| s.to_string())
+        let channels: Vec<String> = channel_info.iter()
+            .map(|ch| ch.label.clone())
             .collect();
 
         let num_channels = channels.len();
-        let num_samples = info.num_points;
-        let sample_rate = info.sampling_interval_microseconds as f64 / 1_000_000.0;
-        let sample_rate = 1.0 / sample_rate; // Convert interval to rate
+        // Calculate number of samples from the data
+        let num_samples = if !self.file.bv_data.data.is_empty() {
+            self.file.bv_data.data[0].len()
+        } else {
+            0
+        };
+        let sample_rate = 1_000_000.0 / header.sampling_interval as f64; // Convert microseconds to Hz
         let duration = num_samples as f64 / sample_rate;
 
         Ok(FileMetadata {
@@ -63,35 +78,44 @@ impl FileReader for BrainVisionFileReader {
         num_samples: usize,
         channels: Option<&[String]>,
     ) -> FileResult<Vec<Vec<f64>>> {
-        let all_channels = &self.reader.info.channel_names;
+        let channel_info = &self.file.bv_header.channel_info;
+        let all_channel_names: Vec<String> = channel_info.iter()
+            .map(|ch| ch.label.clone())
+            .collect();
 
         // Determine which channels to read
         let channel_indices: Vec<usize> = if let Some(selected) = channels {
             selected
                 .iter()
                 .filter_map(|ch| {
-                    all_channels
+                    all_channel_names
                         .iter()
                         .position(|c| c == ch)
                 })
                 .collect()
         } else {
-            (0..all_channels.len()).collect()
+            (0..all_channel_names.len()).collect()
         };
 
         let end_sample = start_sample + num_samples;
-        let end_sample = end_sample.min(self.reader.info.num_points);
+        // Calculate max samples from data
+        let max_samples = if !self.file.bv_data.data.is_empty() {
+            self.file.bv_data.data[0].len()
+        } else {
+            0
+        };
+        let end_sample = end_sample.min(max_samples);
 
         // Read data for selected channels
         let mut result = Vec::with_capacity(channel_indices.len());
 
         for &ch_idx in &channel_indices {
-            if ch_idx >= self.reader.data.len() {
+            if ch_idx >= self.file.bv_data.data.len() {
                 result.push(Vec::new());
                 continue;
             }
 
-            let channel_data = &self.reader.data[ch_idx];
+            let channel_data = &self.file.bv_data.data[ch_idx];
 
             if start_sample < channel_data.len() {
                 let data_slice = &channel_data[start_sample..end_sample.min(channel_data.len())];

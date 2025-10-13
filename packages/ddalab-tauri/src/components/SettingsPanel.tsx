@@ -129,9 +129,25 @@ export function SettingsPanel() {
         TauriService.checkEmbeddedApiHealth()
       ])
       setEmbeddedApiStatus(status)
-      setEmbeddedApiHealth(health)
+
+      // Only set error if it's currently unhealthy
+      // Clear error if healthy to avoid showing stale errors
+      if (health.healthy) {
+        setEmbeddedApiHealth({
+          ...health,
+          error: undefined // Explicitly clear any previous errors
+        })
+      } else {
+        setEmbeddedApiHealth(health)
+      }
     } catch (error) {
       console.error('Failed to refresh embedded API status:', error)
+      // Set error state if the refresh itself fails
+      setEmbeddedApiHealth({
+        status: 'error',
+        healthy: false,
+        error: error instanceof Error ? error.message : 'Failed to check health'
+      })
     }
   }
 
@@ -163,24 +179,34 @@ export function SettingsPanel() {
   }, [discoverBrokers, isConnected])
 
   useEffect(() => {
+    // Initial status check
     refreshEmbeddedApiStatus()
 
-    // Auto-start embedded API on component mount
+    // Auto-start embedded API on component mount if not running
     const autoStartEmbedded = async () => {
-      if (!embeddedApiStatus.running && TauriService.isTauri()) {
-        try {
+      // Re-check status to get latest state
+      try {
+        const status = await TauriService.getEmbeddedApiStatus()
+        if (!status.running && TauriService.isTauri()) {
           await TauriService.startEmbeddedApiServer()
           await new Promise(resolve => setTimeout(resolve, 1000))
           await refreshEmbeddedApiStatus()
-        } catch (error) {
-          console.error('Failed to auto-start embedded API:', error)
         }
+      } catch (error) {
+        console.error('Failed to auto-start embedded API:', error)
       }
     }
 
     // Delay auto-start to ensure state is properly initialized
     setTimeout(autoStartEmbedded, 500)
-  }, [embeddedApiStatus.running])
+
+    // Periodic health check every 10 seconds to keep status fresh
+    const healthCheckInterval = setInterval(refreshEmbeddedApiStatus, 10000)
+
+    return () => {
+      clearInterval(healthCheckInterval)
+    }
+  }, []) // Run only once on mount
 
   const handleStartEmbeddedApi = async () => {
     if (!TauriService.isTauri()) return
