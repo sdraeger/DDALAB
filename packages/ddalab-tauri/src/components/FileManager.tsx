@@ -374,9 +374,23 @@ export function FileManager({ apiService }: FileManagerProps) {
   const handleBidsFileSelect = async (filePath: string) => {
     console.log('[FILEMANAGER] BIDS file selected:', filePath)
 
+    // Check if file format is supported
+    const extension = filePath.split('.').pop()?.toLowerCase()
+    const supportedFormats = ['edf', 'csv', 'txt', 'ascii']
+
+    if (extension && !supportedFormats.includes(extension)) {
+      setError(
+        `File format .${extension} is not yet supported. Currently supported formats: EDF, CSV, ASCII/TXT. ` +
+        `Support for BrainVision and EEGLAB formats is coming soon.`
+      )
+      setLoading(false)
+      return
+    }
+
     // Load the selected file through the API
     try {
       setLoading(true)
+      setError(null)
       const fileInfo = await apiService.getFileInfo(filePath)
 
       if (fileInfo) {
@@ -387,7 +401,11 @@ export function FileManager({ apiService }: FileManagerProps) {
       }
     } catch (error) {
       console.error('[FILEMANAGER] Failed to load BIDS file:', error)
-      setError('Failed to load selected file')
+      setError(
+        `Failed to load selected file. ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      )
     } finally {
       setLoading(false)
     }

@@ -177,12 +177,11 @@ async function discoverRuns(
 
       const modalityEntries = await readDir(modalityPath);
 
-      // Find data files (.edf, .vhdr, .set)
+      // Find data files - only EDF format is currently supported
+      // TODO: Add support for BrainVision (.vhdr) and EEGLAB (.set) formats
       const dataFiles = modalityEntries.filter(entry =>
         !entry.isDirectory &&
-        (entry.name.endsWith('.edf') ||
-          entry.name.endsWith('.vhdr') ||
-          entry.name.endsWith('.set'))
+        entry.name.endsWith('.edf')
       );
 
       for (const dataFile of dataFiles) {

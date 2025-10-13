@@ -112,6 +112,11 @@ export function BIDSBrowser({
     }
   };
 
+  const isFileSupported = (filePath: string): boolean => {
+    const extension = filePath.split(".").pop()?.toLowerCase();
+    return ["edf", "csv", "txt", "ascii"].includes(extension || "");
+  };
+
   const getModalityColor = (modality: string) => {
     switch (modality) {
       case "eeg":
@@ -301,31 +306,48 @@ export function BIDSBrowser({
                                 No data files found
                               </p>
                             ) : (
-                              session.runs.map((run, runIdx) => (
-                                <div
-                                  key={runIdx}
-                                  className="flex items-center gap-3 p-2 rounded hover:bg-background border border-transparent hover:border-border cursor-pointer transition-colors"
-                                  onClick={() => handleRunSelect(run)}
-                                >
-                                  <Activity className="h-4 w-4 text-muted-foreground" />
-                                  <div className="flex-1 min-w-0">
-                                    <div className="text-sm font-medium truncate">
-                                      task-{run.task} run-{run.run}
-                                    </div>
-                                    <div className="text-xs text-muted-foreground truncate">
-                                      {run.dataFile.split("/").pop()}
-                                    </div>
-                                  </div>
-                                  <Badge
-                                    variant="secondary"
-                                    className={`text-xs ${getModalityColor(
-                                      run.modality
-                                    )}`}
+                              session.runs.map((run, runIdx) => {
+                                const supported = isFileSupported(run.dataFile);
+                                return (
+                                  <div
+                                    key={runIdx}
+                                    className={`flex items-center gap-3 p-2 rounded border transition-colors ${
+                                      supported
+                                        ? "hover:bg-background border-transparent hover:border-border cursor-pointer"
+                                        : "opacity-50 border-dashed cursor-not-allowed"
+                                    }`}
+                                    onClick={() => supported && handleRunSelect(run)}
+                                    title={
+                                      supported
+                                        ? "Click to load this file"
+                                        : "File format not yet supported (only EDF files currently supported)"
+                                    }
                                   >
-                                    {run.modality.toUpperCase()}
-                                  </Badge>
-                                </div>
-                              ))
+                                    <Activity className="h-4 w-4 text-muted-foreground" />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-sm font-medium truncate">
+                                        task-{run.task} run-{run.run}
+                                        {!supported && (
+                                          <span className="ml-2 text-xs text-orange-600">
+                                            (unsupported format)
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-xs text-muted-foreground truncate">
+                                        {run.dataFile.split("/").pop()}
+                                      </div>
+                                    </div>
+                                    <Badge
+                                      variant="secondary"
+                                      className={`text-xs ${getModalityColor(
+                                        run.modality
+                                      )}`}
+                                    >
+                                      {run.modality.toUpperCase()}
+                                    </Badge>
+                                  </div>
+                                );
+                              })
                             )}
                           </div>
                         </div>
