@@ -55,7 +55,7 @@ dda-rs = { path = "../../dda-rs" }
 petgraph = "0.8.3"
 tera = "1.19"
 # Additional EEG file format support
-bvreader = "0.2"  # BrainVision format (.vhdr, .vmrk, .eeg)
+bvreader = "0.1"  # BrainVision format (.vhdr, .vmrk, .eeg)
 matfile = { version = "0.3", features = ["ndarray"] }  # MATLAB .mat/.set files
 ndarray = "0.16"  # Array processing for MAT files
 

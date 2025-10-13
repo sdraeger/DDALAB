@@ -317,6 +317,12 @@ export const useAppStore = create<AppState>((set, get) => ({
             status: 'completed' as const
           }));
 
+          console.log('[STORE] Restoring persisted state:', {
+            selected_file: persistedState.file_manager.selected_file,
+            selected_channels: persistedState.file_manager.selected_channels,
+            current_path: persistedState.file_manager.current_path
+          })
+
           return {
             ...state,
             isPersistenceRestored: true,
@@ -499,13 +505,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setSelectedFile: (file) => {
+    console.log('[STORE] setSelectedFile called with:', file?.file_path || 'null')
+
     set((state) => ({
       fileManager: { ...state.fileManager, selectedFile: file }
     }))
 
     if (TauriService.isTauri()) {
-      const { fileManager } = get()
+      const { fileManager, isPersistenceRestored } = get()
       const selectedFilePath = file?.file_path || null
+
+      console.log('[STORE] After set(), fileManager.selectedFile:', fileManager.selectedFile?.file_path || 'null')
+      console.log('[STORE] isPersistenceRestored:', isPersistenceRestored)
+
       // Fire and forget - don't block UI
       TauriService.updateFileManagerState({
         selected_file: selectedFilePath,
@@ -516,6 +528,18 @@ export const useAppStore = create<AppState>((set, get) => ({
         sort_order: fileManager.sortOrder,
         show_hidden: fileManager.showHidden
       }).catch(console.error)
+
+      // Only save to persistence when we have complete file info (with channels)
+      // This avoids double-saving when FileManager sets the file twice (once for instant feedback, once with full metadata)
+      const hasCompleteFileInfo = file && file.channels && file.channels.length > 0
+      if (isPersistenceRestored && hasCompleteFileInfo) {
+        console.log('[STORE] ✓ Saving selected file to persistence (with complete metadata):', file.file_path)
+        get().saveCurrentState().catch(err => console.error('[STORE] Failed to save selected file:', err))
+      } else if (file && !hasCompleteFileInfo) {
+        console.log('[STORE] ⏳ Skipping save - waiting for complete file metadata')
+      } else {
+        console.log('[STORE] ✗ NOT saving - isPersistenceRestored:', isPersistenceRestored, 'file:', file?.file_path || 'null')
+      }
     }
   },
 

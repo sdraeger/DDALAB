@@ -15,7 +15,7 @@ use tower_http::cors::{CorsLayer, Any};
 use parking_lot::RwLock;
 use crate::edf::EDFReader;
 use crate::text_reader::TextFileReader;
-use crate::file_readers::{FileReaderFactory, FileReader};
+use crate::file_readers::FileReaderFactory;
 use dda_rs::DDARunner;
 
 // File type detection
@@ -650,19 +650,13 @@ fn read_chunk_with_file_reader(
         metadata.channels
     };
 
-    // Create timestamps
-    let timestamps: Vec<f64> = (0..data[0].len())
-        .map(|i| start_time + (i as f64 / sample_rate))
-        .collect();
+    let chunk_size = if !data.is_empty() { data[0].len() } else { 0 };
 
     Ok(ChunkData {
         data,
-        timestamps,
-        channels: returned_channels,
-        sample_rate,
-        start_time,
-        duration,
-        file_path: file_path.to_string(),
+        channel_labels: returned_channels,
+        sampling_frequency: sample_rate,
+        chunk_size,
         chunk_start: start_sample,
         total_samples: Some(metadata.num_samples as u64),
     })
@@ -715,10 +709,47 @@ fn read_file_metadata_with_reader(path: &std::path::Path) -> Result<EDFFileInfo,
         sample_rate: file_metadata.sample_rate,
         total_samples: Some(file_metadata.num_samples as u64),
         channels: file_metadata.channels,
-        num_channels: file_metadata.num_channels,
-        start_time: file_metadata.start_time,
-        last_modified,
         created_at,
+        last_modified,
+    })
+}
+
+/// Helper function to generate overview using the modular file reader architecture
+fn generate_overview_with_file_reader(
+    path: &std::path::Path,
+    file_path: &str,
+    max_points: usize,
+    selected_channels: Option<Vec<String>>,
+) -> Result<ChunkData, String> {
+    // Create reader using factory
+    let reader = FileReaderFactory::create_reader(path)
+        .map_err(|e| format!("Failed to create file reader: {}", e))?;
+
+    // Get metadata
+    let metadata = reader.metadata()
+        .map_err(|e| format!("Failed to read metadata: {}", e))?;
+
+    // Read overview data
+    let channel_names = selected_channels.as_ref().map(|v| v.as_slice());
+    let data = reader.read_overview(max_points, channel_names)
+        .map_err(|e| format!("Failed to read overview: {}", e))?;
+
+    // Get channel labels for the returned data
+    let returned_channels = if let Some(selected) = &selected_channels {
+        selected.clone()
+    } else {
+        metadata.channels
+    };
+
+    let chunk_size = if !data.is_empty() { data[0].len() } else { 0 };
+
+    Ok(ChunkData {
+        data,
+        channel_labels: returned_channels,
+        sampling_frequency: metadata.sample_rate,
+        chunk_size,
+        chunk_start: 0,
+        total_samples: Some(metadata.num_samples as u64),
     })
 }
 
@@ -1335,6 +1366,10 @@ pub async fn get_edf_data(
             FileType::EDF => {
                 read_edf_file_chunk(path, &file_path_clone, start_time, duration, needs_sample_rate, selected_channels)
             }
+            FileType::BrainVision | FileType::EEGLAB => {
+                log::info!("Reading file using modular reader: {}", file_path_clone);
+                read_chunk_with_file_reader(path, &file_path_clone, start_time, duration, selected_channels)
+            }
         }
     })
     .await
@@ -1625,6 +1660,19 @@ async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
                     }
                 }
             }
+            FileType::BrainVision | FileType::EEGLAB => {
+                // Use modular reader helper function
+                match read_file_metadata_with_reader(&path) {
+                    Ok(file_info) => {
+                        log::info!("Read file '{}' using modular reader", file_name);
+                        Some(file_info)
+                    }
+                    Err(e) => {
+                        log::error!("Failed to read file '{}': {}", file_name, e);
+                        None
+                    }
+                }
+            }
         }
     })
     .await
@@ -1694,6 +1742,10 @@ pub async fn get_edf_overview(
             }
             FileType::EDF => {
                 generate_edf_file_overview(path, &file_path_clone, max_points, selected_channels)
+            }
+            FileType::BrainVision | FileType::EEGLAB => {
+                log::info!("Generating overview using modular reader: {}", file_path_clone);
+                generate_overview_with_file_reader(path, &file_path_clone, max_points, selected_channels)
             }
         }
     })

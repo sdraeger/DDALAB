@@ -50,6 +50,7 @@ import {
 } from "@/utils/preprocessing";
 import { useWorkflow } from "@/hooks/useWorkflow";
 import { createTransformDataAction } from "@/types/workflow";
+import { OverviewPlot } from "@/components/OverviewPlot";
 
 interface TimeSeriesPlotProps {
   apiService: ApiService;
@@ -91,6 +92,13 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   const [loadChunkTimeout, setLoadChunkTimeout] =
     useState<NodeJS.Timeout | null>(null);
 
+  // Overview plot state
+  const [overviewData, setOverviewData] = useState<ChunkData | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+
+  // AbortController to cancel pending API requests when channel selection changes
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // Preprocessing controls - initialize from plot state or defaults
   const [showPreprocessing, setShowPreprocessing] = useState(false);
   const [preprocessing, setPreprocessing] = useState<PreprocessingOptions>(
@@ -110,7 +118,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
 
   // Display controls
   const [timeWindow, setTimeWindow] = useState(10); // seconds - default 10s chunks
-  const [channelOffset, setChannelOffset] = useState(50); // Default spacing between channels
+  const [channelOffset, setChannelOffset] = useState(70); // Default spacing between channels (higher = more space)
 
   // Use selectedChannels from store instead of local state
   const selectedChannels = fileManager.selectedChannels;
@@ -242,13 +250,16 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         return max - min;
       });
       const maxRange = Math.max(...channelRanges);
-      // Use 2x the maximum channel range as offset to ensure clear separation
-      autoOffset = Math.max(maxRange * 2, channelOffsetRef.current);
+      // Use 3.5x the maximum channel range as offset to ensure clear separation
+      // Also factor in user-defined offset slider (50 = 1.0x multiplier, scales proportionally)
+      const offsetMultiplier = 3.5 * (channelOffsetRef.current / 50);
+      autoOffset = Math.max(maxRange * offsetMultiplier, channelOffsetRef.current);
       // Store for consistent use across all chunks
       stableOffsetRef.current = autoOffset;
       console.log("Auto-calculated STABLE channel offset:", {
         channelRanges,
         maxRange,
+        offsetMultiplier,
         autoOffset,
         userOffset: channelOffsetRef.current,
       });
@@ -304,28 +315,31 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         return isNaN(offsetValue) ? 0 : offsetValue;
       });
 
-      console.log(
-        `Channel ${displayIndex} (${channelInfo.name}, file idx ${channelInfo.originalIndex}) processed:`,
-        {
-          originalLength: channelData.length,
-          processedLength: processed.length,
-          displayIndex,
-          originalIndex: channelInfo.originalIndex,
-          originalRange: [
-            Math.min(...channelData.slice(0, 100)),
-            Math.max(...channelData.slice(0, 100)),
-          ],
-          processedRange: [
-            Math.min(...processed.slice(0, 100)),
-            Math.max(...processed.slice(0, 100)),
-          ],
-          sampleValues: {
-            original: channelData.slice(0, 5),
-            processed: processed.slice(0, 5),
-          },
-          hasNaN: processed.some((v) => isNaN(v)),
-        }
-      );
+      // Reduced logging - only log first and last channel to avoid console spam
+      if (displayIndex === 0 || displayIndex === selectedChannelData.length - 1) {
+        console.log(
+          `Channel ${displayIndex} (${channelInfo.name}, file idx ${channelInfo.originalIndex}) processed:`,
+          {
+            originalLength: channelData.length,
+            processedLength: processed.length,
+            displayIndex,
+            originalIndex: channelInfo.originalIndex,
+            originalRange: [
+              Math.min(...channelData.slice(0, 100)),
+              Math.max(...channelData.slice(0, 100)),
+            ],
+            processedRange: [
+              Math.min(...processed.slice(0, 100)),
+              Math.max(...processed.slice(0, 100)),
+            ],
+            sampleValues: {
+              original: channelData.slice(0, 5),
+              processed: processed.slice(0, 5),
+            },
+            hasNaN: processed.some((v) => isNaN(v)),
+          }
+        );
+      }
       return processed;
     });
 
@@ -430,11 +444,11 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
             console.log("Using default Y range due to invalid data");
             const selectedCount = selectedChannelData.length;
             const totalOffset = (selectedCount - 1) * autoOffset;
-            return [-autoOffset, totalOffset + autoOffset];
+            return [-autoOffset * 0.8, totalOffset + autoOffset * 0.8];
           }
 
-          // Add padding to show all channels clearly
-          const padding = autoOffset * 0.5;
+          // Add more padding to show all channels clearly with better vertical spacing
+          const padding = autoOffset * 0.8;
           const range = [min - padding, max + padding];
           console.log("Calculated Y range:", range);
           return range as [number, number];
@@ -652,6 +666,16 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     }
 
     try {
+      // Cancel any pending request before starting a new one
+      if (abortControllerRef.current) {
+        console.log('[ABORT] Cancelling previous chunk request');
+        abortControllerRef.current.abort();
+      }
+
+      // Create new AbortController for this request
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+
       setLoading(true);
       setError(null);
 
@@ -686,7 +710,8 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         fileManager.selectedFile.file_path,
         chunkStart,
         chunkSize,
-        selectedChannels // Load only selected channels
+        selectedChannels, // Load only selected channels
+        signal // Pass abort signal
       );
 
       console.log("Received chunk data:", {
@@ -725,12 +750,24 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       };
 
       setCurrentChunk(processedChunk);
-      renderPlot(processedChunk, startTime);
-      setCurrentTime(startTime);
+
+      // Defer the expensive plot rendering to prevent UI blocking
+      // This allows React to update the DOM and show loading states before heavy processing
+      requestAnimationFrame(() => {
+        renderPlot(processedChunk, startTime);
+        setCurrentTime(startTime);
+        setLoading(false);
+      });
     } catch (err) {
+      // Don't show error if request was aborted - this is expected when user changes channel selection
+      if (err instanceof Error && err.name === 'CanceledError') {
+        console.log('[ABORT] Chunk request was cancelled');
+        setLoading(false);
+        return;
+      }
+
       console.error("Failed to load chunk:", err);
       setError(err instanceof Error ? err.message : "Failed to load data");
-    } finally {
       setLoading(false);
     }
   };
@@ -884,7 +921,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       const timeoutId = setTimeout(() => {
         // Use currentTime from closure, not dependency
         loadChunk(currentTime);
-      }, 300); // 300ms debounce
+      }, 600); // 600ms debounce - gives more time for batch channel selection
       setLoadChunkTimeout(timeoutId);
     } else {
       console.log("Conditions not met for chunk loading:", {
@@ -945,6 +982,41 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       }
     };
   }, [loadChunkTimeout]);
+
+  // Load overview data when file or selected channels change
+  useEffect(() => {
+    const loadOverview = async () => {
+      if (!fileManager.selectedFile || selectedChannels.length === 0) {
+        setOverviewData(null);
+        return;
+      }
+
+      console.log('[OVERVIEW] Loading overview for file:', fileManager.selectedFile.file_name);
+      setOverviewLoading(true);
+
+      try {
+        const data = await apiService.getOverviewData(
+          fileManager.selectedFile.file_path,
+          selectedChannels,
+          2000 // max points for overview
+        );
+
+        console.log('[OVERVIEW] Overview loaded successfully:', {
+          channels: data.channels.length,
+          pointsPerChannel: data.data[0]?.length || 0,
+        });
+
+        setOverviewData(data);
+      } catch (error) {
+        console.error('[OVERVIEW] Failed to load overview:', error);
+        // Don't show error to user - overview is optional feature
+      } finally {
+        setOverviewLoading(false);
+      }
+    };
+
+    loadOverview();
+  }, [fileManager.selectedFile?.file_path, selectedChannels, apiService]);
 
   // Persist preprocessing options to plot state
   useEffect(() => {
@@ -1154,11 +1226,13 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
               <Input
                 type="number"
                 value={channelOffset}
-                onChange={(e) =>
-                  setChannelOffset(parseInt(e.target.value) || 0)
-                }
-                min="0"
-                max="500"
+                onChange={(e) => {
+                  setChannelOffset(parseInt(e.target.value) || 0);
+                  // Reset stable offset so it recalculates with new spacing
+                  stableOffsetRef.current = null;
+                }}
+                min="10"
+                max="200"
                 step="10"
               />
             </div>
@@ -1168,8 +1242,10 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setChannelOffset(50);
+                  setChannelOffset(70);
                   setCurrentTime(0);
+                  // Reset stable offset to recalculate with default spacing
+                  stableOffsetRef.current = null;
                 }}
               >
                 <RotateCcw className="h-4 w-4 mr-2" />
@@ -1624,6 +1700,18 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           </div>
         </CardContent>
       </Card>
+
+      {/* Overview/Minimap - Global navigation for entire file */}
+      <div className="flex-shrink-0">
+        <OverviewPlot
+          overviewData={overviewData}
+          currentTime={currentTime}
+          timeWindow={timeWindow}
+          duration={duration}
+          onSeek={handleSeek}
+          loading={overviewLoading}
+        />
+      </div>
 
       {/* Plot Area */}
       <Card className="flex-1 flex flex-col min-h-0">

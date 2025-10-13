@@ -16,6 +16,10 @@ pub fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     // Set window title
     window.set_title("DDALAB - Delay Differential Analysis Laboratory")?;
 
+    // Show window after initial setup is complete
+    window.show()?;
+    window.set_focus()?;
+
     // Save state on window close
     let window_clone = window.clone();
     window.on_window_event(move |event| {
