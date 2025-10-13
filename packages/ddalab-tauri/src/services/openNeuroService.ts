@@ -69,54 +69,96 @@ class OpenNeuroService {
   }
 
   // Search datasets (no authentication required)
+  // Fetches ALL datasets using pagination
   async searchDatasets(query?: string): Promise<OpenNeuroDataset[]> {
-    // Query with available fields from OpenNeuro schema
-    const searchQuery = gql`
-      query PublicDatasets {
-        datasets {
-          edges {
-            node {
-              id
-              latestSnapshot {
-                tag
-                created
-                description {
-                  Name
+    const allDatasets: OpenNeuroDataset[] = [];
+    let hasNextPage = true;
+    let afterCursor: string | null = null;
+
+    try {
+      console.log('[OPENNEURO] Starting paginated dataset fetch...');
+
+      while (hasNextPage) {
+        const searchQuery = gql`
+          query PublicDatasets($after: String) {
+            datasets(first: 100, after: $after) {
+              edges {
+                cursor
+                node {
+                  id
+                  latestSnapshot {
+                    tag
+                    created
+                    description {
+                      Name
+                    }
+                  }
                 }
+              }
+              pageInfo {
+                hasNextPage
+                endCursor
               }
             }
           }
+        `;
+
+        let data: any;
+        try {
+          data = await this.client.request<any>(searchQuery, { after: afterCursor });
+        } catch (error: any) {
+          // Handle partial errors - OpenNeuro returns data even with errors for some datasets
+          if (error.response?.data?.datasets) {
+            console.warn('[OPENNEURO] Partial error in batch, continuing with available data:', error.response.errors?.[0]?.message);
+            data = error.response.data;
+          } else {
+            throw error;
+          }
+        }
+
+        // Transform and add to results, filtering out null entries and datasets without snapshots
+        const batch: OpenNeuroDataset[] = data.datasets.edges
+          .filter((edge: any) => edge !== null && edge.node && edge.node.latestSnapshot) // Skip null entries and null snapshots
+          .map((edge: any) => ({
+            id: edge.node.id,
+            name: edge.node.latestSnapshot?.description?.Name || edge.node.id,
+            description: '', // Not available in list view
+            created: edge.node.latestSnapshot?.created,
+            public: true,
+            snapshots: [{
+              id: edge.node.latestSnapshot.tag,
+              tag: edge.node.latestSnapshot.tag,
+              created: edge.node.latestSnapshot.created,
+            }],
+          }));
+
+        allDatasets.push(...batch);
+
+        // Update pagination state
+        hasNextPage = data.datasets.pageInfo.hasNextPage;
+        afterCursor = data.datasets.pageInfo.endCursor;
+
+        console.log(`[OPENNEURO] Fetched ${batch.length} datasets (total: ${allDatasets.length})`);
+
+        // Safety limit to prevent infinite loops
+        if (allDatasets.length > 10000) {
+          console.warn('[OPENNEURO] Hit safety limit of 10000 datasets');
+          break;
         }
       }
-    `;
 
-    try {
-      const data = await this.client.request<any>(searchQuery);
-
-      // Transform OpenNeuro's structure to our interface
-      let datasets: OpenNeuroDataset[] = data.datasets.edges.map((edge: any) => ({
-        id: edge.node.id,
-        name: edge.node.latestSnapshot?.description?.Name || edge.node.id,
-        description: '', // Not available in list view
-        created: edge.node.latestSnapshot?.created,
-        public: true,
-        snapshots: edge.node.latestSnapshot ? [{
-          id: edge.node.latestSnapshot.tag,
-          tag: edge.node.latestSnapshot.tag,
-          created: edge.node.latestSnapshot.created,
-        }] : [],
-      }));
+      console.log(`[OPENNEURO] Finished! Total datasets: ${allDatasets.length}`);
 
       // Filter by query if provided
       if (query && query.trim()) {
         const lowerQuery = query.toLowerCase();
-        datasets = datasets.filter(dataset =>
+        return allDatasets.filter(dataset =>
           dataset.id.toLowerCase().includes(lowerQuery) ||
           dataset.name?.toLowerCase().includes(lowerQuery)
         );
       }
 
-      return datasets;
+      return allDatasets;
     } catch (error) {
       console.error('Failed to search datasets:', error);
       throw error;
