@@ -42,6 +42,7 @@ import { TauriService } from '@/services/tauriService'
 import { formatBytes, formatDate } from '@/lib/utils'
 import { useWorkflow } from '@/hooks/useWorkflow'
 import { createLoadFileAction } from '@/types/workflow'
+import { BIDSBrowser } from '@/components/BIDSBrowser'
 
 interface FileManagerProps {
   apiService: ApiService
@@ -59,7 +60,8 @@ export function FileManager({ apiService }: FileManagerProps) {
     clearPendingFileSelection,
     ui,
     workflowRecording,
-    incrementActionCount
+    incrementActionCount,
+    isPersistenceRestored
   } = useAppStore()
 
   const { recordAction } = useWorkflow()
@@ -72,6 +74,8 @@ export function FileManager({ apiService }: FileManagerProps) {
   const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [pendingFileSelection, setPendingFileSelection] = useState<EDFFileInfo | null>(null)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+  const [bidsDatasetPath, setBidsDatasetPath] = useState<string | null>(null)
+  const [showBidsBrowser, setShowBidsBrowser] = useState(false)
 
   // Load the data directory path on mount if not already set
   useEffect(() => {
@@ -98,10 +102,10 @@ export function FileManager({ apiService }: FileManagerProps) {
   }, [fileManager.currentPath, fileManager.dataDirectoryPath, ui.isServerReady])
 
   // Ensure we load on mount even if currentPath hasn't changed
-  // Wait for server to be ready before loading
+  // Wait for server to be ready AND persistence to be restored before loading
   useEffect(() => {
-    if (isInitialLoad && ui.isServerReady && fileManager.dataDirectoryPath) {
-      console.log('[FILEMANAGER] Server ready, loading initial directory')
+    if (isInitialLoad && ui.isServerReady && isPersistenceRestored && fileManager.dataDirectoryPath) {
+      console.log('[FILEMANAGER] Server ready and persistence restored, loading initial directory')
       setIsInitialLoad(false)
       loadCurrentDirectory()
     } else if (isInitialLoad && ui.isServerReady && !fileManager.dataDirectoryPath) {
@@ -109,8 +113,10 @@ export function FileManager({ apiService }: FileManagerProps) {
       console.log('[FILEMANAGER] Server ready, no directory selected')
       setIsInitialLoad(false)
       setLoading(false)
+    } else if (isInitialLoad && ui.isServerReady && !isPersistenceRestored) {
+      console.log('[FILEMANAGER] Server ready, waiting for persistence to restore...')
     }
-  }, [ui.isServerReady, isInitialLoad, fileManager.dataDirectoryPath])
+  }, [ui.isServerReady, isPersistenceRestored, isInitialLoad, fileManager.dataDirectoryPath])
 
   const loadCurrentDirectory = async () => {
     try {
@@ -171,20 +177,38 @@ export function FileManager({ apiService }: FileManagerProps) {
 
         // Immediately restore pending file selection if present
         // This eliminates the delay between loading files and restoring selection
+        console.log('[FILEMANAGER] Checking for pending file selection:', {
+          pendingFileSelection: fileManager.pendingFileSelection,
+          isServerReady: ui.isServerReady,
+          filesLoaded: edfFiles.length
+        })
+
         if (fileManager.pendingFileSelection && ui.isServerReady) {
           const fileToSelect = edfFiles.find(f => f.file_path === fileManager.pendingFileSelection)
           if (fileToSelect) {
-            console.log('[FILEMANAGER] ✓ Restoring selected file immediately:', {
+            console.log('[FILEMANAGER] ✓ Restoring selected file asynchronously:', {
               fileName: fileToSelect.file_name,
               filePath: fileToSelect.file_path
             })
-            // Load file info before clearing loading state
-            await loadFileInfo(fileToSelect)
+            // Load file info asynchronously without blocking UI
+            // Use setTimeout to defer to next event loop tick
+            setTimeout(() => {
+              loadFileInfo(fileToSelect).then(() => {
+                console.log('[FILEMANAGER] File restoration completed')
+              }).catch(err => {
+                console.error('[FILEMANAGER] File restoration failed:', err)
+              })
+            }, 0)
             clearPendingFileSelection()
           } else {
-            console.warn('[FILEMANAGER] ✗ Pending file not found:', fileManager.pendingFileSelection)
+            console.warn('[FILEMANAGER] ✗ Pending file not found in loaded files:', {
+              pendingPath: fileManager.pendingFileSelection,
+              loadedFiles: edfFiles.map(f => f.file_path)
+            })
             clearPendingFileSelection()
           }
+        } else if (!fileManager.pendingFileSelection) {
+          console.log('[FILEMANAGER] No pending file selection to restore')
         }
       }
     } catch (err) {
@@ -315,6 +339,14 @@ export function FileManager({ apiService }: FileManagerProps) {
   }
 
   const handleDirectorySelect = (dir: DirectoryEntry) => {
+    // Check if this is a BIDS dataset - if so, open BIDS browser instead of navigating
+    if (dir.isBIDS) {
+      console.log('[FILEMANAGER] BIDS dataset detected, opening BIDS browser:', dir.path)
+      setBidsDatasetPath(dir.path)
+      setShowBidsBrowser(true)
+      return
+    }
+
     // dir.path is absolute - we need to make it relative to dataDirectoryPath
     const absolutePath = dir.path
 
@@ -337,6 +369,33 @@ export function FileManager({ apiService }: FileManagerProps) {
     })
 
     setCurrentPath(newPath)
+  }
+
+  const handleBidsFileSelect = async (filePath: string) => {
+    console.log('[FILEMANAGER] BIDS file selected:', filePath)
+
+    // Load the selected file through the API
+    try {
+      setLoading(true)
+      const fileInfo = await apiService.getFileInfo(filePath)
+
+      if (fileInfo) {
+        // Load file info and close BIDS browser
+        await loadFileInfo(fileInfo)
+        setShowBidsBrowser(false)
+        setBidsDatasetPath(null)
+      }
+    } catch (error) {
+      console.error('[FILEMANAGER] Failed to load BIDS file:', error)
+      setError('Failed to load selected file')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCloseBidsBrowser = () => {
+    setShowBidsBrowser(false)
+    setBidsDatasetPath(null)
   }
 
   const navigateUp = () => {
@@ -414,6 +473,17 @@ export function FileManager({ apiService }: FileManagerProps) {
     } finally {
       setLoading(false)
     }
+  }
+
+  // Show BIDS browser if a BIDS dataset is selected
+  if (showBidsBrowser && bidsDatasetPath) {
+    return (
+      <BIDSBrowser
+        datasetPath={bidsDatasetPath}
+        onFileSelect={handleBidsFileSelect}
+        onClose={handleCloseBidsBrowser}
+      />
+    )
   }
 
   return (
