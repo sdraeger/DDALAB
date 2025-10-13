@@ -15,6 +15,7 @@ mod edf;
 mod text_reader;
 mod sync;
 mod recording;
+mod file_readers;
 
 // Import required modules
 use app_setup::setup_app;
@@ -45,6 +46,7 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // .plugin(tauri_plugin_window_state::Builder::default().build())  // Removed - not in dependencies
         .invoke_handler(tauri::generate_handler![
             // State management commands
             get_app_state,

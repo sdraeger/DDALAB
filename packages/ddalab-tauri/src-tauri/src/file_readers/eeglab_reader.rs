@@ -4,7 +4,6 @@
 
 use std::path::Path;
 use matfile::{MatFile, Array};
-use ndarray::ArrayD;
 use super::{FileReader, FileMetadata, FileResult, FileReaderError};
 
 pub struct EEGLABFileReader {
@@ -15,8 +14,9 @@ pub struct EEGLABFileReader {
 impl EEGLABFileReader {
     pub fn new(path: &Path) -> FileResult<Self> {
         // Load MAT file
-        let mat_file = MatFile::load(path)
-            .map_err(|e| FileReaderError::ParseError(format!("Failed to load .set file: {:?}", e)))?;
+        let file = std::fs::File::open(path)?;
+        let mat_file = MatFile::parse(file)
+            .map_err(|e| FileReaderError::ParseError(format!("Failed to parse .set file: {:?}", e)))?;
 
         // Extract EEG structure
         let eeg = mat_file.find_by_name("EEG")

@@ -1,9 +1,9 @@
+/* Import uPlot styles for chart rendering - must be first */
+@import 'uplot/dist/uPlot.min.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* Import uPlot styles for chart rendering */
-@import 'uplot/dist/uPlot.min.css';
 
 @layer base {
   :root {

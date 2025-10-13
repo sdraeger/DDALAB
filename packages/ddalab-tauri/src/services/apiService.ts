@@ -119,12 +119,59 @@ export class ApiService {
     return response.data
   }
 
+  // Get overview of entire file (downsampled for navigation)
+  async getOverviewData(
+    filePath: string,
+    requestedChannels?: string[],
+    maxPoints: number = 2000,
+    signal?: AbortSignal
+  ): Promise<ChunkData> {
+    try {
+      const params: any = {
+        file_path: filePath,
+        max_points: maxPoints,
+      }
+
+      if (requestedChannels && requestedChannels.length > 0) {
+        params.channels = requestedChannels.join(',')
+      }
+
+      console.log('[ApiService] Fetching overview data:', params)
+      const response = await this.client.get('/api/edf/overview', {
+        params,
+        signal
+      })
+
+      console.log('[ApiService] Received overview data:', {
+        dataLength: response.data.data?.length,
+        pointsPerChannel: response.data.data?.[0]?.length,
+        channels: response.data.channel_labels?.length,
+      })
+
+      const chunkData: ChunkData = {
+        data: response.data.data || [],
+        channels: response.data.channel_labels || response.data.channels || [],
+        timestamps: response.data.timestamps || [],
+        sample_rate: response.data.sampling_frequency || response.data.sample_rate || 256,
+        chunk_start: response.data.chunk_start || 0,
+        chunk_size: response.data.chunk_size || 0,
+        file_path: response.data.file_path || filePath
+      }
+
+      return chunkData
+    } catch (error) {
+      console.error('Failed to get overview data:', error)
+      throw error
+    }
+  }
+
   // EDF Data
   async getChunkData(
     filePath: string,
     chunkStart: number,
     chunkSize: number,
     requestedChannels?: string[],
+    signal?: AbortSignal,
     preprocessing?: {
       highpass?: number
       lowpass?: number
@@ -160,7 +207,10 @@ export class ApiService {
       }
 
       console.log('Making chunk data request with params:', params)
-      const response = await this.client.get('/api/edf/data', { params })
+      const response = await this.client.get('/api/edf/data', {
+        params,
+        signal // Pass abort signal to axios
+      })
       console.log('Raw chunk data response:', response.data)
 
       // Extract data structure first

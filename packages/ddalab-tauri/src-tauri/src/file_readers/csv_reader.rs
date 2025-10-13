@@ -27,6 +27,10 @@ impl FileReader for CSVFileReader {
     fn metadata(&self) -> FileResult<FileMetadata> {
         let info = &self.reader.info;
 
+        // CSV files don't have encoded sample rate, assume 1 Hz for generic time series
+        let sample_rate = 1.0;
+        let duration = info.num_samples as f64 / sample_rate;
+
         Ok(FileMetadata {
             file_path: self.path.clone(),
             file_name: Path::new(&self.path)
@@ -35,10 +39,10 @@ impl FileReader for CSVFileReader {
                 .unwrap_or("unknown")
                 .to_string(),
             file_size: std::fs::metadata(&self.path)?.len(),
-            sample_rate: info.sample_rate,
+            sample_rate,
             num_channels: info.num_channels,
             num_samples: info.num_samples,
-            duration: info.duration,
+            duration,
             channels: info.channel_labels.clone(),
             start_time: None,
             file_type: "CSV".to_string(),

@@ -16,7 +16,6 @@ export default function Home() {
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false)
 
   // Use selectors to prevent unnecessary re-renders
-  const initializeFromTauri = useAppStore((state) => state.initializeFromTauri)
   const isInitialized = useAppStore((state) => state.isInitialized)
   const setServerReady = useAppStore((state) => state.setServerReady)
 
@@ -48,16 +47,11 @@ export default function Home() {
       userAgent: typeof window !== 'undefined' ? window.navigator.userAgent : undefined
     })
 
-    // Initialize persistence BEFORE checking API connection
-    // ONLY run initialization on the main window (not pop-outs)
-    if (!isInitialized && typeof window !== 'undefined' && window.location.pathname === '/') {
-      console.log('DEBUG: Forcing persistence initialization for testing...')
-      console.log('DEBUG: tauriDetected =', tauriDetected)
-      initializeFromTauri()
-    }
+    // NOTE: Persistence initialization is handled by StatePersistenceProvider
+    // Don't duplicate the call here to avoid double initialization
 
     loadPreferences()
-  }, [isInitialized, initializeFromTauri])
+  }, [isInitialized])
 
   useEffect(() => {
     // Skip API health check in Tauri - embedded API is always available

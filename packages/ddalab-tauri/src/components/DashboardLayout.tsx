@@ -5,7 +5,7 @@ import { ApiService } from "@/services/apiService";
 import { useAppStore } from "@/store/appStore";
 import { FileManager } from "@/components/FileManager";
 import { HealthStatusBar } from "@/components/HealthStatusBar";
-import { TimeSeriesPlot } from "@/components/TimeSeriesPlot";
+import { TimeSeriesPlotECharts } from "@/components/TimeSeriesPlotECharts";
 import { DDAAnalysis } from "@/components/DDAAnalysis";
 import { DDAResults } from "@/components/DDAResults";
 import { SettingsPanel } from "@/components/SettingsPanel";
@@ -414,7 +414,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
 
               <TabsContent value="plots" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'plots'}>
                 <div className="p-4 h-full">
-                  <TimeSeriesPlot apiService={apiService} />
+                  <TimeSeriesPlotECharts apiService={apiService} />
                 </div>
               </TabsContent>
 

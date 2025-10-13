@@ -376,12 +376,11 @@ export function FileManager({ apiService }: FileManagerProps) {
 
     // Check if file format is supported
     const extension = filePath.split('.').pop()?.toLowerCase()
-    const supportedFormats = ['edf', 'csv', 'txt', 'ascii']
+    const supportedFormats = ['edf', 'csv', 'txt', 'ascii', 'vhdr', 'set']
 
     if (extension && !supportedFormats.includes(extension)) {
       setError(
-        `File format .${extension} is not yet supported. Currently supported formats: EDF, CSV, ASCII/TXT. ` +
-        `Support for BrainVision and EEGLAB formats is coming soon.`
+        `File format .${extension} is not yet supported. Currently supported formats: EDF, CSV, ASCII/TXT, BrainVision (.vhdr), EEGLAB (.set).`
       )
       setLoading(false)
       return

@@ -26,6 +26,32 @@ impl EDFFileReader {
 impl FileReader for EDFFileReader {
     fn metadata(&self) -> FileResult<FileMetadata> {
         let header = &self.edf.header;
+        let signal_headers = &self.edf.signal_headers;
+
+        // Get channel labels from signal headers
+        let channels: Vec<String> = signal_headers.iter()
+            .map(|sh| sh.label.clone())
+            .collect();
+
+        // Calculate sample rate (assuming all channels have same rate)
+        let sample_rate = if !signal_headers.is_empty() {
+            signal_headers[0].sample_frequency(header.duration_of_data_record)
+        } else {
+            0.0
+        };
+
+        // Calculate total samples per channel
+        let num_samples = if !signal_headers.is_empty() {
+            header.num_data_records as usize * signal_headers[0].num_samples_per_record
+        } else {
+            0
+        };
+
+        // Calculate total duration
+        let duration = header.num_data_records as f64 * header.duration_of_data_record;
+
+        // Format start time
+        let start_time_str = format!("{} {}", header.start_date, header.start_time);
 
         Ok(FileMetadata {
             file_path: self.path.clone(),
@@ -35,12 +61,12 @@ impl FileReader for EDFFileReader {
                 .unwrap_or("unknown")
                 .to_string(),
             file_size: std::fs::metadata(&self.path)?.len(),
-            sample_rate: header.sample_rate,
-            num_channels: header.num_channels,
-            num_samples: header.num_samples,
-            duration: header.duration,
-            channels: header.channel_labels.clone(),
-            start_time: Some(header.start_date_time.clone()),
+            sample_rate,
+            num_channels: signal_headers.len(),
+            num_samples,
+            duration,
+            channels,
+            start_time: Some(start_time_str),
             file_type: "EDF".to_string(),
         })
     }
@@ -51,7 +77,12 @@ impl FileReader for EDFFileReader {
         num_samples: usize,
         channels: Option<&[String]>,
     ) -> FileResult<Vec<Vec<f64>>> {
-        let all_channels = &self.edf.header.channel_labels;
+        let signal_headers = &self.edf.signal_headers;
+
+        // Get all channel labels
+        let all_channels: Vec<String> = signal_headers.iter()
+            .map(|sh| sh.label.clone())
+            .collect();
 
         // Determine which channels to read
         let channel_indices: Vec<usize> = if let Some(selected) = channels {
@@ -63,11 +94,21 @@ impl FileReader for EDFFileReader {
             (0..all_channels.len()).collect()
         };
 
-        // Read data for selected channels
+        // Calculate time window for read_signal_window
+        let sample_rate = signal_headers[0].sample_frequency(self.edf.header.duration_of_data_record);
+        let start_time_sec = start_sample as f64 / sample_rate;
+        let duration_sec = num_samples as f64 / sample_rate;
+
+        // Read data for selected channels (need mutable reference)
+        // Since we can't get mutable reference to self.edf, we need to use a different approach
+        // For now, create a new reader instance
+        let mut edf_reader = CoreEDFReader::new(Path::new(&self.path))
+            .map_err(|e| FileReaderError::ParseError(format!("Failed to open EDF: {}", e)))?;
+
         let mut result = Vec::with_capacity(channel_indices.len());
 
         for &ch_idx in &channel_indices {
-            let channel_data = self.edf.read_signal(ch_idx, start_sample, num_samples)
+            let channel_data = edf_reader.read_signal_window(ch_idx, start_time_sec, duration_sec)
                 .map_err(|e| FileReaderError::ParseError(format!("Failed to read channel {}: {}", ch_idx, e)))?;
             result.push(channel_data);
         }
