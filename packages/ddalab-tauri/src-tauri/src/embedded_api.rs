@@ -789,11 +789,13 @@ fn read_edf_file_chunk(
             }
         }
 
+        // If none of the selected channels exist, fall back to all channels
         if indices.is_empty() {
-            return Err(format!("None of the selected channels found in file"));
+            log::warn!("[CHUNK] None of the selected channels found in EDF file, falling back to all channels");
+            ((0..all_channel_labels.len()).collect(), all_channel_labels.clone())
+        } else {
+            (indices, labels)
         }
-
-        (indices, labels)
     } else {
         // Read all channels
         ((0..all_channel_labels.len()).collect(), all_channel_labels.clone())
@@ -1448,11 +1450,13 @@ fn read_text_file_chunk(
             }
         }
 
+        // If none of the selected channels exist, fall back to all channels
         if indices.is_empty() {
-            return Err(format!("None of the selected channels found in file"));
+            log::warn!("[CHUNK] None of the selected channels found in text file, falling back to all channels");
+            ((0..all_channel_labels.len()).collect(), all_channel_labels.clone())
+        } else {
+            (indices, labels)
         }
-
-        (indices, labels)
     } else {
         // Read all channels
         ((0..all_channel_labels.len()).collect(), all_channel_labels.clone())
@@ -1796,11 +1800,23 @@ fn generate_edf_file_overview(
     let channel_labels: Vec<String>;
 
     if let Some(ref selected) = selected_channels {
-        channels_to_read = selected
+        let filtered_channels: Vec<usize> = selected
             .iter()
             .filter_map(|name| edf.signal_headers.iter().position(|h| h.label.trim() == name.trim()))
             .collect();
-        channel_labels = selected.clone();
+
+        // If none of the selected channels exist, fall back to all channels
+        if filtered_channels.is_empty() {
+            log::warn!("[OVERVIEW] None of the selected channels found in EDF file, falling back to all channels");
+            channels_to_read = (0..edf.signal_headers.len()).collect();
+            channel_labels = edf.signal_headers.iter().map(|h| h.label.trim().to_string()).collect();
+        } else {
+            channels_to_read = filtered_channels;
+            // Only include channel labels that were found
+            channel_labels = channels_to_read.iter()
+                .map(|&idx| edf.signal_headers[idx].label.trim().to_string())
+                .collect();
+        }
     } else {
         channels_to_read = (0..edf.signal_headers.len()).collect();
         channel_labels = edf.signal_headers.iter().map(|h| h.label.trim().to_string()).collect();
@@ -1885,11 +1901,23 @@ fn generate_text_file_overview(
     let channel_labels: Vec<String>;
 
     if let Some(ref selected) = selected_channels {
-        channels_to_read = selected
+        let filtered_channels: Vec<usize> = selected
             .iter()
             .filter_map(|name| reader.info.channel_labels.iter().position(|n| n == name))
             .collect();
-        channel_labels = selected.clone();
+
+        // If none of the selected channels exist, fall back to all channels
+        if filtered_channels.is_empty() {
+            log::warn!("[OVERVIEW] None of the selected channels found in text file, falling back to all channels");
+            channels_to_read = (0..reader.info.num_channels).collect();
+            channel_labels = reader.info.channel_labels.clone();
+        } else {
+            channels_to_read = filtered_channels;
+            // Only include channel labels that were found
+            channel_labels = channels_to_read.iter()
+                .map(|&idx| reader.info.channel_labels[idx].clone())
+                .collect();
+        }
     } else {
         channels_to_read = (0..reader.info.num_channels).collect();
         channel_labels = reader.info.channel_labels.clone();
