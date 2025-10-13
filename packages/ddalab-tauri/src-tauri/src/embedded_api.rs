@@ -1501,16 +1501,31 @@ fn read_text_file_chunk(
 async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
     // Run file reading in a blocking task to avoid blocking the async runtime
     tokio::task::spawn_blocking(move || {
+        // Check if path is a broken symlink (e.g., git-annex file not downloaded)
+        if path.symlink_metadata().is_ok() && path.symlink_metadata().unwrap().is_symlink() {
+            if !path.exists() {
+                log::error!("File is a broken symlink (possibly git-annex): {:?}. Run 'git annex get' to download the actual file.", path);
+                return None;
+            }
+        }
+
         if !path.exists() || !path.is_file() {
+            log::error!("File does not exist or is not a file: {:?}", path);
             return None;
         }
 
         // Try using the new modular file reader first
-        if let Ok(file_info) = read_file_metadata_with_reader(&path) {
-            return Some(file_info);
+        match read_file_metadata_with_reader(&path) {
+            Ok(file_info) => {
+                log::info!("Successfully read file metadata using modular reader for: {:?}", path);
+                return Some(file_info);
+            }
+            Err(e) => {
+                log::error!("Modular file reader failed for {:?}: {}", path, e);
+            }
         }
 
-        // Fallback to old method if new reader fails (shouldn't happen)
+        // Fallback to old method if new reader fails
 
         let metadata = std::fs::metadata(&path).ok()?;
         let file_name = path.file_name()?.to_str()?.to_string();
