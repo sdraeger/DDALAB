@@ -789,10 +789,11 @@ fn read_edf_file_chunk(
             }
         }
 
-        // If none of the selected channels exist, fall back to all channels
+        // If none of the selected channels exist, fall back to first 10 channels
         if indices.is_empty() {
-            log::warn!("[CHUNK] None of the selected channels found in EDF file, falling back to all channels");
-            ((0..all_channel_labels.len()).collect(), all_channel_labels.clone())
+            let num_fallback_channels = all_channel_labels.len().min(10);
+            log::warn!("[CHUNK] None of the selected channels found in EDF file, falling back to first {} channels", num_fallback_channels);
+            ((0..num_fallback_channels).collect(), all_channel_labels.iter().take(num_fallback_channels).cloned().collect())
         } else {
             (indices, labels)
         }
@@ -1450,10 +1451,11 @@ fn read_text_file_chunk(
             }
         }
 
-        // If none of the selected channels exist, fall back to all channels
+        // If none of the selected channels exist, fall back to first 10 channels
         if indices.is_empty() {
-            log::warn!("[CHUNK] None of the selected channels found in text file, falling back to all channels");
-            ((0..all_channel_labels.len()).collect(), all_channel_labels.clone())
+            let num_fallback_channels = all_channel_labels.len().min(10);
+            log::warn!("[CHUNK] None of the selected channels found in text file, falling back to first {} channels", num_fallback_channels);
+            ((0..num_fallback_channels).collect(), all_channel_labels.iter().take(num_fallback_channels).cloned().collect())
         } else {
             (indices, labels)
         }
@@ -1805,11 +1807,12 @@ fn generate_edf_file_overview(
             .filter_map(|name| edf.signal_headers.iter().position(|h| h.label.trim() == name.trim()))
             .collect();
 
-        // If none of the selected channels exist, fall back to all channels
+        // If none of the selected channels exist, fall back to first 10 channels
         if filtered_channels.is_empty() {
-            log::warn!("[OVERVIEW] None of the selected channels found in EDF file, falling back to all channels");
-            channels_to_read = (0..edf.signal_headers.len()).collect();
-            channel_labels = edf.signal_headers.iter().map(|h| h.label.trim().to_string()).collect();
+            let num_fallback_channels = edf.signal_headers.len().min(10);
+            log::warn!("[OVERVIEW] None of the selected channels found in EDF file, falling back to first {} channels", num_fallback_channels);
+            channels_to_read = (0..num_fallback_channels).collect();
+            channel_labels = edf.signal_headers.iter().take(num_fallback_channels).map(|h| h.label.trim().to_string()).collect();
         } else {
             channels_to_read = filtered_channels;
             // Only include channel labels that were found
@@ -1906,11 +1909,12 @@ fn generate_text_file_overview(
             .filter_map(|name| reader.info.channel_labels.iter().position(|n| n == name))
             .collect();
 
-        // If none of the selected channels exist, fall back to all channels
+        // If none of the selected channels exist, fall back to first 10 channels
         if filtered_channels.is_empty() {
-            log::warn!("[OVERVIEW] None of the selected channels found in text file, falling back to all channels");
-            channels_to_read = (0..reader.info.num_channels).collect();
-            channel_labels = reader.info.channel_labels.clone();
+            let num_fallback_channels = reader.info.num_channels.min(10);
+            log::warn!("[OVERVIEW] None of the selected channels found in text file, falling back to first {} channels", num_fallback_channels);
+            channels_to_read = (0..num_fallback_channels).collect();
+            channel_labels = reader.info.channel_labels.iter().take(num_fallback_channels).cloned().collect();
         } else {
             channels_to_read = filtered_channels;
             // Only include channel labels that were found
