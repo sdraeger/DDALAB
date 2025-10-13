@@ -255,6 +255,152 @@ impl BrainVisionFileReader {
         })
     }
 
+    fn read_decimated_overview(
+        header: &SimpleBVHeader,
+        data_path: &Path,
+        max_points: usize,
+        decimation: usize,
+        channels: Option<&[String]>,
+    ) -> FileResult<Vec<Vec<f64>>> {
+        // Determine which channels to read
+        let all_channel_names = &header.channels;
+        let channel_indices: Vec<usize> = if let Some(selected) = channels {
+            selected
+                .iter()
+                .filter_map(|ch| all_channel_names.iter().position(|c| c == ch))
+                .collect()
+        } else {
+            (0..all_channel_names.len()).collect()
+        };
+
+        let num_channels = header.num_channels;
+        let bytes_per_sample = 4; // IEEE_FLOAT_32
+        let bytes_per_timepoint = num_channels * bytes_per_sample;
+
+        let mut file = fs::File::open(data_path)?;
+        let file_size = file.metadata()?.len() as usize;
+        let total_samples = file_size / bytes_per_timepoint;
+
+        // Initialize result vectors
+        let mut result: Vec<Vec<f64>> = vec![Vec::with_capacity(max_points); channel_indices.len()];
+
+        // Read every Nth sample directly
+        let mut sample_buffer = vec![0u8; bytes_per_timepoint];
+
+        for sample_idx in (0..total_samples).step_by(decimation) {
+            // Seek to this sample
+            let byte_offset = sample_idx * bytes_per_timepoint;
+            file.seek(SeekFrom::Start(byte_offset as u64))?;
+
+            // Read one timepoint (all channels)
+            file.read_exact(&mut sample_buffer)?;
+
+            // Extract values for selected channels
+            for (result_idx, &ch_idx) in channel_indices.iter().enumerate() {
+                if ch_idx < num_channels {
+                    let byte_start = ch_idx * bytes_per_sample;
+                    let bytes: [u8; 4] = [
+                        sample_buffer[byte_start],
+                        sample_buffer[byte_start + 1],
+                        sample_buffer[byte_start + 2],
+                        sample_buffer[byte_start + 3],
+                    ];
+                    let value = f32::from_le_bytes(bytes) as f64;
+                    result[result_idx].push(value);
+                }
+            }
+
+            // Stop if we've collected enough points
+            if result[0].len() >= max_points {
+                break;
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn read_chunk_simple(
+        header: &SimpleBVHeader,
+        data_path: &Path,
+        start_sample: usize,
+        num_samples: usize,
+        channels: Option<&[String]>,
+    ) -> FileResult<Vec<Vec<f64>>> {
+        // Determine which channels to read
+        let all_channel_names = &header.channels;
+        let channel_indices: Vec<usize> = if let Some(selected) = channels {
+            selected
+                .iter()
+                .filter_map(|ch| all_channel_names.iter().position(|c| c == ch))
+                .collect()
+        } else {
+            (0..all_channel_names.len()).collect()
+        };
+
+        // Validate format
+        if header.data_format != "BINARY" {
+            return Err(FileReaderError::UnsupportedFormat(
+                format!("Only BINARY data format supported, got: {}", header.data_format)
+            ));
+        }
+        if header.data_orientation != "MULTIPLEXED" {
+            return Err(FileReaderError::UnsupportedFormat(
+                format!("Only MULTIPLEXED orientation supported, got: {}", header.data_orientation)
+            ));
+        }
+        if header.binary_format != "IEEE_FLOAT_32" {
+            return Err(FileReaderError::UnsupportedFormat(
+                format!("Only IEEE_FLOAT_32 format supported, got: {}", header.binary_format)
+            ));
+        }
+
+        let num_channels = header.num_channels;
+        let bytes_per_sample = 4; // IEEE_FLOAT_32
+        let bytes_per_timepoint = num_channels * bytes_per_sample;
+
+        // Open file and seek to start position
+        let mut file = fs::File::open(data_path)?;
+        let file_size = file.metadata()?.len() as usize;
+        let total_samples = file_size / bytes_per_timepoint;
+
+        // Clamp to available data
+        let start_sample = start_sample.min(total_samples);
+        let num_samples = num_samples.min(total_samples - start_sample);
+
+        // Seek to start position
+        let start_byte = start_sample * bytes_per_timepoint;
+        file.seek(SeekFrom::Start(start_byte as u64))?;
+
+        // Read multiplexed data: [ch1_s1, ch2_s1, ..., chN_s1, ch1_s2, ch2_s2, ..., chN_s2, ...]
+        let bytes_to_read = num_samples * bytes_per_timepoint;
+        let mut buffer = vec![0u8; bytes_to_read];
+        file.read_exact(&mut buffer)?;
+
+        // Parse IEEE_FLOAT_32 values
+        let mut all_samples: Vec<f32> = Vec::with_capacity(num_samples * num_channels);
+        for chunk in buffer.chunks_exact(4) {
+            let bytes: [u8; 4] = [chunk[0], chunk[1], chunk[2], chunk[3]];
+            let value = f32::from_le_bytes(bytes);
+            all_samples.push(value);
+        }
+
+        // De-multiplex: convert from [ch1_s1, ch2_s1, ..., chN_s1, ch1_s2, ...]
+        // to separate channel vectors
+        let mut result: Vec<Vec<f64>> = vec![Vec::with_capacity(num_samples); channel_indices.len()];
+
+        for sample_idx in 0..num_samples {
+            let offset = sample_idx * num_channels;
+            for (result_idx, &ch_idx) in channel_indices.iter().enumerate() {
+                if ch_idx < num_channels {
+                    let value = all_samples[offset + ch_idx] as f64;
+                    result[result_idx].push(value);
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
     fn read_chunk_bvreader(
         file: &BVFile,
         start_sample: usize,
@@ -388,12 +534,7 @@ impl FileReader for BrainVisionFileReader {
     ) -> FileResult<Vec<Vec<f64>>> {
         match &self.backend {
             BVReaderBackend::BVReader(file) => Self::read_chunk_bvreader(file, start_sample, num_samples, channels),
-            BVReaderBackend::Simple(_, _) => {
-                Err(FileReaderError::ParseError(
-                    "Reading data chunks from AnyWave BrainVision files not yet implemented. \
-                     File metadata is available.".to_string()
-                ))
-            }
+            BVReaderBackend::Simple(header, data_path) => Self::read_chunk_simple(header, data_path, start_sample, num_samples, channels),
         }
     }
 
@@ -409,7 +550,15 @@ impl FileReader for BrainVisionFileReader {
         let decimation = (total_samples as f64 / max_points as f64).ceil() as usize;
         let decimation = decimation.max(1);
 
-        // Read full data and decimate
+        // For Simple backend with large files, use optimized decimated reading
+        if let BVReaderBackend::Simple(header, data_path) = &self.backend {
+            if total_samples > 100000 {
+                // Large file: read only the samples we need (every Nth sample)
+                return Self::read_decimated_overview(header, data_path, max_points, decimation, channels);
+            }
+        }
+
+        // Small file or bvreader: read full data and decimate
         let full_data = self.read_chunk(0, total_samples, channels)?;
 
         let decimated: Vec<Vec<f64>> = full_data
