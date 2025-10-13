@@ -311,10 +311,19 @@ export function FileManager({ apiService }: FileManagerProps) {
         }
       }
 
-      // Auto-select first few channels if none selected
-      if (fileInfo.channels.length > 0 && fileManager.selectedChannels.length === 0) {
-        const defaultChannels = fileInfo.channels.slice(0, Math.min(4, fileInfo.channels.length))
+      // Auto-select first few channels if none selected OR if selected channels don't exist in this file
+      const validSelectedChannels = fileManager.selectedChannels.filter(ch =>
+        fileInfo.channels.includes(ch)
+      )
+
+      if (fileInfo.channels.length > 0 && validSelectedChannels.length === 0) {
+        const defaultChannels = fileInfo.channels.slice(0, Math.min(10, fileInfo.channels.length))
+        console.log('[FILEMANAGER] Auto-selecting default channels:', defaultChannels)
         setSelectedChannels(defaultChannels)
+      } else if (validSelectedChannels.length !== fileManager.selectedChannels.length) {
+        // Some channels were invalid - update to only valid ones
+        console.log('[FILEMANAGER] Updating to valid channels only:', validSelectedChannels)
+        setSelectedChannels(validSelectedChannels)
       }
 
     } catch (error) {
