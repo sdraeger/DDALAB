@@ -34,11 +34,12 @@ impl DDARunner {
     ///
     /// # Arguments
     /// * `request` - DDA analysis configuration
+    /// * `start_bound` - Starting sample index for analysis (based on time_range.start)
     /// * `end_bound` - Maximum sample index for analysis (with safety margin)
     ///
     /// # Returns
     /// DDAResult containing the processed Q matrix and metadata
-    pub async fn run(&self, request: &DDARequest, end_bound: u64) -> Result<DDAResult> {
+    pub async fn run(&self, request: &DDARequest, start_bound: u64, end_bound: u64) -> Result<DDAResult> {
         let analysis_id = Uuid::new_v4().to_string();
 
         // Validate input file exists
@@ -106,8 +107,8 @@ impl DDARunner {
             command.arg(delay.to_string());
         }
 
-        // Add time bounds
-        command.arg("-StartEnd").arg("0").arg(end_bound.to_string());
+        // Add time bounds (sample indices)
+        command.arg("-StartEnd").arg(start_bound.to_string()).arg(end_bound.to_string());
 
         log::info!("Executing DDA command: {:?}", command);
 
