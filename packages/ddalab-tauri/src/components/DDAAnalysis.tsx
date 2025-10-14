@@ -7,7 +7,7 @@ import { DDAAnalysisRequest, DDAResult } from '@/types/api'
 import { DDAResults } from '@/components/DDAResults'
 import { useWorkflow } from '@/hooks/useWorkflow'
 import { createSetDDAParametersAction, createRunDDAAnalysisAction } from '@/types/workflow'
-import { useSubmitDDAAnalysis, useDDAProgress, useSaveDDAToHistory } from '@/hooks/useDDAAnalysis'
+import { useSubmitDDAAnalysis, useDDAProgress, useSaveDDAToHistory, useDDAHistory } from '@/hooks/useDDAAnalysis'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -59,15 +59,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const fileManager = useAppStore((state) => state.fileManager)
   const storedAnalysisParameters = useAppStore((state) => state.dda.analysisParameters)
   const currentAnalysis = useAppStore((state) => state.dda.currentAnalysis)
-  // Only subscribe to history count to avoid re-renders when history updates during analysis
-  const analysisHistoryCount = useAppStore((state) => state.dda.analysisHistory.length)
-  // Get the actual history array once initially, but don't subscribe to updates
-  const [analysisHistory, setAnalysisHistoryLocal] = useState(() => useAppStore.getState().dda.analysisHistory)
   const isRunning = useAppStore((state) => state.dda.isRunning)
   const workflowRecording = useAppStore((state) => state.workflowRecording)
   const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis)
   const addAnalysisToHistory = useAppStore((state) => state.addAnalysisToHistory)
-  const setAnalysisHistory = useAppStore((state) => state.setAnalysisHistory)
   const updateAnalysisParameters = useAppStore((state) => state.updateAnalysisParameters)
   const setDDARunning = useAppStore((state) => state.setDDARunning)
   const incrementActionCount = useAppStore((state) => state.incrementActionCount)
@@ -77,6 +72,14 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   // TanStack Query: Submit DDA analysis mutation
   const submitAnalysisMutation = useSubmitDDAAnalysis(apiService)
   const saveToHistoryMutation = useSaveDDAToHistory(apiService)
+
+  // TanStack Query: Fetch analysis history
+  const {
+    data: historyData,
+    isLoading: historyLoading,
+    error: historyErrorObj,
+    refetch: refetchHistory
+  } = useDDAHistory(apiService)
 
   // Track progress from Tauri events for the current analysis
   const progressEvent = useDDAProgress(
@@ -117,10 +120,12 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const error = submitAnalysisMutation.error ?
     (submitAnalysisMutation.error as Error).message : null
   const [previewingAnalysis, setPreviewingAnalysis] = useState<DDAResult | null>(null)
-  const [historyLoading, setHistoryLoading] = useState(false)
-  const [historyError, setHistoryError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' })
   const [autoLoadingResults, setAutoLoadingResults] = useState(false)
+
+  // Derive history state from TanStack Query
+  const historyError = historyErrorObj ? (historyErrorObj as Error).message : null
+  const analysisHistoryFromQuery = historyData || []
 
   // Calculate estimated time using useMemo to avoid re-running on every render
   const estimatedTime = useMemo(() => {
@@ -138,53 +143,12 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     return Math.round(estimated)
   }, [parameters.selectedChannels.length, parameters.timeEnd, parameters.timeStart, parameters.windowStep, parameters.variants.length, parameters.scaleNum])
 
-  // Refresh analysis history from MinIO (called by Refresh button)
-  const loadAnalysisHistoryRef = useCallback(async () => {
-    setHistoryLoading(true)
-    setHistoryError(null)
-    try {
-      const history = await apiService.getAnalysisHistory()
-      setAnalysisHistory(history)
-      setAnalysisHistoryLocal(history) // Update local state to show new history
-    } catch (error) {
-      console.error('Failed to load analysis history:', error)
-      setHistoryError('Failed to load analysis history')
-    } finally {
-      setHistoryLoading(false)
-    }
-  }, [apiService, setAnalysisHistory])
-
-  // Save analysis to history when completed
-  const saveAnalysisToHistory = useCallback(async (result: DDAResult) => {
-    try {
-      setSaveStatus({ type: null, message: 'Saving analysis to history...' })
-
-      const success = await apiService.saveAnalysisToHistory(result)
-      if (success) {
-        setSaveStatus({ type: 'success', message: 'Analysis saved to history successfully!' })
-
-        // Add to local history immediately instead of reloading entire history (performance optimization)
-        setAnalysisHistoryLocal(prev => [result, ...prev])
-
-        // Clear success message after 3 seconds
-        setTimeout(() => setSaveStatus({ type: null, message: '' }), 3000)
-      } else {
-        setSaveStatus({ type: 'error', message: 'Failed to save analysis to history. Server returned false.' })
-      }
-    } catch (error) {
-      console.error('Error saving analysis to history:', error)
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-      setSaveStatus({ type: 'error', message: `Failed to save analysis: ${errorMessage}` })
-    }
-  }, [apiService])
-
   // Preview analysis from history in dedicated window
   const previewAnalysis = useCallback(async (analysis: DDAResult) => {
     try {
       // Validate analysis object
       if (!analysis || !analysis.id) {
         console.error('Invalid analysis object:', analysis)
-        setHistoryError('Invalid analysis data')
         return
       }
 
@@ -204,12 +168,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         setPreviewingAnalysis(fullAnalysis)
       } else {
         console.warn('No analysis data returned for ID:', analysis.id)
-        setHistoryError('Analysis data not found')
       }
     } catch (error) {
       console.error('Failed to load analysis preview:', error)
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      setHistoryError(`Failed to load analysis preview: ${errorMessage}`)
     }
   }, [apiService])
 
@@ -743,13 +704,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               <div>
                 <CardTitle className="text-base">Analysis History</CardTitle>
                 <CardDescription>
-                  {historyLoading ? 'Loading...' : `${analysisHistoryCount} analyses stored in MinIO`}
+                  {historyLoading ? 'Loading...' : `${analysisHistoryFromQuery.length} analyses stored`}
                 </CardDescription>
               </div>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={loadAnalysisHistoryRef}
+                onClick={() => refetchHistory()}
                 disabled={historyLoading}
                 className="shrink-0"
               >
@@ -802,9 +763,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                 </div>
               )}
 
-              {analysisHistory.length > 0 ? (
+              {analysisHistoryFromQuery.length > 0 ? (
                 <div className="space-y-2">
-                  {analysisHistory.map(analysis => {
+                  {analysisHistoryFromQuery.map(analysis => {
                     return (
                     <div
                       key={analysis.id}
@@ -839,7 +800,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                 <div className="text-center py-8 text-muted-foreground">
                   <Brain className="h-8 w-8 mx-auto mb-2 opacity-50" />
                   <p>No analyses in history</p>
-                  <p className="text-xs mt-2">Completed analyses are automatically saved to MinIO</p>
+                  <p className="text-xs mt-2">Completed analyses are automatically saved to history</p>
                 </div>
               ) : null}
             </CardContent>
