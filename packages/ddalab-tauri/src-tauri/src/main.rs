@@ -119,7 +119,17 @@ fn main() {
             recording::commands::workflow_get_all_edges,
             recording::commands::workflow_record_action,
             recording::commands::workflow_export,
-            recording::commands::workflow_import
+            recording::commands::workflow_import,
+            // OpenNeuro API key management commands
+            save_openneuro_api_key,
+            get_openneuro_api_key,
+            check_openneuro_api_key,
+            delete_openneuro_api_key,
+            // OpenNeuro download commands
+            check_git_available,
+            check_git_annex_available,
+            download_openneuro_dataset,
+            cancel_openneuro_download
         ])
         .manage(EmbeddedApiState::default())
         .manage(AppSyncState::new())
@@ -127,6 +137,7 @@ fn main() {
         .manage(std::sync::Arc::new(parking_lot::RwLock::new(
             WorkflowState::new().expect("Failed to initialize workflow state")
         )))
+        .manage(commands::openneuro_commands::DownloadState::default())
         .setup(|app| {
             setup_app(app).map_err(|e| e.to_string())?;
 

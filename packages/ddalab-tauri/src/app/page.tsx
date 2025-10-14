@@ -93,9 +93,25 @@ export default function Home() {
         console.log('Using embedded API URL:', url)
         setApiUrl(url)
 
+        // Check if API server is already running (for dev workflow)
+        try {
+          console.log('Checking if API server is already running...')
+          const alreadyRunning = await TauriService.checkApiConnection(url)
+
+          if (alreadyRunning) {
+            console.log('✅ API server already running, skipping startup')
+            setIsApiConnected(true)
+            setServerReady(true)
+            return
+          }
+        } catch (error) {
+          // Server not running yet, will start it below
+          console.log('API server not running, will start it now')
+        }
+
         // Start embedded API server
         try {
-          console.log('Starting embedded API server...')
+          console.log('🚀 Starting embedded API server...')
           await TauriService.startEmbeddedApiServer()
 
           // Wait for server to be ready with exponential backoff
