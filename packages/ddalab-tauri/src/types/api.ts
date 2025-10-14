@@ -82,3 +82,21 @@ export interface HealthResponse {
   version: string
   timestamp: string
 }
+
+// DDA Progress Event Types
+export type DDAProgressPhase =
+  | 'initializing'
+  | 'loading_data'
+  | 'preprocessing'
+  | 'computing'
+  | 'completed'
+  | 'error'
+
+export interface DDAProgressEvent {
+  analysis_id: string
+  phase: DDAProgressPhase
+  progress_percent: number
+  current_step?: string
+  estimated_time_remaining_seconds?: number
+  error_message?: string
+}
