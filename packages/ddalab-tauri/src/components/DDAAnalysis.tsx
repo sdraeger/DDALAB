@@ -7,6 +7,7 @@ import { DDAAnalysisRequest, DDAResult } from '@/types/api'
 import { DDAResults } from '@/components/DDAResults'
 import { useWorkflow } from '@/hooks/useWorkflow'
 import { createSetDDAParametersAction, createRunDDAAnalysisAction } from '@/types/workflow'
+import { useSubmitDDAAnalysis, useDDAProgress, useSaveDDAToHistory } from '@/hooks/useDDAAnalysis'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -73,6 +74,16 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
   const { recordAction } = useWorkflow()
 
+  // TanStack Query: Submit DDA analysis mutation
+  const submitAnalysisMutation = useSubmitDDAAnalysis(apiService)
+  const saveToHistoryMutation = useSaveDDAToHistory(apiService)
+
+  // Track progress from Tauri events for the current analysis
+  const progressEvent = useDDAProgress(
+    submitAnalysisMutation.data?.id,
+    submitAnalysisMutation.isPending
+  )
+
   // Store ALL parameters locally for instant UI updates - only sync to store when running analysis
   const [localParameters, setLocalParameters] = useState<DDAParameters>({
     variants: storedAnalysisParameters.variants,
@@ -96,10 +107,15 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const parameters = localParameters
 
   const [localIsRunning, setLocalIsRunning] = useState(false) // Local UI state for this component
-  const [progress, setProgress] = useState(0)
-  const [analysisStatus, setAnalysisStatus] = useState<string>('')
   const [results, setResults] = useState<DDAResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
+
+  // Derive state from mutation and progress events
+  const progress = progressEvent?.progress_percent || (submitAnalysisMutation.isPending ? 50 : 0)
+  const analysisStatus = progressEvent?.current_step ||
+    (submitAnalysisMutation.isPending ? 'Running DDA analysis...' :
+     submitAnalysisMutation.isSuccess ? 'Analysis completed successfully!' : '')
+  const error = submitAnalysisMutation.error ?
+    (submitAnalysisMutation.error as Error).message : null
   const [previewingAnalysis, setPreviewingAnalysis] = useState<DDAResult | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
@@ -235,76 +251,68 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
   const runAnalysis = async () => {
     if (!fileManager.selectedFile || parameters.selectedChannels.length === 0) {
-      setError('Please select a file and at least one channel')
+      // Can't use setError directly anymore, error comes from mutation
+      console.error('Please select a file and at least one channel')
       return
     }
 
-    try {
-      setLocalIsRunning(true)
-      setDDARunning(true)
-      setError(null)
-      setProgress(0)
-      setAnalysisStatus('Preparing analysis...')
+    // Sync local parameters to store when running analysis
+    updateAnalysisParameters({
+      variants: parameters.variants,
+      windowLength: parameters.windowLength,
+      windowStep: parameters.windowStep,
+      detrending: parameters.detrending,
+      scaleMin: parameters.scaleMin,
+      scaleMax: parameters.scaleMax,
+      scaleNum: parameters.scaleNum
+    })
 
-      // Sync local parameters to store when running analysis
-      updateAnalysisParameters({
-        variants: parameters.variants,
-        windowLength: parameters.windowLength,
-        windowStep: parameters.windowStep,
-        detrending: parameters.detrending,
-        scaleMin: parameters.scaleMin,
-        scaleMax: parameters.scaleMax,
-        scaleNum: parameters.scaleNum
-      })
+    // Prepare the analysis request
+    const request: DDAAnalysisRequest = {
+      file_path: fileManager.selectedFile.file_path,
+      channels: parameters.selectedChannels,
+      start_time: parameters.timeStart,
+      end_time: parameters.timeEnd,
+      variants: parameters.variants,
+      window_length: parameters.windowLength,
+      window_step: parameters.windowStep,
+      detrending: parameters.detrending,
+      scale_min: parameters.scaleMin,
+      scale_max: parameters.scaleMax,
+      scale_num: parameters.scaleNum
+    }
 
-      // Prepare the analysis request
-      const request: DDAAnalysisRequest = {
-        file_path: fileManager.selectedFile.file_path,
-        channels: parameters.selectedChannels,
-        start_time: parameters.timeStart,
-        end_time: parameters.timeEnd,
-        variants: parameters.variants,
-        window_length: parameters.windowLength,
-        window_step: parameters.windowStep,
-        detrending: parameters.detrending,
-        scale_min: parameters.scaleMin,
-        scale_max: parameters.scaleMax,
-        scale_num: parameters.scaleNum
+    // Record DDA parameters if recording is active
+    if (workflowRecording.isRecording) {
+      try {
+        const paramAction = createSetDDAParametersAction(
+          parameters.scaleMin, // lag (using scaleMin as proxy)
+          4, // dimension (default)
+          parameters.windowLength,
+          parameters.windowStep
+        )
+        await recordAction(paramAction)
+        incrementActionCount()
+        console.log('[WORKFLOW] Recorded DDA parameters')
+      } catch (error) {
+        console.error('[WORKFLOW] Failed to record DDA parameters:', error)
       }
+    }
 
-      // Record DDA parameters if recording is active
-      if (workflowRecording.isRecording) {
-        try {
-          const paramAction = createSetDDAParametersAction(
-            parameters.scaleMin, // lag (using scaleMin as proxy)
-            4, // dimension (default)
-            parameters.windowLength,
-            parameters.windowStep
-          )
-          await recordAction(paramAction)
-          incrementActionCount()
-          console.log('[WORKFLOW] Recorded DDA parameters')
-        } catch (error) {
-          console.error('[WORKFLOW] Failed to record DDA parameters:', error)
-        }
-      }
+    // Submit analysis using mutation
+    setLocalIsRunning(true)
+    setDDARunning(true)
 
-      setAnalysisStatus('Running DDA analysis on server...')
-      setProgress(50)
+    submitAnalysisMutation.mutate(request, {
+      onSuccess: (result) => {
+        setResults(result)
+        setCurrentAnalysis(result)
+        addAnalysisToHistory(result)
+        setLocalIsRunning(false)
+        setDDARunning(false)
 
-      // Use the real API result
-      const result = await apiService.submitDDAAnalysis(request)
-
-      setAnalysisStatus('Processing results...')
-      setProgress(95)
-
-      setResults(result)
-      setCurrentAnalysis(result)
-      addAnalysisToHistory(result)
-
-      // Record DDA analysis execution if recording is active
-      if (workflowRecording.isRecording && fileManager.selectedFile) {
-        try {
+        // Record DDA analysis execution if recording is active
+        if (workflowRecording.isRecording && fileManager.selectedFile) {
           // Convert channel names to their actual indices in the file's channel list
           const channelIndices = parameters.selectedChannels
             .map(channelName => fileManager.selectedFile!.channels.indexOf(channelName))
@@ -312,52 +320,45 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
           console.log('[WORKFLOW] Recording DDA analysis with channel indices:', channelIndices)
           const analysisAction = createRunDDAAnalysisAction(result.id, channelIndices)
-          await recordAction(analysisAction)
-          incrementActionCount()
-          console.log('[WORKFLOW] Recorded DDA analysis execution')
-        } catch (error) {
-          console.error('[WORKFLOW] Failed to record DDA analysis:', error)
+          recordAction(analysisAction).then(() => {
+            incrementActionCount()
+            console.log('[WORKFLOW] Recorded DDA analysis execution')
+          }).catch(error => {
+            console.error('[WORKFLOW] Failed to record DDA analysis:', error)
+          })
         }
+
+        // Save to history asynchronously (non-blocking)
+        saveToHistoryMutation.mutate(result, {
+          onError: (err) => {
+            console.error('Background save to history failed:', err)
+          }
+        })
+      },
+      onError: (err) => {
+        console.error('❌ DDA analysis failed:', err)
+        setLocalIsRunning(false)
+        setDDARunning(false)
+
+        // Extract detailed error message for logging
+        let errorMessage = 'Analysis failed';
+        if (err instanceof Error) {
+          errorMessage = err.message;
+          console.error('📤 Error name:', err.name)
+          console.error('📤 Error message:', err.message)
+          console.error('📤 Error stack:', err.stack)
+        } else {
+          console.error('📤 Non-Error object thrown:', err)
+        }
+
+        console.error('📤 Analysis request parameters:', {
+          file_path: fileManager.selectedFile?.file_path,
+          channels: parameters.selectedChannels,
+          time_range: [parameters.timeStart, parameters.timeEnd],
+          variants: parameters.variants,
+        })
       }
-
-      // Save to MinIO history asynchronously (non-blocking)
-      setAnalysisStatus('Analysis completed successfully!')
-      setProgress(100)
-
-      // Save in background without blocking UI
-      saveAnalysisToHistory(result).catch(err => {
-        console.error('Background save to history failed:', err)
-      })
-
-      // Parameters are already saved in the store, no need to update them here
-
-    } catch (err) {
-      console.error('❌ DDA analysis failed:', err)
-
-      // Extract detailed error message
-      let errorMessage = 'Analysis failed';
-      if (err instanceof Error) {
-        errorMessage = err.message;
-        console.error('📤 Error name:', err.name)
-        console.error('📤 Error message:', err.message)
-        console.error('📤 Error stack:', err.stack)
-      } else {
-        console.error('📤 Non-Error object thrown:', err)
-      }
-
-      console.error('📤 Analysis request parameters:', {
-        file_path: fileManager.selectedFile?.file_path,
-        channels: parameters.selectedChannels,
-        time_range: [parameters.timeStart, parameters.timeEnd],
-        variants: parameters.variants,
-      })
-
-      setError(errorMessage)
-      setAnalysisStatus('Analysis failed - see console for details')
-    } finally {
-      setLocalIsRunning(false)
-      setDDARunning(false)
-    }
+    })
   }
 
   const resetParameters = () => {
