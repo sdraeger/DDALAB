@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { useBIDSDetection } from '@/hooks/useBIDSDetection'
+import { useDirectoryListing, useLoadFileInfo } from '@/hooks/useFileManagement'
+import { useBIDSMultipleDetections } from '@/hooks/useBIDSQuery'
 import type { DirectoryEntry } from '@/types/bids'
 import {
   AlertDialog,
@@ -65,17 +66,77 @@ export function FileManager({ apiService }: FileManagerProps) {
   } = useAppStore()
 
   const { recordAction } = useWorkflow()
-  const { checkDirectories, checking: checkingBIDS } = useBIDSDetection()
 
-  const [files, setFiles] = useState<EDFFileInfo[]>([])
-  const [directories, setDirectories] = useState<DirectoryEntry[]>([])
-  const [loading, setLoading] = useState(true) // Start with loading true
-  const [error, setError] = useState<string | null>(null)
-  const [isInitialLoad, setIsInitialLoad] = useState(true)
+  // Build absolute path for directory listing
+  const relativePath = fileManager.currentPath.join('/')
+  const absolutePath = relativePath ? `${fileManager.dataDirectoryPath}/${relativePath}` : fileManager.dataDirectoryPath
+
+  // Use TanStack Query for directory listing
+  // Wait for server AND persistence to ensure plots/state are restored before showing files
+  const {
+    data: directoryData,
+    isLoading: directoryLoading,
+    error: directoryError,
+    refetch: refetchDirectory
+  } = useDirectoryListing(
+    apiService,
+    absolutePath || '',
+    !!absolutePath && !!fileManager.dataDirectoryPath && ui.isServerReady && isPersistenceRestored
+  )
+
+  // Use mutation for loading file info
+  const loadFileInfoMutation = useLoadFileInfo(apiService)
+
   const [pendingFileSelection, setPendingFileSelection] = useState<EDFFileInfo | null>(null)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [bidsDatasetPath, setBidsDatasetPath] = useState<string | null>(null)
   const [showBidsBrowser, setShowBidsBrowser] = useState(false)
+  const [isInitialLoad, setIsInitialLoad] = useState(true)
+
+  // Extract directories and files from query data
+  const directories = useMemo(() => {
+    if (!directoryData?.files) return []
+    return directoryData.files
+      .filter(f => f.is_directory)
+      .map(d => ({ name: d.name, path: d.path }))
+  }, [directoryData])
+
+  const files = useMemo(() => {
+    if (!directoryData?.files) return []
+    return directoryData.files
+      .filter(f => !f.is_directory)
+      .filter(file =>
+        file.name.toLowerCase().endsWith('.edf') ||
+        file.name.toLowerCase().endsWith('.csv') ||
+        file.name.toLowerCase().endsWith('.ascii') ||
+        file.name.toLowerCase().endsWith('.txt')
+      )
+      .map(file => ({
+        file_path: file.path,
+        file_name: file.name,
+        file_size: file.size || 0,
+        duration: 0,
+        sample_rate: 256,
+        channels: [],
+        total_samples: 0,
+        start_time: file.last_modified || new Date().toISOString(),
+        end_time: file.last_modified || new Date().toISOString(),
+        annotations_count: 0
+      }))
+  }, [directoryData])
+
+  // Use BIDS detection queries for all directories
+  const bidsQueries = useBIDSMultipleDetections(directories)
+  const directoriesWithBIDS = useMemo(() => {
+    return bidsQueries.map((query, index) => {
+      if (query.isSuccess && query.data) {
+        return query.data
+      }
+      return { ...directories[index], isBIDS: false }
+    })
+  }, [bidsQueries, directories])
+
+  const checkingBIDS = bidsQueries.some(q => q.isLoading)
 
   // Load the data directory path on mount if not already set
   useEffect(() => {
@@ -93,134 +154,36 @@ export function FileManager({ apiService }: FileManagerProps) {
     loadDataDirectoryPath()
   }, [])
 
-  // Load files when component mounts or path changes
-  // Only load if server is ready to avoid blocking UI with failed requests
+  // Handle initial load state
   useEffect(() => {
-    if (fileManager.dataDirectoryPath && ui.isServerReady && !isInitialLoad) {
-      loadCurrentDirectory()
+    if (isInitialLoad && ui.isServerReady && isPersistenceRestored) {
+      console.log('[FILEMANAGER] Server ready and persistence restored')
+      setIsInitialLoad(false)
     }
-  }, [fileManager.currentPath, fileManager.dataDirectoryPath, ui.isServerReady])
+  }, [ui.isServerReady, isPersistenceRestored, isInitialLoad])
 
-  // Ensure we load on mount even if currentPath hasn't changed
-  // Wait for server to be ready AND persistence to be restored before loading
+  // Handle pending file selection restoration
   useEffect(() => {
-    if (isInitialLoad && ui.isServerReady && isPersistenceRestored && fileManager.dataDirectoryPath) {
-      console.log('[FILEMANAGER] Server ready and persistence restored, loading initial directory')
-      setIsInitialLoad(false)
-      loadCurrentDirectory()
-    } else if (isInitialLoad && ui.isServerReady && !fileManager.dataDirectoryPath) {
-      // Server is ready but no directory selected - stop loading and show message
-      console.log('[FILEMANAGER] Server ready, no directory selected')
-      setIsInitialLoad(false)
-      setLoading(false)
-    } else if (isInitialLoad && ui.isServerReady && !isPersistenceRestored) {
-      console.log('[FILEMANAGER] Server ready, waiting for persistence to restore...')
-    }
-  }, [ui.isServerReady, isPersistenceRestored, isInitialLoad, fileManager.dataDirectoryPath])
-
-  const loadCurrentDirectory = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-
-      // Build absolute path: dataDirectoryPath + relative currentPath
-      const relativePath = fileManager.currentPath.join('/')
-      const absolutePath = relativePath ? `${fileManager.dataDirectoryPath}/${relativePath}` : fileManager.dataDirectoryPath
-
-      console.log('[FILEMANAGER] Loading directory:', {
-        dataDirectoryPath: fileManager.dataDirectoryPath,
-        relativePath,
-        absolutePath,
-        currentPathArray: fileManager.currentPath
-      })
-
-      // Get directory listing - pass absolute path
-      const result = await apiService.listDirectory(absolutePath)
-
-      if (result.files) {
-        // Separate directories and files
-        const dirs = result.files.filter(f => f.is_directory)
-        const fileList = result.files.filter(f => !f.is_directory)
-
-        // Convert to DirectoryEntry format
-        const dirEntries: DirectoryEntry[] = dirs.map(d => ({
-          name: d.name,
-          path: d.path
-        }))
-
-        // Check for BIDS datasets asynchronously
-        const bidsEnrichedDirs = await checkDirectories(dirEntries)
-        setDirectories(bidsEnrichedDirs)
-
-        // Convert to EDFFileInfo format
-        const edfFiles: EDFFileInfo[] = fileList
-          .filter(file =>
-            file.name.toLowerCase().endsWith('.edf') ||
-            file.name.toLowerCase().endsWith('.csv') ||
-            file.name.toLowerCase().endsWith('.ascii') ||
-            file.name.toLowerCase().endsWith('.txt')
-          )
-          .map(file => ({
-            file_path: file.path,
-            file_name: file.name,
-            file_size: file.size || 0,
-            duration: 0, // Will be loaded when file is selected
-            sample_rate: 256,
-            channels: [],
-            total_samples: 0,
-            start_time: file.last_modified || new Date().toISOString(),
-            end_time: file.last_modified || new Date().toISOString(),
-            annotations_count: 0
-          }))
-
-        setFiles(edfFiles)
-
-        // Immediately restore pending file selection if present
-        // This eliminates the delay between loading files and restoring selection
-        console.log('[FILEMANAGER] Checking for pending file selection:', {
-          pendingFileSelection: fileManager.pendingFileSelection,
-          isServerReady: ui.isServerReady,
-          filesLoaded: edfFiles.length
-        })
-
-        if (fileManager.pendingFileSelection && ui.isServerReady) {
-          const fileToSelect = edfFiles.find(f => f.file_path === fileManager.pendingFileSelection)
-          if (fileToSelect) {
-            console.log('[FILEMANAGER] ✓ Restoring selected file asynchronously:', {
-              fileName: fileToSelect.file_name,
-              filePath: fileToSelect.file_path
-            })
-            // Load file info asynchronously without blocking UI
-            // Use setTimeout to defer to next event loop tick
-            setTimeout(() => {
-              loadFileInfo(fileToSelect).then(() => {
-                console.log('[FILEMANAGER] File restoration completed')
-              }).catch(err => {
-                console.error('[FILEMANAGER] File restoration failed:', err)
-              })
-            }, 0)
-            clearPendingFileSelection()
-          } else {
-            console.warn('[FILEMANAGER] ✗ Pending file not found in loaded files:', {
-              pendingPath: fileManager.pendingFileSelection,
-              loadedFiles: edfFiles.map(f => f.file_path)
-            })
-            clearPendingFileSelection()
-          }
-        } else if (!fileManager.pendingFileSelection) {
-          console.log('[FILEMANAGER] No pending file selection to restore')
-        }
+    if (fileManager.pendingFileSelection && ui.isServerReady && files.length > 0 && !isInitialLoad) {
+      const fileToSelect = files.find(f => f.file_path === fileManager.pendingFileSelection)
+      if (fileToSelect) {
+        console.log('[FILEMANAGER] ✓ Restoring selected file:', fileToSelect.file_name)
+        setTimeout(() => {
+          loadFileInfo(fileToSelect).catch(err => {
+            console.error('[FILEMANAGER] File restoration failed:', err)
+          })
+        }, 0)
+        clearPendingFileSelection()
+      } else {
+        console.log('[FILEMANAGER] ✗ Pending file not in current directory, clearing pending state')
+        clearPendingFileSelection()
       }
-    } catch (err) {
-      console.error('Failed to load directory:', err)
-      setError(err instanceof Error ? err.message : 'Failed to load directory')
-    } finally {
-      setLoading(false)
     }
-  }
+  }, [fileManager.pendingFileSelection, ui.isServerReady, files, isInitialLoad])
 
-  // NOTE: Pending file selection is now handled inline in loadCurrentDirectory
-  // to eliminate the visible delay. The useEffect has been removed to avoid double-loading.
+  // Show loading if directory is loading OR if we're waiting for initial data
+  const loading = directoryLoading || (isInitialLoad && !directoryData) || loadFileInfoMutation.isPending
+  const error = directoryError ? (directoryError instanceof Error ? directoryError.message : 'Failed to load directory') : null
 
   // Filter and sort files
   const filteredAndSortedFiles = useMemo(() => {
@@ -282,56 +245,53 @@ export function FileManager({ apiService }: FileManagerProps) {
   }
 
   const loadFileInfo = async (file: EDFFileInfo) => {
-    try {
-      // Set file as selected immediately for instant visual feedback
-      // This shows the file highlighted while metadata loads
-      setSelectedFile(file)
-      setLoading(true)
+    // Set file as selected immediately for instant visual feedback
+    setSelectedFile(file)
 
-      // Get detailed file information
-      const fileInfo = await apiService.getFileInfo(file.file_path)
-      // Update with full details
-      setSelectedFile(fileInfo)
+    // Use mutation to load file info
+    loadFileInfoMutation.mutate(file.file_path, {
+      onSuccess: (fileInfo) => {
+        // Update with full details
+        setSelectedFile(fileInfo)
 
-      // Record file load action if recording is active
-      if (workflowRecording.isRecording) {
-        try {
-          // Determine file type from extension
-          const ext = file.file_path.split('.').pop()?.toLowerCase()
-          let fileType: 'EDF' | 'ASCII' | 'CSV' = 'EDF'
-          if (ext === 'csv') fileType = 'CSV'
-          else if (ext === 'ascii' || ext === 'txt') fileType = 'ASCII'
+        // Record file load action if recording is active
+        if (workflowRecording.isRecording) {
+          try {
+            const ext = file.file_path.split('.').pop()?.toLowerCase()
+            let fileType: 'EDF' | 'ASCII' | 'CSV' = 'EDF'
+            if (ext === 'csv') fileType = 'CSV'
+            else if (ext === 'ascii' || ext === 'txt') fileType = 'ASCII'
 
-          const action = createLoadFileAction(file.file_path, fileType)
-          await recordAction(action)
-          incrementActionCount()
-          console.log('[WORKFLOW] Recorded file load:', file.file_path)
-        } catch (error) {
-          console.error('[WORKFLOW] Failed to record file load:', error)
+            const action = createLoadFileAction(file.file_path, fileType)
+            recordAction(action).then(() => {
+              incrementActionCount()
+              console.log('[WORKFLOW] Recorded file load:', file.file_path)
+            }).catch(error => {
+              console.error('[WORKFLOW] Failed to record file load:', error)
+            })
+          } catch (error) {
+            console.error('[WORKFLOW] Failed to record file load:', error)
+          }
         }
+
+        // Auto-select first few channels if none selected OR if selected channels don't exist in this file
+        const validSelectedChannels = fileManager.selectedChannels.filter(ch =>
+          fileInfo.channels.includes(ch)
+        )
+
+        if (fileInfo.channels.length > 0 && validSelectedChannels.length === 0) {
+          const defaultChannels = fileInfo.channels.slice(0, Math.min(10, fileInfo.channels.length))
+          console.log('[FILEMANAGER] Auto-selecting default channels:', defaultChannels)
+          setSelectedChannels(defaultChannels)
+        } else if (validSelectedChannels.length !== fileManager.selectedChannels.length) {
+          console.log('[FILEMANAGER] Updating to valid channels only:', validSelectedChannels)
+          setSelectedChannels(validSelectedChannels)
+        }
+      },
+      onError: (error) => {
+        console.error('Failed to load file info:', error)
       }
-
-      // Auto-select first few channels if none selected OR if selected channels don't exist in this file
-      const validSelectedChannels = fileManager.selectedChannels.filter(ch =>
-        fileInfo.channels.includes(ch)
-      )
-
-      if (fileInfo.channels.length > 0 && validSelectedChannels.length === 0) {
-        const defaultChannels = fileInfo.channels.slice(0, Math.min(10, fileInfo.channels.length))
-        console.log('[FILEMANAGER] Auto-selecting default channels:', defaultChannels)
-        setSelectedChannels(defaultChannels)
-      } else if (validSelectedChannels.length !== fileManager.selectedChannels.length) {
-        // Some channels were invalid - update to only valid ones
-        console.log('[FILEMANAGER] Updating to valid channels only:', validSelectedChannels)
-        setSelectedChannels(validSelectedChannels)
-      }
-
-    } catch (error) {
-      console.error('Failed to load file info:', error)
-      setError(error instanceof Error ? error.message : 'Failed to load file info')
-    } finally {
-      setLoading(false)
-    }
+    })
   }
 
   const confirmFileSelection = () => {
@@ -388,34 +348,27 @@ export function FileManager({ apiService }: FileManagerProps) {
     const supportedFormats = ['edf', 'csv', 'txt', 'ascii', 'vhdr', 'set']
 
     if (extension && !supportedFormats.includes(extension)) {
-      setError(
+      console.error(
         `File format .${extension} is not yet supported. Currently supported formats: EDF, CSV, ASCII/TXT, BrainVision (.vhdr), EEGLAB (.set).`
       )
-      setLoading(false)
       return
     }
 
-    // Load the selected file through the API
+    // Load the selected file through the API using mutation
     try {
-      setLoading(true)
-      setError(null)
-      const fileInfo = await apiService.getFileInfo(filePath)
-
-      if (fileInfo) {
-        // Load file info and close BIDS browser
-        await loadFileInfo(fileInfo)
-        setShowBidsBrowser(false)
-        setBidsDatasetPath(null)
-      }
+      loadFileInfoMutation.mutate(filePath, {
+        onSuccess: (fileInfo) => {
+          // Load file info and close BIDS browser
+          loadFileInfo(fileInfo)
+          setShowBidsBrowser(false)
+          setBidsDatasetPath(null)
+        },
+        onError: (error) => {
+          console.error('[FILEMANAGER] Failed to load BIDS file:', error)
+        }
+      })
     } catch (error) {
       console.error('[FILEMANAGER] Failed to load BIDS file:', error)
-      setError(
-        `Failed to load selected file. ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`
-      )
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -452,9 +405,6 @@ export function FileManager({ apiService }: FileManagerProps) {
     if (!TauriService.isTauri()) return
 
     try {
-      setLoading(true)
-      setError(null)
-
       // Open folder picker dialog (without saving to backend config)
       const { open } = await import('@tauri-apps/plugin-dialog')
       const selected = await open({
@@ -489,15 +439,10 @@ export function FileManager({ apiService }: FileManagerProps) {
       setDataDirectoryPath(selected)
       console.log('[FILEMANAGER] ===== DIRECTORY CHANGE END =====')
 
-      // The useEffect will reload automatically when dataDirectoryPath changes
+      // React Query will automatically refetch when path changes
     } catch (error) {
       console.error('Failed to select data directory:', error)
-      if (error instanceof Error && !error.message.includes('cancelled') && !error.message.includes('No directory selected')) {
-        setError('Failed to change directory: ' + error.message)
-      }
-      // User probably cancelled
-    } finally {
-      setLoading(false)
+      // User probably cancelled - silently ignore
     }
   }
 
@@ -553,7 +498,7 @@ export function FileManager({ apiService }: FileManagerProps) {
             <Button
               variant="ghost"
               size="icon"
-              onClick={loadCurrentDirectory}
+              onClick={() => refetchDirectory()}
               disabled={loading}
               title="Refresh directory"
             >
@@ -648,19 +593,39 @@ export function FileManager({ apiService }: FileManagerProps) {
         )}
 
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-8 gap-4">
-            <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-            <div className="text-center">
-              <p className="font-medium">Loading files...</p>
-              <p className="text-sm text-muted-foreground">
-                Scanning {fileManager.currentPath.length > 0 ? fileManager.currentPath.join('/') : 'root directory'}
+          <div className="flex flex-col items-center justify-center py-12 gap-4">
+            <div className="relative">
+              <RefreshCw className="h-12 w-12 animate-spin text-primary" />
+              <div className="absolute -inset-2 bg-primary/10 rounded-full blur-xl animate-pulse" />
+            </div>
+            <div className="text-center space-y-2">
+              <p className="font-medium text-lg">
+                {loadFileInfoMutation.isPending
+                  ? 'Loading file metadata...'
+                  : !isPersistenceRestored
+                    ? 'Restoring previous session...'
+                    : 'Loading directory...'}
               </p>
+              <p className="text-sm text-muted-foreground">
+                {loadFileInfoMutation.isPending
+                  ? 'Reading file information from backend'
+                  : !isPersistenceRestored
+                    ? 'Loading saved state, plots, and analysis results'
+                    : `Scanning ${fileManager.currentPath.length > 0 ? fileManager.currentPath.join('/') : 'root directory'}`
+                }
+              </p>
+              {checkingBIDS && (
+                <div className="flex items-center justify-center gap-2 mt-2 text-purple-600">
+                  <div className="w-2 h-2 bg-purple-600 rounded-full animate-pulse" />
+                  <span className="text-xs">Checking for BIDS datasets...</span>
+                </div>
+              )}
             </div>
           </div>
         ) : (
           <div className="space-y-2">
             {/* Directories */}
-            {directories.map((dir) => (
+            {directoriesWithBIDS.map((dir) => (
               <div
                 key={dir.path}
                 onClick={() => handleDirectorySelect(dir)}
@@ -706,13 +671,13 @@ export function FileManager({ apiService }: FileManagerProps) {
                 key={`${file.file_path}-${index}`}
                 onClick={() => handleFileSelect(file)}
                 className={`flex items-center gap-3 p-3 rounded-lg border transition-all
-                  ${fileManager.pendingFileSelection
-                    ? 'opacity-50 cursor-wait'
-                    : 'cursor-pointer'
+                  ${(fileManager.pendingFileSelection || loadFileInfoMutation.isPending)
+                    ? 'opacity-50 cursor-wait pointer-events-none'
+                    : 'cursor-pointer hover:bg-accent hover:shadow-sm'
                   }
                   ${fileManager.selectedFile?.file_path === file.file_path
                     ? 'bg-primary/10 border-primary shadow-sm ring-2 ring-primary/20'
-                    : fileManager.pendingFileSelection ? '' : 'hover:bg-accent hover:shadow-sm'
+                    : ''
                   }`}
               >
                 <FileText className="h-5 w-5 text-green-600" />
@@ -752,7 +717,7 @@ export function FileManager({ apiService }: FileManagerProps) {
               </div>
             ))}
 
-            {filteredAndSortedFiles.length === 0 && directories.length === 0 && (
+            {filteredAndSortedFiles.length === 0 && directoriesWithBIDS.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
                 <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 {!fileManager.dataDirectoryPath ? (

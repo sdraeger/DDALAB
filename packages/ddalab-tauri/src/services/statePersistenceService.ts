@@ -4,10 +4,10 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { 
-  AppState, 
-  StatePersistenceOptions, 
-  StateSnapshot, 
+import {
+  AppState,
+  StatePersistenceOptions,
+  StateSnapshot,
   AnalysisResult,
   PlotState,
   DDAState,
@@ -17,6 +17,10 @@ import {
 
 export class StatePersistenceService {
   private saveTimer: NodeJS.Timeout | null = null;
+  private throttleTimer: NodeJS.Timeout | null = null;
+  private pendingSave: any = null;
+  private lastSaveTime: number = 0;
+  private readonly THROTTLE_MS = 500; // Throttle saves to max once per 500ms
   private options: StatePersistenceOptions = {
     autoSave: true,
     saveInterval: 30000, // 30 seconds
@@ -39,7 +43,7 @@ export class StatePersistenceService {
       console.log('DEBUG: StatePersistenceService.initialize() called');
       const savedState = await invoke<AppState>('get_saved_state');
       console.log('DEBUG: invoke get_saved_state returned:', savedState);
-      
+
       if (this.options.autoSave) {
         console.log('DEBUG: Starting auto-save with interval:', this.options.saveInterval);
         this.startAutoSave();
@@ -61,18 +65,57 @@ export class StatePersistenceService {
   }
 
   /**
-   * Save the complete application state
+   * Save the complete application state with throttling to prevent excessive saves
    */
   async saveCompleteState(state: any): Promise<void> {
+    // Store the pending save
+    this.pendingSave = state;
+
+    // Check if we should throttle
+    const now = Date.now();
+    const timeSinceLastSave = now - this.lastSaveTime;
+
+    if (timeSinceLastSave < this.THROTTLE_MS) {
+      // Throttle - schedule for later if not already scheduled
+      if (!this.throttleTimer) {
+        const delay = this.THROTTLE_MS - timeSinceLastSave;
+        this.throttleTimer = setTimeout(() => {
+          this.throttleTimer = null;
+          if (this.pendingSave) {
+            this.executeSave(this.pendingSave);
+          }
+        }, delay);
+      }
+      return;
+    }
+
+    // Execute immediately
+    await this.executeSave(state);
+  }
+
+  /**
+   * Internal method to execute the actual save
+   */
+  private async executeSave(state: any): Promise<void> {
     try {
-      console.log('DEBUG: saveCompleteState called with state:', {
-        keys: Object.keys(state),
-        version: state.version,
-        hasFileManager: !!state.file_manager,
-        hasDDA: !!state.dda
-      });
+      this.lastSaveTime = Date.now();
+      this.pendingSave = null;
+
+      // Only log in debug mode to reduce console spam
+      if (process.env.NODE_ENV === 'development') {
+        console.log('DEBUG: saveCompleteState called with state:', {
+          keys: Object.keys(state),
+          version: state.version,
+          hasFileManager: !!state.file_manager,
+          hasDDA: !!state.dda
+        });
+      }
+
       await invoke('save_complete_state', { completeState: state });
-      console.log('DEBUG: Complete state saved successfully');
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('DEBUG: Complete state saved successfully');
+      }
     } catch (error) {
       console.error('DEBUG: Failed to save complete state:', error);
       console.error('DEBUG: State that failed to save:', state);

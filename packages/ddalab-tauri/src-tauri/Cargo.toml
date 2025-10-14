@@ -6,6 +6,7 @@ authors = ["DDALAB Team"]
 license = "MIT"
 repository = "https://github.com/sdraeger/DDALAB"
 edition = "2021"
+default-run = "ddalab-tauri"
 
 [build-dependencies]
 tauri-build = { version = "2.4.1", features = [] }
@@ -58,6 +59,8 @@ tera = "1.19"
 bvreader = "0.1"  # BrainVision format (.vhdr, .vmrk, .eeg)
 matfile = { version = "0.3", features = ["ndarray"] }  # MATLAB .mat/.set files
 ndarray = "0.16"  # Array processing for MAT files
+# Secure credential storage
+keyring = "3.6"  # Cross-platform keyring access
 
 [dev-dependencies]
 hyper = "1.0"
@@ -72,6 +75,10 @@ path = "src/lib.rs"
 [[bin]]
 name = "ddalab-tauri"
 path = "src/main.rs"
+
+[[bin]]
+name = "embedded_api_server"
+path = "src/bin/embedded_api_server.rs"
 
 [features]
 default = ["custom-protocol", "devtools"]

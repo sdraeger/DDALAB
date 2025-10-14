@@ -65,7 +65,7 @@ export interface BIDSEvent {
 }
 
 /**
- * Discover all subjects in a BIDS dataset
+ * Discover all subjects in a BIDS dataset (optimized with parallel operations)
  */
 export async function discoverSubjects(rootPath: string): Promise<BIDSSubject[]> {
   try {
@@ -76,25 +76,25 @@ export async function discoverSubjects(rootPath: string): Promise<BIDSSubject[]>
       entry => entry.isDirectory && entry.name.startsWith('sub-')
     );
 
-    const subjects: BIDSSubject[] = [];
-
-    for (const subDir of subjectDirs) {
+    // Process all subjects in parallel for better performance
+    const subjectPromises = subjectDirs.map(async (subDir) => {
       const match = subDir.name.match(/^sub-([a-zA-Z0-9]+)$/);
-      if (!match) continue;
+      if (!match) return null;
 
       const label = match[1];
       const subjectPath = `${rootPath}/${subDir.name}`;
 
       const sessions = await discoverSessions(subjectPath);
 
-      subjects.push({
+      return {
         id: subDir.name,
         label,
         sessions,
-      });
-    }
+      };
+    });
 
-    return subjects;
+    const subjects = await Promise.all(subjectPromises);
+    return subjects.filter((s): s is BIDSSubject => s !== null);
   } catch (error) {
     console.error('Failed to discover subjects:', error);
     return [];
@@ -102,7 +102,7 @@ export async function discoverSubjects(rootPath: string): Promise<BIDSSubject[]>
 }
 
 /**
- * Discover all sessions for a subject
+ * Discover all sessions for a subject (optimized with parallel operations)
  */
 async function discoverSessions(subjectPath: string): Promise<BIDSSession[]> {
   try {
@@ -128,24 +128,24 @@ async function discoverSessions(subjectPath: string): Promise<BIDSSession[]> {
       return [];
     }
 
-    const sessions: BIDSSession[] = [];
-
-    for (const sesDir of sessionDirs) {
+    // Process all sessions in parallel
+    const sessionPromises = sessionDirs.map(async (sesDir) => {
       const match = sesDir.name.match(/^ses-([a-zA-Z0-9]+)$/);
-      if (!match) continue;
+      if (!match) return null;
 
       const label = match[1];
       const sessionPath = `${subjectPath}/${sesDir.name}`;
       const runs = await discoverRuns(sessionPath, sesDir.name);
 
-      sessions.push({
+      return {
         id: sesDir.name,
         label,
         runs,
-      });
-    }
+      };
+    });
 
-    return sessions;
+    const sessions = await Promise.all(sessionPromises);
+    return sessions.filter((s): s is BIDSSession => s !== null);
   } catch (error) {
     console.error('Failed to discover sessions:', error);
     return [];
@@ -153,7 +153,7 @@ async function discoverSessions(subjectPath: string): Promise<BIDSSession[]> {
 }
 
 /**
- * Discover all runs in a session or subject directory
+ * Discover all runs in a session or subject directory (optimized with parallel operations)
  */
 async function discoverRuns(
   path: string,
@@ -169,9 +169,8 @@ async function discoverRuns(
       entry => entry.isDirectory && ['eeg', 'ieeg', 'meg'].includes(entry.name)
     );
 
-    const runs: BIDSRun[] = [];
-
-    for (const modalityDir of modalityDirs) {
+    // Process all modality directories in parallel
+    const modalityPromises = modalityDirs.map(async (modalityDir) => {
       const modality = modalityDir.name as 'eeg' | 'ieeg' | 'meg';
       const modalityPath = `${path}/${modalityDir.name}`;
 
@@ -184,6 +183,8 @@ async function discoverRuns(
           entry.name.endsWith('.vhdr') ||
           entry.name.endsWith('.set'))
       );
+
+      const runs: BIDSRun[] = [];
 
       for (const dataFile of dataFiles) {
         const baseName = dataFile.name.replace(/\.(edf|vhdr|set)$/, '');
@@ -217,9 +218,12 @@ async function discoverRuns(
           eventsFile: eventsFilePath,
         });
       }
-    }
 
-    return runs;
+      return runs;
+    });
+
+    const modalityRuns = await Promise.all(modalityPromises);
+    return modalityRuns.flat();
   } catch (error) {
     console.error('Failed to discover runs:', error);
     return [];
