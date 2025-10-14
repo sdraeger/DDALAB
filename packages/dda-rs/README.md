@@ -53,8 +53,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     };
 
-    // Run analysis
-    let result = runner.run(&request, 10000).await?;
+    // Run analysis with sample bounds (start_sample, end_sample)
+    let start_bound = 0;  // Start from beginning
+    let end_bound = 10000;  // End at sample 10000
+    let result = runner.run(&request, start_bound, end_bound).await?;
 
     // Access results
     println!("Analysis ID: {}", result.id);

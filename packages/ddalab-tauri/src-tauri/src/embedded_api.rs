@@ -991,16 +991,35 @@ pub async fn run_dda_analysis(
     let start_time = std::time::Instant::now();
     log::info!("⏱️  [TIMING] Starting EDF metadata read...");
     let file_path_for_edf = file_path.clone();
-    let end_bound = tokio::task::spawn_blocking(move || -> Result<u64, String> {
+    let request_start = request.time_range.start;
+    let request_end = request.time_range.end;
+
+    let (start_bound, end_bound) = tokio::task::spawn_blocking(move || -> Result<(u64, u64), String> {
         let edf = EDFReader::new(&file_path_for_edf)?;
+        let sample_rate = if !edf.signal_headers.is_empty() {
+            edf.signal_headers[0].num_samples_per_record as f64 / edf.header.duration_of_data_record
+        } else {
+            256.0  // Default sample rate
+        };
         let samples_per_record = if !edf.signal_headers.is_empty() {
             edf.signal_headers[0].num_samples_per_record as u64
         } else {
             1
         };
         let total_samples = edf.header.num_data_records as u64 * samples_per_record;
+
+        // Convert time to sample indices
+        let start_sample = (request_start * sample_rate) as u64;
+        let end_sample = (request_end * sample_rate) as u64;
+
+        // Apply safety margin to end bound
         let safety_margin = 256;
-        Ok(total_samples.saturating_sub(safety_margin))
+        let safe_end = std::cmp::min(end_sample, total_samples.saturating_sub(safety_margin));
+
+        log::info!("Time range: {:.2}s - {:.2}s -> samples: {} - {} (sample rate: {:.1} Hz)",
+            request_start, request_end, start_sample, safe_end, sample_rate);
+
+        Ok((start_sample, safe_end))
     })
     .await
     .map_err(|e| {
@@ -1024,7 +1043,7 @@ pub async fn run_dda_analysis(
     let dda_request = convert_to_dda_request(&request);
 
     log::info!("⏱️  [TIMING] Running DDA analysis via dda-rs...");
-    let dda_result = runner.run(&dda_request, end_bound).await
+    let dda_result = runner.run(&dda_request, start_bound, end_bound).await
         .map_err(|e| {
             log::error!("DDA analysis failed: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR

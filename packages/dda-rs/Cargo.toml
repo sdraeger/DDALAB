@@ -1,6 +1,6 @@
 [package]
 name = "dda-rs"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["DDALAB Contributors"]
 description = "Rust interface for the run_DDA_ASCII binary (Cosmopolitan Libc APE) for Delay Differential Analysis"
@@ -13,7 +13,7 @@ categories = ["science", "api-bindings"]
 readme = "README.md"
 
 [dependencies]
-tokio = { version = "1", features = ["process", "fs", "io-util"] }
+tokio = { version = "1.48.0", features = ["process", "fs", "io-util"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
