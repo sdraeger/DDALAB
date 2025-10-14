@@ -97,7 +97,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     scaleMax: storedAnalysisParameters.scaleMax,
     scaleNum: storedAnalysisParameters.scaleNum,
     timeStart: 0,
-    timeEnd: 30,
+    timeEnd: fileManager.selectedFile?.duration || 30,
     selectedChannels: [],
     preprocessing: {
       highpass: 0.5,
@@ -192,23 +192,33 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     { id: 'dynamical_ergodicity', name: 'Dynamical Ergodicity (DE)', description: 'Temporal stationarity assessment' }
   ]
 
-  // Initialize with file data - only run when file changes
+  // Initialize with file data - run when file changes or duration is loaded
   useEffect(() => {
     if (fileManager.selectedFile) {
-      const defaultChannels = fileManager.selectedFile.channels.slice(0, Math.min(8, fileManager.selectedFile.channels.length))
-      // Calculate default window length as 1/4 second (0.25 * sampling_rate)
-      const defaultWindowLength = Math.round(0.25 * fileManager.selectedFile.sample_rate)
+      const fileDuration = fileManager.selectedFile.duration
 
-      setLocalParameters(prev => ({
-        ...prev,
-        selectedChannels: defaultChannels,
-        timeEnd: Math.min(30, fileManager.selectedFile?.duration || 30)
-      }))
+      // Only update if we have a valid duration (> 0)
+      if (fileDuration && fileDuration > 0) {
+        const defaultChannels = fileManager.selectedFile.channels.slice(0, Math.min(8, fileManager.selectedFile.channels.length))
+        // Calculate default window length as 1/4 second (0.25 * sampling_rate)
+        const defaultWindowLength = Math.round(0.25 * fileManager.selectedFile.sample_rate)
 
-      // Update window length based on sampling rate
-      setLocalParameters(prev => ({ ...prev, windowLength: defaultWindowLength }))
+        console.log('[DDAAnalysis] Updating time range - file duration:', fileDuration, 'seconds')
+
+        setLocalParameters(prev => ({
+          ...prev,
+          selectedChannels: defaultChannels,
+          timeStart: 0,
+          timeEnd: fileDuration
+        }))
+
+        // Update window length based on sampling rate
+        setLocalParameters(prev => ({ ...prev, windowLength: defaultWindowLength }))
+      } else {
+        console.warn('[DDAAnalysis] File loaded but duration not available yet:', fileManager.selectedFile.file_path)
+      }
     }
-  }, [fileManager.selectedFile?.file_path]) // Only depend on file path to avoid unnecessary re-runs
+  }, [fileManager.selectedFile?.file_path, fileManager.selectedFile?.duration]) // Depend on both file path and duration
 
   const runAnalysis = async () => {
     if (!fileManager.selectedFile || parameters.selectedChannels.length === 0) {
@@ -337,7 +347,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       scaleMax: 20,
       scaleNum: 20,
       timeStart: 0,
-      timeEnd: Math.min(30, fileManager.selectedFile?.duration || 30),
+      timeEnd: fileManager.selectedFile?.duration || 30,
       selectedChannels: fileManager.selectedFile?.channels.slice(0, 8) || [],
       preprocessing: {
         highpass: 0.5,
@@ -506,10 +516,14 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   <Input
                     type="number"
                     value={parameters.timeEnd}
-                    onChange={(e) => setLocalParameters(prev => ({
-                      ...prev,
-                      timeEnd: Math.min(fileManager.selectedFile?.duration || 0, parseFloat(e.target.value) || 30)
-                    }))}
+                    onChange={(e) => {
+                      const inputValue = parseFloat(e.target.value) || 0
+                      const maxDuration = fileManager.selectedFile?.duration || Infinity
+                      setLocalParameters(prev => ({
+                        ...prev,
+                        timeEnd: Math.min(maxDuration, Math.max(prev.timeStart + 0.1, inputValue))
+                      }))
+                    }}
                     disabled={localIsRunning}
                     min={parameters.timeStart + 1}
                     max={fileManager.selectedFile?.duration}
