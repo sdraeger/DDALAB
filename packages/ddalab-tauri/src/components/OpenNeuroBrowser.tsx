@@ -1,7 +1,10 @@
-import { useState, useEffect, useCallback, useMemo, memo } from 'react';
-import { Search, Download, ExternalLink, Database, Calendar, Eye, TrendingDown } from 'lucide-react';
+import { useState, useCallback, useMemo, memo } from 'react';
+import { Search, Download, ExternalLink, Database, Calendar, Eye, TrendingDown, Key, Upload } from 'lucide-react';
 import { openNeuroService, type OpenNeuroDataset } from '../services/openNeuroService';
 import { open } from '@tauri-apps/plugin-shell';
+import { OpenNeuroApiKeyDialog } from './OpenNeuroApiKeyDialog';
+import { OpenNeuroDownloadDialog } from './OpenNeuroDownloadDialog';
+import { useOpenNeuroDatasetsBatch, useOpenNeuroApiKey } from '../hooks/useOpenNeuro';
 
 // Memoized dataset card component to prevent unnecessary re-renders
 const DatasetCard = memo(({
@@ -59,56 +62,64 @@ const DatasetCard = memo(({
 DatasetCard.displayName = 'DatasetCard';
 
 export function OpenNeuroBrowser() {
-  const [datasets, setDatasets] = useState<OpenNeuroDataset[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [allDatasets, setAllDatasets] = useState<OpenNeuroDataset[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [selectedDataset, setSelectedDataset] = useState<OpenNeuroDataset | null>(null);
+  const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = useState(false);
+  const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
+  const [datasetToDownload, setDatasetToDownload] = useState<OpenNeuroDataset | null>(null);
+  const [endCursor, setEndCursor] = useState<string | undefined>(undefined);
+  const [hasMorePages, setHasMorePages] = useState(true);
 
-  // Load datasets on mount
-  useEffect(() => {
-    loadDatasets();
-  }, []);
+  // Use TanStack Query for API key status
+  const { data: apiKeyStatus } = useOpenNeuroApiKey();
+  const isAuthenticated = apiKeyStatus?.has_key ?? false;
 
-  // Debounce search query to prevent lag
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearchQuery(searchQuery);
-    }, 300);
+  // Use TanStack Query for datasets - fetch initial batch
+  const {
+    data: initialData,
+    isLoading: loading,
+    error: queryError,
+  } = useOpenNeuroDatasetsBatch(50, undefined);
 
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
+  // Set initial datasets when loaded
+  useMemo(() => {
+    if (initialData && allDatasets.length === 0) {
+      setAllDatasets(initialData.datasets);
+      setEndCursor(initialData.endCursor || undefined);
+      setHasMorePages(initialData.hasNextPage);
+    }
+  }, [initialData]);
 
-  // Filter datasets using memoization
+  const error = queryError ? (queryError instanceof Error ? queryError.message : 'Failed to load datasets') : null;
+
+  // Filter datasets using memoization with debouncing effect
   const filteredDatasets = useMemo(() => {
-    if (debouncedSearchQuery.trim() === '') {
-      return datasets;
+    if (searchQuery.trim() === '') {
+      return allDatasets;
     }
 
-    const lowerQuery = debouncedSearchQuery.toLowerCase();
-    return datasets.filter(dataset =>
+    const lowerQuery = searchQuery.toLowerCase();
+    return allDatasets.filter(dataset =>
       dataset.id.toLowerCase().includes(lowerQuery) ||
       dataset.name?.toLowerCase().includes(lowerQuery)
     );
-  }, [debouncedSearchQuery, datasets]);
+  }, [searchQuery, allDatasets]);
 
-  const loadDatasets = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const loadMoreDatasets = useCallback(async () => {
+    if (!hasMorePages) return;
 
     try {
-      console.log('[OPENNEURO] Loading datasets...');
-      const results = await openNeuroService.searchDatasets();
-      console.log(`[OPENNEURO] Loaded ${results.length} datasets`);
-      setDatasets(results);
+      console.log('[OPENNEURO] Loading more datasets...');
+      const result = await openNeuroService.fetchDatasetsBatch(50, endCursor);
+      console.log(`[OPENNEURO] Loaded ${result.datasets.length} more datasets`);
+      setAllDatasets(prev => [...prev, ...result.datasets]);
+      setEndCursor(result.endCursor || undefined);
+      setHasMorePages(result.hasNextPage);
     } catch (err) {
-      console.error('[OPENNEURO] Failed to load datasets:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load datasets');
-    } finally {
-      setLoading(false);
+      console.error('[OPENNEURO] Failed to load more datasets:', err);
     }
-  }, []);
+  }, [hasMorePages, endCursor]);
 
   const handleDatasetClick = useCallback((dataset: OpenNeuroDataset) => {
     setSelectedDataset(dataset);
@@ -120,7 +131,6 @@ export function OpenNeuroBrowser() {
       await open(url);
     } catch (error) {
       console.error('Failed to open URL:', error);
-      // Fallback to window.open for web builds
       window.open(url, '_blank');
     }
   }, []);
@@ -139,8 +149,28 @@ export function OpenNeuroBrowser() {
     <div className="flex h-full gap-4">
       {/* Left panel: Dataset list */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Search bar */}
-        <div className="mb-4">
+        {/* Header with search and auth status */}
+        <div className="mb-4 space-y-3">
+          {/* Authentication status bar */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm">
+              <Key className="h-4 w-4 text-muted-foreground" />
+              {isAuthenticated ? (
+                <span className="text-primary font-medium">Authenticated</span>
+              ) : (
+                <span className="text-muted-foreground">Not authenticated</span>
+              )}
+            </div>
+            <button
+              onClick={() => setIsApiKeyDialogOpen(true)}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-accent hover:bg-accent/80 rounded-lg transition-colors"
+            >
+              <Key className="h-4 w-4" />
+              {isAuthenticated ? 'Manage API Key' : 'Add API Key'}
+            </button>
+          </div>
+
+          {/* Search bar */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input
@@ -183,24 +213,42 @@ export function OpenNeuroBrowser() {
         )}
 
         {!loading && filteredDatasets.length > 0 && (
-          <div className="flex-1 overflow-auto space-y-2">
-            {filteredDatasets.map(dataset => (
-              <DatasetCard
-                key={dataset.id}
-                dataset={dataset}
-                isSelected={selectedDataset?.id === dataset.id}
-                onSelect={handleDatasetClick}
-                onOpenInBrowser={handleOpenInBrowser}
-              />
-            ))}
-          </div>
+          <>
+            <div className="flex-1 overflow-auto space-y-2">
+              {filteredDatasets.map(dataset => (
+                <DatasetCard
+                  key={dataset.id}
+                  dataset={dataset}
+                  isSelected={selectedDataset?.id === dataset.id}
+                  onSelect={handleDatasetClick}
+                  onOpenInBrowser={handleOpenInBrowser}
+                />
+              ))}
+            </div>
+
+            {/* Load More button - only show if not searching and more data available */}
+            {!searchQuery && hasMorePages && (
+              <div className="mt-4 flex justify-center">
+                <button
+                  onClick={loadMoreDatasets}
+                  className="px-6 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors flex items-center gap-2"
+                >
+                  <Database className="h-4 w-4" />
+                  Load More Datasets
+                </button>
+              </div>
+            )}
+          </>
         )}
 
         <div className="mt-4 text-sm text-muted-foreground text-center">
-          {searchQuery && filteredDatasets.length !== datasets.length ? (
-            <>Showing {filteredDatasets.length} of {datasets.length} datasets</>
+          {searchQuery && filteredDatasets.length !== allDatasets.length ? (
+            <>Showing {filteredDatasets.length} of {allDatasets.length} datasets</>
           ) : (
-            <>{datasets.length} datasets</>
+            <>
+              {allDatasets.length} dataset{allDatasets.length !== 1 ? 's' : ''} loaded
+              {hasMorePages && !searchQuery && ' (more available)'}
+            </>
           )}
         </div>
       </div>
@@ -289,19 +337,35 @@ export function OpenNeuroBrowser() {
               View on OpenNeuro
             </button>
             <button
+              onClick={() => {
+                setDatasetToDownload(selectedDataset);
+                setIsDownloadDialogOpen(true);
+              }}
               className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors"
-              disabled
-              title="Download functionality coming soon"
             >
               <Download className="h-4 w-4" />
               Download Dataset
             </button>
-            <div className="text-xs text-center text-muted-foreground mt-2">
-              Download functionality coming soon
-            </div>
           </div>
         </div>
       )}
+
+      {/* API Key Management Dialog */}
+      <OpenNeuroApiKeyDialog
+        isOpen={isApiKeyDialogOpen}
+        onClose={() => setIsApiKeyDialogOpen(false)}
+        onApiKeyUpdated={() => {}}
+      />
+
+      {/* Download Dialog */}
+      <OpenNeuroDownloadDialog
+        isOpen={isDownloadDialogOpen}
+        onClose={() => {
+          setIsDownloadDialogOpen(false);
+          setDatasetToDownload(null);
+        }}
+        dataset={datasetToDownload}
+      />
     </div>
   );
 }

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 import { ChunkData } from "@/types/api";
+import { useChunkData, useOverviewData, useInvalidateTimeSeriesCache } from "@/hooks/useTimeSeriesData";
 import {
   Card,
   CardContent,
@@ -36,6 +37,10 @@ import {
   Activity,
   AlertCircle,
   ExternalLink,
+  Loader2,
+  ChevronDown,
+  ChevronRight,
+  Sliders,
 } from "lucide-react";
 import * as echarts from 'echarts';
 import { usePopoutWindows } from "@/hooks/usePopoutWindows";
@@ -84,31 +89,89 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   const pendingRenderRef = useRef<{ chunkData: ChunkData; startTime: number } | null>(null);
   const currentLabelsRef = useRef<{ channels: string[]; autoOffset: number } | null>(null);
 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(plot.chunkStart || 0);
   const [duration, setDuration] = useState(0);
-  const [loadChunkTimeout, setLoadChunkTimeout] =
-    useState<NodeJS.Timeout | null>(null);
-  const [loadOverviewTimeout, setLoadOverviewTimeout] =
-    useState<NodeJS.Timeout | null>(null);
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
 
-  // Overview plot state
-  const [overviewData, setOverviewData] = useState<ChunkData | null>(null);
-  const [overviewLoading, setOverviewLoading] = useState(false);
-
-  // AbortController to cancel pending API requests
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Preprocessing controls
+  // Preprocessing controls (must be declared before TanStack Query hooks)
   const [showPreprocessing, setShowPreprocessing] = useState(false);
   const [preprocessing, setPreprocessing] = useState<PreprocessingOptions>(
     plot.preprocessing || getDefaultPreprocessing()
   );
 
-  // Time window control (in seconds)
-  const timeWindowRef = useRef(plot.chunkSize / (fileManager.selectedFile?.sample_rate || 256) || 10);
+  // Cache invalidation utilities
+  const { invalidateFile } = useInvalidateTimeSeriesCache();
+
+  // Calculate chunk parameters
+  const timeWindow = useRef(plot.chunkSize / (fileManager.selectedFile?.sample_rate || 256) || 5).current;
+  const chunkSize = useMemo(() => {
+    if (!fileManager.selectedFile) return 0;
+    return Math.floor(timeWindow * fileManager.selectedFile.sample_rate);
+  }, [timeWindow, fileManager.selectedFile?.sample_rate]);
+
+  const chunkStart = useMemo(() => {
+    if (!fileManager.selectedFile) return 0;
+    return Math.floor(currentTime * fileManager.selectedFile.sample_rate);
+  }, [currentTime, fileManager.selectedFile?.sample_rate]);
+
+  // Only enable queries when chart is ready to avoid premature data fetching
+  const [isChartReady, setIsChartReady] = useState(false);
+
+  // TanStack Query: Load chunk data
+  const {
+    data: chunkData,
+    isLoading: chunkLoading,
+    error: chunkError,
+    refetch: refetchChunk,
+  } = useChunkData(
+    apiService,
+    fileManager.selectedFile?.file_path || '',
+    chunkStart,
+    chunkSize,
+    selectedChannels,
+    preprocessing.highpass || preprocessing.lowpass || (preprocessing.notch && preprocessing.notch.length > 0)
+      ? {
+          highpass: preprocessing.highpass,
+          lowpass: preprocessing.lowpass,
+          notch: preprocessing.notch,
+        }
+      : undefined,
+    !!(fileManager.selectedFile && selectedChannels.length > 0 && isChartReady)
+  );
+
+  // TanStack Query: Load overview data
+  const {
+    data: overviewData,
+    isLoading: overviewLoading,
+    error: overviewError,
+  } = useOverviewData(
+    apiService,
+    fileManager.selectedFile?.file_path || '',
+    selectedChannels,
+    2000,
+    !!(fileManager.selectedFile && selectedChannels.length > 0 && isChartReady)
+  );
+
+  // Derived loading/error states for UI
+  const loading = chunkLoading;
+  const error = chunkError ? (chunkError as Error).message : null;
+
+  // Sync preprocessing with plot state
+  useEffect(() => {
+    if (plot.preprocessing) {
+      setPreprocessing(plot.preprocessing);
+    }
+  }, [plot.preprocessing]);
+
+  // Save preprocessing when it changes
+  const handlePreprocessingChange = (newPreprocessing: PreprocessingOptions) => {
+    setPreprocessing(newPreprocessing);
+    updatePlotState({ preprocessing: newPreprocessing });
+    // Query will automatically refetch with new preprocessing due to query key change
+  };
+
+  // Time window control (in seconds) - start with smaller window for better performance
+  const timeWindowRef = useRef(plot.chunkSize / (fileManager.selectedFile?.sample_rate || 256) || 5);
 
   // Channel offset for stacking
   const channelOffsetSliderRef = useRef(50); // User-defined offset percentage
@@ -148,6 +211,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       }
 
       chartInstanceRef.current = chart;
+
+      // Mark chart as ready for data loading
+      setIsChartReady(true);
 
       // Setup resize observer with error suppression
       const resizeObserver = new ResizeObserver(() => {
@@ -191,101 +257,61 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       if (chartInstanceRef.current) {
         chartInstanceRef.current.dispose();
         chartInstanceRef.current = null;
+        setIsChartReady(false);
       }
     };
   }, []);
 
-  // Load chunk data function
-  const loadChunkData = async (startTime: number) => {
+  // Process and render chunk data when query data changes
+  useEffect(() => {
+    if (!chunkData || !fileManager.selectedFile) return;
+
+    console.log('[ECharts] Chunk data received from query:', {
+      dataLength: chunkData.data?.length,
+      timestampsLength: chunkData.timestamps?.length,
+      channels: chunkData.channels?.length,
+    });
+
+    if (!chunkData.data || chunkData.data.length === 0) {
+      console.error("No data received from query");
+      return;
+    }
+
+    // Apply preprocessing
+    const preprocessedData = chunkData.data.map((channelData) =>
+      applyPreprocessing(
+        channelData,
+        fileManager.selectedFile!.sample_rate,
+        preprocessing
+      )
+    );
+
+    const processedChunk: ChunkData = {
+      ...chunkData,
+      data: preprocessedData,
+    };
+
+    setCurrentChunk(processedChunk);
+    renderChart(processedChunk, currentTime);
+  }, [chunkData, fileManager.selectedFile, preprocessing, currentTime]);
+
+  // Load chunk - with TanStack Query, we just update the currentTime state
+  // The query will automatically refetch based on the new query key
+  const loadChunk = useCallback((startTime: number) => {
     if (!fileManager.selectedFile || selectedChannels.length === 0) {
       console.log("Cannot load chunk: no file or channels selected");
       return;
     }
 
     if (fileManager.selectedFile.duration === 0) {
-      setError("File has no duration - data may not be properly loaded");
+      console.error("File has no duration - data may not be properly loaded");
       return;
     }
 
-    try {
-      // Cancel any pending request
-      if (abortControllerRef.current) {
-        console.log('[ABORT] Cancelling previous chunk request');
-        abortControllerRef.current.abort();
-      }
-
-      abortControllerRef.current = new AbortController();
-      const signal = abortControllerRef.current.signal;
-
-      setLoading(true);
-      setError(null);
-
-      const timeWindow = timeWindowRef.current;
-      const chunkSize = Math.floor(timeWindow * fileManager.selectedFile.sample_rate);
-      const chunkStart = Math.floor(startTime * fileManager.selectedFile.sample_rate);
-
-      console.log('[ECharts] Loading chunk:', {
-        startTime,
-        timeWindow,
-        chunkSize,
-        selectedChannels: selectedChannels.length,
-      });
-
-      // Load ONLY selected channels
-      const chunkData = await apiService.getChunkData(
-        fileManager.selectedFile.file_path,
-        chunkStart,
-        chunkSize,
-        selectedChannels,
-        signal
-      );
-
-      console.log('[ECharts] Received chunk data:', {
-        dataLength: chunkData.data?.length,
-        timestampsLength: chunkData.timestamps?.length,
-        channels: chunkData.channels?.length,
-      });
-
-      if (!chunkData.data || chunkData.data.length === 0) {
-        setError("No data received from server");
-        return;
-      }
-
-      // Apply preprocessing
-      const preprocessedData = chunkData.data.map((channelData) =>
-        applyPreprocessing(
-          channelData,
-          fileManager.selectedFile!.sample_rate,
-          preprocessing
-        )
-      );
-
-      const processedChunk: ChunkData = {
-        ...chunkData,
-        data: preprocessedData,
-      };
-
-      setCurrentChunk(processedChunk);
-      renderChart(processedChunk, startTime);
-      setCurrentTime(startTime);
-      updatePlotState({ chunkStart: startTime });
-      setLoading(false);
-    } catch (err) {
-      if (err instanceof Error && err.name === 'CanceledError') {
-        console.log('[ABORT] Chunk request was cancelled');
-        setLoading(false);
-        return;
-      }
-
-      console.error("Failed to load chunk:", err);
-      setError(err instanceof Error ? err.message : "Failed to load data");
-      setLoading(false);
-    }
-  };
-
-  const loadChunk = useCallback((startTime: number) => {
-    loadChunkData(startTime);
-  }, [fileManager.selectedFile, selectedChannels, preprocessing]);
+    console.log('[ECharts] Loading chunk at time:', startTime);
+    setCurrentTime(startTime);
+    updatePlotState({ chunkStart: startTime });
+  }, [fileManager.selectedFile, selectedChannels]);
 
   // Update channel labels based on current data
   const updateChannelLabels = useCallback(() => {
@@ -393,23 +419,44 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
     console.log('[ECharts] Auto-calculated offset:', autoOffset);
 
-    // Prepare series data
+    // Prepare series data with aggressive decimation for better performance
     const series = chunkData.channels.map((channelName, channelIndex) => {
       const channelData = chunkData.data[channelIndex];
 
-      // Apply stacking offset
-      const offsetData = channelData.map((value, idx) => {
-        const time = startTime + (idx / chunkData.sample_rate);
-        const offsetValue = value + channelIndex * autoOffset;
-        return [time, offsetValue];
-      });
+      // Decimate data intelligently based on visible pixels
+      // For a typical 2000px wide chart, we don't need more than 4000 points
+      const maxPoints = 4000;
+      let decimatedData;
+
+      if (channelData.length > maxPoints) {
+        // Use simple decimation - take every Nth point
+        const step = Math.ceil(channelData.length / maxPoints);
+        decimatedData = [];
+        for (let i = 0; i < channelData.length; i += step) {
+          const time = startTime + (i / chunkData.sample_rate);
+          const offsetValue = channelData[i] + channelIndex * autoOffset;
+          decimatedData.push([time, offsetValue]);
+        }
+        console.log(`[ECharts] Decimated channel ${channelName}: ${channelData.length} → ${decimatedData.length} points`);
+      } else {
+        // Apply stacking offset without decimation
+        decimatedData = channelData.map((value, idx) => {
+          const time = startTime + (idx / chunkData.sample_rate);
+          const offsetValue = value + channelIndex * autoOffset;
+          return [time, offsetValue];
+        });
+      }
 
       return {
         name: channelName,
         type: 'line' as const,
-        data: offsetData,
+        data: decimatedData,
         symbol: 'none', // No markers for performance
-        sampling: 'lttb' as const, // Downsample for performance (Largest-Triangle-Three-Buckets)
+        sampling: 'lttb' as const, // Additional downsampling by ECharts (Largest-Triangle-Three-Buckets)
+        large: true, // Enable large mode for better performance with lots of data
+        largeThreshold: 2000, // Use large mode if more than 2000 points
+        progressive: 500, // Progressive rendering - render 500 points at a time
+        progressiveThreshold: 1000, // Enable progressive rendering for >1000 points
         lineStyle: {
           width: 1,
         },
@@ -482,11 +529,16 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
           type: 'inside',
           xAxisIndex: 0,
           filterMode: 'none', // Don't filter data when zooming
+          throttle: 100, // Throttle zoom events to 100ms for better performance
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true,
+          moveOnMouseWheel: false,
         },
         {
           type: 'slider',
           xAxisIndex: 0,
           filterMode: 'none',
+          throttle: 100, // Throttle slider updates to 100ms
           textStyle: {
             color: 'hsl(var(--foreground))',
           },
@@ -553,16 +605,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       loadedFileRef.current = currentFilePath!;
       isInitialChannelSetRef.current = false;
     } else if (!isNewFile && !isInitialChannelSetRef.current && hasChannelsSelected) {
-      console.log('[ECharts] Same file, channels changed - reloading');
-
-      // Debounce channel changes
-      if (loadChunkTimeout) {
-        clearTimeout(loadChunkTimeout);
-      }
-      const timeoutId = setTimeout(() => {
-        loadChunk(currentTime);
-      }, 300); // 300ms debounce
-      setLoadChunkTimeout(timeoutId);
+      console.log('[ECharts] Same file, channels changed - will refetch via TanStack Query');
+      // TanStack Query will automatically refetch when selectedChannels changes
+      // No need for manual debouncing - query already handles deduplication
     }
   }, [fileManager.selectedFile?.file_path, selectedChannels, loadChunk]);
 
@@ -578,56 +623,16 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     }
   }, [fileManager.selectedFile, fileManager.selectedChannels]);
 
-  // Load overview data when file or selected channels change
+  // Overview data is now loaded automatically by TanStack Query hook
+  // Log when overview data changes
   useEffect(() => {
-    const loadOverview = async () => {
-      if (!fileManager.selectedFile || selectedChannels.length === 0) {
-        setOverviewData(null);
-        return;
-      }
-
-      console.log('[OVERVIEW] Loading overview for file:', fileManager.selectedFile.file_name);
-      setOverviewLoading(true);
-
-      try {
-        const data = await apiService.getOverviewData(
-          fileManager.selectedFile.file_path,
-          selectedChannels,
-          2000 // max points for overview
-        );
-
-        console.log('[OVERVIEW] Overview loaded successfully:', {
-          channels: data.channels.length,
-          pointsPerChannel: data.data[0]?.length || 0,
-        });
-
-        setOverviewData(data);
-      } catch (error) {
-        console.error('[OVERVIEW] Failed to load overview:', error);
-        // Don't show error to user - overview is optional feature
-      } finally {
-        setOverviewLoading(false);
-      }
-    };
-
-    // Debounce overview loading to prevent rapid requests when selecting multiple channels
-    if (loadOverviewTimeout) {
-      clearTimeout(loadOverviewTimeout);
+    if (overviewData) {
+      console.log('[OVERVIEW] Overview loaded successfully from query:', {
+        channels: overviewData.channels.length,
+        pointsPerChannel: overviewData.data[0]?.length || 0,
+      });
     }
-
-    const timeoutId = setTimeout(() => {
-      loadOverview();
-    }, 300); // 300ms debounce for overview
-
-    setLoadOverviewTimeout(timeoutId);
-
-    // Cleanup timeout on unmount
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [fileManager.selectedFile?.file_path, selectedChannels, apiService]);
+  }, [overviewData]);
 
   // Right-click handler for annotations
   const handleChartRightClick = useCallback((e: MouseEvent) => {
@@ -676,7 +681,16 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   };
 
   const handleTimeWindowChange = (value: number[]) => {
-    timeWindowRef.current = value[0];
+    const newWindow = value[0];
+    const sampleRate = fileManager.selectedFile?.sample_rate || 256;
+    const totalSamples = newWindow * sampleRate * selectedChannels.length;
+
+    // Warn if loading might be slow (>500k samples)
+    if (totalSamples > 500000) {
+      console.warn(`[ECharts] Large data request: ${totalSamples.toLocaleString()} samples may be slow`);
+    }
+
+    timeWindowRef.current = newWindow;
     loadChunk(currentTime);
   };
 
@@ -807,7 +821,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
         {/* Overview/Minimap - Global navigation for entire file */}
         <div className="mb-3">
           <OverviewPlot
-            overviewData={overviewData}
+            overviewData={overviewData || null}
             currentTime={currentTime}
             timeWindow={timeWindowRef.current}
             duration={duration}
@@ -816,11 +830,315 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
           />
         </div>
 
+        {/* Preprocessing Controls */}
+        <div className="mb-3 border rounded-lg overflow-hidden">
+          <button
+            onClick={() => setShowPreprocessing(!showPreprocessing)}
+            className="w-full flex items-center justify-between p-3 bg-accent/30 hover:bg-accent/50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <Sliders className="h-4 w-4" />
+              <span className="font-medium text-sm">Signal Preprocessing</span>
+              {(preprocessing.highpass || preprocessing.lowpass || preprocessing.notch?.length ||
+                preprocessing.smoothing?.enabled || preprocessing.outlierRemoval?.enabled) && (
+                <Badge variant="secondary" className="ml-2 text-xs">Active</Badge>
+              )}
+            </div>
+            {showPreprocessing ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+          </button>
+
+          {showPreprocessing && (
+            <div className="p-4 space-y-4 bg-background">
+              {/* Filters Section */}
+              <div>
+                <Label className="text-xs font-semibold uppercase text-muted-foreground mb-2 block">
+                  Frequency Filters
+                </Label>
+                <div className="space-y-3">
+                  {/* Highpass Filter */}
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="highpass-enabled"
+                      checked={!!preprocessing.highpass}
+                      onCheckedChange={(checked) => {
+                        handlePreprocessingChange({
+                          ...preprocessing,
+                          highpass: checked ? 0.5 : undefined,
+                        });
+                      }}
+                    />
+                    <Label htmlFor="highpass-enabled" className="text-sm flex-1">
+                      Highpass (removes DC drift)
+                    </Label>
+                    {preprocessing.highpass !== undefined && (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          value={preprocessing.highpass}
+                          onChange={(e) => {
+                            handlePreprocessingChange({
+                              ...preprocessing,
+                              highpass: parseFloat(e.target.value) || 0.5,
+                            });
+                          }}
+                          className="w-20 h-8 text-sm"
+                          step="0.1"
+                          min="0.1"
+                        />
+                        <span className="text-xs text-muted-foreground">Hz</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Lowpass Filter */}
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="lowpass-enabled"
+                      checked={!!preprocessing.lowpass}
+                      onCheckedChange={(checked) => {
+                        handlePreprocessingChange({
+                          ...preprocessing,
+                          lowpass: checked ? 70 : undefined,
+                        });
+                      }}
+                    />
+                    <Label htmlFor="lowpass-enabled" className="text-sm flex-1">
+                      Lowpass (anti-aliasing)
+                    </Label>
+                    {preprocessing.lowpass !== undefined && (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          value={preprocessing.lowpass}
+                          onChange={(e) => {
+                            handlePreprocessingChange({
+                              ...preprocessing,
+                              lowpass: parseFloat(e.target.value) || 70,
+                            });
+                          }}
+                          className="w-20 h-8 text-sm"
+                          step="1"
+                          min="1"
+                        />
+                        <span className="text-xs text-muted-foreground">Hz</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Notch Filter */}
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="notch-enabled"
+                      checked={preprocessing.notch && preprocessing.notch.length > 0}
+                      onCheckedChange={(checked) => {
+                        handlePreprocessingChange({
+                          ...preprocessing,
+                          notch: checked ? [50] : [],
+                        });
+                      }}
+                    />
+                    <Label htmlFor="notch-enabled" className="text-sm flex-1">
+                      Notch (line noise)
+                    </Label>
+                    {preprocessing.notch && preprocessing.notch.length > 0 && (
+                      <Select
+                        value={preprocessing.notch[0].toString()}
+                        onValueChange={(value) => {
+                          handlePreprocessingChange({
+                            ...preprocessing,
+                            notch: [parseInt(value)],
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="w-24 h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="50">50 Hz</SelectItem>
+                          <SelectItem value="60">60 Hz</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Baseline & Detrending */}
+              <div>
+                <Label className="text-xs font-semibold uppercase text-muted-foreground mb-2 block">
+                  Baseline & Trend
+                </Label>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <Label className="text-sm flex-1">Baseline Correction</Label>
+                    <Select
+                      value={preprocessing.baselineCorrection || 'none'}
+                      onValueChange={(value: any) => {
+                        handlePreprocessingChange({
+                          ...preprocessing,
+                          baselineCorrection: value,
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="w-32 h-8">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        <SelectItem value="mean">Mean</SelectItem>
+                        <SelectItem value="median">Median</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <Label className="text-sm flex-1">Detrending</Label>
+                    <Select
+                      value={preprocessing.detrending || 'none'}
+                      onValueChange={(value: any) => {
+                        handlePreprocessingChange({
+                          ...preprocessing,
+                          detrending: value,
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="w-32 h-8">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        <SelectItem value="linear">Linear</SelectItem>
+                        <SelectItem value="polynomial">Polynomial</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Artifact Removal */}
+              <div>
+                <Label className="text-xs font-semibold uppercase text-muted-foreground mb-2 block">
+                  Artifact Removal
+                </Label>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="outlier-enabled"
+                      checked={preprocessing.outlierRemoval?.enabled || false}
+                      onCheckedChange={(checked) => {
+                        handlePreprocessingChange({
+                          ...preprocessing,
+                          outlierRemoval: {
+                            enabled: checked as boolean,
+                            method: preprocessing.outlierRemoval?.method || 'clip',
+                            threshold: preprocessing.outlierRemoval?.threshold || 3,
+                          },
+                        });
+                      }}
+                    />
+                    <Label htmlFor="outlier-enabled" className="text-sm flex-1">
+                      Outlier Removal
+                    </Label>
+                    {preprocessing.outlierRemoval?.enabled && (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          value={preprocessing.outlierRemoval.threshold}
+                          onChange={(e) => {
+                            handlePreprocessingChange({
+                              ...preprocessing,
+                              outlierRemoval: {
+                                ...preprocessing.outlierRemoval!,
+                                threshold: parseFloat(e.target.value) || 3,
+                              },
+                            });
+                          }}
+                          className="w-20 h-8 text-sm"
+                          step="0.5"
+                          min="1"
+                        />
+                        <span className="text-xs text-muted-foreground">σ</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="smoothing-enabled"
+                      checked={preprocessing.smoothing?.enabled || false}
+                      onCheckedChange={(checked) => {
+                        handlePreprocessingChange({
+                          ...preprocessing,
+                          smoothing: {
+                            enabled: checked as boolean,
+                            method: preprocessing.smoothing?.method || 'moving_average',
+                            windowSize: preprocessing.smoothing?.windowSize || 5,
+                          },
+                        });
+                      }}
+                    />
+                    <Label htmlFor="smoothing-enabled" className="text-sm flex-1">
+                      Smoothing
+                    </Label>
+                    {preprocessing.smoothing?.enabled && (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          value={preprocessing.smoothing.windowSize}
+                          onChange={(e) => {
+                            handlePreprocessingChange({
+                              ...preprocessing,
+                              smoothing: {
+                                ...preprocessing.smoothing!,
+                                windowSize: parseInt(e.target.value) || 5,
+                              },
+                            });
+                          }}
+                          className="w-20 h-8 text-sm"
+                          step="1"
+                          min="3"
+                        />
+                        <span className="text-xs text-muted-foreground">pts</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Reset Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handlePreprocessingChange(getDefaultPreprocessing())}
+                className="w-full"
+              >
+                <RotateCcw className="h-3 w-3 mr-2" />
+                Reset All
+              </Button>
+            </div>
+          )}
+        </div>
+
         {/* Chart Container */}
         <div className="flex-1 relative min-h-0">
           {loading && (
-            <div className="absolute inset-0 bg-background/50 flex items-center justify-center z-10">
-              <div className="text-sm">Loading...</div>
+            <div className="absolute inset-0 bg-background/50 backdrop-blur-sm flex items-center justify-center z-10">
+              <div className="flex flex-col items-center gap-3 bg-background border rounded-lg p-6 shadow-lg">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <div className="text-sm font-medium">Loading data...</div>
+                <div className="text-xs text-muted-foreground max-w-xs text-center">
+                  Processing {selectedChannels.length} channels ({Math.floor(timeWindowRef.current * (fileManager.selectedFile?.sample_rate || 0)).toLocaleString()} samples)
+                </div>
+                {/* Cancel button removed - TanStack Query handles request cancellation automatically */}
+              </div>
             </div>
           )}
           <div ref={chartRef} className="w-full h-full" />
