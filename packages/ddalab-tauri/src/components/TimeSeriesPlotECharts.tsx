@@ -4,7 +4,11 @@ import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 import { ChunkData } from "@/types/api";
-import { useChunkData, useOverviewData, useInvalidateTimeSeriesCache } from "@/hooks/useTimeSeriesData";
+import {
+  useChunkData,
+  useOverviewData,
+  useInvalidateTimeSeriesCache,
+} from "@/hooks/useTimeSeriesData";
 import {
   Card,
   CardContent,
@@ -42,7 +46,7 @@ import {
   ChevronRight,
   Sliders,
 } from "lucide-react";
-import * as echarts from 'echarts';
+import * as echarts from "echarts";
 import { usePopoutWindows } from "@/hooks/usePopoutWindows";
 import { useTimeSeriesAnnotations } from "@/hooks/useAnnotations";
 import { AnnotationContextMenu } from "@/components/annotations/AnnotationContextMenu";
@@ -86,8 +90,14 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   const loadedFileRef = useRef<string | null>(null);
   const isInitialChannelSetRef = useRef<boolean>(true);
   const stableOffsetRef = useRef<number | null>(null);
-  const pendingRenderRef = useRef<{ chunkData: ChunkData; startTime: number } | null>(null);
-  const currentLabelsRef = useRef<{ channels: string[]; autoOffset: number } | null>(null);
+  const pendingRenderRef = useRef<{
+    chunkData: ChunkData;
+    startTime: number;
+  } | null>(null);
+  const currentLabelsRef = useRef<{
+    channels: string[];
+    autoOffset: number;
+  } | null>(null);
 
   const [currentTime, setCurrentTime] = useState(plot.chunkStart || 0);
   const [duration, setDuration] = useState(0);
@@ -103,7 +113,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   const { invalidateFile } = useInvalidateTimeSeriesCache();
 
   // Calculate chunk parameters
-  const timeWindow = useRef(plot.chunkSize / (fileManager.selectedFile?.sample_rate || 256) || 5).current;
+  const timeWindow = useRef(
+    plot.chunkSize / (fileManager.selectedFile?.sample_rate || 256) || 5
+  ).current;
   const chunkSize = useMemo(() => {
     if (!fileManager.selectedFile) return 0;
     return Math.floor(timeWindow * fileManager.selectedFile.sample_rate);
@@ -125,11 +137,13 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     refetch: refetchChunk,
   } = useChunkData(
     apiService,
-    fileManager.selectedFile?.file_path || '',
+    fileManager.selectedFile?.file_path || "",
     chunkStart,
     chunkSize,
     selectedChannels,
-    preprocessing.highpass || preprocessing.lowpass || (preprocessing.notch && preprocessing.notch.length > 0)
+    preprocessing.highpass ||
+      preprocessing.lowpass ||
+      (preprocessing.notch && preprocessing.notch.length > 0)
       ? {
           highpass: preprocessing.highpass,
           lowpass: preprocessing.lowpass,
@@ -146,7 +160,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     error: overviewError,
   } = useOverviewData(
     apiService,
-    fileManager.selectedFile?.file_path || '',
+    fileManager.selectedFile?.file_path || "",
     selectedChannels,
     2000,
     !!(fileManager.selectedFile && selectedChannels.length > 0 && isChartReady)
@@ -164,14 +178,18 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   }, [plot.preprocessing]);
 
   // Save preprocessing when it changes
-  const handlePreprocessingChange = (newPreprocessing: PreprocessingOptions) => {
+  const handlePreprocessingChange = (
+    newPreprocessing: PreprocessingOptions
+  ) => {
     setPreprocessing(newPreprocessing);
     updatePlotState({ preprocessing: newPreprocessing });
     // Query will automatically refetch with new preprocessing due to query key change
   };
 
   // Time window control (in seconds) - start with smaller window for better performance
-  const timeWindowRef = useRef(plot.chunkSize / (fileManager.selectedFile?.sample_rate || 256) || 5);
+  const timeWindowRef = useRef(
+    plot.chunkSize / (fileManager.selectedFile?.sample_rate || 256) || 5
+  );
 
   // Channel offset for stacking
   const channelOffsetSliderRef = useRef(50); // User-defined offset percentage
@@ -197,7 +215,10 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
         return;
       }
 
-      console.log('[ECharts] Initializing chart with dimensions:', { clientWidth, clientHeight });
+      console.log("[ECharts] Initializing chart with dimensions:", {
+        clientWidth,
+        clientHeight,
+      });
 
       // Get existing instance if any, or create new one
       let chart = echarts.getInstanceByDom(chartRef.current);
@@ -205,7 +226,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       if (!chart) {
         // Create chart instance with Canvas renderer for better performance
         chart = echarts.init(chartRef.current, null, {
-          renderer: 'canvas', // Use canvas renderer (WebGL not directly available in ECharts 5, but very optimized)
+          renderer: "canvas", // Use canvas renderer (WebGL not directly available in ECharts 5, but very optimized)
           useDirtyRect: true, // Performance optimization
         });
       }
@@ -227,14 +248,14 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       resizeObserver.observe(chartRef.current);
       resizeObserverRef.current = resizeObserver;
 
-      console.log('[ECharts] Chart initialized successfully');
+      console.log("[ECharts] Chart initialized successfully");
 
       // Add right-click handler for annotations
-      chartRef.current.addEventListener('contextmenu', handleChartRightClick);
+      chartRef.current.addEventListener("contextmenu", handleChartRightClick);
 
       // Render any pending data that arrived before chart was ready
       if (pendingRenderRef.current) {
-        console.log('[ECharts] Rendering pending data after initialization');
+        console.log("[ECharts] Rendering pending data after initialization");
         const { chunkData, startTime } = pendingRenderRef.current;
         pendingRenderRef.current = null;
         // Use setTimeout to ensure chart is fully ready
@@ -245,10 +266,13 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     initChart();
 
     return () => {
-      console.log('[ECharts] Cleaning up chart instance');
+      console.log("[ECharts] Cleaning up chart instance");
       // Remove right-click handler
       if (chartRef.current) {
-        chartRef.current.removeEventListener('contextmenu', handleChartRightClick);
+        chartRef.current.removeEventListener(
+          "contextmenu",
+          handleChartRightClick
+        );
       }
       if (resizeObserverRef.current) {
         resizeObserverRef.current.disconnect();
@@ -266,7 +290,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   useEffect(() => {
     if (!chunkData || !fileManager.selectedFile) return;
 
-    console.log('[ECharts] Chunk data received from query:', {
+    console.log("[ECharts] Chunk data received from query:", {
       dataLength: chunkData.data?.length,
       timestampsLength: chunkData.timestamps?.length,
       channels: chunkData.channels?.length,
@@ -297,21 +321,24 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
   // Load chunk - with TanStack Query, we just update the currentTime state
   // The query will automatically refetch based on the new query key
-  const loadChunk = useCallback((startTime: number) => {
-    if (!fileManager.selectedFile || selectedChannels.length === 0) {
-      console.log("Cannot load chunk: no file or channels selected");
-      return;
-    }
+  const loadChunk = useCallback(
+    (startTime: number) => {
+      if (!fileManager.selectedFile || selectedChannels.length === 0) {
+        console.log("Cannot load chunk: no file or channels selected");
+        return;
+      }
 
-    if (fileManager.selectedFile.duration === 0) {
-      console.error("File has no duration - data may not be properly loaded");
-      return;
-    }
+      if (fileManager.selectedFile.duration === 0) {
+        console.error("File has no duration - data may not be properly loaded");
+        return;
+      }
 
-    console.log('[ECharts] Loading chunk at time:', startTime);
-    setCurrentTime(startTime);
-    updatePlotState({ chunkStart: startTime });
-  }, [fileManager.selectedFile, selectedChannels]);
+      console.log("[ECharts] Loading chunk at time:", startTime);
+      setCurrentTime(startTime);
+      updatePlotState({ chunkStart: startTime });
+    },
+    [fileManager.selectedFile, selectedChannels]
+  );
 
   // Update channel labels based on current data
   const updateChannelLabels = useCallback(() => {
@@ -321,23 +348,26 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
     const channelLabels = channels.map((channelName, channelIndex) => {
       const yValue = channelIndex * autoOffset;
-      const pixelY = chartInstanceRef.current!.convertToPixel({ yAxisIndex: 0 }, yValue);
+      const pixelY = chartInstanceRef.current!.convertToPixel(
+        { yAxisIndex: 0 },
+        yValue
+      );
 
       return {
-        type: 'text',
-        right: 'auto',
+        type: "text",
+        right: "auto",
         left: 10,
         top: pixelY - 10,
         z: 100,
         style: {
           text: channelName,
           fontSize: 12,
-          fontWeight: 'bold',
-          fill: '#e5e5e5',
-          backgroundColor: 'rgba(24, 24, 27, 0.9)',
+          fontWeight: "bold",
+          fill: "#e5e5e5",
+          backgroundColor: "rgba(24, 24, 27, 0.9)",
           padding: [4, 8],
           borderRadius: 4,
-          borderColor: 'rgba(63, 63, 70, 1)',
+          borderColor: "rgba(63, 63, 70, 1)",
           borderWidth: 1,
         },
       };
@@ -350,21 +380,23 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
   // Render chart with ECharts
   const renderChart = (chunkData: ChunkData, startTime: number) => {
-    console.log('[ECharts] renderChart called:', {
+    console.log("[ECharts] renderChart called:", {
       hasChartInstance: !!chartInstanceRef.current,
       hasData: !!chunkData.data,
-      dataLength: chunkData.data?.length || 0
+      dataLength: chunkData.data?.length || 0,
     });
 
     if (!chartInstanceRef.current) {
-      console.warn('[ECharts] Chart instance not ready, storing for later render');
+      console.warn(
+        "[ECharts] Chart instance not ready, storing for later render"
+      );
       // Store the data to render once chart is initialized
       pendingRenderRef.current = { chunkData, startTime };
       return;
     }
 
     if (!chunkData.data || chunkData.data.length === 0) {
-      console.warn('[ECharts] No data to render');
+      console.warn("[ECharts] No data to render");
       return;
     }
 
@@ -392,7 +424,8 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       });
 
       const maxRange = Math.max(...channelRanges);
-      const avgRange = channelRanges.reduce((a, b) => a + b, 0) / channelRanges.length;
+      const avgRange =
+        channelRanges.reduce((a, b) => a + b, 0) / channelRanges.length;
 
       // Use a spacing multiplier that ensures clear separation
       // Base spacing is 3x the average range, plus user adjustment
@@ -407,7 +440,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       );
 
       stableOffsetRef.current = autoOffset;
-      console.log('[ECharts] Calculated spacing:', {
+      console.log("[ECharts] Calculated spacing:", {
         maxRange,
         avgRange,
         spacingMultiplier,
@@ -417,7 +450,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       autoOffset = stableOffsetRef.current;
     }
 
-    console.log('[ECharts] Auto-calculated offset:', autoOffset);
+    console.log("[ECharts] Auto-calculated offset:", autoOffset);
 
     // Prepare series data with aggressive decimation for better performance
     const series = chunkData.channels.map((channelName, channelIndex) => {
@@ -433,15 +466,17 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
         const step = Math.ceil(channelData.length / maxPoints);
         decimatedData = [];
         for (let i = 0; i < channelData.length; i += step) {
-          const time = startTime + (i / chunkData.sample_rate);
+          const time = startTime + i / chunkData.sample_rate;
           const offsetValue = channelData[i] + channelIndex * autoOffset;
           decimatedData.push([time, offsetValue]);
         }
-        console.log(`[ECharts] Decimated channel ${channelName}: ${channelData.length} → ${decimatedData.length} points`);
+        console.log(
+          `[ECharts] Decimated channel ${channelName}: ${channelData.length} → ${decimatedData.length} points`
+        );
       } else {
         // Apply stacking offset without decimation
         decimatedData = channelData.map((value, idx) => {
-          const time = startTime + (idx / chunkData.sample_rate);
+          const time = startTime + idx / chunkData.sample_rate;
           const offsetValue = value + channelIndex * autoOffset;
           return [time, offsetValue];
         });
@@ -449,10 +484,10 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
       return {
         name: channelName,
-        type: 'line' as const,
+        type: "line" as const,
         data: decimatedData,
-        symbol: 'none', // No markers for performance
-        sampling: 'lttb' as const, // Additional downsampling by ECharts (Largest-Triangle-Three-Buckets)
+        symbol: "none", // No markers for performance
+        sampling: "lttb" as const, // Additional downsampling by ECharts (Largest-Triangle-Three-Buckets)
         large: true, // Enable large mode for better performance with lots of data
         largeThreshold: 2000, // Use large mode if more than 2000 points
         progressive: 500, // Progressive rendering - render 500 points at a time
@@ -470,11 +505,11 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     // Configure chart options
     const option: echarts.EChartsOption = {
       title: {
-        text: 'Time Series Plot',
-        left: 'center',
+        text: "Time Series Plot",
+        left: "center",
         textStyle: {
           fontSize: 14,
-          color: 'hsl(var(--foreground))',
+          color: "hsl(var(--foreground))",
         },
       },
       tooltip: {
@@ -484,39 +519,39 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
         data: chunkData.channels,
         top: 30,
         textStyle: {
-          color: 'hsl(var(--foreground))',
+          color: "hsl(var(--foreground))",
         },
       },
       grid: {
-        left: '120px',
-        right: '4%',
-        bottom: '10%',
-        top: '15%',
+        left: "120px",
+        right: "4%",
+        bottom: "10%",
+        top: "15%",
         containLabel: false,
       },
       toolbox: {
         feature: {
           dataZoom: {
-            yAxisIndex: 'none',
+            yAxisIndex: "none",
           },
           restore: {},
           saveAsImage: {},
         },
       },
       xAxis: {
-        type: 'value',
-        name: 'Time (s)',
-        nameLocation: 'middle',
+        type: "value",
+        name: "Time (s)",
+        nameLocation: "middle",
         nameGap: 30,
         min: startTime,
         max: startTime + timeWindow,
         axisLabel: {
-          color: 'hsl(var(--foreground))',
+          color: "hsl(var(--foreground))",
         },
       },
       yAxis: {
-        type: 'value',
-        name: '', // Remove amplitude label
+        type: "value",
+        name: "", // Remove amplitude label
         axisLabel: {
           show: false, // Hide numeric labels since we'll show channel names
         },
@@ -526,21 +561,21 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       },
       dataZoom: [
         {
-          type: 'inside',
+          type: "inside",
           xAxisIndex: 0,
-          filterMode: 'none', // Don't filter data when zooming
+          filterMode: "none", // Don't filter data when zooming
           throttle: 100, // Throttle zoom events to 100ms for better performance
           zoomOnMouseWheel: true,
           moveOnMouseMove: true,
           moveOnMouseWheel: false,
         },
         {
-          type: 'slider',
+          type: "slider",
           xAxisIndex: 0,
-          filterMode: 'none',
+          filterMode: "none",
           throttle: 100, // Throttle slider updates to 100ms
           textStyle: {
-            color: 'hsl(var(--foreground))',
+            color: "hsl(var(--foreground))",
           },
         },
       ],
@@ -563,7 +598,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       updateChannelLabels();
     }, 0);
 
-    console.log('[ECharts] Chart rendered with', series.length, 'series');
+    console.log("[ECharts] Chart rendered with", series.length, "series");
 
     // Broadcast to popout windows
     broadcastToType("timeseries", "data-update", { chunkData, startTime });
@@ -575,18 +610,19 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     const hasChannelsSelected = selectedChannels.length > 0;
     const isNewFile = currentFilePath !== loadedFileRef.current;
 
-    console.log('[ECharts] File/channel effect:', {
+    console.log("[ECharts] File/channel effect:", {
       hasFile: !!fileManager.selectedFile,
       channelsSelected: selectedChannels.length,
       isNewFile,
     });
 
-    if (fileManager.selectedFile &&
-        fileManager.selectedFile.channels?.length > 0 &&
-        hasChannelsSelected &&
-        (isNewFile || isInitialChannelSetRef.current)) {
-
-      console.log('[ECharts] Triggering chunk load');
+    if (
+      fileManager.selectedFile &&
+      fileManager.selectedFile.channels?.length > 0 &&
+      hasChannelsSelected &&
+      (isNewFile || isInitialChannelSetRef.current)
+    ) {
+      console.log("[ECharts] Triggering chunk load");
 
       if (isNewFile) {
         stableOffsetRef.current = null;
@@ -604,8 +640,14 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       setDuration(fileManager.selectedFile.duration);
       loadedFileRef.current = currentFilePath!;
       isInitialChannelSetRef.current = false;
-    } else if (!isNewFile && !isInitialChannelSetRef.current && hasChannelsSelected) {
-      console.log('[ECharts] Same file, channels changed - will refetch via TanStack Query');
+    } else if (
+      !isNewFile &&
+      !isInitialChannelSetRef.current &&
+      hasChannelsSelected
+    ) {
+      console.log(
+        "[ECharts] Same file, channels changed - will refetch via TanStack Query"
+      );
       // TanStack Query will automatically refetch when selectedChannels changes
       // No need for manual debouncing - query already handles deduplication
     }
@@ -615,7 +657,10 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   useEffect(() => {
     if (fileManager.selectedFile && fileManager.selectedChannels.length > 0) {
       setSelectedChannels(fileManager.selectedChannels);
-    } else if (fileManager.selectedFile && fileManager.selectedFile.channels.length > 0) {
+    } else if (
+      fileManager.selectedFile &&
+      fileManager.selectedFile.channels.length > 0
+    ) {
       // Auto-select first 8 channels
       const initialChannels = fileManager.selectedFile.channels.slice(0, 8);
       setSelectedChannels(initialChannels);
@@ -627,7 +672,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   // Log when overview data changes
   useEffect(() => {
     if (overviewData) {
-      console.log('[OVERVIEW] Overview loaded successfully from query:', {
+      console.log("[OVERVIEW] Overview loaded successfully from query:", {
         channels: overviewData.channels.length,
         pointsPerChannel: overviewData.data[0]?.length || 0,
       });
@@ -635,38 +680,41 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   }, [overviewData]);
 
   // Right-click handler for annotations
-  const handleChartRightClick = useCallback((e: MouseEvent) => {
-    e.preventDefault();
+  const handleChartRightClick = useCallback(
+    (e: MouseEvent) => {
+      e.preventDefault();
 
-    if (!chartInstanceRef.current) return;
+      if (!chartInstanceRef.current) return;
 
-    // Get the chart's bounding rectangle
-    const rect = (e.target as HTMLElement).getBoundingClientRect();
-    const x = e.clientX - rect.left;
+      // Get the chart's bounding rectangle
+      const rect = (e.target as HTMLElement).getBoundingClientRect();
+      const x = e.clientX - rect.left;
 
-    // Convert pixel position to time value
-    // ECharts uses the convertFromPixel method
-    const pointInGrid = chartInstanceRef.current.convertFromPixel(
-      { seriesIndex: 0 },
-      [x, 0]
-    );
-
-    if (pointInGrid && typeof pointInGrid[0] === 'number') {
-      const timePosition = pointInGrid[0];
-
-      // Check if clicking on an existing annotation
-      const clickedAnnotation = timeSeriesAnnotations.annotations.find(
-        (ann) => Math.abs(ann.position - timePosition) < 0.5 // 0.5 second tolerance
+      // Convert pixel position to time value
+      // ECharts uses the convertFromPixel method
+      const pointInGrid = chartInstanceRef.current.convertFromPixel(
+        { seriesIndex: 0 },
+        [x, 0]
       );
 
-      timeSeriesAnnotations.openContextMenu(
-        e.clientX,
-        e.clientY,
-        timePosition,
-        clickedAnnotation
-      );
-    }
-  }, [timeSeriesAnnotations]);
+      if (pointInGrid && typeof pointInGrid[0] === "number") {
+        const timePosition = pointInGrid[0];
+
+        // Check if clicking on an existing annotation
+        const clickedAnnotation = timeSeriesAnnotations.annotations.find(
+          (ann) => Math.abs(ann.position - timePosition) < 0.5 // 0.5 second tolerance
+        );
+
+        timeSeriesAnnotations.openContextMenu(
+          e.clientX,
+          e.clientY,
+          timePosition,
+          clickedAnnotation
+        );
+      }
+    },
+    [timeSeriesAnnotations]
+  );
 
   // Navigation handlers
   const handlePrevChunk = () => {
@@ -687,7 +735,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
     // Warn if loading might be slow (>500k samples)
     if (totalSamples > 500000) {
-      console.warn(`[ECharts] Large data request: ${totalSamples.toLocaleString()} samples may be slow`);
+      console.warn(
+        `[ECharts] Large data request: ${totalSamples.toLocaleString()} samples may be slow`
+      );
     }
 
     timeWindowRef.current = newWindow;
@@ -695,7 +745,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   };
 
   const handleSeek = (time: number) => {
-    console.log('[ECharts] Seek requested to:', time);
+    console.log("[ECharts] Seek requested to:", time);
     setCurrentTime(time);
     loadChunk(time);
   };
@@ -705,7 +755,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       ? [...selectedChannels, channelName]
       : selectedChannels.filter((c) => c !== channelName);
 
-    console.log('[ECharts] Channel toggled:', channelName, '->', checked);
+    console.log("[ECharts] Channel toggled:", channelName, "->", checked);
     setSelectedChannels(newSelection);
     persistSelectedChannels(newSelection);
   };
@@ -727,7 +777,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
           <div>
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5" />
-              Time Series Visualization (ECharts)
+              Time Series Visualization
               <Badge variant="outline" className="ml-2">
                 WebGL Optimized
               </Badge>
@@ -781,7 +831,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
               variant="outline"
               size="sm"
               onClick={handleNextChunk}
-              disabled={loading || currentTime >= duration - timeWindowRef.current}
+              disabled={
+                loading || currentTime >= duration - timeWindowRef.current
+              }
             >
               <SkipForward className="h-4 w-4" />
             </Button>
@@ -839,9 +891,14 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
             <div className="flex items-center gap-2">
               <Sliders className="h-4 w-4" />
               <span className="font-medium text-sm">Signal Preprocessing</span>
-              {(preprocessing.highpass || preprocessing.lowpass || preprocessing.notch?.length ||
-                preprocessing.smoothing?.enabled || preprocessing.outlierRemoval?.enabled) && (
-                <Badge variant="secondary" className="ml-2 text-xs">Active</Badge>
+              {(preprocessing.highpass ||
+                preprocessing.lowpass ||
+                preprocessing.notch?.length ||
+                preprocessing.smoothing?.enabled ||
+                preprocessing.outlierRemoval?.enabled) && (
+                <Badge variant="secondary" className="ml-2 text-xs">
+                  Active
+                </Badge>
               )}
             </div>
             {showPreprocessing ? (
@@ -871,7 +928,10 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
                         });
                       }}
                     />
-                    <Label htmlFor="highpass-enabled" className="text-sm flex-1">
+                    <Label
+                      htmlFor="highpass-enabled"
+                      className="text-sm flex-1"
+                    >
                       Highpass (removes DC drift)
                     </Label>
                     {preprocessing.highpass !== undefined && (
@@ -889,7 +949,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
                           step="0.1"
                           min="0.1"
                         />
-                        <span className="text-xs text-muted-foreground">Hz</span>
+                        <span className="text-xs text-muted-foreground">
+                          Hz
+                        </span>
                       </div>
                     )}
                   </div>
@@ -924,7 +986,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
                           step="1"
                           min="1"
                         />
-                        <span className="text-xs text-muted-foreground">Hz</span>
+                        <span className="text-xs text-muted-foreground">
+                          Hz
+                        </span>
                       </div>
                     )}
                   </div>
@@ -933,7 +997,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
                   <div className="flex items-center gap-3">
                     <Checkbox
                       id="notch-enabled"
-                      checked={preprocessing.notch && preprocessing.notch.length > 0}
+                      checked={
+                        preprocessing.notch && preprocessing.notch.length > 0
+                      }
                       onCheckedChange={(checked) => {
                         handlePreprocessingChange({
                           ...preprocessing,
@@ -976,9 +1042,11 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
                 </Label>
                 <div className="space-y-3">
                   <div className="flex items-center gap-3">
-                    <Label className="text-sm flex-1">Baseline Correction</Label>
+                    <Label className="text-sm flex-1">
+                      Baseline Correction
+                    </Label>
                     <Select
-                      value={preprocessing.baselineCorrection || 'none'}
+                      value={preprocessing.baselineCorrection || "none"}
                       onValueChange={(value: any) => {
                         handlePreprocessingChange({
                           ...preprocessing,
@@ -1000,7 +1068,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
                   <div className="flex items-center gap-3">
                     <Label className="text-sm flex-1">Detrending</Label>
                     <Select
-                      value={preprocessing.detrending || 'none'}
+                      value={preprocessing.detrending || "none"}
                       onValueChange={(value: any) => {
                         handlePreprocessingChange({
                           ...preprocessing,
@@ -1038,8 +1106,10 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
                           ...preprocessing,
                           outlierRemoval: {
                             enabled: checked as boolean,
-                            method: preprocessing.outlierRemoval?.method || 'clip',
-                            threshold: preprocessing.outlierRemoval?.threshold || 3,
+                            method:
+                              preprocessing.outlierRemoval?.method || "clip",
+                            threshold:
+                              preprocessing.outlierRemoval?.threshold || 3,
                           },
                         });
                       }}
@@ -1079,13 +1149,19 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
                           ...preprocessing,
                           smoothing: {
                             enabled: checked as boolean,
-                            method: preprocessing.smoothing?.method || 'moving_average',
-                            windowSize: preprocessing.smoothing?.windowSize || 5,
+                            method:
+                              preprocessing.smoothing?.method ||
+                              "moving_average",
+                            windowSize:
+                              preprocessing.smoothing?.windowSize || 5,
                           },
                         });
                       }}
                     />
-                    <Label htmlFor="smoothing-enabled" className="text-sm flex-1">
+                    <Label
+                      htmlFor="smoothing-enabled"
+                      className="text-sm flex-1"
+                    >
                       Smoothing
                     </Label>
                     {preprocessing.smoothing?.enabled && (
@@ -1106,7 +1182,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
                           step="1"
                           min="3"
                         />
-                        <span className="text-xs text-muted-foreground">pts</span>
+                        <span className="text-xs text-muted-foreground">
+                          pts
+                        </span>
                       </div>
                     )}
                   </div>
@@ -1117,7 +1195,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => handlePreprocessingChange(getDefaultPreprocessing())}
+                onClick={() =>
+                  handlePreprocessingChange(getDefaultPreprocessing())
+                }
                 className="w-full"
               >
                 <RotateCcw className="h-3 w-3 mr-2" />
@@ -1135,7 +1215,12 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 <div className="text-sm font-medium">Loading data...</div>
                 <div className="text-xs text-muted-foreground max-w-xs text-center">
-                  Processing {selectedChannels.length} channels ({Math.floor(timeWindowRef.current * (fileManager.selectedFile?.sample_rate || 0)).toLocaleString()} samples)
+                  Processing {selectedChannels.length} channels (
+                  {Math.floor(
+                    timeWindowRef.current *
+                      (fileManager.selectedFile?.sample_rate || 0)
+                  ).toLocaleString()}{" "}
+                  samples)
                 </div>
                 {/* Cancel button removed - TanStack Query handles request cancellation automatically */}
               </div>
@@ -1145,32 +1230,33 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
         </div>
 
         {/* Channel Selection */}
-        {fileManager.selectedFile && fileManager.selectedFile.channels.length > 0 && (
-          <div className="mt-4 border-t pt-3">
-            <Label className="text-xs mb-2 block">
-              Channels ({selectedChannels.length} selected):
-            </Label>
-            <div className="max-h-40 overflow-y-auto space-y-1">
-              {fileManager.selectedFile.channels.map((channel) => (
-                <div key={channel} className="flex items-center gap-2">
-                  <Checkbox
-                    id={`channel-${channel}`}
-                    checked={selectedChannels.includes(channel)}
-                    onCheckedChange={(checked) =>
-                      handleChannelToggle(channel, checked as boolean)
-                    }
-                  />
-                  <label
-                    htmlFor={`channel-${channel}`}
-                    className="text-xs cursor-pointer"
-                  >
-                    {channel}
-                  </label>
-                </div>
-              ))}
+        {fileManager.selectedFile &&
+          fileManager.selectedFile.channels.length > 0 && (
+            <div className="mt-4 border-t pt-3">
+              <Label className="text-xs mb-2 block">
+                Channels ({selectedChannels.length} selected):
+              </Label>
+              <div className="max-h-40 overflow-y-auto space-y-1">
+                {fileManager.selectedFile.channels.map((channel) => (
+                  <div key={channel} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`channel-${channel}`}
+                      checked={selectedChannels.includes(channel)}
+                      onCheckedChange={(checked) =>
+                        handleChannelToggle(channel, checked as boolean)
+                      }
+                    />
+                    <label
+                      htmlFor={`channel-${channel}`}
+                      className="text-xs cursor-pointer"
+                    >
+                      {channel}
+                    </label>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* Annotation context menu */}
         {timeSeriesAnnotations.contextMenu && (

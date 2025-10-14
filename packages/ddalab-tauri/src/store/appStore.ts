@@ -342,6 +342,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             plot: {
               ...state.plot,
               chunkSize: persistedState.plot.filters?.chunkSize || state.plot.chunkSize,
+              chunkStart: persistedState.plot.filters?.chunkStart || state.plot.chunkStart,
               amplitude: persistedState.plot.filters?.amplitude || state.plot.amplitude,
               showAnnotations: Boolean(persistedState.plot.filters?.showAnnotations ?? state.plot.showAnnotations),
               preprocessing: persistedState.plot.preprocessing
@@ -1077,7 +1078,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
         plot: {
           visible_channels: currentState.fileManager.selectedChannels,
-          time_range: [currentState.fileManager.timeWindow.start, currentState.fileManager.timeWindow.end],
+          time_range: [currentState.plot.chunkStart, currentState.plot.chunkStart + currentState.plot.chunkSize],
           amplitude_range: [-100, 100], // Default
           zoom_level: 1.0,
           annotations: [],
@@ -1085,9 +1086,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           plot_mode: 'raw',
           filters: {
             chunkSize: currentState.plot.chunkSize,
+            chunkStart: currentState.plot.chunkStart,
             amplitude: currentState.plot.amplitude,
             showAnnotations: currentState.plot.showAnnotations
-          }
+          },
+          preprocessing: currentState.plot.preprocessing
         },
         dda: {
           selected_variants: currentState.dda.analysisParameters.variants,
