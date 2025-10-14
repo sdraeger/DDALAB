@@ -614,19 +614,40 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({ plot: { ...state.plot, ...updates } }))
 
     if (TauriService.isTauri()) {
-      const { plot } = get()
-      // Fire and forget - don't block UI
-      TauriService.updatePlotState({
+      const { plot, persistenceService, isPersistenceRestored } = get()
+
+      // During initialization, don't save to backend to avoid overwriting persisted state
+      if (!isPersistenceRestored) {
+        console.log('[STORE] Skipping save during initialization - plot state updated')
+        return
+      }
+
+      const plotState = {
         visible_channels: plot.selectedChannelColors ? Object.keys(plot.selectedChannelColors) : [],
-        time_range: [plot.chunkStart, plot.chunkStart + plot.chunkSize],
-        amplitude_range: [-100 * plot.amplitude, 100 * plot.amplitude],
+        time_range: [plot.chunkStart, plot.chunkStart + plot.chunkSize] as [number, number],
+        amplitude_range: [-100 * plot.amplitude, 100 * plot.amplitude] as [number, number],
         zoom_level: 1.0,
         preprocessing: plot.preprocessing,
         annotations: [],
         color_scheme: 'default',
-        plot_mode: 'timeseries',
-        filters: {}
-      }).catch(console.error)
+        plot_mode: 'timeseries' as const,
+        filters: {
+          chunkSize: plot.chunkSize,
+          chunkStart: plot.chunkStart,
+          amplitude: plot.amplitude,
+          showAnnotations: plot.showAnnotations
+        }
+      }
+
+      console.log('[STORE] Persisting plot state with chunkStart:', plot.chunkStart)
+
+      // Fire and forget - don't block UI
+      TauriService.updatePlotState(plotState).catch(console.error)
+
+      // Auto-save via persistence service
+      if (persistenceService) {
+        persistenceService.savePlotState(plotState).catch(console.error)
+      }
     }
   },
 

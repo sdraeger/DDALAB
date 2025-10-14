@@ -73,6 +73,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     setSelectedChannels: persistSelectedChannels,
     workflowRecording,
     incrementActionCount,
+    isPersistenceRestored,
   } = useAppStore();
 
   const { recordAction } = useWorkflow();
@@ -253,6 +254,27 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       // Add right-click handler for annotations
       chartRef.current.addEventListener("contextmenu", handleChartRightClick);
 
+      // Listen to dataZoom events (minimap) to persist position when user navigates
+      chart.on('datazoom', (event: any) => {
+        // Get the current start value from the dataZoom event
+        const startPercent = event.start; // 0-100 percentage
+        const endPercent = event.end; // 0-100 percentage
+
+        // Always get the latest state from the store
+        const currentFile = useAppStore.getState().fileManager.selectedFile;
+
+        if (startPercent !== undefined && currentFile) {
+          const duration = currentFile.duration;
+          const newStartTime = (startPercent / 100) * duration;
+
+          console.log('[ECharts] DataZoom event - updating position to:', newStartTime);
+
+          // Update state and trigger persistence
+          setCurrentTime(newStartTime);
+          updatePlotState({ chunkStart: newStartTime });
+        }
+      });
+
       // Render any pending data that arrived before chart was ready
       if (pendingRenderRef.current) {
         console.log("[ECharts] Rendering pending data after initialization");
@@ -333,7 +355,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
         return;
       }
 
-      console.log("[ECharts] Loading chunk at time:", startTime);
+      console.log("[ECharts] Loading chunk at time:", startTime, "- triggering persistence");
       setCurrentTime(startTime);
       updatePlotState({ chunkStart: startTime });
     },
@@ -614,7 +636,15 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       hasFile: !!fileManager.selectedFile,
       channelsSelected: selectedChannels.length,
       isNewFile,
+      isPersistenceRestored,
     });
+
+    // Wait for persistence to be restored before loading initial chunk
+    // This prevents loading chunk at 0 and then re-loading at persisted position
+    if (!isPersistenceRestored) {
+      console.log("[ECharts] Waiting for persistence to restore before loading chunk");
+      return;
+    }
 
     if (
       fileManager.selectedFile &&
@@ -626,16 +656,13 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
       if (isNewFile) {
         stableOffsetRef.current = null;
-        // Reset to start for new files
-        const startTime = 0;
-        loadChunk(startTime);
-        setCurrentTime(startTime);
-      } else {
-        // Restore saved time position for same file
-        const startTime = plot.chunkStart || 0;
-        loadChunk(startTime);
-        setCurrentTime(startTime);
       }
+
+      // Use persisted position if available, otherwise start at 0
+      const startTime = plot.chunkStart || 0;
+      console.log(`[ECharts] Loading chunk at time: ${startTime} (persisted: ${plot.chunkStart})`);
+      loadChunk(startTime);
+      setCurrentTime(startTime);
 
       setDuration(fileManager.selectedFile.duration);
       loadedFileRef.current = currentFilePath!;
@@ -651,7 +678,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       // TanStack Query will automatically refetch when selectedChannels changes
       // No need for manual debouncing - query already handles deduplication
     }
-  }, [fileManager.selectedFile?.file_path, selectedChannels, loadChunk]);
+  }, [fileManager.selectedFile?.file_path, selectedChannels, loadChunk, isPersistenceRestored]);
 
   // Sync selected channels with file
   useEffect(() => {
@@ -719,12 +746,14 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   // Navigation handlers
   const handlePrevChunk = () => {
     const newTime = Math.max(0, currentTime - timeWindowRef.current);
+    setCurrentTime(newTime);
     loadChunk(newTime);
   };
 
   const handleNextChunk = () => {
     const maxTime = duration - timeWindowRef.current;
     const newTime = Math.min(maxTime, currentTime + timeWindowRef.current);
+    setCurrentTime(newTime);
     loadChunk(newTime);
   };
 
@@ -844,7 +873,15 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
             <Label className="text-xs whitespace-nowrap">Position:</Label>
             <Slider
               value={[currentTime]}
-              onValueChange={([time]) => handleSeek(time)}
+              onValueChange={([time]) => {
+                // Update UI immediately during drag
+                setCurrentTime(time);
+              }}
+              onValueCommit={([time]) => {
+                // Load chunk and persist when drag completes
+                console.log("[ECharts] Seek committed to:", time);
+                loadChunk(time);
+              }}
               min={0}
               max={Math.max(0, duration - timeWindowRef.current)}
               step={0.1}
