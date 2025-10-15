@@ -95,9 +95,43 @@ impl DDARunner {
             .arg("-order").arg("4")
             .arg("-nr_tau").arg("2")
             .arg("-WL").arg(request.window_parameters.window_length.to_string())
-            .arg("-WS").arg(request.window_parameters.window_step.to_string())
-            .arg("-SELECT").arg("1").arg("0").arg("0").arg("0")
-            .arg("-MODEL").arg("1").arg("2").arg("10");
+            .arg("-WS").arg(request.window_parameters.window_step.to_string());
+
+        // Add SELECT mask (defaults to "1 0 0 0" if not specified)
+        let select_mask = request.algorithm_selection.select_mask
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or("1 0 0 0");
+
+        command.arg("-SELECT");
+        for bit in select_mask.split_whitespace() {
+            command.arg(bit);
+        }
+
+        command.arg("-MODEL").arg("1").arg("2").arg("10");
+
+        // Add CT-specific parameters if provided
+        if let Some(ct_wl) = request.window_parameters.ct_window_length {
+            command.arg("-WL_CT").arg(ct_wl.to_string());
+        }
+        if let Some(ct_ws) = request.window_parameters.ct_window_step {
+            command.arg("-WS_CT").arg(ct_ws.to_string());
+        }
+
+        // Add CT channel pairs if provided
+        if let Some(ref pairs) = request.ct_channel_pairs {
+            if !pairs.is_empty() {
+                command.arg("-CH_list");
+                for pair in pairs {
+                    // Convert to 1-based indices for the binary
+                    command.arg((pair[0] + 1).to_string());
+                    command.arg((pair[1] + 1).to_string());
+                }
+                log::info!("CT channel pairs (1-based): {:?}", pairs.iter()
+                    .map(|p| [p[0] + 1, p[1] + 1])
+                    .collect::<Vec<_>>());
+            }
+        }
 
         // Generate delay values from scale parameters
         let delay_min = request.scale_parameters.scale_min as i32;
@@ -135,52 +169,83 @@ impl DDARunner {
 
         log::info!("DDA binary execution completed successfully");
 
-        // DDA binary creates output file with _ST suffix
+        // Determine which variants are enabled from SELECT mask
+        let select_bits: Vec<&str> = select_mask.split_whitespace().collect();
+        let variant_names = ["ST", "CT", "CD", "DE"];
+        let enabled_variants: Vec<&str> = variant_names.iter()
+            .zip(select_bits.iter())
+            .filter_map(|(variant, &bit)| if bit == "1" { Some(*variant) } else { None })
+            .collect();
+
+        if enabled_variants.is_empty() {
+            return Err(DDAError::ExecutionFailed("No variants enabled in SELECT mask".to_string()));
+        }
+
+        log::info!("Enabled variants: {:?}", enabled_variants);
+
+        // DDA binary creates output files with variant suffixes (_ST, _CT, _CD, _DE)
         let output_file_stem = output_file.file_stem()
             .and_then(|s| s.to_str())
             .ok_or_else(|| DDAError::ExecutionFailed("Invalid output file path".to_string()))?;
         let output_dir = output_file.parent()
             .ok_or_else(|| DDAError::ExecutionFailed("Invalid output directory".to_string()))?;
 
-        let st_file_path = output_dir.join(format!("{}_ST", output_file_stem));
-        let st_file_with_ext = output_file.to_str()
-            .map(|s| PathBuf::from(format!("{}_ST", s)))
-            .ok_or_else(|| DDAError::ExecutionFailed("Invalid output path".to_string()))?;
+        // Read all enabled variants
+        let mut variant_matrices: Vec<(String, Vec<Vec<f64>>)> = Vec::new();
 
-        let actual_output_file = if st_file_path.exists() {
-            st_file_path
-        } else if st_file_with_ext.exists() {
-            st_file_with_ext
-        } else {
-            return Err(DDAError::ExecutionFailed(format!(
-                "DDA output file not found. Tried: {:?}, {:?}",
-                st_file_path, st_file_with_ext
-            )));
-        };
+        for variant in &enabled_variants {
+            let variant_file_path = output_dir.join(format!("{}_{}", output_file_stem, variant));
+            let variant_file_with_ext = output_file.to_str()
+                .map(|s| PathBuf::from(format!("{}_{}", s, variant)))
+                .ok_or_else(|| DDAError::ExecutionFailed("Invalid output path".to_string()))?;
 
-        log::info!("Reading DDA output from: {:?}", actual_output_file);
+            let actual_output_file = if variant_file_path.exists() {
+                variant_file_path.clone()
+            } else if variant_file_with_ext.exists() {
+                variant_file_with_ext.clone()
+            } else {
+                log::warn!("Output file not found for variant {}. Tried: {:?}, {:?}", variant, variant_file_path, variant_file_with_ext);
+                continue; // Skip missing variants
+            };
 
-        // Read and parse DDA output
-        let output_content = tokio::fs::read_to_string(&actual_output_file).await
-            .map_err(|e| DDAError::IoError(e))?;
+            log::info!("Reading DDA output for variant {} from: {:?}", variant, actual_output_file);
 
-        log::info!("Output file size: {} bytes", output_content.len());
+            // Read and parse DDA output
+            let output_content = tokio::fs::read_to_string(&actual_output_file).await
+                .map_err(|e| DDAError::IoError(e))?;
 
-        // Parse the output file to extract Q matrix [channels × timepoints]
-        let q_matrix = parse_dda_output(&output_content)?;
+            log::info!("Output file size for {}: {} bytes", variant, output_content.len());
+
+            // Parse the output file to extract Q matrix [channels × timepoints]
+            let q_matrix = parse_dda_output(&output_content)?;
+
+            if !q_matrix.is_empty() {
+                let num_channels = q_matrix.len();
+                let num_timepoints = q_matrix[0].len();
+                log::info!("Q matrix dimensions for {}: {} channels × {} timepoints", variant, num_channels, num_timepoints);
+
+                variant_matrices.push((variant.to_string(), q_matrix));
+            } else {
+                log::warn!("No data extracted from DDA output for variant {}", variant);
+            }
+        }
 
         // Clean up temporary files
         let _ = tokio::fs::remove_file(&output_file).await;
-        let _ = tokio::fs::remove_file(&actual_output_file).await;
-
-        if q_matrix.is_empty() {
-            return Err(DDAError::ParseError("No data extracted from DDA output".to_string()));
+        for variant in &enabled_variants {
+            let variant_path = output_dir.join(format!("{}_{}", output_file_stem, variant));
+            let _ = tokio::fs::remove_file(&variant_path).await;
         }
 
-        let num_channels = q_matrix.len();
-        let num_timepoints = q_matrix[0].len();
+        if variant_matrices.is_empty() {
+            return Err(DDAError::ParseError("No data extracted from any DDA variant".to_string()));
+        }
 
-        log::info!("Q matrix dimensions: {} channels × {} timepoints", num_channels, num_timepoints);
+        // Use the first variant's matrix as the primary result (for backward compatibility)
+        let (primary_variant_name, primary_q_matrix) = variant_matrices.first()
+            .ok_or_else(|| DDAError::ExecutionFailed("No variant results available".to_string()))?;
+
+        log::info!("Using {} as primary variant, {} total variants processed", primary_variant_name, variant_matrices.len());
 
         // Create channel labels
         let channels: Vec<String> = if let Some(ref channel_indices) = request.channels {
@@ -191,15 +256,35 @@ impl DDARunner {
             vec!["Channel 1".to_string()]
         };
 
-        // Build result
+        // Map variant short names to display names
+        let variant_display_names = |id: &str| -> String {
+            match id {
+                "ST" => "Single Timeseries (ST)".to_string(),
+                "CT" => "Cross-Timeseries (CT)".to_string(),
+                "CD" => "Cross-Delay (CD)".to_string(),
+                "DE" => "Delay Evolution (DE)".to_string(),
+                _ => id.to_string(),
+            }
+        };
+
+        // Build variant results for all variants
+        let variant_results: Vec<crate::types::VariantResult> = variant_matrices.iter()
+            .map(|(variant_id, q_matrix)| crate::types::VariantResult {
+                variant_id: variant_id.clone(),
+                variant_name: variant_display_names(variant_id),
+                q_matrix: q_matrix.clone(),
+            })
+            .collect();
+
+        // Build result with primary variant and all variant results
         let result = DDAResult::new(
             analysis_id,
             request.file_path.clone(),
             channels,
-            q_matrix,
+            primary_q_matrix.clone(),
             request.window_parameters.clone(),
             request.scale_parameters.clone(),
-        );
+        ).with_variant_results(variant_results);
 
         Ok(result)
     }
