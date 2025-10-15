@@ -5,7 +5,7 @@ use crate::error::{DDAError, Result};
 /// Based on dda-py _process_output: skip first 2 columns, take every 4th column, then transpose
 ///
 /// # Arguments
-/// * `content` - Raw text output from run_DDA_ASCII binary
+/// * `content` - Raw text output from run_DDA_AsciiEdf binary
 ///
 /// # Returns
 /// Processed matrix in [channels/scales × timepoints] format

@@ -129,7 +129,7 @@ The update checker will:
 - **Rust**: Install from [rustup.rs](https://rustup.rs/)
 - **Node.js**: Version 18+ ([nodejs.org](https://nodejs.org/))
 - **npm**: Comes with Node.js
-- **DDA Binary**: Place `run_DDA_ASCII` in `bin/` directory (see grant report for details)
+- **DDA Binary**: Place `run_DDA_AsciiEdf` in `bin/` directory (see grant report for details)
 
 ### Getting Started
 
@@ -306,13 +306,13 @@ chmod +x DDALAB-*.AppImage
 ### Analysis fails to run
 
 1. Verify DDA binary is present:
-   - macOS/Linux: Check `~/.local/bin/run_DDA_ASCII` or system PATH
-   - Windows: Check application directory for `run_DDA_ASCII.exe`
+   - macOS/Linux: Check `~/.local/bin/run_DDA_AsciiEdf` or system PATH
+   - Windows: Check application directory for `run_DDA_AsciiEdf.exe`
 
 2. Check file permissions:
 
    ```bash
-   chmod +x /path/to/run_DDA_ASCII
+   chmod +x /path/to/run_DDA_AsciiEdf
    ```
 
 3. View logs in Settings → Debug Information
