@@ -317,10 +317,41 @@ export const useAppStore = create<AppState>((set, get) => ({
             status: 'completed' as const
           }));
 
+          const restoredAnnotations = {
+            timeSeries: persistedState.ui?.frontend_state?.annotations?.timeSeries || persistedState.annotations?.timeSeries || {},
+            ddaResults: persistedState.ui?.frontend_state?.annotations?.ddaResults || persistedState.annotations?.ddaResults || {}
+          };
+
+          console.log('[STORE] ===== RESTORING ANNOTATIONS =====')
+          const annotationFileKeys = Object.keys(restoredAnnotations.timeSeries);
+          if (annotationFileKeys.length > 0) {
+            annotationFileKeys.forEach(filePath => {
+              const fileAnnotations = restoredAnnotations.timeSeries[filePath];
+              console.log('[STORE] Restoring annotations for:', filePath, {
+                globalCount: fileAnnotations?.globalAnnotations?.length || 0,
+                channelCount: Object.keys(fileAnnotations?.channelAnnotations || {}).length
+              });
+            });
+          } else {
+            console.log('[STORE] No annotations found in persisted state');
+            console.log('[STORE] Checked paths:', {
+              'ui.frontend_state.annotations.timeSeries': !!persistedState.ui?.frontend_state?.annotations?.timeSeries,
+              'annotations.timeSeries': !!persistedState.annotations?.timeSeries
+            });
+          }
+          console.log('[STORE] =====================================')
+
+          console.log('[STORE] Full persisted state structure:', {
+            hasFileManager: !!persistedState.file_manager,
+            fileManagerKeys: persistedState.file_manager ? Object.keys(persistedState.file_manager) : [],
+            lastSelectedFile: (persistedState as any).last_selected_file,
+            persistedStateKeys: Object.keys(persistedState)
+          })
+
           console.log('[STORE] Restoring persisted state:', {
-            selected_file: persistedState.file_manager.selected_file,
-            selected_channels: persistedState.file_manager.selected_channels,
-            current_path: persistedState.file_manager.current_path
+            selected_file: persistedState.file_manager?.selected_file,
+            selected_channels: persistedState.file_manager?.selected_channels,
+            current_path: persistedState.file_manager?.current_path
           })
 
           return {
@@ -330,42 +361,40 @@ export const useAppStore = create<AppState>((set, get) => ({
             fileManager: {
               ...state.fileManager,
               dataDirectoryPath,  // Use backend value as primary source
-              currentPath: persistedState.file_manager.current_path,
+              currentPath: persistedState.file_manager?.current_path || [],
               selectedFile,
-              selectedChannels: persistedState.file_manager.selected_channels,
-              searchQuery: persistedState.file_manager.search_query,
-              sortBy: persistedState.file_manager.sort_by as 'name' | 'size' | 'date',
-              sortOrder: persistedState.file_manager.sort_order as 'asc' | 'desc',
-              showHidden: persistedState.file_manager.show_hidden,
-              pendingFileSelection: persistedState.file_manager.selected_file
+              selectedChannels: persistedState.file_manager?.selected_channels || [],
+              searchQuery: persistedState.file_manager?.search_query || '',
+              sortBy: (persistedState.file_manager?.sort_by as 'name' | 'size' | 'date') || 'name',
+              sortOrder: (persistedState.file_manager?.sort_order as 'asc' | 'desc') || 'asc',
+              showHidden: persistedState.file_manager?.show_hidden || false,
+              // Try both file_manager.selected_file and last_selected_file (for new state structure)
+              pendingFileSelection: persistedState.file_manager?.selected_file || (persistedState as any).last_selected_file
             },
             plot: {
               ...state.plot,
-              chunkSize: persistedState.plot.filters?.chunkSize || state.plot.chunkSize,
-              chunkStart: persistedState.plot.filters?.chunkStart || state.plot.chunkStart,
-              amplitude: persistedState.plot.filters?.amplitude || state.plot.amplitude,
-              showAnnotations: Boolean(persistedState.plot.filters?.showAnnotations ?? state.plot.showAnnotations),
-              preprocessing: persistedState.plot.preprocessing
+              chunkSize: persistedState.plot?.filters?.chunkSize || state.plot.chunkSize,
+              chunkStart: persistedState.plot?.filters?.chunkStart || state.plot.chunkStart,
+              amplitude: persistedState.plot?.filters?.amplitude || state.plot.amplitude,
+              showAnnotations: Boolean(persistedState.plot?.filters?.showAnnotations ?? state.plot.showAnnotations),
+              preprocessing: persistedState.plot?.preprocessing
             },
             dda: {
               ...state.dda,
               analysisParameters: {
                 ...state.dda.analysisParameters,
-                variants: persistedState.dda.selected_variants,
-                windowLength: persistedState.dda.parameters?.windowLength || persistedState.dda.analysis_parameters?.windowLength || state.dda.analysisParameters.windowLength,
-                windowStep: persistedState.dda.parameters?.windowStep || persistedState.dda.analysis_parameters?.windowStep || state.dda.analysisParameters.windowStep,
-                detrending: (persistedState.dda.parameters?.detrending || persistedState.dda.analysis_parameters?.detrending || state.dda.analysisParameters.detrending) as 'linear' | 'polynomial' | 'none',
-                scaleMin: persistedState.dda.parameters?.scaleMin || persistedState.dda.analysis_parameters?.scaleMin || state.dda.analysisParameters.scaleMin,
-                scaleMax: persistedState.dda.parameters?.scaleMax || persistedState.dda.analysis_parameters?.scaleMax || state.dda.analysisParameters.scaleMax,
-                scaleNum: persistedState.dda.parameters?.scaleNum || persistedState.dda.analysis_parameters?.scaleNum || state.dda.analysisParameters.scaleNum
+                variants: persistedState.dda?.selected_variants || state.dda.analysisParameters.variants,
+                windowLength: persistedState.dda?.parameters?.windowLength || persistedState.dda?.analysis_parameters?.windowLength || state.dda.analysisParameters.windowLength,
+                windowStep: persistedState.dda?.parameters?.windowStep || persistedState.dda?.analysis_parameters?.windowStep || state.dda.analysisParameters.windowStep,
+                detrending: (persistedState.dda?.parameters?.detrending || persistedState.dda?.analysis_parameters?.detrending || state.dda.analysisParameters.detrending) as 'linear' | 'polynomial' | 'none',
+                scaleMin: persistedState.dda?.parameters?.scaleMin || persistedState.dda?.analysis_parameters?.scaleMin || state.dda.analysisParameters.scaleMin,
+                scaleMax: persistedState.dda?.parameters?.scaleMax || persistedState.dda?.analysis_parameters?.scaleMax || state.dda.analysisParameters.scaleMax,
+                scaleNum: persistedState.dda?.parameters?.scaleNum || persistedState.dda?.analysis_parameters?.scaleNum || state.dda.analysisParameters.scaleNum
               },
               currentAnalysis,
               analysisHistory
             },
-            annotations: {
-              timeSeries: persistedState.ui?.frontend_state?.annotations?.timeSeries || persistedState.annotations?.timeSeries || {},
-              ddaResults: persistedState.ui?.frontend_state?.annotations?.ddaResults || persistedState.annotations?.ddaResults || {}
-            },
+            annotations: restoredAnnotations,
             ui: {
               ...state.ui,
               activeTab: persistedState.active_tab,
@@ -512,6 +541,35 @@ export const useAppStore = create<AppState>((set, get) => ({
       fileManager: { ...state.fileManager, selectedFile: file }
     }))
 
+    // Load annotations from SQLite for this file
+    if (file && TauriService.isTauri()) {
+      (async () => {
+        try {
+          const { invoke } = await import('@tauri-apps/api/core')
+          const fileAnnotations: any = await invoke('get_file_annotations', { filePath: file.file_path })
+
+          console.log('[ANNOTATION] Loaded from SQLite:', {
+            filePath: file.file_path,
+            globalCount: fileAnnotations.global_annotations?.length || 0,
+            channelCount: Object.keys(fileAnnotations.channel_annotations || {}).length
+          })
+
+          // Update in-memory annotations
+          set((state) => {
+            const annotations = { ...state.annotations }
+            annotations.timeSeries[file.file_path] = {
+              filePath: file.file_path,
+              globalAnnotations: fileAnnotations.global_annotations || [],
+              channelAnnotations: fileAnnotations.channel_annotations || {}
+            }
+            return { annotations }
+          })
+        } catch (err) {
+          console.error('[ANNOTATION] Failed to load from SQLite:', err)
+        }
+      })()
+    }
+
     if (TauriService.isTauri()) {
       const { fileManager, isPersistenceRestored } = get()
       const selectedFilePath = file?.file_path || null
@@ -533,11 +591,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Only save to persistence when we have complete file info (with channels)
       // This avoids double-saving when FileManager sets the file twice (once for instant feedback, once with full metadata)
       const hasCompleteFileInfo = file && file.channels && file.channels.length > 0
+      console.log('[STORE] setSelectedFile - persistence check:', {
+        isPersistenceRestored,
+        hasFile: !!file,
+        hasChannels: file?.channels?.length || 0,
+        hasCompleteFileInfo,
+        willSave: isPersistenceRestored && hasCompleteFileInfo
+      });
+
       if (isPersistenceRestored && hasCompleteFileInfo) {
-        console.log('[STORE] ✓ Saving selected file to persistence (with complete metadata):', file.file_path)
+        console.log('[STORE] ✓ Triggering save for file with complete metadata:', file.file_path)
         get().saveCurrentState().catch(err => console.error('[STORE] Failed to save selected file:', err))
       } else if (file && !hasCompleteFileInfo) {
-        console.log('[STORE] ⏳ Skipping save - waiting for complete file metadata')
+        console.log('[STORE] ⏳ Skipping save - waiting for complete file metadata (has', file.channels?.length || 0, 'channels)')
       } else {
         console.log('[STORE] ✗ NOT saving - isPersistenceRestored:', isPersistenceRestored, 'file:', file?.file_path || 'null')
       }
@@ -875,24 +941,52 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
 
+      // IMPORTANT: Create new arrays instead of mutating to ensure Zustand detects changes
       if (channel) {
         if (!annotations.timeSeries[filePath].channelAnnotations) {
           annotations.timeSeries[filePath].channelAnnotations = {}
         }
-        if (!annotations.timeSeries[filePath].channelAnnotations![channel]) {
-          annotations.timeSeries[filePath].channelAnnotations![channel] = []
-        }
-        annotations.timeSeries[filePath].channelAnnotations![channel].push(annotation)
+        const existingChannelAnnotations = annotations.timeSeries[filePath].channelAnnotations![channel] || []
+        annotations.timeSeries[filePath].channelAnnotations![channel] = [...existingChannelAnnotations, annotation]
       } else {
-        annotations.timeSeries[filePath].globalAnnotations.push(annotation)
+        annotations.timeSeries[filePath].globalAnnotations = [
+          ...annotations.timeSeries[filePath].globalAnnotations,
+          annotation
+        ]
       }
+
+      console.log('[ANNOTATION] After adding annotation, state:', {
+        filePath,
+        globalAnnotationsCount: annotations.timeSeries[filePath].globalAnnotations.length,
+        globalAnnotations: annotations.timeSeries[filePath].globalAnnotations,
+        annotation
+      })
 
       return { annotations }
     })
 
-    // Trigger save after adding annotation
-    const { saveCurrentState } = get()
-    saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save after adding:', err))
+    // Save annotation to SQLite database
+    setTimeout(async () => {
+      if (TauriService.isTauri()) {
+        try {
+          const { invoke } = await import('@tauri-apps/api/core')
+          await invoke('save_annotation', {
+            filePath,
+            channel: channel || null,
+            annotation: {
+              id: annotation.id,
+              position: annotation.position,
+              label: annotation.label,
+              color: annotation.color,
+              description: annotation.description
+            }
+          })
+          console.log('[ANNOTATION] Saved to SQLite:', annotation.id)
+        } catch (err) {
+          console.error('[ANNOTATION] Failed to save to SQLite:', err)
+        }
+      }
+    }, 100)
   },
 
   updateTimeSeriesAnnotation: (filePath, annotationId, updates, channel) => {
@@ -914,9 +1008,42 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { annotations }
     })
 
-    // Trigger save after updating annotation
-    const { saveCurrentState } = get()
-    saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save after updating:', err))
+    // Save updated annotation to SQLite database
+    setTimeout(async () => {
+      if (TauriService.isTauri()) {
+        try {
+          const state = get();
+          const fileAnnotations = state.annotations.timeSeries[filePath];
+          if (!fileAnnotations) return;
+
+          // Find the updated annotation
+          let updatedAnnotation: PlotAnnotation | undefined;
+          if (channel && fileAnnotations.channelAnnotations?.[channel]) {
+            updatedAnnotation = fileAnnotations.channelAnnotations[channel].find(a => a.id === annotationId);
+          } else {
+            updatedAnnotation = fileAnnotations.globalAnnotations.find(a => a.id === annotationId);
+          }
+
+          if (updatedAnnotation) {
+            const { invoke } = await import('@tauri-apps/api/core')
+            await invoke('save_annotation', {
+              filePath,
+              channel: channel || null,
+              annotation: {
+                id: updatedAnnotation.id,
+                position: updatedAnnotation.position,
+                label: updatedAnnotation.label,
+                color: updatedAnnotation.color,
+                description: updatedAnnotation.description
+              }
+            })
+            console.log('[ANNOTATION] Updated in SQLite:', annotationId)
+          }
+        } catch (err) {
+          console.error('[ANNOTATION] Failed to update in SQLite:', err)
+        }
+      }
+    }, 100)
   },
 
   deleteTimeSeriesAnnotation: (filePath, annotationId, channel) => {
@@ -935,9 +1062,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { annotations }
     })
 
-    // Trigger save after deleting annotation
-    const { saveCurrentState } = get()
-    saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save after deleting:', err))
+    // Delete annotation from SQLite database
+    setTimeout(async () => {
+      if (TauriService.isTauri()) {
+        try {
+          const { invoke } = await import('@tauri-apps/api/core')
+          await invoke('delete_annotation', { annotationId })
+          console.log('[ANNOTATION] Deleted from SQLite:', annotationId)
+        } catch (err) {
+          console.error('[ANNOTATION] Failed to delete from SQLite:', err)
+        }
+      }
+    }, 100)
   },
 
   getTimeSeriesAnnotations: (filePath, channel) => {
@@ -970,8 +1106,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { annotations }
     })
 
-    const { saveCurrentState } = get()
-    saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save:', err))
+    // Defer save to avoid blocking UI
+    setTimeout(() => {
+      get().saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save:', err))
+    }, 100)
   },
 
   updateDDAAnnotation: (resultId, variantId, plotType, annotationId, updates) => {
@@ -989,9 +1127,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { annotations }
     })
 
-    // Trigger save after updating annotation
-    const { saveCurrentState } = get()
-    saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save after updating:', err))
+    setTimeout(() => {
+      get().saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save:', err))
+    }, 100)
   },
 
   deleteDDAAnnotation: (resultId, variantId, plotType, annotationId) => {
@@ -1006,9 +1144,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { annotations }
     })
 
-    // Trigger save after deleting annotation
-    const { saveCurrentState } = get()
-    saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save after deleting:', err))
+    setTimeout(() => {
+      get().saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save:', err))
+    }, 100)
   },
 
   getDDAAnnotations: (resultId, variantId, plotType) => {
@@ -1086,8 +1224,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     const currentState = get();
 
     if (service) {
+      // Defer heavy state construction to next microtask to avoid blocking UI
+      await Promise.resolve();
+
+      console.log('[SAVE] Current state before save:', {
+        selectedFile: currentState.fileManager.selectedFile?.file_path || null,
+        selectedChannels: currentState.fileManager.selectedChannels,
+        chunkSize: currentState.plot.chunkSize,
+        chunkStart: currentState.plot.chunkStart
+      });
+
+      // NEW LIGHTWEIGHT STATE - Only UI preferences (no annotations, no analysis history)
+      // Annotations → SQLite (save_annotation command)
+      // Analysis history → Python API (not persisted in Rust)
       const stateToSave = {
-        version: '1.0.0',
+        version: '2.0.0', // Version bump indicates SQLite-backed architecture
         file_manager: {
           selected_file: currentState.fileManager.selectedFile?.file_path || null,
           current_path: currentState.fileManager.currentPath,
@@ -1098,13 +1249,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           show_hidden: currentState.fileManager.showHidden
         },
         plot: {
-          visible_channels: currentState.fileManager.selectedChannels,
-          time_range: [currentState.plot.chunkStart, currentState.plot.chunkStart + currentState.plot.chunkSize],
-          amplitude_range: [-100, 100], // Default
-          zoom_level: 1.0,
-          annotations: [],
-          color_scheme: 'default',
-          plot_mode: 'raw',
           filters: {
             chunkSize: currentState.plot.chunkSize,
             chunkStart: currentState.plot.chunkStart,
@@ -1116,29 +1260,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         dda: {
           selected_variants: currentState.dda.analysisParameters.variants,
           parameters: currentState.dda.analysisParameters,
-          last_analysis_id: currentState.dda.currentAnalysis?.id || null,
-          current_analysis: currentState.dda.currentAnalysis ? {
-            id: currentState.dda.currentAnalysis.id,
-            file_path: currentState.dda.currentAnalysis.file_path,
-            created_at: currentState.dda.currentAnalysis.created_at || new Date().toISOString(),
-            results: currentState.dda.currentAnalysis.results,
-            parameters: currentState.dda.currentAnalysis.parameters,
-            plot_data: null
-          } : null,
-          analysis_history: currentState.dda.analysisHistory.map(item => ({
-            id: item.id,
-            file_path: item.file_path,
-            created_at: item.created_at || new Date().toISOString(),
-            results: item.results,
-            parameters: item.parameters,
-            plot_data: null
-          })),
           analysis_parameters: currentState.dda.analysisParameters,
-          running: currentState.dda.isRunning
-        },
-        annotations: {
-          timeSeries: currentState.annotations.timeSeries,
-          ddaResults: currentState.annotations.ddaResults
+          running: false // Don't persist running state
         },
         ui: {
           activeTab: currentState.ui.activeTab,
@@ -1147,7 +1270,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           layout: currentState.ui.layout,
           theme: currentState.ui.theme
         },
-        windows: {},
         active_tab: currentState.ui.activeTab,
         sidebar_collapsed: !currentState.ui.sidebarOpen,
         panel_sizes: {
@@ -1157,6 +1279,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       };
 
+      console.log('[SAVE] Saving lightweight UI state (no annotations, no analysis history)');
       await service.saveCompleteState(stateToSave);
     }
   },

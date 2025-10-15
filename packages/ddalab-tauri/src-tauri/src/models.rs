@@ -36,9 +36,13 @@ pub struct PlotState {
 pub struct AnalysisResult {
     pub id: String,
     pub file_path: String,
-    pub created_at: String,
-    pub results: serde_json::Value,
+    pub timestamp: String,
+    pub variant_name: String,
+    pub variant_display_name: String,
     pub parameters: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chunk_position: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plot_data: Option<serde_json::Value>, // Cached plot data for quick restore
 }
 
@@ -61,6 +65,22 @@ pub struct WindowState {
     pub tab: String, // Currently active tab
 }
 
+// Lightweight UI state - only settings and preferences
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UIState {
+    pub version: String,
+    pub active_tab: String,
+    pub sidebar_collapsed: bool,
+    pub panel_sizes: HashMap<String, f64>,
+    pub theme: String,
+    pub last_selected_file: Option<String>,
+    pub file_manager: FileManagerState,
+    pub windows: HashMap<String, WindowState>,
+    #[serde(default)]
+    pub ui_extras: HashMap<String, serde_json::Value>, // For misc UI state
+}
+
+// Legacy AppState for backward compatibility during migration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppState {
     pub version: String, // For migration purposes
@@ -121,6 +141,28 @@ impl Default for DDAState {
             analysis_history: Vec::new(),
             analysis_parameters: HashMap::new(),
             running: false,
+        }
+    }
+}
+
+impl Default for UIState {
+    fn default() -> Self {
+        Self {
+            version: "2.0.0".to_string(),
+            active_tab: "files".to_string(),
+            sidebar_collapsed: false,
+            panel_sizes: {
+                let mut sizes = HashMap::new();
+                sizes.insert("sidebar".to_string(), 0.25);
+                sizes.insert("main".to_string(), 0.75);
+                sizes.insert("plot-height".to_string(), 0.6);
+                sizes
+            },
+            theme: "auto".to_string(),
+            last_selected_file: None,
+            file_manager: FileManagerState::default(),
+            windows: HashMap::new(),
+            ui_extras: HashMap::new(),
         }
     }
 }

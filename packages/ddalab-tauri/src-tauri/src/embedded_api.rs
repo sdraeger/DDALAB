@@ -85,6 +85,8 @@ pub struct DDAParameters {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DDAResult {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub file_path: String,
     pub channels: Vec<String>,
     pub parameters: DDAParameters,
@@ -447,7 +449,8 @@ pub async fn list_files(
 
     // List directory contents (non-recursive)
     if search_path.exists() && search_path.is_dir() {
-        log::info!("Listing directory: {:?}", search_path);
+        let start = std::time::Instant::now();
+        log::info!("📂 Listing directory: {:?}", search_path);
 
         match std::fs::read_dir(&search_path) {
             Ok(entries) => {
@@ -509,7 +512,8 @@ pub async fn list_files(
                     }
                 }
 
-                log::info!("Listed {} items in directory", items.len());
+                let elapsed = start.elapsed();
+                log::info!("✅ Listed {} items in {:?}", items.len(), elapsed);
             }
             Err(e) => {
                 log::error!("Failed to read directory: {}", e);
@@ -1166,6 +1170,7 @@ pub async fn run_dda_analysis(
 
     let result = DDAResult {
         id: analysis_id.clone(),
+        name: None,  // Name will be set by frontend if provided
         file_path: request.file_path,
         channels: channel_names,
         parameters,

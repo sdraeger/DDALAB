@@ -61,6 +61,9 @@ matfile = { version = "0.3", features = ["ndarray"] }  # MATLAB .mat/.set files
 ndarray = "0.16"  # Array processing for MAT files
 # Secure credential storage
 keyring = "3.6"  # Cross-platform keyring access
+# Embedded database
+rusqlite = { version = "0.32", features = ["bundled", "chrono", "uuid"] }
+serde_rusqlite = "0.36"
 
 [dev-dependencies]
 hyper = "1.0"

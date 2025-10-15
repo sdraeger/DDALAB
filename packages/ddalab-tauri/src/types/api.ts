@@ -60,6 +60,7 @@ export interface DDAVariantResult {
 
 export interface DDAResult {
   id: string
+  name?: string
   file_path: string
   channels: string[]
   parameters: DDAAnalysisRequest

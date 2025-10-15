@@ -111,6 +111,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
   const [localIsRunning, setLocalIsRunning] = useState(false) // Local UI state for this component
   const [results, setResults] = useState<DDAResult | null>(null)
+  const [analysisName, setAnalysisName] = useState('')
 
   // Derive state from mutation and progress events
   const progress = progressEvent?.progress_percent || (submitAnalysisMutation.isPending ? 50 : 0)
@@ -276,11 +277,17 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
     submitAnalysisMutation.mutate(request, {
       onSuccess: (result) => {
-        setResults(result)
-        setCurrentAnalysis(result)
-        addAnalysisToHistory(result)
+        // Add custom name to result if provided
+        const resultWithName = analysisName.trim()
+          ? { ...result, name: analysisName.trim() }
+          : result
+
+        setResults(resultWithName)
+        setCurrentAnalysis(resultWithName)
+        addAnalysisToHistory(resultWithName)
         setLocalIsRunning(false)
         setDDARunning(false)
+        setAnalysisName('') // Clear name after successful analysis
 
         // Record DDA analysis execution if recording is active
         if (workflowRecording.isRecording && fileManager.selectedFile) {
@@ -300,7 +307,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         }
 
         // Save to history asynchronously (non-blocking)
-        saveToHistoryMutation.mutate(result, {
+        saveToHistoryMutation.mutate(resultWithName, {
           onError: (err) => {
             console.error('Background save to history failed:', err)
           }
@@ -393,6 +400,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           </TabsList>
 
           <div className="flex items-center space-x-2">
+            <Input
+              placeholder="Analysis name (optional)"
+              value={analysisName}
+              onChange={(e) => setAnalysisName(e.target.value)}
+              disabled={localIsRunning}
+              className="w-48"
+            />
             <Button variant="outline" size="sm" onClick={resetParameters}>
               Reset
             </Button>
@@ -790,9 +804,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     >
                       <div>
                         <p className="font-medium text-sm">
-                          {analysis.file_path ? analysis.file_path.split('/').pop() : `Analysis ${analysis.id}`}
+                          {analysis.name || (analysis.file_path ? analysis.file_path.split('/').pop() : `Analysis ${analysis.id}`)}
                         </p>
                         <p className="text-xs text-muted-foreground">
+                          {analysis.name && analysis.file_path && `${analysis.file_path.split('/').pop()} • `}
                           {analysis.channels?.length || 0} channels • {new Date(analysis.created_at).toLocaleString()}
                         </p>
                       </div>
