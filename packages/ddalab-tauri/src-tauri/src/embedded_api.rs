@@ -899,9 +899,9 @@ fn get_dda_binary_path(state: &ApiState) -> Result<PathBuf, StatusCode> {
     let repo_root = manifest_dir.parent().unwrap().parent().unwrap().parent().unwrap();
 
     let binary_name = if cfg!(target_os = "windows") {
-        "run_DDA_ASCII.exe"
+        "run_DDA_AsciiEdf.exe"
     } else {
-        "run_DDA_ASCII"
+        "run_DDA_AsciiEdf"
     };
 
     let possible_paths = vec![
@@ -964,7 +964,7 @@ pub async fn run_dda_analysis(
     let file_path = PathBuf::from(&request.file_path);
     let file_type = FileType::from_path(&file_path);
     if file_type != FileType::EDF {
-        log::error!("DDA analysis not supported for {:?} files. The run_DDA_ASCII binary only processes EDF format.", file_type);
+        log::error!("DDA analysis not supported for {:?} files. The run_DDA_AsciiEdf binary only processes EDF format.", file_type);
         return Err(StatusCode::BAD_REQUEST);
     }
 

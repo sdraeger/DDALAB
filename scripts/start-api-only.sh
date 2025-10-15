@@ -206,7 +206,7 @@ services:
       # Data paths
       DATA_DIR: /app/data
       ALLOWED_DIRS: /app/data
-      DDA_BINARY_PATH: /app/bin/run_DDA_ASCII
+      DDA_BINARY_PATH: /app/bin/run_DDA_AsciiEdf
 
       # API settings - bind to all interfaces and expose on 8000
       API_HOST: 0.0.0.0

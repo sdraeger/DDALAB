@@ -7,7 +7,7 @@ use crate::parser::parse_dda_output;
 
 /// DDA Binary Runner
 ///
-/// Handles execution of the run_DDA_ASCII binary (APE/Cosmopolitan Libc format)
+/// Handles execution of the run_DDA_AsciiEdf binary (APE/Cosmopolitan Libc format)
 pub struct DDARunner {
     binary_path: PathBuf,
 }
@@ -16,7 +16,7 @@ impl DDARunner {
     /// Create a new DDA runner with the specified binary path
     ///
     /// # Arguments
-    /// * `binary_path` - Path to the run_DDA_ASCII binary
+    /// * `binary_path` - Path to the run_DDA_AsciiEdf binary
     ///
     /// # Returns
     /// A Result containing the DDARunner or an error if the binary doesn't exist

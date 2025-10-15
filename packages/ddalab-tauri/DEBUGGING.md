@@ -154,11 +154,11 @@ When DDA analysis fails, look for:
 ```
 ❌ ========== DDA BINARY FAILURE ==========
 Status: <exit code>
-Binary path: <path to run_DDA_ASCII>
+Binary path: <path to run_DDA_AsciiEdf>
 Binary exists: true/false
 stdout: <output from binary>
 stderr: <errors from binary>
 ==========================================
 ```
 
-This will show exactly why the `run_DDA_ASCII` binary is failing.
+This will show exactly why the `run_DDA_AsciiEdf` binary is failing.
