@@ -1,4 +1,4 @@
-use crate::db::{AnalysisDatabase, AnnotationDatabase};
+use crate::db::{AnalysisDatabase, AnnotationDatabase, FileStateDatabase};
 use crate::models::{AppState, UIState};
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -10,6 +10,7 @@ pub struct AppStateManager {
     ui_state: Arc<RwLock<UIState>>,
     analysis_db: Arc<AnalysisDatabase>,
     annotation_db: Arc<AnnotationDatabase>,
+    file_state_db: Arc<FileStateDatabase>,
     ui_state_path: PathBuf,
     auto_save_enabled: bool,
     analysis_preview_data: Arc<RwLock<HashMap<String, serde_json::Value>>>,
@@ -24,11 +25,13 @@ impl AppStateManager {
         let ui_state_path = app_config_dir.join("ui-state.json");
         let analysis_db_path = app_config_dir.join("analysis.db");
         let annotation_db_path = app_config_dir.join("annotations.db");
+        let file_state_db_path = app_config_dir.join("file_state.db");
 
         eprintln!("📂 [STATE_MANAGER] Using config directory: {:?}", app_config_dir);
         eprintln!("📄 [STATE_MANAGER] UI state file: {:?}", ui_state_path);
         eprintln!("📊 [STATE_MANAGER] Analysis DB: {:?}", analysis_db_path);
         eprintln!("📌 [STATE_MANAGER] Annotation DB: {:?}", annotation_db_path);
+        eprintln!("📁 [STATE_MANAGER] File State DB: {:?}", file_state_db_path);
 
         // Load UI state from JSON
         let ui_state = if ui_state_path.exists() {
@@ -46,10 +49,14 @@ impl AppStateManager {
         let annotation_db = AnnotationDatabase::new(&annotation_db_path)
             .map_err(|e| format!("Failed to initialize annotation database: {}", e))?;
 
+        let file_state_db = FileStateDatabase::new(&file_state_db_path)
+            .map_err(|e| format!("Failed to initialize file state database: {}", e))?;
+
         let manager = Self {
             ui_state: Arc::new(RwLock::new(ui_state)),
             analysis_db: Arc::new(analysis_db),
             annotation_db: Arc::new(annotation_db),
+            file_state_db: Arc::new(file_state_db),
             ui_state_path,
             auto_save_enabled: true,
             analysis_preview_data: Arc::new(RwLock::new(HashMap::new())),
@@ -219,6 +226,10 @@ impl AppStateManager {
 
     pub fn get_annotation_db(&self) -> &AnnotationDatabase {
         &self.annotation_db
+    }
+
+    pub fn get_file_state_db(&self) -> &FileStateDatabase {
+        &self.file_state_db
     }
 
     pub fn store_analysis_preview_data(&self, window_id: String, analysis_data: serde_json::Value) {
