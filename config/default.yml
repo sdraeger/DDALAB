@@ -51,7 +51,7 @@ cache:
 
 # DDA engine configuration
 dda:
-  binary_path: /app/bin/run_DDA_ASCII
+  binary_path: /app/bin/run_DDA_AsciiEdf
   max_concurrent_tasks: 10
   task_timeout: 600
 

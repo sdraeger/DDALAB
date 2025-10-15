@@ -117,7 +117,7 @@ All environment variables use the `DDA_` prefix:
 - `DDA_ALLOWED_DIRS` - allowed directories (comma-separated)
 
 ### DDA Engine Configuration
-- `DDA_BINARY_PATH` - path to DDA binary (default: /app/bin/run_DDA_ASCII)
+- `DDA_BINARY_PATH` - path to DDA binary (default: /app/bin/run_DDA_AsciiEdf)
 - `DDA_MAX_CONCURRENT_TASKS` - max concurrent DDA tasks
 - `DDA_TASK_TIMEOUT` - task timeout in seconds
 
@@ -156,7 +156,7 @@ storage:
   allowed_dirs: /app/data
 
 dda:
-  binary_path: /app/bin/run_DDA_ASCII
+  binary_path: /app/bin/run_DDA_AsciiEdf
   max_concurrent_tasks: 10
   task_timeout: 600
 ```

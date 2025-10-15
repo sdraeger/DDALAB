@@ -47,7 +47,7 @@ cp "target/debug/ddalab-tauri" "${MACOS_DIR}/${APP_NAME}"
 cp -r "../out" "${RESOURCES_DIR}/"
 
 # Copy resources (DDA binary, etc)
-cp "../../../bin/run_DDA_ASCII" "${RESOURCES_DIR}/"
+cp "../../../bin/run_DDA_AsciiEdf" "${RESOURCES_DIR}/"
 cp "popout.html" "${RESOURCES_DIR}/"
 
 # Create Info.plist

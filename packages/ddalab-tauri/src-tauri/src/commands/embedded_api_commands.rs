@@ -67,9 +67,9 @@ pub async fn start_embedded_api_server(
     // Resolve DDA binary path using Tauri's path resolution
     // Platform-specific binary name (APE binary needs .exe extension on Windows)
     let binary_resource_path = if cfg!(target_os = "windows") {
-        "bin/run_DDA_ASCII.exe"
+        "bin/run_DDA_AsciiEdf.exe"
     } else {
-        "bin/run_DDA_ASCII"
+        "bin/run_DDA_AsciiEdf"
     };
 
     let dda_binary_path = app_handle.path()

@@ -2,16 +2,16 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn main() {
-    // Download run_DDA_ASCII binary if it doesn't exist
+    // Download run_DDA_AsciiEdf binary if it doesn't exist
     // The binary is an APE (Actually Portable Executable) - same file for all platforms
     // On Windows, it needs .exe extension to be executable
     let bin_dir = PathBuf::from("../../../bin");
 
     // Platform-specific binary name
     let binary_name = if cfg!(target_os = "windows") {
-        "run_DDA_ASCII.exe"
+        "run_DDA_AsciiEdf.exe"
     } else {
-        "run_DDA_ASCII"
+        "run_DDA_AsciiEdf"
     };
 
     let dda_binary = bin_dir.join(binary_name);
@@ -25,7 +25,7 @@ fn main() {
         }
 
         // APE binary URL - same file for all platforms (no extension)
-        let download_url = "https://snl.salk.edu/~sfdraeger/run_DDA_ASCII";
+        let download_url = "https://snl.salk.edu/~sfdraeger/run_DDA_AsciiEdf";
 
         println!("cargo:warning=Downloading APE binary from: {}", download_url);
 

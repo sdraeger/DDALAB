@@ -1,6 +1,6 @@
 # dda-rs
 
-Rust interface for the `run_DDA_ASCII` binary (Cosmopolitan Libc APE format).
+Rust interface for the `run_DDA_AsciiEdf` binary (Cosmopolitan Libc APE format).
 
 ## Overview
 
@@ -26,8 +26,8 @@ use dda_rs::{DDARunner, DDARequest, WindowParameters, ScaleParameters, TimeRange
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create runner with path to run_DDA_ASCII binary
-    let runner = DDARunner::new("/path/to/run_DDA_ASCII")?;
+    // Create runner with path to run_DDA_AsciiEdf binary
+    let runner = DDARunner::new("/path/to/run_DDA_AsciiEdf")?;
 
     // Build analysis request
     let request = DDARequest {
