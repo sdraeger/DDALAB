@@ -712,16 +712,16 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               </Card>
             )}
 
-            {/* Scale Parameters */}
+            {/* Delay Parameters */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Scale Parameters</CardTitle>
-                <CardDescription>Scale range for fluctuation analysis</CardDescription>
+                <CardTitle className="text-base">Delay Parameters</CardTitle>
+                <CardDescription>Time delay range (τ) for DDA analysis</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <Label className="text-sm">Min Scale</Label>
+                    <Label className="text-sm">Min Delay (τ)</Label>
                     <Input
                       type="number"
                       value={parameters.scaleMin}
@@ -735,7 +735,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     />
                   </div>
                   <div>
-                    <Label className="text-sm">Max Scale</Label>
+                    <Label className="text-sm">Max Delay (τ)</Label>
                     <Input
                       type="number"
                       value={parameters.scaleMax}
@@ -750,7 +750,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   </div>
                 </div>
                 <div>
-                  <Label className="text-sm">Number of Scales: {parameters.scaleNum}</Label>
+                  <Label className="text-sm">Number of Delays: {parameters.scaleNum}</Label>
                   <Slider
                     value={[parameters.scaleNum]}
                     onValueChange={([value]) => setLocalParameters(prev => ({ ...prev, scaleNum: value }))}
