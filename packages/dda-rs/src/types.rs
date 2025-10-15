@@ -19,6 +19,10 @@ pub struct PreprocessingOptions {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AlgorithmSelection {
     pub enabled_variants: Vec<String>,
+    /// SELECT mask as 4-bit string (e.g., "1 0 1 0" for ST and CD)
+    /// Format: ST CT CD DE
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub select_mask: Option<String>,
 }
 
 /// Window parameters for DDA analysis
@@ -26,6 +30,12 @@ pub struct AlgorithmSelection {
 pub struct WindowParameters {
     pub window_length: u32,
     pub window_step: u32,
+    /// CT-specific window length (for Cross-Timeseries variant)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ct_window_length: Option<u32>,
+    /// CT-specific window step (for Cross-Timeseries variant)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ct_window_step: Option<u32>,
 }
 
 /// Scale parameters for DDA analysis
@@ -47,6 +57,10 @@ pub struct DDARequest {
     pub algorithm_selection: AlgorithmSelection,
     pub window_parameters: WindowParameters,
     pub scale_parameters: ScaleParameters,
+    /// Channel pairs for CT (Cross-Timeseries) analysis
+    /// Each pair is [channel_i, channel_j] where channels are 0-based indices
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ct_channel_pairs: Option<Vec<[usize; 2]>>,
 }
 
 /// DDA analysis result
