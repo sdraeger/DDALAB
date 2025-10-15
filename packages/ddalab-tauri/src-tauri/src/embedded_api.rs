@@ -137,8 +137,10 @@ impl ApiState {
             dda_binary_path: None,  // Will be set via set_dda_binary_path if in Tauri context
         };
 
-        // Load existing history from disk
-        state.load_history_from_disk();
+        // NOTE: No longer loading history from JSON files - analysis history is now persisted in SQLite
+        // via the AnalysisDatabase in state_manager.rs. This embedded API server only maintains
+        // in-memory cache for active session results.
+        log::info!("Analysis history persistence is now handled by SQLite (see AnalysisDatabase)");
 
         state
     }
@@ -373,34 +375,20 @@ impl ApiState {
         }
     }
 
-    // Save a single analysis result to disk
-    fn save_to_disk(&self, result: &DDAResult) -> Result<(), String> {
-        let file_path = self.history_directory.join(format!("{}.json", result.id));
-
-        log::info!("Saving analysis {} with {} channels", result.id, result.channels.len());
-        log::info!("  Q matrix present: {}", result.q_matrix.is_some());
-        log::info!("  Plot data present: {}", result.plot_data.is_some());
-
-        let json = serde_json::to_string_pretty(result)
-            .map_err(|e| format!("Failed to serialize result: {}", e))?;
-
-        log::info!("  Serialized JSON size: {} bytes", json.len());
-
-        std::fs::write(&file_path, json)
-            .map_err(|e| format!("Failed to write result to disk: {}", e))?;
-
-        log::info!("Saved analysis {} to disk at {:?}", result.id, file_path);
+    // DEPRECATED: Analysis persistence is now handled by SQLite (AnalysisDatabase)
+    // This method is kept as a no-op for backward compatibility but does not save to JSON anymore
+    fn save_to_disk(&self, _result: &DDAResult) -> Result<(), String> {
+        // NOTE: Analysis results are now persisted in SQLite via AnalysisDatabase in state_manager.rs
+        // The embedded API server only maintains in-memory cache for active session
+        log::debug!("save_to_disk called but skipped - using SQLite persistence instead");
         Ok(())
     }
 
-    // Delete an analysis result from disk
-    fn delete_from_disk(&self, analysis_id: &str) -> Result<(), String> {
-        let file_path = self.history_directory.join(format!("{}.json", analysis_id));
-        if file_path.exists() {
-            std::fs::remove_file(&file_path)
-                .map_err(|e| format!("Failed to delete result from disk: {}", e))?;
-            log::info!("Deleted analysis {} from disk", analysis_id);
-        }
+    // DEPRECATED: Analysis deletion is now handled by SQLite (AnnotationDatabase)
+    // This method is kept as a no-op for backward compatibility
+    fn delete_from_disk(&self, _analysis_id: &str) -> Result<(), String> {
+        // NOTE: Analysis deletion now handled by SQLite via delete_annotation in state_manager.rs
+        log::debug!("delete_from_disk called but skipped - using SQLite persistence instead");
         Ok(())
     }
 
