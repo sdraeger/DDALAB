@@ -63,13 +63,22 @@ pub struct DDARequest {
     pub ct_channel_pairs: Option<Vec<[usize; 2]>>,
 }
 
+/// Variant-specific DDA result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VariantResult {
+    pub variant_id: String,          // "ST", "CT", "CD", "DE"
+    pub variant_name: String,        // "Single Timeseries (ST)", etc.
+    pub q_matrix: Vec<Vec<f64>>,    // Q matrix for this variant [channels × timepoints]
+}
+
 /// DDA analysis result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DDAResult {
     pub id: String,
     pub file_path: String,
     pub channels: Vec<String>,
-    pub q_matrix: Vec<Vec<f64>>,  // Processed DDA output matrix [channels × timepoints]
+    pub q_matrix: Vec<Vec<f64>>,  // Primary variant Q matrix (for backward compatibility)
+    pub variant_results: Option<Vec<VariantResult>>,  // All variant results
     pub raw_output: Option<String>,  // Optional: keep raw output for debugging
     pub window_parameters: WindowParameters,
     pub scale_parameters: ScaleParameters,
@@ -90,6 +99,7 @@ impl DDAResult {
             file_path,
             channels,
             q_matrix,
+            variant_results: None,
             raw_output: None,
             window_parameters,
             scale_parameters,
@@ -99,6 +109,11 @@ impl DDAResult {
 
     pub fn with_raw_output(mut self, raw_output: String) -> Self {
         self.raw_output = Some(raw_output);
+        self
+    }
+
+    pub fn with_variant_results(mut self, variant_results: Vec<VariantResult>) -> Self {
+        self.variant_results = Some(variant_results);
         self
     }
 }

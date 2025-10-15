@@ -1173,7 +1173,7 @@ pub async fn run_dda_analysis(
 
     log::info!("Output channel labels: {:?}", channel_names);
 
-    // Convert Q matrix to dda_matrix format for frontend compatibility
+    // Convert Q matrix to dda_matrix format for frontend compatibility (primary variant)
     // dda_matrix is { channelName: [timepoints] }
     let mut dda_matrix = serde_json::Map::new();
     for (i, channel_name) in channel_names.iter().enumerate() {
@@ -1185,6 +1185,41 @@ pub async fn run_dda_analysis(
 
     // Create scales array (time axis for heatmap x-axis)
     let scales: Vec<f64> = (0..num_timepoints).map(|i| i as f64 * 0.1).collect();
+
+    // Build variants array from dda-rs result
+    let variants_array: Vec<serde_json::Value> = if let Some(ref variant_results) = dda_result.variant_results {
+        // Multiple variants available from dda-rs
+        variant_results.iter().map(|vr| {
+            let mut variant_dda_matrix = serde_json::Map::new();
+            for (i, channel_name) in channel_names.iter().enumerate() {
+                if i < vr.q_matrix.len() {
+                    variant_dda_matrix.insert(
+                        channel_name.clone(),
+                        serde_json::json!(vr.q_matrix[i])
+                    );
+                }
+            }
+
+            serde_json::json!({
+                "variant_id": map_variant_id_to_frontend(&vr.variant_id),
+                "variant_name": vr.variant_name.clone(),
+                "dda_matrix": variant_dda_matrix,
+                "exponents": serde_json::json!({}),
+                "quality_metrics": serde_json::json!({})
+            })
+        }).collect()
+    } else {
+        // Single variant (backward compatibility)
+        vec![serde_json::json!({
+            "variant_id": "single_timeseries",
+            "variant_name": "Single Timeseries (ST)",
+            "dda_matrix": dda_matrix.clone(),
+            "exponents": serde_json::json!({}),
+            "quality_metrics": serde_json::json!({})
+        })]
+    };
+
+    log::info!("Built {} variant results for frontend", variants_array.len());
 
     // Update results to include variants format expected by frontend
     let results = serde_json::json!({
@@ -1200,14 +1235,8 @@ pub async fn run_dda_analysis(
             "complexity": q_matrix.clone()
         },
         "scales": scales,
-        "variants": [{
-            "variant_id": "single_timeseries",
-            "variant_name": "Single Timeseries (ST)",
-            "dda_matrix": dda_matrix,
-            "exponents": serde_json::json!({}),
-            "quality_metrics": serde_json::json!({})
-        }],
-        "dda_matrix": dda_matrix.clone()  // Also include at top level for compatibility
+        "variants": variants_array,
+        "dda_matrix": dda_matrix.clone()  // Primary variant at top level for compatibility
     });
 
     // Create plot_data structure for compatibility
@@ -1251,6 +1280,17 @@ pub async fn run_dda_analysis(
 
     Ok(Json(result))
 }
+// Map DDA binary variant IDs to frontend-compatible IDs
+fn map_variant_id_to_frontend(variant_id: &str) -> String {
+    match variant_id {
+        "ST" => "single_timeseries".to_string(),
+        "CT" => "cross_timeseries".to_string(),
+        "CD" => "cross_delay".to_string(),
+        "DE" => "delay_evolution".to_string(),
+        _ => variant_id.to_lowercase().replace('-', "_"),
+    }
+}
+
 // Helper function to calculate mean
 fn calculate_mean(values: &[f64]) -> f64 {
     if values.is_empty() {
