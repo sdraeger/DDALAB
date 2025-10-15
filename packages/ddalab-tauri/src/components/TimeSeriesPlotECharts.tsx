@@ -85,6 +85,33 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     filePath: fileManager.selectedFile?.file_path || "",
   });
 
+  // Subscribe to annotation changes directly from store for instant re-renders
+  // Use a stable selector that only changes when annotations actually change
+  const filePath = fileManager.selectedFile?.file_path;
+  const annotationsFromStore = useAppStore(
+    (state) => {
+      if (!filePath) return [];
+      const fileAnnotations = state.annotations.timeSeries[filePath];
+      return fileAnnotations?.globalAnnotations || [];
+    },
+    (a, b) => {
+      // Return true if equal (prevents re-render), false if different (triggers re-render)
+      if (a.length !== b.length) return false;
+      if (a.length === 0 && b.length === 0) return true;
+      return a.every((ann, i) =>
+        b[i] &&
+        ann.id === b[i].id &&
+        ann.position === b[i].position &&
+        ann.label === b[i].label
+      );
+    }
+  );
+
+  // Debug log when annotations change
+  useEffect(() => {
+    console.log('[ANNOTATIONS] Annotations updated for file:', filePath, 'count:', annotationsFromStore.length);
+  }, [annotationsFromStore, filePath]);
+
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<echarts.ECharts | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -254,6 +281,41 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       // Add right-click handler for annotations
       chartRef.current.addEventListener("contextmenu", handleChartRightClick);
 
+      // Listen for clicks on markLine elements directly
+      chart.on('click', (params: any) => {
+        if (params.componentType === 'markLine') {
+          console.log('[ECharts] Clicked on markLine element:', params);
+          // Store which annotation was clicked for the contextmenu handler
+          (chart as any).__lastClickedMarkLineValue = params.value;
+        }
+      });
+
+      // Listen for contextmenu on markLine elements
+      chart.getZr().on('contextmenu', (params: any) => {
+        const event = params.event;
+        const target = params.target;
+
+        console.log('[ECharts] ZRender contextmenu event:', { target, event });
+
+        // Check if the click target is a markLine element
+        if (target && target.parent && target.parent.__ecComponentInfo?.mainType === 'series') {
+          // Get the series index and check if it has markLine
+          const seriesIndex = target.parent.__ecComponentInfo.index;
+          const option = chart.getOption();
+          const series = option.series as any[];
+
+          if (series[seriesIndex]?.markLine) {
+            console.log('[ECharts] Right-clicked on annotation markLine, series:', seriesIndex);
+
+            // Try to find which specific markLine was clicked
+            // The target might have data about the markLine position
+            if (target.position) {
+              console.log('[ECharts] MarkLine target position:', target.position);
+            }
+          }
+        }
+      });
+
       // Listen to dataZoom events (minimap) to persist position when user navigates
       chart.on('datazoom', (event: any) => {
         // Get the current start value from the dataZoom event
@@ -340,6 +402,81 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     setCurrentChunk(processedChunk);
     renderChart(processedChunk, currentTime);
   }, [chunkData, fileManager.selectedFile, preprocessing, currentTime]);
+
+  // Separate effect for updating annotations without re-rendering the entire chart
+  useEffect(() => {
+    if (!chartInstanceRef.current || !isChartReady) return;
+
+    // Only update markLine in the first series
+    const currentOption = chartInstanceRef.current.getOption() as any;
+    if (!currentOption || !currentOption.series || currentOption.series.length === 0) {
+      console.log('[ECharts] Skipping annotation update - chart not ready or no series yet');
+      return;
+    }
+
+    console.log('[ECharts] Updating annotations - count:', annotationsFromStore.length);
+
+    // Build markLine configuration
+    const markLine = annotationsFromStore.length > 0 ? {
+      symbol: ['none', 'none'],
+      silent: false,
+      animation: false,
+      label: {
+        show: true,
+        position: 'insideEndTop' as const,
+        formatter: (params: any) => {
+          const annotation = annotationsFromStore.find(
+            ann => Math.abs(ann.position - params.value) < 0.01
+          );
+          return annotation?.label || '';
+        },
+        fontSize: 12,
+        fontWeight: 'bold' as const,
+        color: '#fff',
+        backgroundColor: '#ef4444',
+        padding: [6, 10],
+        borderRadius: 4,
+        borderWidth: 1,
+        borderColor: '#dc2626',
+      },
+      lineStyle: {
+        color: '#ef4444',
+        width: 3,
+        type: 'solid' as const,
+        opacity: 0.8,
+      },
+      emphasis: {
+        lineStyle: {
+          width: 4,
+          opacity: 1,
+        },
+        label: {
+          show: true,
+          backgroundColor: '#dc2626',
+        },
+      },
+      data: annotationsFromStore.map(annotation => ({
+        xAxis: annotation.position,
+        label: {
+          formatter: annotation.label,
+        },
+      })),
+    } : undefined;
+
+    // Update ALL series with markLine (each channel needs to know about annotations)
+    const updatedSeries = currentOption.series.map((series: any, index: number) => ({
+      ...series,
+      markLine: index === 0 ? markLine : undefined, // Only first series gets markLine to avoid duplicates
+    }));
+
+    // Use setOption with notMerge: false to update in place
+    chartInstanceRef.current.setOption({
+      series: updatedSeries,
+    }, {
+      notMerge: false, // Merge with existing options
+      lazyUpdate: false, // Update immediately
+    });
+  }, [annotationsFromStore, isChartReady]);
 
   // Load chunk - with TanStack Query, we just update the currentTime state
   // The query will automatically refetch based on the new query key
@@ -504,6 +641,61 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
         });
       }
 
+      // Add annotation markers for the first series only (to avoid duplicates)
+      // Use annotationsFromStore for instant updates
+      let markLine = undefined;
+      if (channelIndex === 0 && annotationsFromStore.length > 0) {
+        console.log('[ECharts] Rendering', annotationsFromStore.length, 'annotations:',
+          annotationsFromStore.map(a => `${a.label} at ${a.position}s`));
+
+        markLine = {
+          symbol: ['none', 'none'], // No arrow symbols
+          silent: false, // Enable interaction - IMPORTANT for clicking
+          animation: false,
+          label: {
+            show: true,
+            position: 'insideEndTop' as const, // Position label at top
+            formatter: (params: any) => {
+              const annotation = timeSeriesAnnotations.annotations.find(
+                ann => Math.abs(ann.position - params.value) < 0.01
+              );
+              return annotation?.label || '';
+            },
+            fontSize: 12,
+            fontWeight: 'bold' as const,
+            color: '#fff',
+            backgroundColor: '#ef4444',
+            padding: [6, 10],
+            borderRadius: 4,
+            borderWidth: 1,
+            borderColor: '#dc2626',
+          },
+          lineStyle: {
+            color: '#ef4444',
+            width: 3, // Thicker line for easier clicking
+            type: 'solid' as const, // Solid line is easier to see and click
+            opacity: 0.8,
+          },
+          emphasis: {
+            // Highlight on hover
+            lineStyle: {
+              width: 4,
+              opacity: 1,
+            },
+            label: {
+              show: true,
+              backgroundColor: '#dc2626',
+            },
+          },
+          data: annotationsFromStore.map(annotation => ({
+            xAxis: annotation.position,
+            label: {
+              formatter: annotation.label,
+            },
+          })),
+        };
+      }
+
       return {
         name: channelName,
         type: "line" as const,
@@ -521,6 +713,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
           disabled: true, // Disable hover effects for performance
         },
         animation: false, // Disable animation for performance
+        markLine,
       };
     });
 
@@ -713,6 +906,8 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
       if (!chartInstanceRef.current) return;
 
+      console.log('[ECharts] Right-click event triggered');
+
       // Get the chart's bounding rectangle
       const rect = (e.target as HTMLElement).getBoundingClientRect();
       const x = e.clientX - rect.left;
@@ -727,10 +922,27 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       if (pointInGrid && typeof pointInGrid[0] === "number") {
         const timePosition = pointInGrid[0];
 
+        // IMPORTANT: Get current file path from store to avoid stale closure
+        const currentFilePath = useAppStore.getState().fileManager.selectedFile?.file_path;
+        const allAnnotations = useAppStore.getState().annotations.timeSeries;
+        const fileAnnotations = currentFilePath ? allAnnotations[currentFilePath] : null;
+        const currentAnnotations = fileAnnotations?.globalAnnotations || [];
+
+        console.log('[ECharts] Converted click position to time:', timePosition);
+        console.log('[ECharts] Current file path from store:', currentFilePath);
+        console.log('[ECharts] Annotations for this file:', currentAnnotations);
+
         // Check if clicking on an existing annotation
-        const clickedAnnotation = timeSeriesAnnotations.annotations.find(
-          (ann) => Math.abs(ann.position - timePosition) < 0.5 // 0.5 second tolerance
+        // Use larger tolerance for easier clicking on annotations
+        const clickedAnnotation = currentAnnotations.find(
+          (ann) => Math.abs(ann.position - timePosition) < 1.0 // 1 second tolerance
         );
+
+        if (clickedAnnotation) {
+          console.log('[ECharts] Right-clicked on existing annotation:', clickedAnnotation.label, 'at position:', clickedAnnotation.position);
+        } else {
+          console.log('[ECharts] Right-clicked on empty space at time:', timePosition);
+        }
 
         timeSeriesAnnotations.openContextMenu(
           e.clientX,

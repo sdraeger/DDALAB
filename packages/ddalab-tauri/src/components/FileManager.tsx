@@ -72,7 +72,7 @@ export function FileManager({ apiService }: FileManagerProps) {
   const absolutePath = relativePath ? `${fileManager.dataDirectoryPath}/${relativePath}` : fileManager.dataDirectoryPath
 
   // Use TanStack Query for directory listing
-  // Wait for server AND persistence to ensure plots/state are restored before showing files
+  // Only wait for server to be ready - no need to block on persistence
   const {
     data: directoryData,
     isLoading: directoryLoading,
@@ -81,7 +81,7 @@ export function FileManager({ apiService }: FileManagerProps) {
   } = useDirectoryListing(
     apiService,
     absolutePath || '',
-    !!absolutePath && !!fileManager.dataDirectoryPath && ui.isServerReady && isPersistenceRestored
+    !!absolutePath && !!fileManager.dataDirectoryPath && ui.isServerReady
   )
 
   // Use mutation for loading file info
@@ -163,23 +163,37 @@ export function FileManager({ apiService }: FileManagerProps) {
   }, [ui.isServerReady, isPersistenceRestored, isInitialLoad])
 
   // Handle pending file selection restoration
+  // Start immediately when server is ready - no need to wait for isInitialLoad flag
   useEffect(() => {
-    if (fileManager.pendingFileSelection && ui.isServerReady && files.length > 0 && !isInitialLoad) {
-      const fileToSelect = files.find(f => f.file_path === fileManager.pendingFileSelection)
-      if (fileToSelect) {
-        console.log('[FILEMANAGER] ✓ Restoring selected file:', fileToSelect.file_name)
-        setTimeout(() => {
-          loadFileInfo(fileToSelect).catch(err => {
-            console.error('[FILEMANAGER] File restoration failed:', err)
-          })
-        }, 0)
-        clearPendingFileSelection()
-      } else {
-        console.log('[FILEMANAGER] ✗ Pending file not in current directory, clearing pending state')
-        clearPendingFileSelection()
-      }
+    if (fileManager.pendingFileSelection && ui.isServerReady && isPersistenceRestored) {
+      // Try to restore immediately without waiting for directory listing
+      const filePath = fileManager.pendingFileSelection
+      console.log('[FILEMANAGER] ⚡ Fast-restoring file from path:', filePath)
+
+      // Load file directly by path - don't wait for directory listing
+      loadFileInfoMutation.mutate(filePath, {
+        onSuccess: (fileInfo) => {
+          console.log('[FILEMANAGER] ✓ File restored successfully:', fileInfo.file_name)
+          setSelectedFile(fileInfo)
+          clearPendingFileSelection()
+
+          // Record file load action if recording is active
+          if (workflowRecording.isRecording) {
+            const action = createLoadFileAction(fileInfo.file_path, fileInfo.file_path.endsWith('.edf') ? 'EDF' : 'ASCII')
+            recordAction(action).then(() => {
+              console.log('[WORKFLOW] Recorded restored file load:', fileInfo.file_path)
+            }).catch(err => {
+              console.error('[WORKFLOW] Failed to record action:', err)
+            })
+          }
+        },
+        onError: (error) => {
+          console.error('[FILEMANAGER] ✗ File restoration failed:', error)
+          clearPendingFileSelection()
+        }
+      })
     }
-  }, [fileManager.pendingFileSelection, ui.isServerReady, files, isInitialLoad])
+  }, [fileManager.pendingFileSelection, ui.isServerReady, isPersistenceRestored])
 
   // Show loading if directory is loading OR if we're waiting for initial data
   const loading = directoryLoading || (isInitialLoad && !directoryData) || loadFileInfoMutation.isPending

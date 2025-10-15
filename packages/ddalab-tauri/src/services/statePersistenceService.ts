@@ -40,9 +40,13 @@ export class StatePersistenceService {
    */
   async initialize(): Promise<AppState> {
     try {
+      const start = performance.now();
       console.log('DEBUG: StatePersistenceService.initialize() called');
+
       const savedState = await invoke<AppState>('get_saved_state');
-      console.log('DEBUG: invoke get_saved_state returned:', savedState);
+      const elapsed = performance.now() - start;
+
+      console.log(`DEBUG: invoke get_saved_state returned in ${elapsed.toFixed(0)}ms`);
 
       if (this.options.autoSave) {
         console.log('DEBUG: Starting auto-save with interval:', this.options.saveInterval);
@@ -101,21 +105,8 @@ export class StatePersistenceService {
       this.lastSaveTime = Date.now();
       this.pendingSave = null;
 
-      // Only log in debug mode to reduce console spam
-      if (process.env.NODE_ENV === 'development') {
-        console.log('DEBUG: saveCompleteState called with state:', {
-          keys: Object.keys(state),
-          version: state.version,
-          hasFileManager: !!state.file_manager,
-          hasDDA: !!state.dda
-        });
-      }
-
+      // Save state to Rust backend
       await invoke('save_complete_state', { completeState: state });
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log('DEBUG: Complete state saved successfully');
-      }
     } catch (error) {
       console.error('DEBUG: Failed to save complete state:', error);
       console.error('DEBUG: State that failed to save:', state);

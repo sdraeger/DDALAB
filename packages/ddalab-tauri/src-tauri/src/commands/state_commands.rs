@@ -1,8 +1,12 @@
-use crate::models::{AppState, AnalysisResult, DDAState, FileManagerState, PlotState, WindowState};
+use crate::db::{Annotation, FileAnnotations};
+use crate::models::{AnalysisResult, AppState, DDAState, FileManagerState, PlotState, UIState, WindowState};
 use crate::state_manager::AppStateManager;
 use std::collections::HashMap;
 use tauri::State;
-use chrono::Utc;
+
+// ============================================================================
+// UI State Commands (lightweight JSON-based)
+// ============================================================================
 
 #[tauri::command]
 pub async fn get_app_state(state_manager: State<'_, AppStateManager>) -> Result<AppState, String> {
@@ -13,40 +17,43 @@ pub async fn get_app_state(state_manager: State<'_, AppStateManager>) -> Result<
 }
 
 #[tauri::command]
+pub async fn get_ui_state(state_manager: State<'_, AppStateManager>) -> Result<UIState, String> {
+    log::debug!("get_ui_state called");
+    Ok(state_manager.get_ui_state())
+}
+
+#[tauri::command]
 pub async fn update_file_manager_state(
     state_manager: State<'_, AppStateManager>,
     file_manager_state: FileManagerState,
 ) -> Result<(), String> {
-    log::debug!("update_file_manager_state called with selected_file: {:?}, current_path: {:?}",
-        file_manager_state.selected_file, file_manager_state.current_path);
-    let result = state_manager.update_state(|state| {
-        state.file_manager = file_manager_state;
-    });
-    match &result {
-        Ok(_) => log::debug!("update_file_manager_state succeeded"),
-        Err(e) => log::error!("update_file_manager_state failed: {}", e),
-    }
-    result
+    log::debug!(
+        "update_file_manager_state called with selected_file: {:?}",
+        file_manager_state.selected_file
+    );
+    state_manager.update_ui_state(|ui_state| {
+        ui_state.last_selected_file = file_manager_state.selected_file.clone();
+        ui_state.file_manager = file_manager_state;
+    })
 }
 
 #[tauri::command]
 pub async fn update_plot_state(
-    state_manager: State<'_, AppStateManager>,
-    plot_state: PlotState,
+    _state_manager: State<'_, AppStateManager>,
+    _plot_state: serde_json::Value,
 ) -> Result<(), String> {
-    state_manager.update_state(|state| {
-        state.plot = plot_state;
-    })
+    // Plot state is now ephemeral - no need to persist
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn update_dda_state(
-    state_manager: State<'_, AppStateManager>,
-    dda_state: DDAState,
+    _state_manager: State<'_, AppStateManager>,
+    _dda_state: serde_json::Value,
 ) -> Result<(), String> {
-    state_manager.update_state(|state| {
-        state.dda = dda_state;
-    })
+    // DDA state is now managed via database - no need to persist here
+    // Accept as JSON value to avoid type mismatch between frontend and backend structures
+    Ok(())
 }
 
 #[tauri::command]
@@ -54,57 +61,10 @@ pub async fn update_ui_state(
     state_manager: State<'_, AppStateManager>,
     ui_updates: HashMap<String, serde_json::Value>,
 ) -> Result<(), String> {
-    state_manager.update_state(|state| {
+    state_manager.update_ui_state(|ui_state| {
         for (key, value) in ui_updates {
-            state.ui.insert(key, value);
+            ui_state.ui_extras.insert(key, value);
         }
-    })
-}
-
-#[tauri::command]
-pub async fn save_analysis_result(
-    state_manager: State<'_, AppStateManager>,
-    analysis: AnalysisResult,
-) -> Result<(), String> {
-    state_manager.update_state(|state| {
-        // Update current analysis
-        state.dda.current_analysis = Some(analysis.clone());
-        state.dda.last_analysis_id = Some(analysis.id.clone());
-
-        // Add to history (limit to 50 entries)
-        state.dda.analysis_history.insert(0, analysis);
-        if state.dda.analysis_history.len() > 50 {
-            state.dda.analysis_history.truncate(50);
-        }
-    })
-}
-
-#[tauri::command]
-pub async fn save_plot_data(
-    state_manager: State<'_, AppStateManager>,
-    plot_data: serde_json::Value,
-    analysis_id: Option<String>,
-) -> Result<(), String> {
-    state_manager.update_state(|state| {
-        // Save plot data to current analysis if available
-        if let Some(ref analysis_id) = analysis_id {
-            if let Some(ref mut current_analysis) = state.dda.current_analysis {
-                if current_analysis.id == *analysis_id {
-                    current_analysis.plot_data = Some(plot_data.clone());
-                }
-            }
-
-            // Also update in history
-            for analysis in &mut state.dda.analysis_history {
-                if analysis.id == *analysis_id {
-                    analysis.plot_data = Some(plot_data.clone());
-                    break;
-                }
-            }
-        }
-
-        // Save general plot state
-        state.ui.insert("last_plot_data".to_string(), plot_data);
     })
 }
 
@@ -114,8 +74,39 @@ pub async fn save_window_state(
     window_id: String,
     window_state: WindowState,
 ) -> Result<(), String> {
-    state_manager.update_state(|state| {
-        state.windows.insert(window_id, window_state);
+    state_manager.update_ui_state(|ui_state| {
+        ui_state.windows.insert(window_id, window_state);
+    })
+}
+
+#[tauri::command]
+pub async fn save_ui_state_only(
+    state_manager: State<'_, AppStateManager>,
+    ui_updates: serde_json::Value,
+) -> Result<(), String> {
+    log::debug!("save_ui_state_only called");
+
+    state_manager.update_ui_state(|ui_state| {
+        if let Some(obj) = ui_updates.as_object() {
+            if let Some(active_tab) = obj.get("active_tab").and_then(|v| v.as_str()) {
+                ui_state.active_tab = active_tab.to_string();
+            }
+            if let Some(sidebar) = obj.get("sidebar_collapsed").and_then(|v| v.as_bool()) {
+                ui_state.sidebar_collapsed = sidebar;
+            }
+            if let Some(panel_sizes) = obj.get("panel_sizes") {
+                if let Ok(sizes) = serde_json::from_value(panel_sizes.clone()) {
+                    ui_state.panel_sizes = sizes;
+                }
+            }
+            if let Some(file_manager) = obj.get("file_manager") {
+                if let Ok(fm) = serde_json::from_value::<FileManagerState>(file_manager.clone()) {
+                    // Update last_selected_file from the FileManagerState
+                    ui_state.last_selected_file = fm.selected_file.clone();
+                    ui_state.file_manager = fm;
+                }
+            }
+        }
     })
 }
 
@@ -124,23 +115,12 @@ pub async fn save_complete_state(
     state_manager: State<'_, AppStateManager>,
     complete_state: serde_json::Value,
 ) -> Result<(), String> {
-    log::debug!("save_complete_state called with state keys: {:?}",
-        complete_state.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+    log::debug!(
+        "save_complete_state called (deprecated - forwarding to save_ui_state_only)"
+    );
 
-    let result = state_manager.update_state(|state| {
-        // Save the complete frontend state as JSON
-        state.ui.insert("frontend_state".to_string(), complete_state.clone());
-        state.ui.insert("last_saved".to_string(), serde_json::Value::String(
-            Utc::now().to_rfc3339()
-        ));
-    });
-
-    match &result {
-        Ok(_) => log::debug!("save_complete_state succeeded"),
-        Err(e) => log::debug!("save_complete_state failed: {}", e),
-    }
-
-    result
+    // Forward to new lightweight save
+    save_ui_state_only(state_manager, complete_state).await
 }
 
 #[tauri::command]
@@ -148,25 +128,217 @@ pub async fn get_saved_state(
     state_manager: State<'_, AppStateManager>,
 ) -> Result<serde_json::Value, String> {
     log::debug!("get_saved_state called");
-    let state = state_manager.get_state();
-    log::debug!("state has {} UI keys", state.ui.len());
-    let json_result = serde_json::to_value(state).map_err(|e| e.to_string())?;
-    log::debug!("converted to JSON successfully");
-    Ok(json_result)
+
+    // Build a complete AppState for frontend compatibility
+    let ui_state = state_manager.get_ui_state();
+
+    // Create a JSON object with all expected fields (using snake_case for TypeScript compatibility)
+    let state_json = serde_json::json!({
+        "version": ui_state.version,
+        "active_tab": ui_state.active_tab,
+        "sidebar_collapsed": ui_state.sidebar_collapsed,
+        "panel_sizes": ui_state.panel_sizes,
+        "file_manager": {
+            "selected_file": ui_state.last_selected_file,
+            "current_path": ui_state.file_manager.current_path,
+            "selected_channels": ui_state.file_manager.selected_channels,
+            "search_query": ui_state.file_manager.search_query,
+            "sort_by": ui_state.file_manager.sort_by,
+            "sort_order": ui_state.file_manager.sort_order,
+            "show_hidden": ui_state.file_manager.show_hidden,
+        },
+        "plot": {
+            "visible_channels": [],
+            "time_range": [0.0, 30.0],
+            "amplitude_range": [-100.0, 100.0],
+            "zoom_level": 1.0,
+            "annotations": [],
+            "color_scheme": "default",
+            "plot_mode": "raw",
+            "filters": {},
+        },
+        "dda": {
+            "selected_variants": ["single_timeseries"],
+            "parameters": {},
+            "last_analysis_id": null,
+            "current_analysis": null,
+            "analysis_history": [],
+            "analysis_parameters": {},
+            "running": false,
+        },
+        "ui": ui_state.ui_extras,
+        "windows": ui_state.windows,
+    });
+
+    log::debug!("converted UI state to AppState JSON successfully");
+    Ok(state_json)
 }
 
 #[tauri::command]
-pub async fn force_save_state(
-    state_manager: State<'_, AppStateManager>,
-) -> Result<(), String> {
+pub async fn force_save_state(state_manager: State<'_, AppStateManager>) -> Result<(), String> {
     state_manager.save()
 }
 
 #[tauri::command]
-pub async fn clear_state(
-    state_manager: State<'_, AppStateManager>,
-) -> Result<(), String> {
-    state_manager.update_state(|state| {
-        *state = AppState::default();
+pub async fn clear_state(state_manager: State<'_, AppStateManager>) -> Result<(), String> {
+    state_manager.update_ui_state(|ui_state| {
+        *ui_state = UIState::default();
     })
+}
+
+// ============================================================================
+// Analysis Database Commands (SQLite-based)
+// ============================================================================
+
+#[tauri::command]
+pub async fn save_analysis_result(
+    state_manager: State<'_, AppStateManager>,
+    analysis: AnalysisResult,
+) -> Result<(), String> {
+    log::debug!("save_analysis_result called for: {}", analysis.id);
+    state_manager
+        .get_analysis_db()
+        .save_analysis(&analysis)
+        .map_err(|e| e.to_string())?;
+    log::debug!("Analysis saved successfully: {}", analysis.id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_analysis_result(
+    state_manager: State<'_, AppStateManager>,
+    analysis_id: String,
+) -> Result<Option<AnalysisResult>, String> {
+    state_manager
+        .get_analysis_db()
+        .get_analysis(&analysis_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_analyses_by_file(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+    limit: Option<usize>,
+) -> Result<Vec<AnalysisResult>, String> {
+    let limit = limit.unwrap_or(50);
+    state_manager
+        .get_analysis_db()
+        .get_analyses_by_file(&file_path, limit)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_recent_analyses(
+    state_manager: State<'_, AppStateManager>,
+    limit: Option<usize>,
+) -> Result<Vec<AnalysisResult>, String> {
+    let limit = limit.unwrap_or(50);
+    state_manager
+        .get_analysis_db()
+        .get_recent_analyses(limit)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_analysis(
+    state_manager: State<'_, AppStateManager>,
+    analysis_id: String,
+) -> Result<(), String> {
+    state_manager
+        .get_analysis_db()
+        .delete_analysis(&analysis_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_plot_data(
+    state_manager: State<'_, AppStateManager>,
+    plot_data: serde_json::Value,
+    analysis_id: Option<String>,
+) -> Result<(), String> {
+    if let Some(id) = analysis_id {
+        // Load the analysis, update plot_data, and save it back
+        if let Some(mut analysis) = state_manager
+            .get_analysis_db()
+            .get_analysis(&id)
+            .map_err(|e| e.to_string())?
+        {
+            analysis.plot_data = Some(plot_data);
+            state_manager
+                .get_analysis_db()
+                .save_analysis(&analysis)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+// ============================================================================
+// Annotation Database Commands (SQLite-based)
+// ============================================================================
+
+#[tauri::command]
+pub async fn save_annotation(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+    channel: Option<String>,
+    annotation: Annotation,
+) -> Result<(), String> {
+    log::debug!(
+        "save_annotation called for file: {}, position: {}",
+        file_path,
+        annotation.position
+    );
+    state_manager
+        .get_annotation_db()
+        .save_annotation(&file_path, channel.as_deref(), &annotation)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_file_annotations(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+) -> Result<FileAnnotations, String> {
+    state_manager
+        .get_annotation_db()
+        .get_file_annotations(&file_path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_annotation(
+    state_manager: State<'_, AppStateManager>,
+    annotation_id: String,
+) -> Result<Option<Annotation>, String> {
+    state_manager
+        .get_annotation_db()
+        .get_annotation(&annotation_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_annotation(
+    state_manager: State<'_, AppStateManager>,
+    annotation_id: String,
+) -> Result<(), String> {
+    log::debug!("delete_annotation called for: {}", annotation_id);
+    state_manager
+        .get_annotation_db()
+        .delete_annotation(&annotation_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_annotations_in_range(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+    start: f64,
+    end: f64,
+) -> Result<Vec<Annotation>, String> {
+    state_manager
+        .get_annotation_db()
+        .get_annotations_in_range(&file_path, start, end)
+        .map_err(|e| e.to_string())
 }

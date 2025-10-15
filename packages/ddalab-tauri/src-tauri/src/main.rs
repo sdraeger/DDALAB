@@ -16,6 +16,7 @@ mod text_reader;
 mod sync;
 mod recording;
 mod file_readers;
+mod db;
 
 // Import required modules
 use app_setup::setup_app;
@@ -48,19 +49,32 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         // .plugin(tauri_plugin_window_state::Builder::default().build())  // Removed - not in dependencies
         .invoke_handler(tauri::generate_handler![
-            // State management commands
+            // UI State management commands
             get_app_state,
+            get_ui_state,
             update_file_manager_state,
             update_plot_state,
             update_dda_state,
             update_ui_state,
-            save_analysis_result,
-            save_plot_data,
             save_window_state,
+            save_ui_state_only,
             save_complete_state,
             get_saved_state,
             force_save_state,
             clear_state,
+            // Analysis database commands
+            save_analysis_result,
+            get_analysis_result,
+            get_analyses_by_file,
+            get_recent_analyses,
+            delete_analysis,
+            save_plot_data,
+            // Annotation database commands
+            save_annotation,
+            get_file_annotations,
+            get_annotation,
+            delete_annotation,
+            get_annotations_in_range,
             // API commands
             check_api_connection,
             // Window management commands
