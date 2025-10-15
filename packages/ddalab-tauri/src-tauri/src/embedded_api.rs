@@ -16,6 +16,8 @@ use parking_lot::RwLock;
 use crate::edf::EDFReader;
 use crate::text_reader::TextFileReader;
 use crate::file_readers::FileReaderFactory;
+use crate::db::analysis_db::AnalysisDatabase;
+use crate::models::AnalysisResult;
 use dda_rs::DDARunner;
 
 // File type detection
@@ -114,6 +116,7 @@ pub struct ApiState {
     pub data_directory: PathBuf,
     pub history_directory: PathBuf,
     pub dda_binary_path: Option<PathBuf>,  // Resolved DDA binary path for bundled apps
+    pub analysis_db: Option<Arc<AnalysisDatabase>>,  // SQLite database for analysis persistence
 }
 
 impl ApiState {
@@ -128,6 +131,25 @@ impl ApiState {
             log::error!("Failed to create history directory: {}", e);
         }
 
+        // Initialize SQLite database for analysis persistence
+        let analysis_db = if let Some(parent) = data_directory.parent() {
+            let db_path = parent.join("analysis.db");
+            log::info!("Initializing analysis database at: {:?}", db_path);
+            match AnalysisDatabase::new(&db_path) {
+                Ok(db) => {
+                    log::info!("✅ Analysis database initialized successfully");
+                    Some(Arc::new(db))
+                },
+                Err(e) => {
+                    log::error!("❌ Failed to initialize analysis database: {}", e);
+                    None
+                }
+            }
+        } else {
+            log::error!("❌ Cannot determine database path - no parent directory");
+            None
+        };
+
         let state = Self {
             files: Arc::new(RwLock::new(HashMap::new())),
             analysis_results: Arc::new(RwLock::new(HashMap::new())),
@@ -135,12 +157,10 @@ impl ApiState {
             data_directory,
             history_directory,
             dda_binary_path: None,  // Will be set via set_dda_binary_path if in Tauri context
+            analysis_db,
         };
 
-        // NOTE: No longer loading history from JSON files - analysis history is now persisted in SQLite
-        // via the AnalysisDatabase in state_manager.rs. This embedded API server only maintains
-        // in-memory cache for active session results.
-        log::info!("Analysis history persistence is now handled by SQLite (see AnalysisDatabase)");
+        log::info!("Analysis history persistence is now handled by SQLite");
 
         state
     }
@@ -375,13 +395,43 @@ impl ApiState {
         }
     }
 
-    // DEPRECATED: Analysis persistence is now handled by SQLite (AnalysisDatabase)
-    // This method is kept as a no-op for backward compatibility but does not save to JSON anymore
-    fn save_to_disk(&self, _result: &DDAResult) -> Result<(), String> {
-        // NOTE: Analysis results are now persisted in SQLite via AnalysisDatabase in state_manager.rs
-        // The embedded API server only maintains in-memory cache for active session
-        log::debug!("save_to_disk called but skipped - using SQLite persistence instead");
-        Ok(())
+    // Save analysis result to SQLite database
+    fn save_to_disk(&self, result: &DDAResult) -> Result<(), String> {
+        if let Some(ref db) = self.analysis_db {
+            // Store complete analysis data in plot_data field for full restoration
+            // This includes results, Q matrix, channels, etc.
+            let complete_data = serde_json::json!({
+                "results": result.results,
+                "channels": result.channels,
+                "q_matrix": result.q_matrix,
+                "plot_data": result.plot_data,
+                "status": result.status
+            });
+
+            // Convert DDAResult to AnalysisResult for SQLite storage
+            let analysis_result = AnalysisResult {
+                id: result.id.clone(),
+                file_path: result.file_path.clone(),
+                timestamp: result.created_at.clone(),
+                variant_name: result.parameters.variants.first()
+                    .unwrap_or(&"single_timeseries".to_string())
+                    .clone(),
+                variant_display_name: "Single Timeseries (ST)".to_string(),
+                parameters: serde_json::to_value(&result.parameters)
+                    .map_err(|e| format!("Failed to serialize parameters: {}", e))?,
+                chunk_position: None,  // Will be set by frontend if needed
+                plot_data: Some(complete_data),
+            };
+
+            db.save_analysis(&analysis_result)
+                .map_err(|e| format!("Failed to save analysis to database: {}", e))?;
+
+            log::info!("✅ Saved analysis {} to SQLite database", result.id);
+            Ok(())
+        } else {
+            log::warn!("⚠️ Analysis database not available, skipping persistence");
+            Ok(())  // Don't fail if DB not available
+        }
     }
 
     // DEPRECATED: Analysis deletion is now handled by SQLite (AnnotationDatabase)
@@ -1213,9 +1263,66 @@ pub async fn get_analysis_result(
     State(state): State<Arc<ApiState>>,
     Path(analysis_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    // Try SQLite database first
+    if let Some(ref db) = state.analysis_db {
+        match db.get_analysis(&analysis_id) {
+            Ok(Some(analysis)) => {
+                log::info!("✅ Retrieved analysis {} from SQLite database", analysis_id);
+
+                // Convert to DDAResult format
+                if let Ok(parameters) = serde_json::from_value::<DDAParameters>(analysis.parameters.clone()) {
+                    // Extract complete data from plot_data field
+                    let (results, channels, q_matrix, status) = if let Some(ref complete_data) = analysis.plot_data {
+                        let results_val = complete_data.get("results").cloned()
+                            .unwrap_or_else(|| serde_json::json!({
+                                "variants": [{"variant_id": "single_timeseries", "variant_name": "Single Timeseries (ST)"}]
+                            }));
+                        let channels_val: Vec<String> = complete_data.get("channels")
+                            .and_then(|v| serde_json::from_value(v.clone()).ok())
+                            .unwrap_or_default();
+                        let q_matrix_val: Option<Vec<Vec<f64>>> = complete_data.get("q_matrix")
+                            .and_then(|v| serde_json::from_value(v.clone()).ok());
+                        let status_val: String = complete_data.get("status")
+                            .and_then(|v| v.as_str().map(|s| s.to_string()))
+                            .unwrap_or_else(|| "completed".to_string());
+                        (results_val, channels_val, q_matrix_val, status_val)
+                    } else {
+                        (serde_json::json!({
+                            "variants": [{"variant_id": "single_timeseries", "variant_name": "Single Timeseries (ST)"}]
+                        }), Vec::new(), None, "completed".to_string())
+                    };
+
+                    let result = DDAResult {
+                        id: analysis.id.clone(),
+                        name: None,
+                        file_path: analysis.file_path.clone(),
+                        channels,
+                        parameters,
+                        results,
+                        plot_data: analysis.plot_data.as_ref().and_then(|d| d.get("plot_data").cloned()),
+                        q_matrix,
+                        created_at: analysis.timestamp.clone(),
+                        status,
+                    };
+
+                    let response = serde_json::json!({
+                        "analysis": {
+                            "id": result.id,
+                            "result_id": result.id,
+                            "analysis_data": result
+                        }
+                    });
+                    return Ok(Json(response));
+                }
+            },
+            Ok(None) => log::debug!("Analysis {} not found in database", analysis_id),
+            Err(e) => log::error!("Failed to retrieve analysis from database: {}", e),
+        }
+    }
+
+    // Fallback to in-memory cache
     let analysis_cache = state.analysis_results.read();
     if let Some(result) = analysis_cache.get(&analysis_id) {
-        // Wrap result in expected format for frontend compatibility
         let response = serde_json::json!({
             "analysis": {
                 "id": result.id,
@@ -1232,6 +1339,68 @@ pub async fn get_analysis_result(
 pub async fn list_analysis_history(
     State(state): State<Arc<ApiState>>,
 ) -> Json<Vec<DDAResult>> {
+    // Try to read from SQLite database first
+    if let Some(ref db) = state.analysis_db {
+        match db.get_recent_analyses(50) {
+            Ok(analyses) => {
+                log::info!("✅ Retrieved {} analyses from SQLite database", analyses.len());
+
+                // Convert AnalysisResult to DDAResult format
+                let results: Vec<DDAResult> = analyses.iter().filter_map(|analysis| {
+                    // Parse parameters
+                    let parameters: DDAParameters = match serde_json::from_value(analysis.parameters.clone()) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::warn!("Failed to parse parameters for analysis {}: {}", analysis.id, e);
+                            return None;
+                        }
+                    };
+
+                    // Extract complete data from plot_data field
+                    let (results, channels, q_matrix, status) = if let Some(ref complete_data) = analysis.plot_data {
+                        let results_val = complete_data.get("results").cloned()
+                            .unwrap_or_else(|| serde_json::json!({
+                                "variants": [{"variant_id": "single_timeseries", "variant_name": "Single Timeseries (ST)"}]
+                            }));
+                        let channels_val: Vec<String> = complete_data.get("channels")
+                            .and_then(|v| serde_json::from_value(v.clone()).ok())
+                            .unwrap_or_default();
+                        let q_matrix_val: Option<Vec<Vec<f64>>> = complete_data.get("q_matrix")
+                            .and_then(|v| serde_json::from_value(v.clone()).ok());
+                        let status_val: String = complete_data.get("status")
+                            .and_then(|v| v.as_str().map(|s| s.to_string()))
+                            .unwrap_or_else(|| "completed".to_string());
+                        (results_val, channels_val, q_matrix_val, status_val)
+                    } else {
+                        (serde_json::json!({
+                            "variants": [{"variant_id": "single_timeseries", "variant_name": "Single Timeseries (ST)"}]
+                        }), Vec::new(), None, "completed".to_string())
+                    };
+
+                    Some(DDAResult {
+                        id: analysis.id.clone(),
+                        name: None,
+                        file_path: analysis.file_path.clone(),
+                        channels,
+                        parameters,
+                        results,
+                        plot_data: analysis.plot_data.as_ref().and_then(|d| d.get("plot_data").cloned()),
+                        q_matrix,
+                        created_at: analysis.timestamp.clone(),
+                        status,
+                    })
+                }).collect();
+
+                return Json(results);
+            },
+            Err(e) => {
+                log::error!("❌ Failed to retrieve analyses from database: {}", e);
+            }
+        }
+    }
+
+    // Fallback to in-memory cache if database not available or failed
+    log::warn!("⚠️ Using in-memory cache for analysis history");
     let analysis_cache = state.analysis_results.read();
     let mut results: Vec<DDAResult> = analysis_cache.values().cloned().collect();
     results.sort_by(|a, b| b.created_at.cmp(&a.created_at));
@@ -1254,12 +1423,28 @@ pub async fn delete_analysis_result(
     State(state): State<Arc<ApiState>>,
     Path(analysis_id): Path<String>,
 ) -> StatusCode {
+    // Delete from SQLite database
+    if let Some(ref db) = state.analysis_db {
+        match db.delete_analysis(&analysis_id) {
+            Ok(_) => {
+                log::info!("✅ Deleted analysis {} from SQLite database", analysis_id);
+
+                // Also remove from in-memory cache if present
+                let mut analysis_cache = state.analysis_results.write();
+                analysis_cache.remove(&analysis_id);
+
+                return StatusCode::NO_CONTENT;
+            },
+            Err(e) => {
+                log::error!("❌ Failed to delete analysis from database: {}", e);
+                return StatusCode::INTERNAL_SERVER_ERROR;
+            }
+        }
+    }
+
+    // Fallback to in-memory cache only
     let mut analysis_cache = state.analysis_results.write();
     if analysis_cache.remove(&analysis_id).is_some() {
-        // Also delete from disk
-        if let Err(e) = state.delete_from_disk(&analysis_id) {
-            log::error!("Failed to delete analysis from disk: {}", e);
-        }
         StatusCode::NO_CONTENT
     } else {
         StatusCode::NOT_FOUND

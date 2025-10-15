@@ -58,7 +58,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
     }
   }, [apiUrl, apiService.baseURL]);
 
-  // Auto-load most recent analysis from MinIO on component mount
+  // Auto-load most recent analysis from SQLite database on component mount
   // Only load after server is ready to avoid connection errors
   useEffect(() => {
     const loadAnalysisHistory = async (retryCount = 0) => {
@@ -460,8 +460,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
                           Loading Analysis Results
                         </h3>
                         <p className="text-muted-foreground">
-                          Fetching the most recent analysis from MinIO
-                          storage...
+                          Fetching the most recent analysis from database...
                         </p>
                       </div>
                     </div>

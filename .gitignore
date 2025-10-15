@@ -27,6 +27,8 @@ deployments/*/
 .DS_Store
 *.rdb
 *.db
+*.db-shm
+*.db-wal
 *.edf
 *.npy
 *.pem
