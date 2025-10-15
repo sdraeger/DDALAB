@@ -514,11 +514,18 @@ export function DDAResults({ result }: DDAResultsProps) {
 
       // Defensive check for scales data
       if (!scales || !Array.isArray(scales) || scales.length === 0) {
-        console.error('Invalid scales data for line plot:', scales);
-        console.log('Result structure:', result);
+        console.error('[LINE PLOT] Invalid scales data for line plot:', scales);
+        console.error('[LINE PLOT] Result structure:', {
+          hasResults: !!result.results,
+          resultsKeys: result.results ? Object.keys(result.results) : [],
+          scales: result.results?.scales,
+          variants: result.results?.variants?.length || 0
+        });
         setIsRenderingLinePlot(false)
         return
       }
+
+      console.log('[LINE PLOT] Rendering with', scales.length, 'time points for', selectedChannels.length, 'channels')
 
       const data: uPlot.AlignedData = [scales]
       const validChannels: string[] = []
@@ -623,6 +630,8 @@ export function DDAResults({ result }: DDAResultsProps) {
       }
 
       uplotLinePlotRef.current = new uPlot(opts, data, linePlotRef.current)
+
+      console.log('[LINE PLOT] Successfully created uPlot with', validChannels.length, 'channels')
 
       // Handle resize
       const resizeObserver = new ResizeObserver(() => {
@@ -999,7 +1008,7 @@ export function DDAResults({ result }: DDAResultsProps) {
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
-                        <div className="w-full min-h-[400px] relative">
+                        <div className="w-full h-[400px] relative">
                           {(isProcessingData || isRenderingLinePlot) && (
                             <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
                               <div className="flex flex-col items-center space-y-2">
@@ -1162,7 +1171,7 @@ export function DDAResults({ result }: DDAResultsProps) {
               </CardHeader>
               <CardContent>
                 <div
-                  className="w-full min-h-[400px] relative"
+                  className="w-full h-[400px] relative"
                   onContextMenu={(e) => {
                     console.log('[ANNOTATION] Right-click detected on line plot', {
                       hasPlot: !!uplotLinePlotRef.current,
