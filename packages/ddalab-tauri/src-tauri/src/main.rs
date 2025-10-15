@@ -47,7 +47,6 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        // .plugin(tauri_plugin_window_state::Builder::default().build())  // Removed - not in dependencies
         .invoke_handler(tauri::generate_handler![
             // UI State management commands
             get_app_state,
@@ -57,6 +56,7 @@ fn main() {
             update_dda_state,
             update_ui_state,
             save_window_state,
+            get_window_state,
             save_ui_state_only,
             save_complete_state,
             get_saved_state,
@@ -75,6 +75,11 @@ fn main() {
             get_annotation,
             delete_annotation,
             get_annotations_in_range,
+            // File view state database commands
+            save_file_view_state,
+            get_file_view_state,
+            delete_file_view_state,
+            get_all_file_view_states,
             // API commands
             check_api_connection,
             // Window management commands

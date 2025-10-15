@@ -371,14 +371,26 @@ export const useAppStore = create<AppState>((set, get) => ({
               // Try both file_manager.selected_file and last_selected_file (for new state structure)
               pendingFileSelection: persistedState.file_manager?.selected_file || (persistedState as any).last_selected_file
             },
-            plot: {
-              ...state.plot,
-              chunkSize: persistedState.plot?.filters?.chunkSize || state.plot.chunkSize,
-              chunkStart: persistedState.plot?.filters?.chunkStart || state.plot.chunkStart,
-              amplitude: persistedState.plot?.filters?.amplitude || state.plot.amplitude,
-              showAnnotations: Boolean(persistedState.plot?.filters?.showAnnotations ?? state.plot.showAnnotations),
-              preprocessing: persistedState.plot?.preprocessing
-            },
+            plot: (() => {
+              const restoredChunkStart = persistedState.plot?.filters?.chunkStart !== undefined
+                ? persistedState.plot?.filters?.chunkStart
+                : state.plot.chunkStart;
+
+              console.log('[STORE] Restoring plot state:', {
+                persistedChunkStart: persistedState.plot?.filters?.chunkStart,
+                restoredChunkStart,
+                persistedChunkSize: persistedState.plot?.filters?.chunkSize
+              });
+
+              return {
+                ...state.plot,
+                chunkSize: persistedState.plot?.filters?.chunkSize || state.plot.chunkSize,
+                chunkStart: restoredChunkStart,
+                amplitude: persistedState.plot?.filters?.amplitude || state.plot.amplitude,
+                showAnnotations: Boolean(persistedState.plot?.filters?.showAnnotations ?? state.plot.showAnnotations),
+                preprocessing: persistedState.plot?.preprocessing
+              };
+            })(),
             dda: {
               ...state.dda,
               analysisParameters: {
@@ -537,15 +549,47 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSelectedFile: (file) => {
     console.log('[STORE] setSelectedFile called with:', file?.file_path || 'null')
 
-    set((state) => ({
-      fileManager: { ...state.fileManager, selectedFile: file }
-    }))
-
-    // Load annotations from SQLite for this file
+    // Load annotations and file view state from SQLite BEFORE setting the file
+    // This ensures plot.chunkStart is updated before component effects run
     if (file && TauriService.isTauri()) {
       (async () => {
         try {
           const { invoke } = await import('@tauri-apps/api/core')
+
+          // Load file view state (chunk position) FIRST
+          try {
+            const fileViewState: any = await invoke('get_file_view_state', { filePath: file.file_path })
+
+            if (fileViewState) {
+              console.log('[STORE] Loaded file view state from SQLite:', {
+                filePath: file.file_path,
+                chunkStart: fileViewState.chunk_start,
+                chunkSize: fileViewState.chunk_size
+              })
+
+              // Restore chunk position in plot state BEFORE setting file
+              set((state) => ({
+                plot: {
+                  ...state.plot,
+                  chunkStart: fileViewState.chunk_start,
+                  chunkSize: fileViewState.chunk_size
+                }
+              }))
+            } else {
+              console.log('[STORE] No saved view state for file:', file.file_path)
+              // Reset to 0 if no saved position
+              set((state) => ({
+                plot: {
+                  ...state.plot,
+                  chunkStart: 0
+                }
+              }))
+            }
+          } catch (err) {
+            console.error('[STORE] Failed to load file view state from SQLite:', err)
+          }
+
+          // Load annotations
           const fileAnnotations: any = await invoke('get_file_annotations', { filePath: file.file_path })
 
           console.log('[ANNOTATION] Loaded from SQLite:', {
@@ -564,49 +608,62 @@ export const useAppStore = create<AppState>((set, get) => ({
             }
             return { annotations }
           })
+
+          // NOW set the selected file after loading state
+          set((state) => ({
+            fileManager: { ...state.fileManager, selectedFile: file }
+          }))
+
+          // Save state after setting file
+          const { fileManager: updatedFileManager, isPersistenceRestored } = get()
+          const selectedFilePath = file?.file_path || null
+
+          console.log('[STORE] After set(), fileManager.selectedFile:', updatedFileManager.selectedFile?.file_path || 'null')
+          console.log('[STORE] isPersistenceRestored:', isPersistenceRestored)
+
+          // Fire and forget - don't block UI
+          TauriService.updateFileManagerState({
+            selected_file: selectedFilePath,
+            current_path: updatedFileManager.currentPath,
+            selected_channels: updatedFileManager.selectedChannels,
+            search_query: updatedFileManager.searchQuery,
+            sort_by: updatedFileManager.sortBy,
+            sort_order: updatedFileManager.sortOrder,
+            show_hidden: updatedFileManager.showHidden
+          }).catch(console.error)
+
+          // Only save to persistence when we have complete file info (with channels)
+          // This avoids double-saving when FileManager sets the file twice (once for instant feedback, once with full metadata)
+          const hasCompleteFileInfo = file && file.channels && file.channels.length > 0
+          console.log('[STORE] setSelectedFile - persistence check:', {
+            isPersistenceRestored,
+            hasFile: !!file,
+            hasChannels: file?.channels?.length || 0,
+            hasCompleteFileInfo,
+            willSave: isPersistenceRestored && hasCompleteFileInfo
+          });
+
+          if (isPersistenceRestored && hasCompleteFileInfo) {
+            console.log('[STORE] ✓ Triggering save for file with complete metadata:', file.file_path)
+            get().saveCurrentState().catch(err => console.error('[STORE] Failed to save selected file:', err))
+          } else if (file && !hasCompleteFileInfo) {
+            console.log('[STORE] ⏳ Skipping save - waiting for complete file metadata (has', file.channels?.length || 0, 'channels)')
+          } else {
+            console.log('[STORE] ✗ NOT saving - isPersistenceRestored:', isPersistenceRestored, 'file:', file?.file_path || 'null')
+          }
         } catch (err) {
           console.error('[ANNOTATION] Failed to load from SQLite:', err)
+          // Still set the file even if loading fails
+          set((state) => ({
+            fileManager: { ...state.fileManager, selectedFile: file }
+          }))
         }
       })()
-    }
-
-    if (TauriService.isTauri()) {
-      const { fileManager, isPersistenceRestored } = get()
-      const selectedFilePath = file?.file_path || null
-
-      console.log('[STORE] After set(), fileManager.selectedFile:', fileManager.selectedFile?.file_path || 'null')
-      console.log('[STORE] isPersistenceRestored:', isPersistenceRestored)
-
-      // Fire and forget - don't block UI
-      TauriService.updateFileManagerState({
-        selected_file: selectedFilePath,
-        current_path: fileManager.currentPath,
-        selected_channels: fileManager.selectedChannels,
-        search_query: fileManager.searchQuery,
-        sort_by: fileManager.sortBy,
-        sort_order: fileManager.sortOrder,
-        show_hidden: fileManager.showHidden
-      }).catch(console.error)
-
-      // Only save to persistence when we have complete file info (with channels)
-      // This avoids double-saving when FileManager sets the file twice (once for instant feedback, once with full metadata)
-      const hasCompleteFileInfo = file && file.channels && file.channels.length > 0
-      console.log('[STORE] setSelectedFile - persistence check:', {
-        isPersistenceRestored,
-        hasFile: !!file,
-        hasChannels: file?.channels?.length || 0,
-        hasCompleteFileInfo,
-        willSave: isPersistenceRestored && hasCompleteFileInfo
-      });
-
-      if (isPersistenceRestored && hasCompleteFileInfo) {
-        console.log('[STORE] ✓ Triggering save for file with complete metadata:', file.file_path)
-        get().saveCurrentState().catch(err => console.error('[STORE] Failed to save selected file:', err))
-      } else if (file && !hasCompleteFileInfo) {
-        console.log('[STORE] ⏳ Skipping save - waiting for complete file metadata (has', file.channels?.length || 0, 'channels)')
-      } else {
-        console.log('[STORE] ✗ NOT saving - isPersistenceRestored:', isPersistenceRestored, 'file:', file?.file_path || 'null')
-      }
+    } else {
+      // Non-Tauri or no file - set immediately
+      set((state) => ({
+        fileManager: { ...state.fileManager, selectedFile: file }
+      }))
     }
   },
 
@@ -709,6 +766,29 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       // Fire and forget - don't block UI
       TauriService.updatePlotState(plotState).catch(console.error)
+
+      // Save file view state to SQLite if we have a selected file
+      const { fileManager } = get()
+      if (fileManager.selectedFile?.file_path) {
+        (async () => {
+          try {
+            const { invoke } = await import('@tauri-apps/api/core')
+            await invoke('save_file_view_state', {
+              filePath: fileManager.selectedFile.file_path,
+              chunkStart: plot.chunkStart,
+              chunkSize: plot.chunkSize,
+              selectedChannels: fileManager.selectedFile.selected_channels || []
+            })
+            console.log('[STORE] Saved file view state to SQLite:', {
+              filePath: fileManager.selectedFile.file_path,
+              chunkStart: plot.chunkStart,
+              chunkSize: plot.chunkSize
+            })
+          } catch (err) {
+            console.error('[STORE] Failed to save file view state to SQLite:', err)
+          }
+        })()
+      }
 
       // Auto-save via persistence service
       if (persistenceService) {
