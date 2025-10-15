@@ -1,4 +1,5 @@
-use crate::models::AppState;
+use crate::db::{AnalysisDatabase, AnnotationDatabase};
+use crate::models::{AppState, UIState};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fs;
@@ -6,10 +7,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub struct AppStateManager {
-    state: Arc<RwLock<AppState>>,
-    config_path: PathBuf,
-    analysis_preview_data: Arc<RwLock<HashMap<String, serde_json::Value>>>,
+    ui_state: Arc<RwLock<UIState>>,
+    analysis_db: Arc<AnalysisDatabase>,
+    annotation_db: Arc<AnnotationDatabase>,
+    ui_state_path: PathBuf,
     auto_save_enabled: bool,
+    analysis_preview_data: Arc<RwLock<HashMap<String, serde_json::Value>>>,
 }
 
 impl AppStateManager {
@@ -18,66 +21,189 @@ impl AppStateManager {
         std::fs::create_dir_all(&app_config_dir)
             .map_err(|e| format!("Failed to create config directory: {}", e))?;
 
-        let config_path = app_config_dir.join("state.json");
+        let ui_state_path = app_config_dir.join("ui-state.json");
+        let analysis_db_path = app_config_dir.join("analysis.db");
+        let annotation_db_path = app_config_dir.join("annotations.db");
+
         eprintln!("📂 [STATE_MANAGER] Using config directory: {:?}", app_config_dir);
-        eprintln!("📄 [STATE_MANAGER] State file path: {:?}", config_path);
+        eprintln!("📄 [STATE_MANAGER] UI state file: {:?}", ui_state_path);
+        eprintln!("📊 [STATE_MANAGER] Analysis DB: {:?}", analysis_db_path);
+        eprintln!("📌 [STATE_MANAGER] Annotation DB: {:?}", annotation_db_path);
 
-        let state = if config_path.exists() {
-            let content = fs::read_to_string(&config_path)
-                .map_err(|e| format!("Failed to read state file: {}", e))?;
-
-            serde_json::from_str(&content)
-                .unwrap_or_default()
+        // Load UI state from JSON
+        let ui_state = if ui_state_path.exists() {
+            let content = fs::read_to_string(&ui_state_path)
+                .map_err(|e| format!("Failed to read UI state file: {}", e))?;
+            serde_json::from_str(&content).unwrap_or_default()
         } else {
-            AppState::default()
+            UIState::default()
         };
+
+        // Initialize SQLite databases
+        let analysis_db = AnalysisDatabase::new(&analysis_db_path)
+            .map_err(|e| format!("Failed to initialize analysis database: {}", e))?;
+
+        let annotation_db = AnnotationDatabase::new(&annotation_db_path)
+            .map_err(|e| format!("Failed to initialize annotation database: {}", e))?;
 
         let manager = Self {
-            state: Arc::new(RwLock::new(state)),
-            config_path,
-            analysis_preview_data: Arc::new(RwLock::new(HashMap::new())),
+            ui_state: Arc::new(RwLock::new(ui_state)),
+            analysis_db: Arc::new(analysis_db),
+            annotation_db: Arc::new(annotation_db),
+            ui_state_path,
             auto_save_enabled: true,
+            analysis_preview_data: Arc::new(RwLock::new(HashMap::new())),
         };
 
-        // Run migration if needed
-        manager.migrate_state()?;
+        // Migrate from old state.json if exists
+        let old_state_path = app_config_dir.join("state.json");
+        if old_state_path.exists() {
+            log::info!("📦 Found old state.json, migrating to new database structure...");
+            if let Err(e) = manager.migrate_from_old_state(&old_state_path) {
+                log::error!("❌ Migration failed: {}, continuing with defaults", e);
+            } else {
+                log::info!("✅ Migration completed successfully");
+                // Backup old state file
+                let backup_path = app_config_dir.join("state.json.backup");
+                if let Err(e) = fs::rename(&old_state_path, &backup_path) {
+                    log::warn!("Failed to backup old state.json: {}", e);
+                }
+            }
+        }
 
         Ok(manager)
     }
 
-    pub fn save(&self) -> Result<(), String> {
-        let state = self.state.read();
-        let content = serde_json::to_string_pretty(&*state)
-            .map_err(|e| {
-                let msg = format!("Failed to serialize state: {}", e);
-                eprintln!("❌ [STATE_MANAGER] {}", msg);
-                msg
-            })?;
+    fn migrate_from_old_state(&self, old_state_path: &PathBuf) -> Result<(), String> {
+        let content = fs::read_to_string(old_state_path)
+            .map_err(|e| format!("Failed to read old state: {}", e))?;
 
-        fs::write(&self.config_path, content)
-            .map_err(|e| {
-                let msg = format!("Failed to write state file: {}", e);
-                eprintln!("❌ [STATE_MANAGER] {}", msg);
-                msg
-            })?;
+        let old_state: AppState = serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse old state: {}", e))?;
+
+        // Migrate UI settings
+        let mut ui_state = self.ui_state.write();
+        ui_state.active_tab = old_state.active_tab;
+        ui_state.sidebar_collapsed = old_state.sidebar_collapsed;
+        ui_state.panel_sizes = old_state.panel_sizes;
+        ui_state.last_selected_file = old_state.file_manager.selected_file.clone();
+        ui_state.file_manager = old_state.file_manager;
+        ui_state.windows = old_state.windows;
+        drop(ui_state);
+
+        // Migrate analysis history to database
+        log::info!("📊 Migrating {} analyses to database...", old_state.dda.analysis_history.len());
+        for analysis in old_state.dda.analysis_history {
+            if let Err(e) = self.analysis_db.save_analysis(&analysis) {
+                log::warn!("Failed to migrate analysis {}: {}", analysis.id, e);
+            }
+        }
+
+        // Migrate annotations to database
+        if let Some(frontend_state) = old_state.ui.get("frontend_state") {
+            if let Some(annotations) = frontend_state.get("annotations") {
+                if let Some(time_series) = annotations.get("timeSeries").and_then(|v| v.as_object()) {
+                    log::info!("📌 Migrating annotations for {} files...", time_series.len());
+                    for (file_path, file_annotations) in time_series {
+                        if let Some(global_annotations) = file_annotations.get("globalAnnotations").and_then(|v| v.as_array()) {
+                            for ann in global_annotations {
+                                if let Ok(annotation) = serde_json::from_value(ann.clone()) {
+                                    if let Err(e) = self.annotation_db.save_annotation(file_path, None, &annotation) {
+                                        log::warn!("Failed to migrate annotation: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Save migrated UI state
+        self.save_ui_state()?;
 
         Ok(())
     }
 
+    fn save_ui_state(&self) -> Result<(), String> {
+        let ui_state = self.ui_state.read();
+        let content = serde_json::to_string_pretty(&*ui_state)
+            .map_err(|e| format!("Failed to serialize UI state: {}", e))?;
+
+        fs::write(&self.ui_state_path, content)
+            .map_err(|e| format!("Failed to write UI state file: {}", e))?;
+
+        Ok(())
+    }
+
+    pub fn save(&self) -> Result<(), String> {
+        self.save_ui_state()
+    }
+
     pub fn get_state(&self) -> AppState {
-        self.state.read().clone()
+        // Build legacy AppState for backward compatibility
+        let ui_state = self.ui_state.read();
+
+        AppState {
+            version: ui_state.version.clone(),
+            file_manager: ui_state.file_manager.clone(),
+            plot: crate::models::PlotState::default(),
+            dda: crate::models::DDAState {
+                selected_variants: vec!["single_timeseries".to_string()],
+                parameters: HashMap::new(),
+                last_analysis_id: None,
+                current_analysis: None,
+                analysis_history: Vec::new(), // Empty - use DB queries instead
+                analysis_parameters: HashMap::new(),
+                running: false,
+            },
+            ui: ui_state.ui_extras.clone(),
+            windows: ui_state.windows.clone(),
+            active_tab: ui_state.active_tab.clone(),
+            sidebar_collapsed: ui_state.sidebar_collapsed,
+            panel_sizes: ui_state.panel_sizes.clone(),
+        }
+    }
+
+    pub fn get_ui_state(&self) -> UIState {
+        self.ui_state.read().clone()
+    }
+
+    pub fn update_ui_state<F>(&self, updater: F) -> Result<(), String>
+    where
+        F: FnOnce(&mut UIState),
+    {
+        {
+            let mut state = self.ui_state.write();
+            updater(&mut state);
+        }
+        if self.auto_save_enabled {
+            self.save_ui_state()
+        } else {
+            Ok(())
+        }
     }
 
     pub fn update_state<F>(&self, updater: F) -> Result<(), String>
     where
         F: FnOnce(&mut AppState),
     {
-        {
-            let mut state = self.state.write();
-            updater(&mut state);
-        }
+        // For legacy compatibility - convert to UI state update
+        let mut legacy_state = self.get_state();
+        updater(&mut legacy_state);
+
+        // Extract UI updates
+        let mut ui_state = self.ui_state.write();
+        ui_state.active_tab = legacy_state.active_tab;
+        ui_state.sidebar_collapsed = legacy_state.sidebar_collapsed;
+        ui_state.panel_sizes = legacy_state.panel_sizes;
+        ui_state.file_manager = legacy_state.file_manager;
+        ui_state.windows = legacy_state.windows;
+        ui_state.ui_extras = legacy_state.ui;
+        drop(ui_state);
+
         if self.auto_save_enabled {
-            self.save()
+            self.save_ui_state()
         } else {
             Ok(())
         }
@@ -87,33 +213,12 @@ impl AppStateManager {
         self.auto_save_enabled = enabled;
     }
 
-    fn migrate_state(&self) -> Result<(), String> {
-        let mut state = self.state.write();
+    pub fn get_analysis_db(&self) -> &AnalysisDatabase {
+        &self.analysis_db
+    }
 
-        // Check if migration is needed based on version
-        if state.version != "1.0.0" {
-            log::info!("Migrating state from version {} to 1.0.0", state.version);
-
-            // Add migration logic here for different versions
-            match state.version.as_str() {
-                "" => {
-                    // Migrate from pre-versioned state
-                    state.version = "1.0.0".to_string();
-                    if state.panel_sizes.is_empty() {
-                        state.panel_sizes.insert("sidebar".to_string(), 0.25);
-                        state.panel_sizes.insert("main".to_string(), 0.75);
-                        state.panel_sizes.insert("plot-height".to_string(), 0.6);
-                    }
-                }
-                _ => {
-                    // Unknown version, reset to defaults
-                    log::warn!("Unknown state version {}, resetting to defaults", state.version);
-                    *state = AppState::default();
-                }
-            }
-        }
-
-        Ok(())
+    pub fn get_annotation_db(&self) -> &AnnotationDatabase {
+        &self.annotation_db
     }
 
     pub fn store_analysis_preview_data(&self, window_id: String, analysis_data: serde_json::Value) {
