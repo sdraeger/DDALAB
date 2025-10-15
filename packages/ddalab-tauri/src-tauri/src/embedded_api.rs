@@ -907,12 +907,18 @@ pub struct PreprocessingOptions {
 #[derive(Debug, Deserialize)]
 pub struct AlgorithmSelection {
     pub enabled_variants: Vec<String>,
+    #[serde(default)]
+    pub select_mask: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct WindowParameters {
     pub window_length: u32,
     pub window_step: u32,
+    #[serde(default)]
+    pub ct_window_length: Option<u32>,
+    #[serde(default)]
+    pub ct_window_step: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -932,6 +938,8 @@ pub struct DDARequest {
     pub algorithm_selection: AlgorithmSelection,
     pub window_parameters: WindowParameters,
     pub scale_parameters: ScaleParameters,
+    #[serde(default)]
+    pub ct_channel_pairs: Option<Vec<[usize; 2]>>,
 }
 
 // Get DDA binary path from state or search for it
@@ -992,16 +1000,20 @@ fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
         },
         algorithm_selection: dda_rs::AlgorithmSelection {
             enabled_variants: api_req.algorithm_selection.enabled_variants.clone(),
+            select_mask: api_req.algorithm_selection.select_mask.clone(),
         },
         window_parameters: dda_rs::WindowParameters {
             window_length: api_req.window_parameters.window_length,
             window_step: api_req.window_parameters.window_step,
+            ct_window_length: api_req.window_parameters.ct_window_length,
+            ct_window_step: api_req.window_parameters.ct_window_step,
         },
         scale_parameters: dda_rs::ScaleParameters {
             scale_min: api_req.scale_parameters.scale_min,
             scale_max: api_req.scale_parameters.scale_max,
             scale_num: api_req.scale_parameters.scale_num,
         },
+        ct_channel_pairs: api_req.ct_channel_pairs.clone(),
     }
 }
 
