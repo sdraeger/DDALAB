@@ -1,4 +1,4 @@
-use crate::db::{Annotation, FileAnnotations};
+use crate::db::{Annotation, FileAnnotations, FileViewState};
 use crate::models::{AnalysisResult, AppState, DDAState, FileManagerState, PlotState, UIState, WindowState};
 use crate::state_manager::AppStateManager;
 use std::collections::HashMap;
@@ -74,9 +74,25 @@ pub async fn save_window_state(
     window_id: String,
     window_state: WindowState,
 ) -> Result<(), String> {
+    log::debug!(
+        "save_window_state called for: {}, size: {:?}, position: {:?}, maximized: {}",
+        window_id,
+        window_state.size,
+        window_state.position,
+        window_state.maximized
+    );
     state_manager.update_ui_state(|ui_state| {
         ui_state.windows.insert(window_id, window_state);
     })
+}
+
+#[tauri::command]
+pub async fn get_window_state(
+    state_manager: State<'_, AppStateManager>,
+    window_id: String,
+) -> Result<Option<WindowState>, String> {
+    let ui_state = state_manager.get_ui_state();
+    Ok(ui_state.windows.get(&window_id).cloned())
 }
 
 #[tauri::command]
@@ -340,5 +356,70 @@ pub async fn get_annotations_in_range(
     state_manager
         .get_annotation_db()
         .get_annotations_in_range(&file_path, start, end)
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// File View State Database Commands (SQLite-based)
+// ============================================================================
+
+#[tauri::command]
+pub async fn save_file_view_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+    chunk_start: f64,
+    chunk_size: i64,
+    selected_channels: Vec<String>,
+) -> Result<(), String> {
+    log::debug!(
+        "save_file_view_state called for file: {}, chunk_start: {}, chunk_size: {}",
+        file_path,
+        chunk_start,
+        chunk_size
+    );
+
+    let view_state = FileViewState {
+        file_path,
+        chunk_start,
+        chunk_size,
+        selected_channels,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    state_manager
+        .get_file_state_db()
+        .save_file_state(&view_state)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_file_view_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+) -> Result<Option<FileViewState>, String> {
+    state_manager
+        .get_file_state_db()
+        .get_file_state(&file_path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_file_view_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+) -> Result<(), String> {
+    state_manager
+        .get_file_state_db()
+        .delete_file_state(&file_path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_all_file_view_states(
+    state_manager: State<'_, AppStateManager>,
+) -> Result<Vec<FileViewState>, String> {
+    state_manager
+        .get_file_state_db()
+        .get_all_file_states()
         .map_err(|e| e.to_string())
 }
