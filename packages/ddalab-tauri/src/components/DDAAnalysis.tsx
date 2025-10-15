@@ -52,6 +52,10 @@ interface DDAParameters {
     lowpass?: number
     notch?: number[]
   }
+  // CT-specific parameters
+  ctWindowLength?: number
+  ctWindowStep?: number
+  ctChannelPairs: [string, string][]  // Pairs of channel names
 }
 
 export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
@@ -103,7 +107,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       highpass: 0.5,
       lowpass: 70,
       notch: [50]
-    }
+    },
+    ctWindowLength: undefined,
+    ctWindowStep: undefined,
+    ctChannelPairs: []
   })
 
   // Use local parameters directly - no need to merge with store
@@ -239,6 +246,16 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       scaleNum: parameters.scaleNum
     })
 
+    // Convert CT channel pairs from names to indices
+    const ctChannelPairs: [number, number][] | undefined =
+      parameters.ctChannelPairs.length > 0 && fileManager.selectedFile
+        ? parameters.ctChannelPairs.map(([ch1, ch2]) => {
+            const idx1 = fileManager.selectedFile!.channels.indexOf(ch1)
+            const idx2 = fileManager.selectedFile!.channels.indexOf(ch2)
+            return [idx1, idx2] as [number, number]
+          }).filter(([idx1, idx2]) => idx1 !== -1 && idx2 !== -1)
+        : undefined
+
     // Prepare the analysis request
     const request: DDAAnalysisRequest = {
       file_path: fileManager.selectedFile.file_path,
@@ -251,7 +268,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       detrending: parameters.detrending,
       scale_min: parameters.scaleMin,
       scale_max: parameters.scaleMax,
-      scale_num: parameters.scaleNum
+      scale_num: parameters.scaleNum,
+      ct_window_length: parameters.ctWindowLength,
+      ct_window_step: parameters.ctWindowStep,
+      ct_channel_pairs: ctChannelPairs
     }
 
     // Record DDA parameters if recording is active
@@ -360,7 +380,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         highpass: 0.5,
         lowpass: 70,
         notch: [50]
-      }
+      },
+      ctWindowLength: undefined,
+      ctWindowStep: undefined,
+      ctChannelPairs: []
     })
   }
 
@@ -604,6 +627,90 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                 </div>
               </CardContent>
             </Card>
+
+            {/* CT-Specific Parameters */}
+            {parameters.variants.includes('cross_timeseries') && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">CT Parameters</CardTitle>
+                  <CardDescription>Cross-Timeseries specific settings</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label className="text-sm">CT Window Length (optional)</Label>
+                    <Input
+                      type="number"
+                      value={parameters.ctWindowLength || ''}
+                      onChange={(e) => setLocalParameters(prev => ({
+                        ...prev,
+                        ctWindowLength: e.target.value ? parseInt(e.target.value) : undefined
+                      }))}
+                      disabled={localIsRunning}
+                      placeholder="Uses standard window length if empty"
+                      min="10"
+                      max="1000"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-sm">CT Window Step (optional)</Label>
+                    <Input
+                      type="number"
+                      value={parameters.ctWindowStep || ''}
+                      onChange={(e) => setLocalParameters(prev => ({
+                        ...prev,
+                        ctWindowStep: e.target.value ? parseInt(e.target.value) : undefined
+                      }))}
+                      disabled={localIsRunning}
+                      placeholder="Uses standard window step if empty"
+                      min="1"
+                      max="100"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-sm">Channel Pairs ({parameters.ctChannelPairs.length})</Label>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Select two channels from the list below to add a pair
+                    </p>
+                    {parameters.ctChannelPairs.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {parameters.ctChannelPairs.map(([ch1, ch2], idx) => (
+                          <Badge
+                            key={idx}
+                            variant="secondary"
+                            className="cursor-pointer"
+                            onClick={() => {
+                              setLocalParameters(prev => ({
+                                ...prev,
+                                ctChannelPairs: prev.ctChannelPairs.filter((_, i) => i !== idx)
+                              }))
+                            }}
+                          >
+                            {ch1} ⟷ {ch2} ×
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        // Add first two selected channels as a pair
+                        if (parameters.selectedChannels.length >= 2) {
+                          const [ch1, ch2] = parameters.selectedChannels.slice(0, 2)
+                          setLocalParameters(prev => ({
+                            ...prev,
+                            ctChannelPairs: [...prev.ctChannelPairs, [ch1, ch2]]
+                          }))
+                        }
+                      }}
+                      disabled={localIsRunning || parameters.selectedChannels.length < 2}
+                    >
+                      Add Pair from First 2 Selected
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Scale Parameters */}
             <Card>
