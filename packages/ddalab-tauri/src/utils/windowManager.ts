@@ -33,12 +33,12 @@ class WindowManager {
     const baseConfigs: Record<WindowType, WindowConfig> = {
       timeseries: {
         label: `timeseries-${id}`,
-        title: 'Time Series Plot',
-        url: `/popout/minimal?type=timeseries&id=${id}`,
-        width: 800,
-        height: 600,
-        minWidth: 400,
-        minHeight: 300,
+        title: 'Time Series Visualization',
+        url: `/popout/timeseries?id=${id}`,
+        width: 1200,
+        height: 800,
+        minWidth: 600,
+        minHeight: 400,
         resizable: true,
         decorations: true,
         alwaysOnTop: false

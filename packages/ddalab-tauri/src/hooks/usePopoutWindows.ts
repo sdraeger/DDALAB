@@ -132,8 +132,16 @@ export function usePopoutListener(expectedWindowId?: string): UsePopoutListenerR
       listeners.push(unlisten)
     }
 
+    // Emit ready event to request initial data
+    const emitReadyEvent = async () => {
+      const { emit } = await import('@tauri-apps/api/event')
+      console.log(`[POPOUT] Emitting popout-ready-${currentWindowId} event to request initial data`)
+      await emit(`popout-ready-${currentWindowId}`, { windowId: currentWindowId, timestamp: Date.now() })
+    }
+
     setupDataListener()
     setupLockListener()
+    emitReadyEvent()
 
     return () => {
       listeners.forEach(unlisten => unlisten())

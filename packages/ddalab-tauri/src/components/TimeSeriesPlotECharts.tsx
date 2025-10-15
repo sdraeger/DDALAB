@@ -815,8 +815,20 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
     console.log("[ECharts] Chart rendered with", series.length, "series");
 
-    // Broadcast to popout windows
-    broadcastToType("timeseries", "data-update", { chunkData, startTime });
+    // Broadcast to popout windows - flatten data structure and include file info
+    if (fileManager.selectedFile) {
+      broadcastToType("timeseries", "data-update", {
+        ...chunkData,
+        startTime,
+        selectedChannels,
+        sampleRate: chunkData.sample_rate,
+        timeWindow: duration,
+        // Add file information for store sync
+        filePath: fileManager.selectedFile.file_path,
+        fileName: fileManager.selectedFile.file_name,
+        duration: fileManager.selectedFile.duration,
+      });
+    }
   };
 
   // Handle file/channel changes
@@ -1002,11 +1014,18 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   };
 
   const handlePopout = () => {
-    if (plot.currentChunk) {
+    if (plot.currentChunk && fileManager.selectedFile) {
+      // Flatten data structure and include file info for popout
       createWindow("timeseries", `timeseries-${Date.now()}`, {
-        chunkData: plot.currentChunk,
+        ...plot.currentChunk,
         startTime: currentTime,
         selectedChannels,
+        sampleRate: plot.currentChunk.sample_rate,
+        timeWindow: duration,
+        // Add file information for store sync
+        filePath: fileManager.selectedFile.file_path,
+        fileName: fileManager.selectedFile.file_name,
+        duration: fileManager.selectedFile.duration,
       });
     }
   };
