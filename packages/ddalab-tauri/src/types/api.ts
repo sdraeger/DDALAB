@@ -48,6 +48,10 @@ export interface DDAAnalysisRequest {
   scale_min?: number
   scale_max?: number
   scale_num?: number
+  // CT-specific parameters
+  ct_window_length?: number
+  ct_window_step?: number
+  ct_channel_pairs?: [number, number][]  // Array of channel index pairs
 }
 
 export interface DDAVariantResult {
