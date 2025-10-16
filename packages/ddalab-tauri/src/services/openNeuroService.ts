@@ -25,6 +25,23 @@ export interface DownloadOptions {
   snapshot_tag?: string;
 }
 
+export interface UploadOptions {
+  dataset_path: string;
+  affirm_defaced: boolean;
+  dataset_name?: string;
+  dataset_description?: string;
+}
+
+export interface UploadProgress {
+  dataset_id?: string;
+  phase: 'validating' | 'creating_dataset' | 'uploading_files' | 'committing' | 'completed' | 'error';
+  progress_percent: number;
+  message: string;
+  current_file?: string;
+  files_uploaded?: number;
+  total_files?: number;
+}
+
 export interface OpenNeuroDataset {
   id: string;
   name?: string;
@@ -487,6 +504,122 @@ class OpenNeuroService {
   // Get direct download URL for a specific snapshot
   getSnapshotDownloadUrl(datasetId: string, snapshotTag: string): string {
     return `https://openneuro.org/crn/datasets/${datasetId}/snapshots/${snapshotTag}/download`;
+  }
+
+  // ========== UPLOAD FUNCTIONALITY ==========
+
+  // Create a new dataset
+  async createDataset(label: string, affirmedDefaced: boolean, affirmedConsent: boolean): Promise<string> {
+    if (!this.isAuthenticated()) {
+      throw new Error('Authentication required to create datasets');
+    }
+
+    const createDatasetMutation = gql`
+      mutation CreateDataset($label: String!, $affirmedDefaced: Boolean!, $affirmedConsent: Boolean!) {
+        createDataset(label: $label, affirmedDefaced: $affirmedDefaced, affirmedConsent: $affirmedConsent) {
+          id
+        }
+      }
+    `;
+
+    try {
+      const data = await this.client.request<any>(createDatasetMutation, {
+        label,
+        affirmedDefaced,
+        affirmedConsent,
+      });
+
+      return data.createDataset.id;
+    } catch (error) {
+      console.error('Failed to create dataset:', error);
+      throw error;
+    }
+  }
+
+  // Update files in a dataset (used during upload)
+  async updateFiles(datasetId: string, files: Array<{ filename: string; size: number }>): Promise<void> {
+    if (!this.isAuthenticated()) {
+      throw new Error('Authentication required to update files');
+    }
+
+    const updateFilesMutation = gql`
+      mutation UpdateFiles($datasetId: String!, $files: [FileInput!]!) {
+        updateFiles(datasetId: $datasetId, files: $files)
+      }
+    `;
+
+    try {
+      await this.client.request(updateFilesMutation, {
+        datasetId,
+        files,
+      });
+    } catch (error) {
+      console.error('Failed to update files:', error);
+      throw error;
+    }
+  }
+
+  // Complete upload and commit changes
+  async finishUpload(datasetId: string): Promise<void> {
+    if (!this.isAuthenticated()) {
+      throw new Error('Authentication required to finish upload');
+    }
+
+    const finishUploadMutation = gql`
+      mutation FinishUpload($datasetId: String!) {
+        finishUpload(datasetId: $datasetId)
+      }
+    `;
+
+    try {
+      await this.client.request(finishUploadMutation, {
+        datasetId,
+      });
+    } catch (error) {
+      console.error('Failed to finish upload:', error);
+      throw error;
+    }
+  }
+
+  // Upload a BIDS dataset (delegates to Tauri backend for file handling)
+  async uploadDataset(options: UploadOptions): Promise<string> {
+    if (!this.isAuthenticated()) {
+      throw new Error('Authentication required to upload datasets. Please configure your OpenNeuro API key.');
+    }
+
+    return await invoke<string>('upload_bids_dataset', { options });
+  }
+
+  // Cancel an ongoing upload
+  async cancelUpload(datasetId: string): Promise<void> {
+    await invoke('cancel_bids_upload', { datasetId });
+  }
+
+  // Create a snapshot of the uploaded dataset
+  async createSnapshot(datasetId: string, tag: string, changes: string[]): Promise<void> {
+    if (!this.isAuthenticated()) {
+      throw new Error('Authentication required to create snapshots');
+    }
+
+    const createSnapshotMutation = gql`
+      mutation CreateSnapshot($datasetId: String!, $tag: String!, $changes: [String!]!) {
+        createSnapshot(datasetId: $datasetId, tag: $tag, changes: $changes) {
+          id
+          tag
+        }
+      }
+    `;
+
+    try {
+      await this.client.request(createSnapshotMutation, {
+        datasetId,
+        tag,
+        changes,
+      });
+    } catch (error) {
+      console.error('Failed to create snapshot:', error);
+      throw error;
+    }
   }
 }
 

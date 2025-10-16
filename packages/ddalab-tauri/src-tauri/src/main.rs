@@ -148,7 +148,10 @@ fn main() {
             check_git_available,
             check_git_annex_available,
             download_openneuro_dataset,
-            cancel_openneuro_download
+            cancel_openneuro_download,
+            // OpenNeuro upload commands
+            upload_bids_dataset,
+            cancel_bids_upload
         ])
         .manage(EmbeddedApiState::default())
         .manage(AppSyncState::new())
@@ -157,6 +160,7 @@ fn main() {
             WorkflowState::new().expect("Failed to initialize workflow state")
         )))
         .manage(commands::openneuro_commands::DownloadState::default())
+        .manage(commands::openneuro_commands::UploadState::default())
         .setup(|app| {
             setup_app(app).map_err(|e| e.to_string())?;
 
