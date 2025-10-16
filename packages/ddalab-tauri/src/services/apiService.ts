@@ -811,12 +811,40 @@ export class ApiService {
   }
 
   async deleteAnalysisFromHistory(resultId: string): Promise<boolean> {
+    console.log(`[API] Deleting analysis: ${resultId}`)
     try {
       const response = await this.client.delete(`/api/dda/history/${resultId}`)
+      console.log('[API] Delete response:', response.data)
       return response.data.success || false
-    } catch (error) {
-      console.error(`Failed to delete analysis ${resultId} from history:`, error)
-      return false
+    } catch (error: any) {
+      console.error(`[API] Failed to delete analysis ${resultId}:`, {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      })
+      // Throw with more detailed error message
+      const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message || 'Unknown error'
+      throw new Error(`Failed to delete analysis: ${errorMsg}`)
+    }
+  }
+
+  async renameAnalysisInHistory(resultId: string, newName: string): Promise<boolean> {
+    console.log(`[API] Renaming analysis: ${resultId} to "${newName}"`)
+    try {
+      const response = await this.client.put(`/api/dda/history/${resultId}/rename`, {
+        name: newName
+      })
+      console.log('[API] Rename response:', response.data)
+      return response.data.success || false
+    } catch (error: any) {
+      console.error(`[API] Failed to rename analysis ${resultId}:`, {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      })
+      // Throw with more detailed error message
+      const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message || 'Unknown error'
+      throw new Error(`Failed to rename analysis: ${errorMsg}`)
     }
   }
 }
