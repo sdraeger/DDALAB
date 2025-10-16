@@ -37,13 +37,16 @@ import {
   ChevronRight,
   Home,
   Check,
-  FolderOpen
+  FolderOpen,
+  Upload
 } from 'lucide-react'
 import { TauriService } from '@/services/tauriService'
 import { formatBytes, formatDate } from '@/lib/utils'
 import { useWorkflow } from '@/hooks/useWorkflow'
 import { createLoadFileAction } from '@/types/workflow'
 import { BIDSBrowser } from '@/components/BIDSBrowser'
+import { BIDSUploadDialog } from '@/components/BIDSUploadDialog'
+import { openNeuroService } from '@/services/openNeuroService'
 
 interface FileManagerProps {
   apiService: ApiService
@@ -91,6 +94,8 @@ export function FileManager({ apiService }: FileManagerProps) {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [bidsDatasetPath, setBidsDatasetPath] = useState<string | null>(null)
   const [showBidsBrowser, setShowBidsBrowser] = useState(false)
+  const [showUploadDialog, setShowUploadDialog] = useState(false)
+  const [uploadDatasetPath, setUploadDatasetPath] = useState<string | null>(null)
   const [isInitialLoad, setIsInitialLoad] = useState(true)
 
   // Extract directories and files from query data
@@ -198,6 +203,27 @@ export function FileManager({ apiService }: FileManagerProps) {
   // Show loading if directory is loading OR if we're waiting for initial data
   const loading = directoryLoading || (isInitialLoad && !directoryData) || loadFileInfoMutation.isPending
   const error = directoryError ? (directoryError instanceof Error ? directoryError.message : 'Failed to load directory') : null
+
+  // Filter directories based on search query
+  const filteredDirectories = useMemo(() => {
+    let filtered = directoriesWithBIDS
+
+    // Apply search filter
+    if (fileManager.searchQuery) {
+      const query = fileManager.searchQuery.toLowerCase()
+      filtered = filtered.filter(dir =>
+        dir.name.toLowerCase().includes(query) ||
+        (dir.isBIDS && dir.bidsInfo?.datasetName?.toLowerCase().includes(query))
+      )
+    }
+
+    // Apply hidden files filter
+    if (!fileManager.showHidden) {
+      filtered = filtered.filter(dir => !dir.name.startsWith('.'))
+    }
+
+    return filtered
+  }, [directoriesWithBIDS, fileManager.searchQuery, fileManager.showHidden])
 
   // Filter and sort files
   const filteredAndSortedFiles = useMemo(() => {
@@ -474,7 +500,7 @@ export function FileManager({ apiService }: FileManagerProps) {
   return (
     <Card className="h-full flex flex-col">
       <CardHeader className="flex-shrink-0">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-4">
           <div>
             <CardTitle className="flex items-center gap-2">
               <Folder className="h-5 w-5" />
@@ -484,14 +510,17 @@ export function FileManager({ apiService }: FileManagerProps) {
               Browse and select EDF/ASCII files for analysis
             </CardDescription>
           </div>
+        </div>
 
-          <div className="flex items-center gap-2">
+        {/* Navigation breadcrumbs and controls */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-1 flex-shrink-0">
             {TauriService.isTauri() && (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleChangeDataDirectory}
-                title="Change data directory (Note: Dialog may be slow when browsing directories with many files)"
+                title="Change data directory"
               >
                 <FolderOpen className="h-4 w-4 mr-2" />
                 Change Directory
@@ -519,44 +548,43 @@ export function FileManager({ apiService }: FileManagerProps) {
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </Button>
           </div>
-        </div>
 
-        {/* Navigation breadcrumbs */}
-        <div className="flex items-center gap-1 text-sm text-muted-foreground">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={navigateToRoot}
-            className="h-6 px-2"
-          >
-            <Home className="h-3 w-3" />
-          </Button>
-
-          {fileManager.currentPath.map((segment, index) => (
-            <div key={index} className="flex items-center gap-1">
-              <ChevronRight className="h-3 w-3" />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setCurrentPath(fileManager.currentPath.slice(0, index + 1))}
-                className="h-6 px-2"
-              >
-                {segment}
-              </Button>
-            </div>
-          ))}
-
-          {fileManager.currentPath.length > 0 && (
+          <div className="flex items-center gap-1 text-sm text-muted-foreground">
             <Button
               variant="ghost"
               size="sm"
-              onClick={navigateUp}
-              className="h-6 px-2 ml-2"
-              title="Go up one level"
+              onClick={navigateToRoot}
+              className="h-6 px-2"
             >
-              ..
+              <Home className="h-3 w-3" />
             </Button>
-          )}
+
+            {fileManager.currentPath.map((segment, index) => (
+              <div key={index} className="flex items-center gap-1">
+                <ChevronRight className="h-3 w-3" />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCurrentPath(fileManager.currentPath.slice(0, index + 1))}
+                  className="h-6 px-2"
+                >
+                  {segment}
+                </Button>
+              </div>
+            ))}
+
+            {fileManager.currentPath.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={navigateUp}
+                className="h-6 px-2 ml-2"
+                title="Go up one level"
+              >
+                ..
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Search and filters */}
@@ -639,43 +667,62 @@ export function FileManager({ apiService }: FileManagerProps) {
         ) : (
           <div className="space-y-2">
             {/* Directories */}
-            {directoriesWithBIDS.map((dir) => (
+            {filteredDirectories.map((dir) => (
               <div
                 key={dir.path}
-                onClick={() => handleDirectorySelect(dir)}
-                className={`flex items-center gap-3 p-3 rounded-lg border hover:bg-accent cursor-pointer transition-colors ${
+                className={`flex items-center gap-3 p-3 rounded-lg border hover:bg-accent transition-colors ${
                   dir.isBIDS ? 'border-purple-300 bg-purple-50/50' : ''
                 }`}
               >
-                <Folder className={`h-5 w-5 ${dir.isBIDS ? 'text-purple-600' : 'text-blue-600'}`} />
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{dir.name}</span>
-                    {dir.isBIDS && (
-                      <Badge variant="secondary" className="bg-purple-100 text-purple-700 text-xs">
-                        BIDS Dataset
-                      </Badge>
-                    )}
+                <div
+                  onClick={() => handleDirectorySelect(dir)}
+                  className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+                >
+                  <Folder className={`h-5 w-5 flex-shrink-0 ${dir.isBIDS ? 'text-purple-600' : 'text-blue-600'}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium truncate">{dir.name}</span>
+                      {dir.isBIDS && (
+                        <Badge variant="secondary" className="bg-purple-100 text-purple-700 text-xs flex-shrink-0">
+                          BIDS Dataset
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {dir.isBIDS && dir.bidsInfo ? (
+                        <div className="flex items-center gap-3 mt-1 flex-wrap">
+                          {dir.bidsInfo.datasetName && (
+                            <span className="font-medium text-purple-700 truncate">{dir.bidsInfo.datasetName}</span>
+                          )}
+                          {dir.bidsInfo.subjectCount !== undefined && (
+                            <span className="flex-shrink-0">{dir.bidsInfo.subjectCount} subject{dir.bidsInfo.subjectCount !== 1 ? 's' : ''}</span>
+                          )}
+                          {dir.bidsInfo.modalities && dir.bidsInfo.modalities.length > 0 && (
+                            <span className="text-xs truncate">{dir.bidsInfo.modalities.join(', ')}</span>
+                          )}
+                        </div>
+                      ) : (
+                        'Directory'
+                      )}
+                    </div>
                   </div>
-                  <div className="text-sm text-muted-foreground">
-                    {dir.isBIDS && dir.bidsInfo ? (
-                      <div className="flex items-center gap-3 mt-1">
-                        {dir.bidsInfo.datasetName && (
-                          <span className="font-medium text-purple-700">{dir.bidsInfo.datasetName}</span>
-                        )}
-                        {dir.bidsInfo.subjectCount !== undefined && (
-                          <span>{dir.bidsInfo.subjectCount} subject{dir.bidsInfo.subjectCount !== 1 ? 's' : ''}</span>
-                        )}
-                        {dir.bidsInfo.modalities && dir.bidsInfo.modalities.length > 0 && (
-                          <span className="text-xs">{dir.bidsInfo.modalities.join(', ')}</span>
-                        )}
-                      </div>
-                    ) : (
-                      'Directory'
-                    )}
-                  </div>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 </div>
-                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                {dir.isBIDS && openNeuroService.isAuthenticated() && (
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setUploadDatasetPath(dir.path);
+                      setShowUploadDialog(true);
+                    }}
+                    className="ml-2 flex-shrink-0"
+                    title="Upload to OpenNeuro"
+                  >
+                    <Upload className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
             ))}
 
@@ -731,7 +778,7 @@ export function FileManager({ apiService }: FileManagerProps) {
               </div>
             ))}
 
-            {filteredAndSortedFiles.length === 0 && directoriesWithBIDS.length === 0 && (
+            {filteredAndSortedFiles.length === 0 && filteredDirectories.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
                 <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 {!fileManager.dataDirectoryPath ? (
@@ -783,6 +830,23 @@ export function FileManager({ apiService }: FileManagerProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* BIDS Upload Dialog */}
+      {uploadDatasetPath && (
+        <BIDSUploadDialog
+          isOpen={showUploadDialog}
+          onClose={() => {
+            setShowUploadDialog(false);
+            setUploadDatasetPath(null);
+          }}
+          datasetPath={uploadDatasetPath}
+          onUploadComplete={(datasetId) => {
+            console.log(`Dataset uploaded successfully: ${datasetId}`);
+            setShowUploadDialog(false);
+            setUploadDatasetPath(null);
+          }}
+        />
+      )}
 
     </Card>
   )
