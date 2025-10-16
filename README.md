@@ -1,6 +1,6 @@
 # DDALAB - Delay Differential Analysis Laboratory
 
-DDALAB is a desktop application for performing Delay Differential Analysis (DDA) on EDF and ASCII files. Built with Tauri and React, it provides a native desktop experience with powerful analysis capabilities while keeping all data processing local to your machine for maximum privacy.
+DDALAB is a desktop application for performing Delay Differential Analysis (DDA) on neurophysiological data. Built with Tauri and React with a high-performance Rust backend, it provides a native desktop experience with powerful analysis capabilities while keeping all data processing local to your machine for maximum privacy.
 
 ## Download & Installation
 
@@ -40,66 +40,77 @@ DDALAB is a desktop application for performing Delay Differential Analysis (DDA)
 
 ## Features
 
-- **Native Desktop App**: Fast, responsive interface built with Tauri
-- **Embedded Rust API**: High-performance local analysis with no external dependencies
-- **Docker API Option**: Alternative backend using Docker containers (for advanced users)
-- **Complete Privacy**: All data processing happens on your local machine
-- **EDF File Support**: Native support for European Data Format files
-- **Real-time Analysis**: View DDA results with interactive heatmaps and plots
-- **Analysis History**: Persistent storage of previous analyses for easy comparison
+- **Native Desktop App**: Fast, responsive interface built with Tauri and React
+- **High-Performance Rust Backend**: Embedded Rust API with no external dependencies
+- **Multiple File Formats**: Support for EDF, ASCII/TXT, CSV, BrainVision (.vhdr), and EEGLAB (.set) files
+- **BIDS Compatibility**: Native support for Brain Imaging Data Structure (BIDS) datasets
+- **OpenNeuro Integration**: Browse and download datasets directly from OpenNeuro.org
+- **Complete Privacy**: All data processing happens locally on your machine
+- **Real-time Analysis**: Interactive heatmaps and time-series plots with ECharts
+- **Multi-Variant DDA**: Support for both classic DDA and CT (correlation time) variants
+- **Analysis History**: Persistent storage of analyses with SQLite database
+- **Optional Sync Broker**: Deploy a network sync broker for multi-user collaboration
 
 ## Architecture
 
-DDALAB offers two API backend options:
+DDALAB is built with a modern, high-performance architecture:
 
-### 1. Embedded Rust API (Default, Recommended)
+### Core Application
 
-The embedded Rust API runs directly within the Tauri application, providing:
+The desktop application uses:
 
-- Zero setup required
-- No external dependencies
-- Fast startup time
-- Native performance
-- Complete offline functionality
+- **Tauri v2**: Lightweight desktop framework with native OS integration
+- **React + Next.js**: Modern frontend with TypeScript
+- **Embedded Rust API**: High-performance local backend using Axum web framework
+- **SQLite Database**: Local storage for analysis history and state persistence
+- **ECharts**: Interactive, hardware-accelerated plotting
+- **TanStack Query**: Efficient data fetching and caching
 
-This is the **recommended** approach for most users.
+All data processing happens **locally** within the application with:
+- Zero external dependencies
+- No internet connection required
+- Complete data privacy
+- Fast startup and native performance
 
-### 2. Docker API Backend (Advanced)
+### Optional Network Deployment
 
-For users who prefer the Docker-based architecture, DDALAB can connect to a separate API container:
+For multi-user environments or centralized deployments, DDALAB supports:
+
+1. **Sync Broker** (Rust): Lightweight synchronization service for sharing analyses across users
+2. **Network API Server**: Deploy a single shared API server for multiple clients
 
 ```bash
-# Start API backend only
-docker-compose -f docker-compose.api-only.yml up -d
+# Deploy sync broker
+cd packages/ddalab-broker
+docker-compose up -d
 
-# Configure DDALAB to use Docker API
-# Settings → API Backend → Docker (http://localhost:8001)
+# Or deploy full network stack
+docker-compose up -d
 ```
-
-The Docker backend includes:
-
-- Python FastAPI server
-- PostgreSQL database
-- Redis cache
-- MinIO object storage
-- Full web interface at https://localhost
 
 ## Quick Start
 
 1. **Launch DDALAB** from your Applications folder (macOS), Start menu (Windows), or application launcher (Linux)
 
-2. **Select Data Directory**: Choose where your EDF files are located
+2. **Select Data Directory**: Choose where your data files are located
 
-3. **Load EDF File**: Click "Browse Files" and select an EDF file to analyze
+3. **Load a File**:
+   - Browse local files (EDF, ASCII, CSV, BrainVision, EEGLAB)
+   - Or open a BIDS dataset
+   - Or download from OpenNeuro
 
 4. **Configure Analysis**:
    - Select channels to analyze
-   - Set window parameters (length, step size)
-   - Choose scale range (delay parameters)
+   - Set window parameters (length, step size, overlap)
+   - Choose DDA variant (classic or CT)
+   - Set delay range and parameters
 
-5. **Run Analysis**: Click "Run DDA Analysis" and view results in real-time
+5. **Run Analysis**: Click "Run DDA Analysis" and monitor progress in real-time
 
-6. **View Results**: Interactive heatmaps and line plots show complexity across time and scales
+6. **View Results**:
+   - Interactive heatmaps show complexity across time and delays
+   - Time-series plots display signal data
+   - Export results for further analysis
 
 ## Updating DDALAB
 
@@ -126,10 +137,13 @@ The update checker will:
 
 ### Prerequisites
 
-- **Rust**: Install from [rustup.rs](https://rustup.rs/)
+- **Rust**: Install from [rustup.rs](https://rustup.rs/) (requires 1.70+)
 - **Node.js**: Version 18+ ([nodejs.org](https://nodejs.org/))
 - **npm**: Comes with Node.js
-- **DDA Binary**: Place `run_DDA_AsciiEdf` in `bin/` directory (see grant report for details)
+- **System Dependencies**:
+  - macOS: Xcode Command Line Tools (`xcode-select --install`)
+  - Linux: `build-essential`, `libssl-dev`, `libgtk-3-dev`, `libwebkit2gtk-4.0-dev`
+  - Windows: MSVC toolchain via Visual Studio
 
 ### Getting Started
 
@@ -151,16 +165,23 @@ npm run tauri:dev
 ```
 DDALAB/
 ├── packages/
-│   └── ddalab-tauri/          # Tauri desktop application
-│       ├── src/               # React frontend
-│       ├── src-tauri/         # Rust backend
-│       │   ├── src/
-│       │   │   ├── embedded_api.rs    # Embedded Rust API
-│       │   │   ├── edf.rs             # EDF file reader
-│       │   │   └── commands/          # Tauri commands
-│       │   └── Cargo.toml
-│       └── package.json
-├── bin/                       # DDA binary executables
+│   ├── ddalab-tauri/          # Main Tauri desktop application
+│   │   ├── src/               # React + Next.js frontend
+│   │   │   ├── components/    # UI components
+│   │   │   ├── hooks/         # React hooks & TanStack Query
+│   │   │   ├── services/      # API services & BIDS reader
+│   │   │   └── store/         # Zustand state management
+│   │   ├── src-tauri/         # Rust backend
+│   │   │   ├── src/
+│   │   │   │   ├── embedded_api.rs      # Axum web server
+│   │   │   │   ├── file_readers/        # Multi-format file readers
+│   │   │   │   ├── commands/            # Tauri IPC commands
+│   │   │   │   ├── db/                  # SQLite database layer
+│   │   │   │   └── state_manager.rs     # State persistence
+│   │   │   └── Cargo.toml
+│   │   └── package.json
+│   ├── ddalab-broker/         # Optional sync broker (Rust)
+│   └── dda-rs/                # DDA analysis engine (Rust)
 ├── docs/                      # Documentation
 └── README.md
 ```
@@ -177,109 +198,106 @@ npm run tauri build
 
 ### Key Technologies
 
-- **Tauri**: Desktop app framework (Rust + WebView)
-- **React**: UI framework with TypeScript
-- **Axum**: High-performance Rust web framework for embedded API
-- **Next.js**: React framework for frontend
-- **uPlot**: Fast, lightweight plotting library
-- **Tailwind CSS**: Utility-first CSS framework
+**Frontend:**
+- **Tauri v2**: Desktop app framework with native OS integration
+- **React 18**: UI library with TypeScript
+- **Next.js 14**: React framework with App Router
+- **TanStack Query**: Data fetching, caching, and synchronization
+- **Zustand**: Lightweight state management
+- **ECharts**: Hardware-accelerated interactive charts
+- **Radix UI**: Accessible component primitives
+- **Tailwind CSS**: Utility-first styling
 
-## Docker-based Deployment (Optional)
+**Backend:**
+- **Rust**: Systems programming language for performance and safety
+- **Axum**: High-performance async web framework
+- **SQLite**: Embedded database via rusqlite
+- **Tokio**: Async runtime
+- **Serde**: Serialization/deserialization
+- **DDA-RS**: Custom Rust implementation of DDA algorithms
 
-For users who want to deploy DDALAB as a web service:
+## Network Deployment (Optional)
+
+For multi-user environments or centralized deployments:
+
+### Sync Broker Deployment
+
+Deploy a lightweight sync broker for sharing analyses across users:
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/sdraeger/DDALAB.git
-cd DDALAB
-
-# 2. Configure environment
-cp .env.production.example .env
-nano .env  # Update passwords and settings
-
-# 3. Start full stack
+cd packages/ddalab-broker
 docker-compose up -d
-
-# 4. Access web interface
-# Open https://localhost in your browser
 ```
 
-This deployment includes:
+The sync broker provides:
+- Real-time synchronization of analysis results
+- Centralized storage of shared analyses
+- Minimal resource requirements
+- No database dependencies
 
-- Python FastAPI backend
-- PostgreSQL database
-- Redis cache
-- MinIO object storage (for EDF files)
-- Traefik reverse proxy with SSL
-- Web interface for remote access
+### Network API Server
 
-### Docker Services
-
-- **API Server**: http://localhost:8001 (direct) or https://localhost/api (via Traefik)
-- **Web Interface**: https://localhost
-- **MinIO Console**: http://localhost:9001
-- **Traefik Dashboard**: https://localhost:8080
-
-To stop: `docker-compose down`
-
-## DDALAB Launcher (CLI Tool)
-
-For managing Docker deployments, use the DDALAB Launcher:
+Deploy a shared API server for multiple DDALAB clients:
 
 ```bash
-# Clone launcher
-git clone https://github.com/sdraeger/DDALAB-launcher.git
-cd DDALAB-launcher
+# Configure environment
+cp .env.example .env
 
-# Build and run
-make build
-./bin/ddalab-launcher
+# Start services
+docker-compose up -d
 ```
 
-Features:
+This includes:
+- Rust-based API server
+- Optional PostgreSQL for shared storage
+- Optional Redis for caching
+- Web interface at http://localhost:8001
 
-- Auto-detection of DDALAB installations
-- Interactive menu for all operations
-- Status monitoring and log viewing
-- Cross-platform support
+Client configuration:
+1. Open DDALAB Settings
+2. Set API endpoint to `http://your-server:8001`
+3. Enable network mode
 
 ## Configuration
 
-### Embedded API Settings
+### Application Data Storage
 
-The embedded Rust API stores data in:
+DDALAB stores all data locally in platform-specific directories:
 
-- **macOS**: `~/Library/Application Support/ddalab`
-- **Windows**: `%APPDATA%/ddalab`
-- **Linux**: `~/.local/share/ddalab`
+- **macOS**: `~/Library/Application Support/ddalab/`
+- **Windows**: `%APPDATA%\ddalab\`
+- **Linux**: `~/.local/share/ddalab/`
 
-Configuration includes:
+Stored data includes:
+- **ddalab.db**: SQLite database with analysis history and metadata
+- **state.json**: Application state and preferences
+- **config.json**: User configuration settings
+- **logs/**: Application logs for debugging
 
+### User Preferences
+
+Accessible via Settings panel:
 - Data directory path
-- Analysis history
-- Application preferences
+- DDA analysis parameters (window size, overlap, delay range)
+- UI preferences (theme, layout)
+- API endpoint (for network mode)
+- OpenNeuro API key (for dataset uploads)
 
-### Docker API Settings
+### Network Deployment Configuration
 
-For Docker deployments, edit `.env` file to configure:
-
-- Database credentials
-- MinIO storage settings
-- SSL certificates
-- Port mappings
-
-## SSL Certificates
-
-For Docker deployments with Traefik:
+For network deployments, configure via `.env`:
 
 ```bash
-# Generate self-signed certificate
-openssl genrsa -out certs/server.key 2048
-openssl req -new -key certs/server.key -out certs/server.csr
-openssl x509 -req -days 365 -in certs/server.csr -signkey certs/server.key -out certs/server.crt
-```
+# API Server
+API_PORT=8001
+API_HOST=0.0.0.0
 
-For production deployments, use proper SSL certificates from Let's Encrypt or your certificate authority.
+# Database (optional)
+DATABASE_URL=postgresql://user:pass@localhost/ddalab
+
+# Redis (optional)
+REDIS_URL=redis://localhost:6379
+```
 
 ## Troubleshooting
 
@@ -305,42 +323,47 @@ chmod +x DDALAB-*.AppImage
 
 ### Analysis fails to run
 
-1. Verify DDA binary is present:
-   - macOS/Linux: Check `~/.local/bin/run_DDA_AsciiEdf` or system PATH
-   - Windows: Check application directory for `run_DDA_AsciiEdf.exe`
+1. **Check DDA binary**: Ensure the `dda-rs` Rust library is properly compiled
+   - Development: Run `cargo build` in `packages/dda-rs/`
+   - Production: Binary is bundled with the application
 
-2. Check file permissions:
+2. **Check file format**: Verify your file is in a supported format:
+   - EDF (European Data Format)
+   - ASCII/TXT (tab or comma-separated)
+   - CSV (comma-separated values)
+   - BrainVision (.vhdr with .eeg/.dat)
+   - EEGLAB (.set with .fdt)
 
-   ```bash
-   chmod +x /path/to/run_DDA_AsciiEdf
-   ```
+3. **View logs**: Settings → Debug Information → View Logs
 
-3. View logs in Settings → Debug Information
+4. **Check file permissions**: Ensure DDALAB has read access to your data directory
 
-### Docker deployment issues
+### Application won't start
+
+1. Check system requirements (Rust 1.70+, Node 18+)
+2. Clear application data (backup first!):
+   - macOS: `rm -rf ~/Library/Application\ Support/ddalab/`
+   - Windows: Delete `%APPDATA%\ddalab\`
+   - Linux: `rm -rf ~/.local/share/ddalab/`
+3. Reinstall the application
+
+### Network deployment issues
 
 ```bash
-# Check logs
-docker-compose logs
+# Check broker logs
+cd packages/ddalab-broker
+docker-compose logs -f
 
-# Specific service logs
-docker-compose logs api
+# Check API server logs
+docker-compose logs -f api
 
 # Restart services
 docker-compose restart
 
 # Clean restart
-docker-compose down
+docker-compose down -v
 docker-compose up -d
 ```
-
-## API Documentation
-
-When using Docker deployment, API documentation is available at:
-
-- **Swagger UI**: https://localhost/api/docs
-- **ReDoc**: https://localhost/api/redoc
-- **GraphQL Playground**: https://localhost/graphql
 
 ## Contributing
 
@@ -374,9 +397,9 @@ DDALAB was developed as part of an NIH research grant to provide accessible tool
 
 ## Related Projects
 
-- **DDALAB Launcher**: CLI tool for managing DDALAB installations
-- **DDA Binary**: Core analysis engine (contact for access)
+- **DDA-RS**: Rust implementation of Delay Differential Analysis algorithms
+- **DDALAB Broker**: Lightweight synchronization service for multi-user environments
 
 ---
 
-**Note**: This is an open-source scientific tool. While it has been tested extensively, always validate results against known standards for your specific use case.
+**Note**: This is an open-source scientific tool developed for research purposes. While it has been tested extensively, always validate results against known standards for your specific use case.
