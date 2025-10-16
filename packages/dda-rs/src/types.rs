@@ -69,6 +69,8 @@ pub struct VariantResult {
     pub variant_id: String,          // "ST", "CT", "CD", "DE"
     pub variant_name: String,        // "Single Timeseries (ST)", etc.
     pub q_matrix: Vec<Vec<f64>>,    // Q matrix for this variant [channels × timepoints]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel_labels: Option<Vec<String>>,  // Optional channel labels specific to this variant
 }
 
 /// DDA analysis result

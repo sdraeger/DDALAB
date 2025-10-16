@@ -369,13 +369,16 @@ export class ApiService {
         },
         window_parameters: {
           window_length: request.window_length || 64, // Default: 0.25 seconds at 256 Hz
-          window_step: request.window_step || 10
+          window_step: request.window_step || 10,
+          ct_window_length: request.ct_window_length,
+          ct_window_step: request.ct_window_step
         },
         scale_parameters: {
           scale_min: request.scale_min || 1,
           scale_max: request.scale_max || 20,
           scale_num: request.scale_num || 20
-        }
+        },
+        ct_channel_pairs: request.ct_channel_pairs
       }
 
       console.log('Submitting DDA request:', ddaRequest)
@@ -417,13 +420,41 @@ export class ApiService {
       // First, let's check what the backend actually returned
       console.log('Checking backend response structure for variants...');
       console.log('Response data keys:', Object.keys(response.data));
+      console.log('Response results keys:', response.data.results ? Object.keys(response.data.results) : 'no results key');
       console.log('Request variants:', request.variants);
 
       // Look for variant-specific results in different possible formats
       let foundVariantData = false;
 
-      // Option 1: Check if variants are nested under a 'variants' key
-      if (response.data.variants && typeof response.data.variants === 'object') {
+      // Option 1: Check if variants are nested under response.data.results.variants (Rust backend format)
+      if (response.data.results?.variants && Array.isArray(response.data.results.variants)) {
+        console.log('Found variants array in response.results.variants:', response.data.results.variants.length);
+        foundVariantData = true;
+
+        for (const variantData of response.data.results.variants) {
+          console.log(`Processing variant from results.variants array:`, {
+            variant_id: variantData.variant_id,
+            variant_name: variantData.variant_name,
+            has_dda_matrix: !!variantData.dda_matrix,
+            dda_matrix_keys: variantData.dda_matrix ? Object.keys(variantData.dda_matrix) : []
+          });
+
+          // Extract scales from response.data.results.scales
+          if (response.data.results.scales && Array.isArray(response.data.results.scales)) {
+            scales = response.data.results.scales;
+          }
+
+          variants.push({
+            variant_id: variantData.variant_id,
+            variant_name: variantData.variant_name,
+            dda_matrix: variantData.dda_matrix || {},
+            exponents: variantData.exponents || {},
+            quality_metrics: variantData.quality_metrics || {}
+          });
+        }
+      }
+      // Option 2: Check if variants are nested under a 'variants' key in root (legacy format)
+      else if (response.data.variants && typeof response.data.variants === 'object') {
         console.log('Found variants object in response:', Object.keys(response.data.variants));
         for (const variantId of request.variants) {
           if (response.data.variants[variantId]) {
@@ -460,8 +491,8 @@ export class ApiService {
         }
       }
 
-      // Option 2: Check for individual variant keys in the root response
-      if (!foundVariantData) {
+      // Option 3: Check for individual variant keys in the root response
+      else if (!foundVariantData) {
         console.log('Looking for individual variant keys in response root...');
         for (const variantId of request.variants) {
           // Check both the variant ID and common variant key patterns

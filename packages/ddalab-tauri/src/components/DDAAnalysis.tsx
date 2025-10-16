@@ -5,6 +5,7 @@ import { useAppStore } from '@/store/appStore'
 import { ApiService } from '@/services/apiService'
 import { DDAAnalysisRequest, DDAResult } from '@/types/api'
 import { DDAResults } from '@/components/DDAResults'
+import { CTChannelPairPicker } from '@/components/CTChannelPairPicker'
 import { useWorkflow } from '@/hooks/useWorkflow'
 import { createSetDDAParametersAction, createRunDDAAnalysisAction } from '@/types/workflow'
 import { useSubmitDDAAnalysis, useDDAProgress, useSaveDDAToHistory, useDDAHistory } from '@/hooks/useDDAAnalysis'
@@ -70,6 +71,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const updateAnalysisParameters = useAppStore((state) => state.updateAnalysisParameters)
   const setDDARunning = useAppStore((state) => state.setDDARunning)
   const incrementActionCount = useAppStore((state) => state.incrementActionCount)
+  const isServerReady = useAppStore((state) => state.ui.isServerReady)
 
   const { recordAction } = useWorkflow()
 
@@ -77,13 +79,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const submitAnalysisMutation = useSubmitDDAAnalysis(apiService)
   const saveToHistoryMutation = useSaveDDAToHistory(apiService)
 
-  // TanStack Query: Fetch analysis history
+  // TanStack Query: Fetch analysis history (only when server is ready)
   const {
     data: historyData,
     isLoading: historyLoading,
     error: historyErrorObj,
     refetch: refetchHistory
-  } = useDDAHistory(apiService)
+  } = useDDAHistory(apiService, isServerReady)
 
   // Track progress from Tauri events for the current analysis
   const progressEvent = useDDAProgress(
@@ -130,6 +132,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const [previewingAnalysis, setPreviewingAnalysis] = useState<DDAResult | null>(null)
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' })
   const [autoLoadingResults, setAutoLoadingResults] = useState(false)
+  const [resultsFromPersistence, setResultsFromPersistence] = useState(false)
 
   // Derive history state from TanStack Query
   const historyError = historyErrorObj ? (historyErrorObj as Error).message : null
@@ -187,9 +190,11 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   // or after saving a new analysis
 
   // Sync local results with current analysis from store
+  // Track when results are loaded from persistence vs fresh analysis
   useEffect(() => {
     if (currentAnalysis && !results) {
       setResults(currentAnalysis)
+      setResultsFromPersistence(true)
     }
   }, [currentAnalysis, results])
 
@@ -308,6 +313,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         setLocalIsRunning(false)
         setDDARunning(false)
         setAnalysisName('') // Clear name after successful analysis
+        setResultsFromPersistence(false) // Mark as fresh analysis, not from persistence
 
         // Record DDA analysis execution if recording is active
         if (workflowRecording.isRecording && fileManager.selectedFile) {
@@ -454,8 +460,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         </div>
 
         <TabsContent value="parameters" className="flex-1 space-y-4">
-          {/* Analysis Status */}
-          {(localIsRunning || results || autoLoadingResults) && (
+          {/* Analysis Status - only show for active/recent analysis, not restored from persistence */}
+          {(localIsRunning || autoLoadingResults || (results && !resultsFromPersistence)) && (
             <Card>
               <CardContent className="pt-6">
                 <div className="space-y-4">
@@ -667,17 +673,31 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     />
                   </div>
                   <div>
-                    <Label className="text-sm">Channel Pairs ({parameters.ctChannelPairs.length})</Label>
-                    <p className="text-xs text-muted-foreground mb-2">
-                      Select two channels from the list below to add a pair
+                    <div className="flex items-center justify-between mb-2">
+                      <Label className="text-sm">Channel Pairs ({parameters.ctChannelPairs.length})</Label>
+                      {parameters.ctChannelPairs.length > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setLocalParameters(prev => ({ ...prev, ctChannelPairs: [] }))}
+                          disabled={localIsRunning}
+                        >
+                          Clear All
+                        </Button>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Click two channels below to create a pair
                     </p>
+
+                    {/* Display existing pairs */}
                     {parameters.ctChannelPairs.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mb-2">
+                      <div className="flex flex-wrap gap-2 mb-3 p-2 bg-muted/50 rounded-md">
                         {parameters.ctChannelPairs.map(([ch1, ch2], idx) => (
                           <Badge
                             key={idx}
                             variant="secondary"
-                            className="cursor-pointer"
+                            className="cursor-pointer hover:bg-destructive/80"
                             onClick={() => {
                               setLocalParameters(prev => ({
                                 ...prev,
@@ -690,23 +710,20 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                         ))}
                       </div>
                     )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        // Add first two selected channels as a pair
-                        if (parameters.selectedChannels.length >= 2) {
-                          const [ch1, ch2] = parameters.selectedChannels.slice(0, 2)
+
+                    {/* Channel pair picker */}
+                    {fileManager.selectedFile && (
+                      <CTChannelPairPicker
+                        channels={fileManager.selectedFile.channels}
+                        onPairAdded={(ch1, ch2) => {
                           setLocalParameters(prev => ({
                             ...prev,
                             ctChannelPairs: [...prev.ctChannelPairs, [ch1, ch2]]
                           }))
-                        }
-                      }}
-                      disabled={localIsRunning || parameters.selectedChannels.length < 2}
-                    >
-                      Add Pair from First 2 Selected
-                    </Button>
+                        }}
+                        disabled={localIsRunning}
+                      />
+                    )}
                   </div>
                 </CardContent>
               </Card>

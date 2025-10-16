@@ -440,15 +440,15 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
                     ui.activeTab === 'results' ? (
                       <DDAResults result={currentAnalysis} />
                     ) : null
-                  ) : isLoadingHistory ? (
+                  ) : isLoadingHistory || !ui.isServerReady ? (
                     <div className="flex items-center justify-center h-full">
                       <div className="text-center">
                         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
                         <h3 className="text-lg font-medium mb-2">
-                          Loading Analysis History
+                          {!ui.isServerReady ? 'Starting Server...' : 'Loading Analysis History'}
                         </h3>
                         <p className="text-muted-foreground">
-                          Fetching saved analyses...
+                          {!ui.isServerReady ? 'Please wait while the analysis server starts' : 'Fetching saved analyses...'}
                         </p>
                       </div>
                     </div>
