@@ -275,9 +275,25 @@ function PopoutContent() {
 
     try {
       const result = currentData.result
-      const scales = result.results?.scales
-      const dda_matrix = result.results?.dda_matrix
-      const channels = result.channels || Object.keys(dda_matrix || {})
+      const uiState = currentData.uiState
+
+      // Support variants: use uiState.selectedVariant if available
+      const selectedVariantIndex = uiState?.selectedVariant ?? 0
+      const variants = result.results?.variants
+
+      let dda_matrix, scales
+      if (variants && variants.length > 0) {
+        const variant = variants[selectedVariantIndex] || variants[0]
+        dda_matrix = variant.dda_matrix
+        scales = result.results?.scales
+        console.log('[POPOUT] Using variant:', variant.variant_name || variant.variant_id)
+      } else {
+        // Fallback to legacy format
+        dda_matrix = result.results?.dda_matrix
+        scales = result.results?.scales
+      }
+
+      const channels = uiState?.selectedChannels || result.channels || Object.keys(dda_matrix || {})
 
       if (!scales || !dda_matrix || channels.length === 0) {
         console.warn('[POPOUT] Missing data for heatmap:', { scales: !!scales, dda_matrix: !!dda_matrix, channels: channels.length })
@@ -286,21 +302,39 @@ function PopoutContent() {
 
       // Process heatmap data
       const heatmapData: number[][] = []
-      let minVal = Infinity
-      let maxVal = -Infinity
+      const allValues: number[] = []
 
       channels.forEach((channel: string) => {
         if (dda_matrix[channel]) {
           const channelData = dda_matrix[channel].map((val: number) => {
             // Log transform for better visualization
             const logVal = Math.log10(Math.max(0.001, val))
-            minVal = Math.min(minVal, logVal)
-            maxVal = Math.max(maxVal, logVal)
+            allValues.push(logVal)
             return logVal
           })
           heatmapData.push(channelData)
         }
       })
+
+      // Calculate median and std for color limits (median ± 3*sigma)
+      let minVal = Infinity
+      let maxVal = -Infinity
+
+      if (allValues.length > 0) {
+        const sortedValues = [...allValues].sort((a, b) => a - b)
+        const median = sortedValues.length % 2 === 0
+          ? (sortedValues[sortedValues.length / 2 - 1] + sortedValues[sortedValues.length / 2]) / 2
+          : sortedValues[Math.floor(sortedValues.length / 2)]
+
+        const mean = allValues.reduce((sum, val) => sum + val, 0) / allValues.length
+        const variance = allValues.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / allValues.length
+        const std = Math.sqrt(variance)
+
+        minVal = median - 3 * std
+        maxVal = median + 3 * std
+
+        console.log('[POPOUT HEATMAP] Color range:', { median, std, minVal, maxVal })
+      }
 
       const colorRange: [number, number] = [minVal, maxVal]
 
@@ -436,9 +470,24 @@ function PopoutContent() {
 
     try {
       const result = currentData.result
-      const scales = result.results?.scales
-      const dda_matrix = result.results?.dda_matrix
-      const exponents = result.results?.exponents || {}
+      const uiState = currentData.uiState
+
+      // Support variants: use uiState.selectedVariant if available
+      const selectedVariantIndex = uiState?.selectedVariant ?? 0
+      const variants = result.results?.variants
+
+      let dda_matrix, scales, exponents
+      if (variants && variants.length > 0) {
+        const variant = variants[selectedVariantIndex] || variants[0]
+        dda_matrix = variant.dda_matrix
+        exponents = variant.exponents || {}
+        scales = result.results?.scales
+      } else {
+        // Fallback to legacy format
+        dda_matrix = result.results?.dda_matrix
+        exponents = result.results?.exponents || {}
+        scales = result.results?.scales
+      }
 
       if (!scales || !dda_matrix) {
         console.warn('[POPOUT] Missing scales or dda_matrix in result data')
@@ -446,20 +495,41 @@ function PopoutContent() {
       }
 
       // Prepare data for line plot
-      const plotData: uPlot.AlignedData = [scales]
-      const channels = Object.keys(dda_matrix)
+      const channels = uiState?.selectedChannels || Object.keys(dda_matrix)
 
-      // Add DDA matrix data for each channel
+      // Validate that we have data for the channels
+      const channelData: number[][] = []
       channels.forEach(channel => {
-        if (dda_matrix[channel]) {
-          plotData.push(dda_matrix[channel])
+        if (dda_matrix[channel] && Array.isArray(dda_matrix[channel]) && dda_matrix[channel].length > 0) {
+          channelData.push(dda_matrix[channel])
         }
       })
 
-      // Create series configuration
+      if (channelData.length === 0) {
+        console.warn('[POPOUT] No valid channel data available')
+        return
+      }
+
+      // Ensure scales matches the data length
+      const dataLength = channelData[0].length
+      if (!Array.isArray(scales) || scales.length !== dataLength) {
+        console.warn('[POPOUT] Scales length mismatch:', scales?.length, 'vs data length:', dataLength)
+        return
+      }
+
+      const plotData: uPlot.AlignedData = [scales, ...channelData]
+
+      // Create series configuration - only for channels that have data
+      const validChannels: string[] = []
+      channels.forEach(channel => {
+        if (dda_matrix[channel] && Array.isArray(dda_matrix[channel]) && dda_matrix[channel].length > 0) {
+          validChannels.push(channel)
+        }
+      })
+
       const series: uPlot.Series[] = [
         {}, // x-axis
-        ...channels.map((channel, index) => ({
+        ...validChannels.map((channel, index) => ({
           label: `${channel} (α=${exponents[channel]?.toFixed(3) || 'N/A'})`,
           stroke: getChannelColor(index),
           width: 2,
@@ -662,9 +732,26 @@ function PopoutContent() {
     }
 
     const result = data.result
+    const uiState = data.uiState
+
+    // Get variant info
+    const variants = result.results?.variants
+    const selectedVariantIndex = uiState?.selectedVariant ?? 0
+    const currentVariant = variants?.[selectedVariantIndex]
+
     return (
       <div className="p-4 h-full flex flex-col">
         <h2 className="text-lg font-semibold mb-4">DDA Analysis Results</h2>
+
+        {/* Variant indicator */}
+        {variants && variants.length > 1 && (
+          <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded">
+            <div className="text-xs text-gray-600">Active Variant (controlled by main window):</div>
+            <div className="font-semibold text-sm text-blue-700">
+              {currentVariant?.variant_name || currentVariant?.variant_id || 'Unknown'}
+            </div>
+          </div>
+        )}
 
         {/* Metadata */}
         <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
@@ -674,7 +761,7 @@ function PopoutContent() {
           </div>
           <div>
             <label className="block text-gray-600">Channels</label>
-            <div className="font-semibold">{result.channels ? result.channels.length : 0}</div>
+            <div className="font-semibold">{uiState?.selectedChannels?.length || result.channels?.length || 0}</div>
           </div>
         </div>
 
@@ -717,29 +804,6 @@ function PopoutContent() {
                 <label className="block text-gray-600">Processing Time</label>
                 <div className="font-semibold">{result.results?.quality_metrics?.processing_time?.toFixed(2) || 'N/A'}s</div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Channel List */}
-        {result.channels && result.channels.length > 0 && (
-          <div>
-            <label className="block text-sm font-medium text-gray-600 mb-2">Channels</label>
-            <div className="flex flex-wrap gap-2">
-              {result.channels.map((ch: string, idx: number) => (
-                <span
-                  key={ch}
-                  className="px-2 py-1 rounded text-xs font-medium"
-                  style={{
-                    backgroundColor: getChannelColor(idx) + '20',
-                    borderColor: getChannelColor(idx),
-                    color: getChannelColor(idx),
-                    borderWidth: '1px'
-                  }}
-                >
-                  {ch} (α={result.results?.exponents?.[ch]?.toFixed(3) || 'N/A'})
-                </span>
-              ))}
             </div>
           </div>
         )}
