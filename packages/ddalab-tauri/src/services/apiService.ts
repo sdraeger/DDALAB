@@ -11,7 +11,7 @@ export class ApiService {
     this.baseURL = baseURL
     this.client = axios.create({
       baseURL,
-      timeout: 60000, // 60 seconds for heavy operations
+      timeout: 3600000, // 1 hour for heavy DDA operations
       headers: {
         'Content-Type': 'application/json',
       },

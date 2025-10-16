@@ -10,6 +10,7 @@ import { DDAAnalysis } from "@/components/DDAAnalysis";
 import { DDAResults } from "@/components/DDAResults";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { OpenNeuroBrowser } from "@/components/OpenNeuroBrowser";
+import { DDAProgressIndicator } from "@/components/DDAProgressIndicator";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -515,6 +516,9 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
 
       {/* Health Status Bar */}
       <HealthStatusBar apiService={apiService} />
+
+      {/* Global DDA Progress Indicator - visible on all tabs */}
+      <DDAProgressIndicator />
     </div>
   );
 }
