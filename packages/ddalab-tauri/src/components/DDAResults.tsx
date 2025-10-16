@@ -713,7 +713,15 @@ export function DDAResults({ result }: DDAResultsProps) {
 
   const handlePopOut = useCallback(async () => {
     const ddaResultsData = {
-      result
+      result,
+      uiState: {
+        selectedVariant,
+        colorScheme,
+        viewMode,
+        selectedChannels,
+        colorRange,
+        autoScale
+      }
     }
 
     try {
@@ -722,7 +730,7 @@ export function DDAResults({ result }: DDAResultsProps) {
     } catch (error) {
       console.error('Failed to create popout window:', error)
     }
-  }, [result, createWindow])
+  }, [result, selectedVariant, colorScheme, viewMode, selectedChannels, colorRange, autoScale, createWindow])
 
   const exportPlot = (format: 'png' | 'svg') => {
     // Implementation would depend on which plot is active
@@ -801,17 +809,25 @@ export function DDAResults({ result }: DDAResultsProps) {
     // Only broadcast if there are actually pop-out windows of this type
     // This prevents unnecessary work when no windows are listening
     const ddaResultsData = {
-      result
+      result,
+      uiState: {
+        selectedVariant,
+        colorScheme,
+        viewMode,
+        selectedChannels,
+        colorRange,
+        autoScale
+      }
     }
 
     // Fire and forget - don't block on broadcast
     broadcastToType('dda-results', 'data-update', ddaResultsData).catch(console.error)
-  }, [result.id, broadcastToType]) // Only depend on result.id, not entire result object
+  }, [result.id, selectedVariant, colorScheme, viewMode, selectedChannels, colorRange, autoScale, broadcastToType])
 
   return (
-    <div className="h-full flex flex-col space-y-4 overflow-y-auto">
+    <div className="h-full flex flex-col overflow-y-auto">
       {/* Controls */}
-      <Card>
+      <Card className="flex-shrink-0">
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
             <div>
@@ -984,8 +1000,8 @@ export function DDAResults({ result }: DDAResultsProps) {
 
       {/* Visualization Area */}
       {availableVariants.length > 1 ? (
-        <Tabs value={selectedVariant.toString()} onValueChange={(v) => setSelectedVariant(parseInt(v))} className="flex-1 flex flex-col">
-          <TabsList>
+        <Tabs value={selectedVariant.toString()} onValueChange={(v) => setSelectedVariant(parseInt(v))} className="mt-4 flex-1 flex flex-col gap-0">
+          <TabsList className="mb-0" style={{ marginBottom: 0 }}>
             {availableVariants.map((variant, index) => (
               <TabsTrigger key={variant.variant_id} value={index.toString()}>
                 {variant.variant_name}
@@ -994,10 +1010,11 @@ export function DDAResults({ result }: DDAResultsProps) {
           </TabsList>
 
           {availableVariants.map((variant, index) => (
-            <TabsContent key={variant.variant_id} value={index.toString()} className="flex-1 flex flex-col space-y-4">
-              {/* Heatmap */}
-              {(viewMode === 'heatmap' || viewMode === 'both') && (
-                    <Card>
+            <TabsContent key={variant.variant_id} value={index.toString()} className="flex flex-col" style={{ marginTop: 0, paddingTop: 0 }}>
+              <div className="space-y-4">
+                {/* Heatmap */}
+                {(viewMode === 'heatmap' || viewMode === 'both') && (
+                      <Card>
                       <CardHeader className="pb-2">
                         <CardTitle className="text-base">
                           DDA Matrix Heatmap - {variant.variant_name}
@@ -1052,6 +1069,7 @@ export function DDAResults({ result }: DDAResultsProps) {
                       </CardContent>
                     </Card>
                   )}
+              </div>
             </TabsContent>
           ))}
         </Tabs>
