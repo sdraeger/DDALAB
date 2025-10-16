@@ -1,6 +1,6 @@
 [package]
 name = "dda-rs"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 authors = ["DDALAB Contributors"]
 description = "Rust interface for the run_DDA_AsciiEdf binary (Cosmopolitan Libc APE) for Delay Differential Analysis"
