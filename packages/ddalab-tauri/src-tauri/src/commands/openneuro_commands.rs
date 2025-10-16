@@ -611,3 +611,127 @@ mod tests {
         assert!(result.unwrap_err().contains("cannot be empty"));
     }
 }
+
+// ========== UPLOAD FUNCTIONALITY ==========
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UploadOptions {
+    pub dataset_path: String,
+    pub affirm_defaced: bool,
+    pub dataset_name: Option<String>,
+    pub dataset_description: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UploadProgress {
+    pub dataset_id: Option<String>,
+    pub phase: String, // "validating", "creating_dataset", "uploading_files", "committing", "completed", "error"
+    pub progress_percent: f32,
+    pub message: String,
+    pub current_file: Option<String>,
+    pub files_uploaded: Option<usize>,
+    pub total_files: Option<usize>,
+}
+
+// State for tracking active uploads
+pub struct UploadState {
+    pub active_uploads: Arc<Mutex<HashMap<String, Arc<Mutex<Option<u32>>>>>>,
+}
+
+impl Default for UploadState {
+    fn default() -> Self {
+        Self {
+            active_uploads: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
+#[command]
+pub async fn upload_bids_dataset(
+    options: UploadOptions,
+    app_handle: AppHandle,
+    upload_state: State<'_, UploadState>,
+) -> Result<String, String> {
+    log::info!("Starting BIDS dataset upload from: {}", options.dataset_path);
+
+    // Emit initial progress
+    let _ = app_handle.emit("openneuro-upload-progress", UploadProgress {
+        dataset_id: None,
+        phase: "validating".to_string(),
+        progress_percent: 0.0,
+        message: "Validating BIDS dataset...".to_string(),
+        current_file: None,
+        files_uploaded: None,
+        total_files: None,
+    });
+
+    // Validate dataset path exists
+    let dataset_path = PathBuf::from(&options.dataset_path);
+    if !dataset_path.exists() {
+        let _ = app_handle.emit("openneuro-upload-progress", UploadProgress {
+            dataset_id: None,
+            phase: "error".to_string(),
+            progress_percent: 0.0,
+            message: format!("Dataset path does not exist: {}", options.dataset_path),
+            current_file: None,
+            files_uploaded: None,
+            total_files: None,
+        });
+        return Err("Dataset path does not exist".to_string());
+    }
+
+    // Check for dataset_description.json
+    let description_path = dataset_path.join("dataset_description.json");
+    if !description_path.exists() {
+        let _ = app_handle.emit("openneuro-upload-progress", UploadProgress {
+            dataset_id: None,
+            phase: "error".to_string(),
+            progress_percent: 0.0,
+            message: "dataset_description.json not found - not a valid BIDS dataset".to_string(),
+            current_file: None,
+            files_uploaded: None,
+            total_files: None,
+        });
+        return Err("dataset_description.json not found".to_string());
+    }
+
+    let _ = app_handle.emit("openneuro-upload-progress", UploadProgress {
+        dataset_id: None,
+        phase: "validating".to_string(),
+        progress_percent: 10.0,
+        message: "BIDS dataset validation passed".to_string(),
+        current_file: None,
+        files_uploaded: None,
+        total_files: None,
+    });
+
+    // For now, return a message indicating that the upload needs to be completed via the frontend
+    // The actual GraphQL mutations will be called from the TypeScript frontend
+    log::info!("Dataset validation complete. Upload will continue via GraphQL API from frontend.");
+
+    let _ = app_handle.emit("openneuro-upload-progress", UploadProgress {
+        dataset_id: None,
+        phase: "creating_dataset".to_string(),
+        progress_percent: 20.0,
+        message: "Ready to create dataset on OpenNeuro...".to_string(),
+        current_file: None,
+        files_uploaded: None,
+        total_files: None,
+    });
+
+    Ok("validated".to_string())
+}
+
+#[command]
+pub async fn cancel_bids_upload(
+    dataset_id: String,
+    upload_state: State<'_, UploadState>,
+) -> Result<(), String> {
+    log::info!("Cancelling upload for dataset: {}", dataset_id);
+
+    if let Ok(mut uploads) = upload_state.active_uploads.lock() {
+        uploads.remove(&dataset_id);
+    }
+
+    Ok(())
+}
