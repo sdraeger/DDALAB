@@ -29,27 +29,42 @@ impl AnalysisDatabase {
     }
 
     fn create_tables(&self) -> Result<()> {
-        self.conn
-            .lock()
-            .execute_batch(
-                "CREATE TABLE IF NOT EXISTS analyses (
-                    id TEXT PRIMARY KEY,
-                    file_path TEXT NOT NULL,
-                    timestamp TEXT NOT NULL,
-                    variant_name TEXT NOT NULL,
-                    variant_display_name TEXT NOT NULL,
-                    parameters TEXT NOT NULL,
-                    chunk_position REAL,
-                    plot_data TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
+        let conn = self.conn.lock();
 
-                CREATE INDEX IF NOT EXISTS idx_analyses_file_path ON analyses(file_path);
-                CREATE INDEX IF NOT EXISTS idx_analyses_timestamp ON analyses(timestamp DESC);
-                CREATE INDEX IF NOT EXISTS idx_analyses_created_at ON analyses(created_at DESC);",
-            )
-            .context("Failed to create analyses table")?;
+        // Create table with all columns
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS analyses (
+                id TEXT PRIMARY KEY,
+                file_path TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                variant_name TEXT NOT NULL,
+                variant_display_name TEXT NOT NULL,
+                parameters TEXT NOT NULL,
+                chunk_position REAL,
+                plot_data TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                name TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_analyses_file_path ON analyses(file_path);
+            CREATE INDEX IF NOT EXISTS idx_analyses_timestamp ON analyses(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_analyses_created_at ON analyses(created_at DESC);",
+        )
+        .context("Failed to create analyses table")?;
+
+        // Migration: Add name column if it doesn't exist (for existing databases)
+        let result = conn.execute("ALTER TABLE analyses ADD COLUMN name TEXT", []);
+        match result {
+            Ok(_) => log::info!("✅ Added 'name' column to analyses table"),
+            Err(e) => {
+                // Column might already exist, which is fine
+                let err_msg = e.to_string();
+                if !err_msg.contains("duplicate column name") {
+                    log::warn!("Migration warning (likely harmless): {}", err_msg);
+                }
+            }
+        }
 
         Ok(())
     }
@@ -66,9 +81,9 @@ impl AnalysisDatabase {
         self.conn.lock().execute(
             "INSERT OR REPLACE INTO analyses
              (id, file_path, timestamp, variant_name, variant_display_name, parameters,
-              chunk_position, plot_data, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
-                     COALESCE((SELECT created_at FROM analyses WHERE id = ?1), ?9), ?9)",
+              chunk_position, plot_data, name, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+                     COALESCE((SELECT created_at FROM analyses WHERE id = ?1), ?10), ?10)",
             params![
                 analysis.id,
                 analysis.file_path,
@@ -78,6 +93,7 @@ impl AnalysisDatabase {
                 parameters_json,
                 analysis.chunk_position,
                 plot_data_json,
+                analysis.name,
                 now,
             ],
         )
@@ -90,7 +106,7 @@ impl AnalysisDatabase {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT id, file_path, timestamp, variant_name, variant_display_name,
-                    parameters, chunk_position, plot_data
+                    parameters, chunk_position, plot_data, name
              FROM analyses WHERE id = ?1",
         )?;
 
@@ -112,6 +128,7 @@ impl AnalysisDatabase {
                         .map(|s| serde_json::from_str(&s))
                         .transpose()
                         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                    name: row.get(8)?,
                 })
             })
             .optional()
@@ -128,7 +145,7 @@ impl AnalysisDatabase {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT id, file_path, timestamp, variant_name, variant_display_name,
-                    parameters, chunk_position, plot_data
+                    parameters, chunk_position, plot_data, name
              FROM analyses
              WHERE file_path = ?1
              ORDER BY timestamp DESC
@@ -153,6 +170,7 @@ impl AnalysisDatabase {
                         .map(|s| serde_json::from_str(&s))
                         .transpose()
                         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                    name: row.get(8)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()
@@ -165,7 +183,7 @@ impl AnalysisDatabase {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT id, file_path, timestamp, variant_name, variant_display_name,
-                    parameters, chunk_position, plot_data
+                    parameters, chunk_position, plot_data, name
              FROM analyses
              ORDER BY created_at DESC
              LIMIT ?1",
@@ -189,6 +207,7 @@ impl AnalysisDatabase {
                         .map(|s| serde_json::from_str(&s))
                         .transpose()
                         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                    name: row.get(8)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()
@@ -202,6 +221,18 @@ impl AnalysisDatabase {
             .lock()
             .execute("DELETE FROM analyses WHERE id = ?1", params![id])
             .context("Failed to delete analysis")?;
+        Ok(())
+    }
+
+    pub fn rename_analysis(&self, id: &str, new_name: &str) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn
+            .lock()
+            .execute(
+                "UPDATE analyses SET name = ?1, updated_at = ?2 WHERE id = ?3",
+                params![new_name, now, id],
+            )
+            .context("Failed to rename analysis")?;
         Ok(())
     }
 

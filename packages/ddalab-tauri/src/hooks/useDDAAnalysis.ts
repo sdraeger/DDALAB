@@ -248,3 +248,108 @@ export function useInvalidateDDACache() {
     },
   };
 }
+
+/**
+ * Hook to delete an analysis with optimistic updates
+ *
+ * @param apiService - API service instance
+ * @returns Mutation object for deleting analysis
+ *
+ * @example
+ * const deleteAnalysis = useDeleteAnalysis(apiService);
+ * deleteAnalysis.mutate(analysisId);
+ */
+export function useDeleteAnalysis(apiService: ApiService) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (analysisId: string) => apiService.deleteAnalysisFromHistory(analysisId),
+
+    // Optimistic update: immediately remove from UI
+    onMutate: async (analysisId: string) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ddaKeys.history() });
+
+      // Snapshot previous value
+      const previousHistory = queryClient.getQueryData<DDAResult[]>(ddaKeys.history());
+
+      // Optimistically update to the new value
+      if (previousHistory) {
+        queryClient.setQueryData<DDAResult[]>(
+          ddaKeys.history(),
+          previousHistory.filter(analysis => analysis.id !== analysisId)
+        );
+      }
+
+      // Return context with previous value
+      return { previousHistory };
+    },
+
+    // On error, roll back to previous value
+    onError: (err, analysisId, context) => {
+      if (context?.previousHistory) {
+        queryClient.setQueryData(ddaKeys.history(), context.previousHistory);
+      }
+    },
+
+    // Always refetch after error or success to ensure consistency
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ddaKeys.history() });
+    },
+  });
+}
+
+/**
+ * Hook to rename an analysis with optimistic updates
+ *
+ * @param apiService - API service instance
+ * @returns Mutation object for renaming analysis
+ *
+ * @example
+ * const renameAnalysis = useRenameAnalysis(apiService);
+ * renameAnalysis.mutate({ analysisId: '123', newName: 'My Analysis' });
+ */
+export function useRenameAnalysis(apiService: ApiService) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ analysisId, newName }: { analysisId: string; newName: string }) =>
+      apiService.renameAnalysisInHistory(analysisId, newName),
+
+    // Optimistic update: immediately update name in UI
+    onMutate: async ({ analysisId, newName }) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ddaKeys.history() });
+
+      // Snapshot previous value
+      const previousHistory = queryClient.getQueryData<DDAResult[]>(ddaKeys.history());
+
+      // Optimistically update to the new value
+      if (previousHistory) {
+        queryClient.setQueryData<DDAResult[]>(
+          ddaKeys.history(),
+          previousHistory.map(analysis =>
+            analysis.id === analysisId
+              ? { ...analysis, name: newName }
+              : analysis
+          )
+        );
+      }
+
+      // Return context with previous value
+      return { previousHistory };
+    },
+
+    // On error, roll back to previous value
+    onError: (err, variables, context) => {
+      if (context?.previousHistory) {
+        queryClient.setQueryData(ddaKeys.history(), context.previousHistory);
+      }
+    },
+
+    // Always refetch after error or success to ensure consistency
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ddaKeys.history() });
+    },
+  });
+}

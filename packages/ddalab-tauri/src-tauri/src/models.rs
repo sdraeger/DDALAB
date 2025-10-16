@@ -44,6 +44,8 @@ pub struct AnalysisResult {
     pub chunk_position: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plot_data: Option<serde_json::Value>, // Cached plot data for quick restore
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>, // Custom name for the analysis
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

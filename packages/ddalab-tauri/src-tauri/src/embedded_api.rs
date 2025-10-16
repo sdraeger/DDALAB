@@ -2,13 +2,13 @@ use std::sync::Arc;
 use std::path::PathBuf;
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use chrono::Utc;
 use axum::{
     extract::{Path, Query, State, DefaultBodyLimit},
     http::StatusCode,
-    response::Json,
-    routing::{get, post, delete},
+    response::{Json, Response, IntoResponse},
+    routing::{get, post, put, delete},
     Router,
 };
 use tower_http::cors::{CorsLayer, Any};
@@ -421,6 +421,7 @@ impl ApiState {
                     .map_err(|e| format!("Failed to serialize parameters: {}", e))?,
                 chunk_position: None,  // Will be set by frontend if needed
                 plot_data: Some(complete_data),
+                name: None,  // Custom name can be set later via rename
             };
 
             db.save_analysis(&analysis_result)
@@ -1485,7 +1486,7 @@ pub async fn list_analysis_history(
 
                     Some(DDAResult {
                         id: analysis.id.clone(),
-                        name: None,
+                        name: analysis.name.clone(),
                         file_path: analysis.file_path.clone(),
                         channels,
                         parameters,
@@ -1555,6 +1556,94 @@ pub async fn delete_analysis_result(
     } else {
         StatusCode::NOT_FOUND
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RenameAnalysisRequest {
+    name: String,
+}
+
+pub async fn rename_analysis_result(
+    State(state): State<Arc<ApiState>>,
+    Path(analysis_id): Path<String>,
+    Json(payload): Json<RenameAnalysisRequest>,
+) -> Response {
+    // Validate and sanitize the new name
+    let trimmed_name = payload.name.trim();
+
+    // Validation: non-empty
+    if trimmed_name.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Invalid name",
+                "message": "Analysis name cannot be empty"
+            }))
+        ).into_response();
+    }
+
+    // Validation: max length 200 characters
+    if trimmed_name.len() > 200 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Invalid name",
+                "message": "Analysis name must be 200 characters or less"
+            }))
+        ).into_response();
+    }
+
+    // Sanitize: remove control characters and null bytes
+    let sanitized_name: String = trimmed_name
+        .chars()
+        .filter(|c| !c.is_control() && *c != '\0')
+        .collect();
+
+    if sanitized_name.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Invalid name",
+                "message": "Analysis name contains only invalid characters"
+            }))
+        ).into_response();
+    }
+
+    // Rename in SQLite database
+    // Note: SQLite's prepared statements with parameters are safe from SQL injection
+    if let Some(ref db) = state.analysis_db {
+        match db.rename_analysis(&analysis_id, &sanitized_name) {
+            Ok(_) => {
+                log::info!("✅ Renamed analysis {} to '{}' in SQLite database", analysis_id, sanitized_name);
+
+                return (
+                    StatusCode::OK,
+                    Json(json!({
+                        "success": true
+                    }))
+                ).into_response();
+            },
+            Err(e) => {
+                log::error!("❌ Failed to rename analysis in database: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({
+                        "error": "Database error",
+                        "message": format!("Failed to rename analysis: {}", e)
+                    }))
+                ).into_response();
+            }
+        }
+    }
+
+    // If no database, return error
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({
+            "error": "Rename not supported",
+            "message": "Analysis database not available"
+        }))
+    ).into_response()
 }
 
 // EDF-specific endpoints to match frontend expectations
@@ -2307,6 +2396,7 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
         .route("/api/dda/history/save", post(save_analysis_to_history))
         .route("/api/dda/history/{analysis_id}", get(get_analysis_result))
         .route("/api/dda/history/{analysis_id}", delete(delete_analysis_result))
+        .route("/api/dda/history/{analysis_id}/rename", put(rename_analysis_result))
         .fallback(handle_404)
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100 MB limit for large DDA results
         .layer(

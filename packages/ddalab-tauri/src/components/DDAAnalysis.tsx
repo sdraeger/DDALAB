@@ -8,7 +8,7 @@ import { DDAResults } from '@/components/DDAResults'
 import { CTChannelPairPicker } from '@/components/CTChannelPairPicker'
 import { useWorkflow } from '@/hooks/useWorkflow'
 import { createSetDDAParametersAction, createRunDDAAnalysisAction } from '@/types/workflow'
-import { useSubmitDDAAnalysis, useDDAProgress, useSaveDDAToHistory, useDDAHistory } from '@/hooks/useDDAAnalysis'
+import { useSubmitDDAAnalysis, useDDAProgress, useSaveDDAToHistory, useDDAHistory, useDeleteAnalysis, useRenameAnalysis } from '@/hooks/useDDAAnalysis'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -30,7 +30,9 @@ import {
   Clock,
   Cpu,
   Brain,
-  RefreshCw
+  RefreshCw,
+  Pencil,
+  Trash2
 } from 'lucide-react'
 
 interface DDAAnalysisProps {
@@ -87,6 +89,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     refetch: refetchHistory
   } = useDDAHistory(apiService, isServerReady)
 
+  // TanStack Query: Delete and rename mutations with optimistic updates
+  const deleteAnalysisMutation = useDeleteAnalysis(apiService)
+  const renameAnalysisMutation = useRenameAnalysis(apiService)
+
   // Track progress from Tauri events for the current analysis
   const progressEvent = useDDAProgress(
     submitAnalysisMutation.data?.id,
@@ -133,6 +139,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' })
   const [autoLoadingResults, setAutoLoadingResults] = useState(false)
   const [resultsFromPersistence, setResultsFromPersistence] = useState(false)
+  const [renamingAnalysisId, setRenamingAnalysisId] = useState<string | null>(null)
+  const [newAnalysisName, setNewAnalysisName] = useState('')
 
   // Derive history state from TanStack Query
   const historyError = historyErrorObj ? (historyErrorObj as Error).message : null
@@ -184,6 +192,113 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       console.error('Failed to load analysis preview:', error)
     }
   }, [apiService])
+
+  // Delete analysis from history with optimistic update
+  const handleDeleteAnalysis = useCallback(async (analysisId: string, event: React.MouseEvent) => {
+    event.stopPropagation() // Prevent triggering preview
+
+    try {
+      // Use Tauri dialog API instead of browser confirm
+      const { ask } = await import('@tauri-apps/plugin-dialog')
+      const confirmed = await ask('Are you sure you want to delete this analysis from history?', {
+        title: 'Delete Analysis',
+        kind: 'warning'
+      })
+
+      if (!confirmed) {
+        return
+      }
+
+      // Clear preview if deleting the currently previewed analysis
+      if (previewingAnalysis?.id === analysisId) {
+        setPreviewingAnalysis(null)
+      }
+
+      // Use mutation with optimistic update - UI updates immediately
+      deleteAnalysisMutation.mutate(analysisId, {
+        onError: async (error) => {
+          console.error('[DDAAnalysis] Error deleting analysis:', error)
+          const { message } = await import('@tauri-apps/plugin-dialog')
+          await message((error as Error).message || 'Failed to delete analysis', {
+            title: 'Delete Failed',
+            kind: 'error'
+          })
+        }
+      })
+    } catch (error) {
+      console.error('[DDAAnalysis] Error in delete handler:', error)
+    }
+  }, [deleteAnalysisMutation, previewingAnalysis])
+
+  // Start renaming an analysis
+  const handleStartRename = useCallback((analysis: DDAResult, event: React.MouseEvent) => {
+    event.stopPropagation() // Prevent triggering preview
+    setRenamingAnalysisId(analysis.id)
+    setNewAnalysisName(analysis.name || '')
+  }, [])
+
+  // Submit rename with optimistic update
+  const handleSubmitRename = useCallback(async (analysisId: string, event?: React.MouseEvent) => {
+    if (event) event.stopPropagation()
+
+    // Validate and sanitize the input
+    const trimmedName = newAnalysisName.trim()
+
+    if (!trimmedName) {
+      setRenamingAnalysisId(null)
+      return
+    }
+
+    // Validation: max length 200 characters
+    if (trimmedName.length > 200) {
+      const { message } = await import('@tauri-apps/plugin-dialog')
+      await message('Analysis name must be 200 characters or less', {
+        title: 'Invalid Name',
+        kind: 'error'
+      })
+      return
+    }
+
+    // Sanitize: remove control characters and null bytes
+    const sanitizedName = trimmedName
+      .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+      .replace(/\0/g, '') // Remove null bytes
+
+    if (!sanitizedName) {
+      const { message } = await import('@tauri-apps/plugin-dialog')
+      await message('Analysis name contains only invalid characters', {
+        title: 'Invalid Name',
+        kind: 'error'
+      })
+      return
+    }
+
+    // Exit edit mode immediately for instant feedback
+    setRenamingAnalysisId(null)
+    setNewAnalysisName('')
+
+    // Use mutation with optimistic update - UI updates immediately
+    renameAnalysisMutation.mutate(
+      { analysisId, newName: sanitizedName },
+      {
+        onError: async (error) => {
+          console.error('[DDAAnalysis] Error renaming analysis:', error)
+          const { message } = await import('@tauri-apps/plugin-dialog')
+          await message((error as Error).message || 'Failed to rename analysis', {
+            title: 'Rename Failed',
+            kind: 'error'
+          })
+        }
+      }
+    )
+  }, [renameAnalysisMutation, newAnalysisName])
+
+  // Cancel rename
+  const handleCancelRename = useCallback((event: React.MouseEvent) => {
+    event.stopPropagation()
+    setRenamingAnalysisId(null)
+    setNewAnalysisName('')
+  }, [])
 
   // Note: Analysis history is loaded by DashboardLayout on app startup
   // This component only refreshes when the user clicks the Refresh button
@@ -918,24 +1033,81 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               {analysisHistoryFromQuery.length > 0 ? (
                 <div className="space-y-2">
                   {analysisHistoryFromQuery.map(analysis => {
+                    const isRenaming = renamingAnalysisId === analysis.id
+
                     return (
                     <div
                       key={analysis.id}
-                      className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer hover:bg-accent transition-colors ${
+                      className={`flex items-center justify-between p-3 border rounded-lg ${!isRenaming ? 'cursor-pointer hover:bg-accent' : ''} transition-colors ${
                         previewingAnalysis?.id === analysis.id ? 'bg-blue-50 border-blue-200' : ''
                       }`}
-                      onClick={() => previewAnalysis(analysis)}
+                      onClick={!isRenaming ? () => previewAnalysis(analysis) : undefined}
                     >
-                      <div>
-                        <p className="font-medium text-sm">
-                          {analysis.name || (analysis.file_path ? analysis.file_path.split('/').pop() : `Analysis ${analysis.id}`)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {analysis.name && analysis.file_path && `${analysis.file_path.split('/').pop()} • `}
-                          {analysis.channels?.length || 0} channels • {new Date(analysis.created_at).toLocaleString()}
-                        </p>
+                      <div className="flex-1 min-w-0 mr-2">
+                        {isRenaming ? (
+                          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                            <Input
+                              value={newAnalysisName}
+                              onChange={(e) => setNewAnalysisName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSubmitRename(analysis.id)
+                                if (e.key === 'Escape') handleCancelRename(e as any)
+                              }}
+                              className="text-sm h-8"
+                              placeholder="Analysis name"
+                              autoFocus
+                            />
+                            <Button
+                              size="sm"
+                              onClick={() => handleSubmitRename(analysis.id)}
+                              className="h-8"
+                            >
+                              Save
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={handleCancelRename}
+                              className="h-8"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="font-medium text-sm">
+                              {analysis.name || (analysis.file_path ? analysis.file_path.split('/').pop() : `Analysis ${analysis.id}`)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {analysis.name && analysis.file_path && `${analysis.file_path.split('/').pop()} • `}
+                              {analysis.channels?.length || 0} channels • {new Date(analysis.created_at).toLocaleString()}
+                            </p>
+                          </>
+                        )}
                       </div>
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-2 flex-shrink-0">
+                        {!isRenaming && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={(e) => handleStartRename(analysis, e)}
+                              className="h-8 w-8 p-0"
+                              title="Rename analysis"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={(e) => handleDeleteAnalysis(analysis.id, e)}
+                              className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                              title="Delete analysis"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </>
+                        )}
                         <Badge variant="outline" className="text-xs">
                           Stored
                         </Badge>
