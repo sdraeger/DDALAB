@@ -20,6 +20,14 @@ import 'uplot/dist/uPlot.min.css'
 
 interface DDAResultsData {
   result: DDAResult
+  uiState?: {
+    selectedVariant: number
+    colorScheme: ColorScheme
+    viewMode: ViewMode
+    selectedChannels: string[]
+    colorRange: [number, number]
+    autoScale: boolean
+  }
 }
 
 interface DDAResultsPopoutContentProps {
@@ -43,15 +51,54 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
   const [heatmapData, setHeatmapData] = useState<number[][]>([])
   const [colorRange, setColorRange] = useState<[number, number]>([0, 1])
   const [autoScale, setAutoScale] = useState(true)
+  const [selectedVariant, setSelectedVariant] = useState<number>(0)
 
   const result = data?.result
 
-  // Initialize selected channels
-  useEffect(() => {
-    if (result?.channels && selectedChannels.length === 0) {
-      setSelectedChannels(result.channels)
+  // Get current variant or fallback to legacy structure
+  const getCurrentVariant = () => {
+    if (result?.results.variants && result.results.variants.length > 0) {
+      return result.results.variants[selectedVariant] || result.results.variants[0]
     }
-  }, [result?.channels, selectedChannels.length])
+    // Fallback to legacy format
+    if (result?.results.dda_matrix) {
+      return {
+        variant_id: 'legacy',
+        variant_name: 'Combined Results',
+        dda_matrix: result.results.dda_matrix,
+        exponents: result.results.exponents || {},
+        quality_metrics: result.results.quality_metrics || {}
+      }
+    }
+    return null
+  }
+
+  // Sync UI state from main window
+  useEffect(() => {
+    console.log('[POPOUT] Data received:', { hasData: !!data, hasUiState: !!data?.uiState, data })
+    if (data?.uiState) {
+      const { uiState } = data
+      console.log('[POPOUT] Syncing UI state from main window:', uiState)
+      setSelectedVariant(uiState.selectedVariant)
+      setColorScheme(uiState.colorScheme)
+      setViewMode(uiState.viewMode)
+      setSelectedChannels(uiState.selectedChannels)
+      setColorRange(uiState.colorRange)
+      setAutoScale(uiState.autoScale)
+      console.log('[POPOUT] UI state synced successfully')
+    } else {
+      console.warn('[POPOUT] No uiState in data!')
+    }
+  }, [data])
+
+  // Initialize selected channels from variant data (fallback)
+  useEffect(() => {
+    const currentVariant = getCurrentVariant()
+    if (currentVariant?.dda_matrix && selectedChannels.length === 0 && !data?.uiState) {
+      const channels = Object.keys(currentVariant.dda_matrix)
+      setSelectedChannels(channels)
+    }
+  }, [result, selectedVariant, data?.uiState])
 
   // Color schemes
   const colorSchemes: Record<ColorScheme, (t: number) => string> = {
@@ -133,15 +180,14 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
 
   // Generate heatmap data from dda_matrix
   useEffect(() => {
-    if (!result?.results.dda_matrix) return
+    const currentVariant = getCurrentVariant()
+    if (!currentVariant?.dda_matrix) return
 
     const channels = selectedChannels
-    const scales = result.results.scales
-    const dda_matrix = result.results.dda_matrix
+    const dda_matrix = currentVariant.dda_matrix
 
     const data: number[][] = []
-    let minVal = Infinity
-    let maxVal = -Infinity
+    const allValues: number[] = []
 
     // Create 2D array: [channel][time_point] = dda_matrix value
     channels.forEach(channel => {
@@ -149,20 +195,42 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
         const channelData = dda_matrix[channel].map(val => {
           // Log transform for better visualization
           const logVal = Math.log10(Math.max(0.001, val))
-          minVal = Math.min(minVal, logVal)
-          maxVal = Math.max(maxVal, logVal)
+          allValues.push(logVal)
           return logVal
         })
         data.push(channelData)
       }
     })
 
+    // Calculate median and standard deviation for colorscale limits
+    let minVal = Infinity
+    let maxVal = -Infinity
+
+    if (allValues.length > 0) {
+      // Calculate median
+      const sortedValues = [...allValues].sort((a, b) => a - b)
+      const median = sortedValues.length % 2 === 0
+        ? (sortedValues[sortedValues.length / 2 - 1] + sortedValues[sortedValues.length / 2]) / 2
+        : sortedValues[Math.floor(sortedValues.length / 2)]
+
+      // Calculate standard deviation
+      const mean = allValues.reduce((sum, val) => sum + val, 0) / allValues.length
+      const variance = allValues.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / allValues.length
+      const std = Math.sqrt(variance)
+
+      // Set colorscale limits to median ± 3 * std
+      minVal = median - 3 * std
+      maxVal = median + 3 * std
+
+      console.log('[POPOUT HEATMAP] Color range:', { median, std, minVal, maxVal })
+    }
+
     setHeatmapData(data)
 
     if (autoScale) {
       setColorRange([minVal, maxVal])
     }
-  }, [result, selectedChannels, autoScale])
+  }, [result, selectedChannels, autoScale, selectedVariant])
 
   const renderHeatmap = useCallback(() => {
     if (!heatmapRef.current || !result || heatmapData.length === 0 || isLocked) return
@@ -272,7 +340,8 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
   }, [heatmapData, selectedChannels, result, colorRange, colorScheme, isLocked])
 
   const renderLinePlot = useCallback(() => {
-    if (!linePlotRef.current || !result?.results.dda_matrix || isLocked) return
+    const currentVariant = getCurrentVariant()
+    if (!linePlotRef.current || !currentVariant?.dda_matrix || isLocked) return
 
     // Clean up existing plot
     if (uplotLinePlotRef.current) {
@@ -281,7 +350,7 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
     }
 
     // Prepare data for line plot
-    const scales = result.results.scales
+    const scales = result?.results.scales
 
     // Defensive check for scales data
     if (!scales || !Array.isArray(scales) || scales.length === 0) {
@@ -293,8 +362,8 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
 
     // Add DDA matrix data for selected channels
     selectedChannels.forEach(channel => {
-      if (result.results.dda_matrix?.[channel]) {
-        const channelData = result.results.dda_matrix[channel]
+      if (currentVariant.dda_matrix?.[channel]) {
+        const channelData = currentVariant.dda_matrix[channel]
         if (Array.isArray(channelData) && channelData.length > 0) {
           data.push(channelData)
         } else {
@@ -356,7 +425,7 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
     }
 
     uplotLinePlotRef.current = new uPlot(opts, data, linePlotRef.current)
-  }, [result, selectedChannels, isLocked])
+  }, [result, selectedChannels, isLocked, selectedVariant])
 
   const getChannelColor = (index: number): string => {
     const colors = [
@@ -432,11 +501,33 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
         </CardHeader>
 
         <CardContent className="space-y-4">
+          {/* Variant Selection */}
+          {result.results.variants && result.results.variants.length > 1 && (
+            <div className="flex items-center space-x-2 pb-2 border-b">
+              <Label className="text-sm font-medium">Variant:</Label>
+              <div className="flex items-center gap-2">
+                {result.results.variants.map((variant, idx) => (
+                  <Badge
+                    key={variant.variant_id}
+                    variant={selectedVariant === idx ? "default" : "outline"}
+                    className="cursor-not-allowed text-xs"
+                    title="Synced from main window"
+                  >
+                    {variant.variant_name || variant.variant_id}
+                  </Badge>
+                ))}
+              </div>
+              <span className="text-xs text-muted-foreground ml-2">
+                (controlled by main window)
+              </span>
+            </div>
+          )}
+
           <div className="flex items-center justify-between">
             {/* View Mode */}
             <div className="flex items-center space-x-2">
               <Label className="text-sm">View:</Label>
-              <Select value={viewMode} onValueChange={(value: ViewMode) => setViewMode(value)}>
+              <Select value={viewMode} onValueChange={(value: ViewMode) => setViewMode(value)} disabled>
                 <SelectTrigger className="w-32">
                   <SelectValue />
                 </SelectTrigger>
@@ -467,7 +558,7 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
             {(viewMode === 'heatmap' || viewMode === 'both') && (
               <div className="flex items-center space-x-2">
                 <Label className="text-sm">Colors:</Label>
-                <Select value={colorScheme} onValueChange={(value: ColorScheme) => setColorScheme(value)}>
+                <Select value={colorScheme} onValueChange={(value: ColorScheme) => setColorScheme(value)} disabled>
                   <SelectTrigger className="w-24">
                     <SelectValue />
                   </SelectTrigger>
