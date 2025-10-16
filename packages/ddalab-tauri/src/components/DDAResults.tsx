@@ -85,6 +85,19 @@ export function DDAResults({ result }: DDAResultsProps) {
   const [isRenderingHeatmap, setIsRenderingHeatmap] = useState(false)
   const [isRenderingLinePlot, setIsRenderingLinePlot] = useState(false)
 
+  // Update selected channels when variant changes
+  useEffect(() => {
+    const currentVariant = result.results.variants[selectedVariant]
+    if (currentVariant && currentVariant.dda_matrix) {
+      const availableChannels = Object.keys(currentVariant.dda_matrix)
+      console.log('[DDARESULTS] Variant changed, updating selectedChannels:', {
+        variantId: currentVariant.variant_id,
+        availableChannels
+      })
+      setSelectedChannels(availableChannels)
+    }
+  }, [selectedVariant, result.results.variants])
+
   // Annotation support for line plot
   const currentVariantId = result.results.variants[selectedVariant]?.variant_id || 'default'
 
@@ -355,7 +368,16 @@ export function DDAResults({ result }: DDAResultsProps) {
               label: 'Channels',
               labelSize: 100,
               size: 120,
+              splits: (u, axisIdx, scaleMin, scaleMax, foundIncr, foundSpace) => {
+                // Generate splits at integer positions (0, 1, 2, ..., n-1) for channel centers
+                const splits = []
+                for (let i = 0; i < selectedChannels.length; i++) {
+                  splits.push(i)
+                }
+                return splits
+              },
               values: (u, ticks) => ticks.map(tick => {
+                // Ticks are already at integer positions from splits
                 const idx = Math.round(tick)
                 return idx >= 0 && idx < selectedChannels.length ? selectedChannels[idx] : ''
               })
@@ -740,31 +762,39 @@ export function DDAResults({ result }: DDAResultsProps) {
   }, [renderHeatmap, viewMode, heatmapData, colorRange, autoScale])
 
   useEffect(() => {
-    if ((viewMode === 'lineplot' || viewMode === 'both') && availableVariants.length > 0 && linePlotRef.current) {
-      let hasRendered = false
+    if ((viewMode === 'lineplot' || viewMode === 'both') && availableVariants.length > 0) {
+      // For multi-variant tabs, render immediately when tab changes
+      // IntersectionObserver doesn't work well with TabsContent hidden attribute
+      if (availableVariants.length > 1) {
+        // Small delay to ensure the tab content is visible in the DOM
+        const timer = setTimeout(() => {
+          if (linePlotRef.current) {
+            renderLinePlot()
+          }
+        }, 50)
+        return () => clearTimeout(timer)
+      } else if (linePlotRef.current) {
+        // For single variant, use IntersectionObserver for initial load
+        let hasRendered = false
 
-      // Use IntersectionObserver to detect when the element becomes visible
-      const observer = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
-            if (entry.isIntersecting && entry.target === linePlotRef.current && !hasRendered) {
-              // Element is visible - render asynchronously (parallel with heatmap)
-              // Both plots use requestIdleCallback internally for non-blocking execution
-              hasRendered = true
-              renderLinePlot()
-              // Disconnect after first render
-              observer.disconnect()
-            }
-          })
-        },
-        { threshold: 0.1 } // Trigger when at least 10% is visible
-      )
+        const observer = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting && entry.target === linePlotRef.current && !hasRendered) {
+                hasRendered = true
+                renderLinePlot()
+                observer.disconnect()
+              }
+            })
+          },
+          { threshold: 0.1 }
+        )
 
-      observer.observe(linePlotRef.current)
-
-      return () => observer.disconnect()
+        observer.observe(linePlotRef.current)
+        return () => observer.disconnect()
+      }
     }
-  }, [renderLinePlot, viewMode, availableVariants])
+  }, [renderLinePlot, viewMode, availableVariants, selectedVariant])
 
   // Update popout windows when DDA results change
   useEffect(() => {
@@ -965,10 +995,8 @@ export function DDAResults({ result }: DDAResultsProps) {
 
           {availableVariants.map((variant, index) => (
             <TabsContent key={variant.variant_id} value={index.toString()} className="flex-1 flex flex-col space-y-4">
-              {selectedVariant === index && (
-                <>
-                  {/* Heatmap */}
-                  {(viewMode === 'heatmap' || viewMode === 'both') && (
+              {/* Heatmap */}
+              {(viewMode === 'heatmap' || viewMode === 'both') && (
                     <Card>
                       <CardHeader className="pb-2">
                         <CardTitle className="text-base">
@@ -1024,8 +1052,6 @@ export function DDAResults({ result }: DDAResultsProps) {
                       </CardContent>
                     </Card>
                   )}
-                </>
-              )}
             </TabsContent>
           ))}
         </Tabs>

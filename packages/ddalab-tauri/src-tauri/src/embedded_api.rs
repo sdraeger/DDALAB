@@ -985,7 +985,31 @@ fn get_dda_binary_path(state: &ApiState) -> Result<PathBuf, StatusCode> {
 }
 
 // Convert API request to dda-rs request
+// Generate SELECT mask from enabled variants
+// SELECT format: "ST CT CD DE" where each is 1 (enabled) or 0 (disabled)
+fn generate_select_mask(enabled_variants: &[String]) -> String {
+    let st = if enabled_variants.iter().any(|v| v == "single_timeseries") { "1" } else { "0" };
+    let ct = if enabled_variants.iter().any(|v| v == "cross_timeseries") { "1" } else { "0" };
+    let cd = if enabled_variants.iter().any(|v| v == "cross_dynamical") { "1" } else { "0" };
+    let de = if enabled_variants.iter().any(|v| v == "dynamical_ergodicity") { "1" } else { "0" };
+
+    format!("{} {} {} {}", st, ct, cd, de)
+}
+
 fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
+    // Generate SELECT mask from enabled variants
+    let select_mask = if api_req.algorithm_selection.select_mask.is_some() {
+        log::info!("Using provided SELECT mask: {:?}", api_req.algorithm_selection.select_mask);
+        api_req.algorithm_selection.select_mask.clone()
+    } else {
+        let generated = Some(generate_select_mask(&api_req.algorithm_selection.enabled_variants));
+        log::info!("Generated SELECT mask: {:?} from variants: {:?}",
+            generated, api_req.algorithm_selection.enabled_variants);
+        generated
+    };
+
+    log::info!("🎯 Final SELECT mask being passed to runner: {:?}", select_mask);
+
     dda_rs::DDARequest {
         file_path: api_req.file_path.clone(),
         channels: api_req.channels.clone(),
@@ -1000,7 +1024,7 @@ fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
         },
         algorithm_selection: dda_rs::AlgorithmSelection {
             enabled_variants: api_req.algorithm_selection.enabled_variants.clone(),
-            select_mask: api_req.algorithm_selection.select_mask.clone(),
+            select_mask,
         },
         window_parameters: dda_rs::WindowParameters {
             window_length: api_req.window_parameters.window_length,
@@ -1022,11 +1046,11 @@ pub async fn run_dda_analysis(
     Json(request): Json<DDARequest>,
 ) -> Result<Json<DDAResult>, StatusCode> {
 
-    // Check file type - DDA binary only supports EDF files currently
+    // Check file type - DDA binary supports EDF and ASCII files
     let file_path = PathBuf::from(&request.file_path);
     let file_type = FileType::from_path(&file_path);
-    if file_type != FileType::EDF {
-        log::error!("DDA analysis not supported for {:?} files. The run_DDA_AsciiEdf binary only processes EDF format.", file_type);
+    if file_type != FileType::EDF && file_type != FileType::ASCII {
+        log::error!("DDA analysis not supported for {:?} files. The run_DDA_AsciiEdf binary only processes EDF and ASCII formats.", file_type);
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -1043,35 +1067,38 @@ pub async fn run_dda_analysis(
     }
 
     let start_time = std::time::Instant::now();
-    log::info!("⏱️  [TIMING] Starting EDF metadata read...");
-    let file_path_for_edf = file_path.clone();
+    log::info!("⏱️  [TIMING] Starting file metadata read...");
+    let file_path_for_reader = file_path.clone();
     let request_start = request.time_range.start;
     let request_end = request.time_range.end;
 
     let (start_bound, end_bound) = tokio::task::spawn_blocking(move || -> Result<(u64, u64), String> {
-        let edf = EDFReader::new(&file_path_for_edf)?;
-        let sample_rate = if !edf.signal_headers.is_empty() {
-            edf.signal_headers[0].num_samples_per_record as f64 / edf.header.duration_of_data_record
-        } else {
-            256.0  // Default sample rate
-        };
-        let samples_per_record = if !edf.signal_headers.is_empty() {
-            edf.signal_headers[0].num_samples_per_record as u64
-        } else {
-            1
-        };
-        let total_samples = edf.header.num_data_records as u64 * samples_per_record;
+        // Use modular file reader to support both EDF and ASCII files
+        let reader = FileReaderFactory::create_reader(&file_path_for_reader)
+            .map_err(|e| format!("Failed to create file reader: {}", e))?;
+
+        let metadata = reader.metadata()
+            .map_err(|e| format!("Failed to read file metadata: {}", e))?;
+
+        let sample_rate = metadata.sample_rate;
+        let total_samples = metadata.num_samples as u64;
 
         // Convert time to sample indices
         let start_sample = (request_start * sample_rate) as u64;
         let end_sample = (request_end * sample_rate) as u64;
 
-        // Apply safety margin to end bound
-        let safety_margin = 256;
-        let safe_end = std::cmp::min(end_sample, total_samples.saturating_sub(safety_margin));
+        // Apply adaptive safety margin to end bound
+        // Use smaller margin for small files, or 10% of file size, whichever is smaller
+        let safety_margin = std::cmp::min(256, total_samples / 10);
+        let safe_end = if total_samples > safety_margin {
+            std::cmp::min(end_sample, total_samples - safety_margin)
+        } else {
+            // For very small files, use the full range
+            std::cmp::min(end_sample, total_samples)
+        };
 
-        log::info!("Time range: {:.2}s - {:.2}s -> samples: {} - {} (sample rate: {:.1} Hz)",
-            request_start, request_end, start_sample, safe_end, sample_rate);
+        log::info!("Time range: {:.2}s - {:.2}s -> samples: {} - {} (total: {}, sample rate: {:.1} Hz)",
+            request_start, request_end, start_sample, safe_end, total_samples, sample_rate);
 
         Ok((start_sample, safe_end))
     })
@@ -1081,11 +1108,29 @@ pub async fn run_dda_analysis(
         StatusCode::INTERNAL_SERVER_ERROR
     })?
     .map_err(|e| {
-        log::error!("EDF reading error: {}", e);
+        log::error!("File metadata reading error: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    log::info!("⏱️  [TIMING] EDF metadata read completed in {:.2}s", start_time.elapsed().as_secs_f64());
+    log::info!("⏱️  [TIMING] File metadata read completed in {:.2}s", start_time.elapsed().as_secs_f64());
+
+    // Validate that we have enough data for the requested window size
+    let available_samples = if end_bound > start_bound {
+        end_bound - start_bound
+    } else {
+        0
+    };
+
+    let window_length = request.window_parameters.window_length as u64;
+    if available_samples < window_length {
+        log::error!(
+            "Insufficient data for analysis: {} samples available, but window length is {}. Please use a smaller window length or select a larger time range.",
+            available_samples, window_length
+        );
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    log::info!("Validation passed: {} samples available for window length {}", available_samples, window_length);
 
     // Use dda-rs to run analysis
     let runner = DDARunner::new(&dda_binary_path)
@@ -1096,8 +1141,14 @@ pub async fn run_dda_analysis(
 
     let dda_request = convert_to_dda_request(&request);
 
+    // Get EDF channel names from cache for labeling
+    let edf_channel_names: Option<Vec<String>> = {
+        let file_cache = state.files.read();
+        file_cache.get(&request.file_path).map(|info| info.channels.clone())
+    };
+
     log::info!("⏱️  [TIMING] Running DDA analysis via dda-rs...");
-    let dda_result = runner.run(&dda_request, start_bound, end_bound).await
+    let dda_result = runner.run(&dda_request, start_bound, end_bound, edf_channel_names.as_deref()).await
         .map_err(|e| {
             log::error!("DDA analysis failed: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
@@ -1190,11 +1241,14 @@ pub async fn run_dda_analysis(
     let variants_array: Vec<serde_json::Value> = if let Some(ref variant_results) = dda_result.variant_results {
         // Multiple variants available from dda-rs
         variant_results.iter().map(|vr| {
+            // Use variant-specific channel labels if available, otherwise fall back to default channel_names
+            let variant_channel_labels = vr.channel_labels.as_ref().unwrap_or(&channel_names);
+
             let mut variant_dda_matrix = serde_json::Map::new();
-            for (i, channel_name) in channel_names.iter().enumerate() {
+            for (i, channel_label) in variant_channel_labels.iter().enumerate() {
                 if i < vr.q_matrix.len() {
                     variant_dda_matrix.insert(
-                        channel_name.clone(),
+                        channel_label.clone(),
                         serde_json::json!(vr.q_matrix[i])
                     );
                 }
