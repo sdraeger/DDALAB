@@ -1,8 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Search, X } from 'lucide-react'
 
 interface CTChannelPairPickerProps {
   channels: string[]
@@ -12,6 +14,20 @@ interface CTChannelPairPickerProps {
 
 export function CTChannelPairPicker({ channels, onPairAdded, disabled }: CTChannelPairPickerProps) {
   const [selectedChannels, setSelectedChannels] = useState<[string | null, string | null]>([null, null])
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filteredChannels = useMemo(() => {
+    if (!searchQuery.trim()) return channels
+
+    const query = searchQuery.toLowerCase()
+    return channels.filter(channel =>
+      channel.toLowerCase().includes(query)
+    )
+  }, [channels, searchQuery])
+
+  const handleClearSearch = () => {
+    setSearchQuery('')
+  }
 
   const handleChannelClick = (channel: string) => {
     if (disabled) return
@@ -63,9 +79,39 @@ export function CTChannelPairPicker({ channels, onPairAdded, disabled }: CTChann
         )}
       </div>
 
+      {/* Search bar */}
+      <div className="relative">
+        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Input
+          type="text"
+          placeholder="Search channels..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          disabled={disabled}
+          className="pl-8 pr-8 h-9"
+        />
+        {searchQuery && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="absolute right-1 top-1 h-7 w-7 p-0"
+            onClick={handleClearSearch}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        )}
+      </div>
+
+      {searchQuery && (
+        <div className="text-xs text-muted-foreground">
+          Showing {filteredChannels.length} of {channels.length} channels
+        </div>
+      )}
+
       {/* Channel grid */}
       <div className="grid grid-cols-6 gap-2 max-h-48 overflow-y-auto p-2 border rounded-md">
-        {channels.map((channel) => {
+        {filteredChannels.length > 0 ? (
+          filteredChannels.map((channel) => {
           const state = getChannelState(channel)
           return (
             <Badge
@@ -83,7 +129,16 @@ export function CTChannelPairPicker({ channels, onPairAdded, disabled }: CTChann
               {channel}
             </Badge>
           )
-        })}
+        })
+        ) : (
+          <div className="col-span-6 text-center text-sm text-muted-foreground py-4">
+            {searchQuery ? (
+              <>No channels match <span className="font-medium">&quot;{searchQuery}&quot;</span></>
+            ) : (
+              'No channels available'
+            )}
+          </div>
+        )}
       </div>
 
       {/* Instructions */}

@@ -30,6 +30,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { ChannelSelector } from "@/components/ChannelSelector";
 import {
   SkipBack,
   SkipForward,
@@ -1505,28 +1506,24 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
         {fileManager.selectedFile &&
           fileManager.selectedFile.channels.length > 0 && (
             <div className="mt-4 border-t pt-3">
-              <Label className="text-xs mb-2 block">
-                Channels ({selectedChannels.length} selected):
-              </Label>
-              <div className="max-h-40 overflow-y-auto space-y-1">
-                {fileManager.selectedFile.channels.map((channel) => (
-                  <div key={channel} className="flex items-center gap-2">
-                    <Checkbox
-                      id={`channel-${channel}`}
-                      checked={selectedChannels.includes(channel)}
-                      onCheckedChange={(checked) =>
-                        handleChannelToggle(channel, checked as boolean)
-                      }
-                    />
-                    <label
-                      htmlFor={`channel-${channel}`}
-                      className="text-xs cursor-pointer"
-                    >
-                      {channel}
-                    </label>
-                  </div>
-                ))}
-              </div>
+              <ChannelSelector
+                channels={fileManager.selectedFile.channels}
+                selectedChannels={selectedChannels}
+                onSelectionChange={(channels) => {
+                  if (!fileManager.selectedFile) return;
+                  const sortedChannels = channels.sort((a, b) => {
+                    const indexA = fileManager.selectedFile!.channels.indexOf(a);
+                    const indexB = fileManager.selectedFile!.channels.indexOf(b);
+                    return indexA - indexB;
+                  });
+                  setSelectedChannels(sortedChannels);
+                  persistSelectedChannels(sortedChannels);
+                }}
+                label="Channels"
+                description="Select channels to display in the plot"
+                variant="compact"
+                maxHeight="max-h-40"
+              />
             </div>
           )}
 

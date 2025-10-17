@@ -25,6 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { ChannelSelector } from "@/components/ChannelSelector";
 import {
   SkipBack,
   SkipForward,
@@ -1673,31 +1674,23 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           )}
 
           {/* Channel Selection */}
-          <div>
-            <Label className="text-sm mb-2 block">
-              Channels ({selectedChannels.length} of{" "}
-              {fileManager.selectedFile.channels.length} selected)
-            </Label>
-            <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-              {fileManager.selectedFile.channels.map((channel) => (
-                <Badge
-                  key={channel}
-                  variant={
-                    selectedChannels.includes(channel) ? "default" : "outline"
-                  }
-                  className="cursor-pointer"
-                  onClick={() =>
-                    handleChannelToggle(
-                      channel,
-                      !selectedChannels.includes(channel)
-                    )
-                  }
-                >
-                  {channel}
-                </Badge>
-              ))}
-            </div>
-          </div>
+          <ChannelSelector
+            channels={fileManager.selectedFile.channels}
+            selectedChannels={selectedChannels}
+            onSelectionChange={(channels) => {
+              if (!fileManager.selectedFile) return;
+              const sortedChannels = channels.sort((a, b) => {
+                const indexA = fileManager.selectedFile!.channels.indexOf(a);
+                const indexB = fileManager.selectedFile!.channels.indexOf(b);
+                return indexA - indexB;
+              });
+              persistSelectedChannels(sortedChannels);
+            }}
+            label="Channels"
+            description="Select channels to display in the plot"
+            variant="compact"
+            maxHeight="max-h-32"
+          />
         </CardContent>
       </Card>
 

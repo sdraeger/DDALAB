@@ -84,7 +84,7 @@ export function FileManager({ apiService }: FileManagerProps) {
   } = useDirectoryListing(
     apiService,
     absolutePath || '',
-    !!absolutePath && !!fileManager.dataDirectoryPath && ui.isServerReady
+    !!absolutePath && !!fileManager.dataDirectoryPath && ui.isServerReady && !!apiService.getSessionToken()
   )
 
   // Use mutation for loading file info
@@ -97,6 +97,7 @@ export function FileManager({ apiService }: FileManagerProps) {
   const [showUploadDialog, setShowUploadDialog] = useState(false)
   const [uploadDatasetPath, setUploadDatasetPath] = useState<string | null>(null)
   const [isInitialLoad, setIsInitialLoad] = useState(true)
+  const [isOpenNeuroAuthenticated, setIsOpenNeuroAuthenticated] = useState(false)
 
   // Extract directories and files from query data
   const directories = useMemo(() => {
@@ -157,6 +158,40 @@ export function FileManager({ apiService }: FileManagerProps) {
       }
     }
     loadDataDirectoryPath()
+  }, [])
+
+  // Check OpenNeuro authentication status on mount and when auth changes
+  // This ensures upload buttons appear after saving API key
+  useEffect(() => {
+    const checkAuth = async () => {
+      const isAuth = await openNeuroService.isAuthenticated()
+      console.log('[FILEMANAGER] OpenNeuro authentication status:', isAuth)
+      setIsOpenNeuroAuthenticated(isAuth)
+    }
+
+    // Initial check
+    checkAuth()
+
+    // Listen for auth changes (fired when key is saved/deleted)
+    const handleAuthChanged = (event: Event) => {
+      const customEvent = event as CustomEvent<{ authenticated: boolean }>
+      console.log('[FILEMANAGER] OpenNeuro auth changed:', customEvent.detail.authenticated)
+      setIsOpenNeuroAuthenticated(customEvent.detail.authenticated)
+    }
+
+    // Re-check when window gains focus (user might have added key externally)
+    const handleFocus = () => {
+      console.log('[FILEMANAGER] Window focused, re-checking OpenNeuro auth')
+      checkAuth()
+    }
+
+    window.addEventListener('openneuro-auth-changed', handleAuthChanged)
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      window.removeEventListener('openneuro-auth-changed', handleAuthChanged)
+      window.removeEventListener('focus', handleFocus)
+    }
   }, [])
 
   // Handle initial load state
@@ -714,7 +749,7 @@ export function FileManager({ apiService }: FileManagerProps) {
                   </div>
                   <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 </div>
-                {dir.isBIDS && openNeuroService.isAuthenticated() && (
+                {dir.isBIDS && isOpenNeuroAuthenticated && (
                   <Button
                     size="icon"
                     variant="outline"

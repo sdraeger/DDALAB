@@ -35,6 +35,7 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) {
   const [apiService, setApiService] = useState(() => new ApiService(apiUrl, sessionToken));
+  const [isAuthReady, setIsAuthReady] = useState(false);
 
   // Use selectors to prevent unnecessary re-renders
   const ui = useAppStore((state) => state.ui);
@@ -49,12 +50,12 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
   const setAnalysisHistory = useAppStore((state) => state.setAnalysisHistory);
 
   // Use Tanstack Query hook for async, non-blocking history loading
-  // Only enable when server is ready to avoid connection errors
+  // Only enable when server is ready and authenticated to avoid connection errors
   const {
     data: historyData,
     isLoading: isLoadingHistory,
     error: historyError
-  } = useDDAHistory(apiService, ui.isServerReady);
+  } = useDDAHistory(apiService, ui.isServerReady && isAuthReady);
 
   // Sync history data to Zustand store when it changes
   useEffect(() => {
@@ -100,10 +101,35 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
       needsUpdate: apiService.baseURL !== newApiUrl || (sessionToken && currentToken !== sessionToken)
     });
 
-    if (apiService.baseURL !== newApiUrl || (sessionToken && currentToken !== sessionToken)) {
-      console.log('[DASHBOARD] Creating new API service with token:', sessionToken?.substring(0, 8) + '...');
+    // If only token changed, update the existing instance to avoid recreating
+    if (apiService.baseURL === newApiUrl && sessionToken && currentToken !== sessionToken) {
+      console.log('[DASHBOARD] Updating token on existing API service:', sessionToken?.substring(0, 8) + '...');
+      apiService.setSessionToken(sessionToken);
+      setIsAuthReady(true);
+
+      // Dispatch event to signal that auth is ready - this allows page.tsx to wait
+      console.log('[DASHBOARD] Dispatching api-service-auth-ready event');
+      window.dispatchEvent(new CustomEvent('api-service-auth-ready'));
+    }
+    // If URL changed, we need a new instance
+    else if (apiService.baseURL !== newApiUrl) {
+      console.log('[DASHBOARD] Creating new API service with URL:', newApiUrl, 'and token:', sessionToken?.substring(0, 8) + '...');
       const newService = new ApiService(newApiUrl, sessionToken);
       setApiService(newService);
+      setIsAuthReady(!!sessionToken);
+
+      // Dispatch event to signal that auth is ready
+      if (sessionToken) {
+        console.log('[DASHBOARD] Dispatching api-service-auth-ready event');
+        window.dispatchEvent(new CustomEvent('api-service-auth-ready'));
+      }
+    }
+    // Mark as ready if token already matches
+    else if (sessionToken && currentToken === sessionToken) {
+      setIsAuthReady(true);
+      // Dispatch event to signal that auth is ready
+      console.log('[DASHBOARD] Dispatching api-service-auth-ready event (token already set)');
+      window.dispatchEvent(new CustomEvent('api-service-auth-ready'));
     }
   }, [apiUrl, sessionToken, apiService.baseURL]);
 

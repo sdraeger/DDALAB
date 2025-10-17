@@ -499,7 +499,7 @@ function PopoutContent() {
 
       // Validate that we have data for the channels
       const channelData: number[][] = []
-      channels.forEach(channel => {
+      channels.forEach((channel: string) => {
         if (dda_matrix[channel] && Array.isArray(dda_matrix[channel]) && dda_matrix[channel].length > 0) {
           channelData.push(dda_matrix[channel])
         }
@@ -521,7 +521,7 @@ function PopoutContent() {
 
       // Create series configuration - only for channels that have data
       const validChannels: string[] = []
-      channels.forEach(channel => {
+      channels.forEach((channel: string) => {
         if (dda_matrix[channel] && Array.isArray(dda_matrix[channel]) && dda_matrix[channel].length > 0) {
           validChannels.push(channel)
         }
