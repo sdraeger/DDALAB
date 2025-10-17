@@ -99,6 +99,9 @@ export interface GetDatasetFilesResult {
 class OpenNeuroService {
   private client: GraphQLClient;
   private apiKey: string | null = null;
+  private initPromise: Promise<void> | null = null;
+  private isInitialized: boolean = false;
+  private isSSR: boolean;
 
   constructor() {
     this.client = new GraphQLClient(OPENNEURO_GRAPHQL_ENDPOINT, {
@@ -106,17 +109,62 @@ class OpenNeuroService {
         'Content-Type': 'application/json',
       },
     });
-    this.loadApiKey();
+
+    // Track if we're in SSR
+    this.isSSR = typeof window === 'undefined';
+
+    // Only load API key in browser environment (not during SSR)
+    if (!this.isSSR) {
+      console.log('[OPENNEURO] Constructor called in browser - starting key load');
+      this.initPromise = this.loadApiKey();
+    } else {
+      console.log('[OPENNEURO] Constructor called in SSR - skipping key load');
+    }
   }
 
   private async loadApiKey(): Promise<void> {
+    // Check if we're in a browser environment (not SSR)
+    if (typeof window === 'undefined') {
+      console.log('[OPENNEURO] Skipping API key load - not in browser environment');
+      this.apiKey = null;
+      this.isInitialized = true;
+      return;
+    }
+
     try {
       const key = await invoke<string>('get_openneuro_api_key');
       this.apiKey = key;
       this.updateClientHeaders();
+      console.log('[OPENNEURO] API key loaded from keyring:', key ? `${key.substring(0, 8)}...` : 'NULL');
     } catch (error) {
-      console.log('[OPENNEURO] No API key found in keyring');
+      console.log('[OPENNEURO] No API key found in keyring:', error);
       this.apiKey = null;
+    } finally {
+      this.isInitialized = true;
+      console.log('[OPENNEURO] Initialization complete. apiKey set:', this.apiKey !== null);
+    }
+  }
+
+  // Ensure initialization is complete before checking authentication
+  private async ensureInitialized(): Promise<void> {
+    // If instance was created during SSR but we're now in browser, initialize now
+    if (this.isSSR && typeof window !== 'undefined') {
+      console.log('[OPENNEURO] ensureInitialized: Instance was created in SSR, now in browser - loading key');
+      this.isSSR = false;
+      this.initPromise = this.loadApiKey();
+      await this.initPromise;
+      return;
+    }
+
+    // If we're in the browser and haven't initialized yet, load now
+    if (!this.isSSR && !this.isInitialized && !this.initPromise) {
+      console.log('[OPENNEURO] ensureInitialized: Loading key in browser (first call)');
+      this.initPromise = this.loadApiKey();
+    }
+
+    // Wait for initialization if in progress
+    if (this.initPromise && !this.isInitialized) {
+      await this.initPromise;
     }
   }
 
@@ -136,9 +184,13 @@ class OpenNeuroService {
     await invoke('save_openneuro_api_key', { apiKey });
     this.apiKey = apiKey;
     this.updateClientHeaders();
+
+    // Dispatch event so components can update their UI
+    window.dispatchEvent(new CustomEvent('openneuro-auth-changed', { detail: { authenticated: true } }));
   }
 
   async getApiKey(): Promise<string | null> {
+    await this.ensureInitialized();
     try {
       return await invoke<string>('get_openneuro_api_key');
     } catch (error) {
@@ -147,6 +199,7 @@ class OpenNeuroService {
   }
 
   async checkApiKey(): Promise<ApiKeyStatus> {
+    await this.ensureInitialized();
     try {
       return await invoke<ApiKeyStatus>('check_openneuro_api_key');
     } catch (error) {
@@ -158,10 +211,16 @@ class OpenNeuroService {
     await invoke('delete_openneuro_api_key');
     this.apiKey = null;
     this.updateClientHeaders();
+
+    // Dispatch event so components can update their UI
+    window.dispatchEvent(new CustomEvent('openneuro-auth-changed', { detail: { authenticated: false } }));
   }
 
-  isAuthenticated(): boolean {
-    return this.apiKey !== null;
+  async isAuthenticated(): Promise<boolean> {
+    await this.ensureInitialized();
+    const isAuth = this.apiKey !== null;
+    console.log('[OPENNEURO] isAuthenticated check:', isAuth, 'apiKey:', this.apiKey ? `${this.apiKey.substring(0, 8)}...` : 'NULL');
+    return isAuth;
   }
 
   async checkGitAvailable(): Promise<boolean> {
@@ -510,7 +569,7 @@ class OpenNeuroService {
 
   // Create a new dataset
   async createDataset(label: string, affirmedDefaced: boolean, affirmedConsent: boolean): Promise<string> {
-    if (!this.isAuthenticated()) {
+    if (!(await this.isAuthenticated())) {
       throw new Error('Authentication required to create datasets');
     }
 
@@ -538,7 +597,7 @@ class OpenNeuroService {
 
   // Update files in a dataset (used during upload)
   async updateFiles(datasetId: string, files: Array<{ filename: string; size: number }>): Promise<void> {
-    if (!this.isAuthenticated()) {
+    if (!(await this.isAuthenticated())) {
       throw new Error('Authentication required to update files');
     }
 
@@ -561,7 +620,7 @@ class OpenNeuroService {
 
   // Complete upload and commit changes
   async finishUpload(datasetId: string): Promise<void> {
-    if (!this.isAuthenticated()) {
+    if (!(await this.isAuthenticated())) {
       throw new Error('Authentication required to finish upload');
     }
 
@@ -583,7 +642,7 @@ class OpenNeuroService {
 
   // Upload a BIDS dataset (delegates to Tauri backend for file handling)
   async uploadDataset(options: UploadOptions): Promise<string> {
-    if (!this.isAuthenticated()) {
+    if (!(await this.isAuthenticated())) {
       throw new Error('Authentication required to upload datasets. Please configure your OpenNeuro API key.');
     }
 
@@ -597,7 +656,7 @@ class OpenNeuroService {
 
   // Create a snapshot of the uploaded dataset
   async createSnapshot(datasetId: string, tag: string, changes: string[]): Promise<void> {
-    if (!this.isAuthenticated()) {
+    if (!(await this.isAuthenticated())) {
       throw new Error('Authentication required to create snapshots');
     }
 

@@ -150,6 +150,15 @@ export default function Home() {
           if (connected) {
             console.log('Embedded API server started successfully')
             setIsApiConnected(true)
+
+            // CRITICAL: Add a delay to allow React to process the sessionToken state update
+            // and for DashboardLayout's useEffect to run and update the API service with the token.
+            // This is necessary because React batches state updates and useEffects run asynchronously.
+            // The 250ms delay is sufficient for the token to propagate even with Fast Refresh.
+            console.log('[SERVER_INIT] Waiting for token to propagate to API service...')
+            await new Promise(resolve => setTimeout(resolve, 250))
+
+            console.log('[SERVER_INIT] Token propagation complete, setting server ready')
             setServerReady(true)  // Signal that server is ready for requests
           } else {
             console.error('Embedded API server failed to respond after', maxRetries, 'retries')

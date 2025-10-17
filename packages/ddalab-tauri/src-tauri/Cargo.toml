@@ -66,7 +66,7 @@ bvreader = "0.1"                                      # BrainVision format (.vhd
 matfile = { version = "0.3", features = ["ndarray"] } # MATLAB .mat/.set files
 ndarray = "0.16"                                      # Array processing for MAT files
 # Secure credential storage
-keyring = "3.6" # Cross-platform keyring access
+keyring = { version = "3.6", features = ["apple-native", "windows-native", "linux-native"] } # Cross-platform keyring access
 # Embedded database
 rusqlite = { version = "0.37", features = ["bundled", "chrono", "uuid"] }
 serde_rusqlite = "0.40.0"
