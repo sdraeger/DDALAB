@@ -7,3 +7,4 @@ pub mod text_reader;
 pub mod sync;
 pub mod file_readers;
 pub mod db;
+pub mod utils;

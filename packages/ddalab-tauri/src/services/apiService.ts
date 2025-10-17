@@ -6,9 +6,12 @@ export class ApiService {
   private client: AxiosInstance
   public baseURL: string
   private chunkCache = getChunkCache()
+  private sessionToken: string | null = null
 
-  constructor(baseURL: string) {
+  constructor(baseURL: string, sessionToken?: string) {
     this.baseURL = baseURL
+    this.sessionToken = sessionToken || null
+
     this.client = axios.create({
       baseURL,
       timeout: 3600000, // 1 hour for heavy DDA operations
@@ -16,6 +19,28 @@ export class ApiService {
         'Content-Type': 'application/json',
       },
     })
+
+    // Add request interceptor to include session token
+    this.client.interceptors.request.use((config) => {
+      if (this.sessionToken) {
+        config.headers.Authorization = `Bearer ${this.sessionToken}`
+        console.log(`[API] Request to ${config.url} with token: ${this.sessionToken.substring(0, 8)}...`)
+      } else {
+        console.warn(`[API] Request to ${config.url} WITHOUT TOKEN`)
+      }
+      return config
+    })
+  }
+
+  // Set or update the session token
+  setSessionToken(token: string) {
+    this.sessionToken = token
+    console.log('[API] Session token updated:', token.substring(0, 16) + '...')
+  }
+
+  // Get the current session token
+  getSessionToken(): string | null {
+    return this.sessionToken
   }
 
   // Health check

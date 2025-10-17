@@ -12,7 +12,8 @@ export default function Home() {
   const isTauri = TauriService.isTauri()
 
   const [isApiConnected, setIsApiConnected] = useState<boolean | null>(null)
-  const [apiUrl, setApiUrl] = useState('http://localhost:8765') // Embedded API default
+  const [apiUrl, setApiUrl] = useState('https://localhost:8765') // Embedded API with HTTPS
+  const [sessionToken, setSessionToken] = useState<string>('')
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false)
 
   // Use selectors to prevent unnecessary re-renders
@@ -88,8 +89,8 @@ export default function Home() {
         // Mark as loaded
         setHasLoadedPreferences(true)
 
-        // Always use embedded API URL (port 8765)
-        const url = 'http://localhost:8765'
+        // Always use embedded API URL with HTTPS (port 8765)
+        const url = 'https://localhost:8765'
         console.log('Using embedded API URL:', url)
         setApiUrl(url)
 
@@ -112,7 +113,14 @@ export default function Home() {
         // Start embedded API server
         try {
           console.log('🚀 Starting embedded API server...')
-          await TauriService.startEmbeddedApiServer()
+          const token = await TauriService.startEmbeddedApiServer()
+
+          if (token) {
+            console.log('✅ Received session token from server')
+            setSessionToken(token)
+          } else {
+            console.warn('⚠️ No session token received from server')
+          }
 
           // Wait for server to be ready with exponential backoff
           // Start with immediate check (0ms), then use exponential backoff
@@ -236,7 +244,7 @@ export default function Home() {
 
   return (
     <StatePersistenceProvider>
-      <DashboardLayout apiUrl={apiUrl} />
+      <DashboardLayout apiUrl={apiUrl} sessionToken={sessionToken} />
     </StatePersistenceProvider>
   )
 }

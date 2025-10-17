@@ -135,7 +135,8 @@ export function useOverviewData(
     enabled: enabled && !!filePath,
     staleTime: 30 * 60 * 1000, // 30 minutes - overview data is immutable
     gcTime: 60 * 60 * 1000, // 60 minutes
-    retry: 2,
+    retry: 1, // Reduced from 2 - fail faster for large files that timeout
+    retryDelay: 1000, // Short retry delay (1 second)
     refetchOnWindowFocus: false,
   });
 }

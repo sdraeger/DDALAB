@@ -242,7 +242,12 @@ function OverviewPlotComponent({
     <div className="relative w-full h-[100px] border-2 border-primary rounded-md bg-background/50">
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
-          <div className="text-xs text-muted-foreground">Loading overview...</div>
+          <div className="flex flex-col items-center gap-2">
+            <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent"></div>
+            <div className="text-xs text-muted-foreground">
+              Loading overview... (Large files may take a moment)
+            </div>
+          </div>
         </div>
       )}
       {!overviewData && !loading && (

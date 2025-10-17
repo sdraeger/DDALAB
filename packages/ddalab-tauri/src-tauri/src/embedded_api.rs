@@ -4,12 +4,15 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use chrono::Utc;
+use rand::Rng;
+use base64::Engine;
 use axum::{
-    extract::{Path, Query, State, DefaultBodyLimit},
-    http::StatusCode,
+    extract::{Path, Query, State, DefaultBodyLimit, Request},
+    http::{StatusCode, HeaderMap, header::AUTHORIZATION},
     response::{Json, Response, IntoResponse},
     routing::{get, post, put, delete},
     Router,
+    middleware::{self, Next},
 };
 use tower_http::cors::{CorsLayer, Any};
 use parking_lot::RwLock;
@@ -19,6 +22,23 @@ use crate::file_readers::FileReaderFactory;
 use crate::db::analysis_db::AnalysisDatabase;
 use crate::models::AnalysisResult;
 use dda_rs::DDARunner;
+
+// Security helper functions
+
+/// Generate a random session token
+pub fn generate_session_token() -> String {
+    let mut rng = rand::rng();
+    let bytes: [u8; 32] = rng.random();
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+/// Constant-time comparison to prevent timing attacks
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
 
 // File type detection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,6 +137,8 @@ pub struct ApiState {
     pub history_directory: PathBuf,
     pub dda_binary_path: Option<PathBuf>,  // Resolved DDA binary path for bundled apps
     pub analysis_db: Option<Arc<AnalysisDatabase>>,  // SQLite database for analysis persistence
+    pub session_token: Arc<RwLock<Option<String>>>,  // Session token for API authentication
+    pub require_auth: Arc<RwLock<bool>>,  // Whether to require authentication
 }
 
 impl ApiState {
@@ -158,11 +180,45 @@ impl ApiState {
             history_directory,
             dda_binary_path: None,  // Will be set via set_dda_binary_path if in Tauri context
             analysis_db,
+            session_token: Arc::new(RwLock::new(None)),
+            require_auth: Arc::new(RwLock::new(true)),  // Default to requiring auth
         };
 
         log::info!("Analysis history persistence is now handled by SQLite");
 
         state
+    }
+
+    /// Set the session token for API authentication
+    pub fn set_session_token(&self, token: String) {
+        *self.session_token.write() = Some(token);
+        log::info!("🔐 Session token configured");
+    }
+
+    /// Get the session token
+    pub fn get_session_token(&self) -> Option<String> {
+        self.session_token.read().clone()
+    }
+
+    /// Verify if the provided token matches the session token
+    pub fn verify_session_token(&self, token: &str) -> bool {
+        if let Some(expected_token) = self.session_token.read().as_ref() {
+            // Use constant-time comparison to prevent timing attacks
+            constant_time_eq(expected_token.as_bytes(), token.as_bytes())
+        } else {
+            false
+        }
+    }
+
+    /// Set whether authentication is required
+    pub fn set_require_auth(&self, require: bool) {
+        *self.require_auth.write() = require;
+        log::info!("🔐 Authentication requirement set to: {}", require);
+    }
+
+    /// Check if authentication is required
+    pub fn requires_auth(&self) -> bool {
+        *self.require_auth.read()
     }
 
     // Load all saved analyses from disk into memory
@@ -2377,9 +2433,55 @@ fn generate_text_file_overview(
 }
 
 // Create the API router
+// Authentication middleware
+async fn auth_middleware(
+    State(state): State<Arc<ApiState>>,
+    headers: HeaderMap,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    // Skip auth if not required
+    if !state.requires_auth() {
+        return Ok(next.run(request).await);
+    }
+
+    // Extract Authorization header
+    let auth_header = headers
+        .get(AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    // Check for Bearer token
+    if !auth_header.starts_with("Bearer ") {
+        log::warn!("Invalid Authorization header format");
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let token = &auth_header[7..]; // Skip "Bearer "
+
+    // Verify token
+    if !state.verify_session_token(token) {
+        log::warn!("🔒 Invalid session token attempted");
+        log::warn!("   Received token (first 8 chars): {}...", &token[..8.min(token.len())]);
+        if let Some(expected) = state.get_session_token() {
+            log::warn!("   Expected token (first 8 chars): {}...", &expected[..8.min(expected.len())]);
+        } else {
+            log::warn!("   No session token set in server state!");
+        }
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    log::debug!("✅ Token verified successfully");
+    Ok(next.run(request).await)
+}
+
 pub fn create_router(state: Arc<ApiState>) -> Router {
-    Router::new()
-        .route("/api/health", get(health))
+    // Public routes (no authentication required)
+    let public_routes = Router::new()
+        .route("/api/health", get(health));
+
+    // Protected routes (require authentication)
+    let protected_routes = Router::new()
         .route("/api/files/list", get(list_files))
         .route("/api/files/{file_path}", get(get_file_info))
         .route("/api/files/{file_path}/chunk", get(get_file_chunk))
@@ -2397,6 +2499,12 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
         .route("/api/dda/history/{analysis_id}", get(get_analysis_result))
         .route("/api/dda/history/{analysis_id}", delete(delete_analysis_result))
         .route("/api/dda/history/{analysis_id}/rename", put(rename_analysis_result))
+        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+
+    // Combine routes
+    Router::new()
+        .merge(public_routes)
+        .merge(protected_routes)
         .fallback(handle_404)
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100 MB limit for large DDA results
         .layer(
@@ -2413,24 +2521,51 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
 #[path = "embedded_api_tests.rs"]
 mod embedded_api_tests;
 
-// Start the embedded API server
-pub async fn start_embedded_api_server(port: u16, data_directory: PathBuf, dda_binary_path: Option<PathBuf>) -> anyhow::Result<()> {
-    log::info!("🚀 Initializing embedded API server...");
+// Configuration for API server
+#[derive(Debug, Clone)]
+pub struct ApiServerConfig {
+    pub port: u16,
+    pub bind_address: String,  // "127.0.0.1" for localhost, "0.0.0.0" for LAN
+    pub use_https: bool,
+    pub require_auth: bool,
+    pub hostname: Option<String>,  // For LAN cert generation
+}
+
+impl Default for ApiServerConfig {
+    fn default() -> Self {
+        Self {
+            port: 8765,
+            bind_address: "127.0.0.1".to_string(),
+            use_https: true,  // HTTPS enabled by default
+            require_auth: true,
+            hostname: None,
+        }
+    }
+}
+
+// Start the embedded API server with HTTPS support
+pub async fn start_embedded_api_server_secure(
+    config: ApiServerConfig,
+    data_directory: PathBuf,
+    dda_binary_path: Option<PathBuf>,
+) -> anyhow::Result<String> {  // Returns session token
+    log::info!("🚀 Initializing SECURE embedded API server...");
     log::info!("📁 Data directory: {:?}", data_directory);
-    log::info!("🔌 Port: {}", port);
+    log::info!("🔌 Port: {}", config.port);
+    log::info!("🔒 HTTPS: {}", config.use_https);
+    log::info!("🔐 Auth required: {}", config.require_auth);
+    log::info!("🌐 Bind address: {}", config.bind_address);
+
     if let Some(ref path) = dda_binary_path {
         log::info!("🔧 DDA binary path: {:?}", path);
     }
 
-    // First, test if port is available
-    let bind_addr = format!("127.0.0.1:{}", port);
-    log::info!("🔍 Testing port availability: {}", bind_addr);
-
-    // Quick port test with retry logic
-    let mut port_to_use = port;
+    // Find available port
+    let mut port_to_use = config.port;
     let mut attempts = 0;
     let test_listener = loop {
-        match tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port_to_use)).await {
+        let test_addr = format!("{}:{}", config.bind_address, port_to_use);
+        match tokio::net::TcpListener::bind(&test_addr).await {
             Ok(listener) => {
                 log::info!("✅ Port {} is available", port_to_use);
                 break listener;
@@ -2439,47 +2574,124 @@ pub async fn start_embedded_api_server(port: u16, data_directory: PathBuf, dda_b
                 log::warn!("⚠️ Port {} is not available: {}", port_to_use, e);
                 attempts += 1;
                 if attempts >= 3 {
-                    log::error!("❌ Failed to find available port after {} attempts", attempts);
-                    return Err(anyhow::anyhow!("No available ports found after trying {}, {}, and {}", port, port + 1, port + 2));
+                    return Err(anyhow::anyhow!(
+                        "No available ports found after trying {}, {}, and {}",
+                        config.port, config.port + 1, config.port + 2
+                    ));
                 }
                 port_to_use += 1;
-                log::info!("🔄 Trying next port: {}", port_to_use);
             }
         }
     };
+    drop(test_listener);
 
-    // Update bind_addr with the actual port we'll use
-    let bind_addr = format!("127.0.0.1:{}", port_to_use);
-    drop(test_listener); // Release the test listener
+    // Generate session token
+    let session_token = generate_session_token();
+    log::info!("🔑 Generated session token");
 
+    // Create API state
     log::info!("🏗️  Creating API state and router...");
     let mut api_state = ApiState::new(data_directory);
     if let Some(binary_path) = dda_binary_path {
         api_state.set_dda_binary_path(binary_path);
     }
+    api_state.set_session_token(session_token.clone());
+    api_state.set_require_auth(config.require_auth);
+
     let state = Arc::new(api_state);
     let app = create_router(state);
     log::info!("✅ Router created successfully");
 
-    log::info!("🔗 Binding to: {}", bind_addr);
-    let listener = tokio::net::TcpListener::bind(&bind_addr).await
-        .map_err(|e| anyhow::anyhow!("Failed to bind to {}: {}", bind_addr, e))?;
+    let bind_addr = format!("{}:{}", config.bind_address, port_to_use);
 
-    log::info!("✅ Successfully bound to port {}", port_to_use);
-    log::info!("🌐 Embedded API server listening on http://127.0.0.1:{}", port_to_use);
-    log::info!("🎯 Health endpoint: http://127.0.0.1:{}/api/health", port_to_use);
-    log::info!("🚀 Starting server...");
+    if config.use_https {
+        // Setup TLS
+        use crate::utils::certs::{get_certs_dir, check_certificates, generate_localhost_certs, generate_lan_certs, load_tls_config};
 
-    // Start serving - this will run indefinitely until the task is aborted
-    log::info!("🔄 Starting axum::serve...");
-    match axum::serve(listener, app).await {
-        Ok(_) => {
-            log::info!("✅ Server completed normally (shutdown)");
-            Ok(())
+        let cert_dir = get_certs_dir()?;
+        let cert_path = cert_dir.join("server.crt");
+        let key_path = cert_dir.join("server.key");
+
+        // Generate certificates if needed
+        if !check_certificates(&cert_dir).unwrap_or(false) {
+            log::info!("🔐 Certificates not found, generating new ones...");
+
+            if config.bind_address == "0.0.0.0" {
+                // LAN mode - include hostname/IP in certificate
+                let hostname = config.hostname.as_deref().unwrap_or("localhost");
+                let local_ip = local_ip_address::local_ip()
+                    .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)))
+                    .to_string();
+                generate_lan_certs(&cert_dir, hostname, &local_ip).await?;
+            } else {
+                // Localhost only
+                generate_localhost_certs(&cert_dir).await?;
+            }
         }
-        Err(e) => {
-            log::error!("❌ Server error: {}", e);
-            Err(anyhow::anyhow!("Server error: {}", e))
-        }
+
+        // Load TLS configuration
+        let tls_config = load_tls_config(&cert_path, &key_path).await?;
+
+        log::info!("🌐 Starting HTTPS server on https://{}", bind_addr);
+        log::info!("🎯 Health endpoint: https://{}/api/health", bind_addr);
+        log::info!("🔑 Session token (first 8 chars): {}...", &session_token[..8.min(session_token.len())]);
+
+        // Return session token BEFORE starting the server (which blocks)
+        // The server will run indefinitely in the calling context
+        let token_to_return = session_token.clone();
+
+        // Start HTTPS server (this blocks forever)
+        tokio::spawn(async move {
+            let result = axum_server::bind_rustls(bind_addr.parse().expect("Invalid bind address"), tls_config)
+                .serve(app.into_make_service())
+                .await;
+
+            if let Err(e) = result {
+                log::error!("❌ HTTPS server error: {}", e);
+            }
+            log::info!("🛑 HTTPS server stopped");
+        });
+
+        // Give the server a moment to start
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        Ok(token_to_return)
+    } else {
+        // HTTP mode (not recommended)
+        log::warn!("⚠️ Starting HTTP server (INSECURE)");
+        log::info!("🌐 Server listening on http://{}", bind_addr);
+        log::info!("🎯 Health endpoint: http://{}/api/health", bind_addr);
+
+        let token_to_return = session_token.clone();
+
+        let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
+
+        tokio::spawn(async move {
+            let result = axum::serve(listener, app).await;
+
+            if let Err(e) = result {
+                log::error!("❌ HTTP server error: {}", e);
+            }
+            log::info!("🛑 HTTP server stopped");
+        });
+
+        // Give the server a moment to start
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        Ok(token_to_return)
     }
+}
+
+// Legacy function for backward compatibility (now uses HTTPS by default)
+pub async fn start_embedded_api_server(port: u16, data_directory: PathBuf, dda_binary_path: Option<PathBuf>) -> anyhow::Result<()> {
+    let config = ApiServerConfig {
+        port,
+        bind_address: "127.0.0.1".to_string(),
+        use_https: true,
+        require_auth: true,
+        hostname: None,
+    };
+
+    start_embedded_api_server_secure(config, data_directory, dda_binary_path).await?;
+    Ok(())
 }

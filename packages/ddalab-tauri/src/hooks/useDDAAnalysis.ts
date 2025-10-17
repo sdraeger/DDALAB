@@ -103,6 +103,32 @@ export function useDDAHistory(
 }
 
 /**
+ * Hook to fetch full analysis from history by ID (async, non-blocking)
+ *
+ * @param apiService - API service instance
+ * @param analysisId - Analysis ID to load from history
+ * @param enabled - Whether to enable the query (default: false, must opt-in)
+ * @returns Query result with full analysis data
+ *
+ * @example
+ * const { data: analysis, isLoading } = useAnalysisFromHistory(apiService, 'abc-123', true);
+ */
+export function useAnalysisFromHistory(
+  apiService: ApiService,
+  analysisId: string | null,
+  enabled: boolean = false
+) {
+  return useQuery({
+    queryKey: [...ddaKeys.result(analysisId || ''), 'from-history'],
+    queryFn: () => apiService.getAnalysisFromHistory(analysisId!),
+    enabled: enabled && !!analysisId,
+    staleTime: Infinity, // Analysis data never changes once saved
+    gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
+    retry: 2,
+  });
+}
+
+/**
  * Hook to save DDA analysis to history
  *
  * @param apiService - API service instance

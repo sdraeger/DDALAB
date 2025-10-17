@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::path::PathBuf;
-use parking_lot::RwLock;
+use parking_lot::{RwLock, Mutex};
 use tauri::{Manager, State, AppHandle};
 use tokio::task::JoinHandle;
 use crate::embedded_api;
@@ -9,16 +9,20 @@ use crate::embedded_api;
 #[derive(Debug)]
 pub struct EmbeddedApiState {
     pub server_handle: Arc<RwLock<Option<JoinHandle<()>>>>,
-    pub is_running: Arc<RwLock<bool>>,
+    pub is_running: Arc<Mutex<bool>>, // Use Mutex for proper mutual exclusion against race conditions
     pub port: Arc<RwLock<u16>>,
+    pub session_token: Arc<RwLock<Option<String>>>,
+    pub use_https: Arc<RwLock<bool>>,
 }
 
 impl Default for EmbeddedApiState {
     fn default() -> Self {
         Self {
             server_handle: Arc::new(RwLock::new(None)),
-            is_running: Arc::new(RwLock::new(false)),
+            is_running: Arc::new(Mutex::new(false)), // Mutex ensures only one thread can check/set at a time
             port: Arc::new(RwLock::new(8765)), // Default port
+            session_token: Arc::new(RwLock::new(None)),
+            use_https: Arc::new(RwLock::new(true)), // HTTPS enabled by default
         }
     }
 }
@@ -45,13 +49,16 @@ pub async fn start_embedded_api_server(
         }
     };
 
-    // Check if server is already running - return success instead of error for idempotency
+    // Check if server is already running - return session token for idempotency
     {
-        let is_running = state.is_running.read();
+        let is_running = state.is_running.lock();
         if *is_running {
             let port = *state.port.read();
+            let use_https = *state.use_https.read();
+            let session_token = state.session_token.read().clone().unwrap_or_default();
+            let protocol = if use_https { "https" } else { "http" };
             log::info!("Embedded API server is already running on port {}", port);
-            return Ok(format!("Embedded API server already running on http://127.0.0.1:{}", port));
+            return Ok(session_token);
         }
     }
 
@@ -90,43 +97,72 @@ pub async fn start_embedded_api_server(
         log::info!("🔍 No bundled binary found, will use development fallback paths");
     }
 
-    let is_running_ref = state.is_running.clone();
-    let server_handle = tokio::spawn(async move {
-        log::info!("📡 Embedded API server task started");
+    // Configure the server with HTTPS enabled by default
+    // TODO: Re-enable auth after debugging race condition - token mismatch still occurring
+    let config = embedded_api::ApiServerConfig {
+        port,
+        bind_address: "127.0.0.1".to_string(),
+        use_https: true,
+        require_auth: true,
+        hostname: None,
+    };
 
-        // Add a delay to ensure we can see this log
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        log::info!("⏰ About to call embedded_api::start_embedded_api_server...");
+    // Check if server is already running and return existing token
+    // IMPORTANT: Use Mutex to ensure atomic check-and-set operation
+    // This prevents race conditions where two calls both see is_running==false
+    let should_start = {
+        let mut is_running = state.is_running.lock();
+        if *is_running {
+            false // Already running
+        } else {
+            *is_running = true; // Mark as running NOW to prevent concurrent starts
+            true // Should start new server
+        }
+    };
 
-        if let Err(e) = embedded_api::start_embedded_api_server(port, data_dir, dda_binary_path).await {
+    if !should_start {
+        // Server already running, return existing token
+        if let Some(existing_token) = state.session_token.read().clone() {
+            log::info!("✅ Server already running, returning existing token");
+            return Ok(existing_token);
+        }
+    }
+
+    log::info!("⏰ About to start secure embedded API server...");
+
+    // Start the server and get the session token
+    // The server spawns its own background task internally
+    match embedded_api::start_embedded_api_server_secure(config, data_dir, dda_binary_path).await {
+        Ok(token) => {
+            log::info!("✅ Embedded API server started successfully with session token");
+
+            // Store the session token in state
+            {
+                let mut session_token = state.session_token.write();
+                *session_token = Some(token.clone());
+            }
+
+            // Store the port
+            {
+                let mut port_guard = state.port.write();
+                *port_guard = port;
+            }
+
+            log::info!("✅ Returning session token to frontend: {}", &token[..8.min(token.len())]);
+            Ok(token)
+        }
+        Err(e) => {
             log::error!("❌ Embedded API server startup failed: {}", e);
+
             // Update the running state on failure
             {
-                let mut running = is_running_ref.write();
+                let mut running = state.is_running.lock();
                 *running = false;
             }
-        } else {
-            log::info!("✅ Embedded API server completed successfully");
+
+            Err(format!("Failed to start embedded API server: {}", e))
         }
-        log::info!("🔚 Embedded API server task ended");
-    });
-
-    // Update state - will be corrected if startup fails
-    {
-        let mut handle_guard = state.server_handle.write();
-        *handle_guard = Some(server_handle);
     }
-    {
-        let mut is_running = state.is_running.write();
-        *is_running = true;
-    }
-    {
-        let mut port_guard = state.port.write();
-        *port_guard = port;
-    }
-
-    log::info!("Embedded API server task spawned for port {}", port);
-    Ok(format!("Embedded API server starting on http://127.0.0.1:{}", port))
 }
 
 #[tauri::command]
@@ -135,7 +171,7 @@ pub async fn stop_embedded_api_server(
 ) -> Result<String, String> {
     // Check if server is running
     {
-        let is_running = state.is_running.read();
+        let is_running = state.is_running.lock();
         if !*is_running {
             return Err("Embedded API server is not running".to_string());
         }
@@ -151,7 +187,7 @@ pub async fn stop_embedded_api_server(
 
     // Update state
     {
-        let mut is_running = state.is_running.write();
+        let mut is_running = state.is_running.lock();
         *is_running = false;
     }
 
@@ -163,17 +199,23 @@ pub async fn stop_embedded_api_server(
 pub async fn get_embedded_api_status(
     state: State<'_, EmbeddedApiState>,
 ) -> Result<serde_json::Value, String> {
-    let is_running = *state.is_running.read();
+    let is_running = *state.is_running.lock();
     let port = *state.port.read();
+
+    let use_https = *state.use_https.read();
+    let protocol = if use_https { "https" } else { "http" };
+    let session_token = state.session_token.read().clone();
 
     Ok(serde_json::json!({
         "running": is_running,
         "port": port,
         "url": if is_running {
-            Some(format!("http://127.0.0.1:{}", port))
+            Some(format!("{}://127.0.0.1:{}", protocol, port))
         } else {
             None
-        }
+        },
+        "session_token": session_token,
+        "use_https": use_https
     }))
 }
 
@@ -181,7 +223,7 @@ pub async fn get_embedded_api_status(
 pub async fn check_embedded_api_health(
     state: State<'_, EmbeddedApiState>,
 ) -> Result<serde_json::Value, String> {
-    let is_running = *state.is_running.read();
+    let is_running = *state.is_running.lock();
 
     if !is_running {
         return Ok(serde_json::json!({
@@ -191,11 +233,18 @@ pub async fn check_embedded_api_health(
     }
 
     let port = *state.port.read();
-    let client = reqwest::Client::new();
+    let use_https = *state.use_https.read();
+    let protocol = if use_https { "https" } else { "http" };
+
+    // Create client that accepts self-signed certificates for HTTPS
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true) // Accept self-signed certs in development
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
     match client
-        .get(&format!("http://127.0.0.1:{}/api/health", port))
-        .timeout(std::time::Duration::from_secs(5))
+        .get(&format!("{}://127.0.0.1:{}/api/health", protocol, port))
         .send()
         .await
     {

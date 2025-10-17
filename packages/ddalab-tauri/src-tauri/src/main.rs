@@ -26,6 +26,11 @@ use sync::AppSyncState;
 use recording::commands::WorkflowState;
 
 fn main() {
+    // Initialize rustls crypto provider (required for TLS)
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     // Initialize logging to file in user's temp directory
     let log_file = std::env::temp_dir().join("ddalab.log");
     let log_file_str = log_file.to_string_lossy().to_string();
