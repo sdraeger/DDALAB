@@ -170,6 +170,12 @@ export function FileManager({ apiService }: FileManagerProps) {
   // Handle pending file selection restoration
   // Start immediately when server is ready - no need to wait for isInitialLoad flag
   useEffect(() => {
+    console.log('[FILEMANAGER] 🔍 Pending file status:',
+      'Pending:', fileManager.pendingFileSelection || 'NONE',
+      '| Server ready:', ui.isServerReady,
+      '| Persistence restored:', isPersistenceRestored
+    )
+
     if (fileManager.pendingFileSelection && ui.isServerReady && isPersistenceRestored) {
       // Try to restore immediately without waiting for directory listing
       const filePath = fileManager.pendingFileSelection

@@ -348,11 +348,12 @@ export const useAppStore = create<AppState>((set, get) => ({
             persistedStateKeys: Object.keys(persistedState)
           })
 
-          console.log('[STORE] Restoring persisted state:', {
-            selected_file: persistedState.file_manager?.selected_file,
-            selected_channels: persistedState.file_manager?.selected_channels,
-            current_path: persistedState.file_manager?.current_path
-          })
+          const pendingFile = persistedState.file_manager?.selected_file || (persistedState as any).last_selected_file;
+          console.log('[STORE] 📂 Restoring file manager state:',
+            'Selected file:', persistedState.file_manager?.selected_file || 'null',
+            '| Will set pending:', pendingFile || 'NONE',
+            '| Selected channels:', persistedState.file_manager?.selected_channels?.length || 0
+          )
 
           return {
             ...state,
@@ -632,24 +633,17 @@ export const useAppStore = create<AppState>((set, get) => ({
             show_hidden: updatedFileManager.showHidden
           }).catch(console.error)
 
-          // Only save to persistence when we have complete file info (with channels)
-          // This avoids double-saving when FileManager sets the file twice (once for instant feedback, once with full metadata)
-          const hasCompleteFileInfo = file && file.channels && file.channels.length > 0
-          console.log('[STORE] setSelectedFile - persistence check:', {
-            isPersistenceRestored,
-            hasFile: !!file,
-            hasChannels: file?.channels?.length || 0,
-            hasCompleteFileInfo,
-            willSave: isPersistenceRestored && hasCompleteFileInfo
-          });
-
-          if (isPersistenceRestored && hasCompleteFileInfo) {
-            console.log('[STORE] ✓ Triggering save for file with complete metadata:', file.file_path)
+          // Save file selection immediately if persistence is restored
+          // We save even without complete metadata to ensure file path is persisted
+          if (isPersistenceRestored && file) {
+            console.log('[STORE] ✓ Triggering save for selected file:', file.file_path)
             get().saveCurrentState().catch(err => console.error('[STORE] Failed to save selected file:', err))
-          } else if (file && !hasCompleteFileInfo) {
-            console.log('[STORE] ⏳ Skipping save - waiting for complete file metadata (has', file.channels?.length || 0, 'channels)')
+          } else if (!file && isPersistenceRestored) {
+            // File was cleared, save the null state
+            console.log('[STORE] ✓ Saving cleared file selection')
+            get().saveCurrentState().catch(err => console.error('[STORE] Failed to save cleared file:', err))
           } else {
-            console.log('[STORE] ✗ NOT saving - isPersistenceRestored:', isPersistenceRestored, 'file:', file?.file_path || 'null')
+            console.log('[STORE] ✗ NOT saving - isPersistenceRestored:', isPersistenceRestored)
           }
         } catch (err) {
           console.error('[ANNOTATION] Failed to load from SQLite:', err)

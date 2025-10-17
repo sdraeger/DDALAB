@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+pub mod certs;
+
 /// Get the application configuration directory
 pub fn get_app_config_dir() -> Result<PathBuf, String> {
     let config_dir = dirs::config_dir()
