@@ -768,13 +768,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           try {
             const { invoke } = await import('@tauri-apps/api/core')
             await invoke('save_file_view_state', {
-              filePath: fileManager.selectedFile.file_path,
+              filePath: fileManager.selectedFile!.file_path,
               chunkStart: plot.chunkStart,
               chunkSize: plot.chunkSize,
-              selectedChannels: fileManager.selectedFile.selected_channels || []
+              selectedChannels: fileManager.selectedChannels || []
             })
             console.log('[STORE] Saved file view state to SQLite:', {
-              filePath: fileManager.selectedFile.file_path,
+              filePath: fileManager.selectedFile!.file_path,
               chunkStart: plot.chunkStart,
               chunkSize: plot.chunkSize
             })

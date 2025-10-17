@@ -18,6 +18,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { ChannelSelector } from '@/components/ChannelSelector'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import {
@@ -81,13 +82,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const submitAnalysisMutation = useSubmitDDAAnalysis(apiService)
   const saveToHistoryMutation = useSaveDDAToHistory(apiService)
 
-  // TanStack Query: Fetch analysis history (only when server is ready)
+  // TanStack Query: Fetch analysis history (only when server is ready and authenticated)
   const {
     data: historyData,
     isLoading: historyLoading,
     error: historyErrorObj,
     refetch: refetchHistory
-  } = useDDAHistory(apiService, isServerReady)
+  } = useDDAHistory(apiService, isServerReady && !!apiService.getSessionToken())
 
   // TanStack Query: Delete and rename mutations with optimistic updates
   const deleteAnalysisMutation = useDeleteAnalysis(apiService)
@@ -898,28 +899,20 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           </div>
 
           {/* Channel Selection */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                Channel Selection ({parameters.selectedChannels.length} of {fileManager.selectedFile.channels.length})
-              </CardTitle>
-              <CardDescription>Select channels for DDA analysis</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                {fileManager.selectedFile.channels.map(channel => (
-                  <Badge
-                    key={channel}
-                    variant={parameters.selectedChannels.includes(channel) ? "default" : "outline"}
-                    className="cursor-pointer"
-                    onClick={() => handleChannelToggle(channel, !parameters.selectedChannels.includes(channel))}
-                  >
-                    {channel}
-                  </Badge>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          <ChannelSelector
+            channels={fileManager.selectedFile.channels}
+            selectedChannels={parameters.selectedChannels}
+            onSelectionChange={(channels) => {
+              setLocalParameters(prev => ({
+                ...prev,
+                selectedChannels: channels
+              }))
+            }}
+            label="Channel Selection"
+            description="Select channels for DDA analysis"
+            variant="default"
+            maxHeight="max-h-40"
+          />
 
           {/* Analysis Summary */}
           <Card>

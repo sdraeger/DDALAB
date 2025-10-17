@@ -143,15 +143,11 @@ pub struct ApiState {
 
 impl ApiState {
     pub fn new(data_directory: PathBuf) -> Self {
-        // Create history directory in app data directory
+        // NOTE: dda_history directory is obsolete - analysis persistence now uses SQLite only
+        // The history_directory field is kept for backwards compatibility but no longer used
         let history_directory = data_directory.parent()
             .unwrap_or(&data_directory)
             .join("dda_history");
-
-        // Ensure history directory exists
-        if let Err(e) = std::fs::create_dir_all(&history_directory) {
-            log::error!("Failed to create history directory: {}", e);
-        }
 
         // Initialize SQLite database for analysis persistence
         let analysis_db = if let Some(parent) = data_directory.parent() {

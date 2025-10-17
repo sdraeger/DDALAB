@@ -10,6 +10,7 @@ import { Slider } from '@/components/ui/slider'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
+import { ChannelSelector } from '@/components/ChannelSelector'
 import {
   Download,
   Palette,
@@ -942,23 +943,15 @@ export function DDAResults({ result }: DDAResultsProps) {
           </div>
 
           {/* Channel Selection */}
-          <div>
-            <Label className="text-sm mb-2 block">
-              Channels ({selectedChannels.length} of {availableChannels.length} selected)
-            </Label>
-            <div className="flex flex-wrap gap-2 max-h-20 overflow-y-auto">
-              {availableChannels.map(channel => (
-                <Badge
-                  key={channel}
-                  variant={selectedChannels.includes(channel) ? "default" : "outline"}
-                  className="cursor-pointer text-xs"
-                  onClick={() => handleChannelToggle(channel)}
-                >
-                  {channel}
-                </Badge>
-              ))}
-            </div>
-          </div>
+          <ChannelSelector
+            channels={availableChannels}
+            selectedChannels={selectedChannels}
+            onSelectionChange={setSelectedChannels}
+            label="Channels"
+            description="Select channels to display in results"
+            variant="compact"
+            maxHeight="max-h-32"
+          />
 
           {/* Color Range Control (for heatmap) */}
           {(viewMode === 'heatmap' || viewMode === 'both') && (
