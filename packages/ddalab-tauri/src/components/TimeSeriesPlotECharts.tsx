@@ -181,9 +181,11 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     !!(fileManager.selectedFile && selectedChannels.length > 0 && isChartReady)
   );
 
-  // TanStack Query: Load overview data
+  // TanStack Query: Load overview data in background as soon as file is selected
   // Use fewer points for overview to improve loading speed for large files
   // 500 points is enough for overview visualization and loads much faster
+  // IMPORTANT: Removed isChartReady dependency - overview loads in background
+  // even when user is on other tabs, so it's cached when they switch to visualization
   const {
     data: overviewData,
     isLoading: overviewLoading,
@@ -193,7 +195,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     fileManager.selectedFile?.file_path || "",
     selectedChannels,
     500, // Reduced from 2000 for faster loading of large files
-    !!(fileManager.selectedFile && selectedChannels.length > 0 && isChartReady)
+    !!(fileManager.selectedFile && selectedChannels.length > 0) // Load in background regardless of active tab
   );
 
   // Derived loading/error states for UI
