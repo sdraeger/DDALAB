@@ -156,7 +156,10 @@ fn main() {
             cancel_openneuro_download,
             // OpenNeuro upload commands
             upload_bids_dataset,
-            cancel_bids_upload
+            cancel_bids_upload,
+            // Debug commands
+            open_logs_folder,
+            get_logs_path
         ])
         .manage(EmbeddedApiState::default())
         .manage(AppSyncState::new())

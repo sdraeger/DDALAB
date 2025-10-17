@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { AlertTriangle, Play, Square, RefreshCw, Download, Cloud, Link2, Activity, Search, Lock, Shield } from 'lucide-react'
+import { AlertTriangle, Play, Square, RefreshCw, Download, Cloud, Link2, Activity, Search, Lock, Shield, FileText, FolderOpen } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
 import { TauriService } from '@/services/tauriService'
@@ -53,8 +53,9 @@ export function SettingsPanel() {
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [logsPath, setLogsPath] = useState<string>('')
 
-  // Fetch app version on mount
+  // Fetch app version and logs path on mount
   useEffect(() => {
     const fetchVersion = async () => {
       if (!TauriService.isTauri()) return
@@ -65,7 +66,19 @@ export function SettingsPanel() {
         console.error('Failed to fetch app version:', error)
       }
     }
+
+    const fetchLogsPath = async () => {
+      if (!TauriService.isTauri()) return
+      try {
+        const path = await TauriService.getLogsPath()
+        setLogsPath(path)
+      } catch (error) {
+        console.error('Failed to fetch logs path:', error)
+      }
+    }
+
     fetchVersion()
+    fetchLogsPath()
   }, [])
 
   const checkForUpdates = async () => {
@@ -117,6 +130,16 @@ export function SettingsPanel() {
       setUpdateError(error instanceof Error ? error.message : 'Failed to download update')
     } finally {
       setIsDownloading(false)
+    }
+  }
+
+  const handleOpenLogs = async () => {
+    if (!TauriService.isTauri()) return
+
+    try {
+      await TauriService.openLogsFolder()
+    } catch (error) {
+      console.error('Failed to open logs folder:', error)
     }
   }
 
@@ -672,6 +695,39 @@ export function SettingsPanel() {
                   </AlertDescription>
                 </Alert>
               )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Debug Information */}
+      {TauriService.isTauri() && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              Debug Information
+            </CardTitle>
+            <CardDescription>
+              View application logs and debug information
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Logs Location</Label>
+                <div className="p-3 bg-muted rounded-lg">
+                  <code className="text-xs break-all">{logsPath || 'Loading...'}</code>
+                </div>
+              </div>
+              <Button
+                onClick={handleOpenLogs}
+                variant="outline"
+                className="w-full"
+              >
+                <FolderOpen className="mr-2 h-4 w-4" />
+                View Logs
+              </Button>
             </div>
           </CardContent>
         </Card>
