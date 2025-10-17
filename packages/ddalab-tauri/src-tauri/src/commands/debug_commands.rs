@@ -1,22 +1,18 @@
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use std::process::Command;
+use std::fs;
 
 #[tauri::command]
-pub async fn open_logs_folder(app_handle: AppHandle) -> Result<(), String> {
-    let log_dir = app_handle
-        .path()
-        .app_log_dir()
-        .map_err(|e| format!("Failed to get log directory: {}", e))?;
+pub async fn open_logs_folder(_app_handle: AppHandle) -> Result<(), String> {
+    // Logs are written to system temp directory (same as main.rs:35)
+    let log_file = std::env::temp_dir().join("ddalab.log");
 
-    // Ensure the directory exists
-    std::fs::create_dir_all(&log_dir)
-        .map_err(|e| format!("Failed to create log directory: {}", e))?;
-
-    // Open the folder in the system file explorer
+    // Open the folder and select the log file in the system file explorer
     #[cfg(target_os = "macos")]
     {
         Command::new("open")
-            .arg(&log_dir)
+            .arg("-R") // -R flag reveals the file in Finder
+            .arg(&log_file)
             .spawn()
             .map_err(|e| format!("Failed to open logs folder: {}", e))?;
     }
@@ -24,13 +20,17 @@ pub async fn open_logs_folder(app_handle: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         Command::new("explorer")
-            .arg(&log_dir)
+            .arg("/select,") // /select flag selects the file in Explorer
+            .arg(&log_file)
             .spawn()
             .map_err(|e| format!("Failed to open logs folder: {}", e))?;
     }
 
     #[cfg(target_os = "linux")]
     {
+        // Most Linux file managers don't support selecting a file,
+        // so we fall back to opening the directory
+        let log_dir = std::env::temp_dir();
         Command::new("xdg-open")
             .arg(&log_dir)
             .spawn()
@@ -41,11 +41,23 @@ pub async fn open_logs_folder(app_handle: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn get_logs_path(app_handle: AppHandle) -> Result<String, String> {
-    let log_dir = app_handle
-        .path()
-        .app_log_dir()
-        .map_err(|e| format!("Failed to get log directory: {}", e))?;
+pub async fn get_logs_path(_app_handle: AppHandle) -> Result<String, String> {
+    // Logs are written to system temp directory (same as main.rs:35)
+    let log_file = std::env::temp_dir().join("ddalab.log");
+    Ok(log_file.to_string_lossy().to_string())
+}
 
-    Ok(log_dir.to_string_lossy().to_string())
+#[tauri::command]
+pub async fn read_logs_content(_app_handle: AppHandle) -> Result<String, String> {
+    // Logs are written to system temp directory (same as main.rs:35)
+    let log_file = std::env::temp_dir().join("ddalab.log");
+
+    // Check if log file exists
+    if !log_file.exists() {
+        return Ok(String::from("Log file not found. The application may not have generated any logs yet."));
+    }
+
+    // Read the log file content
+    fs::read_to_string(&log_file)
+        .map_err(|e| format!("Failed to read log file: {}", e))
 }

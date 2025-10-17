@@ -159,7 +159,8 @@ fn main() {
             cancel_bids_upload,
             // Debug commands
             open_logs_folder,
-            get_logs_path
+            get_logs_path,
+            read_logs_content
         ])
         .manage(EmbeddedApiState::default())
         .manage(AppSyncState::new())

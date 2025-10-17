@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { AlertTriangle, Play, Square, RefreshCw, Download, Cloud, Link2, Activity, Search, Lock, Shield, FileText, FolderOpen } from 'lucide-react'
+import { AlertTriangle, Play, Square, RefreshCw, Download, Cloud, Link2, Activity, Search, Lock, Shield, FileText, FolderOpen, Bug } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
 import { TauriService } from '@/services/tauriService'
@@ -140,6 +140,62 @@ export function SettingsPanel() {
       await TauriService.openLogsFolder()
     } catch (error) {
       console.error('Failed to open logs folder:', error)
+    }
+  }
+
+  const handleReportIssue = async () => {
+    console.log('[REPORT_ISSUE] Button clicked')
+
+    if (!TauriService.isTauri()) {
+      console.log('[REPORT_ISSUE] Not running in Tauri, exiting')
+      return
+    }
+
+    try {
+      console.log('[REPORT_ISSUE] Reading log content...')
+      const logsContent = await TauriService.readLogsContent()
+      console.log('[REPORT_ISSUE] Log content length:', logsContent.length)
+
+      // Truncate logs if too long (GitHub URL limit is ~8KB)
+      const maxLogLength = 5000
+      const truncatedLogs = logsContent.length > maxLogLength
+        ? logsContent.slice(-maxLogLength) + '\n\n[Note: Log truncated to last 5000 characters]'
+        : logsContent
+
+      const issueTitle = encodeURIComponent('Bug Report')
+      const issueBody = encodeURIComponent(
+        `## Description\n` +
+        `<!-- Please describe the issue you encountered -->\n\n` +
+        `## Steps to Reproduce\n` +
+        `1. \n` +
+        `2. \n` +
+        `3. \n\n` +
+        `## Expected Behavior\n` +
+        `<!-- What did you expect to happen? -->\n\n` +
+        `## Actual Behavior\n` +
+        `<!-- What actually happened? -->\n\n` +
+        `## System Information\n` +
+        `- OS: ${navigator.platform}\n` +
+        `- Version: ${appVersion || 'Unknown'}\n\n` +
+        `## Application Logs\n` +
+        `<details>\n` +
+        `<summary>Click to expand logs</summary>\n\n` +
+        `\`\`\`\n` +
+        `${truncatedLogs}\n` +
+        `\`\`\`\n` +
+        `</details>`
+      )
+
+      const githubUrl = `https://github.com/sdraeger/DDALAB/issues/new?title=${issueTitle}&body=${issueBody}`
+      console.log('[REPORT_ISSUE] GitHub URL length:', githubUrl.length)
+      console.log('[REPORT_ISSUE] Opening GitHub issue...')
+
+      // Use Tauri shell plugin to open URL in browser
+      const { open } = await import('@tauri-apps/plugin-shell')
+      await open(githubUrl)
+      console.log('[REPORT_ISSUE] URL opened successfully via Tauri shell')
+    } catch (error) {
+      console.error('[REPORT_ISSUE] Failed to create GitHub issue:', error)
     }
   }
 
@@ -720,14 +776,22 @@ export function SettingsPanel() {
                   <code className="text-xs break-all">{logsPath || 'Loading...'}</code>
                 </div>
               </div>
-              <Button
-                onClick={handleOpenLogs}
-                variant="outline"
-                className="w-full"
-              >
-                <FolderOpen className="mr-2 h-4 w-4" />
-                View Logs
-              </Button>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  onClick={handleOpenLogs}
+                  variant="outline"
+                >
+                  <FolderOpen className="mr-2 h-4 w-4" />
+                  View Logs
+                </Button>
+                <Button
+                  onClick={handleReportIssue}
+                  variant="outline"
+                >
+                  <Bug className="mr-2 h-4 w-4" />
+                  Report Issue
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
