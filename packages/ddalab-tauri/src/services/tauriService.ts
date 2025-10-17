@@ -488,4 +488,17 @@ export class TauriService {
       throw error
     }
   }
+
+  // Debug Commands
+  static async openLogsFolder(): Promise<void> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    await api.invoke('open_logs_folder')
+  }
+
+  static async getLogsPath(): Promise<string> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('get_logs_path')
+  }
 }
