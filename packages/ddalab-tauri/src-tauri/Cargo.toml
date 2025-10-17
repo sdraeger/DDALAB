@@ -22,7 +22,7 @@ tauri-plugin-updater = "2.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.12.23", features = ["json"] }
+reqwest = { version = "0.12.24", features = ["json"] }
 dirs = "6.0.0"
 parking_lot = "0.12.5"
 chrono = { version = "0.4", features = ["serde"] }
@@ -33,12 +33,18 @@ env_logger = "0.11"
 simple-logging = "2.0"
 # Embedded API server dependencies
 axum = { version = "0.8.6", features = ["json", "tokio"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
 hyper = { version = "1.0", features = ["full"] }
 bytes = "1.0"
 mime = "0.3"
 walkdir = "2.4"
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pemfile = "2.0"
+tokio-rustls = "0.26.4"
+which = "8.0.0"
+local-ip-address = "0.6"
 # Sync client dependencies
 tokio-tungstenite = "0.28.0"
 futures-util = "0.3"
@@ -56,14 +62,14 @@ dda-rs = { path = "../../dda-rs" }
 petgraph = "0.8.3"
 tera = "1.19"
 # Additional EEG file format support
-bvreader = "0.1"  # BrainVision format (.vhdr, .vmrk, .eeg)
-matfile = { version = "0.3", features = ["ndarray"] }  # MATLAB .mat/.set files
-ndarray = "0.16"  # Array processing for MAT files
+bvreader = "0.1"                                      # BrainVision format (.vhdr, .vmrk, .eeg)
+matfile = { version = "0.3", features = ["ndarray"] } # MATLAB .mat/.set files
+ndarray = "0.16"                                      # Array processing for MAT files
 # Secure credential storage
-keyring = "3.6"  # Cross-platform keyring access
+keyring = "3.6" # Cross-platform keyring access
 # Embedded database
-rusqlite = { version = "0.32", features = ["bundled", "chrono", "uuid"] }
-serde_rusqlite = "0.36"
+rusqlite = { version = "0.37", features = ["bundled", "chrono", "uuid"] }
+serde_rusqlite = "0.40.0"
 
 [dev-dependencies]
 hyper = "1.0"

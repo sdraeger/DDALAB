@@ -182,6 +182,8 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   );
 
   // TanStack Query: Load overview data
+  // Use fewer points for overview to improve loading speed for large files
+  // 500 points is enough for overview visualization and loads much faster
   const {
     data: overviewData,
     isLoading: overviewLoading,
@@ -190,7 +192,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     apiService,
     fileManager.selectedFile?.file_path || "",
     selectedChannels,
-    2000,
+    500, // Reduced from 2000 for faster loading of large files
     !!(fileManager.selectedFile && selectedChannels.length > 0 && isChartReady)
   );
 

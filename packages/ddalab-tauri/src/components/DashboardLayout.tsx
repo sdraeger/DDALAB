@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { ApiService } from "@/services/apiService";
 import { useAppStore } from "@/store/appStore";
+import { useDDAHistory, useAnalysisFromHistory } from "@/hooks/useDDAAnalysis";
 import { FileManager } from "@/components/FileManager";
 import { HealthStatusBar } from "@/components/HealthStatusBar";
 import { TimeSeriesPlotECharts } from "@/components/TimeSeriesPlotECharts";
@@ -29,10 +30,11 @@ import { TauriService } from "@/services/tauriService";
 
 interface DashboardLayoutProps {
   apiUrl: string;
+  sessionToken?: string;
 }
 
-export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
-  const [apiService, setApiService] = useState(() => new ApiService(apiUrl));
+export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) {
+  const [apiService, setApiService] = useState(() => new ApiService(apiUrl, sessionToken));
 
   // Use selectors to prevent unnecessary re-renders
   const ui = useAppStore((state) => state.ui);
@@ -46,118 +48,64 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
   const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis);
   const setAnalysisHistory = useAppStore((state) => state.setAnalysisHistory);
 
-  const [autoLoadingResults, setAutoLoadingResults] = useState(false);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  // Use Tanstack Query hook for async, non-blocking history loading
+  // Only enable when server is ready to avoid connection errors
+  const {
+    data: historyData,
+    isLoading: isLoadingHistory,
+    error: historyError
+  } = useDDAHistory(apiService, ui.isServerReady);
 
-  // Update API service when URL changes
+  // Sync history data to Zustand store when it changes
   useEffect(() => {
-    // Always use embedded API in Tauri (port 8765)
-    const newApiUrl = TauriService.isTauri() ? "http://localhost:8765" : apiUrl;
-
-    if (apiService.baseURL !== newApiUrl) {
-      setApiService(new ApiService(newApiUrl));
+    if (historyData) {
+      console.log("[DASHBOARD] Loaded analysis history:", historyData.length, "items");
+      setAnalysisHistory(historyData);
+    } else if (historyError) {
+      console.error("[DASHBOARD] Failed to load analysis history:", historyError);
+      setAnalysisHistory([]);
     }
-  }, [apiUrl, apiService.baseURL]);
+  }, [historyData, historyError, setAnalysisHistory]);
 
-  // Auto-load most recent analysis from SQLite database on component mount
-  // Only load after server is ready to avoid connection errors
+  // Determine which analysis to auto-load (if any)
+  // Only enable auto-load if: no current analysis, persistence restored, and history loaded
+  const shouldAutoLoad = !currentAnalysis && isPersistenceRestored && historyData && historyData.length > 0 && !isLoadingHistory;
+  const analysisIdToLoad = shouldAutoLoad ? historyData[0].id : null;
+
+  // Use Tanstack Query to load the most recent analysis (async, non-blocking)
+  const {
+    data: autoLoadedAnalysis,
+    isLoading: isAutoLoading
+  } = useAnalysisFromHistory(apiService, analysisIdToLoad, !!analysisIdToLoad);
+
+  // Set the auto-loaded analysis once it's fetched
   useEffect(() => {
-    const loadAnalysisHistory = async (retryCount = 0) => {
-      // Wait for server to be ready before attempting to fetch
-      if (!ui.isServerReady) {
-        console.log(
-          "[DASHBOARD] Waiting for server to be ready before loading analysis history"
-        );
-        return;
-      }
-
-      console.log("[DASHBOARD] Server is ready, loading analysis history");
-      setIsLoadingHistory(true);
-
-      try {
-        const history = await apiService.getAnalysisHistory();
-        console.log("[DASHBOARD] Loaded analysis history:", history.length, "items");
-        setAnalysisHistory(history);
-        setIsLoadingHistory(false);
-      } catch (error) {
-        console.error("Failed to load analysis history:", error);
-
-        // Retry up to 5 times with exponential backoff
-        if (retryCount < 5) {
-          const delay = Math.min(Math.pow(2, retryCount) * 500, 5000); // 500ms, 1s, 2s, 4s, 5s (capped)
-          console.log(`[DASHBOARD] Retrying history load in ${delay}ms (attempt ${retryCount + 1}/5)`);
-          setTimeout(() => loadAnalysisHistory(retryCount + 1), delay);
-        } else {
-          console.error("[DASHBOARD] Failed to load analysis history after 5 retries");
-          // Set empty array on failure so UI doesn't keep trying
-          setAnalysisHistory([]);
-          setIsLoadingHistory(false);
-        }
-      }
-    };
-
-    loadAnalysisHistory();
-  }, [ui.isServerReady, apiService]); // Removed setAnalysisHistory from deps to prevent re-runs
-
-  // Auto-load most recent analysis if no current analysis is set
-  // IMPORTANT: Only run this AFTER persistence has been restored to avoid overwriting persisted currentAnalysis
-  useEffect(() => {
-    const autoLoadMostRecent = async () => {
-      // Don't auto-load if:
-      // 1. We already have a current analysis (including from persistence)
-      // 2. Persistence hasn't been restored yet (wait for persisted currentAnalysis to load)
-      // 3. No analysis history available
-      // 4. Already in the process of loading
-      if (
-        currentAnalysis ||
-        !isPersistenceRestored ||
-        analysisHistory.length === 0 ||
-        autoLoadingResults
-      ) {
-        if (!currentAnalysis && !isPersistenceRestored) {
-          console.log("[DASHBOARD] Waiting for persistence to restore before auto-loading analysis");
-        }
-        return;
-      }
-
-      setAutoLoadingResults(true);
-      try {
-        console.log(
-          "[DASHBOARD] Auto-loading most recent analysis from history:",
-          analysisHistory[0].id
-        );
-        await new Promise((resolve) => setTimeout(resolve, 100));
-
-        const fullAnalysis = await apiService.getAnalysisFromHistory(
-          analysisHistory[0].id
-        );
-        if (fullAnalysis) {
-          console.log(
-            "[DASHBOARD] Setting current analysis from auto-load:",
-            fullAnalysis.id
-          );
-          setCurrentAnalysis(fullAnalysis);
-        }
-      } catch (error) {
-        console.error("[DASHBOARD] Failed to auto-load most recent analysis:", error);
-      } finally {
-        setAutoLoadingResults(false);
-      }
-    };
-
-    if ("requestIdleCallback" in window) {
-      requestIdleCallback(() => autoLoadMostRecent());
-    } else {
-      setTimeout(() => autoLoadMostRecent(), 0);
+    if (autoLoadedAnalysis && !currentAnalysis) {
+      console.log("[DASHBOARD] Setting auto-loaded analysis:", autoLoadedAnalysis.id);
+      setCurrentAnalysis(autoLoadedAnalysis);
     }
-  }, [
-    currentAnalysis,
-    analysisHistory,
-    autoLoadingResults,
-    isPersistenceRestored,
-    apiService,
-    setCurrentAnalysis,
-  ]);
+  }, [autoLoadedAnalysis, currentAnalysis, setCurrentAnalysis]);
+
+  // Update API service when URL or session token changes
+  useEffect(() => {
+    // Always use embedded API with HTTPS in Tauri (port 8765)
+    const newApiUrl = TauriService.isTauri() ? "https://localhost:8765" : apiUrl;
+    const currentToken = apiService.getSessionToken();
+
+    console.log('[DASHBOARD] API service check:', {
+      currentURL: apiService.baseURL,
+      newURL: newApiUrl,
+      currentToken: currentToken?.substring(0, 8) + '...' || 'NONE',
+      newToken: sessionToken?.substring(0, 8) + '...' || 'NONE',
+      needsUpdate: apiService.baseURL !== newApiUrl || (sessionToken && currentToken !== sessionToken)
+    });
+
+    if (apiService.baseURL !== newApiUrl || (sessionToken && currentToken !== sessionToken)) {
+      console.log('[DASHBOARD] Creating new API service with token:', sessionToken?.substring(0, 8) + '...');
+      const newService = new ApiService(newApiUrl, sessionToken);
+      setApiService(newService);
+    }
+  }, [apiUrl, sessionToken, apiService.baseURL]);
 
   const handleMinimize = async () => {
     if (TauriService.isTauri()) {
@@ -453,7 +401,7 @@ export function DashboardLayout({ apiUrl }: DashboardLayoutProps) {
                         </p>
                       </div>
                     </div>
-                  ) : autoLoadingResults ? (
+                  ) : isAutoLoading ? (
                     <div className="flex items-center justify-center h-full">
                       <div className="text-center">
                         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
