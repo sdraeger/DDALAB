@@ -501,4 +501,10 @@ export class TauriService {
     if (!api) throw new Error('Not running in Tauri environment')
     return await api.invoke('get_logs_path')
   }
+
+  static async readLogsContent(): Promise<string> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('read_logs_content')
+  }
 }
