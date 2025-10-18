@@ -10,7 +10,6 @@ mod commands;
 mod docker_stack;
 mod app_setup;
 mod utils;
-mod embedded_api;
 mod edf;
 mod text_reader;
 mod sync;
@@ -21,7 +20,7 @@ mod db;
 // Import required modules
 use app_setup::setup_app;
 use commands::*;
-use commands::embedded_api_commands::EmbeddedApiState;
+use commands::api_commands::ApiServerState;
 use sync::AppSyncState;
 use recording::commands::WorkflowState;
 
@@ -85,8 +84,6 @@ fn main() {
             get_file_view_state,
             delete_file_view_state,
             get_all_file_view_states,
-            // API commands
-            check_api_connection,
             // Window management commands
             focus_main_window,
             create_popout_window,
@@ -104,11 +101,15 @@ fn main() {
             docker_stack::get_docker_stack_status,
             docker_stack::check_docker_requirements,
             docker_stack::update_docker_config,
-            // Embedded API commands
-            start_embedded_api_server,
-            stop_embedded_api_server,
-            get_embedded_api_status,
-            check_embedded_api_health,
+            // API commands (unified local/remote)
+            start_local_api_server,
+            stop_local_api_server,
+            connect_to_remote_api,
+            check_api_connection,
+            get_api_status,
+            save_api_config,
+            load_api_config,
+            get_api_config,
             // Data directory commands
             select_data_directory,
             get_data_directory,
@@ -162,7 +163,7 @@ fn main() {
             get_logs_path,
             read_logs_content
         ])
-        .manage(EmbeddedApiState::default())
+        .manage(ApiServerState::default())
         .manage(AppSyncState::new())
         .manage(parking_lot::RwLock::new(None::<commands::data_directory_commands::DataDirectoryConfig>))
         .manage(std::sync::Arc::new(parking_lot::RwLock::new(
@@ -191,6 +192,25 @@ fn main() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                // Clean up API server on app exit
+                use tauri::Manager;
+                let api_state = app_handle.state::<ApiServerState>();
+                log::info!("App exiting, cleaning up API server...");
+
+                // Abort the server task
+                let mut handle_guard = api_state.server_handle.write();
+                if let Some(handle) = handle_guard.take() {
+                    handle.abort();
+                    log::info!("✅ API server task aborted");
+                }
+
+                // Reset state
+                let mut is_running = api_state.is_local_server_running.lock();
+                *is_running = false;
+            }
+        });
 }

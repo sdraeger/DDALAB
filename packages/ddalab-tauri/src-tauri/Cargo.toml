@@ -40,7 +40,7 @@ hyper = { version = "1.0", features = ["full"] }
 bytes = "1.0"
 mime = "0.3"
 walkdir = "2.4"
-rustls = { version = "0.23", features = ["ring"] }
+rustls = { version = "0.23.33", features = ["ring"] }
 rustls-pemfile = "2.0"
 tokio-rustls = "0.26.4"
 which = "8.0.0"
@@ -56,17 +56,17 @@ mdns-sd = "0.15.1"
 # Security
 sha2 = "0.10"
 hex = "0.4"
+aes-gcm = "0.10"    # AES-256-GCM encryption
+machine-uid = "0.5" # Get machine-specific ID for encryption key derivation
 # DDA binary interface
 dda-rs = { path = "../../dda-rs" }
 # Session recording workflow
 petgraph = "0.8.3"
 tera = "1.19"
 # Additional EEG file format support
-bvreader = "0.1"                                      # BrainVision format (.vhdr, .vmrk, .eeg)
-matfile = { version = "0.3", features = ["ndarray"] } # MATLAB .mat/.set files
-ndarray = "0.16"                                      # Array processing for MAT files
-# Secure credential storage
-keyring = { version = "3.6", features = ["apple-native", "windows-native", "linux-native"] } # Cross-platform keyring access
+bvreader = "0.1"                                        # BrainVision format (.vhdr, .vmrk, .eeg)
+matfile = { version = "0.5.0", features = ["ndarray"] } # MATLAB .mat/.set files
+ndarray = "0.16"                                        # Array processing for MAT files
 # Embedded database
 rusqlite = { version = "0.37", features = ["bundled", "chrono", "uuid"] }
 serde_rusqlite = "0.40.0"

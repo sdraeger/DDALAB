@@ -1,7 +1,9 @@
 pub mod analysis_db;
 pub mod annotation_db;
 pub mod file_state_db;
+pub mod secrets_db;
 
 pub use analysis_db::AnalysisDatabase;
 pub use annotation_db::{Annotation, AnnotationDatabase, FileAnnotations};
 pub use file_state_db::{FileStateDatabase, FileViewState};
+pub use secrets_db::SecretsDatabase;

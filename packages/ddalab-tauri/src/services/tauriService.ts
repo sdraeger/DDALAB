@@ -308,50 +308,83 @@ export class TauriService {
     }
   }
 
-  // Embedded API Server Management
-  static async startEmbeddedApiServer(port?: number, dataDirectory?: string): Promise<string> {
+  // API Server Management (Unified Local/Remote)
+  static async startLocalApiServer(port?: number, host?: string, dataDirectory?: string): Promise<any> {
     try {
       const api = await getTauriAPI()
       if (!api) throw new Error('Tauri API not available')
 
-      const result = await api.invoke<string>('start_embedded_api_server', { port, dataDirectory })
+      const result = await api.invoke('start_local_api_server', { port, host, dataDirectory })
       return result
     } catch (error) {
-      console.error('Failed to start embedded API server:', error)
+      console.error('Failed to start local API server:', error)
       throw error
     }
   }
 
-  static async stopEmbeddedApiServer(): Promise<string> {
+  static async stopLocalApiServer(): Promise<void> {
     try {
       const api = await getTauriAPI()
       if (!api) throw new Error('Tauri API not available')
-      return await api.invoke('stop_embedded_api_server')
+      await api.invoke('stop_local_api_server')
     } catch (error) {
-      console.error('Failed to stop embedded API server:', error)
+      console.error('Failed to stop local API server:', error)
       throw error
     }
   }
 
-  static async getEmbeddedApiStatus(): Promise<{ running: boolean; port: number; url?: string }> {
+  static async getApiStatus(): Promise<any> {
     try {
       const api = await getTauriAPI()
       if (!api) throw new Error('Tauri API not available')
-      return await api.invoke('get_embedded_api_status')
+      return await api.invoke('get_api_status')
     } catch (error) {
-      console.error('Failed to get embedded API status:', error)
-      return { running: false, port: 8765 }
+      console.error('Failed to get API status:', error)
+      return null
     }
   }
 
-  static async checkEmbeddedApiHealth(): Promise<{ status: string; healthy: boolean; health?: any; error?: string }> {
+  static async checkApiConnection(): Promise<boolean> {
     try {
       const api = await getTauriAPI()
       if (!api) throw new Error('Tauri API not available')
-      return await api.invoke('check_embedded_api_health')
+      return await api.invoke('check_api_connection')
     } catch (error) {
-      console.error('Failed to check embedded API health:', error)
-      return { status: 'error', healthy: false, error: error instanceof Error ? error.message : 'Unknown error' }
+      console.error('Failed to check API connection:', error)
+      return false
+    }
+  }
+
+  static async getApiConfig(): Promise<any> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) throw new Error('Tauri API not available')
+      return await api.invoke('get_api_config')
+    } catch (error) {
+      console.error('Failed to get API config:', error)
+      return null
+    }
+  }
+
+  static async loadApiConfig(): Promise<any> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) throw new Error('Tauri API not available')
+      return await api.invoke('load_api_config')
+    } catch (error) {
+      console.error('Failed to load API config:', error)
+      return null
+    }
+  }
+
+  static async saveApiConfig(config: any): Promise<void> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) throw new Error('Tauri API not available')
+      await api.invoke('save_api_config', { config })
+    } catch (error) {
+      console.error('Failed to save API config:', error)
+      throw error
     }
   }
 

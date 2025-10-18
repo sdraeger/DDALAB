@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { TauriService } from '@/services/tauriService'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { WelcomeScreen } from '@/components/WelcomeScreen'
@@ -15,6 +15,10 @@ export default function Home() {
   const [apiUrl, setApiUrl] = useState('https://localhost:8765') // Embedded API with HTTPS
   const [sessionToken, setSessionToken] = useState<string>('')
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false)
+
+  // Use ref to prevent double initialization in React StrictMode
+  // This is checked synchronously before async operations, providing immediate protection
+  const initializingRef = useRef(false)
 
   // Use selectors to prevent unnecessary re-renders
   const isInitialized = useAppStore((state) => state.isInitialized)
@@ -79,6 +83,14 @@ export default function Home() {
       return
     }
 
+    // CRITICAL: Synchronous check to prevent double initialization in React StrictMode
+    // This ref is checked immediately, before any async operations
+    if (initializingRef.current) {
+      console.log('[MAIN_WINDOW] Already initializing (caught by ref), skipping duplicate call')
+      return
+    }
+    initializingRef.current = true
+
     console.log('Loading preferences, isTauri:', TauriService.isTauri())
     if (TauriService.isTauri()) {
       try {
@@ -97,27 +109,45 @@ export default function Home() {
         // Check if API server is already running (for dev workflow)
         try {
           console.log('Checking if API server is already running...')
-          const alreadyRunning = await TauriService.checkApiConnection(url)
+          const alreadyRunning = await TauriService.checkApiConnection()
 
           if (alreadyRunning) {
-            console.log('✅ API server already running, skipping startup')
-            setIsApiConnected(true)
-            setServerReady(true)
-            return
+            console.log('✅ API server already running, loading config...')
+
+            // Get the current API config from state (includes session token from running server)
+            const currentConfig = await TauriService.getApiConfig()
+            if (currentConfig?.session_token) {
+              console.log('✅ Loaded session token from running server')
+              setSessionToken(currentConfig.session_token)
+              setIsApiConnected(true)
+              setServerReady(true)
+              return
+            } else {
+              // Server is running but has no session token (old server from before refactoring)
+              // Restart it to initialize with new architecture
+              console.warn('⚠️ No session token in server config - restarting server with new architecture...')
+              try {
+                await TauriService.stopLocalApiServer()
+                await new Promise(resolve => setTimeout(resolve, 500)) // Wait for clean shutdown
+              } catch (error) {
+                console.log('Note: stop server returned error (expected if old server):', error)
+              }
+              // Fall through to start server below
+            }
           }
         } catch (error) {
           // Server not running yet, will start it below
           console.log('API server not running, will start it now')
         }
 
-        // Start embedded API server
+        // Start local API server
         try {
-          console.log('🚀 Starting embedded API server...')
-          const token = await TauriService.startEmbeddedApiServer()
+          console.log('🚀 Starting local API server...')
+          const config = await TauriService.startLocalApiServer()
 
-          if (token) {
+          if (config?.session_token) {
             console.log('✅ Received session token from server')
-            setSessionToken(token)
+            setSessionToken(config.session_token)
           } else {
             console.warn('⚠️ No session token received from server')
           }

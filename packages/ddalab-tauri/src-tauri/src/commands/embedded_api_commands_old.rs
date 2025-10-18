@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use parking_lot::{RwLock, Mutex};
 use tauri::{Manager, State, AppHandle};
 use tokio::task::JoinHandle;
-use crate::embedded_api;
+// Use the new modular API from the library
+use ddalab_tauri::api;
+// Keep embedded_api for server startup function (to be migrated)
+use ddalab_tauri::embedded_api;
 
 // Global state for the embedded API server
 #[derive(Debug)]

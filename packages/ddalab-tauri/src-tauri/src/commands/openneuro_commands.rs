@@ -1,4 +1,3 @@
-use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use tauri::command;
 use std::path::PathBuf;
@@ -7,9 +6,9 @@ use std::io::{BufRead, BufReader};
 use tauri::{AppHandle, Emitter, State};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use crate::state_manager::AppStateManager;
 
-const SERVICE_NAME: &str = "org.ddalab.openneuro";
-const USERNAME: &str = "api_key";
+const OPENNEURO_API_KEY_NAME: &str = "openneuro_api_key";
 
 // State for tracking active downloads
 pub struct DownloadState {
@@ -49,43 +48,43 @@ pub struct DownloadOptions {
 }
 
 #[command]
-pub async fn save_openneuro_api_key(api_key: String) -> Result<(), String> {
-    log::info!("[KEYRING] save_openneuro_api_key called with key length: {}", api_key.len());
-    log::info!("[KEYRING] Using SERVICE_NAME: {}, USERNAME: {}", SERVICE_NAME, USERNAME);
+pub async fn save_openneuro_api_key(
+    api_key: String,
+    state_manager: State<'_, AppStateManager>,
+) -> Result<(), String> {
+    log::info!("[SECRETS_DB] save_openneuro_api_key called with key length: {}", api_key.len());
 
     if api_key.trim().is_empty() {
-        log::error!("[KEYRING] API key is empty, rejecting save");
+        log::error!("[SECRETS_DB] API key is empty, rejecting save");
         return Err("API key cannot be empty".to_string());
     }
 
-    log::info!("[KEYRING] Creating keyring entry...");
-    let entry = Entry::new(SERVICE_NAME, USERNAME)
-        .map_err(|e| {
-            log::error!("[KEYRING] Failed to create keyring entry: {}", e);
-            format!("Failed to access keyring: {}", e)
-        })?;
+    let secrets_db = state_manager.get_secrets_db();
 
-    log::info!("[KEYRING] Setting password in keyring...");
-    entry
-        .set_password(&api_key)
+    log::info!("[SECRETS_DB] Storing encrypted API key...");
+    secrets_db
+        .set_secret(OPENNEURO_API_KEY_NAME, &api_key)
         .map_err(|e| {
-            log::error!("[KEYRING] Failed to set password in keyring: {}", e);
+            log::error!("[SECRETS_DB] Failed to store API key: {}", e);
             format!("Failed to save API key: {}", e)
         })?;
 
-    log::info!("[KEYRING] OpenNeuro API key saved successfully to keyring");
+    log::info!("[SECRETS_DB] OpenNeuro API key saved successfully to encrypted database");
 
     // Verify the save by immediately reading it back
-    match entry.get_password() {
-        Ok(saved_key) => {
+    match secrets_db.get_secret(OPENNEURO_API_KEY_NAME) {
+        Ok(Some(saved_key)) => {
             if saved_key == api_key {
-                log::info!("[KEYRING] Verification successful: key matches what was saved");
+                log::info!("[SECRETS_DB] Verification successful: key matches what was saved");
             } else {
-                log::error!("[KEYRING] Verification FAILED: retrieved key doesn't match saved key!");
+                log::error!("[SECRETS_DB] Verification FAILED: retrieved key doesn't match saved key!");
             }
         }
+        Ok(None) => {
+            log::error!("[SECRETS_DB] Verification FAILED: key not found after save!");
+        }
         Err(e) => {
-            log::error!("[KEYRING] Verification FAILED: couldn't read back the key: {}", e);
+            log::error!("[SECRETS_DB] Verification FAILED: couldn't read back the key: {}", e);
         }
     }
 
@@ -93,44 +92,41 @@ pub async fn save_openneuro_api_key(api_key: String) -> Result<(), String> {
 }
 
 #[command]
-pub async fn get_openneuro_api_key() -> Result<String, String> {
-    log::info!("[KEYRING] get_openneuro_api_key called");
-    log::info!("[KEYRING] Using SERVICE_NAME: {}, USERNAME: {}", SERVICE_NAME, USERNAME);
+pub async fn get_openneuro_api_key(
+    state_manager: State<'_, AppStateManager>,
+) -> Result<String, String> {
+    log::info!("[SECRETS_DB] get_openneuro_api_key called");
 
-    log::info!("[KEYRING] Creating keyring entry for read...");
-    let entry = Entry::new(SERVICE_NAME, USERNAME)
-        .map_err(|e| {
-            log::error!("[KEYRING] Failed to create keyring entry for read: {}", e);
-            format!("Failed to access keyring: {}", e)
-        })?;
+    let secrets_db = state_manager.get_secrets_db();
 
-    log::info!("[KEYRING] Attempting to read password from keyring...");
-    match entry.get_password() {
-        Ok(key) => {
-            log::info!("[KEYRING] Successfully retrieved API key from keyring (length: {})", key.len());
+    log::info!("[SECRETS_DB] Attempting to read encrypted API key...");
+    match secrets_db.get_secret(OPENNEURO_API_KEY_NAME) {
+        Ok(Some(key)) => {
+            log::info!("[SECRETS_DB] Successfully retrieved API key from encrypted database (length: {})", key.len());
             Ok(key)
         }
+        Ok(None) => {
+            log::info!("[SECRETS_DB] No API key found in encrypted database");
+            Err("No API key found".to_string())
+        }
         Err(e) => {
-            log::error!("[KEYRING] Failed to retrieve API key from keyring: {}", e);
+            log::error!("[SECRETS_DB] Failed to retrieve API key: {}", e);
             Err(format!("Failed to retrieve API key: {}", e))
         }
     }
 }
 
 #[command]
-pub async fn check_openneuro_api_key() -> Result<ApiKeyStatus, String> {
-    log::info!("[KEYRING] check_openneuro_api_key called");
-    log::info!("[KEYRING] Using SERVICE_NAME: {}, USERNAME: {}", SERVICE_NAME, USERNAME);
+pub async fn check_openneuro_api_key(
+    state_manager: State<'_, AppStateManager>,
+) -> Result<ApiKeyStatus, String> {
+    log::info!("[SECRETS_DB] check_openneuro_api_key called");
 
-    let entry = Entry::new(SERVICE_NAME, USERNAME)
-        .map_err(|e| {
-            log::error!("[KEYRING] Failed to create keyring entry for check: {}", e);
-            format!("Failed to access keyring: {}", e)
-        })?;
+    let secrets_db = state_manager.get_secrets_db();
 
-    match entry.get_password() {
-        Ok(key) => {
-            log::info!("[KEYRING] Check found API key in keyring (length: {})", key.len());
+    match secrets_db.get_secret(OPENNEURO_API_KEY_NAME) {
+        Ok(Some(key)) => {
+            log::info!("[SECRETS_DB] Check found API key in encrypted database (length: {})", key.len());
             let preview = if key.len() > 8 {
                 Some(format!("{}...{}", &key[..4], &key[key.len()-4..]))
             } else {
@@ -141,35 +137,39 @@ pub async fn check_openneuro_api_key() -> Result<ApiKeyStatus, String> {
                 key_preview: preview,
             })
         }
-        Err(e) => {
-            log::warn!("[KEYRING] Check found no API key in keyring: {}", e);
+        Ok(None) => {
+            log::info!("[SECRETS_DB] Check found no API key in encrypted database");
             Ok(ApiKeyStatus {
                 has_key: false,
                 key_preview: None,
             })
-        },
+        }
+        Err(e) => {
+            log::warn!("[SECRETS_DB] Check failed: {}", e);
+            Ok(ApiKeyStatus {
+                has_key: false,
+                key_preview: None,
+            })
+        }
     }
 }
 
 #[command]
-pub async fn delete_openneuro_api_key() -> Result<(), String> {
-    log::info!("[KEYRING] delete_openneuro_api_key called");
-    log::info!("[KEYRING] Using SERVICE_NAME: {}, USERNAME: {}", SERVICE_NAME, USERNAME);
+pub async fn delete_openneuro_api_key(
+    state_manager: State<'_, AppStateManager>,
+) -> Result<(), String> {
+    log::info!("[SECRETS_DB] delete_openneuro_api_key called");
 
-    let entry = Entry::new(SERVICE_NAME, USERNAME)
-        .map_err(|e| {
-            log::error!("[KEYRING] Failed to create keyring entry for delete: {}", e);
-            format!("Failed to access keyring: {}", e)
-        })?;
+    let secrets_db = state_manager.get_secrets_db();
 
-    entry
-        .delete_credential()
+    secrets_db
+        .delete_secret(OPENNEURO_API_KEY_NAME)
         .map_err(|e| {
-            log::error!("[KEYRING] Failed to delete API key from keyring: {}", e);
+            log::error!("[SECRETS_DB] Failed to delete API key: {}", e);
             format!("Failed to delete API key: {}", e)
         })?;
 
-    log::info!("[KEYRING] OpenNeuro API key deleted successfully from keyring");
+    log::info!("[SECRETS_DB] OpenNeuro API key deleted successfully from encrypted database");
     Ok(())
 }
 
@@ -635,43 +635,8 @@ pub async fn cancel_openneuro_download(
     Err(format!("No active download found for dataset: {}", dataset_id))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_api_key_lifecycle() {
-        let test_key = "test_api_key_12345";
-
-        let check_result = check_openneuro_api_key().await.unwrap();
-        let initial_has_key = check_result.has_key;
-
-        let save_result = save_openneuro_api_key(test_key.to_string()).await;
-        assert!(save_result.is_ok(), "Failed to save API key");
-
-        let status = check_openneuro_api_key().await.unwrap();
-        assert!(status.has_key, "API key should exist after saving");
-        assert!(status.key_preview.is_some(), "Should have key preview");
-
-        let retrieved_key = get_openneuro_api_key().await.unwrap();
-        assert_eq!(retrieved_key, test_key, "Retrieved key should match saved key");
-
-        let delete_result = delete_openneuro_api_key().await;
-        assert!(delete_result.is_ok(), "Failed to delete API key");
-
-        let final_status = check_openneuro_api_key().await.unwrap();
-        if !initial_has_key {
-            assert!(!final_status.has_key, "API key should not exist after deletion");
-        }
-    }
-
-    #[tokio::test]
-    async fn test_empty_api_key_rejection() {
-        let result = save_openneuro_api_key("".to_string()).await;
-        assert!(result.is_err(), "Should reject empty API key");
-        assert!(result.unwrap_err().contains("cannot be empty"));
-    }
-}
+// Tests are in the secrets_db module since these commands require Tauri State
+// which cannot be easily mocked in unit tests
 
 // ========== UPLOAD FUNCTIONALITY ==========
 
