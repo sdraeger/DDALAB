@@ -35,11 +35,11 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiRea
       await checkStatus()
 
       // Get status to check if server is running
-      const currentStatus = await TauriService.getEmbeddedApiStatus()
+      const currentStatus = await TauriService.getApiStatus()
 
       // Auto-start server if not running
-      if (!currentStatus.running) {
-        console.log('Embedded API not running, auto-starting...')
+      if (!currentStatus) {
+        console.log('Local API not running, auto-starting...')
         await startServer()
       }
     }
@@ -67,22 +67,28 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiRea
 
   const checkStatus = async () => {
     try {
-      const result = await TauriService.getEmbeddedApiStatus()
-      setStatus(result)
-      if (!result.running) {
+      const result = await TauriService.getApiStatus()
+      if (result) {
+        setStatus({ running: true, port: result.port || 8765, url: result.url })
+      } else {
+        setStatus({ running: false, port: 8765 })
         setHealth(null)
       }
     } catch (err) {
-      console.error('Failed to check embedded API status:', err)
+      console.error('Failed to check API status:', err)
     }
   }
 
   const checkHealth = async () => {
     try {
-      const result = await TauriService.checkEmbeddedApiHealth()
-      setHealth(result)
+      const connected = await TauriService.checkApiConnection()
+      setHealth({
+        status: connected ? 'healthy' : 'error',
+        healthy: connected,
+        error: connected ? undefined : 'API not reachable'
+      })
     } catch (err) {
-      console.error('Failed to check embedded API health:', err)
+      console.error('Failed to check API health:', err)
     }
   }
 
@@ -91,7 +97,7 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiRea
       setLoading(true)
       setError(null)
 
-      await TauriService.startEmbeddedApiServer(8765)
+      await TauriService.startLocalApiServer()
 
       // Wait a bit for the server to start
       await new Promise(resolve => setTimeout(resolve, 2000))
@@ -100,7 +106,7 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiRea
       await checkHealth()
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start embedded API server')
+      setError(err instanceof Error ? err.message : 'Failed to start local API server')
     } finally {
       setLoading(false)
     }
@@ -111,12 +117,12 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiRea
       setLoading(true)
       setError(null)
 
-      await TauriService.stopEmbeddedApiServer()
+      await TauriService.stopLocalApiServer()
       await checkStatus()
       setHealth(null)
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to stop embedded API server')
+      setError(err instanceof Error ? err.message : 'Failed to stop local API server')
     } finally {
       setLoading(false)
     }

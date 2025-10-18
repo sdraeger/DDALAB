@@ -203,21 +203,35 @@ export function SettingsPanel() {
     if (!TauriService.isTauri()) return
 
     try {
-      const [status, health] = await Promise.all([
-        TauriService.getEmbeddedApiStatus(),
-        TauriService.checkEmbeddedApiHealth()
+      const [apiStatus, connected] = await Promise.all([
+        TauriService.getApiStatus(),
+        TauriService.checkApiConnection()
       ])
-      setEmbeddedApiStatus(status)
 
-      // Only set error if it's currently unhealthy
-      // Clear error if healthy to avoid showing stale errors
-      if (health.healthy) {
-        setEmbeddedApiHealth({
-          ...health,
-          error: undefined // Explicitly clear any previous errors
+      // Map the API status to the component state format
+      if (apiStatus) {
+        setEmbeddedApiStatus({
+          running: apiStatus.is_local_server_running || false,
+          port: apiStatus.port || 8765,
+          url: apiStatus.url
         })
       } else {
-        setEmbeddedApiHealth(health)
+        setEmbeddedApiStatus({ running: false, port: 8765 })
+      }
+
+      // Update health based on connection status
+      if (connected) {
+        setEmbeddedApiHealth({
+          status: 'healthy',
+          healthy: true,
+          error: undefined
+        })
+      } else {
+        setEmbeddedApiHealth({
+          status: 'error',
+          healthy: false,
+          error: 'API not reachable'
+        })
       }
     } catch (error) {
       console.error('Failed to refresh embedded API status:', error)
@@ -265,9 +279,9 @@ export function SettingsPanel() {
     const autoStartEmbedded = async () => {
       // Re-check status to get latest state
       try {
-        const status = await TauriService.getEmbeddedApiStatus()
-        if (!status.running && TauriService.isTauri()) {
-          await TauriService.startEmbeddedApiServer()
+        const status = await TauriService.getApiStatus()
+        if (!status && TauriService.isTauri()) {
+          await TauriService.startLocalApiServer()
           await new Promise(resolve => setTimeout(resolve, 1000))
           await refreshEmbeddedApiStatus()
         }
@@ -292,11 +306,11 @@ export function SettingsPanel() {
 
     try {
       setIsLoading(true)
-      await TauriService.startEmbeddedApiServer()
+      await TauriService.startLocalApiServer()
       await new Promise(resolve => setTimeout(resolve, 1000))
       await refreshEmbeddedApiStatus()
     } catch (error) {
-      console.error('Failed to start embedded API:', error)
+      console.error('Failed to start local API:', error)
     } finally {
       setIsLoading(false)
     }
@@ -307,10 +321,10 @@ export function SettingsPanel() {
 
     try {
       setIsLoading(true)
-      await TauriService.stopEmbeddedApiServer()
+      await TauriService.stopLocalApiServer()
       await refreshEmbeddedApiStatus()
     } catch (error) {
-      console.error('Failed to stop embedded API:', error)
+      console.error('Failed to stop local API:', error)
     } finally {
       setIsLoading(false)
     }
