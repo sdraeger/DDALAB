@@ -37,7 +37,7 @@ import {
   Trash2,
   Cloud
 } from 'lucide-react'
-import { TauriService } from '@/services/tauriService'
+import { TauriService, NotificationType } from '@/services/tauriService'
 
 interface DDAAnalysisProps {
   apiService: ApiService
@@ -154,11 +154,6 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const [isSubmittingToNsg, setIsSubmittingToNsg] = useState(false)
   const [nsgError, setNsgError] = useState<string | null>(null)
   const [nsgSubmissionPhase, setNsgSubmissionPhase] = useState<string>('')
-  const [nsgResources, setNsgResources] = useState({
-    runtimeHours: 1.0,
-    cores: 1,
-    nodes: 1
-  })
 
   // Derive history state from TanStack Query
   const historyError = historyErrorObj ? (historyErrorObj as Error).message : null
@@ -324,10 +319,18 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
   // Sync local results with current analysis from store
   // Track when results are loaded from persistence vs fresh analysis
+  // Skip NSG results - they should only show in main Results tab
   useEffect(() => {
     if (currentAnalysis && !results) {
-      setResults(currentAnalysis)
-      setResultsFromPersistence(true)
+      // Check if this is an NSG result (has source: 'nsg' marker)
+      const isNSGResult = (currentAnalysis as any).source === 'nsg'
+
+      if (!isNSGResult) {
+        setResults(currentAnalysis)
+        setResultsFromPersistence(true)
+      } else {
+        console.log('[DDAAnalysis] Skipping local results sync for NSG result')
+      }
     }
   }, [currentAnalysis, results])
 
@@ -354,12 +357,11 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
       console.log('[DDAAnalysis] Received NSG results:', { jobId, resultsData })
 
-      // Load the results into the current analysis
+      // For NSG results: ONLY update the global store (main Results tab)
+      // Do NOT set local results (prevents showing in DDA Analysis → Results sub-tab)
       if (resultsData) {
-        setResults(resultsData)
         setCurrentAnalysis(resultsData)
-        setResultsFromPersistence(false)
-        console.log('[DDAAnalysis] NSG results loaded into viewer')
+        console.log('[DDAAnalysis] NSG results loaded to global store (main Results tab only)')
       }
     }
 
@@ -369,20 +371,6 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       window.removeEventListener('load-nsg-results', handleNSGResults)
     }
   }, [setCurrentAnalysis])
-
-  // Listen for navigation events from NSG Job Manager
-  useEffect(() => {
-    const handleNavigateToResults = () => {
-      console.log('[DDAAnalysis] Navigating to Results tab')
-      setActiveTab('results')
-    }
-
-    window.addEventListener('navigate-to-results-tab', handleNavigateToResults)
-
-    return () => {
-      window.removeEventListener('navigate-to-results-tab', handleNavigateToResults)
-    }
-  }, [])
 
   const availableVariants = [
     { id: 'single_timeseries', name: 'Single Timeseries (ST)', description: 'Standard temporal dynamics analysis' },
@@ -464,6 +452,20 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       ct_window_step: parameters.ctWindowStep,
       ct_channel_pairs: ctChannelPairs
     }
+
+    // Convert channel names to indices for comparison
+    const channelIndices = parameters.selectedChannels.map(ch =>
+      typeof ch === 'string' ? fileManager.selectedFile!.channels.indexOf(ch) : ch
+    )
+
+    console.log('📋 [LOCAL] DDA Analysis Parameters:')
+    console.log(`   File: ${fileManager.selectedFile.file_path}`)
+    console.log(`   Sample rate: ${fileManager.selectedFile.sample_rate} Hz`)
+    console.log(`   Channels (names): [${request.channels.join(', ')}]`)
+    console.log(`   Channels (indices): [${channelIndices.join(', ')}]`)
+    console.log(`   Time range: ${request.start_time} - ${request.end_time} seconds`)
+    console.log(`   Window: length=${request.window_length}, step=${request.window_step}`)
+    console.log(`   Scale: min=${request.scale_min}, max=${request.scale_max}, num=${request.scale_num}`)
 
     // Record DDA parameters if recording is active
     if (workflowRecording.isRecording) {
@@ -616,19 +618,25 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           : null
       }
 
-      console.log('[NSG] Submitting job with request:', request)
-      console.log('[NSG] Resource config:', nsgResources)
+      // Map channel indices back to names for display
+      const channelNames = request.channels.map(idx => selectedFile.channels[idx] || `Unknown(${idx})`)
+
+      console.log('📋 [NSG] DDA Analysis Parameters:')
+      console.log(`   File: ${selectedFile.file_path}`)
+      console.log(`   Sample rate: ${selectedFile.sample_rate} Hz`)
+      console.log(`   Channels (indices): [${request.channels.join(', ')}]`)
+      console.log(`   Channels (names): [${channelNames.join(', ')}]`)
+      console.log(`   Time range: ${request.time_range.start} - ${request.time_range.end} seconds`)
+      console.log(`   Window: length=${request.window_parameters.window_length}, step=${request.window_parameters.window_step}`)
+      console.log(`   Scale: min=${request.scale_parameters.scale_min}, max=${request.scale_parameters.scale_max}, num=${request.scale_parameters.scale_num}`)
 
       setNsgSubmissionPhase('Creating job in database...')
 
-      // Create NSG job with PY_EXPANSE tool and resource configuration
+      // Create NSG job with PY_EXPANSE tool (resource params not used by NSG)
       const jobId = await TauriService.createNSGJob(
         'PY_EXPANSE',
         request,
-        selectedFile.file_path,
-        nsgResources.runtimeHours,
-        nsgResources.cores,
-        nsgResources.nodes
+        selectedFile.file_path
       )
 
       console.log('[NSG] Job created with ID:', jobId)
@@ -643,7 +651,14 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       setNsgSubmissionPhase('')
       setIsSubmittingToNsg(false)
 
-      alert(`Successfully submitted job to NSG!\n\nJob ID: ${jobId}\n\nYou can track its progress in the NSG Job Manager.`)
+      // Show native notification instead of alert dialog
+      await TauriService.createNotification(
+        'NSG Job Submitted',
+        `Job successfully submitted to Neuroscience Gateway. Job ID: ${jobId.substring(0, 8)}...`,
+        NotificationType.Success,
+        'navigate_nsg_manager',
+        { jobId }
+      )
     } catch (error) {
       console.error('[NSG] Submission error:', error)
       console.error('[NSG] Error details:', {
@@ -785,86 +800,6 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           </Alert>
         )}
 
-        {TauriService.isTauri() && hasNsgCredentials && (
-          <Card className="mt-4">
-            <CardHeader>
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Cloud className="h-4 w-4" />
-                NSG Resource Configuration
-              </CardTitle>
-              <CardDescription>
-                Configure compute resources for HPC cluster job execution
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="nsg-runtime" className="text-sm">
-                    Runtime (hours)
-                  </Label>
-                  <span className="text-sm font-mono text-muted-foreground">
-                    {nsgResources.runtimeHours}h
-                  </span>
-                </div>
-                <Slider
-                  id="nsg-runtime"
-                  min={0.5}
-                  max={48}
-                  step={0.5}
-                  value={[nsgResources.runtimeHours]}
-                  onValueChange={([value]) => setNsgResources(prev => ({ ...prev, runtimeHours: value }))}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Maximum wall time for job execution (max: 48h for EXPANSE)
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="nsg-cores" className="text-sm">
-                    CPU Cores
-                  </Label>
-                  <span className="text-sm font-mono text-muted-foreground">
-                    {nsgResources.cores} cores
-                  </span>
-                </div>
-                <Slider
-                  id="nsg-cores"
-                  min={1}
-                  max={128}
-                  step={1}
-                  value={[nsgResources.cores]}
-                  onValueChange={([value]) => setNsgResources(prev => ({ ...prev, cores: value }))}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Number of CPU cores for parallel processing (max: 128 for EXPANSE)
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="nsg-nodes" className="text-sm">
-                    Compute Nodes
-                  </Label>
-                  <span className="text-sm font-mono text-muted-foreground">
-                    {nsgResources.nodes} node{nsgResources.nodes > 1 ? 's' : ''}
-                  </span>
-                </div>
-                <Slider
-                  id="nsg-nodes"
-                  min={1}
-                  max={4}
-                  step={1}
-                  value={[nsgResources.nodes]}
-                  onValueChange={([value]) => setNsgResources(prev => ({ ...prev, nodes: value }))}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Number of compute nodes (typically 1 for single-node jobs)
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         <TabsContent value="parameters" className="flex-1 space-y-4">
           {/* Analysis Status - only show for active/recent analysis, not restored from persistence */}

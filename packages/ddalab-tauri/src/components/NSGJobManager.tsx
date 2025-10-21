@@ -55,6 +55,7 @@ export function NSGJobManager() {
     jobId: string
     numChannels: number
   } | null>(null)
+  const [previousJobStatuses, setPreviousJobStatuses] = useState<Map<string, NSGJobStatus>>(new Map())
 
   useEffect(() => {
     if (!TauriService.isTauri()) return
@@ -93,6 +94,47 @@ export function NSGJobManager() {
     try {
       setError(null)
       const allJobs = await TauriService.listNSGJobs()
+
+      // Check for status changes and fire notifications for completed jobs
+      const newStatuses = new Map<string, NSGJobStatus>()
+      for (const job of allJobs) {
+        newStatuses.set(job.id, job.status)
+
+        const previousStatus = previousJobStatuses.get(job.id)
+
+        // Fire notification if job just completed
+        if (previousStatus && previousStatus !== NSGJobStatus.Completed && job.status === NSGJobStatus.Completed) {
+          try {
+            await TauriService.createNotification(
+              'NSG Job Completed',
+              `Job ${job.id.substring(0, 8)}... has finished successfully. Results are ready to download.`,
+              'Success' as any,
+              'navigate_nsg_manager',
+              { jobId: job.id }
+            )
+          } catch (notifError) {
+            console.error('[NSG] Failed to create completion notification:', notifError)
+          }
+        }
+
+        // Fire notification if job failed
+        if (previousStatus && previousStatus !== NSGJobStatus.Failed && job.status === NSGJobStatus.Failed) {
+          try {
+            await TauriService.createNotification(
+              'NSG Job Failed',
+              `Job ${job.id.substring(0, 8)}... has failed. Check the job details for more information.`,
+              'Error' as any,
+              'navigate_nsg_manager',
+              { jobId: job.id }
+            )
+          } catch (notifError) {
+            console.error('[NSG] Failed to create failure notification:', notifError)
+          }
+        }
+      }
+
+      setPreviousJobStatuses(newStatuses)
+
       setJobs(allJobs.sort((a, b) =>
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       ))
@@ -271,22 +313,67 @@ export function NSGJobManager() {
 
         console.log('[NSG] ✅ Parsed results data successfully:', {
           hasQMatrix: !!resultsData.q_matrix,
+          qMatrixType: Array.isArray(resultsData.q_matrix) ? 'array' : 'object',
           numChannels: resultsData.num_channels,
           numTimepoints: resultsData.num_timepoints,
-          qMatrixKeys: resultsData.q_matrix ? Object.keys(resultsData.q_matrix).slice(0, 5) : []
+          parameters: resultsData.parameters
         })
 
-        // Generate scales array if not present (time points for x-axis)
-        // NSG results may not include scales, so we generate based on num_timepoints
-        const scales = resultsData.scales || Array.from(
-          { length: resultsData.num_timepoints || 0 },
-          (_, i) => i
-        )
+        // NSG returns q_matrix as 2D array [[...], [...]] (channels × timepoints)
+        // We need to convert to {channel_name: [...]} format
+        const channelIndices = resultsData.parameters?.channels || []
+        const qMatrixArray = Array.isArray(resultsData.q_matrix)
+          ? resultsData.q_matrix
+          : Object.values(resultsData.q_matrix)
 
-        // Extract channel list from q_matrix keys
-        const channels = resultsData.q_matrix
-          ? Object.keys(resultsData.q_matrix)
-          : (resultsData.parameters?.channels || [])
+        console.log('[NSG] Channel indices from params:', channelIndices)
+        console.log('[NSG] Q matrix array length:', qMatrixArray.length)
+
+        // Convert 2D array to map format
+        // IMPORTANT: Channel indices can be 0, which is falsy in JavaScript!
+        // Use explicit undefined check instead of ||
+        const ddaMatrix: Record<string, number[]> = {}
+        const channels: string[] = []
+
+        // Use channel names from EDF if available, otherwise fall back to generic names
+        const channelNamesFromEdf = resultsData.channel_names || []
+
+        qMatrixArray.forEach((channelData: number[], index: number) => {
+          // Get channel index or use the iteration index as fallback
+          const channelIndex = channelIndices[index] !== undefined ? channelIndices[index] : index
+
+          // Use actual channel name from EDF if available, otherwise use generic name
+          const channelName = channelNamesFromEdf[index] || `Ch ${channelIndex + 1}`
+
+          ddaMatrix[channelName] = channelData
+          channels.push(channelName)
+        })
+
+        console.log('[NSG] Using channel names:', channels)
+
+        // Sample some values to check data range
+        const firstChannel = Object.keys(ddaMatrix)[0]
+        const firstChannelData = ddaMatrix[firstChannel]
+        const sampleValues = firstChannelData?.slice(0, 10) || []
+        const allValues = Object.values(ddaMatrix).flat()
+        const minVal = Math.min(...allValues)
+        const maxVal = Math.max(...allValues)
+
+        console.log('[NSG] Converted q_matrix to dda_matrix:', {
+          numChannels: Object.keys(ddaMatrix).length,
+          channels: Object.keys(ddaMatrix),
+          firstChannelLength: firstChannelData?.length,
+          sampleValues: sampleValues,
+          dataRange: { min: minVal, max: maxVal }
+        })
+
+        // Generate scales array (actual time values, not just indices)
+        // Match local results format: 0.0, 0.1, 0.2, ...
+        const numTimepoints = resultsData.num_timepoints || qMatrixArray[0]?.length || 0
+        const scales = resultsData.scales || Array.from(
+          { length: numTimepoints },
+          (_, i) => i * 0.1  // Match local results: time in 0.1s increments
+        )
 
         // Transform NSG results to match DDA Results component expected format
         // DDAResults expects: result.results.variants to be an ARRAY of variant objects
@@ -296,15 +383,16 @@ export function NSGJobManager() {
               {
                 variant_id: 'single_timeseries',
                 variant_name: 'NSG Results',
-                dda_matrix: resultsData.q_matrix || {},  // {channel: [values]}
+                dda_matrix: ddaMatrix,  // {channel: [values]}
                 exponents: resultsData.exponents || {},
                 quality_metrics: resultsData.quality_metrics || {}
               }
             ],
             scales: scales,  // Required: x-axis values for plots
-            Q: resultsData.q_matrix,
+            Q: qMatrixArray,  // Original 2D array format
             channels: channels,
-            plot_data: resultsData.q_matrix,
+            plot_data: qMatrixArray,  // Original 2D array format
+            dda_matrix: ddaMatrix,  // Also add at top level for backward compatibility
             metadata: {
               input_file: resultsData.parameters?.input_file,
               time_range: resultsData.parameters?.time_range,
@@ -314,14 +402,15 @@ export function NSGJobManager() {
               },
               scale_parameters: resultsData.parameters?.scale_parameters,
               num_channels: resultsData.num_channels,
-              num_timepoints: resultsData.num_timepoints
+              num_timepoints: numTimepoints
             }
           },
           parameters: resultsData.parameters,
           channels: channels,  // Top-level channels for metadata display
           name: `NSG Job ${jobId.slice(0, 8)}`,
           id: jobId,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          source: 'nsg'  // Mark as NSG source
         }
 
         console.log('[NSG] Transformed results for viewer:', {
@@ -438,14 +527,8 @@ export function NSGJobManager() {
   }
 
   const handleNavigateToResults = () => {
-    // First navigate to the DDA Analysis tab in the main layout
-    window.dispatchEvent(new CustomEvent('navigate-to-dda-analysis'))
-
-    // Then navigate to Results tab within DDA Analysis (small delay to ensure DDA Analysis is mounted)
-    setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('navigate-to-results-tab'))
-    }, 100)
-
+    // Navigate to the main Dashboard Results tab, not the DDA Analysis tab
+    window.dispatchEvent(new CustomEvent('navigate-to-main-results'))
     setSuccessDialog(null)
   }
 
@@ -656,15 +739,17 @@ export function NSGJobManager() {
               <CheckCircle className="h-5 w-5 text-green-500" />
               NSG Results Loaded Successfully!
             </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2">
-              <div className="text-sm">
-                <strong>Job ID:</strong> {successDialog?.jobId}
-              </div>
-              <div className="text-sm">
-                <strong>Channels Analyzed:</strong> {successDialog?.numChannels}
-              </div>
-              <div className="text-sm text-muted-foreground mt-4">
-                Your results have been loaded and are ready to view in the DDA Analysis panel.
+            <AlertDialogDescription>
+              <div className="space-y-2">
+                <div className="text-sm">
+                  <strong>Job ID:</strong> {successDialog?.jobId}
+                </div>
+                <div className="text-sm">
+                  <strong>Channels Analyzed:</strong> {successDialog?.numChannels}
+                </div>
+                <div className="text-sm text-muted-foreground mt-4">
+                  Your results have been loaded and are ready to view in the DDA Analysis panel.
+                </div>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
