@@ -18,6 +18,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { ChannelSelector } from '@/components/ChannelSelector'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
@@ -33,8 +34,10 @@ import {
   Brain,
   RefreshCw,
   Pencil,
-  Trash2
+  Trash2,
+  Cloud
 } from 'lucide-react'
+import { TauriService } from '@/services/tauriService'
 
 interface DDAAnalysisProps {
   apiService: ApiService
@@ -94,6 +97,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const deleteAnalysisMutation = useDeleteAnalysis(apiService)
   const renameAnalysisMutation = useRenameAnalysis(apiService)
 
+  // Tab state for navigation
+  const [activeTab, setActiveTab] = useState('parameters')
+
   // Track progress from Tauri events for the current analysis
   const progressEvent = useDDAProgress(
     submitAnalysisMutation.data?.id,
@@ -142,6 +148,17 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const [resultsFromPersistence, setResultsFromPersistence] = useState(false)
   const [renamingAnalysisId, setRenamingAnalysisId] = useState<string | null>(null)
   const [newAnalysisName, setNewAnalysisName] = useState('')
+
+  // NSG submission state
+  const [hasNsgCredentials, setHasNsgCredentials] = useState(false)
+  const [isSubmittingToNsg, setIsSubmittingToNsg] = useState(false)
+  const [nsgError, setNsgError] = useState<string | null>(null)
+  const [nsgSubmissionPhase, setNsgSubmissionPhase] = useState<string>('')
+  const [nsgResources, setNsgResources] = useState({
+    runtimeHours: 1.0,
+    cores: 1,
+    nodes: 1
+  })
 
   // Derive history state from TanStack Query
   const historyError = historyErrorObj ? (historyErrorObj as Error).message : null
@@ -314,6 +331,59 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     }
   }, [currentAnalysis, results])
 
+  // Check for NSG credentials on mount
+  useEffect(() => {
+    const checkNsgCredentials = async () => {
+      if (!TauriService.isTauri()) return
+      try {
+        const hasCreds = await TauriService.hasNSGCredentials()
+        setHasNsgCredentials(hasCreds)
+      } catch (error) {
+        console.error('Failed to check NSG credentials:', error)
+      }
+    }
+
+    checkNsgCredentials()
+  }, [])
+
+  // Listen for NSG results being loaded
+  useEffect(() => {
+    const handleNSGResults = (event: Event) => {
+      const customEvent = event as CustomEvent
+      const { jobId, resultsData } = customEvent.detail
+
+      console.log('[DDAAnalysis] Received NSG results:', { jobId, resultsData })
+
+      // Load the results into the current analysis
+      if (resultsData) {
+        setResults(resultsData)
+        setCurrentAnalysis(resultsData)
+        setResultsFromPersistence(false)
+        console.log('[DDAAnalysis] NSG results loaded into viewer')
+      }
+    }
+
+    window.addEventListener('load-nsg-results', handleNSGResults)
+
+    return () => {
+      window.removeEventListener('load-nsg-results', handleNSGResults)
+    }
+  }, [setCurrentAnalysis])
+
+  // Listen for navigation events from NSG Job Manager
+  useEffect(() => {
+    const handleNavigateToResults = () => {
+      console.log('[DDAAnalysis] Navigating to Results tab')
+      setActiveTab('results')
+    }
+
+    window.addEventListener('navigate-to-results-tab', handleNavigateToResults)
+
+    return () => {
+      window.removeEventListener('navigate-to-results-tab', handleNavigateToResults)
+    }
+  }, [])
+
   const availableVariants = [
     { id: 'single_timeseries', name: 'Single Timeseries (ST)', description: 'Standard temporal dynamics analysis' },
     { id: 'cross_timeseries', name: 'Cross Timeseries (CT)', description: 'Inter-channel relationship analysis' },
@@ -481,6 +551,112 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     })
   }
 
+  const submitToNSG = async () => {
+    if (!TauriService.isTauri()) {
+      setNsgError('NSG submission is only available in the Tauri desktop application')
+      return
+    }
+
+    if (!fileManager.selectedFile || parameters.selectedChannels.length === 0) {
+      setNsgError('Please select a file and at least one channel')
+      return
+    }
+
+    if (!hasNsgCredentials) {
+      setNsgError('Please configure NSG credentials in Settings first')
+      return
+    }
+
+    try {
+      setIsSubmittingToNsg(true)
+      setNsgError(null)
+      setNsgSubmissionPhase('Preparing job parameters...')
+
+      // Build DDA request parameters in the format expected by Rust DDARequest struct
+      // Note: fileManager.selectedFile is guaranteed to be non-null by the check above
+      const selectedFile = fileManager.selectedFile!
+      const request = {
+        file_path: selectedFile.file_path,
+        channels: parameters.selectedChannels.length > 0
+          ? parameters.selectedChannels.map(ch => {
+              const channelIndex = selectedFile.channels.indexOf(ch)
+              return channelIndex >= 0 ? channelIndex : 0
+            })
+          : null,
+        time_range: {
+          start: parameters.timeStart,
+          end: parameters.timeEnd
+        },
+        preprocessing_options: {
+          detrending: parameters.detrending !== 'none' ? parameters.detrending : null,
+          highpass: parameters.preprocessing.highpass || null,
+          lowpass: parameters.preprocessing.lowpass || null
+        },
+        algorithm_selection: {
+          enabled_variants: parameters.variants,
+          select_mask: null
+        },
+        window_parameters: {
+          window_length: parameters.windowLength,
+          window_step: parameters.windowStep,
+          ct_window_length: parameters.ctWindowLength || null,
+          ct_window_step: parameters.ctWindowStep || null
+        },
+        scale_parameters: {
+          scale_min: parameters.scaleMin,
+          scale_max: parameters.scaleMax,
+          scale_num: parameters.scaleNum
+        },
+        ct_channel_pairs: parameters.ctChannelPairs?.length > 0
+          ? parameters.ctChannelPairs.map(pair => {
+              const idx0 = selectedFile.channels.indexOf(pair[0])
+              const idx1 = selectedFile.channels.indexOf(pair[1])
+              return [idx0 >= 0 ? idx0 : 0, idx1 >= 0 ? idx1 : 0]
+            })
+          : null
+      }
+
+      console.log('[NSG] Submitting job with request:', request)
+      console.log('[NSG] Resource config:', nsgResources)
+
+      setNsgSubmissionPhase('Creating job in database...')
+
+      // Create NSG job with PY_EXPANSE tool and resource configuration
+      const jobId = await TauriService.createNSGJob(
+        'PY_EXPANSE',
+        request,
+        selectedFile.file_path,
+        nsgResources.runtimeHours,
+        nsgResources.cores,
+        nsgResources.nodes
+      )
+
+      console.log('[NSG] Job created with ID:', jobId)
+
+      setNsgSubmissionPhase('Uploading file to NSG (this may take a few minutes for large files)...')
+
+      // Submit the job to NSG
+      await TauriService.submitNSGJob(jobId)
+
+      console.log('[NSG] Job submitted successfully')
+
+      setNsgSubmissionPhase('')
+      setIsSubmittingToNsg(false)
+
+      alert(`Successfully submitted job to NSG!\n\nJob ID: ${jobId}\n\nYou can track its progress in the NSG Job Manager.`)
+    } catch (error) {
+      console.error('[NSG] Submission error:', error)
+      console.error('[NSG] Error details:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        error
+      })
+      setNsgError(error instanceof Error ? error.message : 'Failed to submit job to NSG')
+      setNsgSubmissionPhase('')
+      setIsSubmittingToNsg(false)
+    }
+  }
+
   const resetParameters = () => {
     // Calculate default window length based on sampling rate (0.25 seconds)
     const defaultWindowLength = fileManager.selectedFile
@@ -536,7 +712,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
   return (
     <div className="h-full flex flex-col space-y-4 overflow-y-auto">
-      <Tabs defaultValue="parameters" className="flex-1 flex flex-col">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
         <div className="flex items-center justify-between">
           <TabsList>
             <TabsTrigger value="parameters">Parameters</TabsTrigger>
@@ -572,8 +748,123 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                 </>
               )}
             </Button>
+            {TauriService.isTauri() && hasNsgCredentials && (
+              <Button
+                onClick={submitToNSG}
+                disabled={isSubmittingToNsg || localIsRunning || parameters.selectedChannels.length === 0}
+                variant="outline"
+                className="min-w-[140px]"
+              >
+                {isSubmittingToNsg ? (
+                  <>
+                    <Cloud className="h-4 w-4 mr-2 animate-pulse" />
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <Cloud className="h-4 w-4 mr-2" />
+                    Submit to NSG
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         </div>
+
+        {nsgSubmissionPhase && (
+          <Alert className="mt-4">
+            <Cloud className="h-4 w-4 animate-pulse" />
+            <AlertDescription>{nsgSubmissionPhase}</AlertDescription>
+          </Alert>
+        )}
+
+        {nsgError && (
+          <Alert variant="destructive" className="mt-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{nsgError}</AlertDescription>
+          </Alert>
+        )}
+
+        {TauriService.isTauri() && hasNsgCredentials && (
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Cloud className="h-4 w-4" />
+                NSG Resource Configuration
+              </CardTitle>
+              <CardDescription>
+                Configure compute resources for HPC cluster job execution
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="nsg-runtime" className="text-sm">
+                    Runtime (hours)
+                  </Label>
+                  <span className="text-sm font-mono text-muted-foreground">
+                    {nsgResources.runtimeHours}h
+                  </span>
+                </div>
+                <Slider
+                  id="nsg-runtime"
+                  min={0.5}
+                  max={48}
+                  step={0.5}
+                  value={[nsgResources.runtimeHours]}
+                  onValueChange={([value]) => setNsgResources(prev => ({ ...prev, runtimeHours: value }))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Maximum wall time for job execution (max: 48h for EXPANSE)
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="nsg-cores" className="text-sm">
+                    CPU Cores
+                  </Label>
+                  <span className="text-sm font-mono text-muted-foreground">
+                    {nsgResources.cores} cores
+                  </span>
+                </div>
+                <Slider
+                  id="nsg-cores"
+                  min={1}
+                  max={128}
+                  step={1}
+                  value={[nsgResources.cores]}
+                  onValueChange={([value]) => setNsgResources(prev => ({ ...prev, cores: value }))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Number of CPU cores for parallel processing (max: 128 for EXPANSE)
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="nsg-nodes" className="text-sm">
+                    Compute Nodes
+                  </Label>
+                  <span className="text-sm font-mono text-muted-foreground">
+                    {nsgResources.nodes} node{nsgResources.nodes > 1 ? 's' : ''}
+                  </span>
+                </div>
+                <Slider
+                  id="nsg-nodes"
+                  min={1}
+                  max={4}
+                  step={1}
+                  value={[nsgResources.nodes]}
+                  onValueChange={([value]) => setNsgResources(prev => ({ ...prev, nodes: value }))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Number of compute nodes (typically 1 for single-node jobs)
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <TabsContent value="parameters" className="flex-1 space-y-4">
           {/* Analysis Status - only show for active/recent analysis, not restored from persistence */}

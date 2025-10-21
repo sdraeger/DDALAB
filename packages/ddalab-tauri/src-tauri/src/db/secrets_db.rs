@@ -159,6 +159,67 @@ impl SecretsDatabase {
 
         Ok(keys)
     }
+
+    pub fn save_nsg_credentials(&self, username: &str, password: &str, app_key: &str) -> Result<()> {
+        let credentials_json = serde_json::json!({
+            "username": username,
+            "password": password,
+            "app_key": app_key
+        });
+
+        let credentials_str = serde_json::to_string(&credentials_json)
+            .context("Failed to serialize NSG credentials")?;
+
+        self.set_secret("nsg_credentials", &credentials_str)
+            .context("Failed to store NSG credentials")?;
+
+        log::info!("[SECRETS_DB] Stored NSG credentials for user: {}", username);
+        Ok(())
+    }
+
+    pub fn get_nsg_credentials(&self) -> Result<Option<(String, String, String)>> {
+        let credentials_str = self.get_secret("nsg_credentials")
+            .context("Failed to retrieve NSG credentials")?;
+
+        match credentials_str {
+            Some(json_str) => {
+                let credentials: serde_json::Value = serde_json::from_str(&json_str)
+                    .context("Failed to parse NSG credentials")?;
+
+                let username = credentials["username"].as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing username in NSG credentials"))?
+                    .to_string();
+
+                let password = credentials["password"].as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing password in NSG credentials"))?
+                    .to_string();
+
+                let app_key = credentials["app_key"].as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing app_key in NSG credentials"))?
+                    .to_string();
+
+                log::info!("[SECRETS_DB] Retrieved NSG credentials for user: {}", username);
+                Ok(Some((username, password, app_key)))
+            }
+            None => {
+                log::info!("[SECRETS_DB] No NSG credentials found");
+                Ok(None)
+            }
+        }
+    }
+
+    pub fn delete_nsg_credentials(&self) -> Result<()> {
+        self.delete_secret("nsg_credentials")
+            .context("Failed to delete NSG credentials")?;
+
+        log::info!("[SECRETS_DB] Deleted NSG credentials");
+        Ok(())
+    }
+
+    pub fn has_nsg_credentials(&self) -> Result<bool> {
+        self.has_secret("nsg_credentials")
+            .context("Failed to check NSG credentials existence")
+    }
 }
 
 #[cfg(test)]

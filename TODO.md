@@ -362,6 +362,447 @@ npm run tauri:dev
      - Job history log
      - Cost/resource usage estimates
 
+## NSG (Neuroscience Gateway) HPC Integration (IN PROGRESS - January 2025)
+
+**Goal**: Enable DDALAB to submit DDA analysis jobs to the Neuroscience Gateway HPC cluster at SDSC, allowing large-scale computations on supercomputers instead of local machines.
+
+**Grant Alignment**: Part of NIH/NSF grant proposal to integrate DDALAB with NSG for high-performance computing access.
+
+**Current State**: ✅ Core infrastructure complete. ❌ Frontend UI and Tauri commands needed.
+
+### Implementation Status
+
+#### Phase 1: Core NSG Infrastructure (✅ COMPLETED - January 2025)
+
+- [x] **NSG API Client** ([src/nsg/client.rs](packages/ddalab-tauri/src-tauri/src/nsg/client.rs))
+  - HTTP Basic Auth + API Key authentication
+  - Job submission with multipart file uploads
+  - Job status polling (GET /job/{username}/{jobId})
+  - Result file downloads
+  - Job cancellation (DELETE /job/{username}/{jobId})
+  - Connection testing
+  - List user jobs
+  - Base URL: `https://nsgr.sdsc.edu:8443/cipresrest/v1`
+
+- [x] **Job Database** ([src/db/nsg_jobs_db.rs](packages/ddalab-tauri/src-tauri/src/db/nsg_jobs_db.rs))
+  - SQLite schema with 7 job statuses (Pending, Submitted, Queue, Running, Completed, Failed, Cancelled)
+  - Job CRUD operations (save, update, get, list, delete)
+  - Active job queries (submitted/queue/running)
+  - Job timestamps (created_at, submitted_at, completed_at, last_polled)
+  - DDA parameters stored as JSON
+  - Output files tracking
+
+- [x] **Job Manager** ([src/nsg/job_manager.rs](packages/ddalab-tauri/src-tauri/src/nsg/job_manager.rs))
+  - Create jobs from DDA parameters
+  - Submit jobs to NSG API
+  - Update job status from NSG
+  - Cancel running jobs
+  - Download results to local disk
+  - Convert DDA params to NSG tool parameters
+  - Package jobs as ZIP files (Python wrapper + data + params)
+
+- [x] **Background Poller** ([src/nsg/poller.rs](packages/ddalab-tauri/src-tauri/src/nsg/poller.rs))
+  - Automatic polling of active jobs
+  - Configurable poll intervals (default: 5 min, fast: 1 min for recent jobs)
+  - Fast polling for recently submitted jobs (< 10 minutes old)
+  - Error handling with retry limits (max 5 errors per round)
+  - Start/stop control
+  - Polling status tracking
+
+- [x] **Secure Credentials Storage** ([src/db/secrets_db.rs](packages/ddalab-tauri/src-tauri/src/db/secrets_db.rs))
+  - Encrypted NSG credentials (username, password, app_key)
+  - Machine-specific AES-256-GCM encryption
+  - No password prompts (derived from machine ID)
+  - Save/get/delete/check NSG credentials
+
+- [x] **Python Wrapper for NSG Execution** ([nsg_wrapper/run_dda_nsg.py](nsg_wrapper/run_dda_nsg.py))
+  - Downloads DDA binary from GitHub releases
+  - Executes DDA with user parameters
+  - Returns results as JSON
+  - Handles Linux/macOS platforms
+  - Error handling and timeout (1 hour limit)
+
+- [x] **Job Packaging** ([src/nsg/job_manager.rs:242-320](packages/ddalab-tauri/src-tauri/src/nsg/job_manager.rs#L242-L320))
+  - Creates ZIP packages: wrapper script + EDF file + params.json
+  - Automatic file permissions (executable Python script)
+  - Cleans up temporary directories
+  - Ready for NSG submission (tool: "PY_EXPANSE" or "GPU_PY_EXPANSE")
+
+- [x] **Dependencies Added**
+  - `reqwest` with `multipart` feature (HTTP client)
+  - `zip = "2.2"` (ZIP file creation)
+  - Existing: `walkdir`, `anyhow`, `tokio`, `serde_json`
+
+#### Phase 2: NSG Job Workflow (❌ NOT STARTED)
+
+**How NSG Execution Works:**
+
+Since DDA is not yet a pre-installed NSG tool, we use a **Python wrapper approach**:
+
+1. **Local Job Creation**: User selects DDA parameters → DDALAB creates NSGJob
+2. **Job Packaging**: DDALAB packages as ZIP:
+   ```
+   job_abc123.zip
+   ├── run_dda_nsg.py      # Python wrapper (downloads DDA binary)
+   ├── recording.edf       # User's EDF file
+   └── params.json         # DDA parameters (channels, window, scales, etc.)
+   ```
+3. **Submission**: Upload ZIP to NSG via REST API (tool: `"PY_EXPANSE"`)
+4. **Remote Execution**: NSG HPC cluster (EXPANSE):
+   - Runs `run_dda_nsg.py`
+   - Script downloads `run_DDA_AsciiEdf` from GitHub releases
+   - Script executes DDA analysis
+   - Results saved as `dda_results.json`
+5. **Polling**: Background poller checks job status every 5 minutes
+6. **Result Retrieval**: When completed, download `dda_results.json`
+7. **Import**: Convert to DDAResult and add to analysis history
+
+**Alternative: Official NSG Tool Installation** (Future)
+- Contact `nsghelp@sdsc.edu` to install DDA as official tool
+- Simplifies to: Submit job → NSG runs DDA directly → Download results
+- No wrapper script needed
+
+**Implementation Tasks:**
+
+- [ ] **Extend AppStateManager** ([src/state_manager.rs](packages/ddalab-tauri/src-tauri/src/state_manager.rs))
+  - Add `nsg_job_manager: Option<Arc<NSGJobManager>>`
+  - Add `nsg_poller: Option<Arc<NSGJobPoller>>`
+  - Add `nsg_jobs_db: Arc<NSGJobsDatabase>`
+  - Initialize in `new()` if NSG credentials exist
+  - Store poller JoinHandle for cleanup
+
+- [ ] **Create Tauri Commands** ([src/commands/nsg_commands.rs](packages/ddalab-tauri/src-tauri/src/commands/nsg_commands.rs))
+  ```rust
+  #[tauri::command]
+  async fn nsg_save_credentials(username: String, password: String, app_key: String) -> Result<(), String>
+
+  #[tauri::command]
+  async fn nsg_get_credentials() -> Result<Option<(String, String, String)>, String>
+
+  #[tauri::command]
+  async fn nsg_test_connection() -> Result<bool, String>
+
+  #[tauri::command]
+  async fn nsg_create_job(tool: String, dda_params: DDARequest, input_file: String) -> Result<NSGJob, String>
+
+  #[tauri::command]
+  async fn nsg_submit_job(job_id: String) -> Result<NSGJob, String>
+
+  #[tauri::command]
+  async fn nsg_list_jobs() -> Result<Vec<NSGJob>, String>
+
+  #[tauri::command]
+  async fn nsg_get_job(job_id: String) -> Result<Option<NSGJob>, String>
+
+  #[tauri::command]
+  async fn nsg_update_job_status(job_id: String) -> Result<NSGJob, String>
+
+  #[tauri::command]
+  async fn nsg_cancel_job(job_id: String) -> Result<NSGJob, String>
+
+  #[tauri::command]
+  async fn nsg_download_results(job_id: String) -> Result<Vec<String>, String>
+
+  #[tauri::command]
+  async fn nsg_delete_job(job_id: String) -> Result<(), String>
+
+  #[tauri::command]
+  async fn nsg_start_poller() -> Result<(), String>
+
+  #[tauri::command]
+  async fn nsg_stop_poller() -> Result<(), String>
+  ```
+
+- [ ] **Register Commands in main.rs**
+  - Import nsg_commands module
+  - Add all NSG commands to `.invoke_handler()`
+
+#### Phase 3: Frontend Integration (❌ NOT STARTED)
+
+- [ ] **Create TypeScript Types** ([src/types/nsg.ts](packages/ddalab-tauri/src/types/nsg.ts))
+  ```typescript
+  export type NSGJobStatus =
+    | 'pending'
+    | 'submitted'
+    | 'queue'
+    | 'running'
+    | 'completed'
+    | 'failed'
+    | 'cancelled';
+
+  export interface NSGJob {
+    id: string;
+    nsg_job_id?: string;
+    tool: string;
+    status: NSGJobStatus;
+    created_at: string;
+    submitted_at?: string;
+    completed_at?: string;
+    dda_params: any; // JSON
+    input_file_path: string;
+    output_files: string[];
+    error_message?: string;
+    last_polled?: string;
+    progress?: number;
+  }
+
+  export interface NSGCredentials {
+    username: string;
+    password: string;
+    app_key: string;
+  }
+  ```
+
+- [ ] **Create React Hooks** ([src/hooks/useNSG.ts](packages/ddalab-tauri/src/hooks/useNSG.ts))
+  - Use TanStack Query (following Phase 2 migration pattern)
+  ```typescript
+  // Queries
+  export function useNSGCredentials()
+  export function useNSGJobs()
+  export function useNSGJob(jobId: string)
+
+  // Mutations
+  export function useSaveNSGCredentials()
+  export function useTestNSGConnection()
+  export function useCreateNSGJob()
+  export function useSubmitNSGJob()
+  export function useCancelNSGJob()
+  export function useDeleteNSGJob()
+  export function useDownloadNSGResults()
+  ```
+
+- [ ] **Create NSG Settings Panel** ([src/components/NSGSettings.tsx](packages/ddalab-tauri/src/components/NSGSettings.tsx))
+  - Credentials form (username, password, app key)
+  - "Test Connection" button
+  - Connection status indicator
+  - "Clear Credentials" button
+  - Link to NSG registration: https://www.nsgportal.org/
+  - Documentation link for getting API key
+
+- [ ] **Create NSG Job Manager UI** ([src/components/NSGJobManager.tsx](packages/ddalab-tauri/src/components/NSGJobManager.tsx))
+  - Job list table with columns:
+    - Status badge (color-coded: pending=gray, submitted=blue, running=yellow, completed=green, failed=red)
+    - Job ID (local + NSG)
+    - Tool name
+    - Input file name
+    - Created time
+    - Status message
+    - Actions (Cancel, Refresh, Download, Delete, Import)
+  - Real-time status updates (poll every 30s or use poller events)
+  - Filter by status (All, Active, Completed, Failed)
+  - "Submit to NSG" button in DDA analysis panel
+  - Progress indicators for running jobs
+  - Error messages for failed jobs
+  - Download button for completed jobs
+
+- [ ] **Create Job Submission Dialog** ([src/components/dialogs/SubmitNSGJobDialog.tsx](packages/ddalab-tauri/src/components/dialogs/SubmitNSGJobDialog.tsx))
+  - Tool selection dropdown:
+    - `PY_EXPANSE` (Python in Singularity on EXPANSE) - **Recommended**
+    - `GPU_PY_EXPANSE` (Python on Expanse GPUs) - For GPU-accelerated workloads
+  - DDA parameters preview (read-only, from current analysis settings)
+  - Input file display
+  - Estimated walltime (based on file size and parameters)
+  - Email notifications toggle
+  - "Submit" button
+
+- [ ] **Integrate into DDA Analysis Page**
+  - Add "Submit to NSG" button next to "Run Analysis"
+  - Check if NSG credentials exist before enabling button
+  - Show tooltip if credentials missing: "Configure NSG credentials in Settings"
+  - On click, open SubmitNSGJobDialog
+
+- [ ] **Add NSG Tab to Settings** ([src/components/SettingsPanel.tsx](packages/ddalab-tauri/src/components/SettingsPanel.tsx))
+  - New tab: "HPC (NSG)"
+  - Render NSGSettings component
+  - Show active jobs count badge
+
+- [ ] **Create Result Import Logic**
+  - Parse `dda_results.json` from NSG
+  - Convert to DDALAB's DDAResult format
+  - Add to analysis history
+  - Show notification when import succeeds
+
+#### Phase 4: Background Polling & Events (❌ NOT STARTED)
+
+- [ ] **Tauri Event Emitter for Job Status Changes**
+  ```rust
+  // In NSGJobPoller::poll_once()
+  if updated_job.status != old_status {
+      app.emit_all("nsg-job-status-changed", NSGJobEvent {
+          job_id: updated_job.id.clone(),
+          old_status,
+          new_status: updated_job.status.clone(),
+          error_message: updated_job.error_message.clone(),
+      }).unwrap();
+  }
+  ```
+
+- [ ] **Frontend Event Listener** ([src/hooks/useNSG.ts](packages/ddalab-tauri/src/hooks/useNSG.ts))
+  ```typescript
+  export function useNSGJobEvents() {
+    const queryClient = useQueryClient();
+
+    useEffect(() => {
+      const unlisten = listen<NSGJobEvent>('nsg-job-status-changed', (event) => {
+        // Invalidate job queries to trigger refetch
+        queryClient.invalidateQueries({ queryKey: ['nsg', 'jobs'] });
+        queryClient.invalidateQueries({ queryKey: ['nsg', 'job', event.payload.job_id] });
+
+        // Show notification for completed/failed jobs
+        if (event.payload.new_status === 'completed') {
+          showNotification('NSG job completed', `Job ${event.payload.job_id} finished successfully`);
+        } else if (event.payload.new_status === 'failed') {
+          showNotification('NSG job failed', event.payload.error_message || 'Unknown error');
+        }
+      });
+
+      return () => { unlisten.then(fn => fn()); };
+    }, [queryClient]);
+  }
+  ```
+
+- [ ] **System Notifications**
+  - Use Tauri notification plugin
+  - Notify when job completes (even if app is minimized)
+  - Notify when job fails with error message
+
+#### Phase 5: Testing & Documentation (❌ NOT STARTED)
+
+- [ ] **Unit Tests**
+  - Test NSG API client methods (mock HTTP)
+  - Test job manager CRUD operations
+  - Test poller logic (mock time)
+  - Test job packaging (ZIP creation)
+
+- [ ] **Integration Tests**
+  - Submit real job to NSG (use test account)
+  - Verify job appears in NSG portal
+  - Poll until completion
+  - Download and parse results
+  - Import into analysis history
+
+- [ ] **User Documentation** ([docs/NSG_INTEGRATION.md](docs/NSG_INTEGRATION.md))
+  - How to register for NSG account
+  - How to get API credentials
+  - How to submit DDA jobs
+  - How to monitor job status
+  - How to download and import results
+  - Troubleshooting common issues
+  - Cost estimates (NSG is free for academic use)
+
+- [ ] **Developer Documentation** ([nsg_wrapper/README.md](nsg_wrapper/README.md))
+  - ✅ Python wrapper architecture (COMPLETED)
+  - How job packaging works
+  - NSG API integration details
+  - How to test locally
+  - Future: official DDA tool installation
+
+#### Phase 6: Official NSG Tool Installation (FUTURE)
+
+- [ ] **Contact NSG Team**
+  - Email: `nsghelp@sdsc.edu`
+  - Subject: "Request to Add DDA Tool to NSG"
+  - Include: DDA binary, installation instructions, test data
+  - Provide: Documentation, expected outputs, resource requirements
+
+- [ ] **Update Integration for Official Tool**
+  - Remove Python wrapper
+  - Submit jobs directly to DDA tool (e.g., `DDA_EXPANSE`)
+  - Simplify job submission logic
+  - Update documentation
+
+### Data Models
+
+**NSGJob Structure:**
+```rust
+pub struct NSGJob {
+    pub id: String,                    // Local UUID
+    pub nsg_job_id: Option<String>,    // NSG server job ID (from response)
+    pub tool: String,                  // "PY_EXPANSE" or "GPU_PY_EXPANSE"
+    pub status: NSGJobStatus,          // Pending → Submitted → Queue → Running → Completed/Failed
+    pub created_at: DateTime<Utc>,
+    pub submitted_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub dda_params: serde_json::Value, // Full DDA configuration
+    pub input_file_path: String,
+    pub output_files: Vec<String>,     // Downloaded result files
+    pub error_message: Option<String>,
+    pub last_polled: Option<DateTime<Utc>>,
+    pub progress: Option<u8>,          // 0-100 (if NSG provides)
+}
+```
+
+**NSG API Endpoints Used:**
+- `POST /job/{username}` - Submit job (multipart form: tool + input file)
+- `GET /job/{username}/{jobId}` - Get job status
+- `GET /job/{username}` - List all user jobs
+- `DELETE /job/{username}/{jobId}` - Cancel job
+- `GET {download_uri}` - Download output file
+
+### Files Created (✅ Backend Complete)
+
+- [x] `packages/ddalab-tauri/src-tauri/src/nsg/mod.rs`
+- [x] `packages/ddalab-tauri/src-tauri/src/nsg/models.rs`
+- [x] `packages/ddalab-tauri/src-tauri/src/nsg/client.rs`
+- [x] `packages/ddalab-tauri/src-tauri/src/nsg/job_manager.rs`
+- [x] `packages/ddalab-tauri/src-tauri/src/nsg/poller.rs`
+- [x] `packages/ddalab-tauri/src-tauri/src/db/nsg_jobs_db.rs`
+- [x] `nsg_wrapper/run_dda_nsg.py`
+- [x] `nsg_wrapper/README.md`
+
+### Files Modified (✅ Backend Complete)
+
+- [x] `packages/ddalab-tauri/src-tauri/Cargo.toml` - Added `multipart`, `zip`
+- [x] `packages/ddalab-tauri/src-tauri/src/lib.rs` - Added `nsg` module
+- [x] `packages/ddalab-tauri/src-tauri/src/db/mod.rs` - Exported NSG database
+- [x] `packages/ddalab-tauri/src-tauri/src/db/secrets_db.rs` - NSG credential methods
+- [x] `packages/ddalab-tauri/src-tauri/src/api/handlers/dda.rs` - Added `Clone` to DDA types
+
+### Files to Create (❌ Frontend Needed)
+
+- [ ] `packages/ddalab-tauri/src-tauri/src/commands/nsg_commands.rs`
+- [ ] `packages/ddalab-tauri/src/types/nsg.ts`
+- [ ] `packages/ddalab-tauri/src/hooks/useNSG.ts`
+- [ ] `packages/ddalab-tauri/src/components/NSGSettings.tsx`
+- [ ] `packages/ddalab-tauri/src/components/NSGJobManager.tsx`
+- [ ] `packages/ddalab-tauri/src/components/dialogs/SubmitNSGJobDialog.tsx`
+- [ ] `docs/NSG_INTEGRATION.md`
+
+### Files to Modify (❌ Frontend Needed)
+
+- [ ] `packages/ddalab-tauri/src-tauri/src/main.rs` - Register NSG commands
+- [ ] `packages/ddalab-tauri/src-tauri/src/state_manager.rs` - Add NSG manager/poller
+- [ ] `packages/ddalab-tauri/src/components/SettingsPanel.tsx` - Add NSG tab
+- [ ] `packages/ddalab-tauri/src/components/DDAAnalysis.tsx` - Add "Submit to NSG" button
+
+### Success Criteria
+
+- [x] NSG API client can submit jobs
+- [x] NSG API client can poll job status
+- [x] NSG API client can download results
+- [x] Job database persists jobs across app restarts
+- [x] Background poller updates job status automatically
+- [x] Credentials stored securely with encryption
+- [x] Python wrapper downloads and executes DDA binary
+- [x] Job packaging creates valid ZIP files
+- [ ] Can configure NSG credentials from UI
+- [ ] Can test NSG connection from UI
+- [ ] Can submit DDA job to NSG from analysis panel
+- [ ] Can view all NSG jobs in job manager
+- [ ] Can cancel running jobs
+- [ ] Can download completed results
+- [ ] Can import NSG results into analysis history
+- [ ] Receive notifications when jobs complete/fail
+- [ ] Jobs persist across app restarts (resume monitoring)
+- [ ] Background poller runs automatically when credentials exist
+
+### Grant Alignment
+
+✅ "Provide access to high-performance computing resources via NSG at SDSC"
+✅ "Enable large-scale DDA computations on HPC clusters"
+✅ "Integrate with existing neuroscience infrastructure (NSG)"
+✅ "Support BRAIN Initiative ecosystem"
+
    #### Phase 4: Background Download System
 
    - [ ] Implement download queue in Rust (`src-tauri/src/downloads/`)
