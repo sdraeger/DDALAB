@@ -91,33 +91,49 @@ class DDARunner:
         cpu_time: bool = False,
         custom_params: Optional[Dict[str, Union[str, List[str]]]] = None,
     ) -> List[str]:
-        """Construct a command list for DDA execution."""
+        """Construct a command list for DDA execution matching dda-rs EXACTLY."""
 
         # Get the proper command prefix for APE execution
         command = self._get_ape_command(self.binary_path)
 
-        # Add DDA-specific arguments
-        command.extend(
-            [
-                "-DATA_FN",
-                input_file,
-                "-OUT_FN",
-                output_file,
-                "-EDF",
-                "-CH_list",
-                *[str(ch) for ch in channel_list],
-            ]
-        )
-
         # Use custom params if provided, otherwise use instance base_params
         params_to_use = custom_params if custom_params is not None else self.base_params
 
-        for flag, value in params_to_use.items():
-            command.extend([flag, *value] if isinstance(value, list) else [flag, value])
+        # Add arguments in EXACT order as dda-rs to avoid binary failures
+        # 1. File parameters
+        command.extend(["-DATA_FN", input_file, "-OUT_FN", output_file, "-EDF"])
 
+        # 2. Channel list
+        command.append("-CH_list")
+        command.extend([str(ch) for ch in channel_list])
+
+        # 3. Base parameters (in exact order from dda-rs)
+        command.extend(["-dm", params_to_use["-dm"]])
+        command.extend(["-order", params_to_use["-order"]])
+        command.extend(["-nr_tau", params_to_use["-nr_tau"]])
+        command.extend(["-WL", params_to_use["-WL"]])
+        command.extend(["-WS", params_to_use["-WS"]])
+
+        # 4. SELECT mask (as separate arguments)
+        command.append("-SELECT")
+        for bit in params_to_use["-SELECT"]:
+            command.append(bit)
+
+        # 5. MODEL parameters (as separate arguments)
+        command.append("-MODEL")
+        for val in params_to_use["-MODEL"]:
+            command.append(val)
+
+        # 6. TAU delay values (as separate arguments)
+        command.append("-TAU")
+        for tau in params_to_use["-TAU"]:
+            command.append(tau)
+
+        # 7. Time bounds (if provided)
         if bounds:
             command.extend(["-StartEnd", str(bounds[0]), str(bounds[1])])
 
+        # 8. CPU time flag (if requested)
         if cpu_time:
             command.append("-CPUtime")
 
