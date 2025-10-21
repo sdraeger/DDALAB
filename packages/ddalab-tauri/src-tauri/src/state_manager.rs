@@ -1,5 +1,6 @@
 use crate::db::{AnalysisDatabase, AnnotationDatabase, FileStateDatabase, SecretsDatabase};
 use crate::models::{AppState, UIState};
+use ddalab_tauri::nsg::{NSGJobManager, NSGJobPoller};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fs;
@@ -12,6 +13,8 @@ pub struct AppStateManager {
     annotation_db: Arc<AnnotationDatabase>,
     file_state_db: Arc<FileStateDatabase>,
     secrets_db: Arc<SecretsDatabase>,
+    nsg_manager: Option<Arc<NSGJobManager>>,
+    nsg_poller: Option<Arc<NSGJobPoller>>,
     ui_state_path: PathBuf,
     auto_save_enabled: bool,
     analysis_preview_data: Arc<RwLock<HashMap<String, serde_json::Value>>>,
@@ -58,12 +61,41 @@ impl AppStateManager {
         let secrets_db = SecretsDatabase::new(&secrets_db_path)
             .map_err(|e| format!("Failed to initialize secrets database: {}", e))?;
 
+        // Initialize NSG components if credentials are available
+        let nsg_jobs_db_path = app_config_dir.join("nsg_jobs.db");
+        let nsg_output_dir = app_config_dir.join("nsg_output");
+
+        eprintln!("🚀 [STATE_MANAGER] NSG Jobs DB: {:?}", nsg_jobs_db_path);
+        eprintln!("📁 [STATE_MANAGER] NSG Output Dir: {:?}", nsg_output_dir);
+
+        let (nsg_manager, nsg_poller) = match secrets_db.has_nsg_credentials() {
+            Ok(true) => {
+                eprintln!("🔑 [STATE_MANAGER] NSG credentials found, initializing NSG components...");
+                match Self::init_nsg_components(&secrets_db, &nsg_jobs_db_path, &nsg_output_dir) {
+                    Ok((manager, poller)) => {
+                        eprintln!("✅ [STATE_MANAGER] NSG components initialized successfully");
+                        (Some(manager), Some(poller))
+                    }
+                    Err(e) => {
+                        eprintln!("⚠️  [STATE_MANAGER] Failed to initialize NSG components: {}", e);
+                        (None, None)
+                    }
+                }
+            }
+            _ => {
+                eprintln!("ℹ️  [STATE_MANAGER] No NSG credentials found, skipping NSG initialization");
+                (None, None)
+            }
+        };
+
         let manager = Self {
             ui_state: Arc::new(RwLock::new(ui_state)),
             analysis_db: Arc::new(analysis_db),
             annotation_db: Arc::new(annotation_db),
             file_state_db: Arc::new(file_state_db),
             secrets_db: Arc::new(secrets_db),
+            nsg_manager,
+            nsg_poller,
             ui_state_path,
             auto_save_enabled: true,
             analysis_preview_data: Arc::new(RwLock::new(HashMap::new())),
@@ -251,5 +283,57 @@ impl AppStateManager {
     pub fn get_analysis_preview_data(&self, window_id: &str) -> Option<serde_json::Value> {
         let preview_data = self.analysis_preview_data.read();
         preview_data.get(window_id).cloned()
+    }
+
+    pub fn get_nsg_manager(&self) -> Option<&Arc<NSGJobManager>> {
+        self.nsg_manager.as_ref()
+    }
+
+    pub fn get_nsg_poller(&self) -> Option<&Arc<NSGJobPoller>> {
+        self.nsg_poller.as_ref()
+    }
+
+    fn init_nsg_components(
+        secrets_db: &SecretsDatabase,
+        nsg_jobs_db_path: &PathBuf,
+        nsg_output_dir: &PathBuf,
+    ) -> Result<(Arc<NSGJobManager>, Arc<NSGJobPoller>), String> {
+        use ddalab_tauri::nsg::NSGCredentials;
+        use ddalab_tauri::db::NSGJobsDatabase;
+
+        // Get NSG credentials
+        let (username, password, app_key) = secrets_db
+            .get_nsg_credentials()
+            .map_err(|e| format!("Failed to get NSG credentials: {}", e))?
+            .ok_or_else(|| "NSG credentials not found".to_string())?;
+
+        // Create credentials struct
+        let credentials = NSGCredentials {
+            username,
+            password,
+            app_key,
+        };
+
+        // Initialize NSG components
+        let nsg_jobs_db = NSGJobsDatabase::new(nsg_jobs_db_path)
+            .map_err(|e| format!("Failed to initialize NSG jobs database: {}", e))?;
+
+        std::fs::create_dir_all(nsg_output_dir)
+            .map_err(|e| format!("Failed to create NSG output directory: {}", e))?;
+
+        let nsg_manager = NSGJobManager::new(
+            credentials,
+            Arc::new(nsg_jobs_db),
+            nsg_output_dir.clone(),
+        )
+        .map_err(|e| format!("Failed to create NSG job manager: {}", e))?;
+
+        let nsg_manager = Arc::new(nsg_manager);
+        let nsg_poller = Arc::new(NSGJobPoller::new(nsg_manager.clone()));
+
+        // NOTE: Polling will be started later by start_nsg_polling() command
+        // after Tauri runtime is fully initialized
+
+        Ok((nsg_manager, nsg_poller))
     }
 }

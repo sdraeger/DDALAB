@@ -12,6 +12,7 @@ import { DDAResults } from "@/components/DDAResults";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { OpenNeuroBrowser } from "@/components/OpenNeuroBrowser";
 import { DDAProgressIndicator } from "@/components/DDAProgressIndicator";
+import { NSGJobManager } from "@/components/NSGJobManager";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +26,7 @@ import {
   Maximize2,
   Minimize2,
   Database,
+  Cloud,
 } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
 
@@ -132,6 +134,20 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
       window.dispatchEvent(new CustomEvent('api-service-auth-ready'));
     }
   }, [apiUrl, sessionToken, apiService.baseURL]);
+
+  // Listen for navigation events from NSG Job Manager
+  useEffect(() => {
+    const handleNavigateToDDA = () => {
+      console.log('[DASHBOARD] Navigating to DDA Analysis tab');
+      setActiveTab('analysis');
+    };
+
+    window.addEventListener('navigate-to-dda-analysis', handleNavigateToDDA);
+
+    return () => {
+      window.removeEventListener('navigate-to-dda-analysis', handleNavigateToDDA);
+    };
+  }, [setActiveTab]);
 
   const handleMinimize = async () => {
     if (TauriService.isTauri()) {
@@ -269,6 +285,15 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
                   <Database className="h-4 w-4" />
                   OpenNeuro
                 </TabsTrigger>
+                {TauriService.isTauri() && (
+                  <TabsTrigger
+                    value="nsg"
+                    className="flex items-center gap-2"
+                  >
+                    <Cloud className="h-4 w-4" />
+                    NSG Jobs
+                  </TabsTrigger>
+                )}
                 <TabsTrigger
                   value="settings"
                   className="flex items-center gap-2"
@@ -477,6 +502,14 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
                   <OpenNeuroBrowser />
                 </div>
               </TabsContent>
+
+              {TauriService.isTauri() && (
+                <TabsContent value="nsg" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'nsg'}>
+                  <div className="h-full">
+                    <NSGJobManager />
+                  </div>
+                </TabsContent>
+              )}
 
               <TabsContent value="settings" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'settings'}>
                 <div className="h-full">
