@@ -4,7 +4,8 @@
 
 use std::path::Path;
 use std::fs;
-use std::io::{Write, Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use bvreader::bv_reader::BVFile;
 use super::{FileReader, FileMetadata, FileResult, FileReaderError};
@@ -131,10 +132,13 @@ impl BrainVisionFileReader {
 
             fs::write(output_path, text_crlf.as_bytes())?;
 
-            // Set permissions to 0644 (rw-r--r--)
-            let mut perms = fs::metadata(output_path)?.permissions();
-            perms.set_mode(0o644);
-            fs::set_permissions(output_path, perms)?;
+            // Set permissions to 0644 (rw-r--r--) on Unix
+            #[cfg(unix)]
+            {
+                let mut perms = fs::metadata(output_path)?.permissions();
+                perms.set_mode(0o644);
+                fs::set_permissions(output_path, perms)?;
+            }
 
             Ok(())
         };
@@ -172,10 +176,13 @@ impl BrainVisionFileReader {
                 let temp_eeg = temp_dir.join(&eeg_name);
                 fs::copy(&eeg_path, &temp_eeg)?;
 
-                // Set permissions to 0644
-                let mut perms = fs::metadata(&temp_eeg)?.permissions();
-                perms.set_mode(0o644);
-                fs::set_permissions(&temp_eeg, perms)?;
+                // Set permissions to 0644 on Unix
+                #[cfg(unix)]
+                {
+                    let mut perms = fs::metadata(&temp_eeg)?.permissions();
+                    perms.set_mode(0o644);
+                    fs::set_permissions(&temp_eeg, perms)?;
+                }
             }
         }
 
