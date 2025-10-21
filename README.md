@@ -47,7 +47,7 @@ DDALAB is a desktop application for performing Delay Differential Analysis (DDA)
 - **OpenNeuro Integration**: Browse and download datasets directly from OpenNeuro.org
 - **Complete Privacy**: All data processing happens locally on your machine
 - **Real-time Analysis**: Interactive heatmaps and time-series plots with ECharts
-- **Multi-Variant DDA**: Support for both classic DDA and CT (correlation time) variants
+- **Multi-Variant DDA**: Support for both classic DDA and CT (cross-timeseries) variants
 - **Analysis History**: Persistent storage of analyses with SQLite database
 - **Optional Sync Broker**: Deploy a network sync broker for multi-user collaboration
 
@@ -67,6 +67,7 @@ The desktop application uses:
 - **TanStack Query**: Efficient data fetching and caching
 
 All data processing happens **locally** within the application with:
+
 - Zero external dependencies
 - No internet connection required
 - Complete data privacy
@@ -95,11 +96,13 @@ docker-compose up -d
 2. **Select Data Directory**: Choose where your data files are located
 
 3. **Load a File**:
+
    - Browse local files (EDF, ASCII, CSV, BrainVision, EEGLAB)
    - Or open a BIDS dataset
    - Or download from OpenNeuro
 
 4. **Configure Analysis**:
+
    - Select channels to analyze
    - Set window parameters (length, step size, overlap)
    - Choose DDA variant (classic or CT)
@@ -126,6 +129,7 @@ DDALAB includes a built-in update checker to help you stay current with the late
 6. Download and install the latest version for your platform
 
 The update checker will:
+
 - Display your current version
 - Compare with the latest GitHub release
 - Show release notes and release date
@@ -199,6 +203,7 @@ npm run tauri build
 ### Key Technologies
 
 **Frontend:**
+
 - **Tauri v2**: Desktop app framework with native OS integration
 - **React 18**: UI library with TypeScript
 - **Next.js 14**: React framework with App Router
@@ -209,6 +214,7 @@ npm run tauri build
 - **Tailwind CSS**: Utility-first styling
 
 **Backend:**
+
 - **Rust**: Systems programming language for performance and safety
 - **Axum**: High-performance async web framework
 - **SQLite**: Embedded database via rusqlite
@@ -230,6 +236,7 @@ docker-compose up -d
 ```
 
 The sync broker provides:
+
 - Real-time synchronization of analysis results
 - Centralized storage of shared analyses
 - Minimal resource requirements
@@ -248,12 +255,14 @@ docker-compose up -d
 ```
 
 This includes:
+
 - Rust-based API server
 - Optional PostgreSQL for shared storage
 - Optional Redis for caching
 - Web interface at http://localhost:8001
 
 Client configuration:
+
 1. Open DDALAB Settings
 2. Set API endpoint to `http://your-server:8001`
 3. Enable network mode
@@ -269,6 +278,7 @@ DDALAB stores all data locally in platform-specific directories:
 - **Linux**: `~/.local/share/ddalab/`
 
 Stored data includes:
+
 - **ddalab.db**: SQLite database with analysis history and metadata
 - **state.json**: Application state and preferences
 - **config.json**: User configuration settings
@@ -277,6 +287,7 @@ Stored data includes:
 ### User Preferences
 
 Accessible via Settings panel:
+
 - Data directory path
 - DDA analysis parameters (window size, overlap, delay range)
 - UI preferences (theme, layout)
@@ -324,10 +335,12 @@ chmod +x DDALAB-*.AppImage
 ### Analysis fails to run
 
 1. **Check DDA binary**: Ensure the `dda-rs` Rust library is properly compiled
+
    - Development: Run `cargo build` in `packages/dda-rs/`
    - Production: Binary is bundled with the application
 
 2. **Check file format**: Verify your file is in a supported format:
+
    - EDF (European Data Format)
    - ASCII/TXT (tab or comma-separated)
    - CSV (comma-separated values)

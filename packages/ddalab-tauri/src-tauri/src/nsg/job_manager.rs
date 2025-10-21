@@ -396,6 +396,12 @@ impl NSGJobManager {
             "lowpass": dda_params.preprocessing_options.lowpass,
         });
 
+        log::info!("📋 NSG Job Parameters:");
+        log::info!("   Channels: {:?}", dda_params.channels);
+        log::info!("   Time range: {} - {} seconds", dda_params.time_range.start, dda_params.time_range.end);
+        log::info!("   Window: length={}, step={}", dda_params.window_parameters.window_length, dda_params.window_parameters.window_step);
+        log::info!("   Scale: min={}, max={}, num={}", dda_params.scale_parameters.scale_min, dda_params.scale_parameters.scale_max, dda_params.scale_parameters.scale_num);
+
         let params_path = package_dir.join("params.json");
         let mut params_file = std::fs::File::create(&params_path)
             .context("Failed to create params.json")?;
