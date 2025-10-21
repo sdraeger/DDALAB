@@ -13,8 +13,10 @@ import { SettingsPanel } from "@/components/SettingsPanel";
 import { OpenNeuroBrowser } from "@/components/OpenNeuroBrowser";
 import { DDAProgressIndicator } from "@/components/DDAProgressIndicator";
 import { NSGJobManager } from "@/components/NSGJobManager";
+import { NotificationHistory } from "@/components/NotificationHistory";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Brain,
   FileText,
@@ -27,6 +29,7 @@ import {
   Minimize2,
   Database,
   Cloud,
+  Bell,
 } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
 
@@ -38,6 +41,7 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) {
   const [apiService, setApiService] = useState(() => new ApiService(apiUrl, sessionToken));
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
 
   // Use selectors to prevent unnecessary re-renders
   const ui = useAppStore((state) => state.ui);
@@ -137,17 +141,83 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
 
   // Listen for navigation events from NSG Job Manager
   useEffect(() => {
-    const handleNavigateToDDA = () => {
-      console.log('[DASHBOARD] Navigating to DDA Analysis tab');
-      setActiveTab('analysis');
+    const handleNavigateToMainResults = () => {
+      console.log('[DASHBOARD] Navigating to main Results tab for NSG results');
+      setActiveTab('results');
     };
 
-    window.addEventListener('navigate-to-dda-analysis', handleNavigateToDDA);
+    window.addEventListener('navigate-to-main-results', handleNavigateToMainResults);
 
     return () => {
-      window.removeEventListener('navigate-to-dda-analysis', handleNavigateToDDA);
+      window.removeEventListener('navigate-to-main-results', handleNavigateToMainResults);
     };
   }, [setActiveTab]);
+
+  // Poll for unread notification count
+  useEffect(() => {
+    if (!TauriService.isTauri()) return;
+
+    const fetchUnreadCount = async () => {
+      try {
+        const count = await TauriService.getUnreadCount();
+        setUnreadNotificationCount(count);
+      } catch (error) {
+        console.error('[DASHBOARD] Failed to fetch unread notification count:', error);
+      }
+    };
+
+    // Initial fetch
+    fetchUnreadCount();
+
+    // Poll every 5 seconds
+    const interval = setInterval(fetchUnreadCount, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Refresh unread count when viewing notifications tab
+  useEffect(() => {
+    if (!TauriService.isTauri()) return;
+
+    if (ui.activeTab === 'notifications') {
+      // Refresh after a short delay to allow notifications to be marked as read
+      const timeout = setTimeout(async () => {
+        try {
+          const count = await TauriService.getUnreadCount();
+          setUnreadNotificationCount(count);
+        } catch (error) {
+          console.error('[DASHBOARD] Failed to refresh unread count:', error);
+        }
+      }, 1000);
+
+      return () => clearTimeout(timeout);
+    }
+  }, [ui.activeTab]);
+
+  // Handle notification navigation
+  const handleNotificationNavigate = (actionType: string, actionData: any) => {
+    console.log('[DASHBOARD] Notification clicked:', actionType, actionData);
+
+    switch (actionType) {
+      case 'navigate_nsg_manager':
+        setActiveTab('nsg');
+        break;
+      case 'navigate_results':
+        setActiveTab('results');
+        break;
+      case 'navigate_analysis':
+        setActiveTab('analyze');
+        break;
+      case 'navigate_openneuro':
+        setActiveTab('openneuro');
+        break;
+      case 'navigate_settings':
+        setActiveTab('settings');
+        break;
+      default:
+        console.warn('[DASHBOARD] Unknown notification action type:', actionType);
+    }
+  };
 
   const handleMinimize = async () => {
     if (TauriService.isTauri()) {
@@ -292,6 +362,20 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
                   >
                     <Cloud className="h-4 w-4" />
                     NSG Jobs
+                  </TabsTrigger>
+                )}
+                {TauriService.isTauri() && (
+                  <TabsTrigger
+                    value="notifications"
+                    className="flex items-center gap-2"
+                  >
+                    <Bell className="h-4 w-4" />
+                    Notifications
+                    {unreadNotificationCount > 0 && (
+                      <Badge variant="destructive" className="ml-1 px-1.5 py-0 text-xs min-w-[20px] h-5">
+                        {unreadNotificationCount}
+                      </Badge>
+                    )}
                   </TabsTrigger>
                 )}
                 <TabsTrigger
@@ -507,6 +591,14 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
                 <TabsContent value="nsg" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'nsg'}>
                   <div className="h-full">
                     <NSGJobManager />
+                  </div>
+                </TabsContent>
+              )}
+
+              {TauriService.isTauri() && (
+                <TabsContent value="notifications" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'notifications'}>
+                  <div className="h-full p-6 overflow-auto">
+                    <NotificationHistory onNavigate={handleNotificationNavigate} />
                   </div>
                 </TabsContent>
               )}

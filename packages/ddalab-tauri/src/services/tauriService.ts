@@ -108,6 +108,24 @@ export interface NSGJobStats {
   cancelled: number
 }
 
+export enum NotificationType {
+  Info = 'info',
+  Success = 'success',
+  Warning = 'warning',
+  Error = 'error',
+}
+
+export interface Notification {
+  id: string
+  title: string
+  message: string
+  notification_type: NotificationType
+  created_at: string
+  read: boolean
+  action_type?: string
+  action_data?: any
+}
+
 export class TauriService {
   private static instance: TauriService
 
@@ -709,5 +727,109 @@ export class TauriService {
     const api = await getTauriAPI()
     if (!api) throw new Error('Not running in Tauri environment')
     return await api.invoke('cleanup_pending_nsg_jobs')
+  }
+
+  // Notification methods
+  static async createNotification(
+    title: string,
+    message: string,
+    notificationType: NotificationType = NotificationType.Info,
+    actionType?: string,
+    actionData?: any
+  ): Promise<Notification> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) {
+        throw new Error('Not running in Tauri environment')
+      }
+      return await api.invoke('create_notification', {
+        title,
+        message,
+        notificationType,
+        actionType,
+        actionData,
+      })
+    } catch (error) {
+      console.error('[NOTIFICATIONS] Failed to create notification:', error)
+      throw error
+    }
+  }
+
+  static async listNotifications(limit?: number): Promise<Notification[]> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) {
+        throw new Error('Not running in Tauri environment')
+      }
+      return await api.invoke('list_notifications', { limit })
+    } catch (error) {
+      console.error('[NOTIFICATIONS] Failed to list notifications:', error)
+      throw error
+    }
+  }
+
+  static async getUnreadCount(): Promise<number> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) {
+        throw new Error('Not running in Tauri environment')
+      }
+      return await api.invoke('get_unread_count')
+    } catch (error) {
+      console.error('[NOTIFICATIONS] Failed to get unread count:', error)
+      throw error
+    }
+  }
+
+  static async markNotificationRead(id: string): Promise<void> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) {
+        throw new Error('Not running in Tauri environment')
+      }
+      return await api.invoke('mark_notification_read', { id })
+    } catch (error) {
+      console.error('[NOTIFICATIONS] Failed to mark notification as read:', error)
+      throw error
+    }
+  }
+
+  static async markAllNotificationsRead(): Promise<void> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) {
+        throw new Error('Not running in Tauri environment')
+      }
+      return await api.invoke('mark_all_notifications_read')
+    } catch (error) {
+      console.error('[NOTIFICATIONS] Failed to mark all notifications as read:', error)
+      throw error
+    }
+  }
+
+  static async deleteNotification(id: string): Promise<void> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) {
+        throw new Error('Not running in Tauri environment')
+      }
+      return await api.invoke('delete_notification', { id })
+    } catch (error) {
+      console.error('[NOTIFICATIONS] Failed to delete notification:', error)
+      throw error
+    }
+  }
+
+  static async deleteOldNotifications(days: number): Promise<number> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) {
+        throw new Error('Not running in Tauri environment')
+      }
+      return await api.invoke('delete_old_notifications', { days })
+    } catch (error) {
+      console.error('[NOTIFICATIONS] Failed to delete old notifications:', error)
+      throw error
+    }
   }
 }
