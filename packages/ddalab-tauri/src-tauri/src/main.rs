@@ -179,7 +179,15 @@ fn main() {
             delete_nsg_job,
             poll_nsg_jobs,
             get_nsg_job_stats,
-            cleanup_pending_nsg_jobs
+            cleanup_pending_nsg_jobs,
+            // Notification commands
+            create_notification,
+            list_notifications,
+            get_unread_count,
+            mark_notification_read,
+            mark_all_notifications_read,
+            delete_notification,
+            delete_old_notifications
         ])
         .manage(ApiServerState::default())
         .manage(AppSyncState::new())

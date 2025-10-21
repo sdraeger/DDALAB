@@ -35,7 +35,7 @@ export function DebugSettings() {
 
   const handleReportIssue = async () => {
     try {
-      await TauriService.openUrl('https://github.com/anthropics/claude-code/issues/new')
+      await TauriService.openUrl('https://github.com/sdraeger/DDALAB/issues/new')
     } catch (error) {
       console.error('Failed to open issue tracker:', error)
     }

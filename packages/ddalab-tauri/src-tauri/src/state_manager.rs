@@ -1,4 +1,4 @@
-use crate::db::{AnalysisDatabase, AnnotationDatabase, FileStateDatabase, SecretsDatabase};
+use crate::db::{AnalysisDatabase, AnnotationDatabase, FileStateDatabase, SecretsDatabase, NotificationsDatabase};
 use crate::models::{AppState, UIState};
 use ddalab_tauri::nsg::{NSGJobManager, NSGJobPoller};
 use parking_lot::RwLock;
@@ -13,6 +13,7 @@ pub struct AppStateManager {
     annotation_db: Arc<AnnotationDatabase>,
     file_state_db: Arc<FileStateDatabase>,
     secrets_db: Arc<SecretsDatabase>,
+    notifications_db: Arc<NotificationsDatabase>,
     nsg_manager: Option<Arc<NSGJobManager>>,
     nsg_poller: Option<Arc<NSGJobPoller>>,
     ui_state_path: PathBuf,
@@ -31,6 +32,7 @@ impl AppStateManager {
         let annotation_db_path = app_config_dir.join("annotations.db");
         let file_state_db_path = app_config_dir.join("file_state.db");
         let secrets_db_path = app_config_dir.join("secrets.db");
+        let notifications_db_path = app_config_dir.join("notifications.db");
 
         eprintln!("📂 [STATE_MANAGER] Using config directory: {:?}", app_config_dir);
         eprintln!("📄 [STATE_MANAGER] UI state file: {:?}", ui_state_path);
@@ -38,6 +40,7 @@ impl AppStateManager {
         eprintln!("📌 [STATE_MANAGER] Annotation DB: {:?}", annotation_db_path);
         eprintln!("📁 [STATE_MANAGER] File State DB: {:?}", file_state_db_path);
         eprintln!("🔐 [STATE_MANAGER] Secrets DB: {:?}", secrets_db_path);
+        eprintln!("🔔 [STATE_MANAGER] Notifications DB: {:?}", notifications_db_path);
 
         // Load UI state from JSON
         let ui_state = if ui_state_path.exists() {
@@ -60,6 +63,9 @@ impl AppStateManager {
 
         let secrets_db = SecretsDatabase::new(&secrets_db_path)
             .map_err(|e| format!("Failed to initialize secrets database: {}", e))?;
+
+        let notifications_db = NotificationsDatabase::new(&notifications_db_path)
+            .map_err(|e| format!("Failed to initialize notifications database: {}", e))?;
 
         // Initialize NSG components if credentials are available
         let nsg_jobs_db_path = app_config_dir.join("nsg_jobs.db");
@@ -94,6 +100,7 @@ impl AppStateManager {
             annotation_db: Arc::new(annotation_db),
             file_state_db: Arc::new(file_state_db),
             secrets_db: Arc::new(secrets_db),
+            notifications_db: Arc::new(notifications_db),
             nsg_manager,
             nsg_poller,
             ui_state_path,
@@ -273,6 +280,10 @@ impl AppStateManager {
 
     pub fn get_secrets_db(&self) -> &SecretsDatabase {
         &self.secrets_db
+    }
+
+    pub fn get_notifications_db(&self) -> &NotificationsDatabase {
+        &self.notifications_db
     }
 
     pub fn store_analysis_preview_data(&self, window_id: String, analysis_data: serde_json::Value) {
