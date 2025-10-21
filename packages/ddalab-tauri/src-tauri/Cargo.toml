@@ -88,10 +88,6 @@ path = "src/lib.rs"
 name = "ddalab-tauri"
 path = "src/main.rs"
 
-[[bin]]
-name = "embedded_api_server"
-path = "src/bin/embedded_api_server.rs"
-
 [features]
 default = ["custom-protocol", "devtools"]
 custom-protocol = ["tauri/custom-protocol"]
