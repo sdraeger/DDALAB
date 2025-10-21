@@ -1,0 +1,684 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
+  AlertCircle,
+  CheckCircle,
+  Clock,
+  Download,
+  Loader2,
+  Play,
+  RefreshCw,
+  Trash2,
+  XCircle,
+  Cloud,
+  AlertTriangle,
+  Copy,
+  Check,
+  Eye,
+} from 'lucide-react'
+import { TauriService, type NSGJob, NSGJobStatus } from '@/services/tauriService'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+
+export function NSGJobManager() {
+  const [jobs, setJobs] = useState<NSGJob[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [pollingJobId, setPollingJobId] = useState<string | null>(null)
+  const [downloadingJobId, setDownloadingJobId] = useState<string | null>(null)
+  const [deletingJobId, setDeletingJobId] = useState<string | null>(null)
+  const [hasCredentials, setHasCredentials] = useState(false)
+  const [copiedJobId, setCopiedJobId] = useState<string | null>(null)
+  const [viewingJobId, setViewingJobId] = useState<string | null>(null)
+  const [successDialog, setSuccessDialog] = useState<{
+    show: boolean
+    jobId: string
+    numChannels: number
+  } | null>(null)
+
+  useEffect(() => {
+    if (!TauriService.isTauri()) return
+
+    const checkCredentials = async () => {
+      try {
+        const hasCreds = await TauriService.hasNSGCredentials()
+        setHasCredentials(hasCreds)
+      } catch (error) {
+        console.error('Failed to check NSG credentials:', error)
+      }
+    }
+
+    checkCredentials()
+
+    // Re-check credentials every 5 seconds to detect when user saves them in Settings
+    const interval = setInterval(checkCredentials, 5000)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    if (!TauriService.isTauri() || !hasCredentials) return
+
+    loadJobs()
+
+    // Poll for job updates every 30 seconds
+    const interval = setInterval(() => {
+      loadJobs()
+    }, 30000)
+
+    return () => clearInterval(interval)
+  }, [hasCredentials])
+
+  const loadJobs = async () => {
+    try {
+      setError(null)
+      const allJobs = await TauriService.listNSGJobs()
+      setJobs(allJobs.sort((a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      ))
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to load jobs')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleRefresh = async () => {
+    setIsLoading(true)
+    await loadJobs()
+  }
+
+  const handleUpdateStatus = async (jobId: string) => {
+    try {
+      setPollingJobId(jobId)
+      const updatedJob = await TauriService.getNSGJobStatus(jobId)
+      setJobs(jobs.map(job => job.id === jobId ? updatedJob : job))
+    } catch (error) {
+      console.error('[NSG] Failed to update job status:', error)
+      const errorMsg = error instanceof Error ? error.message : String(error)
+
+      // If job hasn't been submitted yet, show a clearer message
+      if (errorMsg.includes('has not been submitted yet') || errorMsg.includes('Job not found')) {
+        setError('Cannot update status: Job is still pending submission. Try deleting and re-submitting this job.')
+      } else {
+        setError(`Failed to update job status: ${errorMsg}`)
+      }
+    } finally {
+      setPollingJobId(null)
+    }
+  }
+
+  const handleDownloadResults = async (jobId: string) => {
+    try {
+      setDownloadingJobId(jobId)
+      const files = await TauriService.downloadNSGResults(jobId)
+
+      if (files.length > 0) {
+        alert(`Downloaded ${files.length} files:\n${files.join('\n')}`)
+        await loadJobs() // Refresh to show updated output_files
+      } else {
+        alert('No result files available')
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to download results')
+    } finally {
+      setDownloadingJobId(null)
+    }
+  }
+
+  const handleCancelJob = async (jobId: string) => {
+    if (!confirm('Are you sure you want to cancel this job?')) return
+
+    try {
+      await TauriService.cancelNSGJob(jobId)
+      await loadJobs()
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to cancel job')
+    }
+  }
+
+  const handleDeleteJob = async (jobId: string) => {
+    if (!confirm('Are you sure you want to delete this job? This will remove it from the database.')) return
+
+    try {
+      setDeletingJobId(jobId)
+      await TauriService.deleteNSGJob(jobId)
+      setJobs(jobs.filter(job => job.id !== jobId))
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to delete job')
+    } finally {
+      setDeletingJobId(null)
+    }
+  }
+
+  const handleCleanupPending = async () => {
+    const pendingCount = jobs.filter(j => j.status === NSGJobStatus.Pending).length
+    if (pendingCount === 0) {
+      alert('No pending jobs to clean up')
+      return
+    }
+
+    if (!confirm(`This will delete ${pendingCount} pending job(s) that failed to submit. Continue?`)) return
+
+    try {
+      setIsLoading(true)
+      const deletedCount = await TauriService.cleanupPendingNSGJobs()
+      alert(`Cleaned up ${deletedCount} pending job(s)`)
+      await loadJobs()
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to cleanup pending jobs')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleCopyJobId = async (jobId: string, nsgJobId: string | null) => {
+    try {
+      const idToCopy = nsgJobId || jobId
+      await navigator.clipboard.writeText(idToCopy)
+      setCopiedJobId(jobId)
+
+      // Reset the copied state after 2 seconds
+      setTimeout(() => {
+        setCopiedJobId(null)
+      }, 2000)
+    } catch (error) {
+      console.error('Failed to copy job ID:', error)
+      setError('Failed to copy job ID to clipboard')
+    }
+  }
+
+  const handleViewResults = async (jobId: string) => {
+    try {
+      setViewingJobId(jobId)
+
+      console.log('[NSG] Downloading results for job:', jobId)
+
+      // Download results files
+      const files = await TauriService.downloadNSGResults(jobId)
+
+      console.log('[NSG] Downloaded files:', files)
+
+      if (files.length === 0) {
+        alert('No result files available.\n\nThis job may have failed or the results may have been cleaned up by NSG.\n\nIf this is an old job from before recent fixes, please submit a new job.')
+        return
+      }
+
+      // Check if output.tar.gz exists - need to extract it
+      const tarFile = files.find(f => f.includes('output.tar.gz'))
+      if (tarFile) {
+        console.log('[NSG] Found output.tar.gz, extracting...')
+        try {
+          const extractedFiles = await TauriService.extractNSGTarball(jobId, tarFile)
+          console.log('[NSG] Extracted files:', extractedFiles)
+          // Add extracted files to the files list
+          files.push(...extractedFiles)
+        } catch (error) {
+          console.error('[NSG] Failed to extract tarball:', error)
+          // Continue anyway - maybe the files are already extracted
+        }
+      }
+
+      // Find dda_results.json in the downloaded files
+      const resultsFile = files.find(f => f.includes('dda_results.json'))
+
+      if (!resultsFile) {
+        // Show all downloaded files for debugging
+        console.error('[NSG] Available files:', files)
+        alert(`DDA results file not found.\n\nDownloaded files:\n${files.map(f => f.split('/').pop()).join('\n')}\n\nThe job may have failed. Check STDERR for errors.`)
+        return
+      }
+
+      // Read and parse the results file
+      console.log('[NSG] Loading results from:', resultsFile)
+
+      try {
+        // Read the JSON file from disk
+        const resultsJson = await TauriService.readTextFile(resultsFile)
+
+        console.log('[NSG] Raw JSON length:', resultsJson.length, 'chars')
+
+        // Handle NaN, Infinity, -Infinity in JSON (common in scientific data)
+        // Use a global replace that catches all contexts
+        const sanitizedJson = resultsJson
+          .replace(/\bNaN\b/g, 'null')
+          .replace(/\bInfinity\b/g, 'null')
+          .replace(/\b-Infinity\b/g, 'null')
+
+        console.log('[NSG] Sanitized JSON - replaced NaN/Infinity with null')
+
+        const resultsData = JSON.parse(sanitizedJson)
+
+        console.log('[NSG] ✅ Parsed results data successfully:', {
+          hasQMatrix: !!resultsData.q_matrix,
+          numChannels: resultsData.num_channels,
+          numTimepoints: resultsData.num_timepoints,
+          qMatrixKeys: resultsData.q_matrix ? Object.keys(resultsData.q_matrix).slice(0, 5) : []
+        })
+
+        // Generate scales array if not present (time points for x-axis)
+        // NSG results may not include scales, so we generate based on num_timepoints
+        const scales = resultsData.scales || Array.from(
+          { length: resultsData.num_timepoints || 0 },
+          (_, i) => i
+        )
+
+        // Extract channel list from q_matrix keys
+        const channels = resultsData.q_matrix
+          ? Object.keys(resultsData.q_matrix)
+          : (resultsData.parameters?.channels || [])
+
+        // Transform NSG results to match DDA Results component expected format
+        // DDAResults expects: result.results.variants to be an ARRAY of variant objects
+        const transformedResults = {
+          results: {
+            variants: [  // MUST be an array!
+              {
+                variant_id: 'single_timeseries',
+                variant_name: 'NSG Results',
+                dda_matrix: resultsData.q_matrix || {},  // {channel: [values]}
+                exponents: resultsData.exponents || {},
+                quality_metrics: resultsData.quality_metrics || {}
+              }
+            ],
+            scales: scales,  // Required: x-axis values for plots
+            Q: resultsData.q_matrix,
+            channels: channels,
+            plot_data: resultsData.q_matrix,
+            metadata: {
+              input_file: resultsData.parameters?.input_file,
+              time_range: resultsData.parameters?.time_range,
+              window_parameters: {
+                window_length: resultsData.parameters?.window_length,
+                window_step: resultsData.parameters?.window_step
+              },
+              scale_parameters: resultsData.parameters?.scale_parameters,
+              num_channels: resultsData.num_channels,
+              num_timepoints: resultsData.num_timepoints
+            }
+          },
+          parameters: resultsData.parameters,
+          channels: channels,  // Top-level channels for metadata display
+          name: `NSG Job ${jobId.slice(0, 8)}`,
+          id: jobId,
+          created_at: new Date().toISOString()
+        }
+
+        console.log('[NSG] Transformed results for viewer:', {
+          hasVariants: !!transformedResults.results.variants,
+          variantsIsArray: Array.isArray(transformedResults.results.variants),
+          variantsLength: transformedResults.results.variants?.length,
+          hasScales: !!transformedResults.results.scales,
+          scalesLength: transformedResults.results.scales?.length,
+          channels: transformedResults.channels
+        })
+
+        // Load the results into the DDA analysis viewer
+        // Dispatch event to DDA Analysis component to load these results
+        window.dispatchEvent(new CustomEvent('load-nsg-results', {
+          detail: {
+            jobId,
+            resultsFile,
+            resultsData: transformedResults,
+            sourceType: 'nsg'
+          }
+        }))
+
+        // Show success dialog with option to navigate to Results tab
+        setSuccessDialog({
+          show: true,
+          jobId: jobId.slice(0, 8),
+          numChannels: resultsData.num_channels || 0
+        })
+
+      } catch (parseError) {
+        console.error('[NSG] Failed to parse results file:', parseError)
+        alert(`Failed to load results file.\n\nFile: ${resultsFile}\nError: ${parseError}\n\nThe file may be corrupted.`)
+        return
+      }
+
+    } catch (error) {
+      console.error('[NSG] Failed to view results:', error)
+      const errorMsg = error instanceof Error ? error.message : 'Failed to view results'
+
+      // Show user-friendly error
+      if (errorMsg.includes('No output files available')) {
+        setError('No output files available. This job may have failed or results were cleaned up. Please submit a new job.')
+      } else {
+        setError(errorMsg)
+      }
+    } finally {
+      setViewingJobId(null)
+    }
+  }
+
+  const getStatusIcon = (status: NSGJobStatus) => {
+    switch (status) {
+      case NSGJobStatus.Pending:
+        return <Clock className="h-4 w-4 text-gray-500" />
+      case NSGJobStatus.Submitted:
+      case NSGJobStatus.Queue:
+        return <Play className="h-4 w-4 text-blue-500" />
+      case NSGJobStatus.InputStaging:
+        return <Cloud className="h-4 w-4 text-blue-500" />
+      case NSGJobStatus.Running:
+        return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
+      case NSGJobStatus.Completed:
+        return <CheckCircle className="h-4 w-4 text-green-500" />
+      case NSGJobStatus.Failed:
+        return <XCircle className="h-4 w-4 text-red-500" />
+      case NSGJobStatus.Cancelled:
+        return <AlertCircle className="h-4 w-4 text-orange-500" />
+      default:
+        return <AlertCircle className="h-4 w-4" />
+    }
+  }
+
+  const getStatusBadge = (status: NSGJobStatus) => {
+    const variants: Record<NSGJobStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+      [NSGJobStatus.Pending]: 'outline',
+      [NSGJobStatus.Submitted]: 'secondary',
+      [NSGJobStatus.Queue]: 'secondary',
+      [NSGJobStatus.InputStaging]: 'secondary',
+      [NSGJobStatus.Running]: 'default',
+      [NSGJobStatus.Completed]: 'default',
+      [NSGJobStatus.Failed]: 'destructive',
+      [NSGJobStatus.Cancelled]: 'outline',
+    }
+
+    return (
+      <Badge variant={variants[status]} className="flex items-center gap-1">
+        {getStatusIcon(status)}
+        <span>{status}</span>
+      </Badge>
+    )
+  }
+
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return '-'
+    return new Date(dateStr).toLocaleString()
+  }
+
+  const canCancel = (job: NSGJob) => {
+    return [NSGJobStatus.Submitted, NSGJobStatus.Queue, NSGJobStatus.Running].includes(job.status)
+  }
+
+  const canDownload = (job: NSGJob) => {
+    return job.status === NSGJobStatus.Completed && job.output_files.length > 0
+  }
+
+  const canViewResults = (job: NSGJob) => {
+    // Show view button for all completed jobs
+    // Files will be downloaded on-demand when clicking view
+    return job.status === NSGJobStatus.Completed
+  }
+
+  const canUpdateStatus = (job: NSGJob) => {
+    return ![NSGJobStatus.Completed, NSGJobStatus.Failed, NSGJobStatus.Cancelled].includes(job.status)
+  }
+
+  const handleNavigateToResults = () => {
+    // First navigate to the DDA Analysis tab in the main layout
+    window.dispatchEvent(new CustomEvent('navigate-to-dda-analysis'))
+
+    // Then navigate to Results tab within DDA Analysis (small delay to ensure DDA Analysis is mounted)
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('navigate-to-results-tab'))
+    }, 100)
+
+    setSuccessDialog(null)
+  }
+
+  if (!TauriService.isTauri()) {
+    return (
+      <div className="p-6">
+        <Alert>
+          <AlertDescription>
+            NSG job management is only available in the Tauri desktop application.
+          </AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
+
+  if (!hasCredentials) {
+    return (
+      <div className="p-6">
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            Please configure NSG credentials in Settings before managing jobs.
+          </AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Cloud className="h-5 w-5" />
+                NSG Job Manager
+              </CardTitle>
+              <CardDescription>
+                View and manage your Neuroscience Gateway HPC jobs
+              </CardDescription>
+            </div>
+            <div className="flex gap-2">
+              {jobs.some(j => j.status === NSGJobStatus.Pending) && (
+                <Button onClick={handleCleanupPending} variant="outline" size="sm" disabled={isLoading}>
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Clean Up Pending
+                </Button>
+              )}
+              <Button onClick={handleRefresh} variant="outline" size="sm" disabled={isLoading}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {error && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {isLoading && jobs.length === 0 ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : jobs.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No NSG jobs found. Submit a job from the DDA analysis panel to get started.
+            </div>
+          ) : (
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Job ID</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Tool</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead>Submitted</TableHead>
+                    <TableHead>Completed</TableHead>
+                    <TableHead>Results</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {jobs.map((job) => (
+                    <TableRow key={job.id}>
+                      <TableCell className="font-mono text-xs">
+                        <div className="flex items-center gap-2">
+                          <span>{job.nsg_job_id || job.id.slice(0, 8)}</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0"
+                            onClick={() => handleCopyJobId(job.id, job.nsg_job_id)}
+                            title="Copy job ID"
+                          >
+                            {copiedJobId === job.id ? (
+                              <Check className="h-3 w-3 text-green-500" />
+                            ) : (
+                              <Copy className="h-3 w-3" />
+                            )}
+                          </Button>
+                        </div>
+                      </TableCell>
+                      <TableCell>{getStatusBadge(job.status)}</TableCell>
+                      <TableCell>{job.tool}</TableCell>
+                      <TableCell className="text-sm">{formatDate(job.created_at)}</TableCell>
+                      <TableCell className="text-sm">{formatDate(job.submitted_at)}</TableCell>
+                      <TableCell className="text-sm">{formatDate(job.completed_at)}</TableCell>
+                      <TableCell className="text-sm">
+                        {(() => {
+                          const canView = canViewResults(job)
+                          console.log('[NSG] Job', job.id.slice(0, 8), '- Status:', job.status, '- Can view?', canView, '- Output files:', job.output_files.length)
+                          return canView ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleViewResults(job.id)}
+                              disabled={viewingJobId === job.id}
+                              className="h-7"
+                              title="View results"
+                            >
+                              {viewingJobId === job.id ? (
+                                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                              ) : (
+                                <Eye className="h-3 w-3 mr-1" />
+                              )}
+                              {job.output_files.length > 0 ? `View (${job.output_files.length})` : 'View Results'}
+                            </Button>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              {job.output_files.length > 0 ? `${job.output_files.length} files` : '-'}
+                            </span>
+                          )
+                        })()}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex justify-end gap-1">
+                          {canUpdateStatus(job) && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleUpdateStatus(job.id)}
+                              disabled={pollingJobId === job.id}
+                            >
+                              {pollingJobId === job.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-4 w-4" />
+                              )}
+                            </Button>
+                          )}
+                          {canDownload(job) && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleDownloadResults(job.id)}
+                              disabled={downloadingJobId === job.id}
+                            >
+                              {downloadingJobId === job.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Download className="h-4 w-4" />
+                              )}
+                            </Button>
+                          )}
+                          {canCancel(job) && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleCancelJob(job.id)}
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDeleteJob(job.id)}
+                            disabled={deletingJobId === job.id}
+                          >
+                            {deletingJobId === job.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Success Dialog */}
+      <AlertDialog open={successDialog?.show || false} onOpenChange={(open) => !open && setSuccessDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-green-500" />
+              NSG Results Loaded Successfully!
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <div className="text-sm">
+                <strong>Job ID:</strong> {successDialog?.jobId}
+              </div>
+              <div className="text-sm">
+                <strong>Channels Analyzed:</strong> {successDialog?.numChannels}
+              </div>
+              <div className="text-sm text-muted-foreground mt-4">
+                Your results have been loaded and are ready to view in the DDA Analysis panel.
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setSuccessDialog(null)}>
+              Close
+            </AlertDialogAction>
+            <Button onClick={handleNavigateToResults} className="ml-2">
+              <Eye className="h-4 w-4 mr-2" />
+              View Results
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}

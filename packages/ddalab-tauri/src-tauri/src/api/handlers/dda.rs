@@ -16,26 +16,26 @@ use crate::api::utils::FileType;
 use crate::file_readers::FileReaderFactory;
 use dda_rs::DDARunner;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TimeRange {
     pub start: f64,
     pub end: f64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PreprocessingOptions {
     pub detrending: Option<String>,
     pub highpass: Option<f64>,
     pub lowpass: Option<f64>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AlgorithmSelection {
     pub enabled_variants: Vec<String>,
     pub select_mask: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct WindowParameters {
     pub window_length: usize,
     pub window_step: usize,
@@ -43,14 +43,14 @@ pub struct WindowParameters {
     pub ct_window_step: Option<usize>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ScaleParameters {
     pub scale_min: i32,
     pub scale_max: i32,
     pub scale_num: usize,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DDARequest {
     pub file_path: String,
     #[serde(alias = "channel_list")]

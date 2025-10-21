@@ -59,6 +59,55 @@ export interface AppPreferences {
   theme: string
 }
 
+export enum NSGJobStatus {
+  Pending = 'pending',
+  Submitted = 'submitted',
+  Queue = 'queue',
+  InputStaging = 'inputstaging',
+  Running = 'running',
+  Completed = 'completed',
+  Failed = 'failed',
+  Cancelled = 'cancelled',
+}
+
+export interface NSGJob {
+  id: string
+  nsg_job_id: string | null
+  tool: string
+  status: NSGJobStatus
+  created_at: string
+  submitted_at: string | null
+  completed_at: string | null
+  dda_params: Record<string, any>
+  input_file_path: string
+  output_files: string[]
+  error_message: string | null
+  last_polled: string | null
+  progress: number | null
+}
+
+export interface NSGCredentials {
+  username: string
+  password: string
+  app_key: string
+}
+
+export interface NSGResourceConfig {
+  runtime_hours?: number
+  cores?: number
+  nodes?: number
+}
+
+export interface NSGJobStats {
+  total: number
+  pending: number
+  submitted: number
+  running: number
+  completed: number
+  failed: number
+  cancelled: number
+}
+
 export class TauriService {
   private static instance: TauriService
 
@@ -344,17 +393,6 @@ export class TauriService {
     }
   }
 
-  static async checkApiConnection(): Promise<boolean> {
-    try {
-      const api = await getTauriAPI()
-      if (!api) throw new Error('Tauri API not available')
-      return await api.invoke('check_api_connection')
-    } catch (error) {
-      console.error('Failed to check API connection:', error)
-      return false
-    }
-  }
-
   static async getApiConfig(): Promise<any> {
     try {
       const api = await getTauriAPI()
@@ -539,5 +577,137 @@ export class TauriService {
     const api = await getTauriAPI()
     if (!api) throw new Error('Not running in Tauri environment')
     return await api.invoke('read_logs_content')
+  }
+
+  // NSG (Neuroscience Gateway) Commands
+
+  static async saveNSGCredentials(username: string, password: string, appKey: string): Promise<void> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    await api.invoke('save_nsg_credentials', { username, password, appKey })
+  }
+
+  static async getNSGCredentials(): Promise<NSGCredentials | null> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('get_nsg_credentials')
+  }
+
+  static async hasNSGCredentials(): Promise<boolean> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('has_nsg_credentials')
+  }
+
+  static async deleteNSGCredentials(): Promise<void> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    await api.invoke('delete_nsg_credentials')
+  }
+
+  static async testNSGConnection(): Promise<boolean> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('test_nsg_connection')
+  }
+
+  static async createNSGJob(
+    tool: string,
+    ddaParams: Record<string, any>,
+    inputFilePath: string,
+    runtimeHours?: number,
+    cores?: number,
+    nodes?: number
+  ): Promise<string> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+
+    const params: Record<string, any> = {
+      tool,
+      ddaParams: ddaParams,
+      inputFilePath: inputFilePath,
+    }
+
+    // Only add optional parameters if they're defined
+    if (runtimeHours !== undefined) params.runtimeHours = runtimeHours
+    if (cores !== undefined) params.cores = cores
+    if (nodes !== undefined) params.nodes = nodes
+
+    console.log('[TauriService] createNSGJob params:', params)
+
+    return await api.invoke('create_nsg_job', params)
+  }
+
+  static async submitNSGJob(jobId: string): Promise<NSGJob> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('submit_nsg_job', { jobId })
+  }
+
+  static async getNSGJobStatus(jobId: string): Promise<NSGJob> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('get_nsg_job_status', { jobId })
+  }
+
+  static async listNSGJobs(): Promise<NSGJob[]> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('list_nsg_jobs')
+  }
+
+  static async listActiveNSGJobs(): Promise<NSGJob[]> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('list_active_nsg_jobs')
+  }
+
+  static async cancelNSGJob(jobId: string): Promise<void> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    await api.invoke('cancel_nsg_job', { jobId })
+  }
+
+  static async downloadNSGResults(jobId: string): Promise<string[]> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('download_nsg_results', { jobId })
+  }
+
+  static async extractNSGTarball(jobId: string, tarPath: string): Promise<string[]> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('extract_nsg_tarball', { jobId, tarPath })
+  }
+
+  static async readTextFile(filePath: string): Promise<string> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    const { readTextFile } = await import('@tauri-apps/plugin-fs')
+    return await readTextFile(filePath)
+  }
+
+  static async deleteNSGJob(jobId: string): Promise<void> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    await api.invoke('delete_nsg_job', { jobId })
+  }
+
+  static async pollNSGJobs(): Promise<void> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    await api.invoke('poll_nsg_jobs')
+  }
+
+  static async getNSGJobStats(): Promise<NSGJobStats> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('get_nsg_job_stats')
+  }
+
+  static async cleanupPendingNSGJobs(): Promise<number> {
+    const api = await getTauriAPI()
+    if (!api) throw new Error('Not running in Tauri environment')
+    return await api.invoke('cleanup_pending_nsg_jobs')
   }
 }

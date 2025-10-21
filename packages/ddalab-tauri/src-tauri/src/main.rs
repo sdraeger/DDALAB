@@ -161,7 +161,25 @@ fn main() {
             // Debug commands
             open_logs_folder,
             get_logs_path,
-            read_logs_content
+            read_logs_content,
+            // NSG commands
+            save_nsg_credentials,
+            get_nsg_credentials,
+            has_nsg_credentials,
+            delete_nsg_credentials,
+            test_nsg_connection,
+            create_nsg_job,
+            submit_nsg_job,
+            get_nsg_job_status,
+            list_nsg_jobs,
+            list_active_nsg_jobs,
+            cancel_nsg_job,
+            download_nsg_results,
+            extract_nsg_tarball,
+            delete_nsg_job,
+            poll_nsg_jobs,
+            get_nsg_job_stats,
+            cleanup_pending_nsg_jobs
         ])
         .manage(ApiServerState::default())
         .manage(AppSyncState::new())
@@ -173,6 +191,23 @@ fn main() {
         .manage(commands::openneuro_commands::UploadState::default())
         .setup(|app| {
             setup_app(app).map_err(|e| e.to_string())?;
+
+            // Start NSG background polling if credentials are configured
+            // Use Tauri's async runtime instead of tokio::spawn
+            {
+                use tauri::Manager;
+                let state = app.state::<state_manager::AppStateManager>();
+                if let Some(poller) = state.get_nsg_poller() {
+                    let poller_clone = poller.clone();
+
+                    // Use Tauri's runtime to spawn the task
+                    tauri::async_runtime::spawn(async move {
+                        poller_clone.start_polling().await;
+                    });
+
+                    log::info!("🚀 Started NSG background job polling");
+                }
+            }
 
             // Fix for macOS window focus issue in dev mode
             // Use event listener to ensure window gets focus after creation

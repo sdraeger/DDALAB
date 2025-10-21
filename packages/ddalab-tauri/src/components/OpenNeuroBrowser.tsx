@@ -2,7 +2,6 @@ import { useState, useCallback, useMemo, memo } from 'react';
 import { Search, Download, ExternalLink, Database, Calendar, Eye, TrendingDown, Key, Upload } from 'lucide-react';
 import { openNeuroService, type OpenNeuroDataset } from '../services/openNeuroService';
 import { open } from '@tauri-apps/plugin-shell';
-import { OpenNeuroApiKeyDialog } from './OpenNeuroApiKeyDialog';
 import { OpenNeuroDownloadDialog } from './OpenNeuroDownloadDialog';
 import { useOpenNeuroDatasetsBatch, useOpenNeuroApiKey } from '../hooks/useOpenNeuro';
 
@@ -65,7 +64,6 @@ export function OpenNeuroBrowser() {
   const [allDatasets, setAllDatasets] = useState<OpenNeuroDataset[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDataset, setSelectedDataset] = useState<OpenNeuroDataset | null>(null);
-  const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = useState(false);
   const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
   const [datasetToDownload, setDatasetToDownload] = useState<OpenNeuroDataset | null>(null);
   const [endCursor, setEndCursor] = useState<string | undefined>(undefined);
@@ -152,22 +150,15 @@ export function OpenNeuroBrowser() {
         {/* Header with search and auth status */}
         <div className="mb-4 space-y-3">
           {/* Authentication status bar */}
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-2 p-3 bg-muted/50 rounded-lg border">
             <div className="flex items-center gap-2 text-sm">
               <Key className="h-4 w-4 text-muted-foreground" />
               {isAuthenticated ? (
                 <span className="text-primary font-medium">Authenticated</span>
               ) : (
-                <span className="text-muted-foreground">Not authenticated</span>
+                <span className="text-muted-foreground">Not authenticated - Configure API key in Settings</span>
               )}
             </div>
-            <button
-              onClick={() => setIsApiKeyDialogOpen(true)}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-accent hover:bg-accent/80 rounded-lg transition-colors"
-            >
-              <Key className="h-4 w-4" />
-              {isAuthenticated ? 'Manage API Key' : 'Add API Key'}
-            </button>
           </div>
 
           {/* Search bar */}
@@ -349,13 +340,6 @@ export function OpenNeuroBrowser() {
           </div>
         </div>
       )}
-
-      {/* API Key Management Dialog */}
-      <OpenNeuroApiKeyDialog
-        isOpen={isApiKeyDialogOpen}
-        onClose={() => setIsApiKeyDialogOpen(false)}
-        onApiKeyUpdated={() => {}}
-      />
 
       {/* Download Dialog */}
       <OpenNeuroDownloadDialog

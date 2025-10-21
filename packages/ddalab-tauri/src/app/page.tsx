@@ -109,7 +109,7 @@ export default function Home() {
         // Check if API server is already running (for dev workflow)
         try {
           console.log('Checking if API server is already running...')
-          const alreadyRunning = await TauriService.checkApiConnection()
+          const alreadyRunning = await TauriService.checkApiConnection(url)
 
           if (alreadyRunning) {
             console.log('✅ API server already running, loading config...')
