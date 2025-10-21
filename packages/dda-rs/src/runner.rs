@@ -50,7 +50,7 @@ impl DDARunner {
         }
 
         log::info!("Starting DDA analysis for file: {}", request.file_path);
-        log::info!("Channel indices: {:?}", request.channels);
+        log::info!("Channel indices (0-based from frontend): {:?}", request.channels);
         log::info!("Time range: {:?}", request.time_range);
         log::info!("Window parameters: {:?}", request.window_parameters);
         log::info!("Scale parameters: {:?}", request.scale_parameters);
@@ -65,6 +65,8 @@ impl DDARunner {
         } else {
             vec!["1".to_string()]  // Default to first channel
         };
+
+        log::info!("Channel indices (1-based for DDA binary): {:?}", channel_indices);
 
         // Build DDA command - APE binary needs to run through sh on Unix systems (macOS/Linux)
         // APE (Actually Portable Executable) binaries have a shell script header for portability

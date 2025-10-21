@@ -158,6 +158,12 @@ pub async fn run_dda_analysis(
 
     let dda_request = convert_to_dda_request(&request);
 
+    log::info!("📋 LOCAL DDA Analysis Parameters:");
+    log::info!("   Channels: {:?}", request.channels);
+    log::info!("   Time range: {} - {} seconds (bounds: {:?} - {:?} samples)", request.time_range.start, request.time_range.end, start_bound, end_bound);
+    log::info!("   Window: length={}, step={}", request.window_parameters.window_length, request.window_parameters.window_step);
+    log::info!("   Scale: min={}, max={}, num={}", request.scale_parameters.scale_min, request.scale_parameters.scale_max, request.scale_parameters.scale_num);
+
     let edf_channel_names: Option<Vec<String>> = {
         let file_cache = state.files.read();
         file_cache.get(&request.file_path).map(|info| info.channels.clone())
