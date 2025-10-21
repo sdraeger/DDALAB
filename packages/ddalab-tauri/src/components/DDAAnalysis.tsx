@@ -619,12 +619,12 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       }
 
       // Map channel indices back to names for display
-      const channelNames = request.channels.map(idx => selectedFile.channels[idx] || `Unknown(${idx})`)
+      const channelNames = request.channels?.map(idx => selectedFile.channels[idx] || `Unknown(${idx})`) || []
 
       console.log('📋 [NSG] DDA Analysis Parameters:')
       console.log(`   File: ${selectedFile.file_path}`)
       console.log(`   Sample rate: ${selectedFile.sample_rate} Hz`)
-      console.log(`   Channels (indices): [${request.channels.join(', ')}]`)
+      console.log(`   Channels (indices): [${request.channels?.join(', ') || ''}]`)
       console.log(`   Channels (names): [${channelNames.join(', ')}]`)
       console.log(`   Time range: ${request.time_range.start} - ${request.time_range.end} seconds`)
       console.log(`   Window: length=${request.window_parameters.window_length}, step=${request.window_parameters.window_step}`)
