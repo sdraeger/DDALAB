@@ -81,7 +81,17 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiRea
 
   const checkHealth = async () => {
     try {
-      const apiUrl = status?.url || 'http://localhost:8765'
+      let apiUrl = status?.url
+
+      // If no URL in status, build it from config
+      if (!apiUrl) {
+        const apiConfig = await TauriService.getApiConfig()
+        // CRITICAL: Default to HTTP if use_https is not explicitly true
+        const protocol = apiConfig?.use_https === true ? 'https' : 'http'
+        const port = apiConfig?.port || 8765
+        apiUrl = `${protocol}://localhost:${port}`
+      }
+
       const connected = await TauriService.checkApiConnection(apiUrl)
       setHealth({
         status: connected ? 'healthy' : 'error',

@@ -286,14 +286,15 @@ export class TauriService {
       return await api.invoke('get_app_preferences')
     } catch (error) {
       console.error('Failed to get app preferences:', error)
+      // Return consistent defaults where use_https matches the URL protocol
       return {
         api_config: {
-          url: 'https://localhost:8765',
+          url: 'https://localhost:8765', // Default to HTTPS
           timeout: 30
         },
         window_state: {},
         theme: 'auto',
-        use_https: true
+        use_https: true // Matches the HTTPS URL above
       }
     }
   }

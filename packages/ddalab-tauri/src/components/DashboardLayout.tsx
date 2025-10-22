@@ -39,7 +39,12 @@ interface DashboardLayoutProps {
 }
 
 export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) {
-  const [apiService, setApiService] = useState(() => new ApiService(apiUrl, sessionToken));
+  console.log('[DASHBOARD] DashboardLayout rendered with apiUrl:', apiUrl, 'hasToken:', !!sessionToken);
+
+  const [apiService, setApiService] = useState(() => {
+    console.log('[DASHBOARD] Creating initial ApiService with URL:', apiUrl);
+    return new ApiService(apiUrl, sessionToken);
+  });
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
 
@@ -95,8 +100,8 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
 
   // Update API service when URL or session token changes
   useEffect(() => {
-    // Always use embedded API with HTTPS in Tauri (port 8765)
-    const newApiUrl = TauriService.isTauri() ? "https://localhost:8765" : apiUrl;
+    // Use the apiUrl prop which already has the correct protocol from page.tsx
+    const newApiUrl = apiUrl;
     const currentToken = apiService.getSessionToken();
 
     console.log('[DASHBOARD] API service check:', {

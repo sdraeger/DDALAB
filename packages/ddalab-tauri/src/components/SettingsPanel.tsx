@@ -6,6 +6,7 @@ import { SecuritySettings } from './settings/SecuritySettings'
 import { NSGSettings } from './settings/NSGSettings'
 import { OpenNeuroSettings } from './settings/OpenNeuroSettings'
 import { DebugSettings } from './settings/DebugSettings'
+import { UpdatesSettings } from './settings/UpdatesSettings'
 import { TauriService } from '@/services/tauriService'
 import {
   Activity,
@@ -13,6 +14,7 @@ import {
   FileText,
   Database,
   Shield,
+  Download,
 } from 'lucide-react'
 
 export function SettingsPanel() {
@@ -60,6 +62,16 @@ export function SettingsPanel() {
       label: 'Debug & Logs',
       icon: <FileText className="h-4 w-4" />,
       component: <DebugSettings />,
+    })
+  }
+
+  // Only add Updates section in Tauri
+  if (TauriService.isTauri()) {
+    sections.push({
+      id: 'updates',
+      label: 'Updates',
+      icon: <Download className="h-4 w-4" />,
+      component: <UpdatesSettings />,
     })
   }
 
