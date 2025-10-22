@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, memo } from 'react';
-import { Search, Download, ExternalLink, Database, Calendar, Eye, TrendingDown, Key, Upload } from 'lucide-react';
+import { Search, Download, ExternalLink, Database, Calendar, Eye, TrendingDown, Key, Upload, AlertTriangle } from 'lucide-react';
 import { openNeuroService, type OpenNeuroDataset } from '../services/openNeuroService';
 import { open } from '@tauri-apps/plugin-shell';
 import { OpenNeuroDownloadDialog } from './OpenNeuroDownloadDialog';
@@ -37,17 +37,26 @@ const DatasetCard = memo(({
           )}
           <div className="flex items-center gap-2 mt-3 flex-wrap">
             {dataset.summary?.modalities && dataset.summary.modalities.length > 0 && (
-              <div className="flex items-center gap-1">
-                {dataset.summary.modalities.map((modality) => (
-                  <Badge
-                    key={modality}
-                    variant={['eeg', 'meg', 'ieeg'].includes(modality.toLowerCase()) ? 'default' : 'secondary'}
-                    className="text-xs"
-                  >
-                    {modality.toUpperCase()}
+              <>
+                {/* NEMAR Badge */}
+                {dataset.summary.modalities.some(m => ['eeg', 'meg', 'ieeg'].includes(m.toLowerCase())) && (
+                  <Badge variant="outline" className="text-xs font-semibold bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700">
+                    NEMAR
                   </Badge>
-                ))}
-              </div>
+                )}
+                {/* Modality badges */}
+                <div className="flex items-center gap-1">
+                  {dataset.summary.modalities.map((modality) => (
+                    <Badge
+                      key={modality}
+                      variant={['eeg', 'meg', 'ieeg'].includes(modality.toLowerCase()) ? 'default' : 'secondary'}
+                      className="text-xs"
+                    >
+                      {modality.toUpperCase()}
+                    </Badge>
+                  ))}
+                </div>
+              </>
             )}
             {dataset.snapshots && dataset.snapshots.length > 0 && (
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -387,6 +396,18 @@ export function OpenNeuroBrowser() {
                     </Badge>
                   ))}
                 </div>
+                {/* MEG Format Warning */}
+                {selectedDataset.summary.modalities.some(m => m.toLowerCase() === 'meg') && (
+                  <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                      <div className="text-xs text-amber-800 dark:text-amber-200">
+                        <strong>MEG Analysis Not Yet Supported:</strong> This dataset contains MEG files (.fif, .ds, .sqd).
+                        You can download the dataset, but DDALAB currently only supports EDF, BrainVision, and EEGLAB formats for analysis.
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

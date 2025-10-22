@@ -12,6 +12,8 @@ pub enum FileType {
     EDF,
     BrainVision,
     EEGLAB,
+    MEG,  // MEG formats (not yet supported for analysis)
+    Unknown,
 }
 
 impl FileType {
@@ -21,7 +23,10 @@ impl FileType {
             "ascii" | "txt" => FileType::ASCII,
             "vhdr" => FileType::BrainVision,
             "set" => FileType::EEGLAB,
-            _ => FileType::EDF,
+            "edf" | "bdf" => FileType::EDF,
+            // MEG formats
+            "fif" | "ds" | "sqd" | "meg4" | "con" | "kit" => FileType::MEG,
+            _ => FileType::Unknown,
         }
     }
 
@@ -29,7 +34,15 @@ impl FileType {
         path.extension()
             .and_then(|e| e.to_str())
             .map(|ext| Self::from_extension(ext))
-            .unwrap_or(FileType::EDF)
+            .unwrap_or(FileType::Unknown)
+    }
+
+    pub fn is_supported(&self) -> bool {
+        matches!(self, FileType::EDF | FileType::CSV | FileType::ASCII | FileType::BrainVision | FileType::EEGLAB)
+    }
+
+    pub fn is_meg(&self) -> bool {
+        matches!(self, FileType::MEG)
     }
 }
 
@@ -367,6 +380,14 @@ pub async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
                         None
                     }
                 }
+            }
+            FileType::MEG => {
+                log::warn!("MEG file '{}' detected but not supported for analysis yet", file_name);
+                None
+            }
+            FileType::Unknown => {
+                log::warn!("Unknown file type for '{}'", file_name);
+                None
             }
         }
     })

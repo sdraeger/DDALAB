@@ -65,8 +65,10 @@ pub async fn list_files(
                         if let Some(extension) = entry_path.extension() {
                             let ext = extension.to_str().unwrap_or("");
                             let file_type = FileType::from_extension(ext);
-                            if matches!(file_type, FileType::EDF | FileType::CSV | FileType::ASCII) {
-                                log::debug!("Found data file: {:?}", entry_path);
+
+                            // Include supported files and MEG files (with warning flag)
+                            if file_type.is_supported() || file_type.is_meg() {
+                                log::debug!("Found data file: {:?} (type: {:?})", entry_path, file_type);
 
                                 if let Ok(metadata) = entry.metadata() {
                                     let last_modified = metadata.modified()
@@ -83,7 +85,9 @@ pub async fn list_files(
                                         "name": file_name,
                                         "size": metadata.len(),
                                         "last_modified": last_modified,
-                                        "is_directory": false
+                                        "is_directory": false,
+                                        "is_meg": file_type.is_meg(),
+                                        "is_supported": file_type.is_supported()
                                     }));
                                 }
                             }
