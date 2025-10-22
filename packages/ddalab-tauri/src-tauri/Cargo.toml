@@ -9,10 +9,10 @@ edition = "2021"
 default-run = "ddalab-tauri"
 
 [build-dependencies]
-tauri-build = { version = "2.5.0", features = [] }
+tauri-build = { version = "2.5.1", features = [] }
 
 [dependencies]
-tauri = { version = "2.9.0", features = ["tray-icon"] }
+tauri = { version = "2.9.1", features = ["tray-icon"] }
 tauri-plugin-shell = "2.0.0"
 tauri-plugin-dialog = "2.0.0"
 tauri-plugin-fs = "2.0.0"
@@ -43,7 +43,7 @@ walkdir = "2.4"
 zip = "6.0.0"
 tar = "0.4"
 flate2 = "1.1.4"
-rustls = { version = "0.23.33", features = ["ring"] }
+rustls = { version = "0.23.34", features = ["ring"] }
 rustls-pemfile = "2.0"
 tokio-rustls = "0.26.4"
 which = "8.0.0"

@@ -30,7 +30,7 @@ impl Default for ApiConnectionConfig {
         Self {
             host: "127.0.0.1".to_string(),
             port: 8765,
-            use_https: true,
+            use_https: false,  // HTTP by default - HTTPS has WebView trust issues
             is_local: true,
             session_token: None,
         }
@@ -227,30 +227,51 @@ pub async fn start_local_api_server(
             }
         });
 
+    // Load use_https preference from app preferences
+    let use_https = match crate::commands::preference_commands::get_app_preferences(app_handle.clone()).await {
+        Ok(prefs) => prefs.use_https,
+        Err(_) => true, // Default to HTTPS for security
+    };
+
+    log::info!("🔐 HTTPS mode: {}", if use_https { "enabled" } else { "disabled (HTTP)" });
+
     // Configure the server
     let server_config = ApiServerConfig {
         port,
         bind_address: host.clone(),
-        use_https: true,
+        use_https,
         require_auth: true,
         hostname: None,
     };
 
-    log::info!("⏰ Starting secure API server...");
+    log::info!("⏰ Starting API server...");
 
     // Start the server
     match start_api_server(server_config, data_dir, dda_binary_path).await {
-        Ok(session_token) => {
-            log::info!("✅ Local API server started successfully");
+        Ok((session_token, actual_port, task_handle)) => {
+            log::info!("✅ Local API server started successfully on port {}", actual_port);
 
-            // Create connection config
+            // Store the task handle so we can stop the server later
+            {
+                let mut handle_guard = state.server_handle.write();
+                *handle_guard = Some(task_handle);
+                log::info!("📌 Server task handle stored for clean shutdown");
+            }
+
+            // Create connection config with the ACTUAL port that was used
             let config = ApiConnectionConfig {
                 host: host.clone(),
-                port,
-                use_https: true,
+                port: actual_port,  // Use actual port, not requested port!
+                use_https,
                 is_local: true,
                 session_token: Some(session_token),
             };
+
+            log::info!("📡 API accessible at: {}://{}:{}",
+                if use_https { "https" } else { "http" },
+                host,
+                actual_port
+            );
 
             // Update state
             {
@@ -281,27 +302,44 @@ pub async fn start_local_api_server(
 pub async fn stop_local_api_server(
     state: State<'_, ApiServerState>,
 ) -> Result<(), String> {
-    {
-        let is_running = state.is_local_server_running.lock();
-        if !*is_running {
-            return Err("Local API server is not running".to_string());
-        }
-    }
+    log::info!("🛑 Attempting to stop local API server...");
 
-    {
+    // Always try to abort the task, even if the flag says it's not running
+    // This handles zombie servers from previous sessions
+    let had_handle = {
         let mut handle_guard = state.server_handle.write();
         if let Some(handle) = handle_guard.take() {
+            log::info!("🔪 Aborting server task handle");
             handle.abort();
+            true
+        } else {
+            log::warn!("⚠️ No server task handle found");
+            false
         }
-    }
+    };
 
+    // Always clear the running flag
     {
         let mut is_running = state.is_local_server_running.lock();
         *is_running = false;
     }
 
-    log::info!("Stopped local API server");
-    Ok(())
+    // Clear the connection config to force regeneration on next start
+    {
+        let mut conn_config = state.connection_config.write();
+        conn_config.session_token = None;
+    }
+
+    // Give the server a moment to shut down
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    if had_handle {
+        log::info!("✅ Stopped local API server");
+        Ok(())
+    } else {
+        log::warn!("⚠️ Server was not tracked, but state has been cleared");
+        Ok(()) // Return Ok anyway since we've cleared the state
+    }
 }
 
 // ============================================================================
