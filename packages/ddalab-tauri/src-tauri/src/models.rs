@@ -106,7 +106,7 @@ pub struct AppPreferences {
 }
 
 fn default_use_https() -> bool {
-    true // HTTPS enabled by default for security
+    false // HTTP by default - HTTPS has certificate trust issues in Tauri's WebView
 }
 
 impl Default for FileManagerState {
@@ -201,12 +201,12 @@ impl Default for AppPreferences {
     fn default() -> Self {
         Self {
             api_config: ApiConfig {
-                url: "https://localhost:8765".to_string(), // Embedded API default port with HTTPS
+                url: "http://localhost:8765".to_string(), // HTTP by default (HTTPS has WebView trust issues)
                 timeout: 30,
             },
             window_state: HashMap::new(),
             theme: "auto".to_string(),
-            use_https: true, // HTTPS enabled by default for security
+            use_https: false, // HTTP by default - HTTPS has certificate trust issues in Tauri's WebView
         }
     }
 }

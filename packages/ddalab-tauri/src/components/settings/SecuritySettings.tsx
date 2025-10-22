@@ -55,6 +55,15 @@ export function SecuritySettings() {
       // Update use_https
       prefs.use_https = useHttps
 
+      // IMPORTANT: Also update the URL in api_config to match
+      const protocol = useHttps ? 'https' : 'http'
+      prefs.api_config = {
+        url: `${protocol}://localhost:8765`,
+        timeout: prefs.api_config?.timeout || 30
+      }
+
+      console.log('[SECURITY] Saving preferences with use_https:', useHttps, 'and URL:', prefs.api_config.url)
+
       // Save preferences
       await TauriService.saveAppPreferences(prefs)
 
@@ -67,11 +76,25 @@ export function SecuritySettings() {
       }
 
       // Start server with new settings
+      console.log('[SECURITY] Starting API server with new HTTPS setting:', useHttps)
       await TauriService.startLocalApiServer()
+
+      // Wait a bit for server to fully start
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      // Verify server is using correct protocol
+      const apiConfig = await TauriService.getApiConfig()
+      console.log('[SECURITY] Server started with config:', apiConfig)
+
+      if (apiConfig.use_https !== useHttps) {
+        console.error('[SECURITY] WARNING: Server use_https mismatch! Expected:', useHttps, 'Got:', apiConfig.use_https)
+        throw new Error(`Server started with wrong protocol. Expected ${useHttps ? 'HTTPS' : 'HTTP'} but got ${apiConfig.use_https ? 'HTTPS' : 'HTTP'}`)
+      }
 
       setNeedsRestart(false)
 
       // Reload the page to use new URL
+      console.log('[SECURITY] Reloading page to use new API URL:', apiConfig.url)
       window.location.reload()
     } catch (error) {
       console.error('Failed to save preferences and restart server:', error)
@@ -81,8 +104,12 @@ export function SecuritySettings() {
     }
   }
 
-  const openMkcertInstructions = () => {
-    window.open('https://github.com/FiloSottile/mkcert#installation', '_blank')
+  const openMkcertInstructions = async () => {
+    if (TauriService.isTauri()) {
+      await TauriService.openUrl('https://github.com/FiloSottile/mkcert#installation')
+    } else {
+      window.open('https://github.com/FiloSottile/mkcert#installation', '_blank')
+    }
   }
 
   return (
@@ -108,9 +135,9 @@ export function SecuritySettings() {
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5 flex-1">
-              <Label htmlFor="use-https">Use HTTPS (Recommended)</Label>
+              <Label htmlFor="use-https">Use HTTPS</Label>
               <p className="text-sm text-muted-foreground">
-                Encrypts communication between the UI and API server to prevent sniffing attacks
+                Encrypts communication between the UI and API server
               </p>
             </div>
             <Checkbox
@@ -120,39 +147,33 @@ export function SecuritySettings() {
             />
           </div>
 
-          {!useHttps && (
-            <div className="flex items-start gap-3 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
-              <AlertTriangle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
-              <div className="space-y-1 flex-1">
-                <p className="text-sm font-medium text-destructive">Security Warning</p>
-                <p className="text-sm text-muted-foreground">
-                  Disabling HTTPS means your data will be transmitted unencrypted on localhost.
-                  Only use HTTP if you're experiencing certificate issues.
-                </p>
-              </div>
-            </div>
-          )}
-
           {useHttps && (
-            <div className="flex items-start gap-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-              <Shield className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+            <div className="flex items-start gap-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
               <div className="space-y-2 flex-1">
-                <p className="text-sm font-medium">Certificate Setup</p>
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Known Issue: HTTPS May Not Work</p>
                 <p className="text-sm text-muted-foreground">
-                  For trusted HTTPS certificates without browser warnings, install mkcert:
+                  The desktop app's WebView has strict security policies that may block HTTPS connections even with trusted certificates. If you experience connection errors, switch to HTTP mode.
                 </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={openMkcertInstructions}
-                  className="gap-2"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  Install mkcert
-                </Button>
-                <p className="text-xs text-muted-foreground mt-2">
-                  After installing mkcert, restart the application for changes to take effect.
+                <p className="text-sm text-muted-foreground">
+                  Since the API server only accepts connections from localhost, HTTP is reasonably secure for local development.
                 </p>
+                <details className="text-sm text-muted-foreground">
+                  <summary className="cursor-pointer font-medium">Advanced: Try mkcert (may not work)</summary>
+                  <div className="mt-2 space-y-2">
+                    <p>You can try installing mkcert to generate trusted certificates:</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={openMkcertInstructions}
+                      className="gap-2"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      Install mkcert Instructions
+                    </Button>
+                    <p className="text-xs">However, this may still not work due to WebView restrictions.</p>
+                  </div>
+                </details>
               </div>
             </div>
           )}
