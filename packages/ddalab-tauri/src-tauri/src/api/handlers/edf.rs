@@ -119,6 +119,12 @@ pub async fn get_edf_data(
                 log::info!("Reading file using modular reader: {}", file_path_clone);
                 read_chunk_with_file_reader(path, &file_path_clone, start_time, duration, selected_channels)
             }
+            FileType::MEG => {
+                Err(format!("MEG files are not yet supported for analysis: {}", file_path_clone))
+            }
+            FileType::Unknown => {
+                Err(format!("Unknown file type: {}", file_path_clone))
+            }
         }
     })
     .await
@@ -190,6 +196,12 @@ pub async fn get_edf_overview(
             FileType::BrainVision | FileType::EEGLAB => {
                 log::info!("Generating overview using modular reader: {}", file_path_clone);
                 generate_overview_with_file_reader(path, max_points, selected_channels)
+            }
+            FileType::MEG => {
+                Err(format!("MEG files are not yet supported for analysis: {}", file_path_clone))
+            }
+            FileType::Unknown => {
+                Err(format!("Unknown file type: {}", file_path_clone))
             }
         }
     })
