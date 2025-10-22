@@ -2,6 +2,7 @@
 
 import { SettingsLayout, SettingsSection } from './settings/SettingsLayout'
 import { AnalysisEngineSettings } from './settings/AnalysisEngineSettings'
+import { SecuritySettings } from './settings/SecuritySettings'
 import { NSGSettings } from './settings/NSGSettings'
 import { OpenNeuroSettings } from './settings/OpenNeuroSettings'
 import { DebugSettings } from './settings/DebugSettings'
@@ -11,6 +12,7 @@ import {
   Cloud,
   FileText,
   Database,
+  Shield,
 } from 'lucide-react'
 
 export function SettingsPanel() {
@@ -22,6 +24,16 @@ export function SettingsPanel() {
       component: <AnalysisEngineSettings />,
     },
   ]
+
+  // Only add Security section in Tauri
+  if (TauriService.isTauri()) {
+    sections.push({
+      id: 'security',
+      label: 'Security',
+      icon: <Shield className="h-4 w-4" />,
+      component: <SecuritySettings />,
+    })
+  }
 
   // Only add NSG section in Tauri
   if (TauriService.isTauri()) {
