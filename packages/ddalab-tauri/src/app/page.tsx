@@ -101,10 +101,19 @@ export default function Home() {
         // Mark as loaded
         setHasLoadedPreferences(true)
 
-        // Always use embedded API URL with HTTPS (port 8765)
-        const url = 'https://localhost:8765'
-        console.log('Using embedded API URL:', url)
+        // Get API config to determine protocol (http vs https)
+        const apiConfig = await TauriService.getApiConfig()
+        console.log('[INIT] Raw API config:', JSON.stringify(apiConfig, null, 2))
+
+        // CRITICAL: Default to HTTP if use_https is not explicitly true
+        // (undefined, null, or false should all result in HTTP)
+        const protocol = apiConfig?.use_https === true ? 'https' : 'http'
+        const port = apiConfig?.port || 8765
+        const url = `${protocol}://localhost:${port}`
+        console.log('[INIT] Computed protocol from use_https:', apiConfig?.use_https, '-> protocol:', protocol)
+        console.log('[INIT] Final API URL that will be set:', url)
         setApiUrl(url)
+        console.log('[INIT] setApiUrl() called with:', url)
 
         // Check if API server is already running (for dev workflow)
         try {
@@ -152,6 +161,13 @@ export default function Home() {
             console.warn('⚠️ No session token received from server')
           }
 
+          // CRITICAL: Update URL with actual port from server (may differ from requested port)
+          const actualProtocol = config?.use_https === true ? 'https' : 'http'
+          const actualPort = config?.port || 8765
+          const actualUrl = `${actualProtocol}://localhost:${actualPort}`
+          console.log(`🔄 Server started on actual URL: ${actualUrl} (initial guess was: ${url})`)
+          setApiUrl(actualUrl)
+
           // Wait for server to be ready with exponential backoff
           // Start with immediate check (0ms), then use exponential backoff
           let retries = 0
@@ -165,7 +181,7 @@ export default function Home() {
             }
 
             try {
-              connected = await TauriService.checkApiConnection(url)
+              connected = await TauriService.checkApiConnection(actualUrl)
               if (connected) {
                 console.log(`Embedded API server ready after ${retries + 1} attempts`)
                 break

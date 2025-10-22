@@ -17,19 +17,21 @@ impl Default for ApiServerConfig {
         Self {
             port: 8765,
             bind_address: "127.0.0.1".to_string(),
-            use_https: true,  // HTTPS enabled by default for security
+            use_https: false,  // HTTP by default - HTTPS has WebView trust issues
             require_auth: true,
             hostname: None,
         }
     }
 }
 
+use tokio::task::JoinHandle;
+
 /// Start the API server with HTTPS support
 pub async fn start_api_server(
     config: ApiServerConfig,
     data_directory: PathBuf,
     dda_binary_path: Option<PathBuf>,
-) -> anyhow::Result<String> {  // Returns session token
+) -> anyhow::Result<(String, u16, JoinHandle<()>)> {  // Returns (session_token, actual_port, task_handle)
     log::info!("🚀 Initializing API server...");
     log::info!("📁 Data directory: {:?}", data_directory);
     log::info!("🔌 Port: {}", config.port);
@@ -120,8 +122,8 @@ pub async fn start_api_server(
         // Return session token BEFORE starting the server (which blocks)
         let token_to_return = session_token.clone();
 
-        // Start HTTPS server in background
-        tokio::spawn(async move {
+        // Start HTTPS server in background and capture the handle
+        let server_handle = tokio::spawn(async move {
             let result = axum_server::bind_rustls(bind_addr.parse().expect("Invalid bind address"), tls_config)
                 .serve(app.into_make_service())
                 .await;
@@ -135,7 +137,8 @@ pub async fn start_api_server(
         // Give the server a moment to start
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        Ok(token_to_return)
+        log::info!("✅ HTTPS server started on port {}", port_to_use);
+        Ok((token_to_return, port_to_use, server_handle))
     } else {
         // HTTP mode (not recommended)
         log::warn!("⚠️ Starting HTTP server (INSECURE)");
@@ -146,7 +149,7 @@ pub async fn start_api_server(
 
         let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 
-        tokio::spawn(async move {
+        let server_handle = tokio::spawn(async move {
             let result = axum::serve(listener, app).await;
 
             if let Err(e) = result {
@@ -158,6 +161,7 @@ pub async fn start_api_server(
         // Give the server a moment to start
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        Ok(token_to_return)
+        log::info!("✅ HTTP server started on port {}", port_to_use);
+        Ok((token_to_return, port_to_use, server_handle))
     }
 }
