@@ -57,6 +57,7 @@ export interface AppPreferences {
   }
   window_state: Record<string, any>
   theme: string
+  use_https: boolean
 }
 
 export enum NSGJobStatus {
@@ -285,13 +286,15 @@ export class TauriService {
       return await api.invoke('get_app_preferences')
     } catch (error) {
       console.error('Failed to get app preferences:', error)
+      // Return consistent defaults where use_https matches the URL protocol
       return {
         api_config: {
-          url: 'http://localhost:8000',
+          url: 'https://localhost:8765', // Default to HTTPS
           timeout: 30
         },
         window_state: {},
-        theme: 'auto'
+        theme: 'auto',
+        use_https: true // Matches the HTTPS URL above
       }
     }
   }
