@@ -101,6 +101,12 @@ pub struct AppPreferences {
     pub api_config: ApiConfig,
     pub window_state: HashMap<String, serde_json::Value>,
     pub theme: String,
+    #[serde(default = "default_use_https")]
+    pub use_https: bool,
+}
+
+fn default_use_https() -> bool {
+    true // HTTPS enabled by default for security
 }
 
 impl Default for FileManagerState {
@@ -195,11 +201,12 @@ impl Default for AppPreferences {
     fn default() -> Self {
         Self {
             api_config: ApiConfig {
-                url: "http://localhost:8765".to_string(), // Embedded API default port
+                url: "https://localhost:8765".to_string(), // Embedded API default port with HTTPS
                 timeout: 30,
             },
             window_state: HashMap::new(),
             theme: "auto".to_string(),
+            use_https: true, // HTTPS enabled by default for security
         }
     }
 }

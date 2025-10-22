@@ -27,6 +27,25 @@ pub async fn generate_localhost_certs(cert_dir: &Path) -> Result<()> {
     if let Ok(mkcert_path) = which::which("mkcert") {
         log::info!("📦 Using mkcert to generate trusted certificates");
 
+        // Install mkcert CA root first (makes certificates trusted)
+        log::info!("🔐 Installing mkcert CA root certificate...");
+        let install_output = tokio::process::Command::new(&mkcert_path)
+            .arg("-install")
+            .output()
+            .await;
+
+        match install_output {
+            Ok(output) if output.status.success() => {
+                log::info!("✅ mkcert CA root installed successfully");
+            }
+            Ok(output) => {
+                log::warn!("⚠️ mkcert -install failed (may already be installed): {}", String::from_utf8_lossy(&output.stderr));
+            }
+            Err(e) => {
+                log::warn!("⚠️ Failed to run mkcert -install: {}", e);
+            }
+        }
+
         let output = tokio::process::Command::new(mkcert_path)
             .arg("-cert-file")
             .arg(&cert_path)
@@ -48,10 +67,16 @@ pub async fn generate_localhost_certs(cert_dir: &Path) -> Result<()> {
         }
     } else {
         log::warn!("⚠️ mkcert not found in PATH");
+        log::warn!("   Install mkcert for automatic trusted certificate generation:");
+        log::warn!("   macOS: brew install mkcert");
+        log::warn!("   Windows: choco install mkcert");
+        log::warn!("   Linux: See https://github.com/FiloSottile/mkcert#installation");
     }
 
     // Fallback to self-signed with openssl
     log::info!("📦 Falling back to openssl for self-signed certificate");
+    log::warn!("⚠️ Self-signed certificate will NOT be trusted by your browser");
+    log::warn!("⚠️ You will need to manually trust it in your system keychain or install mkcert");
 
     let output = tokio::process::Command::new("openssl")
         .args(&[
@@ -89,6 +114,25 @@ pub async fn generate_lan_certs(cert_dir: &Path, hostname: &str, ip: &str) -> Re
     // Try mkcert first
     if let Ok(mkcert_path) = which::which("mkcert") {
         log::info!("📦 Using mkcert to generate trusted LAN certificates");
+
+        // Install mkcert CA root first (makes certificates trusted)
+        log::info!("🔐 Installing mkcert CA root certificate...");
+        let install_output = tokio::process::Command::new(&mkcert_path)
+            .arg("-install")
+            .output()
+            .await;
+
+        match install_output {
+            Ok(output) if output.status.success() => {
+                log::info!("✅ mkcert CA root installed successfully");
+            }
+            Ok(output) => {
+                log::warn!("⚠️ mkcert -install failed (may already be installed): {}", String::from_utf8_lossy(&output.stderr));
+            }
+            Err(e) => {
+                log::warn!("⚠️ Failed to run mkcert -install: {}", e);
+            }
+        }
 
         let output = tokio::process::Command::new(mkcert_path)
             .arg("-cert-file")
