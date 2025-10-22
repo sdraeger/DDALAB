@@ -138,15 +138,45 @@ impl FileReaderFactory {
         }
     }
 
-    /// Get list of supported extensions
+    /// Get list of supported extensions for reading/analysis
     pub fn supported_extensions() -> Vec<&'static str> {
         vec!["edf", "csv", "txt", "ascii", "vhdr", "set"]
     }
 
-    /// Check if a file extension is supported
+    /// Get list of recognized but unsupported MEG extensions
+    pub fn meg_extensions() -> Vec<&'static str> {
+        vec!["fif", "ds", "sqd", "meg4", "con", "kit"]
+    }
+
+    /// Get list of all recognized extensions (supported + MEG)
+    pub fn all_recognized_extensions() -> Vec<&'static str> {
+        let mut exts = Self::supported_extensions();
+        exts.extend(Self::meg_extensions());
+        exts
+    }
+
+    /// Check if a file extension is supported for analysis
     pub fn is_supported(path: &Path) -> bool {
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             Self::supported_extensions().contains(&ext.to_lowercase().as_str())
+        } else {
+            false
+        }
+    }
+
+    /// Check if a file is a MEG format (recognized but not yet supported)
+    pub fn is_meg_format(path: &Path) -> bool {
+        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            Self::meg_extensions().contains(&ext.to_lowercase().as_str())
+        } else {
+            false
+        }
+    }
+
+    /// Check if a file extension is recognized (supported or MEG)
+    pub fn is_recognized(path: &Path) -> bool {
+        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            Self::all_recognized_extensions().contains(&ext.to_lowercase().as_str())
         } else {
             false
         }
@@ -167,9 +197,35 @@ mod tests {
     }
 
     #[test]
+    fn test_meg_extensions() {
+        let extensions = FileReaderFactory::meg_extensions();
+        assert!(extensions.contains(&"fif"));
+        assert!(extensions.contains(&"ds"));
+        assert!(extensions.contains(&"sqd"));
+        assert!(extensions.contains(&"meg4"));
+    }
+
+    #[test]
     fn test_is_supported() {
         assert!(FileReaderFactory::is_supported(Path::new("test.edf")));
         assert!(FileReaderFactory::is_supported(Path::new("test.vhdr")));
         assert!(!FileReaderFactory::is_supported(Path::new("test.xyz")));
+        assert!(!FileReaderFactory::is_supported(Path::new("test.fif")));
+    }
+
+    #[test]
+    fn test_is_meg_format() {
+        assert!(FileReaderFactory::is_meg_format(Path::new("test.fif")));
+        assert!(FileReaderFactory::is_meg_format(Path::new("test.ds")));
+        assert!(!FileReaderFactory::is_meg_format(Path::new("test.edf")));
+        assert!(!FileReaderFactory::is_meg_format(Path::new("test.xyz")));
+    }
+
+    #[test]
+    fn test_is_recognized() {
+        assert!(FileReaderFactory::is_recognized(Path::new("test.edf")));
+        assert!(FileReaderFactory::is_recognized(Path::new("test.fif")));
+        assert!(FileReaderFactory::is_recognized(Path::new("test.vhdr")));
+        assert!(!FileReaderFactory::is_recognized(Path::new("test.xyz")));
     }
 }
