@@ -57,6 +57,13 @@ export interface OpenNeuroDataset {
     downloads?: number;
     views?: number;
   };
+  summary?: {
+    modalities?: string[];
+    subjects?: number;
+    tasks?: string[];
+    size?: number;
+    totalFiles?: number;
+  };
 }
 
 export interface OpenNeuroSnapshot {
@@ -273,6 +280,13 @@ class OpenNeuroService {
                     description {
                       Name
                     }
+                    summary {
+                      modalities
+                      subjects
+                      tasks
+                      size
+                      totalFiles
+                    }
                   }
                 }
               }
@@ -311,6 +325,13 @@ class OpenNeuroService {
               tag: edge.node.latestSnapshot.tag,
               created: edge.node.latestSnapshot.created,
             }],
+            summary: edge.node.latestSnapshot?.summary ? {
+              modalities: edge.node.latestSnapshot.summary.modalities || [],
+              subjects: edge.node.latestSnapshot.summary.subjects,
+              tasks: edge.node.latestSnapshot.summary.tasks || [],
+              size: edge.node.latestSnapshot.summary.size,
+              totalFiles: edge.node.latestSnapshot.summary.totalFiles,
+            } : undefined,
           }));
 
         allDatasets.push(...batch);
@@ -346,6 +367,54 @@ class OpenNeuroService {
     }
   }
 
+  // Search datasets filtered by modality (EEG, MEG, iEEG - NEMAR subset)
+  async searchNEMARDatasets(query?: string): Promise<OpenNeuroDataset[]> {
+    try {
+      console.log('[OPENNEURO] Searching NEMAR datasets (EEG/MEG/iEEG only)...');
+      const allDatasets = await this.searchDatasets(query);
+
+      // Filter to only datasets with EEG, MEG, or iEEG modalities
+      const nemarDatasets = allDatasets.filter(dataset => {
+        const modalities = dataset.summary?.modalities || [];
+        return modalities.some(m =>
+          ['eeg', 'meg', 'ieeg'].includes(m.toLowerCase())
+        );
+      });
+
+      console.log(`[OPENNEURO] Found ${nemarDatasets.length} NEMAR datasets out of ${allDatasets.length} total`);
+      return nemarDatasets;
+    } catch (error) {
+      console.error('Failed to search NEMAR datasets:', error);
+      throw error;
+    }
+  }
+
+  // Search datasets by specific modalities
+  async searchDatasetsByModality(modalities: string[], query?: string): Promise<OpenNeuroDataset[]> {
+    try {
+      console.log('[OPENNEURO] Searching datasets by modality:', modalities);
+      const allDatasets = await this.searchDatasets(query);
+
+      if (modalities.length === 0) {
+        return allDatasets;
+      }
+
+      // Filter to only datasets with specified modalities
+      const filteredDatasets = allDatasets.filter(dataset => {
+        const datasetModalities = dataset.summary?.modalities || [];
+        return datasetModalities.some(m =>
+          modalities.some(filterMod => filterMod.toLowerCase() === m.toLowerCase())
+        );
+      });
+
+      console.log(`[OPENNEURO] Found ${filteredDatasets.length} datasets with modalities ${modalities.join(', ')}`);
+      return filteredDatasets;
+    } catch (error) {
+      console.error('Failed to search datasets by modality:', error);
+      throw error;
+    }
+  }
+
   // Fetch datasets in a single batch (for incremental loading)
   async fetchDatasetsBatch(limit: number = 50, after?: string): Promise<{
     datasets: OpenNeuroDataset[];
@@ -364,6 +433,13 @@ class OpenNeuroService {
                 created
                 description {
                   Name
+                }
+                summary {
+                  modalities
+                  subjects
+                  tasks
+                  size
+                  totalFiles
                 }
               }
             }
@@ -403,6 +479,13 @@ class OpenNeuroService {
             tag: edge.node.latestSnapshot.tag,
             created: edge.node.latestSnapshot.created,
           }],
+          summary: edge.node.latestSnapshot?.summary ? {
+            modalities: edge.node.latestSnapshot.summary.modalities || [],
+            subjects: edge.node.latestSnapshot.summary.subjects,
+            tasks: edge.node.latestSnapshot.summary.tasks || [],
+            size: edge.node.latestSnapshot.summary.size,
+            totalFiles: edge.node.latestSnapshot.summary.totalFiles,
+          } : undefined,
         }));
 
       return {
