@@ -4,6 +4,7 @@ import { openNeuroService, type OpenNeuroDataset } from '../services/openNeuroSe
 import { open } from '@tauri-apps/plugin-shell';
 import { OpenNeuroDownloadDialog } from './OpenNeuroDownloadDialog';
 import { useOpenNeuroDatasetsBatch, useOpenNeuroApiKey } from '../hooks/useOpenNeuro';
+import { Badge } from './ui/badge';
 
 // Memoized dataset card component to prevent unnecessary re-renders
 const DatasetCard = memo(({
@@ -34,14 +35,27 @@ const DatasetCard = memo(({
               {dataset.name}
             </div>
           )}
-          {dataset.snapshots && dataset.snapshots.length > 0 && (
-            <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1">
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            {dataset.summary?.modalities && dataset.summary.modalities.length > 0 && (
+              <div className="flex items-center gap-1">
+                {dataset.summary.modalities.map((modality) => (
+                  <Badge
+                    key={modality}
+                    variant={['eeg', 'meg', 'ieeg'].includes(modality.toLowerCase()) ? 'default' : 'secondary'}
+                    className="text-xs"
+                  >
+                    {modality.toUpperCase()}
+                  </Badge>
+                ))}
+              </div>
+            )}
+            {dataset.snapshots && dataset.snapshots.length > 0 && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Database className="h-3 w-3" />
                 {dataset.snapshots.length} snapshot{dataset.snapshots.length !== 1 ? 's' : ''}
               </span>
-            </div>
-          )}
+            )}
+          </div>
         </div>
         <button
           onClick={(e) => {
@@ -68,6 +82,7 @@ export function OpenNeuroBrowser() {
   const [datasetToDownload, setDatasetToDownload] = useState<OpenNeuroDataset | null>(null);
   const [endCursor, setEndCursor] = useState<string | undefined>(undefined);
   const [hasMorePages, setHasMorePages] = useState(true);
+  const [modalityFilter, setModalityFilter] = useState<'all' | 'nemar'>('all');
 
   // Use TanStack Query for API key status
   const { data: apiKeyStatus } = useOpenNeuroApiKey();
@@ -93,16 +108,29 @@ export function OpenNeuroBrowser() {
 
   // Filter datasets using memoization with debouncing effect
   const filteredDatasets = useMemo(() => {
-    if (searchQuery.trim() === '') {
-      return allDatasets;
+    let filtered = allDatasets;
+
+    // Apply modality filter
+    if (modalityFilter === 'nemar') {
+      filtered = filtered.filter(dataset => {
+        const modalities = dataset.summary?.modalities || [];
+        return modalities.some(m =>
+          ['eeg', 'meg', 'ieeg'].includes(m.toLowerCase())
+        );
+      });
     }
 
-    const lowerQuery = searchQuery.toLowerCase();
-    return allDatasets.filter(dataset =>
-      dataset.id.toLowerCase().includes(lowerQuery) ||
-      dataset.name?.toLowerCase().includes(lowerQuery)
-    );
-  }, [searchQuery, allDatasets]);
+    // Apply search query filter
+    if (searchQuery.trim() !== '') {
+      const lowerQuery = searchQuery.toLowerCase();
+      filtered = filtered.filter(dataset =>
+        dataset.id.toLowerCase().includes(lowerQuery) ||
+        dataset.name?.toLowerCase().includes(lowerQuery)
+      );
+    }
+
+    return filtered;
+  }, [searchQuery, allDatasets, modalityFilter]);
 
   const loadMoreDatasets = useCallback(async () => {
     if (!hasMorePages) return;
@@ -131,6 +159,23 @@ export function OpenNeuroBrowser() {
       console.error('Failed to open URL:', error);
       window.open(url, '_blank');
     }
+  }, []);
+
+  const handleOpenInNEMAR = useCallback(async (datasetId: string) => {
+    const url = `https://nemar.org/datasets/${datasetId}`;
+    try {
+      await open(url);
+    } catch (error) {
+      console.error('Failed to open URL:', error);
+      window.open(url, '_blank');
+    }
+  }, []);
+
+  const isNEMARDataset = useCallback((dataset: OpenNeuroDataset) => {
+    const modalities = dataset.summary?.modalities || [];
+    return modalities.some(m =>
+      ['eeg', 'meg', 'ieeg'].includes(m.toLowerCase())
+    );
   }, []);
 
   const formatDate = (dateString?: string) => {
@@ -171,6 +216,36 @@ export function OpenNeuroBrowser() {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
             />
+          </div>
+
+          {/* Modality filter toggles */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Filter:</span>
+            <button
+              onClick={() => setModalityFilter('all')}
+              className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                modalityFilter === 'all'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted hover:bg-muted/80'
+              }`}
+            >
+              All Datasets
+            </button>
+            <button
+              onClick={() => setModalityFilter('nemar')}
+              className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                modalityFilter === 'nemar'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted hover:bg-muted/80'
+              }`}
+            >
+              EEG/MEG/iEEG Only
+            </button>
+            {modalityFilter === 'nemar' && (
+              <span className="text-xs text-muted-foreground ml-2">
+                ({filteredDatasets.length} datasets)
+              </span>
+            )}
           </div>
         </div>
 
@@ -297,6 +372,33 @@ export function OpenNeuroBrowser() {
                 )}
               </>
             )}
+
+            {/* Modalities */}
+            {selectedDataset.summary?.modalities && selectedDataset.summary.modalities.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold text-muted-foreground uppercase mb-1">Modalities</div>
+                <div className="flex flex-wrap gap-1">
+                  {selectedDataset.summary.modalities.map((modality) => (
+                    <Badge
+                      key={modality}
+                      variant={['eeg', 'meg', 'ieeg'].includes(modality.toLowerCase()) ? 'default' : 'secondary'}
+                    >
+                      {modality.toUpperCase()}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Subject count */}
+            {selectedDataset.summary?.subjects !== undefined && (
+              <div>
+                <div className="text-xs font-semibold text-muted-foreground uppercase mb-1">Subjects</div>
+                <div className="text-sm">
+                  {formatNumber(selectedDataset.summary.subjects)}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Snapshots */}
@@ -327,6 +429,15 @@ export function OpenNeuroBrowser() {
               <ExternalLink className="h-4 w-4" />
               View on OpenNeuro
             </button>
+            {isNEMARDataset(selectedDataset) && (
+              <button
+                onClick={() => handleOpenInNEMAR(selectedDataset.id)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-accent hover:bg-accent/80 rounded-lg transition-colors"
+              >
+                <ExternalLink className="h-4 w-4" />
+                View on NEMAR
+              </button>
+            )}
             <button
               onClick={() => {
                 setDatasetToDownload(selectedDataset);
