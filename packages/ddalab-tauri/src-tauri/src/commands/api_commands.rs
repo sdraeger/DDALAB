@@ -227,16 +227,24 @@ pub async fn start_local_api_server(
             }
         });
 
+    // Load use_https preference from app preferences
+    let use_https = match crate::commands::preference_commands::get_app_preferences(app_handle.clone()).await {
+        Ok(prefs) => prefs.use_https,
+        Err(_) => true, // Default to HTTPS for security
+    };
+
+    log::info!("🔐 HTTPS mode: {}", if use_https { "enabled" } else { "disabled (HTTP)" });
+
     // Configure the server
     let server_config = ApiServerConfig {
         port,
         bind_address: host.clone(),
-        use_https: true,
+        use_https,
         require_auth: true,
         hostname: None,
     };
 
-    log::info!("⏰ Starting secure API server...");
+    log::info!("⏰ Starting API server...");
 
     // Start the server
     match start_api_server(server_config, data_dir, dda_binary_path).await {
@@ -247,7 +255,7 @@ pub async fn start_local_api_server(
             let config = ApiConnectionConfig {
                 host: host.clone(),
                 port,
-                use_https: true,
+                use_https,
                 is_local: true,
                 session_token: Some(session_token),
             };
