@@ -17,7 +17,7 @@ impl Default for ApiServerConfig {
         Self {
             port: 8765,
             bind_address: "127.0.0.1".to_string(),
-            use_https: true,  // HTTPS enabled by default
+            use_https: true,  // HTTPS enabled by default for security
             require_auth: true,
             hostname: None,
         }
