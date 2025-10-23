@@ -1,6 +1,8 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { PlotAnnotation } from '@/types/annotations'
+import { DDAResult } from '@/types/api'
+import { timeSeriesAnnotationToDDA } from '@/utils/annotationSync'
 
 interface UseTimeSeriesAnnotationsOptions {
   filePath: string
@@ -11,6 +13,8 @@ interface UseDDAAnnotationsOptions {
   resultId: string
   variantId: string
   plotType: 'heatmap' | 'line'
+  ddaResult: DDAResult
+  sampleRate: number
 }
 
 export const useTimeSeriesAnnotations = ({ filePath, channel }: UseTimeSeriesAnnotationsOptions) => {
@@ -93,15 +97,51 @@ export const useTimeSeriesAnnotations = ({ filePath, channel }: UseTimeSeriesAnn
   }
 }
 
-export const useDDAAnnotations = ({ resultId, variantId, plotType }: UseDDAAnnotationsOptions) => {
+export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sampleRate }: UseDDAAnnotationsOptions) => {
   const addDDAAnnotation = useAppStore(state => state.addDDAAnnotation)
   const updateDDAAnnotation = useAppStore(state => state.updateDDAAnnotation)
   const deleteDDAAnnotation = useAppStore(state => state.deleteDDAAnnotation)
+  const addTimeSeriesAnnotation = useAppStore(state => state.addTimeSeriesAnnotation)
 
-  const annotations = useAppStore(state => {
+  // Get DDA-specific annotations
+  const ddaAnnotations = useAppStore(state => {
     const key = `${resultId}_${variantId}_${plotType}`
     return state.annotations.ddaResults[key]?.annotations || []
   })
+
+  // Get timeseries annotations and transform them to DDA coordinates
+  const timeSeriesAnnotations = useAppStore(state => {
+    const fileAnnotations = state.annotations.timeSeries[ddaResult.file_path]
+    return fileAnnotations?.globalAnnotations || []
+  })
+
+  // Merge both annotation sets with coordinate transformation
+  const annotations = useMemo(() => {
+    const transformed = timeSeriesAnnotations
+      .filter(ann => {
+        // Only include annotations within the DDA result's time range
+        const startTime = ddaResult.parameters.start_time || 0
+        const endTime = ddaResult.parameters.end_time || Infinity
+        return ann.position >= startTime && ann.position <= endTime
+      })
+      .map(ann => timeSeriesAnnotationToDDA(ann, ddaResult, sampleRate))
+      .filter(ann => {
+        // Filter out invalid transformations (position = -1)
+        return ann.position >= 0
+      })
+
+    // Combine DDA-specific and transformed timeseries annotations
+    // Use Map to deduplicate by ID (DDA-specific takes precedence)
+    const annotationMap = new Map<string, PlotAnnotation>()
+
+    // Add transformed timeseries first
+    transformed.forEach(ann => annotationMap.set(ann.id, ann))
+
+    // Add DDA-specific (overrides transformed if same ID)
+    ddaAnnotations.forEach(ann => annotationMap.set(ann.id, ann))
+
+    return Array.from(annotationMap.values()).sort((a, b) => a.position - b.position)
+  }, [timeSeriesAnnotations, ddaAnnotations, ddaResult, sampleRate])
 
   const [contextMenu, setContextMenu] = useState<{
     x: number
@@ -111,31 +151,80 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType }: UseDDAAnnot
   } | null>(null)
 
   const handleCreateAnnotation = useCallback(
-    (position: number, label: string, description?: string) => {
+    (position: number, label: string, description?: string, color?: string) => {
+      // Convert DDA position (scale value) to timeseries position (seconds)
+      // Find the nearest window index for this scale value
+      const scales = ddaResult.results.scales || []
+
+      // Find the index of the closest scale value
+      let windowIndex = 0
+      let minDistance = Math.abs(scales[0] - position)
+
+      for (let i = 1; i < scales.length; i++) {
+        const distance = Math.abs(scales[i] - position)
+        if (distance < minDistance) {
+          minDistance = distance
+          windowIndex = i
+        }
+      }
+
+      const windowStep = ddaResult.parameters.window_step || 1
+      const sampleIndex = windowIndex * windowStep
+      const timeSeconds = sampleIndex / sampleRate
+
+      console.log('[DDA ANNOTATION] Creating annotation:', {
+        scaleValue: position,
+        nearestScale: scales[windowIndex],
+        windowIndex,
+        timeSeconds
+      })
+
       const annotation: PlotAnnotation = {
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        position,
+        position: timeSeconds, // Store in seconds, not scale value
         label,
         description,
+        color,
         createdAt: new Date().toISOString()
       }
-      addDDAAnnotation(resultId, variantId, plotType, annotation)
+
+      // Save to timeseries annotations (not DDA-specific)
+      // This allows the annotation to show up in all views
+      addTimeSeriesAnnotation(ddaResult.file_path, annotation)
     },
-    [resultId, variantId, plotType, addDDAAnnotation]
+    [ddaResult, sampleRate, addTimeSeriesAnnotation]
   )
 
   const handleUpdateAnnotation = useCallback(
     (id: string, label: string, description?: string) => {
-      updateDDAAnnotation(resultId, variantId, plotType, id, { label, description })
+      // Check if this is a transformed timeseries annotation
+      if (id.endsWith('_dda')) {
+        // Update the original timeseries annotation
+        const originalId = id.replace('_dda', '')
+        const updateTimeSeriesAnnotation = useAppStore.getState().updateTimeSeriesAnnotation
+        updateTimeSeriesAnnotation(ddaResult.file_path, originalId, { label, description })
+      } else {
+        // Update DDA-specific annotation
+        updateDDAAnnotation(resultId, variantId, plotType, id, { label, description })
+      }
     },
-    [resultId, variantId, plotType, updateDDAAnnotation]
+    [ddaResult, resultId, variantId, plotType, updateDDAAnnotation]
   )
 
   const handleDeleteAnnotation = useCallback(
     (id: string) => {
-      deleteDDAAnnotation(resultId, variantId, plotType, id)
+      // Check if this is a transformed timeseries annotation
+      if (id.endsWith('_dda')) {
+        // Delete the original timeseries annotation
+        const originalId = id.replace('_dda', '')
+        const deleteTimeSeriesAnnotation = useAppStore.getState().deleteTimeSeriesAnnotation
+        deleteTimeSeriesAnnotation(ddaResult.file_path, originalId)
+      } else {
+        // Delete DDA-specific annotation
+        deleteDDAAnnotation(resultId, variantId, plotType, id)
+      }
     },
-    [resultId, variantId, plotType, deleteDDAAnnotation]
+    [ddaResult, resultId, variantId, plotType, deleteDDAAnnotation]
   )
 
   const openContextMenu = useCallback(
