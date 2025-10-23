@@ -3,14 +3,19 @@
 /// This module provides a modular, extensible architecture for reading various
 /// EEG/iEEG file formats. New file formats can be added by implementing the
 /// FileReader trait.
+///
+/// Data Pipeline:
+/// File Format → FileReader → IntermediateData → ASCII/CSV for DDA or direct use
 
 use std::path::Path;
+use crate::intermediate_format::{IntermediateData, DataMetadata, ChannelData};
 
 pub mod edf_reader;
 pub mod csv_reader;
 pub mod ascii_reader;
 pub mod brainvision_reader;
 pub mod eeglab_reader;
+pub mod fif_reader;  // FIF/FIFF reader (uses external fiff crate)
 
 // Re-export readers
 pub use edf_reader::EDFFileReader;
@@ -18,6 +23,7 @@ pub use csv_reader::CSVFileReader;
 pub use ascii_reader::ASCIIFileReader;
 pub use brainvision_reader::BrainVisionFileReader;
 pub use eeglab_reader::EEGLABFileReader;
+pub use fif_reader::FIFFileReader;
 
 /// Common metadata for all file formats
 #[derive(Debug, Clone)]
@@ -131,6 +137,7 @@ impl FileReaderFactory {
             "txt" | "ascii" => Ok(Box::new(ASCIIFileReader::new(path)?)),
             "vhdr" => Ok(Box::new(BrainVisionFileReader::new(path)?)),
             "set" => Ok(Box::new(EEGLABFileReader::new(path)?)),
+            "fif" => Ok(Box::new(FIFFileReader::new(path)?)),
             _ => Err(FileReaderError::UnsupportedFormat(format!(
                 "Unsupported file extension: {}",
                 extension
@@ -140,12 +147,12 @@ impl FileReaderFactory {
 
     /// Get list of supported extensions for reading/analysis
     pub fn supported_extensions() -> Vec<&'static str> {
-        vec!["edf", "csv", "txt", "ascii", "vhdr", "set"]
+        vec!["edf", "csv", "txt", "ascii", "vhdr", "set", "fif"]
     }
 
     /// Get list of recognized but unsupported MEG extensions
     pub fn meg_extensions() -> Vec<&'static str> {
-        vec!["fif", "ds", "sqd", "meg4", "con", "kit"]
+        vec!["ds", "sqd", "meg4", "con", "kit"]
     }
 
     /// Get list of all recognized extensions (supported + MEG)
@@ -180,6 +187,65 @@ impl FileReaderFactory {
         } else {
             false
         }
+    }
+
+    /// Convert a FileReader to IntermediateData format
+    ///
+    /// This bridges the FileReader trait to the universal intermediate format,
+    /// enabling a unified pipeline for all file formats.
+    ///
+    /// # Arguments
+    /// * `reader` - Any type implementing FileReader
+    /// * `selected_channels` - Optional channel selection (None = all channels)
+    ///
+    /// # Returns
+    /// IntermediateData structure ready for export or analysis
+    pub fn to_intermediate_data(
+        reader: &dyn FileReader,
+        selected_channels: Option<&[String]>,
+    ) -> FileResult<IntermediateData> {
+        // Get metadata first
+        let file_metadata = reader.metadata()?;
+
+        // Create intermediate metadata
+        let mut custom_metadata = std::collections::HashMap::new();
+        custom_metadata.insert("file_size".to_string(), file_metadata.file_size.to_string());
+        custom_metadata.insert("num_samples".to_string(), file_metadata.num_samples.to_string());
+
+        let intermediate_metadata = DataMetadata {
+            source_file: file_metadata.file_path.clone(),
+            source_format: file_metadata.file_type.clone(),
+            sample_rate: file_metadata.sample_rate,
+            duration: file_metadata.duration,
+            start_time: file_metadata.start_time.clone(),
+            subject_id: None, // Could be extracted from filename if following BIDS
+            custom_metadata,
+        };
+
+        let mut intermediate_data = IntermediateData::new(intermediate_metadata);
+
+        // Determine which channels to read
+        let channels_to_read = selected_channels.map(|c| c.to_vec())
+            .unwrap_or_else(|| file_metadata.channels.clone());
+
+        // Read full data for all selected channels
+        let chunk_data = reader.read_chunk(0, file_metadata.num_samples, Some(&channels_to_read))?;
+
+        // Convert to intermediate format channels
+        for (idx, channel_label) in channels_to_read.iter().enumerate() {
+            if let Some(samples) = chunk_data.get(idx) {
+                let channel = ChannelData {
+                    label: channel_label.clone(),
+                    channel_type: "Unknown".to_string(), // Could be inferred from label or format
+                    unit: "µV".to_string(), // Default unit, format-specific readers should override
+                    samples: samples.clone(),
+                    sample_rate: None, // Use global sample rate unless channel-specific
+                };
+                intermediate_data.add_channel(channel);
+            }
+        }
+
+        Ok(intermediate_data)
     }
 }
 

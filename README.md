@@ -42,7 +42,7 @@ DDALAB is a desktop application for performing Delay Differential Analysis (DDA)
 
 - **Native Desktop App**: Fast, responsive interface built with Tauri and React
 - **High-Performance Rust Backend**: Embedded Rust API with no external dependencies
-- **Multiple File Formats**: Support for EDF, ASCII/TXT, CSV, BrainVision (.vhdr), and EEGLAB (.set) files
+- **Multiple File Formats**: Support for EDF, FIFF (.fif), ASCII/TXT, CSV, BrainVision (.vhdr), and EEGLAB (.set) files
 - **BIDS Compatibility**: Native support for Brain Imaging Data Structure (BIDS) datasets
 - **OpenNeuro Integration**: Browse and download datasets directly from OpenNeuro.org
 - **Complete Privacy**: All data processing happens locally on your machine
@@ -97,7 +97,7 @@ docker-compose up -d
 
 3. **Load a File**:
 
-   - Browse local files (EDF, ASCII, CSV, BrainVision, EEGLAB)
+   - Browse local files (EDF, FIFF, ASCII, CSV, BrainVision, EEGLAB)
    - Or open a BIDS dataset
    - Or download from OpenNeuro
 
@@ -342,6 +342,7 @@ chmod +x DDALAB-*.AppImage
 2. **Check file format**: Verify your file is in a supported format:
 
    - EDF (European Data Format)
+   - FIFF (.fif - Neuromag/Elekta MEG format)
    - ASCII/TXT (tab or comma-separated)
    - CSV (comma-separated values)
    - BrainVision (.vhdr with .eeg/.dat)

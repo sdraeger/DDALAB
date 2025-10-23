@@ -315,9 +315,9 @@ export class TauriService {
       const api = await getTauriAPI()
       if (!api) return null
 
-      // TODO: Replace with tauri-plugin-dialog v2 API once properly integrated
-      // For now, use the Rust command fallback
-      const result = await api.invoke<string | null>('open_file_dialog')
+      // Use the synchronous file dialog with proper extension filters
+      // Supports: .edf, .fif, .set, .vhdr, .txt, .asc, .csv, .ascii
+      const result = await api.invoke<string | null>('open_file_dialog_sync')
       return result
     } catch (error) {
       console.error('Failed to open file dialog:', error)

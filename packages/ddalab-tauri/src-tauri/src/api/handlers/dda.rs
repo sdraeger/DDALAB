@@ -75,7 +75,7 @@ pub async fn run_dda_analysis(
 ) -> Result<Json<DDAResult>, StatusCode> {
     let file_path = PathBuf::from(&request.file_path);
     let file_type = FileType::from_path(&file_path);
-    if file_type != FileType::EDF && file_type != FileType::ASCII {
+    if !matches!(file_type, FileType::EDF | FileType::FIF | FileType::ASCII | FileType::CSV | FileType::BrainVision | FileType::EEGLAB) {
         log::error!("DDA analysis not supported for {:?} files. The run_DDA_AsciiEdf binary only processes EDF and ASCII formats.", file_type);
         return Err(StatusCode::BAD_REQUEST);
     }

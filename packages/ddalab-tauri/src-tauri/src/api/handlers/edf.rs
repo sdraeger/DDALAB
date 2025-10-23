@@ -115,9 +115,9 @@ pub async fn get_edf_data(
             FileType::EDF => {
                 read_edf_file_chunk(path, &file_path_clone, start_time, duration, needs_sample_rate, selected_channels)
             }
-            FileType::BrainVision | FileType::EEGLAB => {
+            FileType::FIF | FileType::BrainVision | FileType::EEGLAB => {
                 log::info!("Reading file using modular reader: {}", file_path_clone);
-                read_chunk_with_file_reader(path, &file_path_clone, start_time, duration, selected_channels)
+                read_chunk_with_file_reader(path, &file_path_clone, start_time, duration, needs_sample_rate, selected_channels)
             }
             FileType::MEG => {
                 Err(format!("MEG files are not yet supported for analysis: {}", file_path_clone))
@@ -193,7 +193,7 @@ pub async fn get_edf_overview(
             FileType::EDF => {
                 generate_edf_file_overview(path, &file_path_clone, max_points, selected_channels)
             }
-            FileType::BrainVision | FileType::EEGLAB => {
+            FileType::FIF | FileType::BrainVision | FileType::EEGLAB => {
                 log::info!("Generating overview using modular reader: {}", file_path_clone);
                 generate_overview_with_file_reader(path, max_points, selected_channels)
             }
@@ -228,17 +228,65 @@ fn read_chunk_with_file_reader(
     file_path: &str,
     start_time: f64,
     duration: f64,
+    needs_sample_rate: bool,
     channels: Option<Vec<String>>,
 ) -> Result<ChunkData, String> {
-    let reader = FileReaderFactory::create_reader(path)
+    let start_total = std::time::Instant::now();
+
+    let start = std::time::Instant::now();
+    let mut reader = FileReaderFactory::create_reader(path)
         .map_err(|e| format!("Failed to create file reader: {}", e))?;
+    log::warn!("⏱️ FileReaderFactory::create_reader: {:?}", start.elapsed());
 
     let metadata = reader.metadata()
         .map_err(|e| format!("Failed to read metadata: {}", e))?;
 
     let sample_rate = metadata.sample_rate;
-    let start_sample = (start_time * sample_rate) as usize;
-    let num_samples = (duration * sample_rate) as usize;
+
+    // If needs_sample_rate is true, parameters are already in samples
+    // Otherwise, they're in seconds and need conversion
+    let (start_sample, num_samples) = if needs_sample_rate {
+        (start_time as usize, duration as usize)
+    } else {
+        (
+            (start_time * sample_rate) as usize,
+            (duration * sample_rate) as usize,
+        )
+    };
+
+    // Validate and clamp request to file bounds
+    if start_sample >= metadata.num_samples {
+        log::warn!(
+            "Request beyond file end: start_sample={}, file_samples={}, start_time={:.2}s, duration={:.2}s, sample_rate={:.2}Hz",
+            start_sample, metadata.num_samples, start_time, duration, sample_rate
+        );
+
+        // Return properly structured empty data - empty Vec for each channel
+        let returned_channels = if let Some(selected) = &channels {
+            selected.clone()
+        } else {
+            metadata.channels.clone()
+        };
+
+        let empty_data = vec![vec![]; returned_channels.len()];
+
+        return Ok(ChunkData {
+            data: empty_data,
+            channel_labels: returned_channels,
+            sampling_frequency: sample_rate,
+            chunk_size: 0,
+            chunk_start: 0,  // Reset to start
+            total_samples: Some(metadata.num_samples as u64),
+        });
+    }
+
+    // Clamp num_samples to not exceed file end
+    let num_samples = num_samples.min(metadata.num_samples - start_sample);
+
+    log::info!(
+        "Reading chunk: start_sample={}, num_samples={}, start_time={:.2}s, duration={:.2}s",
+        start_sample, num_samples, start_time, duration
+    );
 
     let channel_names = channels.as_ref().map(|v| v.as_slice());
     let data = reader.read_chunk(start_sample, num_samples, channel_names)
@@ -252,14 +300,17 @@ fn read_chunk_with_file_reader(
 
     let chunk_size = if !data.is_empty() { data[0].len() } else { 0 };
 
-    Ok(ChunkData {
+    let result = ChunkData {
         data,
         channel_labels: returned_channels,
         sampling_frequency: sample_rate,
         chunk_size,
         chunk_start: start_sample,
         total_samples: Some(metadata.num_samples as u64),
-    })
+    };
+
+    log::warn!("⏱️ read_chunk_with_file_reader TOTAL: {:?}", start_total.elapsed());
+    Ok(result)
 }
 
 fn read_text_file_chunk(

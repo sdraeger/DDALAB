@@ -865,7 +865,19 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       console.log("[ECharts] Triggering chunk load");
 
       if (isNewFile) {
+        // Clear all refs and state when switching to a new file
         stableOffsetRef.current = null;
+        currentLabelsRef.current = null;
+
+        // Clear channel labels and series data from chart to prevent showing old file's data
+        if (chartInstanceRef.current) {
+          chartInstanceRef.current.setOption({
+            graphic: [], // Clear all graphics (channel labels)
+            series: []   // Clear all series data
+          }, { replaceMerge: ['graphic', 'series'] });
+        }
+
+        console.log("[ECharts] Cleared all refs, graphics, and series for new file");
       }
 
       // Use persisted position if available, otherwise start at 0

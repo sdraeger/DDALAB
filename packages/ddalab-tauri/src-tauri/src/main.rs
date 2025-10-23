@@ -15,6 +15,7 @@ mod text_reader;
 mod sync;
 mod recording;
 mod file_readers;
+mod intermediate_format;
 mod db;
 
 // Import required modules
@@ -93,6 +94,7 @@ fn main() {
             get_app_preferences,
             save_app_preferences,
             open_file_dialog,
+            open_file_dialog_sync,
             show_notification,
             // Docker stack management commands
             docker_stack::setup_docker_stack,
