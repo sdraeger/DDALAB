@@ -17,6 +17,7 @@ mod recording;
 mod file_readers;
 mod intermediate_format;
 mod db;
+mod annotations;
 
 // Import required modules
 use app_setup::setup_app;
@@ -80,6 +81,10 @@ fn main() {
             get_annotation,
             delete_annotation,
             get_annotations_in_range,
+            get_all_annotations,
+            // Annotation file export/import commands
+            export_annotations,
+            import_annotations,
             // File view state database commands
             save_file_view_state,
             get_file_view_state,

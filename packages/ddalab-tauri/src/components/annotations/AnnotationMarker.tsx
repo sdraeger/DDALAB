@@ -5,6 +5,7 @@ interface AnnotationMarkerProps {
   annotation: PlotAnnotation
   plotHeight: number
   xPosition: number
+  yOffset?: number
   onRightClick: (event: React.MouseEvent, annotation: PlotAnnotation) => void
   onClick?: (annotation: PlotAnnotation) => void
 }
@@ -13,6 +14,7 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
   annotation,
   plotHeight,
   xPosition,
+  yOffset = 0,
   onRightClick,
   onClick
 }) => {
@@ -36,9 +38,9 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
       {/* Vertical line - uses full plot height from bbox */}
       <line
         x1={xPosition}
-        y1={0}
+        y1={yOffset}
         x2={xPosition}
-        y2={plotHeight}
+        y2={yOffset + plotHeight}
         stroke={color}
         strokeWidth={2}
         strokeDasharray="5,5"
@@ -49,7 +51,7 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
       {/* Label background */}
       <rect
         x={xPosition + 5}
-        y={10}
+        y={yOffset + 10}
         rx={3}
         ry={3}
         fill={color}
@@ -62,7 +64,7 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
       {/* Label text */}
       <text
         x={xPosition + 10}
-        y={23}
+        y={yOffset + 23}
         fill="white"
         fontSize="12"
         fontWeight="500"
@@ -75,7 +77,7 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
       {/* Clickable area for better UX */}
       <rect
         x={xPosition - 5}
-        y={0}
+        y={yOffset}
         width={Math.max(10, annotation.label.length * 7 + 20)}
         height={plotHeight}
         fill="transparent"
