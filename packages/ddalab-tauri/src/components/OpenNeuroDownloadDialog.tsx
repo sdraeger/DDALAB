@@ -51,6 +51,11 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
     enableSizeQuery && !!dataset
   );
 
+  // Use summary data if available (much faster than calculating from files)
+  const summarySize = dataset?.summary?.size || 0;
+  const summaryFileCount = dataset?.summary?.totalFiles || 0;
+  const hasSummaryData = summarySize > 0 || summaryFileCount > 0;
+
   const { data: files, isLoading: loadingFiles } = useOpenNeuroDatasetFiles(
     dataset?.id || '',
     selectedSnapshot || undefined,
@@ -414,6 +419,21 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
                 <Loader className="h-3 w-3 animate-spin" />
                 <span>Calculating dataset size...</span>
               </div>
+            ) : hasSummaryData ? (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-medium">Total Size:</span>
+                  <span className="font-mono">{formatFileSize(summarySize)}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>File count:</span>
+                  <span>{summaryFileCount.toLocaleString()} files</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
+                  <Info className="h-3 w-3 flex-shrink-0" />
+                  <span>Actual download size may vary based on git compression and annexed files</span>
+                </div>
+              </div>
             ) : sizeInfo ? (
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-sm">
@@ -444,7 +464,7 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
                 className="flex items-center gap-2 text-sm text-primary hover:underline"
               >
                 <Info className="h-4 w-4" />
-                Click to calculate download size
+                Click to calculate detailed download size
               </button>
             )}
           </div>

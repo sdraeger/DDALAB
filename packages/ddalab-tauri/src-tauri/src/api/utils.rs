@@ -12,7 +12,8 @@ pub enum FileType {
     EDF,
     BrainVision,
     EEGLAB,
-    MEG,  // MEG formats (not yet supported for analysis)
+    FIF,  // FIFF format (Neuromag/Elekta MEG)
+    MEG,  // Other MEG formats (not yet supported for analysis)
     Unknown,
 }
 
@@ -24,8 +25,10 @@ impl FileType {
             "vhdr" => FileType::BrainVision,
             "set" => FileType::EEGLAB,
             "edf" | "bdf" => FileType::EDF,
-            // MEG formats
-            "fif" | "ds" | "sqd" | "meg4" | "con" | "kit" => FileType::MEG,
+            // FIFF format (supported)
+            "fif" => FileType::FIF,
+            // Other MEG formats (not yet supported)
+            "ds" | "sqd" | "meg4" | "con" | "kit" => FileType::MEG,
             _ => FileType::Unknown,
         }
     }
@@ -38,7 +41,7 @@ impl FileType {
     }
 
     pub fn is_supported(&self) -> bool {
-        matches!(self, FileType::EDF | FileType::CSV | FileType::ASCII | FileType::BrainVision | FileType::EEGLAB)
+        matches!(self, FileType::EDF | FileType::FIF | FileType::CSV | FileType::ASCII | FileType::BrainVision | FileType::EEGLAB)
     }
 
     pub fn is_meg(&self) -> bool {
@@ -99,15 +102,23 @@ pub fn generate_overview_with_file_reader(
     max_points: usize,
     selected_channels: Option<Vec<String>>,
 ) -> Result<ChunkData, String> {
+    log::info!("Generating overview for: {:?} (max_points: {})", path, max_points);
+
     let reader = FileReaderFactory::create_reader(path)
         .map_err(|e| format!("Failed to create file reader: {}", e))?;
 
     let metadata = reader.metadata()
         .map_err(|e| format!("Failed to read metadata: {}", e))?;
 
+    log::info!("Metadata: {} channels, {} samples, {:.2} Hz",
+        metadata.num_channels, metadata.num_samples, metadata.sample_rate);
+
     let channel_names = selected_channels.as_ref().map(|v| v.as_slice());
     let data = reader.read_overview(max_points, channel_names)
         .map_err(|e| format!("Failed to read overview: {}", e))?;
+
+    log::info!("Overview data: {} channels, {} points per channel",
+        data.len(), if !data.is_empty() { data[0].len() } else { 0 });
 
     let returned_channels = if let Some(selected) = &selected_channels {
         selected.clone()
@@ -117,14 +128,19 @@ pub fn generate_overview_with_file_reader(
 
     let chunk_size = if !data.is_empty() { data[0].len() } else { 0 };
 
-    Ok(ChunkData {
+    let result = ChunkData {
         data,
         channel_labels: returned_channels,
         sampling_frequency: metadata.sample_rate,
         chunk_size,
         chunk_start: 0,
         total_samples: Some(metadata.num_samples as u64),
-    })
+    };
+
+    log::info!("Returning ChunkData with {} channels, chunk_size: {}",
+        result.channel_labels.len(), result.chunk_size);
+
+    Ok(result)
 }
 
 pub fn read_edf_file_chunk(
@@ -254,6 +270,11 @@ pub async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
             .unwrap_or_else(|| last_modified.clone());
 
         match FileType::from_path(&path) {
+            FileType::FIF | FileType::BrainVision | FileType::EEGLAB => {
+                // These formats use the modular FileReaderFactory, already handled above
+                log::warn!("FIF/BrainVision/EEGLAB file fell through to legacy code path");
+                None
+            }
             FileType::CSV => {
                 match TextFileReader::from_csv(&path) {
                     Ok(reader) => {

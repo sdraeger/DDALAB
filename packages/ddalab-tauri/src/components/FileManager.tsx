@@ -426,11 +426,11 @@ export function FileManager({ apiService }: FileManagerProps) {
 
     // Check if file format is supported
     const extension = filePath.split('.').pop()?.toLowerCase()
-    const supportedFormats = ['edf', 'csv', 'txt', 'ascii', 'vhdr', 'set']
+    const supportedFormats = ['edf', 'fif', 'csv', 'txt', 'ascii', 'vhdr', 'set']
 
     if (extension && !supportedFormats.includes(extension)) {
       console.error(
-        `File format .${extension} is not yet supported. Currently supported formats: EDF, CSV, ASCII/TXT, BrainVision (.vhdr), EEGLAB (.set).`
+        `File format .${extension} is not yet supported. Currently supported formats: EDF, FIFF (.fif), CSV, ASCII/TXT, BrainVision (.vhdr), EEGLAB (.set).`
       )
       return
     }
@@ -731,15 +731,49 @@ export function FileManager({ apiService }: FileManagerProps) {
                     </div>
                     <div className="text-sm text-muted-foreground">
                       {dir.isBIDS && dir.bidsInfo ? (
-                        <div className="flex items-center gap-3 mt-1 flex-wrap">
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
                           {dir.bidsInfo.datasetName && (
                             <span className="font-medium text-purple-700 truncate">{dir.bidsInfo.datasetName}</span>
                           )}
                           {dir.bidsInfo.subjectCount !== undefined && (
-                            <span className="flex-shrink-0">{dir.bidsInfo.subjectCount} subject{dir.bidsInfo.subjectCount !== 1 ? 's' : ''}</span>
+                            <span className="flex-shrink-0 text-xs">{dir.bidsInfo.subjectCount} subject{dir.bidsInfo.subjectCount !== 1 ? 's' : ''}</span>
                           )}
                           {dir.bidsInfo.modalities && dir.bidsInfo.modalities.length > 0 && (
-                            <span className="text-xs truncate">{dir.bidsInfo.modalities.join(', ')}</span>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {dir.bidsInfo.modalities.map((modality) => {
+                                const modalityLower = modality.toLowerCase();
+                                let badgeClass = '';
+
+                                // Color scheme based on modality type
+                                if (modalityLower === 'eeg') {
+                                  badgeClass = 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700';
+                                } else if (modalityLower === 'meg') {
+                                  badgeClass = 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700';
+                                } else if (modalityLower === 'ieeg') {
+                                  badgeClass = 'bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700';
+                                } else if (modalityLower === 'mri' || modalityLower === 'anat') {
+                                  badgeClass = 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700';
+                                } else if (modalityLower === 'fmri' || modalityLower === 'func') {
+                                  badgeClass = 'bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-700';
+                                } else if (modalityLower === 'dwi') {
+                                  badgeClass = 'bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border-teal-300 dark:border-teal-700';
+                                } else if (modalityLower === 'pet') {
+                                  badgeClass = 'bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700';
+                                } else {
+                                  badgeClass = 'bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700';
+                                }
+
+                                return (
+                                  <Badge
+                                    key={modality}
+                                    variant="outline"
+                                    className={`text-xs font-medium ${badgeClass}`}
+                                  >
+                                    {modality.toUpperCase()}
+                                  </Badge>
+                                );
+                              })}
+                            </div>
                           )}
                         </div>
                       ) : (

@@ -114,7 +114,7 @@ export function BIDSBrowser({
 
   const isFileSupported = (filePath: string): boolean => {
     const extension = filePath.split(".").pop()?.toLowerCase();
-    return ["edf", "csv", "txt", "ascii", "vhdr", "set"].includes(extension || "");
+    return ["edf", "fif", "csv", "txt", "ascii", "vhdr", "set"].includes(extension || "");
   };
 
   const getModalityColor = (modality: string) => {
@@ -320,7 +320,7 @@ export function BIDSBrowser({
                                     title={
                                       supported
                                         ? "Click to load this file"
-                                        : "File format not yet supported (only EDF files currently supported)"
+                                        : "File format not yet supported (supported: .edf, .fif, .set, .vhdr, .txt, .csv, .ascii)"
                                     }
                                   >
                                     <Activity className="h-4 w-4 text-muted-foreground" />
