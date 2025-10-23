@@ -1,8 +1,9 @@
 /**
  * BIDS Dataset Reader
  *
- * Reads BIDS-formatted EEG/iEEG datasets and converts them to DDALAB internal format.
- * Supports: EDF, BrainVision, EEGLAB formats within BIDS structure
+ * Reads BIDS-formatted EEG/iEEG/MEG datasets and converts them to DDALAB internal format.
+ * Recognizes: EDF, FIFF, BrainVision, EEGLAB, and MEG formats (.fif, .ds, .sqd, .meg4, .con, .kit)
+ * Analysis support: EDF, FIFF (.fif), BrainVision, EEGLAB (Other MEG formats detected but not yet supported)
  */
 
 export interface BIDSSubject {
@@ -176,18 +177,25 @@ async function discoverRuns(
 
       const modalityEntries = await readDir(modalityPath);
 
-      // Find data files - EDF, BrainVision, and EEGLAB formats supported
+      // Find data files - EDF, BrainVision, EEGLAB, and MEG formats
+      // MEG formats: .fif (Neuromag/Elekta), .ds (CTF), .sqd/.meg4/.con (KIT/Yokogawa)
       const dataFiles = modalityEntries.filter(entry =>
         !entry.isDirectory &&
         (entry.name.endsWith('.edf') ||
           entry.name.endsWith('.vhdr') ||
-          entry.name.endsWith('.set'))
+          entry.name.endsWith('.set') ||
+          entry.name.endsWith('.fif') ||
+          entry.name.endsWith('.ds') ||
+          entry.name.endsWith('.sqd') ||
+          entry.name.endsWith('.meg4') ||
+          entry.name.endsWith('.con') ||
+          entry.name.endsWith('.kit'))
       );
 
       const runs: BIDSRun[] = [];
 
       for (const dataFile of dataFiles) {
-        const baseName = dataFile.name.replace(/\.(edf|vhdr|set)$/, '');
+        const baseName = dataFile.name.replace(/\.(edf|vhdr|set|fif|ds|sqd|meg4|con|kit)$/, '');
 
         // Parse BIDS filename: sub-<label>[_ses-<label>]_task-<label>[_run-<label>]_<modality>
         const filenameMatch = baseName.match(

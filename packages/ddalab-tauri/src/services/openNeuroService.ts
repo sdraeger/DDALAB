@@ -257,114 +257,93 @@ class OpenNeuroService {
   }
 
   // Search datasets (no authentication required)
-  // Fetches datasets in batches with pagination support
+  // Note: OpenNeuro GraphQL API doesn't support server-side text search
+  // This loads all datasets with pagination, then filters client-side
   async searchDatasets(query?: string): Promise<OpenNeuroDataset[]> {
     const allDatasets: OpenNeuroDataset[] = [];
     let hasNextPage = true;
     let afterCursor: string | null = null;
 
-    try {
-      console.log('[OPENNEURO] Starting paginated dataset fetch...');
-
-      while (hasNextPage) {
-        const searchQuery = gql`
-          query PublicDatasets($after: String) {
-            datasets(first: 100, after: $after) {
-              edges {
-                cursor
-                node {
-                  id
-                  latestSnapshot {
-                    tag
-                    created
-                    description {
-                      Name
-                    }
-                    summary {
-                      modalities
-                      subjects
-                      tasks
-                      size
-                      totalFiles
-                    }
+    while (hasNextPage) {
+      const searchQuery = gql`
+        query PublicDatasets($after: String) {
+          datasets(first: 100, after: $after) {
+            edges {
+              cursor
+              node {
+                id
+                latestSnapshot {
+                  tag
+                  created
+                  description {
+                    Name
+                  }
+                  summary {
+                    modalities
+                    subjects
+                    tasks
+                    size
+                    totalFiles
                   }
                 }
               }
-              pageInfo {
-                hasNextPage
-                endCursor
-              }
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
             }
           }
-        `;
-
-        let data: any;
-        try {
-          data = await this.client.request<any>(searchQuery, { after: afterCursor });
-        } catch (error: any) {
-          // Handle partial errors - OpenNeuro returns data even with errors for some datasets
-          if (error.response?.data?.datasets) {
-            console.warn('[OPENNEURO] Partial error in batch, continuing with available data:', error.response.errors?.[0]?.message);
-            data = error.response.data;
-          } else {
-            throw error;
-          }
         }
+      `;
 
-        // Transform and add to results, filtering out null entries and datasets without snapshots
-        const batch: OpenNeuroDataset[] = data.datasets.edges
-          .filter((edge: any) => edge !== null && edge.node && edge.node.latestSnapshot) // Skip null entries and null snapshots
-          .map((edge: any) => ({
-            id: edge.node.id,
-            name: edge.node.latestSnapshot?.description?.Name || edge.node.id,
-            description: '', // Not available in list view
-            created: edge.node.latestSnapshot?.created,
-            public: true,
-            snapshots: [{
-              id: edge.node.latestSnapshot.tag,
-              tag: edge.node.latestSnapshot.tag,
-              created: edge.node.latestSnapshot.created,
-            }],
-            summary: edge.node.latestSnapshot?.summary ? {
-              modalities: edge.node.latestSnapshot.summary.modalities || [],
-              subjects: edge.node.latestSnapshot.summary.subjects,
-              tasks: edge.node.latestSnapshot.summary.tasks || [],
-              size: edge.node.latestSnapshot.summary.size,
-              totalFiles: edge.node.latestSnapshot.summary.totalFiles,
-            } : undefined,
-          }));
-
-        allDatasets.push(...batch);
-
-        // Update pagination state
-        hasNextPage = data.datasets.pageInfo.hasNextPage;
-        afterCursor = data.datasets.pageInfo.endCursor;
-
-        console.log(`[OPENNEURO] Fetched ${batch.length} datasets (total: ${allDatasets.length})`);
-
-        // Safety limit to prevent infinite loops
-        if (allDatasets.length > 10000) {
-          console.warn('[OPENNEURO] Hit safety limit of 10000 datasets');
-          break;
+      let data: any;
+      try {
+        data = await this.client.request<any>(searchQuery, { after: afterCursor });
+      } catch (error: any) {
+        if (error.response?.data?.datasets) {
+          console.warn('[OPENNEURO] Partial error in batch, continuing:', error.response.errors?.[0]?.message);
+          data = error.response.data;
+        } else {
+          throw error;
         }
       }
 
-      console.log(`[OPENNEURO] Finished! Total datasets: ${allDatasets.length}`);
+      const batch: OpenNeuroDataset[] = data.datasets.edges
+        .filter((edge: any) => edge !== null && edge.node && edge.node.latestSnapshot)
+        .map((edge: any) => ({
+          id: edge.node.id,
+          name: edge.node.latestSnapshot?.description?.Name || edge.node.id,
+          description: '',
+          created: edge.node.latestSnapshot?.created,
+          public: true,
+          snapshots: [{
+            id: edge.node.latestSnapshot.tag,
+            tag: edge.node.latestSnapshot.tag,
+            created: edge.node.latestSnapshot.created,
+          }],
+          summary: edge.node.latestSnapshot?.summary ? {
+            modalities: edge.node.latestSnapshot.summary.modalities || [],
+            subjects: edge.node.latestSnapshot.summary.subjects,
+            tasks: edge.node.latestSnapshot.summary.tasks || [],
+            size: edge.node.latestSnapshot.summary.size,
+            totalFiles: edge.node.latestSnapshot.summary.totalFiles,
+          } : undefined,
+        }));
 
-      // Filter by query if provided
-      if (query && query.trim()) {
-        const lowerQuery = query.toLowerCase();
-        return allDatasets.filter(dataset =>
-          dataset.id.toLowerCase().includes(lowerQuery) ||
-          dataset.name?.toLowerCase().includes(lowerQuery)
-        );
+      allDatasets.push(...batch);
+      hasNextPage = data.datasets.pageInfo.hasNextPage;
+      afterCursor = data.datasets.pageInfo.endCursor;
+
+      console.log(`[OPENNEURO] Loaded ${batch.length} datasets (total: ${allDatasets.length})`);
+
+      if (allDatasets.length > 10000) {
+        console.warn('[OPENNEURO] Hit safety limit of 10000 datasets');
+        break;
       }
-
-      return allDatasets;
-    } catch (error) {
-      console.error('Failed to search datasets:', error);
-      throw error;
     }
+
+    console.log(`[OPENNEURO] Finished loading all datasets: ${allDatasets.length}`);
+    return allDatasets;
   }
 
   // Search datasets filtered by modality (EEG, MEG, iEEG - NEMAR subset)

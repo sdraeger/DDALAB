@@ -373,20 +373,18 @@ export const useAppStore = create<AppState>((set, get) => ({
               pendingFileSelection: persistedState.file_manager?.selected_file || (persistedState as any).last_selected_file
             },
             plot: (() => {
-              const restoredChunkStart = persistedState.plot?.filters?.chunkStart !== undefined
-                ? persistedState.plot?.filters?.chunkStart
-                : state.plot.chunkStart;
-
-              console.log('[STORE] Restoring plot state:', {
+              // IMPORTANT: Always reset chunkStart to 0 during initialization
+              // The correct position will be loaded and validated when the file is selected
+              // This prevents loading invalid cached positions that exceed file bounds
+              console.log('[STORE] Restoring plot state (chunkStart reset to 0 - will be restored per-file):', {
                 persistedChunkStart: persistedState.plot?.filters?.chunkStart,
-                restoredChunkStart,
                 persistedChunkSize: persistedState.plot?.filters?.chunkSize
               });
 
               return {
                 ...state.plot,
                 chunkSize: persistedState.plot?.filters?.chunkSize || state.plot.chunkSize,
-                chunkStart: restoredChunkStart,
+                chunkStart: 0, // Always start at 0 - actual position loaded when file selected
                 amplitude: persistedState.plot?.filters?.amplitude || state.plot.amplitude,
                 showAnnotations: Boolean(persistedState.plot?.filters?.showAnnotations ?? state.plot.showAnnotations),
                 preprocessing: persistedState.plot?.preprocessing
@@ -557,38 +555,18 @@ export const useAppStore = create<AppState>((set, get) => ({
         try {
           const { invoke } = await import('@tauri-apps/api/core')
 
-          // Load file view state (chunk position) FIRST
-          try {
-            const fileViewState: any = await invoke('get_file_view_state', { filePath: file.file_path })
+          // ALWAYS reset chunk position to 0 when loading a file
+          // This prevents issues with cached positions from different files or file versions
+          // User can manually navigate to desired position after file loads
+          console.log('[STORE] Resetting chunk position to 0 for newly loaded file:', file.file_path)
 
-            if (fileViewState) {
-              console.log('[STORE] Loaded file view state from SQLite:', {
-                filePath: file.file_path,
-                chunkStart: fileViewState.chunk_start,
-                chunkSize: fileViewState.chunk_size
-              })
-
-              // Restore chunk position in plot state BEFORE setting file
-              set((state) => ({
-                plot: {
-                  ...state.plot,
-                  chunkStart: fileViewState.chunk_start,
-                  chunkSize: fileViewState.chunk_size
-                }
-              }))
-            } else {
-              console.log('[STORE] No saved view state for file:', file.file_path)
-              // Reset to 0 if no saved position
-              set((state) => ({
-                plot: {
-                  ...state.plot,
-                  chunkStart: 0
-                }
-              }))
+          set((state) => ({
+            plot: {
+              ...state.plot,
+              chunkStart: 0,
+              chunkSize: state.plot.chunkSize || 8192
             }
-          } catch (err) {
-            console.error('[STORE] Failed to load file view state from SQLite:', err)
-          }
+          }))
 
           // Load annotations
           const fileAnnotations: any = await invoke('get_file_annotations', { filePath: file.file_path })

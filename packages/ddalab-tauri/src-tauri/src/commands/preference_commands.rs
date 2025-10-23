@@ -48,14 +48,49 @@ pub async fn save_app_preferences(app: tauri::AppHandle, preferences: AppPrefere
 
 #[tauri::command]
 pub async fn open_file_dialog() -> Result<Option<String>, String> {
-    // TODO: Implement with tauri-plugin-dialog v2 API
-    // Example: use tauri_plugin_dialog::FileDialogBuilder;
-    // let file_path = FileDialogBuilder::new()
-    //     .add_filter("EDF Files", &["edf"])
-    //     .add_filter("ASCII Files", &["txt", "asc", "csv"])
-    //     .add_filter("All Files", &["*"])
-    //     .pick_file();
+    use tauri_plugin_dialog::DialogExt;
+    use tauri::Manager;
+
+    // Get app handle (this is a workaround for async function)
+    // In actual implementation, pass app handle as parameter
+    log::info!("Opening file dialog");
+
+    // For now, return None to indicate not yet implemented
+    // The actual implementation would use tauri_plugin_dialog::FileDialogBuilder
+    // with filters for .edf, .fif, .set, .vhdr, .txt, .csv extensions
     Ok(None)
+}
+
+// Alternative approach: Use blocking file dialog
+#[tauri::command]
+pub fn open_file_dialog_sync(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::{DialogExt, FileDialogBuilder};
+
+    let file_path = app.dialog()
+        .file()
+        .add_filter("EDF Files", &["edf"])
+        .add_filter("FIFF/FIF Files", &["fif"])
+        .add_filter("EEGLAB Files", &["set"])
+        .add_filter("BrainVision Files", &["vhdr"])
+        .add_filter("ASCII Files", &["txt", "asc", "csv", "ascii"])
+        .add_filter("All Supported Files", &["edf", "fif", "set", "vhdr", "txt", "asc", "csv", "ascii"])
+        .blocking_pick_file();
+
+    match file_path {
+        Some(path) => {
+            // FilePath has as_path() method that returns Option<&Path>
+            let path_str = path.as_path()
+                .ok_or_else(|| "Invalid file path".to_string())?
+                .to_string_lossy()
+                .to_string();
+            log::info!("Selected file: {}", path_str);
+            Ok(Some(path_str))
+        },
+        None => {
+            log::info!("File dialog cancelled");
+            Ok(None)
+        }
+    }
 }
 
 #[tauri::command]

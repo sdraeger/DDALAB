@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, memo } from 'react';
+import { useState, useCallback, useMemo, useEffect, memo } from 'react';
 import { Search, Download, ExternalLink, Database, Calendar, Eye, TrendingDown, Key, Upload, AlertTriangle } from 'lucide-react';
 import { openNeuroService, type OpenNeuroDataset } from '../services/openNeuroService';
 import { open } from '@tauri-apps/plugin-shell';
@@ -44,17 +44,41 @@ const DatasetCard = memo(({
                     NEMAR
                   </Badge>
                 )}
-                {/* Modality badges */}
+                {/* Modality badges with distinct colors */}
                 <div className="flex items-center gap-1">
-                  {dataset.summary.modalities.map((modality) => (
-                    <Badge
-                      key={modality}
-                      variant={['eeg', 'meg', 'ieeg'].includes(modality.toLowerCase()) ? 'default' : 'secondary'}
-                      className="text-xs"
-                    >
-                      {modality.toUpperCase()}
-                    </Badge>
-                  ))}
+                  {dataset.summary.modalities.map((modality) => {
+                    const modalityLower = modality.toLowerCase();
+                    let badgeClass = '';
+
+                    // Color scheme based on modality type
+                    if (modalityLower === 'eeg') {
+                      badgeClass = 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700';
+                    } else if (modalityLower === 'meg') {
+                      badgeClass = 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700';
+                    } else if (modalityLower === 'ieeg') {
+                      badgeClass = 'bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700';
+                    } else if (modalityLower === 'mri' || modalityLower === 'anat') {
+                      badgeClass = 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700';
+                    } else if (modalityLower === 'fmri' || modalityLower === 'func') {
+                      badgeClass = 'bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-700';
+                    } else if (modalityLower === 'dwi') {
+                      badgeClass = 'bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border-teal-300 dark:border-teal-700';
+                    } else if (modalityLower === 'pet') {
+                      badgeClass = 'bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700';
+                    } else {
+                      badgeClass = 'bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700';
+                    }
+
+                    return (
+                      <Badge
+                        key={modality}
+                        variant="outline"
+                        className={`text-xs font-medium ${badgeClass}`}
+                      >
+                        {modality.toUpperCase()}
+                      </Badge>
+                    );
+                  })}
                 </div>
               </>
             )}
@@ -92,6 +116,7 @@ export function OpenNeuroBrowser() {
   const [endCursor, setEndCursor] = useState<string | undefined>(undefined);
   const [hasMorePages, setHasMorePages] = useState(true);
   const [modalityFilter, setModalityFilter] = useState<'all' | 'nemar'>('all');
+  const [isAutoLoading, setIsAutoLoading] = useState(false);
 
   // Use TanStack Query for API key status
   const { data: apiKeyStatus } = useOpenNeuroApiKey();
@@ -115,11 +140,23 @@ export function OpenNeuroBrowser() {
 
   const error = queryError ? (queryError instanceof Error ? queryError.message : 'Failed to load datasets') : null;
 
-  // Filter datasets using memoization with debouncing effect
+  // Filter datasets - apply both search query and modality filter (client-side)
   const filteredDatasets = useMemo(() => {
     let filtered = allDatasets;
 
-    // Apply modality filter
+    // Apply search filter (client-side on loaded datasets)
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(dataset => {
+        const name = (dataset.name || dataset.id).toLowerCase();
+        const id = dataset.id.toLowerCase();
+        const description = (dataset.description || '').toLowerCase();
+
+        return name.includes(query) || id.includes(query) || description.includes(query);
+      });
+    }
+
+    // Apply modality filter (client-side)
     if (modalityFilter === 'nemar') {
       filtered = filtered.filter(dataset => {
         const modalities = dataset.summary?.modalities || [];
@@ -129,17 +166,8 @@ export function OpenNeuroBrowser() {
       });
     }
 
-    // Apply search query filter
-    if (searchQuery.trim() !== '') {
-      const lowerQuery = searchQuery.toLowerCase();
-      filtered = filtered.filter(dataset =>
-        dataset.id.toLowerCase().includes(lowerQuery) ||
-        dataset.name?.toLowerCase().includes(lowerQuery)
-      );
-    }
-
     return filtered;
-  }, [searchQuery, allDatasets, modalityFilter]);
+  }, [allDatasets, modalityFilter, searchQuery]);
 
   const loadMoreDatasets = useCallback(async () => {
     if (!hasMorePages) return;
@@ -155,6 +183,43 @@ export function OpenNeuroBrowser() {
       console.error('[OPENNEURO] Failed to load more datasets:', err);
     }
   }, [hasMorePages, endCursor]);
+
+  // Auto-load more datasets when searching and no results found
+  useEffect(() => {
+    const autoLoadMore = async () => {
+      // Only auto-load if:
+      // 1. There's an active search query
+      // 2. No results found in current datasets
+      // 3. More pages available
+      // 4. Not already loading
+      // 5. Initial load is complete
+      if (
+        searchQuery.trim() &&
+        filteredDatasets.length === 0 &&
+        hasMorePages &&
+        !isAutoLoading &&
+        !loading &&
+        allDatasets.length > 0
+      ) {
+        console.log(`[OPENNEURO] Auto-loading more datasets to find "${searchQuery}"...`);
+        setIsAutoLoading(true);
+
+        try {
+          const result = await openNeuroService.fetchDatasetsBatch(50, endCursor);
+          console.log(`[OPENNEURO] Auto-loaded ${result.datasets.length} more datasets (total: ${allDatasets.length + result.datasets.length})`);
+          setAllDatasets(prev => [...prev, ...result.datasets]);
+          setEndCursor(result.endCursor || undefined);
+          setHasMorePages(result.hasNextPage);
+        } catch (err) {
+          console.error('[OPENNEURO] Auto-load failed:', err);
+        } finally {
+          setIsAutoLoading(false);
+        }
+      }
+    };
+
+    autoLoadMore();
+  }, [searchQuery, filteredDatasets.length, hasMorePages, isAutoLoading, loading, allDatasets.length, endCursor]);
 
   const handleDatasetClick = useCallback((dataset: OpenNeuroDataset) => {
     setSelectedDataset(dataset);
@@ -216,15 +281,33 @@ export function OpenNeuroBrowser() {
           </div>
 
           {/* Search bar */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search datasets by ID or name..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-            />
+          <div className="space-y-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search datasets by ID or name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+            {/* Search info message */}
+            {searchQuery.trim() && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-blue-50 dark:bg-blue-950 p-2 rounded-lg">
+                {isAutoLoading ? (
+                  <>
+                    <Database className="h-3 w-3 animate-pulse" />
+                    <span>Auto-loading datasets to find "{searchQuery}"... ({allDatasets.length} searched so far)</span>
+                  </>
+                ) : (
+                  <>
+                    <Search className="h-3 w-3" />
+                    <span>Searching {allDatasets.length} loaded datasets. Use "Load More" to search additional datasets.</span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Modality filter toggles */}
@@ -279,50 +362,79 @@ export function OpenNeuroBrowser() {
         {!loading && filteredDatasets.length === 0 && (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
-              <Database className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+              <Database className={`h-12 w-12 mx-auto mb-4 text-muted-foreground ${isAutoLoading ? 'animate-pulse' : ''}`} />
               <p className="text-muted-foreground">
-                {searchQuery ? 'No datasets found matching your search' : 'No datasets available'}
+                {isAutoLoading
+                  ? `Searching for "${searchQuery}"...`
+                  : searchQuery
+                    ? 'No datasets found matching your search'
+                    : 'No datasets available'
+                }
               </p>
+              {searchQuery && hasMorePages && !isAutoLoading && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  Try loading more datasets to continue searching
+                </p>
+              )}
+              {isAutoLoading && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  Loaded {allDatasets.length} datasets so far...
+                </p>
+              )}
             </div>
           </div>
         )}
 
         {!loading && filteredDatasets.length > 0 && (
-          <>
-            <div className="flex-1 overflow-auto space-y-2">
-              {filteredDatasets.map(dataset => (
-                <DatasetCard
-                  key={dataset.id}
-                  dataset={dataset}
-                  isSelected={selectedDataset?.id === dataset.id}
-                  onSelect={handleDatasetClick}
-                  onOpenInBrowser={handleOpenInBrowser}
-                />
-              ))}
-            </div>
+          <div className="flex-1 overflow-auto space-y-2">
+            {filteredDatasets.map(dataset => (
+              <DatasetCard
+                key={dataset.id}
+                dataset={dataset}
+                isSelected={selectedDataset?.id === dataset.id}
+                onSelect={handleDatasetClick}
+                onOpenInBrowser={handleOpenInBrowser}
+              />
+            ))}
+          </div>
+        )}
 
-            {/* Load More button - only show if not searching and more data available */}
-            {!searchQuery && hasMorePages && (
-              <div className="mt-4 flex justify-center">
-                <button
-                  onClick={loadMoreDatasets}
-                  className="px-6 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors flex items-center gap-2"
-                >
-                  <Database className="h-4 w-4" />
-                  Load More Datasets
-                </button>
-              </div>
+        {/* Load More button - show if more data available (regardless of search results) */}
+        {!loading && hasMorePages && (
+          <div className="mt-4 flex flex-col items-center gap-2">
+            {searchQuery.trim() && filteredDatasets.length === 0 && !isAutoLoading && (
+              <p className="text-xs text-muted-foreground mb-2">
+                No results in the first {allDatasets.length} datasets. Load more to search additional datasets.
+              </p>
             )}
-          </>
+            <button
+              onClick={loadMoreDatasets}
+              disabled={isAutoLoading}
+              className={`px-6 py-2 rounded-lg transition-colors flex items-center gap-2 ${
+                isAutoLoading
+                  ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                  : 'bg-primary text-primary-foreground hover:bg-primary/90'
+              }`}
+            >
+              <Database className={`h-4 w-4 ${isAutoLoading ? 'animate-pulse' : ''}`} />
+              {isAutoLoading ? 'Auto-loading...' : 'Load More Datasets'}
+            </button>
+          </div>
         )}
 
         <div className="mt-4 text-sm text-muted-foreground text-center">
-          {searchQuery && filteredDatasets.length !== allDatasets.length ? (
-            <>Showing {filteredDatasets.length} of {allDatasets.length} datasets</>
+          {searchQuery.trim() ? (
+            <>
+              {filteredDatasets.length !== allDatasets.length ? (
+                <>Showing {filteredDatasets.length} of {allDatasets.length} search results</>
+              ) : (
+                <>Found {allDatasets.length} dataset{allDatasets.length !== 1 ? 's' : ''}</>
+              )}
+            </>
           ) : (
             <>
               {allDatasets.length} dataset{allDatasets.length !== 1 ? 's' : ''} loaded
-              {hasMorePages && !searchQuery && ' (more available)'}
+              {hasMorePages && ' (more available)'}
             </>
           )}
         </div>
@@ -402,8 +514,8 @@ export function OpenNeuroBrowser() {
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
                       <div className="text-xs text-amber-800 dark:text-amber-200">
-                        <strong>MEG Analysis Not Yet Supported:</strong> This dataset contains MEG files (.fif, .ds, .sqd).
-                        You can download the dataset, but DDALAB currently only supports EDF, BrainVision, and EEGLAB formats for analysis.
+                        <strong>Limited MEG Format Support:</strong> This dataset contains MEG files (.fif, .ds, .sqd).
+                        DDALAB supports FIFF (.fif) files for Neuromag/Elekta MEG data. Other MEG formats (.ds, .sqd, .meg4) are not yet supported.
                       </div>
                     </div>
                   </div>
