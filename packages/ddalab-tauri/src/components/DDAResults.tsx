@@ -42,6 +42,7 @@ type ViewMode = 'heatmap' | 'lineplot' | 'both'
 
 export function DDAResults({ result }: DDAResultsProps) {
   const { createWindow, broadcastToType } = usePopoutWindows()
+  const fileManager = useAppStore(state => state.fileManager)
   const heatmapRef = useRef<HTMLDivElement>(null)
   const linePlotRef = useRef<HTMLDivElement>(null)
   const uplotHeatmapRef = useRef<uPlot | null>(null)
@@ -112,17 +113,23 @@ export function DDAResults({ result }: DDAResultsProps) {
     })
   }, [result.id, currentVariantId])
 
+  const sampleRate = fileManager.selectedFile?.sample_rate || 256
+
   const linePlotAnnotations = useDDAAnnotations({
     resultId: result.id,
     variantId: currentVariantId,
-    plotType: 'line'
+    plotType: 'line',
+    ddaResult: result,
+    sampleRate
   })
 
   // Annotation support for heatmap
   const heatmapAnnotations = useDDAAnnotations({
     resultId: result.id,
     variantId: currentVariantId,
-    plotType: 'heatmap'
+    plotType: 'heatmap',
+    ddaResult: result,
+    sampleRate
   })
 
   // Color schemes
@@ -1101,15 +1108,8 @@ export function DDAResults({ result }: DDAResultsProps) {
                     const rect = e.currentTarget.getBoundingClientRect()
                     const plotX = e.clientX - rect.left
 
-                    const scales = result.results.scales
-                    if (!scales || scales.length === 0) {
-                      console.warn('[ANNOTATION] No scales available for heatmap')
-                      return
-                    }
-
-                    const plotWidth = rect.width
-                    const scaleIndex = Math.floor((plotX / plotWidth) * scales.length)
-                    const scaleValue = scales[scaleIndex] || 0
+                    // Use uPlot's posToVal to convert pixel position to scale value
+                    const scaleValue = uplotHeatmapRef.current.posToVal(plotX, 'x')
 
                     console.log('[ANNOTATION] Opening heatmap context menu at scale:', scaleValue)
                     heatmapAnnotations.openContextMenu(e.clientX, e.clientY, scaleValue)
@@ -1140,15 +1140,20 @@ export function DDAResults({ result }: DDAResultsProps) {
                       {heatmapAnnotations.annotations.map((annotation) => {
                         const scales = result.results.scales
                         if (!scales || scales.length === 0) return null
+                        if (!uplotHeatmapRef.current) return null
 
-                        const scaleIndex = scales.findIndex(s => Math.abs(s - annotation.position) < 0.01)
-                        if (scaleIndex === -1) return null
+                        // Get uPlot bbox for accurate dimensions and offsets
+                        const bbox = uplotHeatmapRef.current.bbox
+                        if (!bbox) return null
 
-                        // Get uPlot bbox for accurate dimensions
-                        const bbox = uplotHeatmapRef.current?.bbox
-                        const plotWidth = bbox?.width || heatmapRef.current?.clientWidth || 800
-                        const plotHeight = bbox?.height || heatmapRef.current?.clientHeight || 300
-                        const xPosition = (scaleIndex / scales.length) * plotWidth
+                        // Use uPlot's valToPos to convert scale value to pixel position (relative to canvas)
+                        const canvasX = uplotHeatmapRef.current.valToPos(annotation.position, 'x')
+                        if (canvasX === null || canvasX === undefined) return null
+
+                        // Add bbox offsets since SVG is positioned at (0,0) but canvas starts at (bbox.left, bbox.top)
+                        const xPosition = canvasX + bbox.left
+                        const yOffset = bbox.top
+                        const plotHeight = bbox.height
 
                         return (
                           <AnnotationMarker
@@ -1156,6 +1161,7 @@ export function DDAResults({ result }: DDAResultsProps) {
                             annotation={annotation}
                             plotHeight={plotHeight}
                             xPosition={xPosition}
+                            yOffset={yOffset}
                             onRightClick={(e, ann) => {
                               e.preventDefault()
                               heatmapAnnotations.openContextMenu(
@@ -1226,20 +1232,11 @@ export function DDAResults({ result }: DDAResultsProps) {
 
                     const rect = e.currentTarget.getBoundingClientRect()
                     const plotX = e.clientX - rect.left
-                    const plotY = e.clientY - rect.top
 
-                    // Convert pixel position to scale value
-                    const scales = result.results.scales
-                    if (!scales || scales.length === 0) {
-                      console.warn('[ANNOTATION] No scales available')
-                      return
-                    }
+                    // Use uPlot's posToVal to convert pixel position to scale value
+                    const scaleValue = uplotLinePlotRef.current.posToVal(plotX, 'x')
 
-                    const plotWidth = rect.width
-                    const scaleIndex = Math.floor((plotX / plotWidth) * scales.length)
-                    const scaleValue = scales[scaleIndex] || 0
-
-                    console.log('[ANNOTATION] Opening context menu at scale:', scaleValue)
+                    console.log('[ANNOTATION] Opening line plot context menu at scale:', scaleValue)
                     linePlotAnnotations.openContextMenu(e.clientX, e.clientY, scaleValue)
                   }}
                 >
@@ -1268,15 +1265,20 @@ export function DDAResults({ result }: DDAResultsProps) {
                       {linePlotAnnotations.annotations.map((annotation) => {
                         const scales = result.results.scales
                         if (!scales || scales.length === 0) return null
+                        if (!uplotLinePlotRef.current) return null
 
-                        const scaleIndex = scales.findIndex(s => Math.abs(s - annotation.position) < 0.01)
-                        if (scaleIndex === -1) return null
+                        // Get uPlot bbox for accurate dimensions and offsets
+                        const bbox = uplotLinePlotRef.current.bbox
+                        if (!bbox) return null
 
-                        // Get uPlot bbox for accurate dimensions
-                        const bbox = uplotLinePlotRef.current?.bbox
-                        const plotWidth = bbox?.width || linePlotRef.current?.clientWidth || 800
-                        const plotHeight = bbox?.height || linePlotRef.current?.clientHeight || 400
-                        const xPosition = (scaleIndex / scales.length) * plotWidth
+                        // Use uPlot's valToPos to convert scale value to pixel position (relative to canvas)
+                        const canvasX = uplotLinePlotRef.current.valToPos(annotation.position, 'x')
+                        if (canvasX === null || canvasX === undefined) return null
+
+                        // Add bbox offsets since SVG is positioned at (0,0) but canvas starts at (bbox.left, bbox.top)
+                        const xPosition = canvasX + bbox.left
+                        const yOffset = bbox.top
+                        const plotHeight = bbox.height
 
                         return (
                           <AnnotationMarker
@@ -1284,6 +1286,7 @@ export function DDAResults({ result }: DDAResultsProps) {
                             annotation={annotation}
                             plotHeight={plotHeight}
                             xPosition={xPosition}
+                            yOffset={yOffset}
                             onRightClick={(e, ann) => {
                               e.preventDefault()
                               linePlotAnnotations.openContextMenu(

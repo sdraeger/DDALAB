@@ -9,6 +9,7 @@ pub mod openneuro_commands;
 pub mod debug_commands;
 pub mod nsg_commands;
 pub mod notification_commands;
+pub mod annotation_commands;
 
 pub use state_commands::*;
 pub use api_commands::*;
@@ -21,3 +22,4 @@ pub use openneuro_commands::*;
 pub use debug_commands::*;
 pub use nsg_commands::*;
 pub use notification_commands::*;
+pub use annotation_commands::*;

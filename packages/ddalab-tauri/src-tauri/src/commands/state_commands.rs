@@ -359,6 +359,29 @@ pub async fn get_annotations_in_range(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn get_all_annotations(
+    state_manager: State<'_, AppStateManager>,
+) -> Result<std::collections::HashMap<String, FileAnnotations>, String> {
+    let annotation_db = state_manager.get_annotation_db();
+
+    // Get all file paths that have annotations
+    let file_paths = annotation_db
+        .get_all_file_paths()
+        .map_err(|e| e.to_string())?;
+
+    // Load annotations for each file
+    let mut all_annotations = std::collections::HashMap::new();
+    for file_path in file_paths {
+        let file_annotations = annotation_db
+            .get_file_annotations(&file_path)
+            .map_err(|e| e.to_string())?;
+        all_annotations.insert(file_path, file_annotations);
+    }
+
+    Ok(all_annotations)
+}
+
 // ============================================================================
 // File View State Database Commands (SQLite-based)
 // ============================================================================

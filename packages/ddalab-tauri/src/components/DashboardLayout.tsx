@@ -14,6 +14,7 @@ import { OpenNeuroBrowser } from "@/components/OpenNeuroBrowser";
 import { DDAProgressIndicator } from "@/components/DDAProgressIndicator";
 import { NSGJobManager } from "@/components/NSGJobManager";
 import { NotificationHistory } from "@/components/NotificationHistory";
+import { AnnotationsTab } from "@/components/AnnotationsTab";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +31,7 @@ import {
   Database,
   Cloud,
   Bell,
+  MessageSquare,
 } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
 
@@ -354,6 +356,13 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
                   Results
                 </TabsTrigger>
                 <TabsTrigger
+                  value="annotations"
+                  className="flex items-center gap-2"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  Annotations
+                </TabsTrigger>
+                <TabsTrigger
                   value="openneuro"
                   className="flex items-center gap-2"
                 >
@@ -584,6 +593,10 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
                     </div>
                   )}
                 </div>
+              </TabsContent>
+
+              <TabsContent value="annotations" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'annotations'}>
+                <AnnotationsTab />
               </TabsContent>
 
               <TabsContent value="openneuro" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'openneuro'}>
