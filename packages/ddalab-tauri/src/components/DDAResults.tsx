@@ -1195,6 +1195,11 @@ export function DDAResults({ result }: DDAResultsProps) {
                     onEditAnnotation={heatmapAnnotations.handleUpdateAnnotation}
                     onDeleteAnnotation={heatmapAnnotations.handleDeleteAnnotation}
                     onClose={heatmapAnnotations.closeContextMenu}
+                    currentPlotSource={{
+                      plot_type: 'dda',
+                      variant_id: getCurrentVariantData()?.variant_id,
+                      dda_plot_type: 'heatmap'
+                    }}
                   />
                 )}
               </CardContent>
@@ -1320,6 +1325,11 @@ export function DDAResults({ result }: DDAResultsProps) {
                     onEditAnnotation={linePlotAnnotations.handleUpdateAnnotation}
                     onDeleteAnnotation={linePlotAnnotations.handleDeleteAnnotation}
                     onClose={linePlotAnnotations.closeContextMenu}
+                    currentPlotSource={{
+                      plot_type: 'dda',
+                      variant_id: getCurrentVariantData()?.variant_id,
+                      dda_plot_type: 'lineplot'
+                    }}
                   />
                 )}
               </CardContent>
