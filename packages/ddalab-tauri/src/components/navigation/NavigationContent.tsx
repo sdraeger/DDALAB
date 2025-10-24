@@ -6,7 +6,7 @@ import { ApiService } from '@/services/apiService'
 // Import existing components
 import { TimeSeriesPlotECharts } from '@/components/TimeSeriesPlotECharts'
 import { AnnotationsTab } from '@/components/AnnotationsTab'
-import { DDAAnalysis } from '@/components/DDAAnalysis'
+import { DDAWithHistory } from '@/components/dda/DDAWithHistory'
 import { SettingsPanel } from '@/components/SettingsPanel'
 import { OpenNeuroBrowser } from '@/components/OpenNeuroBrowser'
 import { NSGJobManager } from '@/components/NSGJobManager'
@@ -73,15 +73,17 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
   if (primaryNav === 'analyze') {
     if (secondaryNav === 'dda') {
       return (
-        <div className="p-4 h-full">
+        <div className="h-full">
           {fileManager.selectedFile ? (
-            <DDAAnalysis apiService={apiService} />
+            <DDAWithHistory apiService={apiService} />
           ) : (
-            <EmptyState
-              icon={Brain}
-              title="No File Selected"
-              description="Select a file from the sidebar to run DDA analysis"
-            />
+            <div className="p-4 h-full">
+              <EmptyState
+                icon={Brain}
+                title="No File Selected"
+                description="Select a file from the sidebar to run DDA analysis"
+              />
+            </div>
           )}
         </div>
       )
