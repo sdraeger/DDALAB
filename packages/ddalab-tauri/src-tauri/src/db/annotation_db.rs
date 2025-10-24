@@ -6,19 +6,6 @@ use std::collections::HashMap;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AnnotationSource {
-    pub plot_type: String,
-    #[serde(default)]
-    pub variant_id: Option<String>,
-    #[serde(default)]
-    pub dda_plot_type: Option<String>,
-}
-
-fn default_true() -> bool {
-    true
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Annotation {
     pub id: String,
     pub position: f64,
@@ -27,10 +14,8 @@ pub struct Annotation {
     pub color: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
-    #[serde(default = "default_true")]
-    pub sync_enabled: bool,
     #[serde(default)]
-    pub created_in: Option<AnnotationSource>,
+    pub visible_in_plots: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,8 +61,7 @@ impl AnnotationDatabase {
                     label TEXT NOT NULL,
                     color TEXT,
                     description TEXT,
-                    sync_enabled INTEGER DEFAULT 1,
-                    created_in TEXT,
+                    visible_in_plots TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -97,38 +81,21 @@ impl AnnotationDatabase {
     fn migrate_schema(&self) -> Result<()> {
         let conn = self.conn.lock();
 
-        // Check if sync_enabled column exists
-        let sync_enabled_exists: bool = conn
+        // Check if visible_in_plots column exists
+        let visible_in_plots_exists: bool = conn
             .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('annotations') WHERE name='sync_enabled'",
+                "SELECT COUNT(*) FROM pragma_table_info('annotations') WHERE name='visible_in_plots'",
                 [],
                 |row| row.get(0),
             )
             .unwrap_or(0) > 0;
 
-        if !sync_enabled_exists {
+        if !visible_in_plots_exists {
             conn.execute(
-                "ALTER TABLE annotations ADD COLUMN sync_enabled INTEGER DEFAULT 1",
+                "ALTER TABLE annotations ADD COLUMN visible_in_plots TEXT",
                 [],
             )
-            .context("Failed to add sync_enabled column")?;
-        }
-
-        // Check if created_in column exists
-        let created_in_exists: bool = conn
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('annotations') WHERE name='created_in'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap_or(0) > 0;
-
-        if !created_in_exists {
-            conn.execute(
-                "ALTER TABLE annotations ADD COLUMN created_in TEXT",
-                [],
-            )
-            .context("Failed to add created_in column")?;
+            .context("Failed to add visible_in_plots column")?;
         }
 
         Ok(())
@@ -141,14 +108,14 @@ impl AnnotationDatabase {
         annotation: &Annotation,
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        let created_in_json = annotation.created_in.as_ref()
-            .and_then(|source| serde_json::to_string(source).ok());
+        let visible_in_plots_json = serde_json::to_string(&annotation.visible_in_plots)
+            .context("Failed to serialize visible_in_plots")?;
 
         self.conn.lock().execute(
             "INSERT OR REPLACE INTO annotations
-             (id, file_path, channel, position, label, color, description, sync_enabled, created_in, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
-                     COALESCE((SELECT created_at FROM annotations WHERE id = ?1), ?10), ?10)",
+             (id, file_path, channel, position, label, color, description, visible_in_plots, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+                     COALESCE((SELECT created_at FROM annotations WHERE id = ?1), ?9), ?9)",
             params![
                 annotation.id,
                 file_path,
@@ -157,8 +124,7 @@ impl AnnotationDatabase {
                 annotation.label,
                 annotation.color,
                 annotation.description,
-                annotation.sync_enabled as i32,
-                created_in_json,
+                visible_in_plots_json,
                 now,
             ],
         )
@@ -170,7 +136,7 @@ impl AnnotationDatabase {
     pub fn get_file_annotations(&self, file_path: &str) -> Result<FileAnnotations> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, channel, position, label, color, description, sync_enabled, created_in
+            "SELECT id, channel, position, label, color, description, visible_in_plots
              FROM annotations
              WHERE file_path = ?1
              ORDER BY position",
@@ -181,10 +147,10 @@ impl AnnotationDatabase {
 
         let rows = stmt.query_map(params![file_path], |row| {
             let channel: Option<String> = row.get(1)?;
-            let sync_enabled: i32 = row.get(6).unwrap_or(1);
-            let created_in_json: Option<String> = row.get(7)?;
-            let created_in = created_in_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let visible_in_plots_json: Option<String> = row.get(6)?;
+            let visible_in_plots = visible_in_plots_json
+                .and_then(|json| serde_json::from_str(&json).ok())
+                .unwrap_or_else(Vec::new);
 
             let annotation = Annotation {
                 id: row.get(0)?,
@@ -192,8 +158,7 @@ impl AnnotationDatabase {
                 label: row.get(3)?,
                 color: row.get(4)?,
                 description: row.get(5)?,
-                sync_enabled: sync_enabled != 0,
-                created_in,
+                visible_in_plots,
             };
             Ok((channel, annotation))
         })?;
@@ -219,17 +184,17 @@ impl AnnotationDatabase {
     pub fn get_annotation(&self, id: &str) -> Result<Option<Annotation>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, position, label, color, description, sync_enabled, created_in
+            "SELECT id, position, label, color, description, visible_in_plots
              FROM annotations
              WHERE id = ?1",
         )?;
 
         let result = stmt
             .query_row(params![id], |row| {
-                let sync_enabled: i32 = row.get(5).unwrap_or(1);
-                let created_in_json: Option<String> = row.get(6)?;
-                let created_in = created_in_json
-                    .and_then(|json| serde_json::from_str(&json).ok());
+                let visible_in_plots_json: Option<String> = row.get(5)?;
+                let visible_in_plots = visible_in_plots_json
+                    .and_then(|json| serde_json::from_str(&json).ok())
+                    .unwrap_or_else(Vec::new);
 
                 Ok(Annotation {
                     id: row.get(0)?,
@@ -237,8 +202,7 @@ impl AnnotationDatabase {
                     label: row.get(2)?,
                     color: row.get(3)?,
                     description: row.get(4)?,
-                    sync_enabled: sync_enabled != 0,
-                    created_in,
+                    visible_in_plots,
                 })
             })
             .optional()
@@ -294,7 +258,7 @@ impl AnnotationDatabase {
     ) -> Result<Vec<Annotation>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, position, label, color, description, sync_enabled, created_in
+            "SELECT id, position, label, color, description, visible_in_plots
              FROM annotations
              WHERE file_path = ?1 AND position >= ?2 AND position <= ?3
              ORDER BY position",
@@ -302,10 +266,10 @@ impl AnnotationDatabase {
 
         let annotations = stmt
             .query_map(params![file_path, start, end], |row| {
-                let sync_enabled: i32 = row.get(5).unwrap_or(1);
-                let created_in_json: Option<String> = row.get(6)?;
-                let created_in = created_in_json
-                    .and_then(|json| serde_json::from_str(&json).ok());
+                let visible_in_plots_json: Option<String> = row.get(5)?;
+                let visible_in_plots = visible_in_plots_json
+                    .and_then(|json| serde_json::from_str(&json).ok())
+                    .unwrap_or_else(Vec::new);
 
                 Ok(Annotation {
                     id: row.get(0)?,
@@ -313,8 +277,7 @@ impl AnnotationDatabase {
                     label: row.get(2)?,
                     color: row.get(3)?,
                     description: row.get(4)?,
-                    sync_enabled: sync_enabled != 0,
-                    created_in,
+                    visible_in_plots,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()
