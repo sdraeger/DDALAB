@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 import { ChunkData } from "@/types/api";
@@ -44,6 +44,7 @@ import { usePopoutWindows } from "@/hooks/usePopoutWindows";
 import { useTimeSeriesAnnotations } from "@/hooks/useAnnotations";
 import { AnnotationContextMenu } from "@/components/annotations/AnnotationContextMenu";
 import { AnnotationMarker } from "@/components/annotations/AnnotationMarker";
+import { PlotInfo } from "@/types/annotations";
 import { PreprocessingOptions } from "@/types/persistence";
 import {
   applyPreprocessing,
@@ -77,6 +78,18 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     filePath: fileManager.selectedFile?.file_path || "",
     // For time series, we use global annotations (not per-channel)
   });
+
+  // Generate available plots for annotation visibility
+  const availablePlots = useMemo<PlotInfo[]>(() => {
+    const plots: PlotInfo[] = [
+      { id: 'timeseries', label: 'Data Visualization' }
+    ];
+
+    // TODO: Add DDA results for this file if they exist
+    // This would require access to the DDA results from the store
+
+    return plots;
+  }, []);
 
   // Remove debug console.log to prevent infinite re-render loop
   const plotRef = useRef<HTMLDivElement>(null);
@@ -1838,6 +1851,8 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
               onEditAnnotation={timeSeriesAnnotations.handleUpdateAnnotation}
               onDeleteAnnotation={timeSeriesAnnotations.handleDeleteAnnotation}
               onClose={timeSeriesAnnotations.closeContextMenu}
+              availablePlots={availablePlots}
+              currentPlotId="timeseries"
             />
           )}
         </CardContent>

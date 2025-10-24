@@ -31,7 +31,7 @@ import { usePopoutWindows } from '@/hooks/usePopoutWindows'
 import { useDDAAnnotations } from '@/hooks/useAnnotations'
 import { AnnotationContextMenu } from '@/components/annotations/AnnotationContextMenu'
 import { AnnotationMarker } from '@/components/annotations/AnnotationMarker'
-import { PlotAnnotation } from '@/types/annotations'
+import { PlotAnnotation, PlotInfo } from '@/types/annotations'
 
 interface DDAResultsProps {
   result: DDAResult
@@ -229,6 +229,27 @@ export function DDAResults({ result }: DDAResultsProps) {
     }
     return []
   }, [result.results])
+
+  // Generate available plots for annotation visibility
+  const availablePlots = useMemo<PlotInfo[]>(() => {
+    const plots: PlotInfo[] = [
+      { id: 'timeseries', label: 'Data Visualization' }
+    ]
+
+    // Add all DDA variant plots
+    availableVariants.forEach(variant => {
+      plots.push({
+        id: `dda:${variant.variant_id}:heatmap`,
+        label: `${variant.variant_name} - Heatmap`
+      })
+      plots.push({
+        id: `dda:${variant.variant_id}:lineplot`,
+        label: `${variant.variant_name} - Line Plot`
+      })
+    })
+
+    return plots
+  }, [availableVariants])
 
   const getCurrentVariantData = () => {
     const current = availableVariants[selectedVariant] || availableVariants[0]
@@ -1195,11 +1216,8 @@ export function DDAResults({ result }: DDAResultsProps) {
                     onEditAnnotation={heatmapAnnotations.handleUpdateAnnotation}
                     onDeleteAnnotation={heatmapAnnotations.handleDeleteAnnotation}
                     onClose={heatmapAnnotations.closeContextMenu}
-                    currentPlotSource={{
-                      plot_type: 'dda',
-                      variant_id: getCurrentVariantData()?.variant_id,
-                      dda_plot_type: 'heatmap'
-                    }}
+                    availablePlots={availablePlots}
+                    currentPlotId={`dda:${getCurrentVariantData()?.variant_id}:heatmap`}
                   />
                 )}
               </CardContent>
@@ -1325,11 +1343,8 @@ export function DDAResults({ result }: DDAResultsProps) {
                     onEditAnnotation={linePlotAnnotations.handleUpdateAnnotation}
                     onDeleteAnnotation={linePlotAnnotations.handleDeleteAnnotation}
                     onClose={linePlotAnnotations.closeContextMenu}
-                    currentPlotSource={{
-                      plot_type: 'dda',
-                      variant_id: getCurrentVariantData()?.variant_id,
-                      dda_plot_type: 'lineplot'
-                    }}
+                    availablePlots={availablePlots}
+                    currentPlotId={`dda:${getCurrentVariantData()?.variant_id}:lineplot`}
                   />
                 )}
               </CardContent>

@@ -83,8 +83,11 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
 
   // Determine which analysis to auto-load (if any)
   // Only enable auto-load if: no current analysis, persistence restored, and history loaded
-  const shouldAutoLoad = !currentAnalysis && isPersistenceRestored && historyData && historyData.length > 0 && !isLoadingHistory;
-  const analysisIdToLoad = shouldAutoLoad ? historyData[0].id : null;
+  // IMPORTANT: Filter history by current file to prevent loading results from different files
+  const currentFilePath = fileManager.selectedFile?.file_path;
+  const fileSpecificHistory = historyData?.filter(item => item.file_path === currentFilePath) || [];
+  const shouldAutoLoad = !currentAnalysis && isPersistenceRestored && fileSpecificHistory.length > 0 && !isLoadingHistory && !!currentFilePath;
+  const analysisIdToLoad = shouldAutoLoad ? fileSpecificHistory[0].id : null;
 
   // Use Tanstack Query to load the most recent analysis (async, non-blocking)
   const {
@@ -93,12 +96,21 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
   } = useAnalysisFromHistory(apiService, analysisIdToLoad, !!analysisIdToLoad);
 
   // Set the auto-loaded analysis once it's fetched
+  // IMPORTANT: Verify the analysis belongs to the current file before setting it
   useEffect(() => {
-    if (autoLoadedAnalysis && !currentAnalysis) {
-      console.log("[DASHBOARD] Setting auto-loaded analysis:", autoLoadedAnalysis.id);
-      setCurrentAnalysis(autoLoadedAnalysis);
+    if (autoLoadedAnalysis && !currentAnalysis && currentFilePath) {
+      // Double-check the file path matches to prevent race conditions
+      if (autoLoadedAnalysis.file_path === currentFilePath) {
+        console.log("[DASHBOARD] Setting auto-loaded analysis:", autoLoadedAnalysis.id, "for file:", currentFilePath);
+        setCurrentAnalysis(autoLoadedAnalysis);
+      } else {
+        console.warn("[DASHBOARD] Skipping auto-load - analysis file path mismatch:", {
+          analysisFile: autoLoadedAnalysis.file_path,
+          currentFile: currentFilePath
+        });
+      }
     }
-  }, [autoLoadedAnalysis, currentAnalysis, setCurrentAnalysis]);
+  }, [autoLoadedAnalysis, currentAnalysis, currentFilePath, setCurrentAnalysis]);
 
   // Update API service when URL or session token changes
   useEffect(() => {

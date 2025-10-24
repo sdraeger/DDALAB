@@ -4,6 +4,8 @@ import { TauriService } from '@/services/tauriService'
 import { getStatePersistenceService, StatePersistenceService } from '@/services/statePersistenceService'
 import { AppState as PersistedAppState, AnalysisResult, PreprocessingOptions, DDAState as PersistedDDAState } from '@/types/persistence'
 import { PlotAnnotation, TimeSeriesAnnotations, DDAResultAnnotations } from '@/types/annotations'
+import { initializeFileStateSystem, getInitializedFileStateManager, isFileStateSystemInitialized } from '@/services/fileStateInitializer'
+import { FilePlotState, FileDDAState, FileAnnotationState } from '@/types/fileCentricState'
 
 // Module-level flag to prevent re-initialization during Hot Module Reload
 // This persists across Fast Refresh unlike Zustand store state
@@ -260,6 +262,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       try {
         console.log('[STORE] Initializing persistence service...')
+
+        // Initialize file-centric state system first
+        await initializeFileStateSystem()
+        console.log('[STORE] File-centric state system initialized')
+
         const service = getStatePersistenceService({
           autoSave: true,
           saveInterval: 30000,
@@ -548,52 +555,147 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSelectedFile: (file) => {
     console.log('[STORE] setSelectedFile called with:', file?.file_path || 'null')
 
-    // Load annotations and file view state from SQLite BEFORE setting the file
-    // This ensures plot.chunkStart is updated before component effects run
+    // IMMEDIATELY clear DDA state and set the file synchronously to prevent race conditions
+    // where components render with old state before async loading happens
+    console.log('[STORE] Clearing DDA state and setting file immediately (synchronous)')
+    set((state) => ({
+      dda: {
+        ...state.dda,
+        currentAnalysis: null,
+        analysisHistory: []
+      },
+      fileManager: {
+        ...state.fileManager,
+        selectedFile: file
+      }
+    }))
+
+    // Load file-centric state asynchronously and apply it
+    // This ensures all state (plot, DDA, annotations) is loaded from persistence
     if (file && TauriService.isTauri()) {
       (async () => {
         try {
-          const { invoke } = await import('@tauri-apps/api/core')
+          // Load file-centric state using FileStateManager
+          console.log('[STORE] Loading file-centric state for:', file.file_path)
 
-          // ALWAYS reset chunk position to 0 when loading a file
-          // This prevents issues with cached positions from different files or file versions
-          // User can manually navigate to desired position after file loads
-          console.log('[STORE] Resetting chunk position to 0 for newly loaded file:', file.file_path)
+          const fileStateManager = getInitializedFileStateManager()
+          const fileState = await fileStateManager.loadFileState(file.file_path)
 
-          set((state) => ({
-            plot: {
-              ...state.plot,
-              chunkStart: 0,
-              chunkSize: state.plot.chunkSize || 8192
-            }
-          }))
-
-          // Load annotations
-          const fileAnnotations: any = await invoke('get_file_annotations', { filePath: file.file_path })
-
-          console.log('[ANNOTATION] Loaded from SQLite:', {
-            filePath: file.file_path,
-            globalCount: fileAnnotations.global_annotations?.length || 0,
-            channelCount: Object.keys(fileAnnotations.channel_annotations || {}).length
+          console.log('[STORE] Loaded file state:', {
+            hasPlot: !!fileState.plot,
+            hasDDA: !!fileState.dda,
+            hasAnnotations: !!fileState.annotations
           })
 
-          // Update in-memory annotations
-          set((state) => {
-            const annotations = { ...state.annotations }
-            annotations.timeSeries[file.file_path] = {
-              filePath: file.file_path,
-              globalAnnotations: fileAnnotations.global_annotations || [],
-              channelAnnotations: fileAnnotations.channel_annotations || {}
-            }
-            return { annotations }
-          })
+          // Apply plot state if available
+          if (fileState.plot) {
+            const plotState = fileState.plot as FilePlotState
+            set((state) => ({
+              plot: {
+                ...state.plot,
+                chunkStart: plotState.chunkStart || 0,
+                chunkSize: plotState.chunkSize || 8192,
+                amplitude: plotState.amplitude || 1.0,
+                showAnnotations: plotState.showAnnotations ?? true,
+                preprocessing: plotState.preprocessing,
+                selectedChannelColors: plotState.channelColors || {}
+              },
+              fileManager: {
+                ...state.fileManager,
+                selectedChannels: plotState.selectedChannels || []
+              }
+            }))
+          } else {
+            // Reset to defaults if no saved plot state
+            set((state) => ({
+              plot: {
+                ...state.plot,
+                chunkStart: 0,
+                chunkSize: state.plot.chunkSize || 8192
+              },
+              fileManager: {
+                ...state.fileManager,
+                selectedChannels: []
+              }
+            }))
+          }
 
-          // NOW set the selected file after loading state
-          set((state) => ({
-            fileManager: { ...state.fileManager, selectedFile: file }
-          }))
+          // Apply DDA state if available
+          if (fileState.dda) {
+            const ddaState = fileState.dda as FileDDAState
 
-          // Save state after setting file
+            console.log('[STORE] File has DDA state:', {
+              currentAnalysisId: ddaState.currentAnalysisId,
+              historyCount: ddaState.analysisHistory?.length || 0
+            })
+
+            // Update DDA parameters from saved state
+            set((state) => ({
+              dda: {
+                ...state.dda,
+                analysisParameters: {
+                  ...state.dda.analysisParameters,
+                  ...ddaState.lastParameters
+                },
+                // Clear current analysis - components will load by ID if needed
+                currentAnalysis: null,
+                analysisHistory: []
+              }
+            }))
+
+            // TODO: Optionally load the actual analysis results from the database
+            // using ddaState.currentAnalysisId and ddaState.analysisHistory
+            // For now, components will handle loading via useDDAHistory hook
+          } else {
+            // No DDA state for this file - clear any existing results
+            console.log('[STORE] No DDA state for this file - clearing results')
+            set((state) => ({
+              dda: {
+                ...state.dda,
+                currentAnalysis: null,
+                analysisHistory: []
+              }
+            }))
+          }
+
+          // Apply annotation state if available
+          if (fileState.annotations) {
+            const annotationState = fileState.annotations as FileAnnotationState
+            set((state) => {
+              const annotations = { ...state.annotations }
+
+              // Load timeSeries annotations
+              annotations.timeSeries[file.file_path] = {
+                filePath: file.file_path,
+                globalAnnotations: annotationState.timeSeries?.global || [],
+                channelAnnotations: annotationState.timeSeries?.channels || {}
+              }
+
+              // Load DDA results annotations
+              if (annotationState.ddaResults) {
+                annotations.ddaResults = {
+                  ...annotations.ddaResults,
+                  ...annotationState.ddaResults
+                }
+              }
+
+              return { annotations }
+            })
+          } else {
+            // Initialize empty annotations for new files
+            set((state) => {
+              const annotations = { ...state.annotations }
+              annotations.timeSeries[file.file_path] = {
+                filePath: file.file_path,
+                globalAnnotations: [],
+                channelAnnotations: {}
+              }
+              return { annotations }
+            })
+          }
+
+          // File was already set synchronously above
+          // Now just save state after loading file-centric state
           const { fileManager: updatedFileManager, isPersistenceRestored } = get()
           const selectedFilePath = file?.file_path || null
 
@@ -624,19 +726,12 @@ export const useAppStore = create<AppState>((set, get) => ({
             console.log('[STORE] ✗ NOT saving - isPersistenceRestored:', isPersistenceRestored)
           }
         } catch (err) {
-          console.error('[ANNOTATION] Failed to load from SQLite:', err)
-          // Still set the file even if loading fails
-          set((state) => ({
-            fileManager: { ...state.fileManager, selectedFile: file }
-          }))
+          console.error('[STORE] Failed to load file-centric state:', err)
+          // File was already set synchronously above, so no action needed
         }
       })()
-    } else {
-      // Non-Tauri or no file - set immediately
-      set((state) => ({
-        fileManager: { ...state.fileManager, selectedFile: file }
-      }))
     }
+    // Note: file is set synchronously above, so no else block needed
   },
 
   setSelectedChannels: (channels) => {
@@ -645,12 +740,39 @@ export const useAppStore = create<AppState>((set, get) => ({
     }))
 
     if (TauriService.isTauri()) {
-      const { fileManager, isPersistenceRestored } = get()
+      const { fileManager, plot, isPersistenceRestored } = get()
 
       // During initialization, don't save to backend to avoid overwriting persisted state
       if (!isPersistenceRestored) {
         console.log('[STORE] Skipping save during initialization - selected channels set')
         return
+      }
+
+      // Save to file-centric state
+      if (fileManager.selectedFile?.file_path) {
+        (async () => {
+          try {
+            const fileStateManager = getInitializedFileStateManager()
+            const filePlotState: FilePlotState = {
+              chunkStart: plot.chunkStart,
+              chunkSize: plot.chunkSize,
+              selectedChannels: channels,
+              amplitude: plot.amplitude,
+              showAnnotations: plot.showAnnotations,
+              preprocessing: plot.preprocessing,
+              channelColors: plot.selectedChannelColors,
+              lastUpdated: new Date().toISOString()
+            }
+
+            await fileStateManager.updateModuleState(
+              fileManager.selectedFile.file_path,
+              'plot',
+              filePlotState
+            )
+          } catch (err) {
+            console.error('[STORE] Failed to save file-centric state for channels:', err)
+          }
+        })()
       }
 
       // Fire and forget - don't block UI
@@ -739,25 +861,36 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Fire and forget - don't block UI
       TauriService.updatePlotState(plotState).catch(console.error)
 
-      // Save file view state to SQLite if we have a selected file
+      // Save file-centric state if we have a selected file
       const { fileManager } = get()
       if (fileManager.selectedFile?.file_path) {
         (async () => {
           try {
-            const { invoke } = await import('@tauri-apps/api/core')
-            await invoke('save_file_view_state', {
-              filePath: fileManager.selectedFile!.file_path,
+            const fileStateManager = getInitializedFileStateManager()
+            const filePlotState: FilePlotState = {
               chunkStart: plot.chunkStart,
               chunkSize: plot.chunkSize,
-              selectedChannels: fileManager.selectedChannels || []
-            })
-            console.log('[STORE] Saved file view state to SQLite:', {
+              selectedChannels: fileManager.selectedChannels || [],
+              amplitude: plot.amplitude,
+              showAnnotations: plot.showAnnotations,
+              preprocessing: plot.preprocessing,
+              channelColors: plot.selectedChannelColors,
+              lastUpdated: new Date().toISOString()
+            }
+
+            await fileStateManager.updateModuleState(
+              fileManager.selectedFile!.file_path,
+              'plot',
+              filePlotState
+            )
+
+            console.log('[STORE] Saved file-centric plot state:', {
               filePath: fileManager.selectedFile!.file_path,
               chunkStart: plot.chunkStart,
               chunkSize: plot.chunkSize
             })
           } catch (err) {
-            console.error('[STORE] Failed to save file view state to SQLite:', err)
+            console.error('[STORE] Failed to save file-centric plot state:', err)
           }
         })()
       }
@@ -784,7 +917,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (TauriService.isTauri()) {
       // Use setTimeout to defer persistence to next tick, keeping UI responsive
       setTimeout(() => {
-        const { dda, persistenceService } = get()
+        const { dda, persistenceService, fileManager } = get()
         const ddaState: PersistedDDAState = {
           selected_variants: dda.analysisParameters.variants,
           parameters: {
@@ -808,6 +941,35 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (persistenceService) {
           persistenceService.saveDDAState(ddaState).catch(console.error)
         }
+
+        // Save to file-centric state if we have a selected file
+        if (fileManager.selectedFile?.file_path && analysis) {
+          (async () => {
+            try {
+              const fileStateManager = getInitializedFileStateManager()
+              const fileDDAState: FileDDAState = {
+                currentAnalysisId: analysis.id,
+                analysisHistory: dda.analysisHistory.map(a => a.id),
+                lastParameters: dda.analysisParameters,
+                selectedVariants: dda.analysisParameters.variants,
+                lastUpdated: new Date().toISOString()
+              }
+
+              await fileStateManager.updateModuleState(
+                fileManager.selectedFile.file_path,
+                'dda',
+                fileDDAState
+              )
+
+              console.log('[STORE] Saved file-centric DDA state:', {
+                filePath: fileManager.selectedFile.file_path,
+                currentAnalysisId: analysis.id
+              })
+            } catch (err) {
+              console.error('[STORE] Failed to save file-centric DDA state:', err)
+            }
+          })()
+        }
       }, 0)
     }
   },
@@ -824,7 +986,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (TauriService.isTauri()) {
       // Use setTimeout to defer persistence to next tick, keeping UI responsive
       setTimeout(() => {
-        const { dda, persistenceService } = get()
+        const { dda, persistenceService, fileManager } = get()
         const ddaState: PersistedDDAState = {
           selected_variants: dda.analysisParameters.variants,
           parameters: {
@@ -847,6 +1009,35 @@ export const useAppStore = create<AppState>((set, get) => ({
         // Also save via persistence service
         if (persistenceService) {
           persistenceService.saveDDAState(ddaState).catch(console.error)
+        }
+
+        // Save to file-centric state if we have a selected file
+        if (fileManager.selectedFile?.file_path) {
+          (async () => {
+            try {
+              const fileStateManager = getInitializedFileStateManager()
+              const fileDDAState: FileDDAState = {
+                currentAnalysisId: dda.currentAnalysis?.id || null,
+                analysisHistory: dda.analysisHistory.map(a => a.id),
+                lastParameters: dda.analysisParameters,
+                selectedVariants: dda.analysisParameters.variants,
+                lastUpdated: new Date().toISOString()
+              }
+
+              await fileStateManager.updateModuleState(
+                fileManager.selectedFile.file_path,
+                'dda',
+                fileDDAState
+              )
+
+              console.log('[STORE] Saved file-centric DDA state (history updated):', {
+                filePath: fileManager.selectedFile.file_path,
+                historyCount: dda.analysisHistory.length
+              })
+            } catch (err) {
+              console.error('[STORE] Failed to save file-centric DDA state:', err)
+            }
+          })()
         }
       }, 0)
     }

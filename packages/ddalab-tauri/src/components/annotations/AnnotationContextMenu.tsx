@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { AnnotationContextMenuProps } from '@/types/annotations'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
+import { Checkbox } from '@/components/ui/checkbox'
 
 export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
   x,
@@ -14,11 +14,21 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
   existingAnnotation,
   onEditAnnotation,
   onDeleteAnnotation,
-  currentPlotSource
+  availablePlots,
+  currentPlotId
 }) => {
   const [label, setLabel] = useState(existingAnnotation?.label || '')
   const [description, setDescription] = useState(existingAnnotation?.description || '')
-  const [syncEnabled, setSyncEnabled] = useState(existingAnnotation?.sync_enabled ?? true)
+
+  // Initialize visible plots - default to current plot if new annotation
+  const [visibleInPlots, setVisibleInPlots] = useState<Set<string>>(() => {
+    if (existingAnnotation?.visible_in_plots) {
+      return new Set(existingAnnotation.visible_in_plots)
+    }
+    // Default: show in all plots
+    return new Set(availablePlots.map(p => p.id))
+  })
+
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -43,14 +53,37 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
     }
   }, [onClose])
 
+  const togglePlot = (plotId: string) => {
+    setVisibleInPlots(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(plotId)) {
+        newSet.delete(plotId)
+      } else {
+        newSet.add(plotId)
+      }
+      return newSet
+    })
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!label.trim()) return
 
+    const plotsArray = Array.from(visibleInPlots)
+
+    // If no plots selected, delete the annotation
+    if (plotsArray.length === 0) {
+      if (existingAnnotation && onDeleteAnnotation) {
+        onDeleteAnnotation(existingAnnotation.id)
+      }
+      onClose()
+      return
+    }
+
     if (existingAnnotation && onEditAnnotation) {
-      onEditAnnotation(existingAnnotation.id, label, description, syncEnabled)
+      onEditAnnotation(existingAnnotation.id, label, description, plotsArray)
     } else {
-      onCreateAnnotation(plotPosition, label, description, syncEnabled)
+      onCreateAnnotation(plotPosition, label, description, plotsArray)
     }
     onClose()
   }
@@ -95,22 +128,32 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
           />
         </div>
 
-        <div className="border-t pt-3">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="sync-toggle" className="text-sm font-medium">
-                Sync Across Plots
-              </Label>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                {syncEnabled ? 'Visible in all plot types' : 'Only visible here'}
-              </p>
-            </div>
-            <Switch
-              id="sync-toggle"
-              checked={syncEnabled}
-              onCheckedChange={setSyncEnabled}
-            />
+        <div className="border-t pt-3 space-y-2">
+          <Label className="text-xs font-semibold text-gray-600 dark:text-gray-400">
+            Visible in Plots
+          </Label>
+          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+            {availablePlots.map(plot => (
+              <div key={plot.id} className="flex items-center space-x-2">
+                <Checkbox
+                  id={`plot-${plot.id}`}
+                  checked={visibleInPlots.has(plot.id)}
+                  onCheckedChange={() => togglePlot(plot.id)}
+                />
+                <label
+                  htmlFor={`plot-${plot.id}`}
+                  className="text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
+                >
+                  {plot.label}
+                </label>
+              </div>
+            ))}
           </div>
+          {visibleInPlots.size === 0 && (
+            <p className="text-xs text-red-500 dark:text-red-400">
+              Annotation will be deleted (no plots selected)
+            </p>
+          )}
         </div>
 
         <div className="text-xs text-gray-500 dark:text-gray-400">

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useAppStore } from '@/store/appStore'
-import { PlotAnnotation, AnnotationSource } from '@/types/annotations'
+import { PlotAnnotation } from '@/types/annotations'
 import { DDAResult } from '@/types/api'
 import { timeSeriesAnnotationToDDA } from '@/utils/annotationSync'
 
@@ -33,12 +33,12 @@ export const useTimeSeriesAnnotations = ({ filePath, channel }: UseTimeSeriesAnn
       allAnnotations = fileAnnotations.globalAnnotations
     }
 
-    // Filter annotations based on sync settings
+    // Filter annotations based on plot visibility
     return allAnnotations.filter(ann => {
-      // If sync is enabled or undefined (default), show annotation
-      if (ann.sync_enabled === undefined || ann.sync_enabled === true) return true
-      // If sync is disabled, only show if annotation was created in timeseries plot
-      return ann.created_in?.plot_type === 'timeseries'
+      // If no visibility settings, show by default (backwards compatibility)
+      if (!ann.visible_in_plots || ann.visible_in_plots.length === 0) return true
+      // Check if timeseries plot is in the visibility list
+      return ann.visible_in_plots.includes('timeseries')
     })
   })
 
@@ -50,14 +50,13 @@ export const useTimeSeriesAnnotations = ({ filePath, channel }: UseTimeSeriesAnn
   } | null>(null)
 
   const handleCreateAnnotation = useCallback(
-    (position: number, label: string, description?: string, syncEnabled?: boolean) => {
+    (position: number, label: string, description?: string, visibleInPlots?: string[]) => {
       const annotation: PlotAnnotation = {
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         position,
         label,
         description,
-        sync_enabled: syncEnabled ?? true,
-        created_in: { plot_type: 'timeseries' },
+        visible_in_plots: visibleInPlots || ['timeseries'],
         createdAt: new Date().toISOString()
       }
       addTimeSeriesAnnotation(filePath, annotation, channel)
@@ -66,8 +65,8 @@ export const useTimeSeriesAnnotations = ({ filePath, channel }: UseTimeSeriesAnn
   )
 
   const handleUpdateAnnotation = useCallback(
-    (id: string, label: string, description?: string, syncEnabled?: boolean) => {
-      updateTimeSeriesAnnotation(filePath, id, { label, description, sync_enabled: syncEnabled }, channel)
+    (id: string, label: string, description?: string, visibleInPlots?: string[]) => {
+      updateTimeSeriesAnnotation(filePath, id, { label, description, visible_in_plots: visibleInPlots }, channel)
     },
     [filePath, channel, updateTimeSeriesAnnotation]
   )
@@ -129,6 +128,8 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
 
   // Merge both annotation sets with coordinate transformation
   const annotations = useMemo(() => {
+    const currentPlotId = `dda:${variantId}:${plotType === 'heatmap' ? 'heatmap' : 'lineplot'}`
+
     const transformed = timeSeriesAnnotations
       .filter(ann => {
         // Only include annotations within the DDA result's time range
@@ -137,12 +138,10 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
         return ann.position >= startTime && ann.position <= endTime
       })
       .filter(ann => {
-        // Filter based on sync settings
-        if (ann.sync_enabled === undefined || ann.sync_enabled === true) return true
-        // If sync is disabled, only show if annotation was created in this specific DDA plot
-        return ann.created_in?.plot_type === 'dda' &&
-               ann.created_in?.variant_id === variantId &&
-               ann.created_in?.dda_plot_type === (plotType === 'heatmap' ? 'heatmap' : 'lineplot')
+        // Filter based on plot visibility
+        if (!ann.visible_in_plots || ann.visible_in_plots.length === 0) return true
+        // Check if current DDA plot is in the visibility list
+        return ann.visible_in_plots.includes(currentPlotId)
       })
       .map(ann => timeSeriesAnnotationToDDA(ann, ddaResult, sampleRate))
       .filter(ann => {
@@ -157,14 +156,11 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
     // Add transformed timeseries first
     transformed.forEach(ann => annotationMap.set(ann.id, ann))
 
-    // Add DDA-specific (overrides transformed if same ID) and filter by sync settings
+    // Add DDA-specific (overrides transformed if same ID) and filter by plot visibility
     ddaAnnotations
       .filter(ann => {
-        if (ann.sync_enabled === undefined || ann.sync_enabled === true) return true
-        // If sync is disabled, only show if annotation was created in this specific DDA plot
-        return ann.created_in?.plot_type === 'dda' &&
-               ann.created_in?.variant_id === variantId &&
-               ann.created_in?.dda_plot_type === (plotType === 'heatmap' ? 'heatmap' : 'lineplot')
+        if (!ann.visible_in_plots || ann.visible_in_plots.length === 0) return true
+        return ann.visible_in_plots.includes(currentPlotId)
       })
       .forEach(ann => annotationMap.set(ann.id, ann))
 
@@ -179,7 +175,7 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
   } | null>(null)
 
   const handleCreateAnnotation = useCallback(
-    (position: number, label: string, description?: string, syncEnabled?: boolean) => {
+    (position: number, label: string, description?: string, visibleInPlots?: string[]) => {
       // Convert DDA position (scale value) to timeseries position (seconds)
       // Find the nearest window index for this scale value
       const scales = ddaResult.results.scales || []
@@ -200,11 +196,14 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
       const sampleIndex = windowIndex * windowStep
       const timeSeconds = sampleIndex / sampleRate
 
+      const currentPlotId = `dda:${variantId}:${plotType === 'heatmap' ? 'heatmap' : 'lineplot'}`
+
       console.log('[DDA ANNOTATION] Creating annotation:', {
         scaleValue: position,
         nearestScale: scales[windowIndex],
         windowIndex,
-        timeSeconds
+        timeSeconds,
+        visibleInPlots
       })
 
       const annotation: PlotAnnotation = {
@@ -212,12 +211,7 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
         position: timeSeconds, // Store in seconds, not scale value
         label,
         description,
-        sync_enabled: syncEnabled ?? true,
-        created_in: {
-          plot_type: 'dda',
-          variant_id: variantId,
-          dda_plot_type: plotType === 'heatmap' ? 'heatmap' : 'lineplot'
-        },
+        visible_in_plots: visibleInPlots || [currentPlotId],
         createdAt: new Date().toISOString()
       }
 
@@ -229,16 +223,16 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
   )
 
   const handleUpdateAnnotation = useCallback(
-    (id: string, label: string, description?: string, syncEnabled?: boolean) => {
+    (id: string, label: string, description?: string, visibleInPlots?: string[]) => {
       // Check if this is a transformed timeseries annotation
       if (id.endsWith('_dda')) {
         // Update the original timeseries annotation
         const originalId = id.replace('_dda', '')
         const updateTimeSeriesAnnotation = useAppStore.getState().updateTimeSeriesAnnotation
-        updateTimeSeriesAnnotation(ddaResult.file_path, originalId, { label, description, sync_enabled: syncEnabled })
+        updateTimeSeriesAnnotation(ddaResult.file_path, originalId, { label, description, visible_in_plots: visibleInPlots })
       } else {
         // Update DDA-specific annotation
-        updateDDAAnnotation(resultId, variantId, plotType, id, { label, description, sync_enabled: syncEnabled })
+        updateDDAAnnotation(resultId, variantId, plotType, id, { label, description, visible_in_plots: visibleInPlots })
       }
     },
     [ddaResult, resultId, variantId, plotType, updateDDAAnnotation]
