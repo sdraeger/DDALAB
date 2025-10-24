@@ -6,6 +6,7 @@ import { AppState as PersistedAppState, AnalysisResult, PreprocessingOptions, DD
 import { PlotAnnotation, TimeSeriesAnnotations, DDAResultAnnotations } from '@/types/annotations'
 import { initializeFileStateSystem, getInitializedFileStateManager, isFileStateSystemInitialized } from '@/services/fileStateInitializer'
 import { FilePlotState, FileDDAState, FileAnnotationState } from '@/types/fileCentricState'
+import { PrimaryNavTab, SecondaryNavTab } from '@/types/navigation'
 
 // Module-level flag to prevent re-initialization during Hot Module Reload
 // This persists across Fast Refresh unlike Zustand store state
@@ -72,7 +73,13 @@ export interface SyncState {
 }
 
 export interface UIState {
+  // Legacy activeTab for backward compatibility
   activeTab: string
+  // New navigation system
+  primaryNav: PrimaryNavTab
+  secondaryNav: SecondaryNavTab | null
+  // Remember last secondary tab for each primary category
+  lastSecondaryNav: Record<PrimaryNavTab, SecondaryNavTab | null>
   sidebarOpen: boolean
   panelSizes: number[]
   layout: 'default' | 'analysis' | 'plots'
@@ -137,6 +144,8 @@ export interface AppState {
   // UI state
   ui: UIState
   setActiveTab: (tab: string) => void
+  setPrimaryNav: (tab: PrimaryNavTab) => void
+  setSecondaryNav: (tab: SecondaryNavTab | null) => void
   setSidebarOpen: (open: boolean) => void
   setPanelSizes: (sizes: number[]) => void
   setLayout: (layout: UIState['layout']) => void
@@ -225,6 +234,14 @@ const defaultHealthState: HealthState = {
 
 const defaultUIState: UIState = {
   activeTab: 'files',
+  primaryNav: 'explore',
+  secondaryNav: 'timeseries',
+  lastSecondaryNav: {
+    overview: null,
+    explore: 'timeseries',
+    analyze: 'dda',
+    manage: 'settings',
+  },
   sidebarOpen: true,
   panelSizes: [25, 50, 25],
   layout: 'default',
@@ -1117,6 +1134,42 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (TauriService.isTauri()) {
       // Fire and forget - don't block UI
       TauriService.updateUIState({ activeTab: tab }).catch(console.error)
+    }
+  },
+
+  setPrimaryNav: (tab) => {
+    const { ui } = get()
+    const lastSecondary = ui.lastSecondaryNav[tab]
+
+    set((state) => ({
+      ui: {
+        ...state.ui,
+        primaryNav: tab,
+        secondaryNav: lastSecondary,
+      }
+    }))
+
+    if (TauriService.isTauri()) {
+      TauriService.updateUIState({ primaryNav: tab, secondaryNav: lastSecondary }).catch(console.error)
+    }
+  },
+
+  setSecondaryNav: (tab) => {
+    const { ui } = get()
+
+    set((state) => ({
+      ui: {
+        ...state.ui,
+        secondaryNav: tab,
+        lastSecondaryNav: {
+          ...state.ui.lastSecondaryNav,
+          [ui.primaryNav]: tab,
+        },
+      }
+    }))
+
+    if (TauriService.isTauri()) {
+      TauriService.updateUIState({ secondaryNav: tab }).catch(console.error)
     }
   },
 

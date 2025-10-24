@@ -6,32 +6,16 @@ import { useAppStore } from "@/store/appStore";
 import { useDDAHistory, useAnalysisFromHistory } from "@/hooks/useDDAAnalysis";
 import { FileManager } from "@/components/FileManager";
 import { HealthStatusBar } from "@/components/HealthStatusBar";
-import { TimeSeriesPlotECharts } from "@/components/TimeSeriesPlotECharts";
-import { DDAAnalysis } from "@/components/DDAAnalysis";
-import { DDAResults } from "@/components/DDAResults";
-import { SettingsPanel } from "@/components/SettingsPanel";
-import { OpenNeuroBrowser } from "@/components/OpenNeuroBrowser";
 import { DDAProgressIndicator } from "@/components/DDAProgressIndicator";
-import { NSGJobManager } from "@/components/NSGJobManager";
-import { NotificationHistory } from "@/components/NotificationHistory";
-import { AnnotationsTab } from "@/components/AnnotationsTab";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { PrimaryNavigation } from "@/components/navigation/PrimaryNavigation";
+import { SecondaryNavigation } from "@/components/navigation/SecondaryNavigation";
+import { NavigationContent } from "@/components/navigation/NavigationContent";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
-  Brain,
-  FileText,
-  BarChart3,
-  Activity,
-  Settings,
   PanelLeftClose,
   PanelLeftOpen,
   Maximize2,
   Minimize2,
-  Database,
-  Cloud,
-  Bell,
-  MessageSquare,
 } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
 
@@ -57,7 +41,8 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
   const analysisHistory = useAppStore((state) => state.dda.analysisHistory);
   const isPersistenceRestored = useAppStore((state) => state.isPersistenceRestored);
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
-  const setActiveTab = useAppStore((state) => state.setActiveTab);
+  const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
+  const setSecondaryNav = useAppStore((state) => state.setSecondaryNav);
   const setLayout = useAppStore((state) => state.setLayout);
   const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis);
   const setAnalysisHistory = useAppStore((state) => state.setAnalysisHistory);
@@ -161,8 +146,9 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
   // Listen for navigation events from NSG Job Manager
   useEffect(() => {
     const handleNavigateToMainResults = () => {
-      console.log('[DASHBOARD] Navigating to main Results tab for NSG results');
-      setActiveTab('results');
+      console.log('[DASHBOARD] Navigating to Analyze > DDA for NSG results');
+      setPrimaryNav('analyze');
+      setSecondaryNav('dda');
     };
 
     window.addEventListener('navigate-to-main-results', handleNavigateToMainResults);
@@ -170,7 +156,7 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
     return () => {
       window.removeEventListener('navigate-to-main-results', handleNavigateToMainResults);
     };
-  }, [setActiveTab]);
+  }, [setPrimaryNav, setSecondaryNav]);
 
   // Poll for unread notification count
   useEffect(() => {
@@ -219,19 +205,21 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
 
     switch (actionType) {
       case 'navigate_nsg_manager':
-        setActiveTab('nsg');
+        setPrimaryNav('manage');
+        setSecondaryNav('jobs');
         break;
       case 'navigate_results':
-        setActiveTab('results');
-        break;
       case 'navigate_analysis':
-        setActiveTab('analyze');
+        setPrimaryNav('analyze');
+        setSecondaryNav('dda');
         break;
       case 'navigate_openneuro':
-        setActiveTab('openneuro');
+        setPrimaryNav('manage');
+        setSecondaryNav('data-sources');
         break;
       case 'navigate_settings':
-        setActiveTab('settings');
+        setPrimaryNav('manage');
+        setSecondaryNav('settings');
         break;
       default:
         console.warn('[DASHBOARD] Unknown notification action type:', actionType);
@@ -335,311 +323,19 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
           </div>
         )}
 
+
         {/* Content Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <Tabs
-            value={ui.activeTab}
-            onValueChange={setActiveTab}
-            className="flex-1 flex flex-col overflow-hidden"
-          >
-            {/* Tab Navigation */}
-            <div className="border-b px-4 py-2 flex-shrink-0">
-              <TabsList>
-                <TabsTrigger value="files" className="flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  Files
-                </TabsTrigger>
-                <TabsTrigger value="plots" className="flex items-center gap-2">
-                  <Activity className="h-4 w-4" />
-                  Data Visualization
-                </TabsTrigger>
-                <TabsTrigger
-                  value="analysis"
-                  className="flex items-center gap-2"
-                >
-                  <BarChart3 className="h-4 w-4" />
-                  DDA
-                </TabsTrigger>
-                <TabsTrigger
-                  value="results"
-                  className="flex items-center gap-2"
-                >
-                  <BarChart3 className="h-4 w-4" />
-                  Results
-                </TabsTrigger>
-                <TabsTrigger
-                  value="annotations"
-                  className="flex items-center gap-2"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  Annotations
-                </TabsTrigger>
-                <TabsTrigger
-                  value="openneuro"
-                  className="flex items-center gap-2"
-                >
-                  <Database className="h-4 w-4" />
-                  OpenNeuro
-                </TabsTrigger>
-                {TauriService.isTauri() && (
-                  <TabsTrigger
-                    value="nsg"
-                    className="flex items-center gap-2"
-                  >
-                    <Cloud className="h-4 w-4" />
-                    NSG Jobs
-                  </TabsTrigger>
-                )}
-                {TauriService.isTauri() && (
-                  <TabsTrigger
-                    value="notifications"
-                    className="flex items-center gap-2"
-                  >
-                    <Bell className="h-4 w-4" />
-                    Notifications
-                    {unreadNotificationCount > 0 && (
-                      <Badge variant="destructive" className="ml-1 px-1.5 py-0 text-xs min-w-[20px] h-5">
-                        {unreadNotificationCount}
-                      </Badge>
-                    )}
-                  </TabsTrigger>
-                )}
-                <TabsTrigger
-                  value="settings"
-                  className="flex items-center gap-2"
-                >
-                  <Settings className="h-4 w-4" />
-                  Settings
-                </TabsTrigger>
-              </TabsList>
-            </div>
+          {/* Primary Navigation */}
+          <PrimaryNavigation />
 
-            {/* Tab Content - Keep all tabs mounted to prevent remounting lag */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden">
-              <TabsContent value="files" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'files'}>
-                <div className="p-6">
-                  {fileManager.selectedFile ? (
-                    <div className="space-y-6">
-                      <div>
-                        <h2 className="text-2xl font-bold mb-4">
-                          File Details
-                        </h2>
-                        <div className="bg-card border rounded-lg p-6">
-                          <h3 className="text-lg font-semibold mb-4">
-                            {fileManager.selectedFile.file_name}
-                          </h3>
-                          <div className="grid md:grid-cols-2 gap-6">
-                            <div className="space-y-3">
-                              <div className="flex justify-between">
-                                <span className="text-muted-foreground">
-                                  Duration:
-                                </span>
-                                <span>
-                                  {fileManager.selectedFile.duration?.toFixed(
-                                    2
-                                  ) || "0"}
-                                  s
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-muted-foreground">
-                                  Sample Rate:
-                                </span>
-                                <span>
-                                  {fileManager.selectedFile.sample_rate} Hz
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-muted-foreground">
-                                  Total Samples:
-                                </span>
-                                <span>
-                                  {fileManager.selectedFile.total_samples?.toLocaleString() ||
-                                    "0"}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="space-y-3">
-                              <div className="flex justify-between">
-                                <span className="text-muted-foreground">
-                                  Channels:
-                                </span>
-                                <span>
-                                  {fileManager.selectedFile.channels.length}
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-muted-foreground">
-                                  File Size:
-                                </span>
-                                <span>
-                                  {(
-                                    fileManager.selectedFile.file_size /
-                                    1024 /
-                                    1024
-                                  ).toFixed(2)}{" "}
-                                  MB
-                                </span>
-                              </div>
-                            </div>
-                          </div>
+          {/* Secondary Navigation (contextual) */}
+          <SecondaryNavigation />
 
-                          {fileManager.selectedFile.channels.length > 0 && (
-                            <div className="mt-6">
-                              <h4 className="font-medium mb-3">
-                                Available Channels:
-                              </h4>
-                              <div className="flex flex-wrap gap-2">
-                                {fileManager.selectedFile.channels
-                                  .slice(0, 20)
-                                  .map((channel, index) => (
-                                    <span
-                                      key={index}
-                                      className="px-2 py-1 bg-secondary text-secondary-foreground rounded text-sm"
-                                    >
-                                      {channel}
-                                    </span>
-                                  ))}
-                                {fileManager.selectedFile.channels.length >
-                                  20 && (
-                                  <span className="px-2 py-1 bg-muted text-muted-foreground rounded text-sm">
-                                    +
-                                    {fileManager.selectedFile.channels.length -
-                                      20}{" "}
-                                    more
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center h-full">
-                      <div className="text-center">
-                        <FileText className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-                        <h3 className="text-lg font-medium mb-2">
-                          No File Selected
-                        </h3>
-                        <p className="text-muted-foreground">
-                          Select a file from the sidebar to view its details
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-
-              <TabsContent value="plots" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'plots'}>
-                <div className="p-4 h-full">
-                  <TimeSeriesPlotECharts apiService={apiService} />
-                </div>
-              </TabsContent>
-
-              <TabsContent value="analysis" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'analysis'}>
-                <div className="p-4 h-full">
-                  <DDAAnalysis apiService={apiService} />
-                </div>
-              </TabsContent>
-
-              <TabsContent value="results" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'results'}>
-                <div className="p-4 h-full">
-                  {currentAnalysis ? (
-                    // Only render DDAResults when tab is actually visible to prevent lag
-                    ui.activeTab === 'results' ? (
-                      <DDAResults result={currentAnalysis} />
-                    ) : null
-                  ) : isLoadingHistory || !ui.isServerReady ? (
-                    <div className="flex items-center justify-center h-full">
-                      <div className="text-center">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-                        <h3 className="text-lg font-medium mb-2">
-                          {!ui.isServerReady ? 'Starting Server...' : 'Loading Analysis History'}
-                        </h3>
-                        <p className="text-muted-foreground">
-                          {!ui.isServerReady ? 'Please wait while the analysis server starts' : 'Fetching saved analyses...'}
-                        </p>
-                      </div>
-                    </div>
-                  ) : isAutoLoading ? (
-                    <div className="flex items-center justify-center h-full">
-                      <div className="text-center">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-                        <h3 className="text-lg font-medium mb-2">
-                          Loading Analysis Results
-                        </h3>
-                        <p className="text-muted-foreground">
-                          Fetching the most recent analysis from database...
-                        </p>
-                      </div>
-                    </div>
-                  ) : analysisHistory.length > 0 ? (
-                    <div className="flex items-center justify-center h-full">
-                      <div className="text-center">
-                        <Settings className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-                        <h3 className="text-lg font-medium mb-2">
-                          Analysis Available
-                        </h3>
-                        <p className="text-muted-foreground mb-4">
-                          Found {analysisHistory.length} analysis
-                          {analysisHistory.length > 1 ? "es" : ""} in
-                          history
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          Switch to the DDA Analysis tab to view results
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center h-full">
-                      <div className="text-center">
-                        <Settings className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-                        <h3 className="text-lg font-medium mb-2">
-                          No Analysis Results
-                        </h3>
-                        <p className="text-muted-foreground">
-                          Run a DDA analysis to see results here
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-
-              <TabsContent value="annotations" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'annotations'}>
-                <AnnotationsTab />
-              </TabsContent>
-
-              <TabsContent value="openneuro" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'openneuro'}>
-                <div className="h-full p-6">
-                  <OpenNeuroBrowser />
-                </div>
-              </TabsContent>
-
-              {TauriService.isTauri() && (
-                <TabsContent value="nsg" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'nsg'}>
-                  <div className="h-full">
-                    <NSGJobManager />
-                  </div>
-                </TabsContent>
-              )}
-
-              {TauriService.isTauri() && (
-                <TabsContent value="notifications" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'notifications'}>
-                  <div className="h-full p-6 overflow-auto">
-                    <NotificationHistory onNavigate={handleNotificationNavigate} />
-                  </div>
-                </TabsContent>
-              )}
-
-              <TabsContent value="settings" className="m-0 h-full" forceMount hidden={ui.activeTab !== 'settings'}>
-                <div className="h-full">
-                  <SettingsPanel />
-                </div>
-              </TabsContent>
-            </div>
-          </Tabs>
+          {/* Main Content */}
+          <div className="flex-1 overflow-y-auto overflow-x-hidden">
+            <NavigationContent apiService={apiService} />
+          </div>
         </div>
       </div>
 
