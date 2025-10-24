@@ -88,6 +88,49 @@ impl AnnotationDatabase {
             )
             .context("Failed to create annotations table")?;
 
+        // Migrate existing tables to add new columns if they don't exist
+        self.migrate_schema()?;
+
+        Ok(())
+    }
+
+    fn migrate_schema(&self) -> Result<()> {
+        let conn = self.conn.lock();
+
+        // Check if sync_enabled column exists
+        let sync_enabled_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('annotations') WHERE name='sync_enabled'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0) > 0;
+
+        if !sync_enabled_exists {
+            conn.execute(
+                "ALTER TABLE annotations ADD COLUMN sync_enabled INTEGER DEFAULT 1",
+                [],
+            )
+            .context("Failed to add sync_enabled column")?;
+        }
+
+        // Check if created_in column exists
+        let created_in_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('annotations') WHERE name='created_in'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0) > 0;
+
+        if !created_in_exists {
+            conn.execute(
+                "ALTER TABLE annotations ADD COLUMN created_in TEXT",
+                [],
+            )
+            .context("Failed to add created_in column")?;
+        }
+
         Ok(())
     }
 
