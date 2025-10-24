@@ -1,5 +1,11 @@
 // Types for plot annotations
 
+export interface AnnotationSource {
+  plot_type: 'timeseries' | 'dda'
+  variant_id?: string
+  dda_plot_type?: 'heatmap' | 'lineplot'
+}
+
 export interface PlotAnnotation {
   id: string
   // Position on the plot (x-axis value - could be time, scale, etc.)
@@ -14,6 +20,10 @@ export interface PlotAnnotation {
   createdAt: string
   // Last modified timestamp
   updatedAt?: string
+  // Whether this annotation syncs across all plot types
+  sync_enabled?: boolean
+  // Where this annotation was originally created
+  created_in?: AnnotationSource
 }
 
 export interface TimeSeriesAnnotations {
@@ -47,9 +57,11 @@ export interface AnnotationContextMenuProps {
   x: number
   y: number
   plotPosition: number
-  onCreateAnnotation: (position: number, label: string, description?: string) => void
+  onCreateAnnotation: (position: number, label: string, description?: string, syncEnabled?: boolean) => void
   onClose: () => void
   existingAnnotation?: PlotAnnotation
-  onEditAnnotation?: (id: string, label: string, description?: string) => void
+  onEditAnnotation?: (id: string, label: string, description?: string, syncEnabled?: boolean) => void
   onDeleteAnnotation?: (id: string) => void
+  // Context for determining where annotation was created
+  currentPlotSource: AnnotationSource
 }

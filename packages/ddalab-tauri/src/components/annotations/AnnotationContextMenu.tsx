@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { AnnotationContextMenuProps } from '@/types/annotations'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 
 export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
   x,
@@ -11,10 +13,12 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
   onClose,
   existingAnnotation,
   onEditAnnotation,
-  onDeleteAnnotation
+  onDeleteAnnotation,
+  currentPlotSource
 }) => {
   const [label, setLabel] = useState(existingAnnotation?.label || '')
   const [description, setDescription] = useState(existingAnnotation?.description || '')
+  const [syncEnabled, setSyncEnabled] = useState(existingAnnotation?.sync_enabled ?? true)
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -44,9 +48,9 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
     if (!label.trim()) return
 
     if (existingAnnotation && onEditAnnotation) {
-      onEditAnnotation(existingAnnotation.id, label, description)
+      onEditAnnotation(existingAnnotation.id, label, description, syncEnabled)
     } else {
-      onCreateAnnotation(plotPosition, label, description)
+      onCreateAnnotation(plotPosition, label, description, syncEnabled)
     }
     onClose()
   }
@@ -61,7 +65,7 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
   return (
     <div
       ref={menuRef}
-      className="fixed bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg p-4 z-50 min-w-[300px]"
+      className="fixed bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg p-4 z-50 min-w-[300px] max-w-[400px]"
       style={{
         left: `${x}px`,
         top: `${y}px`
@@ -90,6 +94,25 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
             rows={3}
           />
         </div>
+
+        <div className="border-t pt-3">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="sync-toggle" className="text-sm font-medium">
+                Sync Across Plots
+              </Label>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {syncEnabled ? 'Visible in all plot types' : 'Only visible here'}
+              </p>
+            </div>
+            <Switch
+              id="sync-toggle"
+              checked={syncEnabled}
+              onCheckedChange={setSyncEnabled}
+            />
+          </div>
+        </div>
+
         <div className="text-xs text-gray-500 dark:text-gray-400">
           Position: {plotPosition.toFixed(2)}
         </div>

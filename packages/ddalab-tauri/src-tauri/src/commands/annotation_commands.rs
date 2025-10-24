@@ -169,6 +169,8 @@ pub async fn import_annotations(
                 label: ann_entry.label,
                 color: ann_entry.color,
                 description: ann_entry.description,
+                sync_enabled: true,
+                created_in: None,
             };
             annotation_db
                 .save_annotation(&target_file_path, None, &annotation)
@@ -185,6 +187,8 @@ pub async fn import_annotations(
                     label: ann_entry.label,
                     color: ann_entry.color,
                     description: ann_entry.description,
+                    sync_enabled: true,
+                    created_in: None,
                 };
                 annotation_db
                     .save_annotation(&target_file_path, Some(&channel), &annotation)
