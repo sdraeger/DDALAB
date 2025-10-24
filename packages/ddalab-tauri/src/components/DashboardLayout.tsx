@@ -12,6 +12,7 @@ import { SecondaryNavigation } from "@/components/navigation/SecondaryNavigation
 import { NavigationContent } from "@/components/navigation/NavigationContent";
 import { Button } from "@/components/ui/button";
 import {
+  Brain,
   PanelLeftClose,
   PanelLeftOpen,
   Maximize2,
