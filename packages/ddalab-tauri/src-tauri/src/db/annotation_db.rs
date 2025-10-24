@@ -6,6 +6,19 @@ use std::collections::HashMap;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnnotationSource {
+    pub plot_type: String,
+    #[serde(default)]
+    pub variant_id: Option<String>,
+    #[serde(default)]
+    pub dda_plot_type: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Annotation {
     pub id: String,
     pub position: f64,
@@ -14,6 +27,10 @@ pub struct Annotation {
     pub color: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default = "default_true")]
+    pub sync_enabled: bool,
+    #[serde(default)]
+    pub created_in: Option<AnnotationSource>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +76,8 @@ impl AnnotationDatabase {
                     label TEXT NOT NULL,
                     color TEXT,
                     description TEXT,
+                    sync_enabled INTEGER DEFAULT 1,
+                    created_in TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -79,12 +98,14 @@ impl AnnotationDatabase {
         annotation: &Annotation,
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
+        let created_in_json = annotation.created_in.as_ref()
+            .and_then(|source| serde_json::to_string(source).ok());
 
         self.conn.lock().execute(
             "INSERT OR REPLACE INTO annotations
-             (id, file_path, channel, position, label, color, description, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7,
-                     COALESCE((SELECT created_at FROM annotations WHERE id = ?1), ?8), ?8)",
+             (id, file_path, channel, position, label, color, description, sync_enabled, created_in, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+                     COALESCE((SELECT created_at FROM annotations WHERE id = ?1), ?10), ?10)",
             params![
                 annotation.id,
                 file_path,
@@ -93,6 +114,8 @@ impl AnnotationDatabase {
                 annotation.label,
                 annotation.color,
                 annotation.description,
+                annotation.sync_enabled as i32,
+                created_in_json,
                 now,
             ],
         )
@@ -104,7 +127,7 @@ impl AnnotationDatabase {
     pub fn get_file_annotations(&self, file_path: &str) -> Result<FileAnnotations> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, channel, position, label, color, description
+            "SELECT id, channel, position, label, color, description, sync_enabled, created_in
              FROM annotations
              WHERE file_path = ?1
              ORDER BY position",
@@ -115,12 +138,19 @@ impl AnnotationDatabase {
 
         let rows = stmt.query_map(params![file_path], |row| {
             let channel: Option<String> = row.get(1)?;
+            let sync_enabled: i32 = row.get(6).unwrap_or(1);
+            let created_in_json: Option<String> = row.get(7)?;
+            let created_in = created_in_json
+                .and_then(|json| serde_json::from_str(&json).ok());
+
             let annotation = Annotation {
                 id: row.get(0)?,
                 position: row.get(2)?,
                 label: row.get(3)?,
                 color: row.get(4)?,
                 description: row.get(5)?,
+                sync_enabled: sync_enabled != 0,
+                created_in,
             };
             Ok((channel, annotation))
         })?;
@@ -146,19 +176,26 @@ impl AnnotationDatabase {
     pub fn get_annotation(&self, id: &str) -> Result<Option<Annotation>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, position, label, color, description
+            "SELECT id, position, label, color, description, sync_enabled, created_in
              FROM annotations
              WHERE id = ?1",
         )?;
 
         let result = stmt
             .query_row(params![id], |row| {
+                let sync_enabled: i32 = row.get(5).unwrap_or(1);
+                let created_in_json: Option<String> = row.get(6)?;
+                let created_in = created_in_json
+                    .and_then(|json| serde_json::from_str(&json).ok());
+
                 Ok(Annotation {
                     id: row.get(0)?,
                     position: row.get(1)?,
                     label: row.get(2)?,
                     color: row.get(3)?,
                     description: row.get(4)?,
+                    sync_enabled: sync_enabled != 0,
+                    created_in,
                 })
             })
             .optional()
@@ -214,7 +251,7 @@ impl AnnotationDatabase {
     ) -> Result<Vec<Annotation>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, position, label, color, description
+            "SELECT id, position, label, color, description, sync_enabled, created_in
              FROM annotations
              WHERE file_path = ?1 AND position >= ?2 AND position <= ?3
              ORDER BY position",
@@ -222,12 +259,19 @@ impl AnnotationDatabase {
 
         let annotations = stmt
             .query_map(params![file_path, start, end], |row| {
+                let sync_enabled: i32 = row.get(5).unwrap_or(1);
+                let created_in_json: Option<String> = row.get(6)?;
+                let created_in = created_in_json
+                    .and_then(|json| serde_json::from_str(&json).ok());
+
                 Ok(Annotation {
                     id: row.get(0)?,
                     position: row.get(1)?,
                     label: row.get(2)?,
                     color: row.get(3)?,
                     description: row.get(4)?,
+                    sync_enabled: sync_enabled != 0,
+                    created_in,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()
