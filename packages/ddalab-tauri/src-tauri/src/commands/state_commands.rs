@@ -1,4 +1,4 @@
-use crate::db::{Annotation, FileAnnotations, FileViewState};
+use crate::db::{Annotation, FileAnnotations, FileViewState, FileStateRegistry, FileSpecificState};
 use crate::models::{AnalysisResult, AppState, DDAState, FileManagerState, PlotState, UIState, WindowState};
 use crate::state_manager::AppStateManager;
 use std::collections::HashMap;
@@ -444,5 +444,192 @@ pub async fn get_all_file_view_states(
     state_manager
         .get_file_state_db()
         .get_all_file_states()
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// File-Centric State Commands (Modular State Management)
+// ============================================================================
+
+/// Save state for a specific module and file
+#[tauri::command]
+pub async fn save_file_plot_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+    state: serde_json::Value,
+) -> Result<(), String> {
+    log::debug!("save_file_plot_state called for file: {}", file_path);
+
+    state_manager
+        .get_file_state_db()
+        .save_module_state(&file_path, "plot", &state)
+        .map_err(|e| e.to_string())?;
+
+    // Update metadata to track file access
+    state_manager
+        .get_file_state_db()
+        .update_file_metadata(&file_path)
+        .map_err(|e| e.to_string())
+}
+
+/// Get plot state for a specific file
+#[tauri::command]
+pub async fn get_file_plot_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+) -> Result<Option<serde_json::Value>, String> {
+    state_manager
+        .get_file_state_db()
+        .get_module_state(&file_path, "plot")
+        .map_err(|e| e.to_string())
+}
+
+/// Clear plot state for a specific file
+#[tauri::command]
+pub async fn clear_file_plot_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+) -> Result<(), String> {
+    state_manager
+        .get_file_state_db()
+        .save_module_state(&file_path, "plot", &serde_json::Value::Null)
+        .map_err(|e| e.to_string())
+}
+
+/// Save DDA state for a specific file
+#[tauri::command]
+pub async fn save_file_dda_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+    state: serde_json::Value,
+) -> Result<(), String> {
+    log::debug!("save_file_dda_state called for file: {}", file_path);
+
+    state_manager
+        .get_file_state_db()
+        .save_module_state(&file_path, "dda", &state)
+        .map_err(|e| e.to_string())?;
+
+    state_manager
+        .get_file_state_db()
+        .update_file_metadata(&file_path)
+        .map_err(|e| e.to_string())
+}
+
+/// Get DDA state for a specific file
+#[tauri::command]
+pub async fn get_file_dda_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+) -> Result<Option<serde_json::Value>, String> {
+    state_manager
+        .get_file_state_db()
+        .get_module_state(&file_path, "dda")
+        .map_err(|e| e.to_string())
+}
+
+/// Clear DDA state for a specific file
+#[tauri::command]
+pub async fn clear_file_dda_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+) -> Result<(), String> {
+    state_manager
+        .get_file_state_db()
+        .save_module_state(&file_path, "dda", &serde_json::Value::Null)
+        .map_err(|e| e.to_string())
+}
+
+/// Save annotation state for a specific file
+#[tauri::command]
+pub async fn save_file_annotation_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+    state: serde_json::Value,
+) -> Result<(), String> {
+    log::debug!("save_file_annotation_state called for file: {}", file_path);
+
+    state_manager
+        .get_file_state_db()
+        .save_module_state(&file_path, "annotations", &state)
+        .map_err(|e| e.to_string())?;
+
+    state_manager
+        .get_file_state_db()
+        .update_file_metadata(&file_path)
+        .map_err(|e| e.to_string())
+}
+
+/// Get annotation state for a specific file
+#[tauri::command]
+pub async fn get_file_annotation_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+) -> Result<Option<serde_json::Value>, String> {
+    state_manager
+        .get_file_state_db()
+        .get_module_state(&file_path, "annotations")
+        .map_err(|e| e.to_string())
+}
+
+/// Clear annotation state for a specific file
+#[tauri::command]
+pub async fn clear_file_annotation_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+) -> Result<(), String> {
+    state_manager
+        .get_file_state_db()
+        .save_module_state(&file_path, "annotations", &serde_json::Value::Null)
+        .map_err(|e| e.to_string())
+}
+
+/// Get complete file-specific state (all modules + metadata)
+#[tauri::command]
+pub async fn get_file_specific_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+) -> Result<Option<FileSpecificState>, String> {
+    log::debug!("get_file_specific_state called for file: {}", file_path);
+
+    state_manager
+        .get_file_state_db()
+        .get_file_specific_state(&file_path)
+        .map_err(|e| e.to_string())
+}
+
+/// Save the file state registry
+#[tauri::command]
+pub async fn save_file_state_registry(
+    state_manager: State<'_, AppStateManager>,
+    registry: FileStateRegistry,
+) -> Result<(), String> {
+    log::debug!("save_file_state_registry called");
+
+    state_manager
+        .get_file_state_db()
+        .save_registry(&registry)
+        .map_err(|e| e.to_string())
+}
+
+/// Get the file state registry
+#[tauri::command]
+pub async fn get_file_state_registry(
+    state_manager: State<'_, AppStateManager>,
+) -> Result<FileStateRegistry, String> {
+    state_manager
+        .get_file_state_db()
+        .get_registry()
+        .map_err(|e| e.to_string())
+}
+
+/// Get all tracked file paths
+#[tauri::command]
+pub async fn get_tracked_files(
+    state_manager: State<'_, AppStateManager>,
+) -> Result<Vec<String>, String> {
+    state_manager
+        .get_file_state_db()
+        .get_tracked_files()
         .map_err(|e| e.to_string())
 }

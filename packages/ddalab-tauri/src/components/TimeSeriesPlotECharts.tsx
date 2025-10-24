@@ -52,6 +52,7 @@ import { usePopoutWindows } from "@/hooks/usePopoutWindows";
 import { useTimeSeriesAnnotations } from "@/hooks/useAnnotations";
 import { AnnotationContextMenu } from "@/components/annotations/AnnotationContextMenu";
 import { AnnotationMarker } from "@/components/annotations/AnnotationMarker";
+import { PlotInfo } from "@/types/annotations";
 import { PreprocessingOptions } from "@/types/persistence";
 import {
   applyPreprocessing,
@@ -85,6 +86,18 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   const timeSeriesAnnotations = useTimeSeriesAnnotations({
     filePath: fileManager.selectedFile?.file_path || "",
   });
+
+  // Generate available plots for annotation visibility
+  const availablePlots = useMemo<PlotInfo[]>(() => {
+    const plots: PlotInfo[] = [
+      { id: 'timeseries', label: 'Data Visualization' }
+    ];
+
+    // TODO: Add DDA results for this file if they exist
+    // This would require access to the DDA results from the store
+
+    return plots;
+  }, []);
 
   // Subscribe to annotation changes directly from store for instant re-renders
   // Use a stable selector that only changes when annotations actually change
@@ -1550,6 +1563,8 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
             onEditAnnotation={timeSeriesAnnotations.handleUpdateAnnotation}
             onDeleteAnnotation={timeSeriesAnnotations.handleDeleteAnnotation}
             onClose={timeSeriesAnnotations.closeContextMenu}
+            availablePlots={availablePlots}
+            currentPlotId="timeseries"
           />
         )}
       </CardContent>
