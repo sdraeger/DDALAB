@@ -1,11 +1,5 @@
 // Types for plot annotations
 
-export interface AnnotationSource {
-  plot_type: 'timeseries' | 'dda'
-  variant_id?: string
-  dda_plot_type?: 'heatmap' | 'lineplot'
-}
-
 export interface PlotAnnotation {
   id: string
   // Position on the plot (x-axis value - could be time, scale, etc.)
@@ -20,10 +14,9 @@ export interface PlotAnnotation {
   createdAt: string
   // Last modified timestamp
   updatedAt?: string
-  // Whether this annotation syncs across all plot types
-  sync_enabled?: boolean
-  // Where this annotation was originally created
-  created_in?: AnnotationSource
+  // Array of plot IDs where this annotation is visible
+  // Examples: ["timeseries", "dda:variant1:heatmap", "dda:variant2:network_graph"]
+  visible_in_plots?: string[]
 }
 
 export interface TimeSeriesAnnotations {
@@ -53,15 +46,22 @@ export interface AnnotationStore {
   ddaResults: Record<string, DDAResultAnnotations>
 }
 
+export interface PlotInfo {
+  id: string  // e.g., "timeseries", "dda:variant1:heatmap"
+  label: string  // e.g., "Data Visualization", "Single Timeseries - Heatmap"
+}
+
 export interface AnnotationContextMenuProps {
   x: number
   y: number
   plotPosition: number
-  onCreateAnnotation: (position: number, label: string, description?: string, syncEnabled?: boolean) => void
+  onCreateAnnotation: (position: number, label: string, description?: string, visibleInPlots?: string[]) => void
   onClose: () => void
   existingAnnotation?: PlotAnnotation
-  onEditAnnotation?: (id: string, label: string, description?: string, syncEnabled?: boolean) => void
+  onEditAnnotation?: (id: string, label: string, description?: string, visibleInPlots?: string[]) => void
   onDeleteAnnotation?: (id: string) => void
-  // Context for determining where annotation was created
-  currentPlotSource: AnnotationSource
+  // Available plots to show checkboxes for
+  availablePlots: PlotInfo[]
+  // Current plot where context menu was opened
+  currentPlotId: string
 }
