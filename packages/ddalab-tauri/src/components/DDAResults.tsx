@@ -41,12 +41,30 @@ type ColorScheme = 'viridis' | 'plasma' | 'inferno' | 'jet' | 'cool' | 'hot'
 type ViewMode = 'heatmap' | 'lineplot' | 'both'
 
 export function DDAResults({ result }: DDAResultsProps) {
+  console.log('[DDARESULTS] Component rendered with result:', {
+    id: result.id,
+    hasResults: !!result.results,
+    hasScales: !!result.results?.scales,
+    scalesLength: result.results?.scales?.length,
+    variantsCount: result.results?.variants?.length,
+    firstVariantId: result.results?.variants?.[0]?.variant_id,
+    hasMatrixData: !!result.results?.variants?.[0]?.dda_matrix,
+    matrixChannels: result.results?.variants?.[0]?.dda_matrix
+      ? Object.keys(result.results.variants[0].dda_matrix).length
+      : 0,
+    matrixFirstChannelLength: result.results?.variants?.[0]?.dda_matrix
+      ? Object.values(result.results.variants[0].dda_matrix)[0]?.length
+      : 0
+  })
+
   const { createWindow, broadcastToType } = usePopoutWindows()
   const fileManager = useAppStore(state => state.fileManager)
   const heatmapRef = useRef<HTMLDivElement>(null)
   const linePlotRef = useRef<HTMLDivElement>(null)
   const uplotHeatmapRef = useRef<uPlot | null>(null)
   const uplotLinePlotRef = useRef<uPlot | null>(null)
+  const lastRenderedResultId = useRef<string | null>(null)
+  const renderTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const [viewMode, setViewMode] = useState<ViewMode>('both')
   const [colorScheme, setColorScheme] = useState<ColorScheme>('viridis')
@@ -96,9 +114,15 @@ export function DDAResults({ result }: DDAResultsProps) {
         variantId: currentVariant.variant_id,
         availableChannels
       })
-      setSelectedChannels(availableChannels)
+      // Only update if channels actually changed to prevent excessive re-renders
+      setSelectedChannels(prev => {
+        if (JSON.stringify(prev) === JSON.stringify(availableChannels)) {
+          return prev  // Return same reference if content unchanged
+        }
+        return availableChannels
+      })
     }
-  }, [selectedVariant, result.results.variants])
+  }, [selectedVariant, result.id])
 
   // Annotation support for line plot
   const currentVariantId = result.results.variants[selectedVariant]?.variant_id || 'default'
@@ -524,7 +548,7 @@ export function DDAResults({ result }: DDAResultsProps) {
       // Fallback to requestAnimationFrame for browsers without requestIdleCallback
       requestAnimationFrame(deferredRender)
     }
-  }, [heatmapData, selectedChannels, result.results.scales, colorRange, colorScheme])
+  }, [heatmapData, selectedChannels, result.results.scales.length, colorRange[0], colorRange[1], colorScheme])
 
   const renderLinePlot = useCallback(() => {
     if (!linePlotRef.current) {
@@ -577,14 +601,27 @@ export function DDAResults({ result }: DDAResultsProps) {
       }
 
       console.log('[LINE PLOT] Rendering with', scales.length, 'time points for', selectedChannels.length, 'channels')
+      console.log('[LINE PLOT] Current variant data structure:', {
+        variantId: currentVariant.variant_id,
+        hasMatrix: !!currentVariant.dda_matrix,
+        matrixChannels: currentVariant.dda_matrix ? Object.keys(currentVariant.dda_matrix) : [],
+        selectedChannels,
+        scalesLength: scales.length
+      })
 
       const data: uPlot.AlignedData = [scales]
       const validChannels: string[] = []
 
       // Add DDA matrix data for selected channels - only include channels with valid data
-      // Process efficiently without excessive logging
       for (const channel of selectedChannels) {
         const channelData = currentVariant.dda_matrix[channel]
+        console.log('[LINE PLOT] Processing channel:', {
+          channel,
+          hasData: !!channelData,
+          isArray: Array.isArray(channelData),
+          dataLength: channelData?.length,
+          firstFewValues: channelData?.slice(0, 5)
+        })
         if (channelData && Array.isArray(channelData) && channelData.length > 0) {
           data.push(channelData)
           validChannels.push(channel)
@@ -593,10 +630,21 @@ export function DDAResults({ result }: DDAResultsProps) {
 
       // Check we have at least one data series besides x-axis
       if (data.length < 2 || validChannels.length === 0) {
-        console.error('No valid channel data for line plot');
+        console.error('[LINE PLOT] No valid channel data for line plot', {
+          dataLength: data.length,
+          validChannelsCount: validChannels.length
+        })
         setIsRenderingLinePlot(false)
         return
       }
+
+      console.log('[LINE PLOT] Prepared data for uPlot:', {
+        seriesCount: data.length,
+        validChannels,
+        scalesLength: data[0].length,
+        firstChannelDataLength: data[1]?.length,
+        firstChannelFirstValues: Array.isArray(data[1]) ? data[1].slice(0, 5) : 'not an array'
+      })
 
       // Create series configuration - IMPORTANT: must match data array length
       const series: uPlot.Series[] = [
@@ -682,7 +730,16 @@ export function DDAResults({ result }: DDAResultsProps) {
 
       uplotLinePlotRef.current = new uPlot(opts, data, linePlotRef.current)
 
-      console.log('[LINE PLOT] Successfully created uPlot with', validChannels.length, 'channels')
+      console.log('[LINE PLOT] Successfully created uPlot:', {
+        channelCount: validChannels.length,
+        channels: validChannels,
+        uplotInstance: !!uplotLinePlotRef.current,
+        width: opts.width,
+        height: opts.height,
+        dataArrayLength: data.length,
+        seriesArrayLength: series.length,
+        plotDataFirstChannel: uplotLinePlotRef.current?.data?.[1]?.slice(0, 5)
+      })
 
       // Handle resize
       const resizeObserver = new ResizeObserver(() => {
@@ -722,7 +779,7 @@ export function DDAResults({ result }: DDAResultsProps) {
     } else {
       setTimeout(deferredRender, 0)
     }
-  }, [result, selectedChannels, selectedVariant, availableVariants])
+  }, [result.id, selectedChannels, selectedVariant, availableVariants.length, result.results.scales.length])
 
   const getChannelColor = (index: number): string => {
     const colors = [
@@ -799,17 +856,62 @@ export function DDAResults({ result }: DDAResultsProps) {
   }, [renderHeatmap, viewMode, heatmapData, colorRange, autoScale])
 
   useEffect(() => {
+    const renderKey = `${result.id}_${selectedVariant}`
+
+    console.log('[LINE PLOT] useEffect triggered:', {
+      viewMode,
+      availableVariantsCount: availableVariants.length,
+      hasLinePlotRef: !!linePlotRef.current,
+      selectedVariant,
+      resultId: result.id,
+      renderKey,
+      lastRendered: lastRenderedResultId.current,
+      hasTimer: !!renderTimerRef.current
+    })
+
+    // Skip if we've already rendered this exact result+variant combination
+    if (lastRenderedResultId.current === renderKey) {
+      console.log('[LINE PLOT] Already rendered, skipping')
+      return
+    }
+
     if ((viewMode === 'lineplot' || viewMode === 'both') && availableVariants.length > 0 && linePlotRef.current) {
-      // Render immediately with small delay to ensure DOM is ready
-      // This works for both single and multi-variant results
+      // Clear any existing timer for a different result
+      if (renderTimerRef.current) {
+        console.log('[LINE PLOT] Clearing previous timer')
+        clearTimeout(renderTimerRef.current)
+        renderTimerRef.current = null
+      }
+
+      console.log('[LINE PLOT] Scheduling render for:', renderKey)
+
+      // Small delay to ensure DOM is ready
       const timer = setTimeout(() => {
         if (linePlotRef.current) {
+          console.log('[LINE PLOT] Timer fired, calling renderLinePlot() for:', renderKey)
           renderLinePlot()
+          // Mark as rendered ONLY after successful render
+          lastRenderedResultId.current = renderKey
+          renderTimerRef.current = null
+          console.log('[LINE PLOT] Marked as rendered:', renderKey)
+        } else {
+          console.warn('[LINE PLOT] linePlotRef became null before timer fired')
+          renderTimerRef.current = null
         }
       }, 50)
-      return () => clearTimeout(timer)
+
+      renderTimerRef.current = timer
+
+      return () => {
+        console.log('[LINE PLOT] Cleanup called for:', renderKey)
+        if (renderTimerRef.current === timer) {
+          console.log('[LINE PLOT] Clearing timer')
+          clearTimeout(timer)
+          renderTimerRef.current = null
+        }
+      }
     }
-  }, [renderLinePlot, viewMode, availableVariants, selectedVariant])
+  }, [viewMode, selectedVariant, result.id, renderLinePlot])
 
   // Update popout windows when DDA results change
   useEffect(() => {

@@ -243,8 +243,17 @@ impl NSGClient {
         Ok(status_response)
     }
 
-    pub async fn download_output_file(&self, download_uri: &str, output_path: &Path) -> Result<()> {
-        log::info!("📥 Downloading NSG output file to: {}", output_path.display());
+    pub async fn download_output_file<F>(
+        &self,
+        download_uri: &str,
+        output_path: &Path,
+        total_size: u64,
+        mut progress_callback: F,
+    ) -> Result<()>
+    where
+        F: FnMut(u64, u64),
+    {
+        log::info!("📥 Downloading NSG output file to: {} (size: {} bytes)", output_path.display(), total_size);
 
         let response = self.client
             .get(download_uri)
@@ -259,19 +268,35 @@ impl NSGClient {
             return Err(anyhow!("Failed to download file: {}", status));
         }
 
-        let bytes = response.bytes().await.context("Failed to read response bytes")?;
-
         if let Some(parent) = output_path.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
                 .context("Failed to create output directory")?;
         }
 
-        tokio::fs::write(output_path, bytes)
-            .await
-            .context("Failed to write output file")?;
+        use futures_util::StreamExt;
+        use tokio::io::AsyncWriteExt;
 
-        log::info!("✅ Downloaded output file: {}", output_path.display());
+        let mut file = tokio::fs::File::create(output_path)
+            .await
+            .context("Failed to create output file")?;
+
+        let mut stream = response.bytes_stream();
+        let mut downloaded: u64 = 0;
+
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.context("Failed to read chunk")?;
+            file.write_all(&chunk)
+                .await
+                .context("Failed to write chunk")?;
+
+            downloaded += chunk.len() as u64;
+            progress_callback(downloaded, total_size);
+        }
+
+        file.flush().await.context("Failed to flush file")?;
+
+        log::info!("✅ Downloaded output file: {} ({} bytes)", output_path.display(), downloaded);
 
         Ok(())
     }

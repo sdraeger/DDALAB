@@ -205,12 +205,13 @@ pub async fn cancel_nsg_job(
 pub async fn download_nsg_results(
     job_id: String,
     state: State<'_, AppStateManager>,
+    app: tauri::AppHandle,
 ) -> Result<Vec<String>, String> {
     let nsg_manager = state.get_nsg_manager()
         .ok_or_else(|| "NSG manager not initialized".to_string())?;
 
     let paths = nsg_manager
-        .download_results(&job_id)
+        .download_results(&job_id, Some(app))
         .await
         .map_err(|e| format!("Failed to download NSG results: {}", e))?;
 
