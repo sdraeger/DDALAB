@@ -3,6 +3,7 @@ import { useAppStore } from '@/store/appStore'
 import { PlotAnnotation } from '@/types/annotations'
 import { DDAResult } from '@/types/api'
 import { timeSeriesAnnotationToDDA } from '@/utils/annotationSync'
+import { useAvailablePlots } from './useAvailablePlots'
 
 interface UseTimeSeriesAnnotationsOptions {
   filePath: string
@@ -21,6 +22,7 @@ export const useTimeSeriesAnnotations = ({ filePath, channel }: UseTimeSeriesAnn
   const addTimeSeriesAnnotation = useAppStore(state => state.addTimeSeriesAnnotation)
   const updateTimeSeriesAnnotation = useAppStore(state => state.updateTimeSeriesAnnotation)
   const deleteTimeSeriesAnnotation = useAppStore(state => state.deleteTimeSeriesAnnotation)
+  const availablePlots = useAvailablePlots()
 
   const annotations = useAppStore(state => {
     const fileAnnotations = state.annotations.timeSeries[filePath]
@@ -56,12 +58,13 @@ export const useTimeSeriesAnnotations = ({ filePath, channel }: UseTimeSeriesAnn
         position,
         label,
         description,
-        visible_in_plots: visibleInPlots || ['timeseries'],
+        // Default to all plots if not specified
+        visible_in_plots: visibleInPlots || availablePlots.map(p => p.id),
         createdAt: new Date().toISOString()
       }
       addTimeSeriesAnnotation(filePath, annotation, channel)
     },
-    [filePath, channel, addTimeSeriesAnnotation]
+    [filePath, channel, addTimeSeriesAnnotation, availablePlots]
   )
 
   const handleUpdateAnnotation = useCallback(
@@ -104,7 +107,9 @@ export const useTimeSeriesAnnotations = ({ filePath, channel }: UseTimeSeriesAnn
     handleDeleteAnnotation,
     openContextMenu,
     closeContextMenu,
-    handleAnnotationClick
+    handleAnnotationClick,
+    availablePlots,
+    currentPlotId: 'timeseries'
   }
 }
 
@@ -113,6 +118,7 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
   const updateDDAAnnotation = useAppStore(state => state.updateDDAAnnotation)
   const deleteDDAAnnotation = useAppStore(state => state.deleteDDAAnnotation)
   const addTimeSeriesAnnotation = useAppStore(state => state.addTimeSeriesAnnotation)
+  const availablePlots = useAvailablePlots()
 
   // Get DDA-specific annotations
   const ddaAnnotations = useAppStore(state => {
@@ -211,7 +217,8 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
         position: timeSeconds, // Store in seconds, not scale value
         label,
         description,
-        visible_in_plots: visibleInPlots || [currentPlotId],
+        // Default to all plots if not specified
+        visible_in_plots: visibleInPlots || availablePlots.map(p => p.id),
         createdAt: new Date().toISOString()
       }
 
@@ -219,7 +226,7 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
       // This allows the annotation to show up in all views
       addTimeSeriesAnnotation(ddaResult.file_path, annotation)
     },
-    [ddaResult, sampleRate, addTimeSeriesAnnotation, variantId, plotType]
+    [ddaResult, sampleRate, addTimeSeriesAnnotation, variantId, plotType, availablePlots]
   )
 
   const handleUpdateAnnotation = useCallback(
@@ -272,6 +279,10 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
     []
   )
 
+  const currentPlotId = useMemo(() => {
+    return `dda:${variantId}:${plotType === 'heatmap' ? 'heatmap' : 'lineplot'}`
+  }, [variantId, plotType])
+
   return {
     annotations,
     contextMenu,
@@ -280,6 +291,8 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
     handleDeleteAnnotation,
     openContextMenu,
     closeContextMenu,
-    handleAnnotationClick
+    handleAnnotationClick,
+    availablePlots,
+    currentPlotId
   }
 }

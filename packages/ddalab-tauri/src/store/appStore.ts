@@ -44,6 +44,7 @@ export interface PlotState {
 
 export interface DDAState {
   currentAnalysis: DDAResult | null
+  previousAnalysis: DDAResult | null  // Stores previous analysis before NSG results are loaded
   analysisHistory: DDAResult[]
   analysisParameters: {
     variants: string[]
@@ -127,6 +128,7 @@ export interface AppState {
   // DDA Analysis
   dda: DDAState
   setCurrentAnalysis: (analysis: DDAResult | null) => void
+  restorePreviousAnalysis: () => void
   addAnalysisToHistory: (analysis: DDAResult) => void
   setAnalysisHistory: (analyses: DDAResult[]) => void
   updateAnalysisParameters: (parameters: Partial<DDAState['analysisParameters']>) => void
@@ -204,6 +206,7 @@ const defaultPlotState: PlotState = {
 
 const defaultDDAState: DDAState = {
   currentAnalysis: null,
+  previousAnalysis: null,
   analysisHistory: [],
   analysisParameters: {
     variants: ['single_timeseries'],
@@ -241,6 +244,7 @@ const defaultUIState: UIState = {
     explore: 'timeseries',
     analyze: 'dda',
     manage: 'settings',
+    notifications: null,
   },
   sidebarOpen: true,
   panelSizes: [25, 50, 25],
@@ -676,8 +680,21 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
 
           // Apply annotation state if available
-          if (fileState.annotations) {
-            const annotationState = fileState.annotations as FileAnnotationState
+          const annotationState = fileState.annotations as FileAnnotationState | undefined
+          const hasAnnotations = annotationState && (
+            (annotationState.timeSeries?.global?.length || 0) > 0 ||
+            Object.keys(annotationState.timeSeries?.channels || {}).length > 0
+          )
+
+          if (annotationState && hasAnnotations) {
+            console.log('[STORE] Loading annotations from file state:', {
+              filePath: file.file_path,
+              hasTimeSeries: !!annotationState.timeSeries,
+              globalCount: annotationState.timeSeries?.global?.length || 0,
+              channelsCount: Object.keys(annotationState.timeSeries?.channels || {}).length,
+              annotationState
+            })
+
             set((state) => {
               const annotations = { ...state.annotations }
 
@@ -696,19 +713,101 @@ export const useAppStore = create<AppState>((set, get) => ({
                 }
               }
 
+              console.log('[STORE] After loading annotations, store state:', {
+                filePath: file.file_path,
+                globalAnnotations: annotations.timeSeries[file.file_path].globalAnnotations
+              })
+
               return { annotations }
             })
           } else {
-            // Initialize empty annotations for new files
-            set((state) => {
-              const annotations = { ...state.annotations }
-              annotations.timeSeries[file.file_path] = {
-                filePath: file.file_path,
-                globalAnnotations: [],
-                channelAnnotations: {}
+            // No annotations in FileStateManager - try to migrate from old SQLite format
+            console.log('[STORE] No annotations in file state, checking old SQLite format for:', file.file_path)
+
+            ;(async () => {
+              try {
+                const { invoke } = await import('@tauri-apps/api/core')
+                const oldAnnotations = await invoke<any>('get_file_annotations', { filePath: file.file_path })
+
+                if (oldAnnotations && (oldAnnotations.global_annotations?.length > 0 || Object.keys(oldAnnotations.channel_annotations || {}).length > 0)) {
+                  console.log('[STORE] Found old SQLite annotations, migrating:', {
+                    globalCount: oldAnnotations.global_annotations?.length || 0,
+                    channelsCount: Object.keys(oldAnnotations.channel_annotations || {}).length
+                  })
+
+                  // Convert old format to new format
+                  const globalAnnotations = (oldAnnotations.global_annotations || []).map((ann: any) => ({
+                    id: ann.id,
+                    position: ann.position,
+                    label: ann.label,
+                    color: ann.color || '#ef4444',
+                    description: ann.description,
+                    createdAt: ann.created_at || new Date().toISOString(),
+                    updatedAt: ann.updated_at || new Date().toISOString()
+                  }))
+
+                  const channelAnnotations: Record<string, PlotAnnotation[]> = {}
+                  for (const [channel, anns] of Object.entries(oldAnnotations.channel_annotations || {})) {
+                    channelAnnotations[channel] = (anns as any[]).map((ann: any) => ({
+                      id: ann.id,
+                      position: ann.position,
+                      label: ann.label,
+                      color: ann.color || '#ef4444',
+                      description: ann.description,
+                      createdAt: ann.created_at || new Date().toISOString(),
+                      updatedAt: ann.updated_at || new Date().toISOString()
+                    }))
+                  }
+
+                  // Update store
+                  set((state) => {
+                    const annotations = { ...state.annotations }
+                    annotations.timeSeries[file.file_path] = {
+                      filePath: file.file_path,
+                      globalAnnotations,
+                      channelAnnotations
+                    }
+                    return { annotations }
+                  })
+
+                  // Save to FileStateManager
+                  const fileStateManager = getInitializedFileStateManager()
+                  const fileAnnotationState: FileAnnotationState = {
+                    timeSeries: {
+                      global: globalAnnotations,
+                      channels: channelAnnotations
+                    },
+                    ddaResults: {},
+                    lastUpdated: new Date().toISOString()
+                  }
+                  await fileStateManager.updateModuleState(file.file_path, 'annotations', fileAnnotationState)
+                  console.log('[STORE] Migrated annotations to FileStateManager')
+                } else {
+                  // No old annotations either - initialize empty
+                  set((state) => {
+                    const annotations = { ...state.annotations }
+                    annotations.timeSeries[file.file_path] = {
+                      filePath: file.file_path,
+                      globalAnnotations: [],
+                      channelAnnotations: {}
+                    }
+                    return { annotations }
+                  })
+                }
+              } catch (err) {
+                console.error('[STORE] Failed to check/migrate old annotations:', err)
+                // Initialize empty on error
+                set((state) => {
+                  const annotations = { ...state.annotations }
+                  annotations.timeSeries[file.file_path] = {
+                    filePath: file.file_path,
+                    globalAnnotations: [],
+                    channelAnnotations: {}
+                  }
+                  return { annotations }
+                })
               }
-              return { annotations }
-            })
+            })()
           }
 
           // File was already set synchronously above
@@ -926,9 +1025,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     console.log('[STORE] setCurrentAnalysis called:', {
       hasAnalysis: !!analysis,
       analysisId: analysis?.id,
+      isNSGResult: analysis?.source === 'nsg',
       stack: new Error().stack
     })
-    set((state) => ({ dda: { ...state.dda, currentAnalysis: analysis } }))
+    set((state) => ({
+      dda: {
+        ...state.dda,
+        currentAnalysis: analysis,
+        // Save previous analysis only when loading NSG results
+        previousAnalysis: analysis?.source === 'nsg' ? state.dda.currentAnalysis : state.dda.previousAnalysis
+      }
+    }))
 
     // Persist the current analysis change asynchronously to avoid blocking UI
     if (TauriService.isTauri()) {
@@ -988,6 +1095,25 @@ export const useAppStore = create<AppState>((set, get) => ({
           })()
         }
       }, 0)
+    }
+  },
+
+  restorePreviousAnalysis: () => {
+    const { dda } = get()
+    if (dda.previousAnalysis) {
+      console.log('[STORE] Restoring previous analysis:', {
+        previousId: dda.previousAnalysis.id,
+        currentId: dda.currentAnalysis?.id
+      })
+      set((state) => ({
+        dda: {
+          ...state.dda,
+          currentAnalysis: state.dda.previousAnalysis,
+          previousAnalysis: null  // Clear previous analysis after restoring
+        }
+      }))
+    } else {
+      console.warn('[STORE] No previous analysis to restore')
     }
   },
 
@@ -1261,25 +1387,35 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { annotations }
     })
 
-    // Save annotation to SQLite database
+    // Save annotation to file state manager
     setTimeout(async () => {
       if (TauriService.isTauri()) {
         try {
-          const { invoke } = await import('@tauri-apps/api/core')
-          await invoke('save_annotation', {
-            filePath,
-            channel: channel || null,
-            annotation: {
-              id: annotation.id,
-              position: annotation.position,
-              label: annotation.label,
-              color: annotation.color,
-              description: annotation.description
+          const fileStateManager = getInitializedFileStateManager()
+          const currentAnnotations = get().annotations
+          const fileAnnotations = currentAnnotations.timeSeries[filePath]
+
+          if (fileAnnotations) {
+            // Transform DDA annotations to match FileAnnotationState type
+            const ddaResultsForFile: Record<string, PlotAnnotation[]> = {}
+            Object.entries(currentAnnotations.ddaResults).forEach(([key, value]) => {
+              ddaResultsForFile[key] = value.annotations
+            })
+
+            const fileAnnotationState: FileAnnotationState = {
+              timeSeries: {
+                global: fileAnnotations.globalAnnotations,
+                channels: fileAnnotations.channelAnnotations || {}
+              },
+              ddaResults: ddaResultsForFile,  // Preserve DDA annotations (transformed)
+              lastUpdated: new Date().toISOString()
             }
-          })
-          console.log('[ANNOTATION] Saved to SQLite:', annotation.id)
+
+            await fileStateManager.updateModuleState(filePath, 'annotations', fileAnnotationState)
+            console.log('[ANNOTATION] Saved to FileStateManager:', annotation.id)
+          }
         } catch (err) {
-          console.error('[ANNOTATION] Failed to save to SQLite:', err)
+          console.error('[ANNOTATION] Failed to save to FileStateManager:', err)
         }
       }
     }, 100)
@@ -1304,39 +1440,35 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { annotations }
     })
 
-    // Save updated annotation to SQLite database
+    // Save updated annotation to file state manager
     setTimeout(async () => {
       if (TauriService.isTauri()) {
         try {
-          const state = get();
-          const fileAnnotations = state.annotations.timeSeries[filePath];
-          if (!fileAnnotations) return;
+          const fileStateManager = getInitializedFileStateManager()
+          const currentAnnotations = get().annotations
+          const fileAnnotations = currentAnnotations.timeSeries[filePath]
 
-          // Find the updated annotation
-          let updatedAnnotation: PlotAnnotation | undefined;
-          if (channel && fileAnnotations.channelAnnotations?.[channel]) {
-            updatedAnnotation = fileAnnotations.channelAnnotations[channel].find(a => a.id === annotationId);
-          } else {
-            updatedAnnotation = fileAnnotations.globalAnnotations.find(a => a.id === annotationId);
-          }
-
-          if (updatedAnnotation) {
-            const { invoke } = await import('@tauri-apps/api/core')
-            await invoke('save_annotation', {
-              filePath,
-              channel: channel || null,
-              annotation: {
-                id: updatedAnnotation.id,
-                position: updatedAnnotation.position,
-                label: updatedAnnotation.label,
-                color: updatedAnnotation.color,
-                description: updatedAnnotation.description
-              }
+          if (fileAnnotations) {
+            // Transform DDA annotations to match FileAnnotationState type
+            const ddaResultsForFile: Record<string, PlotAnnotation[]> = {}
+            Object.entries(currentAnnotations.ddaResults).forEach(([key, value]) => {
+              ddaResultsForFile[key] = value.annotations
             })
-            console.log('[ANNOTATION] Updated in SQLite:', annotationId)
+
+            const fileAnnotationState: FileAnnotationState = {
+              timeSeries: {
+                global: fileAnnotations.globalAnnotations,
+                channels: fileAnnotations.channelAnnotations || {}
+              },
+              ddaResults: ddaResultsForFile,  // Preserve DDA annotations (transformed)
+              lastUpdated: new Date().toISOString()
+            }
+
+            await fileStateManager.updateModuleState(filePath, 'annotations', fileAnnotationState)
+            console.log('[ANNOTATION] Updated in FileStateManager:', annotationId)
           }
         } catch (err) {
-          console.error('[ANNOTATION] Failed to update in SQLite:', err)
+          console.error('[ANNOTATION] Failed to update in FileStateManager:', err)
         }
       }
     }, 100)
@@ -1358,15 +1490,35 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { annotations }
     })
 
-    // Delete annotation from SQLite database
+    // Delete annotation from file state manager
     setTimeout(async () => {
       if (TauriService.isTauri()) {
         try {
-          const { invoke } = await import('@tauri-apps/api/core')
-          await invoke('delete_annotation', { annotationId })
-          console.log('[ANNOTATION] Deleted from SQLite:', annotationId)
+          const fileStateManager = getInitializedFileStateManager()
+          const currentAnnotations = get().annotations
+          const fileAnnotations = currentAnnotations.timeSeries[filePath]
+
+          if (fileAnnotations) {
+            // Transform DDA annotations to match FileAnnotationState type
+            const ddaResultsForFile: Record<string, PlotAnnotation[]> = {}
+            Object.entries(currentAnnotations.ddaResults).forEach(([key, value]) => {
+              ddaResultsForFile[key] = value.annotations
+            })
+
+            const fileAnnotationState: FileAnnotationState = {
+              timeSeries: {
+                global: fileAnnotations.globalAnnotations,
+                channels: fileAnnotations.channelAnnotations || {}
+              },
+              ddaResults: ddaResultsForFile,  // Preserve DDA annotations (transformed)
+              lastUpdated: new Date().toISOString()
+            }
+
+            await fileStateManager.updateModuleState(filePath, 'annotations', fileAnnotationState)
+            console.log('[ANNOTATION] Deleted from FileStateManager:', annotationId)
+          }
         } catch (err) {
-          console.error('[ANNOTATION] Failed to delete from SQLite:', err)
+          console.error('[ANNOTATION] Failed to delete from FileStateManager:', err)
         }
       }
     }, 100)
@@ -1402,9 +1554,37 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { annotations }
     })
 
-    // Defer save to avoid blocking UI
-    setTimeout(() => {
-      get().saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save:', err))
+    // Save to FileStateManager
+    setTimeout(async () => {
+      const { fileManager } = get()
+      if (TauriService.isTauri() && fileManager.selectedFile) {
+        try {
+          const fileStateManager = getInitializedFileStateManager()
+          const currentAnnotations = get().annotations
+          const filePath = fileManager.selectedFile.file_path
+          const fileTimeSeries = currentAnnotations.timeSeries[filePath]
+
+          // Transform DDA annotations to match FileAnnotationState type
+          const ddaResultsForFile: Record<string, PlotAnnotation[]> = {}
+          Object.entries(currentAnnotations.ddaResults).forEach(([key, value]) => {
+            ddaResultsForFile[key] = value.annotations
+          })
+
+          const fileAnnotationState: FileAnnotationState = {
+            timeSeries: {
+              global: fileTimeSeries?.globalAnnotations || [],
+              channels: fileTimeSeries?.channelAnnotations || {}
+            },
+            ddaResults: ddaResultsForFile,
+            lastUpdated: new Date().toISOString()
+          }
+
+          await fileStateManager.updateModuleState(filePath, 'annotations', fileAnnotationState)
+          console.log('[ANNOTATION] Saved DDA annotation to FileStateManager:', annotation.id)
+        } catch (err) {
+          console.error('[ANNOTATION] Failed to save DDA annotation to FileStateManager:', err)
+        }
+      }
     }, 100)
   },
 
@@ -1423,8 +1603,37 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { annotations }
     })
 
-    setTimeout(() => {
-      get().saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save:', err))
+    // Save to FileStateManager
+    setTimeout(async () => {
+      const { fileManager } = get()
+      if (TauriService.isTauri() && fileManager.selectedFile) {
+        try {
+          const fileStateManager = getInitializedFileStateManager()
+          const currentAnnotations = get().annotations
+          const filePath = fileManager.selectedFile.file_path
+          const fileTimeSeries = currentAnnotations.timeSeries[filePath]
+
+          // Transform DDA annotations to match FileAnnotationState type
+          const ddaResultsForFile: Record<string, PlotAnnotation[]> = {}
+          Object.entries(currentAnnotations.ddaResults).forEach(([key, value]) => {
+            ddaResultsForFile[key] = value.annotations
+          })
+
+          const fileAnnotationState: FileAnnotationState = {
+            timeSeries: {
+              global: fileTimeSeries?.globalAnnotations || [],
+              channels: fileTimeSeries?.channelAnnotations || {}
+            },
+            ddaResults: ddaResultsForFile,
+            lastUpdated: new Date().toISOString()
+          }
+
+          await fileStateManager.updateModuleState(filePath, 'annotations', fileAnnotationState)
+          console.log('[ANNOTATION] Updated DDA annotation in FileStateManager:', annotationId)
+        } catch (err) {
+          console.error('[ANNOTATION] Failed to update DDA annotation in FileStateManager:', err)
+        }
+      }
     }, 100)
   },
 
@@ -1440,8 +1649,37 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { annotations }
     })
 
-    setTimeout(() => {
-      get().saveCurrentState().catch(err => console.error('[ANNOTATION] Failed to save:', err))
+    // Save to FileStateManager
+    setTimeout(async () => {
+      const { fileManager } = get()
+      if (TauriService.isTauri() && fileManager.selectedFile) {
+        try {
+          const fileStateManager = getInitializedFileStateManager()
+          const currentAnnotations = get().annotations
+          const filePath = fileManager.selectedFile.file_path
+          const fileTimeSeries = currentAnnotations.timeSeries[filePath]
+
+          // Transform DDA annotations to match FileAnnotationState type
+          const ddaResultsForFile: Record<string, PlotAnnotation[]> = {}
+          Object.entries(currentAnnotations.ddaResults).forEach(([key, value]) => {
+            ddaResultsForFile[key] = value.annotations
+          })
+
+          const fileAnnotationState: FileAnnotationState = {
+            timeSeries: {
+              global: fileTimeSeries?.globalAnnotations || [],
+              channels: fileTimeSeries?.channelAnnotations || {}
+            },
+            ddaResults: ddaResultsForFile,
+            lastUpdated: new Date().toISOString()
+          }
+
+          await fileStateManager.updateModuleState(filePath, 'annotations', fileAnnotationState)
+          console.log('[ANNOTATION] Deleted DDA annotation from FileStateManager:', annotationId)
+        } catch (err) {
+          console.error('[ANNOTATION] Failed to delete DDA annotation from FileStateManager:', err)
+        }
+      }
     }, 100)
   },
 
