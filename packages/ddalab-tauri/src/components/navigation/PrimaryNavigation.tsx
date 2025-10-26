@@ -2,7 +2,7 @@
 
 import { useAppStore } from '@/store/appStore'
 import { navigationConfig, PrimaryNavTab } from '@/types/navigation'
-import { Home, BarChart3, Brain, Settings } from 'lucide-react'
+import { Home, BarChart3, Brain, Settings, Bell } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const iconMap = {
@@ -10,6 +10,7 @@ const iconMap = {
   BarChart3,
   Brain,
   Settings,
+  Bell,
 }
 
 export function PrimaryNavigation() {

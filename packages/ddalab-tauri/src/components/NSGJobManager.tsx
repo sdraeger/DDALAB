@@ -40,6 +40,14 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i]
+}
+
 export function NSGJobManager() {
   const [jobs, setJobs] = useState<NSGJob[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -56,6 +64,15 @@ export function NSGJobManager() {
     numChannels: number
   } | null>(null)
   const [previousJobStatuses, setPreviousJobStatuses] = useState<Map<string, NSGJobStatus>>(new Map())
+  const [downloadProgress, setDownloadProgress] = useState<{
+    jobId: string
+    currentFile: number
+    totalFiles: number
+    filename: string
+    bytesDownloaded: number
+    totalBytes: number
+    fileProgress: number
+  } | null>(null)
 
   useEffect(() => {
     if (!TauriService.isTauri()) return
@@ -89,6 +106,41 @@ export function NSGJobManager() {
 
     return () => clearInterval(interval)
   }, [hasCredentials])
+
+  useEffect(() => {
+    if (!TauriService.isTauri()) return
+
+    let unlisten: (() => void) | undefined
+
+    const setupListener = async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event')
+        unlisten = await listen('nsg-download-progress', (event: any) => {
+          const payload = event.payload
+          console.log('[NSG] Download progress:', payload)
+          setDownloadProgress({
+            jobId: payload.job_id,
+            currentFile: payload.current_file,
+            totalFiles: payload.total_files,
+            filename: payload.filename,
+            bytesDownloaded: payload.bytes_downloaded,
+            totalBytes: payload.total_bytes,
+            fileProgress: payload.file_progress
+          })
+        })
+      } catch (error) {
+        console.error('[NSG] Failed to setup progress listener:', error)
+      }
+    }
+
+    setupListener()
+
+    return () => {
+      if (unlisten) {
+        unlisten()
+      }
+    }
+  }, [])
 
   const loadJobs = async () => {
     try {
@@ -256,7 +308,7 @@ export function NSGJobManager() {
 
       console.log('[NSG] Downloading results for job:', jobId)
 
-      // Download results files
+      // Download results files (will fetch from NSG API)
       const files = await TauriService.downloadNSGResults(jobId)
 
       console.log('[NSG] Downloaded files:', files)
@@ -299,17 +351,29 @@ export function NSGJobManager() {
         const resultsJson = await TauriService.readTextFile(resultsFile)
 
         console.log('[NSG] Raw JSON length:', resultsJson.length, 'chars')
+        console.log('[NSG] First 500 chars:', resultsJson.substring(0, 500))
 
-        // Handle NaN, Infinity, -Infinity in JSON (common in scientific data)
-        // Use a global replace that catches all contexts
-        const sanitizedJson = resultsJson
-          .replace(/\bNaN\b/g, 'null')
-          .replace(/\bInfinity\b/g, 'null')
-          .replace(/\b-Infinity\b/g, 'null')
+        // Check for invalid JSON patterns
+        if (resultsJson.includes('NaN') || resultsJson.includes('Infinity')) {
+          console.log('[NSG] JSON contains NaN/Infinity, sanitizing...')
+          // Only replace in numeric contexts, not in strings
+          const sanitized = resultsJson
+            .replace(/:\s*NaN\b/g, ': null')
+            .replace(/:\s*Infinity\b/g, ': null')
+            .replace(/:\s*-Infinity\b/g, ': null')
+            .replace(/,\s*NaN\b/g, ', null')
+            .replace(/,\s*Infinity\b/g, ', null')
+            .replace(/,\s*-Infinity\b/g, ', null')
+            .replace(/\[\s*NaN\b/g, '[null')
+            .replace(/\[\s*Infinity\b/g, '[null')
+            .replace(/\[\s*-Infinity\b/g, '[null')
 
-        console.log('[NSG] Sanitized JSON - replaced NaN/Infinity with null')
-
-        const resultsData = JSON.parse(sanitizedJson)
+          console.log('[NSG] Parsing sanitized JSON...')
+          var resultsData = JSON.parse(sanitized)
+        } else {
+          console.log('[NSG] Parsing JSON directly...')
+          var resultsData = JSON.parse(resultsJson)
+        }
 
         console.log('[NSG] ✅ Parsed results data successfully:', {
           hasQMatrix: !!resultsData.q_matrix,
@@ -458,6 +522,7 @@ export function NSGJobManager() {
       }
     } finally {
       setViewingJobId(null)
+      setDownloadProgress(null)
     }
   }
 
@@ -646,22 +711,47 @@ export function NSGJobManager() {
                         {(() => {
                           const canView = canViewResults(job)
                           console.log('[NSG] Job', job.id.slice(0, 8), '- Status:', job.status, '- Can view?', canView, '- Output files:', job.output_files.length)
+                          const isDownloading = viewingJobId === job.id
+                          const showProgress = isDownloading && downloadProgress?.jobId === job.id
+
                           return canView ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleViewResults(job.id)}
-                              disabled={viewingJobId === job.id}
-                              className="h-7"
-                              title="View results"
-                            >
-                              {viewingJobId === job.id ? (
-                                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                              ) : (
-                                <Eye className="h-3 w-3 mr-1" />
+                            <div className="flex flex-col gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleViewResults(job.id)}
+                                disabled={isDownloading}
+                                className="h-7"
+                                title="View results"
+                              >
+                                {isDownloading ? (
+                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                ) : (
+                                  <Eye className="h-3 w-3 mr-1" />
+                                )}
+                                {job.output_files.length > 0 ? `View (${job.output_files.length})` : 'View Results'}
+                              </Button>
+                              {showProgress && (
+                                <div className="flex flex-col gap-1 min-w-[200px]">
+                                  <div className="text-xs text-muted-foreground truncate" title={downloadProgress.filename}>
+                                    {downloadProgress.filename}
+                                  </div>
+                                  <div className="w-full bg-gray-200 rounded-full h-1.5">
+                                    <div
+                                      className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                                      style={{ width: `${downloadProgress.fileProgress}%` }}
+                                    />
+                                  </div>
+                                  <div className="text-xs text-muted-foreground flex justify-between">
+                                    <span>File {downloadProgress.currentFile}/{downloadProgress.totalFiles}</span>
+                                    <span>{downloadProgress.fileProgress}%</span>
+                                  </div>
+                                  <div className="text-xs text-muted-foreground text-center">
+                                    {formatBytes(downloadProgress.bytesDownloaded)} / {formatBytes(downloadProgress.totalBytes)}
+                                  </div>
+                                </div>
                               )}
-                              {job.output_files.length > 0 ? `View (${job.output_files.length})` : 'View Results'}
-                            </Button>
+                            </div>
                           ) : (
                             <span className="text-muted-foreground">
                               {job.output_files.length > 0 ? `${job.output_files.length} files` : '-'}
@@ -677,6 +767,7 @@ export function NSGJobManager() {
                               variant="ghost"
                               onClick={() => handleUpdateStatus(job.id)}
                               disabled={pollingJobId === job.id}
+                              title="Update job status"
                             >
                               {pollingJobId === job.id ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
