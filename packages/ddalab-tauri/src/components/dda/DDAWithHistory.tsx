@@ -8,7 +8,10 @@ import { useDDAHistory, useDeleteAnalysis, useRenameAnalysis, useAnalysisFromHis
 import { DDAHistorySidebar } from './DDAHistorySidebar'
 import { DDAAnalysis } from '@/components/DDAAnalysis'
 import { DDAResults } from '@/components/DDAResults'
-import { Loader2 } from 'lucide-react'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Loader2, Settings, BarChart3, Cloud, ArrowLeft } from 'lucide-react'
 
 interface DDAWithHistoryProps {
   apiService: ApiService
@@ -17,11 +20,14 @@ interface DDAWithHistoryProps {
 export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   const fileManager = useAppStore(state => state.fileManager)
   const currentAnalysis = useAppStore(state => state.dda.currentAnalysis)
+  const previousAnalysis = useAppStore(state => state.dda.previousAnalysis)
   const setCurrentAnalysis = useAppStore(state => state.setCurrentAnalysis)
+  const restorePreviousAnalysis = useAppStore(state => state.restorePreviousAnalysis)
   const isServerReady = useAppStore(state => state.ui.isServerReady)
 
   const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false)
   const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'configure' | 'results'>('configure')
   const isSettingAnalysis = useRef(false)
 
   // Fetch history from server using TanStack Query
@@ -70,7 +76,18 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   useEffect(() => {
     if (selectedAnalysisData && !isSettingAnalysis.current) {
       isSettingAnalysis.current = true
-      console.log('[DDA] Setting loaded analysis as current:', selectedAnalysisData.id)
+      console.log('[DDA HISTORY] Setting loaded analysis as current:', {
+        id: selectedAnalysisData.id,
+        hasResults: !!selectedAnalysisData.results,
+        hasScales: !!selectedAnalysisData.results?.scales,
+        scalesLength: selectedAnalysisData.results?.scales?.length,
+        variantsCount: selectedAnalysisData.results?.variants?.length,
+        firstVariantId: selectedAnalysisData.results?.variants?.[0]?.variant_id,
+        hasMatrixData: !!selectedAnalysisData.results?.variants?.[0]?.dda_matrix,
+        matrixChannels: selectedAnalysisData.results?.variants?.[0]?.dda_matrix
+          ? Object.keys(selectedAnalysisData.results.variants[0].dda_matrix).length
+          : 0
+      })
       setCurrentAnalysis(selectedAnalysisData)
       // Use setTimeout to break out of sync rendering
       setTimeout(() => {
@@ -94,6 +111,8 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
 
     console.log('[DDA] Selecting analysis:', analysis.id)
     setSelectedAnalysisId(analysis.id)
+    // Switch to Results tab when selecting from history
+    setActiveTab('results')
   }
 
   const handleDeleteAnalysis = async (id: string, e: React.MouseEvent) => {
@@ -129,9 +148,38 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   }
 
   // Determine what to display
-  const displayAnalysis = currentAnalysis?.id === selectedAnalysisId
-    ? currentAnalysis
-    : selectedAnalysisData
+  // Keep showing current analysis while new one loads to prevent flash of empty state
+  const displayAnalysis = selectedAnalysisData
+    ? selectedAnalysisData
+    : (currentAnalysis?.id === selectedAnalysisId ? currentAnalysis : null)
+
+  // Auto-switch to Results tab when a new analysis completes
+  useEffect(() => {
+    if (currentAnalysis && currentAnalysis.status === 'completed') {
+      setActiveTab('results')
+    }
+  }, [currentAnalysis?.id])
+
+  // Log what we're about to display
+  useEffect(() => {
+    console.log('[DDA HISTORY] Display state changed:', {
+      selectedAnalysisId,
+      currentAnalysisId: currentAnalysis?.id,
+      hasDisplayAnalysis: !!displayAnalysis,
+      displayAnalysisId: displayAnalysis?.id,
+      displaySource: displayAnalysis?.id === currentAnalysis?.id ? 'currentAnalysis' : 'selectedAnalysisData',
+      hasResultsData: !!displayAnalysis?.results,
+      hasScales: !!displayAnalysis?.results?.scales,
+      scalesLength: displayAnalysis?.results?.scales?.length,
+      variantsCount: displayAnalysis?.results?.variants?.length,
+      hasMatrixData: !!displayAnalysis?.results?.variants?.[0]?.dda_matrix,
+      matrixChannels: displayAnalysis?.results?.variants?.[0]?.dda_matrix
+        ? Object.keys(displayAnalysis.results.variants[0].dda_matrix).length
+        : 0,
+      isLoadingAnalysis,
+      isFetchingAnalysis
+    })
+  }, [displayAnalysis?.id, selectedAnalysisId, isLoadingAnalysis, isFetchingAnalysis])
 
   return (
     <div className="flex h-full">
@@ -149,28 +197,81 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
         onRefresh={() => refetchHistory()}
       />
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-auto">
-        {(isLoadingAnalysis || isFetchingAnalysis) && selectedAnalysisId ? (
-          // Show loading state while fetching analysis data
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
-              <p className="text-sm text-muted-foreground">Loading analysis...</p>
+      {/* Main Content with Tabs */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as 'configure' | 'results')} className="flex-1 flex flex-col">
+          <TabsList className="flex-shrink-0 mx-4 mt-4">
+            <TabsTrigger value="configure" className="flex items-center gap-2">
+              <Settings className="h-4 w-4" />
+              Configure
+            </TabsTrigger>
+            <TabsTrigger value="results" className="flex items-center gap-2" disabled={!displayAnalysis}>
+              <BarChart3 className="h-4 w-4" />
+              Results
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="configure" className="flex-1 overflow-auto m-0">
+            <div className="p-4">
+              <DDAAnalysis apiService={apiService} />
             </div>
-          </div>
-        ) : displayAnalysis ? (
-          // Show results when analysis data is loaded
-          // Key forces re-mount when switching between analyses
-          <div key={displayAnalysis.id} className="p-4">
-            <DDAResults result={displayAnalysis} />
-          </div>
-        ) : (
-          // Show parameters form when no analysis selected
-          <div className="p-4">
-            <DDAAnalysis apiService={apiService} />
-          </div>
-        )}
+          </TabsContent>
+
+          <TabsContent value="results" className="flex-1 overflow-auto m-0">
+            {(isLoadingAnalysis || isFetchingAnalysis) && selectedAnalysisId ? (
+              // Show loading state while fetching analysis data
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+                  <p className="text-sm text-muted-foreground">Loading analysis...</p>
+                </div>
+              </div>
+            ) : displayAnalysis ? (
+              // Show results when analysis data is loaded
+              // Key forces re-mount when switching between analyses
+              <div key={displayAnalysis.id} className="p-4 space-y-4">
+                {/* NSG Results Indicator Banner */}
+                {displayAnalysis.source === 'nsg' && previousAnalysis && (
+                  <Alert className="border-blue-200 bg-blue-50">
+                    <Cloud className="h-4 w-4 text-blue-600" />
+                    <AlertDescription className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-blue-900">
+                          <strong>Viewing NSG Results</strong> from job {displayAnalysis.id.slice(0, 8)}
+                        </span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => restorePreviousAnalysis()}
+                        className="ml-4 h-7 text-xs"
+                      >
+                        <ArrowLeft className="h-3 w-3 mr-1" />
+                        Back to Previous Analysis
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {console.log('[DDA HISTORY] Rendering DDAResults with:', {
+                  id: displayAnalysis.id,
+                  hasResults: !!displayAnalysis.results,
+                  scalesLength: displayAnalysis.results?.scales?.length,
+                  variantsCount: displayAnalysis.results?.variants?.length
+                })}
+                <DDAResults result={displayAnalysis} />
+              </div>
+            ) : (
+              // No analysis available
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center text-muted-foreground">
+                  <p>No analysis results available</p>
+                  <p className="text-sm mt-2">Run an analysis from the Configure tab</p>
+                </div>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   )

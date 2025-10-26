@@ -145,6 +145,11 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   const [duration, setDuration] = useState(0);
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
 
+  // Time window control (in seconds) - start with smaller window for better performance
+  const [timeWindow, setTimeWindow] = useState(
+    plot.chunkSize / (fileManager.selectedFile?.sample_rate || 256) || 5
+  );
+
   // Preprocessing controls (must be declared before TanStack Query hooks)
   const [showPreprocessing, setShowPreprocessing] = useState(false);
   const [preprocessing, setPreprocessing] = useState<PreprocessingOptions>(
@@ -154,10 +159,6 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   // Cache invalidation utilities
   const { invalidateFile } = useInvalidateTimeSeriesCache();
 
-  // Calculate chunk parameters
-  const timeWindow = useRef(
-    plot.chunkSize / (fileManager.selectedFile?.sample_rate || 256) || 5
-  ).current;
   const chunkSize = useMemo(() => {
     if (!fileManager.selectedFile) return 0;
     return Math.floor(timeWindow * fileManager.selectedFile.sample_rate);
@@ -231,11 +232,6 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     updatePlotState({ preprocessing: newPreprocessing });
     // Query will automatically refetch with new preprocessing due to query key change
   };
-
-  // Time window control (in seconds) - start with smaller window for better performance
-  const timeWindowRef = useRef(
-    plot.chunkSize / (fileManager.selectedFile?.sample_rate || 256) || 5
-  );
 
   // Channel offset for stacking
   const channelOffsetSliderRef = useRef(50); // User-defined offset percentage
@@ -419,7 +415,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
     setCurrentChunk(processedChunk);
     renderChart(processedChunk, currentTime);
-  }, [chunkData, fileManager.selectedFile, preprocessing, currentTime]);
+  }, [chunkData, fileManager.selectedFile, preprocessing, currentTime, timeWindow]);
 
   // Separate effect for updating annotations without re-rendering the entire chart
   useEffect(() => {
@@ -578,7 +574,6 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     }
 
     const chart = chartInstanceRef.current;
-    const timeWindow = timeWindowRef.current;
 
     // Calculate channel offset for stacking with improved spacing algorithm
     const userOffset = channelOffsetSliderRef.current;
@@ -903,6 +898,17 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       loadedFileRef.current = currentFilePath!;
       isInitialChannelSetRef.current = false;
     } else if (
+      isNewFile &&
+      !hasChannelsSelected &&
+      fileManager.selectedFile
+    ) {
+      // Don't clear the chart if it's marked as a "new file" but we haven't synced channels yet
+      // This happens during component initialization or when auto-loading analysis on mount
+      // Wait for the channel sync effect to run and populate selectedChannels
+      console.log("[ECharts] Waiting for channel sync before clearing chart for new file");
+      // Mark as loaded immediately to prevent re-clearing after channel sync
+      loadedFileRef.current = currentFilePath!;
+    } else if (
       !isNewFile &&
       !isInitialChannelSetRef.current &&
       hasChannelsSelected
@@ -999,14 +1005,14 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
   // Navigation handlers
   const handlePrevChunk = () => {
-    const newTime = Math.max(0, currentTime - timeWindowRef.current);
+    const newTime = Math.max(0, currentTime - timeWindow);
     setCurrentTime(newTime);
     loadChunk(newTime);
   };
 
   const handleNextChunk = () => {
-    const maxTime = duration - timeWindowRef.current;
-    const newTime = Math.min(maxTime, currentTime + timeWindowRef.current);
+    const maxTime = duration - timeWindow;
+    const newTime = Math.min(maxTime, currentTime + timeWindow);
     setCurrentTime(newTime);
     loadChunk(newTime);
   };
@@ -1023,8 +1029,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       );
     }
 
-    timeWindowRef.current = newWindow;
-    loadChunk(currentTime);
+    console.log('[ECharts] Time window changed from', timeWindow, 'to', newWindow);
+    setTimeWindow(newWindow);
+    // loadChunk will be called automatically when chunkSize updates from timeWindow state change
   };
 
   const handleSeek = (time: number) => {
@@ -1122,7 +1129,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
               size="sm"
               onClick={handleNextChunk}
               disabled={
-                loading || currentTime >= duration - timeWindowRef.current
+                loading || currentTime >= duration - timeWindow
               }
             >
               <SkipForward className="h-4 w-4" />
@@ -1144,7 +1151,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
                 loadChunk(time);
               }}
               min={0}
-              max={Math.max(0, duration - timeWindowRef.current)}
+              max={Math.max(0, duration - timeWindow)}
               step={0.1}
               className="flex-1"
               disabled={loading}
@@ -1155,7 +1162,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
           <div className="flex items-center gap-3">
             <Label className="text-xs whitespace-nowrap">Time Window:</Label>
             <Slider
-              value={[timeWindowRef.current]}
+              value={[timeWindow]}
               onValueChange={handleTimeWindowChange}
               min={1}
               max={60}
@@ -1163,7 +1170,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
               className="flex-1"
             />
             <span className="text-xs text-muted-foreground w-12">
-              {timeWindowRef.current}s
+              {timeWindow}s
             </span>
           </div>
         </div>
@@ -1173,7 +1180,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
           <OverviewPlot
             overviewData={overviewData || null}
             currentTime={currentTime}
-            timeWindow={timeWindowRef.current}
+            timeWindow={timeWindow}
             duration={duration}
             onSeek={handleSeek}
             loading={overviewLoading}
@@ -1515,7 +1522,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
                 <div className="text-xs text-muted-foreground max-w-xs text-center">
                   Processing {selectedChannels.length} channels (
                   {Math.floor(
-                    timeWindowRef.current *
+                    timeWindow *
                       (fileManager.selectedFile?.sample_rate || 0)
                   ).toLocaleString()}{" "}
                   samples)

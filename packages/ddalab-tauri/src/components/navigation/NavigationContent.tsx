@@ -122,14 +122,15 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
         </div>
       )
     }
+  }
 
-    if (secondaryNav === 'notifications') {
-      return (
-        <div className="p-4 h-full">
-          <NotificationHistory />
-        </div>
-      )
-    }
+  // Notifications
+  if (primaryNav === 'notifications') {
+    return (
+      <div className="p-4 h-full">
+        <NotificationHistory />
+      </div>
+    )
   }
 
   return <div className="p-6">Unknown navigation state</div>

@@ -80,6 +80,7 @@ export interface DDAResult {
   created_at: string
   completed_at?: string
   error_message?: string
+  source?: 'local' | 'nsg'  // Source of the analysis results
 }
 
 export interface HealthResponse {

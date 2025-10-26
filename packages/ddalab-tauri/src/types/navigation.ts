@@ -1,4 +1,4 @@
-export type PrimaryNavTab = 'overview' | 'explore' | 'analyze' | 'manage'
+export type PrimaryNavTab = 'overview' | 'explore' | 'analyze' | 'manage' | 'notifications'
 
 export type SecondaryNavTab =
   // Explore tabs
@@ -15,7 +15,6 @@ export type SecondaryNavTab =
   | 'settings'
   | 'data-sources'
   | 'jobs'
-  | 'notifications'
 
 export interface NavigationCategory {
   id: PrimaryNavTab
@@ -60,7 +59,14 @@ export const navigationConfig: Record<PrimaryNavTab, NavigationCategory> = {
     label: 'Manage',
     icon: 'Settings',
     description: 'Settings and data sources',
-    secondaryTabs: ['settings', 'data-sources', 'jobs', 'notifications'],
+    secondaryTabs: ['settings', 'data-sources', 'jobs'],
+  },
+  notifications: {
+    id: 'notifications',
+    label: 'Notifications',
+    icon: 'Bell',
+    description: 'System notifications and alerts',
+    secondaryTabs: null,
   },
 }
 
@@ -140,11 +146,5 @@ export const secondaryTabConfig: Record<SecondaryNavTab, SecondaryTabConfig> = {
     label: 'Jobs',
     icon: 'Cloud',
     description: 'Remote computation jobs',
-  },
-  notifications: {
-    id: 'notifications',
-    label: 'Notifications',
-    icon: 'Bell',
-    description: 'System notifications',
   },
 }
