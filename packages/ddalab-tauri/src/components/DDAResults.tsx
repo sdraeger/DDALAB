@@ -799,37 +799,15 @@ export function DDAResults({ result }: DDAResultsProps) {
   }, [renderHeatmap, viewMode, heatmapData, colorRange, autoScale])
 
   useEffect(() => {
-    if ((viewMode === 'lineplot' || viewMode === 'both') && availableVariants.length > 0) {
-      // For multi-variant tabs, render immediately when tab changes
-      // IntersectionObserver doesn't work well with TabsContent hidden attribute
-      if (availableVariants.length > 1) {
-        // Small delay to ensure the tab content is visible in the DOM
-        const timer = setTimeout(() => {
-          if (linePlotRef.current) {
-            renderLinePlot()
-          }
-        }, 50)
-        return () => clearTimeout(timer)
-      } else if (linePlotRef.current) {
-        // For single variant, use IntersectionObserver for initial load
-        let hasRendered = false
-
-        const observer = new IntersectionObserver(
-          (entries) => {
-            entries.forEach((entry) => {
-              if (entry.isIntersecting && entry.target === linePlotRef.current && !hasRendered) {
-                hasRendered = true
-                renderLinePlot()
-                observer.disconnect()
-              }
-            })
-          },
-          { threshold: 0.1 }
-        )
-
-        observer.observe(linePlotRef.current)
-        return () => observer.disconnect()
-      }
+    if ((viewMode === 'lineplot' || viewMode === 'both') && availableVariants.length > 0 && linePlotRef.current) {
+      // Render immediately with small delay to ensure DOM is ready
+      // This works for both single and multi-variant results
+      const timer = setTimeout(() => {
+        if (linePlotRef.current) {
+          renderLinePlot()
+        }
+      }, 50)
+      return () => clearTimeout(timer)
     }
   }, [renderLinePlot, viewMode, availableVariants, selectedVariant])
 

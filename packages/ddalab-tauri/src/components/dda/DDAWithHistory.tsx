@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { ApiService } from '@/services/apiService'
 import { DDAResult } from '@/types/api'
-import { useDDAHistory, useDeleteAnalysis, useRenameAnalysis } from '@/hooks/useDDAAnalysis'
+import { useDDAHistory, useDeleteAnalysis, useRenameAnalysis, useAnalysisFromHistory } from '@/hooks/useDDAAnalysis'
 import { DDAHistorySidebar } from './DDAHistorySidebar'
 import { DDAAnalysis } from '@/components/DDAAnalysis'
 import { DDAResults } from '@/components/DDAResults'
+import { Loader2 } from 'lucide-react'
 
 interface DDAWithHistoryProps {
   apiService: ApiService
@@ -20,41 +21,79 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   const isServerReady = useAppStore(state => state.ui.isServerReady)
 
   const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false)
-  const [selectedAnalysis, setSelectedAnalysis] = useState<DDAResult | null>(null)
+  const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(null)
+  const isSettingAnalysis = useRef(false)
 
-  // Fetch history from server
+  // Fetch history from server using TanStack Query
   const {
     data: allHistory,
     isLoading: historyLoading,
     refetch: refetchHistory
   } = useDDAHistory(apiService, isServerReady && !!apiService.getSessionToken())
 
-  // Filter history by current file
+  // Memoize filtered history to prevent unnecessary re-renders
   const currentFilePath = fileManager.selectedFile?.file_path
-  const fileHistory = allHistory?.filter(item => item.file_path === currentFilePath) || []
+  const fileHistory = useMemo(
+    () => allHistory?.filter(item => item.file_path === currentFilePath) || [],
+    [allHistory, currentFilePath]
+  )
+
+  // Fetch full analysis data when a history item is selected
+  // TanStack Query will cache this and prevent duplicate requests
+  const {
+    data: selectedAnalysisData,
+    isLoading: isLoadingAnalysis,
+    isFetching: isFetchingAnalysis
+  } = useAnalysisFromHistory(
+    apiService,
+    selectedAnalysisId,
+    !!selectedAnalysisId && selectedAnalysisId !== currentAnalysis?.id
+  )
 
   // Mutations
   const deleteAnalysisMutation = useDeleteAnalysis(apiService)
   const renameAnalysisMutation = useRenameAnalysis(apiService)
 
-  // Sync selected analysis with current analysis
+  // Initialize selected ID when current analysis changes or file changes
   useEffect(() => {
-    if (currentAnalysis && currentAnalysis.file_path === currentFilePath) {
-      setSelectedAnalysis(currentAnalysis)
-    } else if (currentFilePath && !currentAnalysis) {
-      // No current analysis - show most recent for this file
-      if (fileHistory.length > 0) {
-        setSelectedAnalysis(fileHistory[0])
-      } else {
-        setSelectedAnalysis(null)
-      }
+    if (currentAnalysis?.file_path === currentFilePath) {
+      setSelectedAnalysisId(currentAnalysis.id)
+    } else if (!currentAnalysis && fileHistory.length > 0) {
+      // Auto-select most recent for this file
+      setSelectedAnalysisId(fileHistory[0].id)
+    } else if (!currentAnalysis) {
+      setSelectedAnalysisId(null)
     }
-  }, [currentAnalysis, currentFilePath, fileHistory])
+  }, [currentAnalysis?.id, currentFilePath]) // Only depend on IDs, not whole objects
+
+  // Update store when full analysis data is loaded
+  useEffect(() => {
+    if (selectedAnalysisData && !isSettingAnalysis.current) {
+      isSettingAnalysis.current = true
+      console.log('[DDA] Setting loaded analysis as current:', selectedAnalysisData.id)
+      setCurrentAnalysis(selectedAnalysisData)
+      // Use setTimeout to break out of sync rendering
+      setTimeout(() => {
+        isSettingAnalysis.current = false
+      }, 0)
+    }
+  }, [selectedAnalysisData?.id]) // Only depend on ID
 
   const handleSelectAnalysis = (analysis: DDAResult) => {
-    setSelectedAnalysis(analysis)
-    // Optionally set as current analysis
-    setCurrentAnalysis(analysis)
+    // Prevent multiple clicks while loading
+    if (isLoadingAnalysis || isFetchingAnalysis) {
+      console.log('[DDA] Already loading, ignoring click')
+      return
+    }
+
+    // Don't re-select the same analysis
+    if (selectedAnalysisId === analysis.id) {
+      console.log('[DDA] Analysis already selected:', analysis.id)
+      return
+    }
+
+    console.log('[DDA] Selecting analysis:', analysis.id)
+    setSelectedAnalysisId(analysis.id)
   }
 
   const handleDeleteAnalysis = async (id: string, e: React.MouseEvent) => {
@@ -68,17 +107,13 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
       await deleteAnalysisMutation.mutateAsync(id)
 
       // If we deleted the selected analysis, clear selection
-      if (selectedAnalysis?.id === id) {
-        setSelectedAnalysis(null)
-      }
-
-      // If we deleted the current analysis, clear it
-      if (currentAnalysis?.id === id) {
+      if (selectedAnalysisId === id) {
+        setSelectedAnalysisId(null)
         setCurrentAnalysis(null)
       }
 
       // Refresh history
-      refetchHistory()
+      await refetchHistory()
     } catch (error) {
       console.error('[DDA] Failed to delete analysis:', error)
     }
@@ -87,20 +122,25 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   const handleRenameAnalysis = async (id: string, name: string) => {
     try {
       await renameAnalysisMutation.mutateAsync({ id, name })
-      refetchHistory()
+      await refetchHistory()
     } catch (error) {
       console.error('[DDA] Failed to rename analysis:', error)
     }
   }
+
+  // Determine what to display
+  const displayAnalysis = currentAnalysis?.id === selectedAnalysisId
+    ? currentAnalysis
+    : selectedAnalysisData
 
   return (
     <div className="flex h-full">
       {/* History Sidebar */}
       <DDAHistorySidebar
         history={fileHistory}
-        currentAnalysisId={currentAnalysis?.id || null}
-        selectedAnalysisId={selectedAnalysis?.id || null}
-        isLoading={historyLoading}
+        currentAnalysisId={selectedAnalysisId}
+        selectedAnalysisId={selectedAnalysisId}
+        isLoading={historyLoading || isLoadingAnalysis || isFetchingAnalysis}
         isCollapsed={isHistoryCollapsed}
         onToggleCollapse={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
         onSelectAnalysis={handleSelectAnalysis}
@@ -111,10 +151,19 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
 
       {/* Main Content */}
       <div className="flex-1 overflow-auto">
-        {selectedAnalysis ? (
-          // Show results when an analysis is selected
-          <div className="p-4">
-            <DDAResults result={selectedAnalysis} />
+        {(isLoadingAnalysis || isFetchingAnalysis) && selectedAnalysisId ? (
+          // Show loading state while fetching analysis data
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+              <p className="text-sm text-muted-foreground">Loading analysis...</p>
+            </div>
+          </div>
+        ) : displayAnalysis ? (
+          // Show results when analysis data is loaded
+          // Key forces re-mount when switching between analyses
+          <div key={displayAnalysis.id} className="p-4">
+            <DDAResults result={displayAnalysis} />
           </div>
         ) : (
           // Show parameters form when no analysis selected
