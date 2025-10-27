@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tauri::Emitter;
 use super::client::NSGClient;
 use super::models::{NSGCredentials, NSGResourceConfig};
 use crate::api::handlers::dda::DDARequest;
@@ -166,6 +167,19 @@ impl NSGJobManager {
                 job.output_files = output_files.iter()
                     .map(|f| f.filename.clone())
                     .collect();
+            } else if let Some(ref results_uri) = status_response.results_uri {
+                log::info!("📋 Fetching output files list for completed job {}", job_id);
+                match self.client.list_output_files(results_uri).await {
+                    Ok(files) => {
+                        job.output_files = files.iter()
+                            .map(|f| f.filename.clone())
+                            .collect();
+                        log::info!("✅ Found {} output files for job {}", job.output_files.len(), job_id);
+                    }
+                    Err(e) => {
+                        log::error!("❌ Failed to list output files for job {}: {}", job_id, e);
+                    }
+                }
             }
         }
 
@@ -210,7 +224,7 @@ impl NSGJobManager {
         Ok(job)
     }
 
-    pub async fn download_results(&self, job_id: &str) -> Result<Vec<PathBuf>> {
+    pub async fn download_results(&self, job_id: &str, app_handle: Option<tauri::AppHandle>) -> Result<Vec<PathBuf>> {
         let job = self.db.get_job(job_id)
             .context("Failed to get job from database")?
             .ok_or_else(|| anyhow!("Job not found: {}", job_id))?;
@@ -255,16 +269,50 @@ impl NSGJobManager {
             .context("Failed to create job output directory")?;
 
         let mut downloaded_paths = Vec::new();
+        let total_files = output_files.len();
 
-        for output_file in &output_files {
+        for (index, output_file) in output_files.iter().enumerate() {
             let output_path = job_output_dir.join(&output_file.filename);
 
+            log::info!("⬇️  Downloading file {}/{}: {} ({} bytes)",
+                index + 1, total_files, output_file.filename, output_file.length);
+
+            let job_id_clone = job_id.to_string();
+            let filename_clone = output_file.filename.clone();
+            let file_number = index + 1;
+            let handle_clone = app_handle.clone();
+
             self.client
-                .download_output_file(&output_file.download_uri, &output_path)
+                .download_output_file(
+                    &output_file.download_uri,
+                    &output_path,
+                    output_file.length,
+                    move |downloaded, total| {
+                        if let Some(ref handle) = handle_clone {
+                            let file_progress = if total > 0 {
+                                ((downloaded as f64 / total as f64) * 100.0) as u32
+                            } else {
+                                0
+                            };
+
+                            let _ = handle.emit("nsg-download-progress", serde_json::json!({
+                                "job_id": job_id_clone,
+                                "current_file": file_number,
+                                "total_files": total_files,
+                                "filename": filename_clone,
+                                "bytes_downloaded": downloaded,
+                                "total_bytes": total,
+                                "file_progress": file_progress
+                            }));
+                        }
+                    }
+                )
                 .await
                 .context(format!("Failed to download file: {}", output_file.filename))?;
 
             downloaded_paths.push(output_path);
+
+            log::info!("✅ Downloaded file {}/{}: {}", index + 1, total_files, output_file.filename);
         }
 
         log::info!("✅ Downloaded {} result files for job {}", downloaded_paths.len(), job.id);

@@ -3,7 +3,7 @@ use chrono::Utc;
 use crate::api::models::{EDFFileInfo, ChunkData};
 use crate::edf::EDFReader;
 use crate::text_reader::TextFileReader;
-use crate::file_readers::FileReaderFactory;
+use crate::file_readers::{FileReaderFactory, parse_edf_datetime};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileType {
@@ -84,6 +84,21 @@ pub fn read_file_metadata_with_reader(path: &Path) -> Result<EDFFileInfo, String
     let file_metadata = reader.metadata()
         .map_err(|e| format!("Failed to read file metadata: {}", e))?;
 
+    // Use file's recording start time if available, otherwise use created_at
+    let start_time = file_metadata.start_time.clone().unwrap_or_else(|| created_at.clone());
+    log::info!("File metadata start_time: {:?}, using: {}", file_metadata.start_time, start_time);
+
+    // Calculate end time as start_time + duration
+    let end_time = if let Ok(start_dt) = chrono::DateTime::parse_from_rfc3339(&start_time) {
+        let end_dt = start_dt + chrono::Duration::milliseconds((file_metadata.duration * 1000.0) as i64);
+        log::info!("Calculated end_time: {}", end_dt.to_rfc3339());
+        end_dt.to_rfc3339()
+    } else {
+        log::warn!("Failed to parse start_time as RFC3339: {}", start_time);
+        // If start_time parsing fails, use start_time as fallback
+        start_time.clone()
+    };
+
     Ok(EDFFileInfo {
         file_path,
         file_name,
@@ -94,6 +109,8 @@ pub fn read_file_metadata_with_reader(path: &Path) -> Result<EDFFileInfo, String
         channels: file_metadata.channels,
         created_at,
         last_modified,
+        start_time,
+        end_time,
     })
 }
 
@@ -287,6 +304,14 @@ pub async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
                         let sample_rate = 1.0;
                         let duration = num_samples as f64 / sample_rate;
 
+                        // Calculate end time
+                        let end_time = if let Ok(start_dt) = chrono::DateTime::parse_from_rfc3339(&created_at) {
+                            let end_dt = start_dt + chrono::Duration::milliseconds((duration * 1000.0) as i64);
+                            end_dt.to_rfc3339()
+                        } else {
+                            created_at.clone()
+                        };
+
                         Some(EDFFileInfo {
                             file_path,
                             file_name,
@@ -295,8 +320,10 @@ pub async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
                             sample_rate,
                             total_samples: Some(num_samples as u64),
                             channels,
-                            created_at,
+                            created_at: created_at.clone(),
                             last_modified,
+                            start_time: created_at,
+                            end_time,
                         })
                     }
                     Err(e) => {
@@ -317,6 +344,14 @@ pub async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
                         let sample_rate = 1.0;
                         let duration = num_samples as f64 / sample_rate;
 
+                        // Calculate end time
+                        let end_time = if let Ok(start_dt) = chrono::DateTime::parse_from_rfc3339(&created_at) {
+                            let end_dt = start_dt + chrono::Duration::milliseconds((duration * 1000.0) as i64);
+                            end_dt.to_rfc3339()
+                        } else {
+                            created_at.clone()
+                        };
+
                         Some(EDFFileInfo {
                             file_path,
                             file_name,
@@ -325,8 +360,10 @@ pub async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
                             sample_rate,
                             total_samples: Some(num_samples as u64),
                             channels,
-                            created_at,
+                            created_at: created_at.clone(),
                             last_modified,
+                            start_time: created_at,
+                            end_time,
                         })
                     }
                     Err(e) => {
@@ -368,6 +405,19 @@ pub async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
                             file_name, num_channels, sample_rate, header.num_data_records, samples_per_record, total_samples_per_channel, duration, duration / 60.0
                         );
 
+                        // Get EDF recording start time from header
+                        // EDF format: date="dd.mm.yy" time="hh.mm.ss"
+                        let start_time = parse_edf_datetime(&header.start_date, &header.start_time)
+                            .unwrap_or_else(|| created_at.clone());
+
+                        // Calculate end time
+                        let end_time = if let Ok(start_dt) = chrono::DateTime::parse_from_rfc3339(&start_time) {
+                            let end_dt = start_dt + chrono::Duration::milliseconds((duration * 1000.0) as i64);
+                            end_dt.to_rfc3339()
+                        } else {
+                            start_time.clone()
+                        };
+
                         let file_info = EDFFileInfo {
                             file_path,
                             file_name,
@@ -378,6 +428,8 @@ pub async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
                             channels,
                             created_at,
                             last_modified,
+                            start_time,
+                            end_time,
                         };
 
                         log::info!("Returning file info with duration: {:?}", file_info.duration);
