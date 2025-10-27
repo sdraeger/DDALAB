@@ -17,6 +17,7 @@ mod recording;
 mod file_readers;
 mod intermediate_format;
 mod db;
+mod annotations;
 
 // Import required modules
 use app_setup::setup_app;
@@ -80,11 +81,29 @@ fn main() {
             get_annotation,
             delete_annotation,
             get_annotations_in_range,
+            get_all_annotations,
+            // Annotation file export/import commands
+            export_annotations,
+            import_annotations,
             // File view state database commands
             save_file_view_state,
             get_file_view_state,
             delete_file_view_state,
             get_all_file_view_states,
+            // File-centric state commands (modular state management)
+            save_file_plot_state,
+            get_file_plot_state,
+            clear_file_plot_state,
+            save_file_dda_state,
+            get_file_dda_state,
+            clear_file_dda_state,
+            save_file_annotation_state,
+            get_file_annotation_state,
+            clear_file_annotation_state,
+            get_file_specific_state,
+            save_file_state_registry,
+            get_file_state_registry,
+            get_tracked_files,
             // Window management commands
             focus_main_window,
             create_popout_window,

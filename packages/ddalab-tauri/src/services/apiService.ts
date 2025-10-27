@@ -130,8 +130,8 @@ export class ApiService {
         sample_rate: edfResponse.data.sample_rate || edfResponse.data.sampling_rate || 256,
         channels: edfResponse.data.channels || [],
         total_samples: edfResponse.data.total_samples || 0,
-        start_time: new Date().toISOString(),
-        end_time: new Date().toISOString(),
+        start_time: edfResponse.data.start_time || new Date().toISOString(),
+        end_time: edfResponse.data.end_time || new Date().toISOString(),
         annotations_count: 0
       }
 
