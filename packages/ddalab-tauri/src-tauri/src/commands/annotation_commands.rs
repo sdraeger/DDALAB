@@ -14,12 +14,6 @@ pub async fn export_annotations(
 ) -> Result<Option<String>, String> {
     log::info!("Exporting annotations for file: {}", file_path);
 
-    // Get annotations from database
-    let file_annotations = state_manager
-        .get_annotation_db()
-        .get_file_annotations(&file_path)
-        .map_err(|e| format!("Failed to get annotations: {}", e))?;
-
     // Get file metadata for validation
     let path = std::path::Path::new(&file_path);
     let (sample_rate, duration) = if path.exists() {
@@ -46,24 +40,97 @@ pub async fn export_annotations(
     annotation_file.sample_rate = sample_rate;
     annotation_file.duration = duration;
 
-    // Convert global annotations
-    annotation_file.global_annotations = file_annotations
-        .global_annotations
-        .into_iter()
-        .map(|ann| convert_annotation(ann))
-        .collect();
+    // Get annotations from file-centric state module
+    let file_state_result = state_manager
+        .get_file_state_db()
+        .get_module_state(&file_path, "annotations")
+        .map_err(|e| format!("Failed to get annotations: {}", e))?;
 
-    // Convert channel annotations
-    annotation_file.channel_annotations = file_annotations
-        .channel_annotations
-        .into_iter()
-        .map(|(channel, anns)| {
-            (
-                channel,
-                anns.into_iter().map(|ann| convert_annotation(ann)).collect(),
-            )
-        })
-        .collect();
+    if let Some(state_value) = file_state_result {
+        // Parse the FileAnnotationState from JSON
+        #[derive(serde::Deserialize)]
+        struct FileAnnotationState {
+            #[serde(rename = "timeSeries")]
+            time_series: TimeSeriesAnnotations,
+            #[serde(rename = "ddaResults", default)]
+            dda_results: std::collections::HashMap<String, Vec<PlotAnnotation>>,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct TimeSeriesAnnotations {
+            global: Vec<PlotAnnotation>,
+            channels: std::collections::HashMap<String, Vec<PlotAnnotation>>,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct PlotAnnotation {
+            id: String,
+            position: f64,
+            label: String,
+            #[serde(default)]
+            description: Option<String>,
+            #[serde(default)]
+            color: Option<String>,
+            #[serde(rename = "createdAt")]
+            created_at: String,
+            #[serde(rename = "updatedAt", default)]
+            updated_at: Option<String>,
+        }
+
+        match serde_json::from_value::<FileAnnotationState>(state_value) {
+            Ok(file_annotation_state) => {
+                // Convert global annotations
+                annotation_file.global_annotations = file_annotation_state
+                    .time_series
+                    .global
+                    .into_iter()
+                    .map(|ann| AnnotationEntry {
+                        id: ann.id,
+                        position: ann.position,
+                        label: ann.label,
+                        description: ann.description,
+                        color: ann.color,
+                        created_at: ann.created_at,
+                        updated_at: ann.updated_at,
+                    })
+                    .collect();
+
+                // Convert channel annotations
+                annotation_file.channel_annotations = file_annotation_state
+                    .time_series
+                    .channels
+                    .into_iter()
+                    .map(|(channel, anns)| {
+                        (
+                            channel,
+                            anns.into_iter()
+                                .map(|ann| AnnotationEntry {
+                                    id: ann.id,
+                                    position: ann.position,
+                                    label: ann.label,
+                                    description: ann.description,
+                                    color: ann.color,
+                                    created_at: ann.created_at,
+                                    updated_at: ann.updated_at,
+                                })
+                                .collect(),
+                        )
+                    })
+                    .collect();
+
+                log::info!(
+                    "Loaded {} global annotations and {} channel annotations from file state",
+                    annotation_file.global_annotations.len(),
+                    annotation_file.channel_annotations.len()
+                );
+            }
+            Err(e) => {
+                log::warn!("Failed to parse annotation state: {}", e);
+            }
+        }
+    } else {
+        log::info!("No annotation state found for file: {}", file_path);
+    }
 
     // Show save file dialog
     let save_path = app
