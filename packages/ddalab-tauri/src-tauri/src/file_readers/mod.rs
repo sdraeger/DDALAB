@@ -25,6 +25,42 @@ pub use brainvision_reader::BrainVisionFileReader;
 pub use eeglab_reader::EEGLABFileReader;
 pub use fif_reader::FIFFileReader;
 
+/// Parse EDF datetime from date (dd.mm.yy) and time (hh.mm.ss) strings to RFC3339 format
+pub fn parse_edf_datetime(date_str: &str, time_str: &str) -> Option<String> {
+    // EDF date format: dd.mm.yy
+    // EDF time format: hh.mm.ss
+    let date_parts: Vec<&str> = date_str.trim().split('.').collect();
+    let time_parts: Vec<&str> = time_str.trim().split('.').collect();
+
+    if date_parts.len() != 3 || time_parts.len() != 3 {
+        return None;
+    }
+
+    let day: u32 = date_parts[0].parse().ok()?;
+    let month: u32 = date_parts[1].parse().ok()?;
+    let mut year: i32 = date_parts[2].parse().ok()?;
+
+    // EDF uses 2-digit year: 85-99 = 1985-1999, 00-84 = 2000-2084
+    if year >= 85 {
+        year += 1900;
+    } else {
+        year += 2000;
+    }
+
+    let hour: u32 = time_parts[0].parse().ok()?;
+    let minute: u32 = time_parts[1].parse().ok()?;
+    let second: u32 = time_parts[2].parse().ok()?;
+
+    // Create naive datetime and convert to UTC
+    use chrono::{NaiveDate, NaiveTime, NaiveDateTime, TimeZone, Utc};
+    let naive_date = NaiveDate::from_ymd_opt(year, month, day)?;
+    let naive_time = NaiveTime::from_hms_opt(hour, minute, second)?;
+    let naive_datetime = NaiveDateTime::new(naive_date, naive_time);
+    let datetime = Utc.from_utc_datetime(&naive_datetime);
+
+    Some(datetime.to_rfc3339())
+}
+
 /// Common metadata for all file formats
 #[derive(Debug, Clone)]
 pub struct FileMetadata {
@@ -294,4 +330,16 @@ mod tests {
         assert!(FileReaderFactory::is_recognized(Path::new("test.vhdr")));
         assert!(!FileReaderFactory::is_recognized(Path::new("test.xyz")));
     }
+
+    #[test]
+    fn test_parse_edf_datetime() {
+        // Test with the actual file date: 06.04.16 10.38.36
+        let result = parse_edf_datetime("06.04.16", "10.38.36");
+        assert!(result.is_some());
+        let datetime_str = result.unwrap();
+        println!("Parsed datetime: {}", datetime_str);
+        assert!(datetime_str.contains("2016-04-06"));
+        assert!(datetime_str.contains("10:38:36"));
+    }
 }
+

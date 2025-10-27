@@ -12,6 +12,8 @@ pub struct EDFFileInfo {
     pub channels: Vec<String>,
     pub created_at: String,
     pub last_modified: String,
+    pub start_time: String,
+    pub end_time: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

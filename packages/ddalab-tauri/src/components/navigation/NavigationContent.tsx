@@ -11,6 +11,7 @@ import { SettingsPanel } from '@/components/SettingsPanel'
 import { OpenNeuroBrowser } from '@/components/OpenNeuroBrowser'
 import { NSGJobManager } from '@/components/NSGJobManager'
 import { NotificationHistory } from '@/components/NotificationHistory'
+import { FileInfoCard } from '@/components/FileInfoCard'
 import { Card, CardContent } from '@/components/ui/card'
 import { Brain, Activity, FileText } from 'lucide-react'
 
@@ -159,37 +160,46 @@ function OverviewDashboard() {
       </div>
 
       {fileManager.selectedFile && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleQuickAction('explore', 'timeseries')}>
-            <CardContent className="p-6">
-              <Activity className="h-8 w-8 mb-3 text-primary" />
-              <h3 className="font-semibold mb-1">View Data</h3>
-              <p className="text-sm text-muted-foreground">
-                Explore time series visualization
-              </p>
-            </CardContent>
-          </Card>
+        <>
+          {/* File Information Card */}
+          <FileInfoCard fileInfo={fileManager.selectedFile} />
 
-          <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleQuickAction('analyze', 'dda')}>
-            <CardContent className="p-6">
-              <Brain className="h-8 w-8 mb-3 text-primary" />
-              <h3 className="font-semibold mb-1">Run Analysis</h3>
-              <p className="text-sm text-muted-foreground">
-                Perform DDA analysis
-              </p>
-            </CardContent>
-          </Card>
+          {/* Quick Actions */}
+          <div>
+            <h3 className="text-lg font-semibold mb-3">Quick Actions</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleQuickAction('explore', 'timeseries')}>
+                <CardContent className="p-6">
+                  <Activity className="h-8 w-8 mb-3 text-primary" />
+                  <h3 className="font-semibold mb-1">View Data</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Explore time series visualization
+                  </p>
+                </CardContent>
+              </Card>
 
-          <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleQuickAction('explore', 'annotations')}>
-            <CardContent className="p-6">
-              <FileText className="h-8 w-8 mb-3 text-primary" />
-              <h3 className="font-semibold mb-1">Annotations</h3>
-              <p className="text-sm text-muted-foreground">
-                {currentAnalysis ? 'View/edit annotations' : 'Add annotations'}
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleQuickAction('analyze', 'dda')}>
+                <CardContent className="p-6">
+                  <Brain className="h-8 w-8 mb-3 text-primary" />
+                  <h3 className="font-semibold mb-1">Run Analysis</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Perform DDA analysis
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleQuickAction('explore', 'annotations')}>
+                <CardContent className="p-6">
+                  <FileText className="h-8 w-8 mb-3 text-primary" />
+                  <h3 className="font-semibold mb-1">Annotations</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {currentAnalysis ? 'View/edit annotations' : 'Add annotations'}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </>
       )}
 
       {!fileManager.selectedFile && (
