@@ -4,7 +4,7 @@
 
 use std::path::Path;
 use crate::edf::EDFReader as CoreEDFReader;
-use super::{FileReader, FileMetadata, FileResult, FileReaderError};
+use super::{FileReader, FileMetadata, FileResult, FileReaderError, parse_edf_datetime};
 
 pub struct EDFFileReader {
     edf: CoreEDFReader,
@@ -50,8 +50,11 @@ impl FileReader for EDFFileReader {
         // Calculate total duration
         let duration = header.num_data_records as f64 * header.duration_of_data_record;
 
-        // Format start time
-        let start_time_str = format!("{} {}", header.start_date, header.start_time);
+        // Parse EDF start time to RFC3339 format
+        // EDF format: date="dd.mm.yy" time="hh.mm.ss"
+        log::info!("EDF header start_date: '{}', start_time: '{}'", header.start_date, header.start_time);
+        let start_time = parse_edf_datetime(&header.start_date, &header.start_time);
+        log::info!("Parsed start_time: {:?}", start_time);
 
         Ok(FileMetadata {
             file_path: self.path.clone(),
@@ -66,7 +69,7 @@ impl FileReader for EDFFileReader {
             num_samples,
             duration,
             channels,
-            start_time: Some(start_time_str),
+            start_time,
             file_type: "EDF".to_string(),
         })
     }

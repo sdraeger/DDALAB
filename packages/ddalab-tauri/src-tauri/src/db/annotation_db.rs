@@ -14,6 +14,8 @@ pub struct Annotation {
     pub color: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub visible_in_plots: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +61,7 @@ impl AnnotationDatabase {
                     label TEXT NOT NULL,
                     color TEXT,
                     description TEXT,
+                    visible_in_plots TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -68,6 +71,32 @@ impl AnnotationDatabase {
                 CREATE INDEX IF NOT EXISTS idx_annotations_position ON annotations(file_path, position);",
             )
             .context("Failed to create annotations table")?;
+
+        // Migrate existing tables to add new columns if they don't exist
+        self.migrate_schema()?;
+
+        Ok(())
+    }
+
+    fn migrate_schema(&self) -> Result<()> {
+        let conn = self.conn.lock();
+
+        // Check if visible_in_plots column exists
+        let visible_in_plots_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('annotations') WHERE name='visible_in_plots'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0) > 0;
+
+        if !visible_in_plots_exists {
+            conn.execute(
+                "ALTER TABLE annotations ADD COLUMN visible_in_plots TEXT",
+                [],
+            )
+            .context("Failed to add visible_in_plots column")?;
+        }
 
         Ok(())
     }
@@ -79,12 +108,14 @@ impl AnnotationDatabase {
         annotation: &Annotation,
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
+        let visible_in_plots_json = serde_json::to_string(&annotation.visible_in_plots)
+            .context("Failed to serialize visible_in_plots")?;
 
         self.conn.lock().execute(
             "INSERT OR REPLACE INTO annotations
-             (id, file_path, channel, position, label, color, description, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7,
-                     COALESCE((SELECT created_at FROM annotations WHERE id = ?1), ?8), ?8)",
+             (id, file_path, channel, position, label, color, description, visible_in_plots, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+                     COALESCE((SELECT created_at FROM annotations WHERE id = ?1), ?9), ?9)",
             params![
                 annotation.id,
                 file_path,
@@ -93,6 +124,7 @@ impl AnnotationDatabase {
                 annotation.label,
                 annotation.color,
                 annotation.description,
+                visible_in_plots_json,
                 now,
             ],
         )
@@ -104,7 +136,7 @@ impl AnnotationDatabase {
     pub fn get_file_annotations(&self, file_path: &str) -> Result<FileAnnotations> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, channel, position, label, color, description
+            "SELECT id, channel, position, label, color, description, visible_in_plots
              FROM annotations
              WHERE file_path = ?1
              ORDER BY position",
@@ -115,12 +147,18 @@ impl AnnotationDatabase {
 
         let rows = stmt.query_map(params![file_path], |row| {
             let channel: Option<String> = row.get(1)?;
+            let visible_in_plots_json: Option<String> = row.get(6)?;
+            let visible_in_plots = visible_in_plots_json
+                .and_then(|json| serde_json::from_str(&json).ok())
+                .unwrap_or_else(Vec::new);
+
             let annotation = Annotation {
                 id: row.get(0)?,
                 position: row.get(2)?,
                 label: row.get(3)?,
                 color: row.get(4)?,
                 description: row.get(5)?,
+                visible_in_plots,
             };
             Ok((channel, annotation))
         })?;
@@ -146,19 +184,25 @@ impl AnnotationDatabase {
     pub fn get_annotation(&self, id: &str) -> Result<Option<Annotation>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, position, label, color, description
+            "SELECT id, position, label, color, description, visible_in_plots
              FROM annotations
              WHERE id = ?1",
         )?;
 
         let result = stmt
             .query_row(params![id], |row| {
+                let visible_in_plots_json: Option<String> = row.get(5)?;
+                let visible_in_plots = visible_in_plots_json
+                    .and_then(|json| serde_json::from_str(&json).ok())
+                    .unwrap_or_else(Vec::new);
+
                 Ok(Annotation {
                     id: row.get(0)?,
                     position: row.get(1)?,
                     label: row.get(2)?,
                     color: row.get(3)?,
                     description: row.get(4)?,
+                    visible_in_plots,
                 })
             })
             .optional()
@@ -214,7 +258,7 @@ impl AnnotationDatabase {
     ) -> Result<Vec<Annotation>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, position, label, color, description
+            "SELECT id, position, label, color, description, visible_in_plots
              FROM annotations
              WHERE file_path = ?1 AND position >= ?2 AND position <= ?3
              ORDER BY position",
@@ -222,12 +266,18 @@ impl AnnotationDatabase {
 
         let annotations = stmt
             .query_map(params![file_path, start, end], |row| {
+                let visible_in_plots_json: Option<String> = row.get(5)?;
+                let visible_in_plots = visible_in_plots_json
+                    .and_then(|json| serde_json::from_str(&json).ok())
+                    .unwrap_or_else(Vec::new);
+
                 Ok(Annotation {
                     id: row.get(0)?,
                     position: row.get(1)?,
                     label: row.get(2)?,
                     color: row.get(3)?,
                     description: row.get(4)?,
+                    visible_in_plots,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()
