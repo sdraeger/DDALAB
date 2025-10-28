@@ -141,6 +141,40 @@ export function useOverviewData(
   });
 }
 
+export function useOverviewProgress(
+  apiService: ApiService,
+  filePath: string,
+  requestedChannels?: string[],
+  maxPoints: number = 2000,
+  enabled: boolean = true
+) {
+  return useQuery({
+    queryKey: [...timeSeriesKeys.overview(filePath, requestedChannels, maxPoints), 'progress'],
+    queryFn: async ({ signal }) => {
+      return apiService.getOverviewProgress(
+        filePath,
+        requestedChannels,
+        maxPoints,
+        signal
+      );
+    },
+    enabled: enabled && !!filePath,
+    refetchInterval: (query) => {
+      // Poll every 500ms while overview is being generated
+      const data = query.state.data;
+      if (!data || !data.has_cache || !data.is_complete) {
+        return 500;
+      }
+      // Stop polling once complete
+      return false;
+    },
+    staleTime: 0, // Always fresh
+    gcTime: 5 * 60 * 1000, // 5 minutes
+    retry: false, // Don't retry on error
+    refetchOnWindowFocus: false,
+  });
+}
+
 /**
  * Hook to fetch multiple overviews in parallel (e.g., for multiple channel combinations)
  *
