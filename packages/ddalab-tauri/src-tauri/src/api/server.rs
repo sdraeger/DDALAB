@@ -1,15 +1,15 @@
-use std::sync::Arc;
+use crate::api::{create_router, generate_session_token, ApiState};
 use std::path::PathBuf;
-use crate::api::{ApiState, generate_session_token, create_router};
+use std::sync::Arc;
 
 /// Configuration for the API server
 #[derive(Debug, Clone)]
 pub struct ApiServerConfig {
     pub port: u16,
-    pub bind_address: String,  // "127.0.0.1" for localhost, "0.0.0.0" for LAN
+    pub bind_address: String, // "127.0.0.1" for localhost, "0.0.0.0" for LAN
     pub use_https: bool,
     pub require_auth: bool,
-    pub hostname: Option<String>,  // For LAN cert generation
+    pub hostname: Option<String>, // For LAN cert generation
 }
 
 impl Default for ApiServerConfig {
@@ -17,7 +17,7 @@ impl Default for ApiServerConfig {
         Self {
             port: 8765,
             bind_address: "127.0.0.1".to_string(),
-            use_https: false,  // HTTP by default - HTTPS has WebView trust issues
+            use_https: false, // HTTP by default - HTTPS has WebView trust issues
             require_auth: true,
             hostname: None,
         }
@@ -31,7 +31,8 @@ pub async fn start_api_server(
     config: ApiServerConfig,
     data_directory: PathBuf,
     dda_binary_path: Option<PathBuf>,
-) -> anyhow::Result<(String, u16, JoinHandle<()>)> {  // Returns (session_token, actual_port, task_handle)
+) -> anyhow::Result<(String, u16, JoinHandle<()>)> {
+    // Returns (session_token, actual_port, task_handle)
     log::info!("🚀 Initializing API server...");
     log::info!("📁 Data directory: {:?}", data_directory);
     log::info!("🔌 Port: {}", config.port);
@@ -59,7 +60,9 @@ pub async fn start_api_server(
                 if attempts >= 3 {
                     return Err(anyhow::anyhow!(
                         "No available ports found after trying {}, {}, and {}",
-                        config.port, config.port + 1, config.port + 2
+                        config.port,
+                        config.port + 1,
+                        config.port + 2
                     ));
                 }
                 port_to_use += 1;
@@ -92,7 +95,10 @@ pub async fn start_api_server(
 
     if config.use_https {
         // Setup TLS
-        use crate::utils::certs::{get_certs_dir, check_certificates, generate_localhost_certs, generate_lan_certs, load_tls_config};
+        use crate::utils::certs::{
+            check_certificates, generate_lan_certs, generate_localhost_certs, get_certs_dir,
+            load_tls_config,
+        };
 
         let cert_dir = get_certs_dir()?;
         let cert_path = cert_dir.join("server.crt");
@@ -120,16 +126,22 @@ pub async fn start_api_server(
 
         log::info!("🌐 Starting HTTPS server on https://{}", bind_addr);
         log::info!("🎯 Health endpoint: https://{}/api/health", bind_addr);
-        log::info!("🔑 Session token (first 8 chars): {}...", &session_token[..8.min(session_token.len())]);
+        log::info!(
+            "🔑 Session token (first 8 chars): {}...",
+            &session_token[..8.min(session_token.len())]
+        );
 
         // Return session token BEFORE starting the server (which blocks)
         let token_to_return = session_token.clone();
 
         // Start HTTPS server in background and capture the handle
         let server_handle = tokio::spawn(async move {
-            let result = axum_server::bind_rustls(bind_addr.parse().expect("Invalid bind address"), tls_config)
-                .serve(app.into_make_service())
-                .await;
+            let result = axum_server::bind_rustls(
+                bind_addr.parse().expect("Invalid bind address"),
+                tls_config,
+            )
+            .serve(app.into_make_service())
+            .await;
 
             if let Err(e) = result {
                 log::error!("❌ HTTPS server error: {}", e);

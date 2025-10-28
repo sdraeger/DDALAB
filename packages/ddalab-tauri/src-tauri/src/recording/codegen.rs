@@ -1,8 +1,8 @@
-use tera::{Tera, Context};
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
+use tera::{Context, Tera};
 
+use super::actions::{ExportFormat, FileType, PlotType, TransformType, WorkflowAction};
 use super::workflow::WorkflowGraph;
-use super::actions::{WorkflowAction, FileType, ExportFormat, PlotType, TransformType};
 
 pub struct CodeGenerator {
     tera: Tera,
@@ -23,13 +23,15 @@ impl CodeGenerator {
 
     pub fn generate_python(&self, workflow: &WorkflowGraph) -> Result<String> {
         let context = self.build_context(workflow, "python")?;
-        self.tera.render("workflow.py", &context)
+        self.tera
+            .render("workflow.py", &context)
             .map_err(|e| anyhow!("Failed to render Python template: {}", e))
     }
 
     pub fn generate_julia(&self, workflow: &WorkflowGraph) -> Result<String> {
         let context = self.build_context(workflow, "julia")?;
-        self.tera.render("workflow.jl", &context)
+        self.tera
+            .render("workflow.jl", &context)
             .map_err(|e| anyhow!("Failed to render Julia template: {}", e))
     }
 
@@ -69,59 +71,88 @@ impl CodeGenerator {
 
     fn generate_python_action(&self, action: &WorkflowAction) -> Result<String> {
         let code = match action {
-            WorkflowAction::LoadFile { path, file_type } => {
-                match file_type {
-                    FileType::EDF => format!("data = load_edf_file('{}')", path),
-                    FileType::ASCII => format!("data = np.loadtxt('{}')", path),
-                    FileType::CSV => format!("data = pd.read_csv('{}')", path),
-                }
-            }
-            WorkflowAction::SetDDAParameters { lag, dimension, window_size, window_offset } => {
+            WorkflowAction::LoadFile { path, file_type } => match file_type {
+                FileType::EDF => format!("data = load_edf_file('{}')", path),
+                FileType::ASCII => format!("data = np.loadtxt('{}')", path),
+                FileType::CSV => format!("data = pd.read_csv('{}')", path),
+            },
+            WorkflowAction::SetDDAParameters {
+                lag,
+                dimension,
+                window_size,
+                window_offset,
+            } => {
                 format!(
                     "dda_params = {{\n        'lag': {},\n        'dimension': {},\n        'window_size': {},\n        'window_offset': {}\n    }}",
                     lag, dimension, window_size, window_offset
                 )
             }
-            WorkflowAction::RunDDAAnalysis { input_id: _, channel_selection } => {
+            WorkflowAction::RunDDAAnalysis {
+                input_id: _,
+                channel_selection,
+            } => {
                 format!(
                     "result = run_dda_analysis(data, channels={}, **dda_params)",
                     format_list(channel_selection)
                 )
             }
-            WorkflowAction::ExportResults { result_id: _, format, path } => {
-                match format {
-                    ExportFormat::CSV => format!("result.to_csv('{}')", path),
-                    ExportFormat::JSON => format!("result.to_json('{}')", path),
-                    ExportFormat::MAT => format!("scipy.io.savemat('{}', {{'result': result}})", path),
-                }
-            }
-            WorkflowAction::GeneratePlot { result_id: _, plot_type, options } => {
-                let title = options.title.as_ref()
+            WorkflowAction::ExportResults {
+                result_id: _,
+                format,
+                path,
+            } => match format {
+                ExportFormat::CSV => format!("result.to_csv('{}')", path),
+                ExportFormat::JSON => format!("result.to_json('{}')", path),
+                ExportFormat::MAT => format!("scipy.io.savemat('{}', {{'result': result}})", path),
+            },
+            WorkflowAction::GeneratePlot {
+                result_id: _,
+                plot_type,
+                options,
+            } => {
+                let title = options
+                    .title
+                    .as_ref()
                     .map(|t| format!(", title='{}'", t))
                     .unwrap_or_default();
-                let cmap = options.colormap.as_ref()
+                let cmap = options
+                    .colormap
+                    .as_ref()
                     .map(|c| format!(", cmap='{}'", c))
                     .unwrap_or_default();
-                let normalize = if options.normalize { ", normalize=True" } else { "" };
+                let normalize = if options.normalize {
+                    ", normalize=True"
+                } else {
+                    ""
+                };
 
                 match plot_type {
-                    PlotType::Heatmap => format!("plot_heatmap(result{}{}{})", title, cmap, normalize),
+                    PlotType::Heatmap => {
+                        format!("plot_heatmap(result{}{}{})", title, cmap, normalize)
+                    }
                     PlotType::TimeSeries => format!("plot_timeseries(result{})", title),
                     PlotType::StatisticalSummary => format!("plot_statistics(result{})", title),
                 }
             }
-            WorkflowAction::FilterChannels { input_id: _, channel_indices } => {
+            WorkflowAction::FilterChannels {
+                input_id: _,
+                channel_indices,
+            } => {
                 format!("data = data[{}]", format_list(channel_indices))
             }
-            WorkflowAction::TransformData { input_id: _, transform_type } => {
-                match transform_type {
-                    TransformType::Normalize => "data = (data - data.mean()) / data.std()".to_string(),
-                    TransformType::Detrend => "data = signal.detrend(data)".to_string(),
-                    TransformType::BandpassFilter { low_freq, high_freq } => {
-                        format!("data = bandpass_filter(data, {}, {})", low_freq, high_freq)
-                    }
+            WorkflowAction::TransformData {
+                input_id: _,
+                transform_type,
+            } => match transform_type {
+                TransformType::Normalize => "data = (data - data.mean()) / data.std()".to_string(),
+                TransformType::Detrend => "data = signal.detrend(data)".to_string(),
+                TransformType::BandpassFilter {
+                    low_freq,
+                    high_freq,
+                } => {
+                    format!("data = bandpass_filter(data, {}, {})", low_freq, high_freq)
                 }
-            }
+            },
         };
 
         Ok(code)
@@ -129,34 +160,52 @@ impl CodeGenerator {
 
     fn generate_julia_action(&self, action: &WorkflowAction) -> Result<String> {
         let code = match action {
-            WorkflowAction::LoadFile { path, file_type } => {
-                match file_type {
-                    FileType::EDF => format!("data = load_edf(\"{}\")", path),
-                    FileType::ASCII => format!("data = readdlm(\"{}\")", path),
-                    FileType::CSV => format!("data = CSV.read(\"{}\", DataFrame)", path),
-                }
-            }
-            WorkflowAction::SetDDAParameters { lag, dimension, window_size, window_offset } => {
+            WorkflowAction::LoadFile { path, file_type } => match file_type {
+                FileType::EDF => format!("data = load_edf(\"{}\")", path),
+                FileType::ASCII => format!("data = readdlm(\"{}\")", path),
+                FileType::CSV => format!("data = CSV.read(\"{}\", DataFrame)", path),
+            },
+            WorkflowAction::SetDDAParameters {
+                lag,
+                dimension,
+                window_size,
+                window_offset,
+            } => {
                 format!(
                     "dda_params = DDAParameters(\n    lag={},\n    dimension={},\n    window_size={},\n    window_offset={}\n)",
                     lag, dimension, window_size, window_offset
                 )
             }
-            WorkflowAction::RunDDAAnalysis { input_id: _, channel_selection } => {
+            WorkflowAction::RunDDAAnalysis {
+                input_id: _,
+                channel_selection,
+            } => {
                 format!(
                     "result = run_dda_analysis(data, channels={}, dda_params)",
                     format_julia_array(channel_selection)
                 )
             }
-            WorkflowAction::ExportResults { result_id: _, format, path } => {
-                match format {
-                    ExportFormat::CSV => format!("CSV.write(\"{}\", result)", path),
-                    ExportFormat::JSON => format!("open(\"{}\", \"w\") do f; JSON.print(f, result); end", path),
-                    ExportFormat::MAT => format!("MAT.matwrite(\"{}\", Dict(\"result\" => result))", path),
+            WorkflowAction::ExportResults {
+                result_id: _,
+                format,
+                path,
+            } => match format {
+                ExportFormat::CSV => format!("CSV.write(\"{}\", result)", path),
+                ExportFormat::JSON => {
+                    format!("open(\"{}\", \"w\") do f; JSON.print(f, result); end", path)
                 }
-            }
-            WorkflowAction::GeneratePlot { result_id: _, plot_type, options } => {
-                let title = options.title.as_ref()
+                ExportFormat::MAT => {
+                    format!("MAT.matwrite(\"{}\", Dict(\"result\" => result))", path)
+                }
+            },
+            WorkflowAction::GeneratePlot {
+                result_id: _,
+                plot_type,
+                options,
+            } => {
+                let title = options
+                    .title
+                    .as_ref()
                     .map(|t| format!(", title=\"{}\"", t))
                     .unwrap_or_default();
 
@@ -166,18 +215,25 @@ impl CodeGenerator {
                     PlotType::StatisticalSummary => format!("plot_statistics(result{})", title),
                 }
             }
-            WorkflowAction::FilterChannels { input_id: _, channel_indices } => {
+            WorkflowAction::FilterChannels {
+                input_id: _,
+                channel_indices,
+            } => {
                 format!("data = data[{}, :]", format_julia_array(channel_indices))
             }
-            WorkflowAction::TransformData { input_id: _, transform_type } => {
-                match transform_type {
-                    TransformType::Normalize => "data = (data .- mean(data)) ./ std(data)".to_string(),
-                    TransformType::Detrend => "data = detrend(data)".to_string(),
-                    TransformType::BandpassFilter { low_freq, high_freq } => {
-                        format!("data = bandpass_filter(data, {}, {})", low_freq, high_freq)
-                    }
+            WorkflowAction::TransformData {
+                input_id: _,
+                transform_type,
+            } => match transform_type {
+                TransformType::Normalize => "data = (data .- mean(data)) ./ std(data)".to_string(),
+                TransformType::Detrend => "data = detrend(data)".to_string(),
+                TransformType::BandpassFilter {
+                    low_freq,
+                    high_freq,
+                } => {
+                    format!("data = bandpass_filter(data, {}, {})", low_freq, high_freq)
                 }
-            }
+            },
         };
 
         Ok(code)
@@ -185,11 +241,25 @@ impl CodeGenerator {
 }
 
 fn format_list(items: &[usize]) -> String {
-    format!("[{}]", items.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", "))
+    format!(
+        "[{}]",
+        items
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
 }
 
 fn format_julia_array(items: &[usize]) -> String {
-    format!("[{}]", items.iter().map(|i| (i + 1).to_string()).collect::<Vec<_>>().join(", "))
+    format!(
+        "[{}]",
+        items
+            .iter()
+            .map(|i| (i + 1).to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
 }
 
 #[derive(serde::Serialize)]

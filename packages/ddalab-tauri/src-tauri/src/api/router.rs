@@ -1,26 +1,23 @@
-use std::sync::Arc;
-use axum::{
-    Router,
-    routing::{get, post, delete, put},
-    middleware,
-    http::StatusCode,
-    extract::DefaultBodyLimit,
-    Json,
-};
-use tower_http::cors::{CorsLayer, Any};
-use crate::api::state::ApiState;
 use crate::api::auth::auth_middleware;
 use crate::api::handlers::{
-    health,
-    list_files, get_file_info, get_file_chunk,
-    get_edf_info, get_edf_data, get_edf_overview, get_overview_progress,
-    run_dda_analysis, get_dda_results, get_analysis_result, get_analysis_status,
-    list_analysis_history, save_analysis_to_history, delete_analysis_result, rename_analysis_result,
+    delete_analysis_result, get_analysis_result, get_analysis_status, get_dda_results,
+    get_edf_data, get_edf_info, get_edf_overview, get_file_chunk, get_file_info,
+    get_overview_progress, health, list_analysis_history, list_files, rename_analysis_result,
+    run_dda_analysis, save_analysis_to_history,
 };
+use crate::api::state::ApiState;
+use axum::{
+    extract::DefaultBodyLimit,
+    http::StatusCode,
+    middleware,
+    routing::{delete, get, post, put},
+    Json, Router,
+};
+use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
 
 pub fn create_router(state: Arc<ApiState>) -> Router {
-    let public_routes = Router::new()
-        .route("/api/health", get(health));
+    let public_routes = Router::new().route("/api/health", get(health));
 
     let protected_routes = Router::new()
         .route("/api/files/list", get(list_files))
@@ -34,14 +31,26 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
         .route("/api/dda/analyze", post(run_dda_analysis))
         .route("/api/dda/results", get(get_dda_results))
         .route("/api/dda/results/{analysis_id}", get(get_analysis_result))
-        .route("/api/dda/results/{analysis_id}", delete(delete_analysis_result))
+        .route(
+            "/api/dda/results/{analysis_id}",
+            delete(delete_analysis_result),
+        )
         .route("/api/dda/status/{analysis_id}", get(get_analysis_status))
         .route("/api/dda/history", get(list_analysis_history))
         .route("/api/dda/history/save", post(save_analysis_to_history))
         .route("/api/dda/history/{analysis_id}", get(get_analysis_result))
-        .route("/api/dda/history/{analysis_id}", delete(delete_analysis_result))
-        .route("/api/dda/history/{analysis_id}/rename", put(rename_analysis_result))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+        .route(
+            "/api/dda/history/{analysis_id}",
+            delete(delete_analysis_result),
+        )
+        .route(
+            "/api/dda/history/{analysis_id}/rename",
+            put(rename_analysis_result),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     Router::new()
         .merge(public_routes)
@@ -59,8 +68,11 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
 
 async fn handle_404() -> (StatusCode, Json<serde_json::Value>) {
     log::warn!("404 - Endpoint not found");
-    (StatusCode::NOT_FOUND, Json(serde_json::json!({
-        "error": "Endpoint not found",
-        "message": "The requested API endpoint is not implemented in the embedded server"
-    })))
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({
+            "error": "Endpoint not found",
+            "message": "The requested API endpoint is not implemented in the embedded server"
+        })),
+    )
 }

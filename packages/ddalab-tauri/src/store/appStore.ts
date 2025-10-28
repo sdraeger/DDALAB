@@ -50,7 +50,6 @@ export interface DDAState {
     variants: string[]
     windowLength: number
     windowStep: number
-    detrending: 'linear' | 'polynomial' | 'none'
     scaleMin: number
     scaleMax: number
     scaleNum: number
@@ -212,7 +211,6 @@ const defaultDDAState: DDAState = {
     variants: ['single_timeseries'],
     windowLength: 64, // Default: 0.25 seconds at 256 Hz (will be recalculated based on actual sampling rate)
     windowStep: 10,
-    detrending: 'linear',
     scaleMin: 1,
     scaleMax: 20,
     scaleNum: 20
@@ -425,7 +423,6 @@ export const useAppStore = create<AppState>((set, get) => ({
                 variants: persistedState.dda?.selected_variants || state.dda.analysisParameters.variants,
                 windowLength: persistedState.dda?.parameters?.windowLength || persistedState.dda?.analysis_parameters?.windowLength || state.dda.analysisParameters.windowLength,
                 windowStep: persistedState.dda?.parameters?.windowStep || persistedState.dda?.analysis_parameters?.windowStep || state.dda.analysisParameters.windowStep,
-                detrending: (persistedState.dda?.parameters?.detrending || persistedState.dda?.analysis_parameters?.detrending || state.dda.analysisParameters.detrending) as 'linear' | 'polynomial' | 'none',
                 scaleMin: persistedState.dda?.parameters?.scaleMin || persistedState.dda?.analysis_parameters?.scaleMin || state.dda.analysisParameters.scaleMin,
                 scaleMax: persistedState.dda?.parameters?.scaleMax || persistedState.dda?.analysis_parameters?.scaleMax || state.dda.analysisParameters.scaleMax,
                 scaleNum: persistedState.dda?.parameters?.scaleNum || persistedState.dda?.analysis_parameters?.scaleNum || state.dda.analysisParameters.scaleNum
@@ -1047,7 +1044,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           parameters: {
             windowLength: dda.analysisParameters.windowLength,
             windowStep: dda.analysisParameters.windowStep,
-            detrending: dda.analysisParameters.detrending,
             scaleMin: dda.analysisParameters.scaleMin,
             scaleMax: dda.analysisParameters.scaleMax,
             scaleNum: dda.analysisParameters.scaleNum
@@ -1135,7 +1131,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           parameters: {
             windowLength: dda.analysisParameters.windowLength,
             windowStep: dda.analysisParameters.windowStep,
-            detrending: dda.analysisParameters.detrending,
             scaleMin: dda.analysisParameters.scaleMin,
             scaleMax: dda.analysisParameters.scaleMax,
             scaleNum: dda.analysisParameters.scaleNum
@@ -1212,7 +1207,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           parameters: {
             windowLength: dda.analysisParameters.windowLength,
             windowStep: dda.analysisParameters.windowStep,
-            detrending: dda.analysisParameters.detrending,
             scaleMin: dda.analysisParameters.scaleMin,
             scaleMax: dda.analysisParameters.scaleMax,
             scaleNum: dda.analysisParameters.scaleNum

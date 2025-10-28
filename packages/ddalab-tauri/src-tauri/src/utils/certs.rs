@@ -1,7 +1,7 @@
-use std::path::{Path, PathBuf};
-use anyhow::{Result, Context};
-use std::io::BufReader;
+use anyhow::{Context, Result};
 use rustls_pemfile::{certs, pkcs8_private_keys};
+use std::io::BufReader;
+use std::path::{Path, PathBuf};
 
 /// Get or create the certificates directory for the application
 pub fn get_certs_dir() -> Result<PathBuf> {
@@ -10,8 +10,7 @@ pub fn get_certs_dir() -> Result<PathBuf> {
         .join("ddalab")
         .join("certs");
 
-    std::fs::create_dir_all(&cert_dir)
-        .context("Failed to create certificates directory")?;
+    std::fs::create_dir_all(&cert_dir).context("Failed to create certificates directory")?;
 
     Ok(cert_dir)
 }
@@ -39,7 +38,10 @@ pub async fn generate_localhost_certs(cert_dir: &Path) -> Result<()> {
                 log::info!("✅ mkcert CA root installed successfully");
             }
             Ok(output) => {
-                log::warn!("⚠️ mkcert -install failed (may already be installed): {}", String::from_utf8_lossy(&output.stderr));
+                log::warn!(
+                    "⚠️ mkcert -install failed (may already be installed): {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
             Err(e) => {
                 log::warn!("⚠️ Failed to run mkcert -install: {}", e);
@@ -63,7 +65,10 @@ pub async fn generate_localhost_certs(cert_dir: &Path) -> Result<()> {
             log::info!("✅ Generated trusted certificates with mkcert");
             return Ok(());
         } else {
-            log::warn!("⚠️ mkcert failed: {}", String::from_utf8_lossy(&output.stderr));
+            log::warn!(
+                "⚠️ mkcert failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
     } else {
         log::warn!("⚠️ mkcert not found in PATH");
@@ -80,13 +85,21 @@ pub async fn generate_localhost_certs(cert_dir: &Path) -> Result<()> {
 
     let output = tokio::process::Command::new("openssl")
         .args(&[
-            "req", "-x509", "-newkey", "rsa:4096",
-            "-keyout", key_path.to_str().unwrap(),
-            "-out", cert_path.to_str().unwrap(),
-            "-days", "365",
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:4096",
+            "-keyout",
+            key_path.to_str().unwrap(),
+            "-out",
+            cert_path.to_str().unwrap(),
+            "-days",
+            "365",
             "-nodes",
-            "-subj", "/CN=localhost",
-            "-addext", "subjectAltName=DNS:localhost,DNS:*.local,IP:127.0.0.1,IP:::1",
+            "-subj",
+            "/CN=localhost",
+            "-addext",
+            "subjectAltName=DNS:localhost,DNS:*.local,IP:127.0.0.1,IP:::1",
         ])
         .output()
         .await
@@ -127,7 +140,10 @@ pub async fn generate_lan_certs(cert_dir: &Path, hostname: &str, ip: &str) -> Re
                 log::info!("✅ mkcert CA root installed successfully");
             }
             Ok(output) => {
-                log::warn!("⚠️ mkcert -install failed (may already be installed): {}", String::from_utf8_lossy(&output.stderr));
+                log::warn!(
+                    "⚠️ mkcert -install failed (may already be installed): {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
             Err(e) => {
                 log::warn!("⚠️ Failed to run mkcert -install: {}", e);
@@ -165,13 +181,21 @@ pub async fn generate_lan_certs(cert_dir: &Path, hostname: &str, ip: &str) -> Re
 
     let output = tokio::process::Command::new("openssl")
         .args(&[
-            "req", "-x509", "-newkey", "rsa:4096",
-            "-keyout", key_path.to_str().unwrap(),
-            "-out", cert_path.to_str().unwrap(),
-            "-days", "365",
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:4096",
+            "-keyout",
+            key_path.to_str().unwrap(),
+            "-out",
+            cert_path.to_str().unwrap(),
+            "-days",
+            "365",
             "-nodes",
-            "-subj", &format!("/CN={}", hostname),
-            "-addext", &san,
+            "-subj",
+            &format!("/CN={}", hostname),
+            "-addext",
+            &san,
         ])
         .output()
         .await
@@ -189,7 +213,10 @@ pub async fn generate_lan_certs(cert_dir: &Path, hostname: &str, ip: &str) -> Re
 }
 
 /// Load TLS configuration from certificate files (for axum-server)
-pub async fn load_tls_config(cert_path: &Path, key_path: &Path) -> Result<axum_server::tls_rustls::RustlsConfig> {
+pub async fn load_tls_config(
+    cert_path: &Path,
+    key_path: &Path,
+) -> Result<axum_server::tls_rustls::RustlsConfig> {
     log::info!("🔐 Loading TLS configuration from certificates");
 
     // Use axum-server's RustlsConfig which handles the file loading
@@ -225,7 +252,14 @@ pub fn get_certificate_info(cert_path: &Path) -> Result<CertificateInfo> {
     use std::process::Command;
 
     let output = Command::new("openssl")
-        .args(&["x509", "-in", cert_path.to_str().unwrap(), "-noout", "-dates", "-subject"])
+        .args(&[
+            "x509",
+            "-in",
+            cert_path.to_str().unwrap(),
+            "-noout",
+            "-dates",
+            "-subject",
+        ])
         .output()
         .context("Failed to get certificate info")?;
 

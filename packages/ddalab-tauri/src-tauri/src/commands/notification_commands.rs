@@ -18,7 +18,13 @@ pub async fn create_notification(
         .parse::<NotificationType>()
         .unwrap_or(NotificationType::Info);
 
-    let notification = Notification::new(title.clone(), message.clone(), notif_type, action_type, action_data);
+    let notification = Notification::new(
+        title.clone(),
+        message.clone(),
+        notif_type,
+        action_type,
+        action_data,
+    );
 
     // Save to database
     state
@@ -27,7 +33,8 @@ pub async fn create_notification(
         .map_err(|e| format!("Failed to save notification: {}", e))?;
 
     // Show native notification
-    if let Err(e) = app.notification()
+    if let Err(e) = app
+        .notification()
         .builder()
         .title(&title)
         .body(&message)

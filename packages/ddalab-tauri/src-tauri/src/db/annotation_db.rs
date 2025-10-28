@@ -240,7 +240,8 @@ impl AnnotationDatabase {
 
     pub fn get_all_file_paths(&self) -> Result<Vec<String>> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare("SELECT DISTINCT file_path FROM annotations ORDER BY file_path")?;
+        let mut stmt =
+            conn.prepare("SELECT DISTINCT file_path FROM annotations ORDER BY file_path")?;
 
         let paths = stmt
             .query_map([], |row| row.get(0))?

@@ -4,27 +4,27 @@
 )]
 
 // Module declarations
-mod models;
-mod state_manager;
-mod commands;
-mod docker_stack;
+mod annotations;
 mod app_setup;
-mod utils;
+mod commands;
+mod db;
+mod docker_stack;
 mod edf;
-mod text_reader;
-mod sync;
-mod recording;
 mod file_readers;
 mod intermediate_format;
-mod db;
-mod annotations;
+mod models;
+mod recording;
+mod state_manager;
+mod sync;
+mod text_reader;
+mod utils;
 
 // Import required modules
 use app_setup::setup_app;
-use commands::*;
 use commands::api_commands::ApiServerState;
-use sync::AppSyncState;
+use commands::*;
 use recording::commands::WorkflowState;
+use sync::AppSyncState;
 
 fn main() {
     // Initialize rustls crypto provider (required for TLS)
@@ -212,9 +212,11 @@ fn main() {
         ])
         .manage(ApiServerState::default())
         .manage(AppSyncState::new())
-        .manage(parking_lot::RwLock::new(None::<commands::data_directory_commands::DataDirectoryConfig>))
+        .manage(parking_lot::RwLock::new(
+            None::<commands::data_directory_commands::DataDirectoryConfig>,
+        ))
         .manage(std::sync::Arc::new(parking_lot::RwLock::new(
-            WorkflowState::new().expect("Failed to initialize workflow state")
+            WorkflowState::new().expect("Failed to initialize workflow state"),
         )))
         .manage(commands::openneuro_commands::DownloadState::default())
         .manage(commands::openneuro_commands::UploadState::default())

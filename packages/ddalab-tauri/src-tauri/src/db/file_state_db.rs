@@ -2,8 +2,8 @@ use parking_lot::Mutex;
 use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use std::path::Path;
 use std::collections::HashMap;
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileViewState {
@@ -213,8 +213,14 @@ impl FileStateDatabase {
 
         let rows = stmt.query_map([], |row| {
             let channels_json: String = row.get(3)?;
-            let selected_channels: Vec<String> = serde_json::from_str(&channels_json)
-                .map_err(|e| rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e)))?;
+            let selected_channels: Vec<String> =
+                serde_json::from_str(&channels_json).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        3,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?;
 
             Ok(FileViewState {
                 file_path: row.get(0)?,
@@ -235,7 +241,12 @@ impl FileStateDatabase {
     // === New Modular State Methods ===
 
     /// Save state for a specific module and file
-    pub fn save_module_state(&self, file_path: &str, module_id: &str, state: &JsonValue) -> Result<()> {
+    pub fn save_module_state(
+        &self,
+        file_path: &str,
+        module_id: &str,
+        state: &JsonValue,
+    ) -> Result<()> {
         let state_json = serde_json::to_string(state)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
 
@@ -288,8 +299,13 @@ impl FileStateDatabase {
         let mut modules = HashMap::new();
         for row_result in rows {
             let (module_id, state_json) = row_result?;
-            let state: JsonValue = serde_json::from_str(&state_json)
-                .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?;
+            let state: JsonValue = serde_json::from_str(&state_json).map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Text,
+                    Box::new(e),
+                )
+            })?;
             modules.insert(module_id, state);
         }
 
@@ -386,9 +402,8 @@ impl FileStateDatabase {
     /// Load the file state registry
     pub fn get_registry(&self) -> Result<FileStateRegistry> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT value FROM file_state_registry WHERE key = 'registry'",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT value FROM file_state_registry WHERE key = 'registry'")?;
 
         let mut rows = stmt.query(params![])?;
 

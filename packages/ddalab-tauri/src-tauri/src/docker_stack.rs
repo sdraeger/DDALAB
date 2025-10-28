@@ -93,8 +93,8 @@ impl DockerStackManager {
 
     /// Get the setup directory path within the app's data directory
     fn get_setup_directory(&self) -> Result<PathBuf> {
-        let app_data_dir = get_app_data_dir()
-            .map_err(|e| anyhow!("Failed to get app data directory: {}", e))?;
+        let app_data_dir =
+            get_app_data_dir().map_err(|e| anyhow!("Failed to get app data directory: {}", e))?;
         Ok(app_data_dir.join("docker-setup"))
     }
 
@@ -176,7 +176,10 @@ impl DockerStackManager {
             let env_content = template_content
                 .replace("ddalab_secure_password_123", &config.db_password)
                 .replace("minioadmin_secure_password_123", &config.minio_password)
-                .replace("tauri_desktop_app_jwt_secret_key_32chars_long", &config.jwt_secret)
+                .replace(
+                    "tauri_desktop_app_jwt_secret_key_32chars_long",
+                    &config.jwt_secret,
+                )
                 .replace("sdraeger1/ddalab-api:latest", &config.api_image)
                 .replace("development", &config.environment);
 
@@ -196,7 +199,10 @@ impl DockerStackManager {
 
         let docker_compose_path = setup_dir.join(DOCKER_COMPOSE_FILE);
         if !docker_compose_path.exists() {
-            return Err(anyhow!("Docker compose file not found: {:?}", docker_compose_path));
+            return Err(anyhow!(
+                "Docker compose file not found: {:?}",
+                docker_compose_path
+            ));
         }
 
         log::info!("Starting Docker stack...");
@@ -273,7 +279,9 @@ impl DockerStackManager {
             vec![]
         };
 
-        let is_running = services.iter().any(|s| matches!(s.status, ServiceStatus::Running));
+        let is_running = services
+            .iter()
+            .any(|s| matches!(s.status, ServiceStatus::Running));
 
         Ok(DockerStackStatus {
             services,
@@ -314,7 +322,10 @@ impl DockerStackManager {
 
             match serde_json::from_str::<serde_json::Value>(line) {
                 Ok(service_data) => {
-                    let name = service_data["Service"].as_str().unwrap_or("unknown").to_string();
+                    let name = service_data["Service"]
+                        .as_str()
+                        .unwrap_or("unknown")
+                        .to_string();
                     let state = service_data["State"].as_str().unwrap_or("unknown");
                     let health = service_data["Health"].as_str().unwrap_or("unknown");
                     let ports = service_data["Publishers"]
@@ -361,9 +372,7 @@ impl DockerStackManager {
 
     /// Check if Docker is available
     pub async fn check_docker_availability(&self) -> Result<bool> {
-        let output = Command::new("docker")
-            .arg("--version")
-            .output();
+        let output = Command::new("docker").arg("--version").output();
 
         match output {
             Ok(result) => Ok(result.status.success()),
@@ -373,9 +382,7 @@ impl DockerStackManager {
 
     /// Check if docker-compose is available
     pub async fn check_docker_compose_availability(&self) -> Result<bool> {
-        let output = Command::new("docker-compose")
-            .arg("--version")
-            .output();
+        let output = Command::new("docker-compose").arg("--version").output();
 
         match output {
             Ok(result) => Ok(result.status.success()),
@@ -446,14 +453,21 @@ fn generate_secure_password() -> String {
 /// Generate a JWT secret key
 fn generate_jwt_secret() -> String {
     use uuid::Uuid;
-    format!("jwt_{}_{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
+    format!(
+        "jwt_{}_{}",
+        Uuid::new_v4().simple(),
+        Uuid::new_v4().simple()
+    )
 }
 
 // Tauri command exports
 #[tauri::command]
 pub async fn setup_docker_stack(app_handle: AppHandle) -> Result<DockerStackStatus, String> {
     let mut manager = DockerStackManager::new(app_handle);
-    manager.setup_repository().await.map_err(|e| e.to_string())?;
+    manager
+        .setup_repository()
+        .await
+        .map_err(|e| e.to_string())?;
     manager.get_stack_status().await.map_err(|e| e.to_string())
 }
 
@@ -476,11 +490,19 @@ pub async fn get_docker_stack_status(app_handle: AppHandle) -> Result<DockerStac
 }
 
 #[tauri::command]
-pub async fn check_docker_requirements(app_handle: AppHandle) -> Result<HashMap<String, bool>, String> {
+pub async fn check_docker_requirements(
+    app_handle: AppHandle,
+) -> Result<HashMap<String, bool>, String> {
     let manager = DockerStackManager::new(app_handle);
 
-    let docker_available = manager.check_docker_availability().await.map_err(|e| e.to_string())?;
-    let compose_available = manager.check_docker_compose_availability().await.map_err(|e| e.to_string())?;
+    let docker_available = manager
+        .check_docker_availability()
+        .await
+        .map_err(|e| e.to_string())?;
+    let compose_available = manager
+        .check_docker_compose_availability()
+        .await
+        .map_err(|e| e.to_string())?;
 
     let mut requirements = HashMap::new();
     requirements.insert("docker".to_string(), docker_available);
@@ -495,5 +517,8 @@ pub async fn update_docker_config(
     config: DockerStackConfig,
 ) -> Result<(), String> {
     let manager = DockerStackManager::new(app_handle);
-    manager.update_config(config).await.map_err(|e| e.to_string())
+    manager
+        .update_config(config)
+        .await
+        .map_err(|e| e.to_string())
 }

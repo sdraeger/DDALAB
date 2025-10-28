@@ -1,4 +1,6 @@
-use crate::db::{AnalysisDatabase, AnnotationDatabase, FileStateDatabase, SecretsDatabase, NotificationsDatabase};
+use crate::db::{
+    AnalysisDatabase, AnnotationDatabase, FileStateDatabase, NotificationsDatabase, SecretsDatabase,
+};
 use crate::models::{AppState, UIState};
 use ddalab_tauri::nsg::{NSGJobManager, NSGJobPoller};
 use parking_lot::RwLock;
@@ -34,13 +36,19 @@ impl AppStateManager {
         let secrets_db_path = app_config_dir.join("secrets.db");
         let notifications_db_path = app_config_dir.join("notifications.db");
 
-        eprintln!("📂 [STATE_MANAGER] Using config directory: {:?}", app_config_dir);
+        eprintln!(
+            "📂 [STATE_MANAGER] Using config directory: {:?}",
+            app_config_dir
+        );
         eprintln!("📄 [STATE_MANAGER] UI state file: {:?}", ui_state_path);
         eprintln!("📊 [STATE_MANAGER] Analysis DB: {:?}", analysis_db_path);
         eprintln!("📌 [STATE_MANAGER] Annotation DB: {:?}", annotation_db_path);
         eprintln!("📁 [STATE_MANAGER] File State DB: {:?}", file_state_db_path);
         eprintln!("🔐 [STATE_MANAGER] Secrets DB: {:?}", secrets_db_path);
-        eprintln!("🔔 [STATE_MANAGER] Notifications DB: {:?}", notifications_db_path);
+        eprintln!(
+            "🔔 [STATE_MANAGER] Notifications DB: {:?}",
+            notifications_db_path
+        );
 
         // Load UI state from JSON
         let ui_state = if ui_state_path.exists() {
@@ -76,20 +84,27 @@ impl AppStateManager {
 
         let (nsg_manager, nsg_poller) = match secrets_db.has_nsg_credentials() {
             Ok(true) => {
-                eprintln!("🔑 [STATE_MANAGER] NSG credentials found, initializing NSG components...");
+                eprintln!(
+                    "🔑 [STATE_MANAGER] NSG credentials found, initializing NSG components..."
+                );
                 match Self::init_nsg_components(&secrets_db, &nsg_jobs_db_path, &nsg_output_dir) {
                     Ok((manager, poller)) => {
                         eprintln!("✅ [STATE_MANAGER] NSG components initialized successfully");
                         (Some(manager), Some(poller))
                     }
                     Err(e) => {
-                        eprintln!("⚠️  [STATE_MANAGER] Failed to initialize NSG components: {}", e);
+                        eprintln!(
+                            "⚠️  [STATE_MANAGER] Failed to initialize NSG components: {}",
+                            e
+                        );
                         (None, None)
                     }
                 }
             }
             _ => {
-                eprintln!("ℹ️  [STATE_MANAGER] No NSG credentials found, skipping NSG initialization");
+                eprintln!(
+                    "ℹ️  [STATE_MANAGER] No NSG credentials found, skipping NSG initialization"
+                );
                 (None, None)
             }
         };
@@ -145,7 +160,10 @@ impl AppStateManager {
         drop(ui_state);
 
         // Migrate analysis history to database
-        log::info!("📊 Migrating {} analyses to database...", old_state.dda.analysis_history.len());
+        log::info!(
+            "📊 Migrating {} analyses to database...",
+            old_state.dda.analysis_history.len()
+        );
         for analysis in old_state.dda.analysis_history {
             if let Err(e) = self.analysis_db.save_analysis(&analysis) {
                 log::warn!("Failed to migrate analysis {}: {}", analysis.id, e);
@@ -155,13 +173,24 @@ impl AppStateManager {
         // Migrate annotations to database
         if let Some(frontend_state) = old_state.ui.get("frontend_state") {
             if let Some(annotations) = frontend_state.get("annotations") {
-                if let Some(time_series) = annotations.get("timeSeries").and_then(|v| v.as_object()) {
-                    log::info!("📌 Migrating annotations for {} files...", time_series.len());
+                if let Some(time_series) = annotations.get("timeSeries").and_then(|v| v.as_object())
+                {
+                    log::info!(
+                        "📌 Migrating annotations for {} files...",
+                        time_series.len()
+                    );
                     for (file_path, file_annotations) in time_series {
-                        if let Some(global_annotations) = file_annotations.get("globalAnnotations").and_then(|v| v.as_array()) {
+                        if let Some(global_annotations) = file_annotations
+                            .get("globalAnnotations")
+                            .and_then(|v| v.as_array())
+                        {
                             for ann in global_annotations {
                                 if let Ok(annotation) = serde_json::from_value(ann.clone()) {
-                                    if let Err(e) = self.annotation_db.save_annotation(file_path, None, &annotation) {
+                                    if let Err(e) = self.annotation_db.save_annotation(
+                                        file_path,
+                                        None,
+                                        &annotation,
+                                    ) {
                                         log::warn!("Failed to migrate annotation: {}", e);
                                     }
                                 }
@@ -309,8 +338,8 @@ impl AppStateManager {
         nsg_jobs_db_path: &PathBuf,
         nsg_output_dir: &PathBuf,
     ) -> Result<(Arc<NSGJobManager>, Arc<NSGJobPoller>), String> {
-        use ddalab_tauri::nsg::NSGCredentials;
         use ddalab_tauri::db::NSGJobsDatabase;
+        use ddalab_tauri::nsg::NSGCredentials;
 
         // Get NSG credentials
         let (username, password, app_key) = secrets_db
@@ -332,12 +361,9 @@ impl AppStateManager {
         std::fs::create_dir_all(nsg_output_dir)
             .map_err(|e| format!("Failed to create NSG output directory: {}", e))?;
 
-        let nsg_manager = NSGJobManager::new(
-            credentials,
-            Arc::new(nsg_jobs_db),
-            nsg_output_dir.clone(),
-        )
-        .map_err(|e| format!("Failed to create NSG job manager: {}", e))?;
+        let nsg_manager =
+            NSGJobManager::new(credentials, Arc::new(nsg_jobs_db), nsg_output_dir.clone())
+                .map_err(|e| format!("Failed to create NSG job manager: {}", e))?;
 
         let nsg_manager = Arc::new(nsg_manager);
         let nsg_poller = Arc::new(NSGJobPoller::new(nsg_manager.clone()));

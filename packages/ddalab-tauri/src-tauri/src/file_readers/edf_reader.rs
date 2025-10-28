@@ -1,10 +1,9 @@
+use super::{parse_edf_datetime, FileMetadata, FileReader, FileReaderError, FileResult};
+use crate::edf::EDFReader as CoreEDFReader;
 /// EDF (European Data Format) File Reader
 ///
 /// Implementation of FileReader trait for EDF files.
-
 use std::path::Path;
-use crate::edf::EDFReader as CoreEDFReader;
-use super::{FileReader, FileMetadata, FileResult, FileReaderError, parse_edf_datetime};
 
 pub struct EDFFileReader {
     edf: CoreEDFReader,
@@ -29,9 +28,7 @@ impl FileReader for EDFFileReader {
         let signal_headers = &self.edf.signal_headers;
 
         // Get channel labels from signal headers
-        let channels: Vec<String> = signal_headers.iter()
-            .map(|sh| sh.label.clone())
-            .collect();
+        let channels: Vec<String> = signal_headers.iter().map(|sh| sh.label.clone()).collect();
 
         // Calculate sample rate (assuming all channels have same rate)
         let sample_rate = if !signal_headers.is_empty() {
@@ -52,7 +49,11 @@ impl FileReader for EDFFileReader {
 
         // Parse EDF start time to RFC3339 format
         // EDF format: date="dd.mm.yy" time="hh.mm.ss"
-        log::info!("EDF header start_date: '{}', start_time: '{}'", header.start_date, header.start_time);
+        log::info!(
+            "EDF header start_date: '{}', start_time: '{}'",
+            header.start_date,
+            header.start_time
+        );
         let start_time = parse_edf_datetime(&header.start_date, &header.start_time);
         log::info!("Parsed start_time: {:?}", start_time);
 
@@ -83,9 +84,7 @@ impl FileReader for EDFFileReader {
         let signal_headers = &self.edf.signal_headers;
 
         // Get all channel labels
-        let all_channels: Vec<String> = signal_headers.iter()
-            .map(|sh| sh.label.clone())
-            .collect();
+        let all_channels: Vec<String> = signal_headers.iter().map(|sh| sh.label.clone()).collect();
 
         // Determine which channels to read
         let channel_indices: Vec<usize> = if let Some(selected) = channels {
@@ -98,7 +97,8 @@ impl FileReader for EDFFileReader {
         };
 
         // Calculate time window for read_signal_window
-        let sample_rate = signal_headers[0].sample_frequency(self.edf.header.duration_of_data_record);
+        let sample_rate =
+            signal_headers[0].sample_frequency(self.edf.header.duration_of_data_record);
         let start_time_sec = start_sample as f64 / sample_rate;
         let duration_sec = num_samples as f64 / sample_rate;
 
@@ -111,8 +111,11 @@ impl FileReader for EDFFileReader {
         let mut result = Vec::with_capacity(channel_indices.len());
 
         for &ch_idx in &channel_indices {
-            let channel_data = edf_reader.read_signal_window(ch_idx, start_time_sec, duration_sec)
-                .map_err(|e| FileReaderError::ParseError(format!("Failed to read channel {}: {}", ch_idx, e)))?;
+            let channel_data = edf_reader
+                .read_signal_window(ch_idx, start_time_sec, duration_sec)
+                .map_err(|e| {
+                    FileReaderError::ParseError(format!("Failed to read channel {}: {}", ch_idx, e))
+                })?;
             result.push(channel_data);
         }
 
@@ -136,13 +139,7 @@ impl FileReader for EDFFileReader {
 
         let decimated: Vec<Vec<f64>> = full_data
             .into_iter()
-            .map(|channel_data| {
-                channel_data
-                    .iter()
-                    .step_by(decimation)
-                    .copied()
-                    .collect()
-            })
+            .map(|channel_data| channel_data.iter().step_by(decimation).copied().collect())
             .collect();
 
         Ok(decimated)

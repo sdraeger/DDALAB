@@ -17,7 +17,10 @@ fn main() {
     let dda_binary = bin_dir.join(binary_name);
 
     if !dda_binary.exists() {
-        println!("cargo:warning={} not found, downloading APE binary from server...", binary_name);
+        println!(
+            "cargo:warning={} not found, downloading APE binary from server...",
+            binary_name
+        );
 
         // Create bin directory if it doesn't exist
         if !bin_dir.exists() {
@@ -27,14 +30,18 @@ fn main() {
         // APE binary URL - same file for all platforms (no extension)
         let download_url = "https://snl.salk.edu/~sfdraeger/run_DDA_AsciiEdf";
 
-        println!("cargo:warning=Downloading APE binary from: {}", download_url);
+        println!(
+            "cargo:warning=Downloading APE binary from: {}",
+            download_url
+        );
 
         // Download the binary using curl - save with platform-appropriate name
         let status = Command::new("curl")
             .args(&[
-                "-L",  // Follow redirects
-                "-o", dda_binary.to_str().unwrap(),
-                download_url
+                "-L", // Follow redirects
+                "-o",
+                dda_binary.to_str().unwrap(),
+                download_url,
             ])
             .status()
             .expect("Failed to execute curl command");
@@ -55,10 +62,16 @@ fn main() {
                 .expect("Failed to set executable permissions");
         }
 
-        println!("cargo:warning=Successfully downloaded APE binary as {}", binary_name);
+        println!(
+            "cargo:warning=Successfully downloaded APE binary as {}",
+            binary_name
+        );
         println!("cargo:warning=Binary will be bundled in Tauri app resources");
     } else {
-        println!("cargo:warning={} already exists, skipping download", binary_name);
+        println!(
+            "cargo:warning={} already exists, skipping download",
+            binary_name
+        );
     }
 
     tauri_build::build()

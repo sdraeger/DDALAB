@@ -1,20 +1,20 @@
-use std::sync::Arc;
-use std::path::PathBuf;
-use std::collections::HashMap;
+use crate::api::models::{DDAParameters, DDAResult};
+use crate::api::state::ApiState;
+use crate::api::utils::FileType;
+use crate::file_readers::FileReaderFactory;
 use axum::{
-    extract::{State, Path, Query},
+    extract::{Path, Query, State},
     http::StatusCode,
-    response::{Response, IntoResponse},
+    response::{IntoResponse, Response},
     Json,
 };
 use chrono::Utc;
+use dda_rs::DDARunner;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use crate::api::state::ApiState;
-use crate::api::models::{DDAResult, DDAParameters};
-use crate::api::utils::FileType;
-use crate::file_readers::FileReaderFactory;
-use dda_rs::DDARunner;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TimeRange {
@@ -24,7 +24,6 @@ pub struct TimeRange {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PreprocessingOptions {
-    pub detrending: Option<String>,
     pub highpass: Option<f64>,
     pub lowpass: Option<f64>,
 }
@@ -75,7 +74,15 @@ pub async fn run_dda_analysis(
 ) -> Result<Json<DDAResult>, StatusCode> {
     let file_path = PathBuf::from(&request.file_path);
     let file_type = FileType::from_path(&file_path);
-    if !matches!(file_type, FileType::EDF | FileType::FIF | FileType::ASCII | FileType::CSV | FileType::BrainVision | FileType::EEGLAB) {
+    if !matches!(
+        file_type,
+        FileType::EDF
+            | FileType::FIF
+            | FileType::ASCII
+            | FileType::CSV
+            | FileType::BrainVision
+            | FileType::EEGLAB
+    ) {
         log::error!("DDA analysis not supported for {:?} files. The run_DDA_AsciiEdf binary only processes EDF and ASCII formats.", file_type);
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -131,7 +138,10 @@ pub async fn run_dda_analysis(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    log::info!("⏱️  [TIMING] File metadata read completed in {:.2}s", start_time.elapsed().as_secs_f64());
+    log::info!(
+        "⏱️  [TIMING] File metadata read completed in {:.2}s",
+        start_time.elapsed().as_secs_f64()
+    );
 
     let available_samples = if end_bound > start_bound {
         end_bound - start_bound
@@ -148,33 +158,68 @@ pub async fn run_dda_analysis(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    log::info!("Validation passed: {} samples available for window length {}", available_samples, window_length);
+    log::info!(
+        "Validation passed: {} samples available for window length {}",
+        available_samples,
+        window_length
+    );
 
-    let runner = DDARunner::new(&dda_binary_path)
-        .map_err(|e| {
-            log::error!("Failed to create DDA runner: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let runner = DDARunner::new(&dda_binary_path).map_err(|e| {
+        log::error!("Failed to create DDA runner: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let dda_request = convert_to_dda_request(&request);
 
     log::info!("📋 LOCAL DDA Analysis Parameters:");
     log::info!("   Channels: {:?}", request.channels);
-    log::info!("   Time range: {} - {} seconds (bounds: {:?} - {:?} samples)", request.time_range.start, request.time_range.end, start_bound, end_bound);
-    log::info!("   Window: length={}, step={}", request.window_parameters.window_length, request.window_parameters.window_step);
-    log::info!("   Scale: min={}, max={}, num={}", request.scale_parameters.scale_min, request.scale_parameters.scale_max, request.scale_parameters.scale_num);
+    log::info!(
+        "   Time range: {} - {} seconds (bounds: {:?} - {:?} samples)",
+        request.time_range.start,
+        request.time_range.end,
+        start_bound,
+        end_bound
+    );
+    log::info!(
+        "   Window: length={}, step={}",
+        request.window_parameters.window_length,
+        request.window_parameters.window_step
+    );
+    log::info!(
+        "   Scale: min={}, max={}, num={}",
+        request.scale_parameters.scale_min,
+        request.scale_parameters.scale_max,
+        request.scale_parameters.scale_num
+    );
 
     let edf_channel_names: Option<Vec<String>> = {
         let file_cache = state.files.read();
-        file_cache.get(&request.file_path).map(|info| info.channels.clone())
+        file_cache
+            .get(&request.file_path)
+            .map(|info| info.channels.clone())
     };
 
     log::info!("⏱️  [TIMING] Running DDA analysis via dda-rs...");
-    let dda_result = runner.run(&dda_request, start_bound, end_bound, edf_channel_names.as_deref()).await
+    let dda_start = std::time::Instant::now();
+
+    let dda_result = runner
+        .run(
+            &dda_request,
+            start_bound,
+            end_bound,
+            edf_channel_names.as_deref(),
+        )
+        .await
         .map_err(|e| {
             log::error!("DDA analysis failed: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
+
+    let dda_time = dda_start.elapsed();
+    log::info!(
+        "⏱️  [TIMING] DDA analysis completed in {:.2}s",
+        dda_time.as_secs_f64()
+    );
 
     let q_matrix = dda_result.q_matrix.clone();
     let analysis_id = dda_result.id.clone();
@@ -182,15 +227,23 @@ pub async fn run_dda_analysis(
     let num_channels = q_matrix.len();
     let num_timepoints = q_matrix[0].len();
 
-    log::info!("Q matrix dimensions: {} channels × {} timepoints", num_channels, num_timepoints);
+    log::info!(
+        "Q matrix dimensions: {} channels × {} timepoints",
+        num_channels,
+        num_timepoints
+    );
 
-    let all_values: Vec<f64> = q_matrix.iter().flat_map(|row| row.iter().copied()).collect();
+    let all_values: Vec<f64> = q_matrix
+        .iter()
+        .flat_map(|row| row.iter().copied())
+        .collect();
 
     let input_edf_channels: Vec<String> = {
         let file_cache = state.files.read();
         if let Some(file_info) = file_cache.get(&request.file_path) {
             if let Some(ref channel_indices) = request.channels {
-                channel_indices.iter()
+                channel_indices
+                    .iter()
                     .filter_map(|&idx| file_info.channels.get(idx).cloned())
                     .collect()
             } else {
@@ -204,25 +257,30 @@ pub async fn run_dda_analysis(
 
     log::info!("Input EDF channels analyzed: {:?}", input_edf_channels);
 
-    let channel_names: Vec<String> = if !input_edf_channels.is_empty() && input_edf_channels.len() == num_channels {
-        input_edf_channels.clone()
-    } else if !input_edf_channels.is_empty() {
-        log::warn!("Mismatch: {} EDF channels but {} Q matrix rows", input_edf_channels.len(), num_channels);
-        (0..num_channels)
-            .map(|i| {
-                if i < input_edf_channels.len() {
-                    input_edf_channels[i].clone()
-                } else {
-                    format!("Channel {}", i + 1)
-                }
-            })
-            .collect()
-    } else {
-        log::warn!("No EDF channel names available, using generic labels");
-        (0..num_channels)
-            .map(|i| format!("Channel {}", i + 1))
-            .collect()
-    };
+    let channel_names: Vec<String> =
+        if !input_edf_channels.is_empty() && input_edf_channels.len() == num_channels {
+            input_edf_channels.clone()
+        } else if !input_edf_channels.is_empty() {
+            log::warn!(
+                "Mismatch: {} EDF channels but {} Q matrix rows",
+                input_edf_channels.len(),
+                num_channels
+            );
+            (0..num_channels)
+                .map(|i| {
+                    if i < input_edf_channels.len() {
+                        input_edf_channels[i].clone()
+                    } else {
+                        format!("Channel {}", i + 1)
+                    }
+                })
+                .collect()
+        } else {
+            log::warn!("No EDF channel names available, using generic labels");
+            (0..num_channels)
+                .map(|i| format!("Channel {}", i + 1))
+                .collect()
+        };
 
     log::info!("Output channel labels: {:?}", channel_names);
 
@@ -237,36 +295,36 @@ pub async fn run_dda_analysis(
 
     let mut dda_matrix = serde_json::Map::new();
     for (i, channel_name) in channel_names.iter().enumerate() {
-        dda_matrix.insert(
-            channel_name.clone(),
-            serde_json::json!(q_matrix[i])
-        );
+        dda_matrix.insert(channel_name.clone(), serde_json::json!(q_matrix[i]));
     }
 
     let scales: Vec<f64> = (0..num_timepoints).map(|i| i as f64 * 0.1).collect();
 
-    let variants_array: Vec<serde_json::Value> = if let Some(ref variant_results) = dda_result.variant_results {
-        variant_results.iter().map(|vr| {
-            let variant_channel_labels = vr.channel_labels.as_ref().unwrap_or(&channel_names);
+    let variants_array: Vec<serde_json::Value> = if let Some(ref variant_results) =
+        dda_result.variant_results
+    {
+        variant_results
+            .iter()
+            .map(|vr| {
+                let variant_channel_labels = vr.channel_labels.as_ref().unwrap_or(&channel_names);
 
-            let mut variant_dda_matrix = serde_json::Map::new();
-            for (i, channel_label) in variant_channel_labels.iter().enumerate() {
-                if i < vr.q_matrix.len() {
-                    variant_dda_matrix.insert(
-                        channel_label.clone(),
-                        serde_json::json!(vr.q_matrix[i])
-                    );
+                let mut variant_dda_matrix = serde_json::Map::new();
+                for (i, channel_label) in variant_channel_labels.iter().enumerate() {
+                    if i < vr.q_matrix.len() {
+                        variant_dda_matrix
+                            .insert(channel_label.clone(), serde_json::json!(vr.q_matrix[i]));
+                    }
                 }
-            }
 
-            serde_json::json!({
-                "variant_id": map_variant_id_to_frontend(&vr.variant_id),
-                "variant_name": vr.variant_name.clone(),
-                "dda_matrix": variant_dda_matrix,
-                "exponents": serde_json::json!({}),
-                "quality_metrics": serde_json::json!({})
+                serde_json::json!({
+                    "variant_id": map_variant_id_to_frontend(&vr.variant_id),
+                    "variant_name": vr.variant_name.clone(),
+                    "dda_matrix": variant_dda_matrix,
+                    "exponents": serde_json::json!({}),
+                    "quality_metrics": serde_json::json!({})
+                })
             })
-        }).collect()
+            .collect()
     } else {
         vec![serde_json::json!({
             "variant_id": "single_timeseries",
@@ -277,7 +335,10 @@ pub async fn run_dda_analysis(
         })]
     };
 
-    log::info!("Built {} variant results for frontend", variants_array.len());
+    log::info!(
+        "Built {} variant results for frontend",
+        variants_array.len()
+    );
 
     let results = serde_json::json!({
         "summary": {
@@ -326,11 +387,15 @@ pub async fn run_dda_analysis(
     if let Err(e) = state.save_to_disk(&result) {
         log::error!("Failed to save analysis to disk: {}", e);
     }
-    log::info!("⏱️  [TIMING] Save completed in {:.2}s", save_start.elapsed().as_secs_f64());
-    eprintln!("⏱️  [DDA TIMING] Result persistence: {:.2}s", save_start.elapsed().as_secs_f64());
+    log::info!(
+        "⏱️  [TIMING] Save completed in {:.2}s",
+        save_start.elapsed().as_secs_f64()
+    );
 
-    log::info!("⏱️  [TIMING] ✅ Total DDA analysis completed in {:.2}s", start_time.elapsed().as_secs_f64());
-    eprintln!("⏱️  [DDA TIMING] ========== TOTAL: {:.2}s ==========\n", start_time.elapsed().as_secs_f64());
+    log::info!(
+        "⏱️  [TIMING] ✅ Total DDA analysis completed in {:.2}s",
+        start_time.elapsed().as_secs_f64()
+    );
 
     Ok(Json(result))
 }
@@ -351,25 +416,37 @@ pub async fn get_analysis_result(
             Ok(Some(analysis)) => {
                 log::info!("✅ Retrieved analysis {} from SQLite database", analysis_id);
 
-                if let Ok(parameters) = serde_json::from_value::<DDAParameters>(analysis.parameters.clone()) {
-                    let (results, channels, q_matrix, status) = if let Some(ref complete_data) = analysis.plot_data {
+                if let Ok(parameters) =
+                    serde_json::from_value::<DDAParameters>(analysis.parameters.clone())
+                {
+                    let (results, channels, q_matrix, status) = if let Some(ref complete_data) =
+                        analysis.plot_data
+                    {
                         let results_val = complete_data.get("results").cloned()
                             .unwrap_or_else(|| serde_json::json!({
                                 "variants": [{"variant_id": "single_timeseries", "variant_name": "Single Timeseries (ST)"}]
                             }));
-                        let channels_val: Vec<String> = complete_data.get("channels")
+                        let channels_val: Vec<String> = complete_data
+                            .get("channels")
                             .and_then(|v| serde_json::from_value(v.clone()).ok())
                             .unwrap_or_default();
-                        let q_matrix_val: Option<Vec<Vec<f64>>> = complete_data.get("q_matrix")
+                        let q_matrix_val: Option<Vec<Vec<f64>>> = complete_data
+                            .get("q_matrix")
                             .and_then(|v| serde_json::from_value(v.clone()).ok());
-                        let status_val: String = complete_data.get("status")
+                        let status_val: String = complete_data
+                            .get("status")
                             .and_then(|v| v.as_str().map(|s| s.to_string()))
                             .unwrap_or_else(|| "completed".to_string());
                         (results_val, channels_val, q_matrix_val, status_val)
                     } else {
-                        (serde_json::json!({
-                            "variants": [{"variant_id": "single_timeseries", "variant_name": "Single Timeseries (ST)"}]
-                        }), Vec::new(), None, "completed".to_string())
+                        (
+                            serde_json::json!({
+                                "variants": [{"variant_id": "single_timeseries", "variant_name": "Single Timeseries (ST)"}]
+                            }),
+                            Vec::new(),
+                            None,
+                            "completed".to_string(),
+                        )
                     };
 
                     let result = DDAResult {
@@ -379,7 +456,10 @@ pub async fn get_analysis_result(
                         channels,
                         parameters,
                         results,
-                        plot_data: analysis.plot_data.as_ref().and_then(|d| d.get("plot_data").cloned()),
+                        plot_data: analysis
+                            .plot_data
+                            .as_ref()
+                            .and_then(|d| d.get("plot_data").cloned()),
                         q_matrix,
                         created_at: analysis.timestamp.clone(),
                         status,
@@ -394,7 +474,7 @@ pub async fn get_analysis_result(
                     });
                     return Ok(Json(response));
                 }
-            },
+            }
             Ok(None) => log::debug!("Analysis {} not found in database", analysis_id),
             Err(e) => log::error!("Failed to retrieve analysis from database: {}", e),
         }
@@ -432,13 +512,14 @@ pub async fn get_analysis_status(
     }
 }
 
-pub async fn list_analysis_history(
-    State(state): State<Arc<ApiState>>,
-) -> Json<Vec<DDAResult>> {
+pub async fn list_analysis_history(State(state): State<Arc<ApiState>>) -> Json<Vec<DDAResult>> {
     if let Some(ref db) = state.analysis_db {
         match db.get_recent_analyses(50) {
             Ok(analyses) => {
-                log::info!("✅ Retrieved {} analyses from SQLite database", analyses.len());
+                log::info!(
+                    "✅ Retrieved {} analyses from SQLite database",
+                    analyses.len()
+                );
 
                 let results: Vec<DDAResult> = analyses.iter().filter_map(|analysis| {
                     let parameters: DDAParameters = match serde_json::from_value(analysis.parameters.clone()) {
@@ -484,7 +565,7 @@ pub async fn list_analysis_history(
                 }).collect();
 
                 return Json(results);
-            },
+            }
             Err(e) => {
                 log::error!("❌ Failed to retrieve analyses from database: {}", e);
             }
@@ -521,7 +602,7 @@ pub async fn delete_analysis_result(
                 analysis_cache.remove(&analysis_id);
 
                 return StatusCode::NO_CONTENT;
-            },
+            }
             Err(e) => {
                 log::error!("❌ Failed to delete analysis from database: {}", e);
                 return StatusCode::INTERNAL_SERVER_ERROR;
@@ -550,8 +631,9 @@ pub async fn rename_analysis_result(
             Json(json!({
                 "error": "Invalid name",
                 "message": "Analysis name cannot be empty"
-            }))
-        ).into_response();
+            })),
+        )
+            .into_response();
     }
 
     if trimmed_name.len() > 200 {
@@ -560,8 +642,9 @@ pub async fn rename_analysis_result(
             Json(json!({
                 "error": "Invalid name",
                 "message": "Analysis name must be 200 characters or less"
-            }))
-        ).into_response();
+            })),
+        )
+            .into_response();
     }
 
     let sanitized_name: String = trimmed_name
@@ -575,22 +658,28 @@ pub async fn rename_analysis_result(
             Json(json!({
                 "error": "Invalid name",
                 "message": "Analysis name contains only invalid characters"
-            }))
-        ).into_response();
+            })),
+        )
+            .into_response();
     }
 
     if let Some(ref db) = state.analysis_db {
         match db.rename_analysis(&analysis_id, &sanitized_name) {
             Ok(_) => {
-                log::info!("✅ Renamed analysis {} to '{}' in SQLite database", analysis_id, sanitized_name);
+                log::info!(
+                    "✅ Renamed analysis {} to '{}' in SQLite database",
+                    analysis_id,
+                    sanitized_name
+                );
 
                 return (
                     StatusCode::OK,
                     Json(json!({
                         "success": true
-                    }))
-                ).into_response();
-            },
+                    })),
+                )
+                    .into_response();
+            }
             Err(e) => {
                 log::error!("❌ Failed to rename analysis in database: {}", e);
                 return (
@@ -598,8 +687,9 @@ pub async fn rename_analysis_result(
                     Json(json!({
                         "error": "Database error",
                         "message": format!("Failed to rename analysis: {}", e)
-                    }))
-                ).into_response();
+                    })),
+                )
+                    .into_response();
             }
         }
     }
@@ -609,8 +699,9 @@ pub async fn rename_analysis_result(
         Json(json!({
             "error": "Rename not supported",
             "message": "Analysis database not available"
-        }))
-    ).into_response()
+        })),
+    )
+        .into_response()
 }
 
 fn get_dda_binary_path(state: &ApiState) -> Result<PathBuf, StatusCode> {
@@ -623,7 +714,13 @@ fn get_dda_binary_path(state: &ApiState) -> Result<PathBuf, StatusCode> {
     }
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let repo_root = manifest_dir.parent().unwrap().parent().unwrap().parent().unwrap();
+    let repo_root = manifest_dir
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
 
     let binary_name = if cfg!(target_os = "windows") {
         "run_DDA_AsciiEdf.exe"
@@ -654,28 +751,55 @@ fn get_dda_binary_path(state: &ApiState) -> Result<PathBuf, StatusCode> {
 }
 
 fn generate_select_mask(enabled_variants: &[String]) -> String {
-    let st = if enabled_variants.iter().any(|v| v == "single_timeseries") { "1" } else { "0" };
-    let ct = if enabled_variants.iter().any(|v| v == "cross_timeseries") { "1" } else { "0" };
-    let cd = if enabled_variants.iter().any(|v| v == "cross_dynamical") { "1" } else { "0" };
-    let de = if enabled_variants.iter().any(|v| v == "dynamical_ergodicity") { "1" } else { "0" };
+    let st = if enabled_variants.iter().any(|v| v == "single_timeseries") {
+        "1"
+    } else {
+        "0"
+    };
+    let ct = if enabled_variants.iter().any(|v| v == "cross_timeseries") {
+        "1"
+    } else {
+        "0"
+    };
+    let cd = if enabled_variants.iter().any(|v| v == "cross_dynamical") {
+        "1"
+    } else {
+        "0"
+    };
+    let de = if enabled_variants.iter().any(|v| v == "dynamical_ergodicity") {
+        "1"
+    } else {
+        "0"
+    };
 
     format!("{} {} {} {}", st, ct, cd, de)
 }
 
 fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
     let select_mask = if api_req.algorithm_selection.select_mask.is_some() {
-        log::info!("Using provided SELECT mask: {:?}", api_req.algorithm_selection.select_mask);
+        log::info!(
+            "Using provided SELECT mask: {:?}",
+            api_req.algorithm_selection.select_mask
+        );
         api_req.algorithm_selection.select_mask.clone()
     } else {
-        let generated = Some(generate_select_mask(&api_req.algorithm_selection.enabled_variants));
-        log::info!("Generated SELECT mask: {:?} from variants: {:?}",
-            generated, api_req.algorithm_selection.enabled_variants);
+        let generated = Some(generate_select_mask(
+            &api_req.algorithm_selection.enabled_variants,
+        ));
+        log::info!(
+            "Generated SELECT mask: {:?} from variants: {:?}",
+            generated,
+            api_req.algorithm_selection.enabled_variants
+        );
         generated
     };
 
-    log::info!("🎯 Final SELECT mask being passed to runner: {:?}", select_mask);
+    log::info!(
+        "🎯 Final SELECT mask being passed to runner: {:?}",
+        select_mask
+    );
 
-    dda_rs::DDARequest {
+    let dda_request = dda_rs::DDARequest {
         file_path: api_req.file_path.clone(),
         channels: api_req.channels.clone(),
         time_range: dda_rs::TimeRange {
@@ -683,7 +807,6 @@ fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
             end: api_req.time_range.end,
         },
         preprocessing_options: dda_rs::PreprocessingOptions {
-            detrending: api_req.preprocessing_options.detrending.clone(),
             highpass: api_req.preprocessing_options.highpass,
             lowpass: api_req.preprocessing_options.lowpass,
         },
@@ -703,7 +826,9 @@ fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
             scale_num: api_req.scale_parameters.scale_num as u32,
         },
         ct_channel_pairs: api_req.ct_channel_pairs.clone(),
-    }
+    };
+
+    dda_request
 }
 
 fn map_variant_id_to_frontend(variant_id: &str) -> String {
@@ -728,8 +853,6 @@ fn calculate_std(values: &[f64]) -> f64 {
         return 0.0;
     }
     let mean = calculate_mean(values);
-    let variance = values.iter()
-        .map(|v| (v - mean).powi(2))
-        .sum::<f64>() / values.len() as f64;
+    let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
     variance.sqrt()
 }

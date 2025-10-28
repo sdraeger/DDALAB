@@ -10,11 +10,10 @@
 /// - Single source of truth for data representation
 /// - Easy to add new file format readers
 /// - Decouple file format parsing from analysis/visualization
-
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use std::fs::File;
-use std::io::{Write, BufWriter};
+use std::io::{BufWriter, Write};
+use std::path::Path;
 
 /// Universal intermediate representation for time-series data
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,14 +113,19 @@ impl IntermediateData {
     /// # Arguments
     /// * `output_path` - Path to write ASCII file
     /// * `selected_channels` - Optional list of channel labels to export (None = all)
-    pub fn to_ascii(&self, output_path: &Path, selected_channels: Option<&[String]>) -> Result<(), String> {
+    pub fn to_ascii(
+        &self,
+        output_path: &Path,
+        selected_channels: Option<&[String]>,
+    ) -> Result<(), String> {
         let file = File::create(output_path)
             .map_err(|e| format!("Failed to create output file: {}", e))?;
         let mut writer = BufWriter::new(file);
 
         // Determine which channels to export
         let channels_to_export: Vec<&ChannelData> = if let Some(selected) = selected_channels {
-            selected.iter()
+            selected
+                .iter()
                 .filter_map(|label| self.get_channel(label))
                 .collect()
         } else {
@@ -133,17 +137,19 @@ impl IntermediateData {
         }
 
         // Write header with channel labels (commented)
-        write!(writer, "# Channels:")
-            .map_err(|e| format!("Write error: {}", e))?;
+        write!(writer, "# Channels:").map_err(|e| format!("Write error: {}", e))?;
         for channel in &channels_to_export {
-            write!(writer, " {}", channel.label)
-                .map_err(|e| format!("Write error: {}", e))?;
+            write!(writer, " {}", channel.label).map_err(|e| format!("Write error: {}", e))?;
         }
         writeln!(writer).map_err(|e| format!("Write error: {}", e))?;
 
         // Write metadata as comments
-        writeln!(writer, "# Source: {} ({})", self.metadata.source_file, self.metadata.source_format)
-            .map_err(|e| format!("Write error: {}", e))?;
+        writeln!(
+            writer,
+            "# Source: {} ({})",
+            self.metadata.source_file, self.metadata.source_format
+        )
+        .map_err(|e| format!("Write error: {}", e))?;
         writeln!(writer, "# Sample rate: {} Hz", self.metadata.sample_rate)
             .map_err(|e| format!("Write error: {}", e))?;
         writeln!(writer, "# Duration: {} s", self.metadata.duration)
@@ -160,8 +166,7 @@ impl IntermediateData {
 
                 // Get sample value, handle channels with different lengths
                 let value = channel.samples.get(sample_idx).unwrap_or(&0.0);
-                write!(writer, "{:.6}", value)
-                    .map_err(|e| format!("Write error: {}", e))?;
+                write!(writer, "{:.6}", value).map_err(|e| format!("Write error: {}", e))?;
             }
             writeln!(writer).map_err(|e| format!("Write error: {}", e))?;
         }
@@ -173,14 +178,19 @@ impl IntermediateData {
     /// Export to CSV format (comma-separated)
     ///
     /// Similar to ASCII but uses commas instead of spaces
-    pub fn to_csv(&self, output_path: &Path, selected_channels: Option<&[String]>) -> Result<(), String> {
+    pub fn to_csv(
+        &self,
+        output_path: &Path,
+        selected_channels: Option<&[String]>,
+    ) -> Result<(), String> {
         let file = File::create(output_path)
             .map_err(|e| format!("Failed to create output file: {}", e))?;
         let mut writer = BufWriter::new(file);
 
         // Determine which channels to export
         let channels_to_export: Vec<&ChannelData> = if let Some(selected) = selected_channels {
-            selected.iter()
+            selected
+                .iter()
                 .filter_map(|label| self.get_channel(label))
                 .collect()
         } else {
@@ -196,8 +206,7 @@ impl IntermediateData {
             if ch_idx > 0 {
                 write!(writer, ",").map_err(|e| format!("Write error: {}", e))?;
             }
-            write!(writer, "{}", channel.label)
-                .map_err(|e| format!("Write error: {}", e))?;
+            write!(writer, "{}", channel.label).map_err(|e| format!("Write error: {}", e))?;
         }
         writeln!(writer).map_err(|e| format!("Write error: {}", e))?;
 
@@ -211,8 +220,7 @@ impl IntermediateData {
                 }
 
                 let value = channel.samples.get(sample_idx).unwrap_or(&0.0);
-                write!(writer, "{:.6}", value)
-                    .map_err(|e| format!("Write error: {}", e))?;
+                write!(writer, "{:.6}", value).map_err(|e| format!("Write error: {}", e))?;
             }
             writeln!(writer).map_err(|e| format!("Write error: {}", e))?;
         }
@@ -229,40 +237,50 @@ impl IntermediateData {
         selected_channels: Option<&[String]>,
     ) -> Vec<Vec<f64>> {
         let channels_to_use: Vec<&ChannelData> = if let Some(selected) = selected_channels {
-            selected.iter()
+            selected
+                .iter()
                 .filter_map(|label| self.get_channel(label))
                 .collect()
         } else {
             self.channels.iter().collect()
         };
 
-        channels_to_use.iter().map(|channel| {
-            let end_sample = (start_sample + num_samples).min(channel.samples.len());
-            channel.samples[start_sample..end_sample].to_vec()
-        }).collect()
+        channels_to_use
+            .iter()
+            .map(|channel| {
+                let end_sample = (start_sample + num_samples).min(channel.samples.len());
+                channel.samples[start_sample..end_sample].to_vec()
+            })
+            .collect()
     }
 
     /// Decimate data for overview/preview
     pub fn decimate(&self, max_points_per_channel: usize) -> Self {
         let num_samples = self.num_samples();
-        let decimation_factor = (num_samples as f64 / max_points_per_channel as f64).ceil() as usize;
+        let decimation_factor =
+            (num_samples as f64 / max_points_per_channel as f64).ceil() as usize;
         let decimation_factor = decimation_factor.max(1);
 
-        let decimated_channels: Vec<ChannelData> = self.channels.iter().map(|channel| {
-            let decimated_samples: Vec<f64> = channel.samples
-                .iter()
-                .step_by(decimation_factor)
-                .copied()
-                .collect();
+        let decimated_channels: Vec<ChannelData> = self
+            .channels
+            .iter()
+            .map(|channel| {
+                let decimated_samples: Vec<f64> = channel
+                    .samples
+                    .iter()
+                    .step_by(decimation_factor)
+                    .copied()
+                    .collect();
 
-            ChannelData {
-                label: channel.label.clone(),
-                channel_type: channel.channel_type.clone(),
-                unit: channel.unit.clone(),
-                samples: decimated_samples,
-                sample_rate: channel.sample_rate,
-            }
-        }).collect();
+                ChannelData {
+                    label: channel.label.clone(),
+                    channel_type: channel.channel_type.clone(),
+                    unit: channel.unit.clone(),
+                    samples: decimated_samples,
+                    sample_rate: channel.sample_rate,
+                }
+            })
+            .collect();
 
         IntermediateData {
             metadata: self.metadata.clone(),

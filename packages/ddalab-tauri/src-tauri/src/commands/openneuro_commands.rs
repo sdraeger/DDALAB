@@ -1,12 +1,12 @@
+use crate::state_manager::AppStateManager;
 use serde::{Deserialize, Serialize};
-use tauri::command;
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::io::{BufRead, BufReader};
-use tauri::{AppHandle, Emitter, State};
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use crate::state_manager::AppStateManager;
+use tauri::command;
+use tauri::{AppHandle, Emitter, State};
 
 const OPENNEURO_API_KEY_NAME: &str = "openneuro_api_key";
 
@@ -42,7 +42,7 @@ pub struct DownloadProgress {
 pub struct DownloadOptions {
     pub dataset_id: String,
     pub destination_path: String,
-    pub use_github: bool, // true = GitHub, false = OpenNeuro git server
+    pub use_github: bool,       // true = GitHub, false = OpenNeuro git server
     pub download_annexed: bool, // Download actual file data
     pub snapshot_tag: Option<String>, // Specific snapshot version
 }
@@ -52,7 +52,10 @@ pub async fn save_openneuro_api_key(
     api_key: String,
     state_manager: State<'_, AppStateManager>,
 ) -> Result<(), String> {
-    log::info!("[SECRETS_DB] save_openneuro_api_key called with key length: {}", api_key.len());
+    log::info!(
+        "[SECRETS_DB] save_openneuro_api_key called with key length: {}",
+        api_key.len()
+    );
 
     if api_key.trim().is_empty() {
         log::error!("[SECRETS_DB] API key is empty, rejecting save");
@@ -77,14 +80,19 @@ pub async fn save_openneuro_api_key(
             if saved_key == api_key {
                 log::info!("[SECRETS_DB] Verification successful: key matches what was saved");
             } else {
-                log::error!("[SECRETS_DB] Verification FAILED: retrieved key doesn't match saved key!");
+                log::error!(
+                    "[SECRETS_DB] Verification FAILED: retrieved key doesn't match saved key!"
+                );
             }
         }
         Ok(None) => {
             log::error!("[SECRETS_DB] Verification FAILED: key not found after save!");
         }
         Err(e) => {
-            log::error!("[SECRETS_DB] Verification FAILED: couldn't read back the key: {}", e);
+            log::error!(
+                "[SECRETS_DB] Verification FAILED: couldn't read back the key: {}",
+                e
+            );
         }
     }
 
@@ -102,7 +110,10 @@ pub async fn get_openneuro_api_key(
     log::info!("[SECRETS_DB] Attempting to read encrypted API key...");
     match secrets_db.get_secret(OPENNEURO_API_KEY_NAME) {
         Ok(Some(key)) => {
-            log::info!("[SECRETS_DB] Successfully retrieved API key from encrypted database (length: {})", key.len());
+            log::info!(
+                "[SECRETS_DB] Successfully retrieved API key from encrypted database (length: {})",
+                key.len()
+            );
             Ok(key)
         }
         Ok(None) => {
@@ -126,9 +137,12 @@ pub async fn check_openneuro_api_key(
 
     match secrets_db.get_secret(OPENNEURO_API_KEY_NAME) {
         Ok(Some(key)) => {
-            log::info!("[SECRETS_DB] Check found API key in encrypted database (length: {})", key.len());
+            log::info!(
+                "[SECRETS_DB] Check found API key in encrypted database (length: {})",
+                key.len()
+            );
             let preview = if key.len() > 8 {
-                Some(format!("{}...{}", &key[..4], &key[key.len()-4..]))
+                Some(format!("{}...{}", &key[..4], &key[key.len() - 4..]))
             } else {
                 Some("****".to_string())
             };
@@ -215,14 +229,19 @@ pub async fn download_openneuro_dataset(
     // Register this download
     let pid_lock = Arc::new(Mutex::new(Some(0u32))); // Will be updated with actual PID
     {
-        let mut downloads = download_state.active_downloads.lock()
+        let mut downloads = download_state
+            .active_downloads
+            .lock()
             .map_err(|e| format!("Failed to lock download state: {}", e))?;
         downloads.insert(options.dataset_id.clone(), pid_lock.clone());
     }
 
     // Construct the git URL
     let git_url = if options.use_github {
-        format!("https://github.com/OpenNeuroDatasets/{}.git", options.dataset_id)
+        format!(
+            "https://github.com/OpenNeuroDatasets/{}.git",
+            options.dataset_id
+        )
     } else {
         format!("https://openneuro.org/git/0/{}", options.dataset_id)
     };
@@ -234,26 +253,35 @@ pub async fn download_openneuro_dataset(
     let is_resume = dataset_path.exists() && dataset_path.join(".git").exists();
 
     if is_resume {
-        log::info!("Detected existing repository, will resume download for: {}", options.dataset_id);
-        let _ = app_handle.emit("openneuro-download-progress", DownloadProgress {
-            dataset_id: options.dataset_id.clone(),
-            phase: "cloning".to_string(),
-            progress_percent: 0.0,
-            message: "Resuming previous download...".to_string(),
-            current_file: None,
-        });
+        log::info!(
+            "Detected existing repository, will resume download for: {}",
+            options.dataset_id
+        );
+        let _ = app_handle.emit(
+            "openneuro-download-progress",
+            DownloadProgress {
+                dataset_id: options.dataset_id.clone(),
+                phase: "cloning".to_string(),
+                progress_percent: 0.0,
+                message: "Resuming previous download...".to_string(),
+                current_file: None,
+            },
+        );
     } else if dataset_path.exists() {
         // Directory exists but not a git repo - error
         return Err(format!("Dataset directory exists but is not a git repository: {:?}. Please remove it or choose a different location.", dataset_path));
     } else {
         // Fresh download
-        let _ = app_handle.emit("openneuro-download-progress", DownloadProgress {
-            dataset_id: options.dataset_id.clone(),
-            phase: "cloning".to_string(),
-            progress_percent: 0.0,
-            message: "Starting download...".to_string(),
-            current_file: None,
-        });
+        let _ = app_handle.emit(
+            "openneuro-download-progress",
+            DownloadProgress {
+                dataset_id: options.dataset_id.clone(),
+                phase: "cloning".to_string(),
+                progress_percent: 0.0,
+                message: "Starting download...".to_string(),
+                current_file: None,
+            },
+        );
     }
 
     // Set up git command - clone or fetch depending on resume state
@@ -274,15 +302,13 @@ pub async fn download_openneuro_dataset(
 
         git_cmd
             .arg("fetch")
-            .arg("origin")  // Only fetch from origin, not git-annex special remotes
+            .arg("origin") // Only fetch from origin, not git-annex special remotes
             .arg("--progress")
             .current_dir(&dataset_path);
     } else {
         // Fresh clone
         log::info!("Starting fresh clone from: {}", git_url);
-        git_cmd
-            .arg("clone")
-            .arg("--progress");
+        git_cmd.arg("clone").arg("--progress");
 
         // If a specific snapshot tag is requested, use --branch
         if let Some(ref tag) = options.snapshot_tag {
@@ -295,12 +321,14 @@ pub async fn download_openneuro_dataset(
             .current_dir(&dest_path);
     }
 
-    git_cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    git_cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
-    let mut child = git_cmd.spawn()
-        .map_err(|e| format!("Failed to start git operation: {}. Make sure git is installed.", e))?;
+    let mut child = git_cmd.spawn().map_err(|e| {
+        format!(
+            "Failed to start git operation: {}. Make sure git is installed.",
+            e
+        )
+    })?;
 
     // Store the process ID for cancellation
     let pid = child.id();
@@ -316,13 +344,16 @@ pub async fn download_openneuro_dataset(
             if is_cancelled(&download_state, &options.dataset_id) {
                 log::info!("Download cancelled for dataset: {}", options.dataset_id);
                 let _ = child.kill();
-                let _ = app_handle.emit("openneuro-download-progress", DownloadProgress {
-                    dataset_id: options.dataset_id.clone(),
-                    phase: "error".to_string(),
-                    progress_percent: 0.0,
-                    message: "Download cancelled by user".to_string(),
-                    current_file: None,
-                });
+                let _ = app_handle.emit(
+                    "openneuro-download-progress",
+                    DownloadProgress {
+                        dataset_id: options.dataset_id.clone(),
+                        phase: "error".to_string(),
+                        progress_percent: 0.0,
+                        message: "Download cancelled by user".to_string(),
+                        current_file: None,
+                    },
+                );
                 // Cleanup
                 if let Ok(mut downloads) = download_state.active_downloads.lock() {
                     downloads.remove(&options.dataset_id);
@@ -334,58 +365,80 @@ pub async fn download_openneuro_dataset(
                 log::debug!("git clone: {}", line);
 
                 // Parse progress from git output
-                let progress_percent = if line.contains("Receiving objects:") || line.contains("Resolving deltas:") {
-                    // Try to extract percentage
-                    if let Some(pct_str) = line.split('%').next() {
-                        if let Some(num_str) = pct_str.split_whitespace().last() {
-                            num_str.parse::<f32>().unwrap_or(50.0)
+                let progress_percent =
+                    if line.contains("Receiving objects:") || line.contains("Resolving deltas:") {
+                        // Try to extract percentage
+                        if let Some(pct_str) = line.split('%').next() {
+                            if let Some(num_str) = pct_str.split_whitespace().last() {
+                                num_str.parse::<f32>().unwrap_or(50.0)
+                            } else {
+                                50.0
+                            }
                         } else {
                             50.0
                         }
                     } else {
-                        50.0
-                    }
-                } else {
-                    25.0
-                };
+                        25.0
+                    };
 
-                let _ = app_handle.emit("openneuro-download-progress", DownloadProgress {
-                    dataset_id: options.dataset_id.clone(),
-                    phase: "cloning".to_string(),
-                    progress_percent,
-                    message: line.clone(),
-                    current_file: None,
-                });
+                let _ = app_handle.emit(
+                    "openneuro-download-progress",
+                    DownloadProgress {
+                        dataset_id: options.dataset_id.clone(),
+                        phase: "cloning".to_string(),
+                        progress_percent,
+                        message: line.clone(),
+                        current_file: None,
+                    },
+                );
             }
         }
     }
 
-    let status = child.wait()
+    let status = child
+        .wait()
         .map_err(|e| format!("Failed to wait for git clone: {}", e))?;
 
     if !status.success() {
-        let _ = app_handle.emit("openneuro-download-progress", DownloadProgress {
-            dataset_id: options.dataset_id.clone(),
-            phase: "error".to_string(),
-            progress_percent: 0.0,
-            message: if is_resume { "Git fetch failed".to_string() } else { "Git clone failed".to_string() },
-            current_file: None,
+        let _ = app_handle.emit(
+            "openneuro-download-progress",
+            DownloadProgress {
+                dataset_id: options.dataset_id.clone(),
+                phase: "error".to_string(),
+                progress_percent: 0.0,
+                message: if is_resume {
+                    "Git fetch failed".to_string()
+                } else {
+                    "Git clone failed".to_string()
+                },
+                current_file: None,
+            },
+        );
+        return Err(if is_resume {
+            "Git fetch failed. Check logs for details.".to_string()
+        } else {
+            "Git clone failed. Check logs for details.".to_string()
         });
-        return Err(if is_resume { "Git fetch failed. Check logs for details.".to_string() } else { "Git clone failed. Check logs for details.".to_string() });
     }
 
-    log::info!("{} completed successfully", if is_resume { "Git fetch" } else { "Git clone" });
+    log::info!(
+        "{} completed successfully",
+        if is_resume { "Git fetch" } else { "Git clone" }
+    );
 
     // If resuming, checkout the working tree
     if is_resume {
         log::info!("Checking out working tree after fetch");
-        let _ = app_handle.emit("openneuro-download-progress", DownloadProgress {
-            dataset_id: options.dataset_id.clone(),
-            phase: "cloning".to_string(),
-            progress_percent: 45.0,
-            message: "Updating working tree...".to_string(),
-            current_file: None,
-        });
+        let _ = app_handle.emit(
+            "openneuro-download-progress",
+            DownloadProgress {
+                dataset_id: options.dataset_id.clone(),
+                phase: "cloning".to_string(),
+                progress_percent: 45.0,
+                message: "Updating working tree...".to_string(),
+                current_file: None,
+            },
+        );
 
         // Determine what to checkout
         let checkout_ref = if let Some(ref tag) = options.snapshot_tag {
@@ -407,13 +460,16 @@ pub async fn download_openneuro_dataset(
 
     // If download_annexed is true and git-annex is available, try to get annexed files
     if options.download_annexed {
-        let _ = app_handle.emit("openneuro-download-progress", DownloadProgress {
-            dataset_id: options.dataset_id.clone(),
-            phase: "fetching".to_string(),
-            progress_percent: 50.0,
-            message: "Starting annexed file download...".to_string(),
-            current_file: None,
-        });
+        let _ = app_handle.emit(
+            "openneuro-download-progress",
+            DownloadProgress {
+                dataset_id: options.dataset_id.clone(),
+                phase: "fetching".to_string(),
+                progress_percent: 50.0,
+                message: "Starting annexed file download...".to_string(),
+                current_file: None,
+            },
+        );
 
         // Try git-annex get
         if check_git_annex_available().await.unwrap_or(false) {
@@ -433,13 +489,17 @@ pub async fn download_openneuro_dataset(
                 Ok(c) => c,
                 Err(e) => {
                     log::error!("Failed to spawn git-annex: {}", e);
-                    let _ = app_handle.emit("openneuro-download-progress", DownloadProgress {
-                        dataset_id: options.dataset_id.clone(),
-                        phase: "fetching".to_string(),
-                        progress_percent: 90.0,
-                        message: "git-annex failed to start. Dataset structure downloaded.".to_string(),
-                        current_file: None,
-                    });
+                    let _ = app_handle.emit(
+                        "openneuro-download-progress",
+                        DownloadProgress {
+                            dataset_id: options.dataset_id.clone(),
+                            phase: "fetching".to_string(),
+                            progress_percent: 90.0,
+                            message: "git-annex failed to start. Dataset structure downloaded."
+                                .to_string(),
+                            current_file: None,
+                        },
+                    );
                     // Cleanup and continue without annexing
                     if let Ok(mut downloads) = download_state.active_downloads.lock() {
                         downloads.remove(&options.dataset_id);
@@ -465,15 +525,21 @@ pub async fn download_openneuro_dataset(
                 for line in reader.lines() {
                     // Check for cancellation
                     if is_cancelled(&download_state, &options.dataset_id) {
-                        log::info!("Download cancelled during git-annex for dataset: {}", options.dataset_id);
+                        log::info!(
+                            "Download cancelled during git-annex for dataset: {}",
+                            options.dataset_id
+                        );
                         let _ = child.kill();
-                        let _ = app_handle.emit("openneuro-download-progress", DownloadProgress {
-                            dataset_id: options.dataset_id.clone(),
-                            phase: "error".to_string(),
-                            progress_percent: 0.0,
-                            message: "Download cancelled by user".to_string(),
-                            current_file: None,
-                        });
+                        let _ = app_handle.emit(
+                            "openneuro-download-progress",
+                            DownloadProgress {
+                                dataset_id: options.dataset_id.clone(),
+                                phase: "error".to_string(),
+                                progress_percent: 0.0,
+                                message: "Download cancelled by user".to_string(),
+                                current_file: None,
+                            },
+                        );
                         // Cleanup
                         if let Ok(mut downloads) = download_state.active_downloads.lock() {
                             downloads.remove(&options.dataset_id);
@@ -493,7 +559,9 @@ pub async fn download_openneuro_dataset(
 
                             // Check if this is a download action
                             if let Some(action) = json.get("action") {
-                                if let Some(action_str) = action.get("command").and_then(|c| c.as_str()) {
+                                if let Some(action_str) =
+                                    action.get("command").and_then(|c| c.as_str())
+                                {
                                     if action_str == "get" {
                                         total_files += 1;
                                     }
@@ -516,7 +584,11 @@ pub async fn download_openneuro_dataset(
 
                             let message = if let Some(ref file) = current_file_name {
                                 if total_files > 0 {
-                                    format!("Downloading file {} of {}", files_downloaded + 1, total_files)
+                                    format!(
+                                        "Downloading file {} of {}",
+                                        files_downloaded + 1,
+                                        total_files
+                                    )
                                 } else {
                                     format!("Downloading {}", file)
                                 }
@@ -524,13 +596,16 @@ pub async fn download_openneuro_dataset(
                                 "Downloading annexed files...".to_string()
                             };
 
-                            let _ = app_handle.emit("openneuro-download-progress", DownloadProgress {
-                                dataset_id: options.dataset_id.clone(),
-                                phase: "fetching".to_string(),
-                                progress_percent,
-                                message,
-                                current_file: current_file_name.clone(),
-                            });
+                            let _ = app_handle.emit(
+                                "openneuro-download-progress",
+                                DownloadProgress {
+                                    dataset_id: options.dataset_id.clone(),
+                                    phase: "fetching".to_string(),
+                                    progress_percent,
+                                    message,
+                                    current_file: current_file_name.clone(),
+                                },
+                            );
                         } else {
                             // Non-JSON output, just log it
                             log::debug!("git-annex output: {}", line);
@@ -539,27 +614,40 @@ pub async fn download_openneuro_dataset(
                 }
             }
 
-            let status = child.wait()
+            let status = child
+                .wait()
                 .map_err(|e| format!("Failed to wait for git-annex: {}", e))?;
 
             if status.success() {
-                log::info!("Successfully retrieved annexed files ({} files)", files_downloaded);
-                let _ = app_handle.emit("openneuro-download-progress", DownloadProgress {
-                    dataset_id: options.dataset_id.clone(),
-                    phase: "fetching".to_string(),
-                    progress_percent: 95.0,
-                    message: format!("Successfully downloaded {} annexed files", files_downloaded),
-                    current_file: None,
-                });
+                log::info!(
+                    "Successfully retrieved annexed files ({} files)",
+                    files_downloaded
+                );
+                let _ = app_handle.emit(
+                    "openneuro-download-progress",
+                    DownloadProgress {
+                        dataset_id: options.dataset_id.clone(),
+                        phase: "fetching".to_string(),
+                        progress_percent: 95.0,
+                        message: format!(
+                            "Successfully downloaded {} annexed files",
+                            files_downloaded
+                        ),
+                        current_file: None,
+                    },
+                );
             } else {
                 log::warn!("git-annex get completed with warnings");
-                let _ = app_handle.emit("openneuro-download-progress", DownloadProgress {
-                    dataset_id: options.dataset_id.clone(),
-                    phase: "fetching".to_string(),
-                    progress_percent: 90.0,
-                    message: "Some annexed files may not have downloaded".to_string(),
-                    current_file: None,
-                });
+                let _ = app_handle.emit(
+                    "openneuro-download-progress",
+                    DownloadProgress {
+                        dataset_id: options.dataset_id.clone(),
+                        phase: "fetching".to_string(),
+                        progress_percent: 90.0,
+                        message: "Some annexed files may not have downloaded".to_string(),
+                        current_file: None,
+                    },
+                );
             }
         } else {
             log::info!("git-annex not available, skipping annexed file retrieval");
@@ -574,13 +662,16 @@ pub async fn download_openneuro_dataset(
     }
 
     // Emit completion and cleanup
-    let _ = app_handle.emit("openneuro-download-progress", DownloadProgress {
-        dataset_id: options.dataset_id.clone(),
-        phase: "completed".to_string(),
-        progress_percent: 100.0,
-        message: "Download completed successfully".to_string(),
-        current_file: None,
-    });
+    let _ = app_handle.emit(
+        "openneuro-download-progress",
+        DownloadProgress {
+            dataset_id: options.dataset_id.clone(),
+            phase: "completed".to_string(),
+            progress_percent: 100.0,
+            message: "Download completed successfully".to_string(),
+            current_file: None,
+        },
+    );
 
     // Remove from active downloads
     if let Ok(mut downloads) = download_state.active_downloads.lock() {
@@ -595,7 +686,7 @@ pub async fn download_openneuro_dataset(
 #[command]
 pub async fn cancel_openneuro_download(
     download_state: State<'_, DownloadState>,
-    dataset_id: String
+    dataset_id: String,
 ) -> Result<(), String> {
     log::info!("Cancellation requested for dataset: {}", dataset_id);
 
@@ -632,7 +723,10 @@ pub async fn cancel_openneuro_download(
         }
     }
 
-    Err(format!("No active download found for dataset: {}", dataset_id))
+    Err(format!(
+        "No active download found for dataset: {}",
+        dataset_id
+    ))
 }
 
 // Tests are in the secrets_db module since these commands require Tauri State
@@ -678,72 +772,91 @@ pub async fn upload_bids_dataset(
     app_handle: AppHandle,
     upload_state: State<'_, UploadState>,
 ) -> Result<String, String> {
-    log::info!("Starting BIDS dataset upload from: {}", options.dataset_path);
+    log::info!(
+        "Starting BIDS dataset upload from: {}",
+        options.dataset_path
+    );
 
     // Emit initial progress
-    let _ = app_handle.emit("openneuro-upload-progress", UploadProgress {
-        dataset_id: None,
-        phase: "validating".to_string(),
-        progress_percent: 0.0,
-        message: "Validating BIDS dataset...".to_string(),
-        current_file: None,
-        files_uploaded: None,
-        total_files: None,
-    });
+    let _ = app_handle.emit(
+        "openneuro-upload-progress",
+        UploadProgress {
+            dataset_id: None,
+            phase: "validating".to_string(),
+            progress_percent: 0.0,
+            message: "Validating BIDS dataset...".to_string(),
+            current_file: None,
+            files_uploaded: None,
+            total_files: None,
+        },
+    );
 
     // Validate dataset path exists
     let dataset_path = PathBuf::from(&options.dataset_path);
     if !dataset_path.exists() {
-        let _ = app_handle.emit("openneuro-upload-progress", UploadProgress {
-            dataset_id: None,
-            phase: "error".to_string(),
-            progress_percent: 0.0,
-            message: format!("Dataset path does not exist: {}", options.dataset_path),
-            current_file: None,
-            files_uploaded: None,
-            total_files: None,
-        });
+        let _ = app_handle.emit(
+            "openneuro-upload-progress",
+            UploadProgress {
+                dataset_id: None,
+                phase: "error".to_string(),
+                progress_percent: 0.0,
+                message: format!("Dataset path does not exist: {}", options.dataset_path),
+                current_file: None,
+                files_uploaded: None,
+                total_files: None,
+            },
+        );
         return Err("Dataset path does not exist".to_string());
     }
 
     // Check for dataset_description.json
     let description_path = dataset_path.join("dataset_description.json");
     if !description_path.exists() {
-        let _ = app_handle.emit("openneuro-upload-progress", UploadProgress {
-            dataset_id: None,
-            phase: "error".to_string(),
-            progress_percent: 0.0,
-            message: "dataset_description.json not found - not a valid BIDS dataset".to_string(),
-            current_file: None,
-            files_uploaded: None,
-            total_files: None,
-        });
+        let _ = app_handle.emit(
+            "openneuro-upload-progress",
+            UploadProgress {
+                dataset_id: None,
+                phase: "error".to_string(),
+                progress_percent: 0.0,
+                message: "dataset_description.json not found - not a valid BIDS dataset"
+                    .to_string(),
+                current_file: None,
+                files_uploaded: None,
+                total_files: None,
+            },
+        );
         return Err("dataset_description.json not found".to_string());
     }
 
-    let _ = app_handle.emit("openneuro-upload-progress", UploadProgress {
-        dataset_id: None,
-        phase: "validating".to_string(),
-        progress_percent: 10.0,
-        message: "BIDS dataset validation passed".to_string(),
-        current_file: None,
-        files_uploaded: None,
-        total_files: None,
-    });
+    let _ = app_handle.emit(
+        "openneuro-upload-progress",
+        UploadProgress {
+            dataset_id: None,
+            phase: "validating".to_string(),
+            progress_percent: 10.0,
+            message: "BIDS dataset validation passed".to_string(),
+            current_file: None,
+            files_uploaded: None,
+            total_files: None,
+        },
+    );
 
     // For now, return a message indicating that the upload needs to be completed via the frontend
     // The actual GraphQL mutations will be called from the TypeScript frontend
     log::info!("Dataset validation complete. Upload will continue via GraphQL API from frontend.");
 
-    let _ = app_handle.emit("openneuro-upload-progress", UploadProgress {
-        dataset_id: None,
-        phase: "creating_dataset".to_string(),
-        progress_percent: 20.0,
-        message: "Ready to create dataset on OpenNeuro...".to_string(),
-        current_file: None,
-        files_uploaded: None,
-        total_files: None,
-    });
+    let _ = app_handle.emit(
+        "openneuro-upload-progress",
+        UploadProgress {
+            dataset_id: None,
+            phase: "creating_dataset".to_string(),
+            progress_percent: 20.0,
+            message: "Ready to create dataset on OpenNeuro...".to_string(),
+            current_file: None,
+            files_uploaded: None,
+            total_files: None,
+        },
+    );
 
     Ok("validated".to_string())
 }

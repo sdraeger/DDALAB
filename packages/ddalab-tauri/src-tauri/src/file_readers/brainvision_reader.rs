@@ -1,14 +1,13 @@
-/// BrainVision File Reader
-///
-/// Implementation of FileReader trait for BrainVision format (.vhdr, .vmrk, .eeg files).
-
-use std::path::Path;
+use super::{FileMetadata, FileReader, FileReaderError, FileResult};
+use bvreader::bv_reader::BVFile;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use bvreader::bv_reader::BVFile;
-use super::{FileReader, FileMetadata, FileResult, FileReaderError};
+/// BrainVision File Reader
+///
+/// Implementation of FileReader trait for BrainVision format (.vhdr, .vmrk, .eeg files).
+use std::path::Path;
 
 /// Simple BrainVision header parser for AnyWave-exported files
 #[derive(Debug)]
@@ -106,9 +105,14 @@ impl BrainVisionFileReader {
     /// Issues that need fixing:
     /// 1. Latin-1 encoding (µV character) -> UTF-8
     /// 2. Unix line endings (LF) -> Windows line endings (CRLF) that bvreader expects
-    fn ensure_utf8_brainvision_files(vhdr_path: &Path) -> FileResult<(std::path::PathBuf, Option<std::path::PathBuf>)> {
+    fn ensure_utf8_brainvision_files(
+        vhdr_path: &Path,
+    ) -> FileResult<(std::path::PathBuf, Option<std::path::PathBuf>)> {
         // Always convert to ensure proper line endings, even if UTF-8
-        log::info!("Converting BrainVision file {} to UTF-8 with Windows line endings", vhdr_path.display());
+        log::info!(
+            "Converting BrainVision file {} to UTF-8 with Windows line endings",
+            vhdr_path.display()
+        );
 
         // Need to convert - create a temporary directory for all files
         let temp_dir = std::env::temp_dir().join(format!(
@@ -186,13 +190,22 @@ impl BrainVisionFileReader {
             }
         }
 
-        log::info!("Created UTF-8 temporary BrainVision files with CRLF in: {}", temp_dir.display());
+        log::info!(
+            "Created UTF-8 temporary BrainVision files with CRLF in: {}",
+            temp_dir.display()
+        );
 
         // Debug: Log first few lines of converted header
         if let Ok(content) = fs::read_to_string(&temp_vhdr) {
             let first_lines: Vec<&str> = content.lines().take(5).collect();
             log::debug!("Converted header first 5 lines: {:?}", first_lines);
-            log::debug!("First line bytes: {:?}", content.lines().next().map(|l| l.as_bytes().iter().take(60).collect::<Vec<_>>()));
+            log::debug!(
+                "First line bytes: {:?}",
+                content
+                    .lines()
+                    .next()
+                    .map(|l| l.as_bytes().iter().take(60).collect::<Vec<_>>())
+            );
         }
 
         Ok((temp_vhdr, Some(temp_dir)))
@@ -206,7 +219,10 @@ impl BrainVisionFileReader {
                 return Ok(reader);
             }
             Err(e) => {
-                log::warn!("bvreader failed ({}), trying simple parser for AnyWave files", e);
+                log::warn!(
+                    "bvreader failed ({}), trying simple parser for AnyWave files",
+                    e
+                );
             }
         }
 
@@ -216,7 +232,8 @@ impl BrainVisionFileReader {
 
     fn try_bvreader(path: &Path) -> FileResult<Self> {
         let (load_path, temp_dir) = Self::ensure_utf8_brainvision_files(path)?;
-        let load_path_str = load_path.to_str()
+        let load_path_str = load_path
+            .to_str()
             .ok_or_else(|| FileReaderError::ParseError("Invalid temp path".to_string()))?;
 
         let result = BVFile::from_header(load_path_str)
@@ -228,8 +245,10 @@ impl BrainVisionFileReader {
         }
 
         let mut file = result?;
-        file.validate().map_err(|e| FileReaderError::InvalidData(format!("{:?}", e)))?;
-        file.bv_data.scale_channels(&file.bv_header.channel_info)
+        file.validate()
+            .map_err(|e| FileReaderError::InvalidData(format!("{:?}", e)))?;
+        file.bv_data
+            .scale_channels(&file.bv_header.channel_info)
             .map_err(|e| FileReaderError::ParseError(format!("{:?}", e)))?;
 
         Ok(Self {
@@ -243,8 +262,11 @@ impl BrainVisionFileReader {
 
         // Parse header
         let header = SimpleBVHeader::parse(path)?;
-        log::info!("Parsed header: {} channels, {} µs sampling interval",
-                   header.num_channels, header.sampling_interval_us);
+        log::info!(
+            "Parsed header: {} channels, {} µs sampling interval",
+            header.num_channels,
+            header.sampling_interval_us
+        );
 
         // Get data file path
         let parent_dir = path.parent().unwrap();
@@ -252,7 +274,8 @@ impl BrainVisionFileReader {
 
         if !data_file_path.exists() {
             return Err(FileReaderError::MissingFile(format!(
-                "Data file not found: {}", data_file_path.display()
+                "Data file not found: {}",
+                data_file_path.display()
             )));
         }
 
@@ -346,19 +369,22 @@ impl BrainVisionFileReader {
 
         // Validate format
         if header.data_format != "BINARY" {
-            return Err(FileReaderError::UnsupportedFormat(
-                format!("Only BINARY data format supported, got: {}", header.data_format)
-            ));
+            return Err(FileReaderError::UnsupportedFormat(format!(
+                "Only BINARY data format supported, got: {}",
+                header.data_format
+            )));
         }
         if header.data_orientation != "MULTIPLEXED" {
-            return Err(FileReaderError::UnsupportedFormat(
-                format!("Only MULTIPLEXED orientation supported, got: {}", header.data_orientation)
-            ));
+            return Err(FileReaderError::UnsupportedFormat(format!(
+                "Only MULTIPLEXED orientation supported, got: {}",
+                header.data_orientation
+            )));
         }
         if header.binary_format != "IEEE_FLOAT_32" {
-            return Err(FileReaderError::UnsupportedFormat(
-                format!("Only IEEE_FLOAT_32 format supported, got: {}", header.binary_format)
-            ));
+            return Err(FileReaderError::UnsupportedFormat(format!(
+                "Only IEEE_FLOAT_32 format supported, got: {}",
+                header.binary_format
+            )));
         }
 
         let num_channels = header.num_channels;
@@ -393,7 +419,8 @@ impl BrainVisionFileReader {
 
         // De-multiplex: convert from [ch1_s1, ch2_s1, ..., chN_s1, ch1_s2, ...]
         // to separate channel vectors
-        let mut result: Vec<Vec<f64>> = vec![Vec::with_capacity(num_samples); channel_indices.len()];
+        let mut result: Vec<Vec<f64>> =
+            vec![Vec::with_capacity(num_samples); channel_indices.len()];
 
         for sample_idx in 0..num_samples {
             let offset = sample_idx * num_channels;
@@ -415,19 +442,14 @@ impl BrainVisionFileReader {
         channels: Option<&[String]>,
     ) -> FileResult<Vec<Vec<f64>>> {
         let channel_info = &file.bv_header.channel_info;
-        let all_channel_names: Vec<String> = channel_info.iter()
-            .map(|ch| ch.label.clone())
-            .collect();
+        let all_channel_names: Vec<String> =
+            channel_info.iter().map(|ch| ch.label.clone()).collect();
 
         // Determine which channels to read
         let channel_indices: Vec<usize> = if let Some(selected) = channels {
             selected
                 .iter()
-                .filter_map(|ch| {
-                    all_channel_names
-                        .iter()
-                        .position(|c| c == ch)
-                })
+                .filter_map(|ch| all_channel_names.iter().position(|c| c == ch))
                 .collect()
         } else {
             (0..all_channel_names.len()).collect()
@@ -471,9 +493,8 @@ impl FileReader for BrainVisionFileReader {
                 let header = &file.bv_header;
                 let channel_info = &header.channel_info;
 
-                let channels: Vec<String> = channel_info.iter()
-                    .map(|ch| ch.label.clone())
-                    .collect();
+                let channels: Vec<String> =
+                    channel_info.iter().map(|ch| ch.label.clone()).collect();
 
                 let num_channels = channels.len();
                 let num_samples = if !file.bv_data.data.is_empty() {
@@ -486,7 +507,8 @@ impl FileReader for BrainVisionFileReader {
 
                 Ok(FileMetadata {
                     file_path: self.path.clone(),
-                    file_name: Path::new(&self.path).file_name()
+                    file_name: Path::new(&self.path)
+                        .file_name()
                         .and_then(|n| n.to_str())
                         .ok_or_else(|| FileReaderError::ParseError("Invalid filename".to_string()))?
                         .to_string(),
@@ -509,14 +531,19 @@ impl FileReader for BrainVisionFileReader {
 
                 // Calculate num_samples from binary file size
                 let file_size = fs::metadata(data_path)?.len();
-                let bytes_per_sample = if header.binary_format == "IEEE_FLOAT_32" { 4 } else { 2 };
+                let bytes_per_sample = if header.binary_format == "IEEE_FLOAT_32" {
+                    4
+                } else {
+                    2
+                };
                 let total_samples = file_size as usize / bytes_per_sample / num_channels;
 
                 let duration = total_samples as f64 / sample_rate;
 
                 Ok(FileMetadata {
                     file_path: self.path.clone(),
-                    file_name: Path::new(&self.path).file_name()
+                    file_name: Path::new(&self.path)
+                        .file_name()
                         .and_then(|n| n.to_str())
                         .ok_or_else(|| FileReaderError::ParseError("Invalid filename".to_string()))?
                         .to_string(),
@@ -540,8 +567,12 @@ impl FileReader for BrainVisionFileReader {
         channels: Option<&[String]>,
     ) -> FileResult<Vec<Vec<f64>>> {
         match &self.backend {
-            BVReaderBackend::BVReader(file) => Self::read_chunk_bvreader(file, start_sample, num_samples, channels),
-            BVReaderBackend::Simple(header, data_path) => Self::read_chunk_simple(header, data_path, start_sample, num_samples, channels),
+            BVReaderBackend::BVReader(file) => {
+                Self::read_chunk_bvreader(file, start_sample, num_samples, channels)
+            }
+            BVReaderBackend::Simple(header, data_path) => {
+                Self::read_chunk_simple(header, data_path, start_sample, num_samples, channels)
+            }
         }
     }
 
@@ -561,7 +592,9 @@ impl FileReader for BrainVisionFileReader {
         if let BVReaderBackend::Simple(header, data_path) = &self.backend {
             if total_samples > 100000 {
                 // Large file: read only the samples we need (every Nth sample)
-                return Self::read_decimated_overview(header, data_path, max_points, decimation, channels);
+                return Self::read_decimated_overview(
+                    header, data_path, max_points, decimation, channels,
+                );
             }
         }
 
@@ -570,13 +603,7 @@ impl FileReader for BrainVisionFileReader {
 
         let decimated: Vec<Vec<f64>> = full_data
             .into_iter()
-            .map(|channel_data| {
-                channel_data
-                    .iter()
-                    .step_by(decimation)
-                    .copied()
-                    .collect()
-            })
+            .map(|channel_data| channel_data.iter().step_by(decimation).copied().collect())
             .collect();
 
         Ok(decimated)
@@ -606,7 +633,11 @@ mod tests {
         if let Err(ref e) = reader {
             println!("Failed to create BrainVision reader: {:?}", e);
         }
-        assert!(reader.is_ok(), "Failed to create BrainVision reader: {:?}", reader.err());
+        assert!(
+            reader.is_ok(),
+            "Failed to create BrainVision reader: {:?}",
+            reader.err()
+        );
 
         let reader = reader.unwrap();
         let metadata = reader.metadata();
@@ -614,7 +645,10 @@ mod tests {
 
         let metadata = metadata.unwrap();
         assert_eq!(metadata.file_type, "BrainVision");
-        assert!(metadata.num_channels > 0, "Should have at least one channel");
+        assert!(
+            metadata.num_channels > 0,
+            "Should have at least one channel"
+        );
         assert!(metadata.num_samples > 0, "Should have at least one sample");
         assert!(metadata.sample_rate > 0.0, "Sample rate should be positive");
 
