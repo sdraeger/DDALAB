@@ -12,6 +12,11 @@ interface OverviewPlotProps {
   duration: number;
   onSeek: (time: number) => void;
   loading?: boolean;
+  progress?: {
+    has_cache: boolean;
+    completion_percentage: number;
+    is_complete: boolean;
+  };
 }
 
 function OverviewPlotComponent({
@@ -21,6 +26,7 @@ function OverviewPlotComponent({
   duration,
   onSeek,
   loading = false,
+  progress,
 }: OverviewPlotProps) {
   const plotRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
@@ -238,15 +244,44 @@ function OverviewPlotComponent({
     return colors[index % colors.length];
   };
 
+  // Show progress bar when loading, regardless of whether cache exists yet
+  // Cache is created during generation, so there's a brief moment before has_cache becomes true
+  const showProgress = loading;
+  const progressPercentage = progress?.has_cache ? (progress.completion_percentage || 0) : 0;
+
+  // Debug logging for progress tracking
+  useEffect(() => {
+    if (loading) {
+      console.log('[OverviewPlot] Loading state, progress data:', progress);
+    }
+  }, [loading, progress]);
+
   return (
     <div className="relative w-full h-[100px] border-2 border-primary rounded-md bg-background/50">
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
-          <div className="flex flex-col items-center gap-2">
-            <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent"></div>
-            <div className="text-xs text-muted-foreground">
-              Loading overview... (Large files may take a moment)
-            </div>
+          <div className="flex flex-col items-center gap-3 w-full px-8">
+            <>
+              <div className="w-full">
+                <div className="flex justify-between items-center mb-1">
+                  <div className="text-xs text-muted-foreground">
+                    {progressPercentage > 0 ? 'Generating overview...' : 'Starting generation...'}
+                  </div>
+                  <div className="text-xs font-medium text-primary">
+                    {progressPercentage.toFixed(1)}%
+                  </div>
+                </div>
+                <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all duration-300 ease-out"
+                    style={{ width: `${progressPercentage}%` }}
+                  />
+                </div>
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                Progress is saved • Safe to interrupt
+              </div>
+            </>
           </div>
         </div>
       )}
@@ -273,7 +308,8 @@ export const OverviewPlot = memo(OverviewPlotComponent, (prevProps, nextProps) =
     prevProps.duration === nextProps.duration &&
     prevProps.loading === nextProps.loading &&
     prevProps.currentTime === nextProps.currentTime &&
-    prevProps.timeWindow === nextProps.timeWindow
+    prevProps.timeWindow === nextProps.timeWindow &&
+    prevProps.progress?.completion_percentage === nextProps.progress?.completion_percentage
   );
 
   return shouldSkip;

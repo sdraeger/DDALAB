@@ -13,7 +13,7 @@ use crate::api::auth::auth_middleware;
 use crate::api::handlers::{
     health,
     list_files, get_file_info, get_file_chunk,
-    get_edf_info, get_edf_data, get_edf_overview,
+    get_edf_info, get_edf_data, get_edf_overview, get_overview_progress,
     run_dda_analysis, get_dda_results, get_analysis_result, get_analysis_status,
     list_analysis_history, save_analysis_to_history, delete_analysis_result, rename_analysis_result,
 };
@@ -29,6 +29,7 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
         .route("/api/edf/info", get(get_edf_info))
         .route("/api/edf/data", get(get_edf_data))
         .route("/api/edf/overview", get(get_edf_overview))
+        .route("/api/edf/overview/progress", get(get_overview_progress))
         .route("/api/dda", post(run_dda_analysis))
         .route("/api/dda/analyze", post(run_dda_analysis))
         .route("/api/dda/results", get(get_dda_results))

@@ -81,6 +81,9 @@ pub async fn start_api_server(
     api_state.set_session_token(session_token.clone());
     api_state.set_require_auth(config.require_auth);
 
+    // Initialize overview cache on startup
+    api_state.initialize_overview_cache();
+
     let state = Arc::new(api_state);
     let app = create_router(state);
     log::info!("✅ Router created successfully");

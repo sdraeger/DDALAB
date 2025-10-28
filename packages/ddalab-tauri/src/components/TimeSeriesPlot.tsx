@@ -53,6 +53,7 @@ import {
 import { useWorkflow } from "@/hooks/useWorkflow";
 import { createTransformDataAction } from "@/types/workflow";
 import { OverviewPlot } from "@/components/OverviewPlot";
+import { useOverviewData, useOverviewProgress } from "@/hooks/useTimeSeriesData";
 
 interface TimeSeriesPlotProps {
   apiService: ApiService;
@@ -106,10 +107,6 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   const [loadChunkTimeout, setLoadChunkTimeout] =
     useState<NodeJS.Timeout | null>(null);
 
-  // Overview plot state
-  const [overviewData, setOverviewData] = useState<ChunkData | null>(null);
-  const [overviewLoading, setOverviewLoading] = useState(false);
-
   // AbortController to cancel pending API requests when channel selection changes
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -136,6 +133,24 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
 
   // Use selectedChannels from store instead of local state
   const selectedChannels = fileManager.selectedChannels;
+
+  // Overview plot state - using TanStack Query for better caching and loading states
+  // IMPORTANT: These hooks must come AFTER selectedChannels is declared
+  const { data: overviewData, isLoading: overviewLoading } = useOverviewData(
+    apiService,
+    fileManager.selectedFile?.file_path || '',
+    selectedChannels,
+    2000, // max points
+    !!fileManager.selectedFile && selectedChannels.length > 0
+  );
+
+  const { data: overviewProgress } = useOverviewProgress(
+    apiService,
+    fileManager.selectedFile?.file_path || '',
+    selectedChannels,
+    2000, // max points
+    overviewLoading && !!fileManager.selectedFile && selectedChannels.length > 0
+  );
 
   // Extract file path to use as stable dependency for effects
   const filePath = fileManager.selectedFile?.file_path;
@@ -997,40 +1012,8 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     };
   }, [loadChunkTimeout]);
 
-  // Load overview data when file or selected channels change
-  useEffect(() => {
-    const loadOverview = async () => {
-      if (!fileManager.selectedFile || selectedChannels.length === 0) {
-        setOverviewData(null);
-        return;
-      }
-
-      console.log('[OVERVIEW] Loading overview for file:', fileManager.selectedFile.file_name);
-      setOverviewLoading(true);
-
-      try {
-        const data = await apiService.getOverviewData(
-          fileManager.selectedFile.file_path,
-          selectedChannels,
-          2000 // max points for overview
-        );
-
-        console.log('[OVERVIEW] Overview loaded successfully:', {
-          channels: data.channels.length,
-          pointsPerChannel: data.data[0]?.length || 0,
-        });
-
-        setOverviewData(data);
-      } catch (error) {
-        console.error('[OVERVIEW] Failed to load overview:', error);
-        // Don't show error to user - overview is optional feature
-      } finally {
-        setOverviewLoading(false);
-      }
-    };
-
-    loadOverview();
-  }, [fileManager.selectedFile?.file_path, selectedChannels, apiService]);
+  // Overview data is now loaded via TanStack Query hooks above
+  // No need for manual useEffect - the hooks handle caching, loading states, and refetching
 
   // Persist preprocessing options to plot state
   useEffect(() => {
@@ -1710,12 +1693,13 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       {/* Overview/Minimap - Global navigation for entire file */}
       <div className="flex-shrink-0">
         <OverviewPlot
-          overviewData={overviewData}
+          overviewData={overviewData || null}
           currentTime={currentTime}
           timeWindow={timeWindow}
           duration={duration}
           onSeek={handleSeek}
           loading={overviewLoading}
+          progress={overviewProgress}
         />
       </div>
 
