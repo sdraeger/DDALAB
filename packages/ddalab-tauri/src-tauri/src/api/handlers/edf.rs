@@ -9,6 +9,7 @@ use axum::{
 use crate::api::state::ApiState;
 use crate::api::models::{EDFFileInfo, ChunkData};
 use crate::api::utils::{FileType, create_file_info, read_edf_file_chunk, generate_overview_with_file_reader};
+use crate::api::overview_generator::ProgressiveOverviewGenerator;
 use crate::edf::EDFReader;
 use crate::text_reader::TextFileReader;
 use crate::file_readers::FileReaderFactory;
@@ -145,6 +146,56 @@ pub async fn get_edf_data(
     Ok(Json(chunk))
 }
 
+pub async fn get_overview_progress(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let file_path = params.get("file_path").ok_or(StatusCode::BAD_REQUEST)?;
+
+    let max_points: usize = params.get("max_points")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2000);
+
+    let selected_channels: Option<Vec<String>> = params.get("channels")
+        .map(|s| s.split(',').map(|c| c.trim().to_string()).collect());
+
+    if let Some(cache_db) = state.overview_cache_db.as_ref() {
+        // Determine channels JSON for lookup
+        let channels_json = if let Some(ref selected) = selected_channels {
+            serde_json::to_string(selected).unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        // Query progress in blocking task to avoid blocking async runtime
+        let cache_db = cache_db.clone();
+        let file_path_clone = file_path.to_string();
+        let channels_json_clone = channels_json.clone();
+
+        match tokio::task::spawn_blocking(move || {
+            cache_db.query_progress(&file_path_clone, max_points, &channels_json_clone)
+        }).await {
+            Ok(Ok(Some(result))) => {
+                return Ok(Json(result));
+            }
+            Ok(Ok(None)) => {}
+            Ok(Err(e)) => {
+                log::warn!("[PROGRESS] Error querying cache: {}", e);
+            }
+            Err(e) => {
+                log::error!("[PROGRESS] Join error: {}", e);
+            }
+        }
+    }
+
+    // No cache found or cache DB not available
+    Ok(Json(serde_json::json!({
+        "has_cache": false,
+        "completion_percentage": 0.0,
+        "is_complete": false,
+    })))
+}
+
 pub async fn get_edf_overview(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<HashMap<String, String>>,
@@ -158,6 +209,38 @@ pub async fn get_edf_overview(
     let selected_channels: Option<Vec<String>> = params.get("channels")
         .map(|s| s.split(',').map(|c| c.trim().to_string()).collect());
 
+    let path = std::path::Path::new(file_path);
+    if !path.exists() {
+        log::error!("[OVERVIEW] File not found: {}", file_path);
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let file_type = FileType::from_path(path);
+
+    // Use progressive cache for EDF files if available
+    if matches!(file_type, FileType::EDF) {
+        if let Some(ref cache_db) = state.overview_cache_db {
+            log::info!("[OVERVIEW] Using progressive cache for EDF file: {}", file_path);
+
+            let generator = ProgressiveOverviewGenerator::new(cache_db.clone());
+            let file_path_clone = file_path.to_string();
+            let selected_channels_clone = selected_channels.clone();
+
+            let chunk = generator
+                .generate_overview(&file_path_clone, max_points, selected_channels_clone, None)
+                .await
+                .map_err(|e| {
+                    log::error!("[OVERVIEW] Progressive generation failed: {}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+
+            return Ok(Json(chunk));
+        } else {
+            log::warn!("[OVERVIEW] Cache database not available, falling back to legacy generation");
+        }
+    }
+
+    // Fallback to legacy cache and generation for non-EDF files or if cache DB unavailable
     let cache_key = if let Some(ref channels) = selected_channels {
         format!("overview:{}:{}:{}", file_path, max_points, channels.join(","))
     } else {
@@ -167,7 +250,7 @@ pub async fn get_edf_overview(
     {
         let chunk_cache = state.chunks_cache.read();
         if let Some(chunk) = chunk_cache.get(&cache_key) {
-            log::info!("[OVERVIEW] Cache HIT for {}", file_path);
+            log::info!("[OVERVIEW] In-memory cache HIT for {}", file_path);
             return Ok(Json(chunk.clone()));
         }
     }
@@ -177,9 +260,6 @@ pub async fn get_edf_overview(
     let file_path_clone = file_path.clone();
     let chunk = tokio::task::spawn_blocking(move || -> Result<ChunkData, String> {
         let path = std::path::Path::new(&file_path_clone);
-        if !path.exists() {
-            return Err(format!("File not found: {}", file_path_clone));
-        }
 
         match FileType::from_path(&path) {
             FileType::CSV => {

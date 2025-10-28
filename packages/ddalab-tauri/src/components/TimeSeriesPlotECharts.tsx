@@ -7,6 +7,7 @@ import { ChunkData } from "@/types/api";
 import {
   useChunkData,
   useOverviewData,
+  useOverviewProgress,
   useInvalidateTimeSeriesCache,
 } from "@/hooks/useTimeSeriesData";
 import {
@@ -211,6 +212,15 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     selectedChannels,
     500, // Reduced from 2000 for faster loading of large files
     !!(fileManager.selectedFile && selectedChannels.length > 0) // Load in background regardless of active tab
+  );
+
+  // Poll for overview progress while loading
+  const { data: overviewProgress } = useOverviewProgress(
+    apiService,
+    fileManager.selectedFile?.file_path || "",
+    selectedChannels,
+    500, // Match the overview max points
+    overviewLoading && !!fileManager.selectedFile && selectedChannels.length > 0
   );
 
   // Derived loading/error states for UI
@@ -1184,6 +1194,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
             duration={duration}
             onSeek={handleSeek}
             loading={overviewLoading}
+            progress={overviewProgress}
           />
         </div>
 

@@ -7,6 +7,7 @@ pub mod utils;
 pub mod handlers;
 pub mod router;
 pub mod server;
+pub mod overview_generator;
 
 // Re-export commonly used types
 pub use models::*;

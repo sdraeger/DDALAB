@@ -6,6 +6,7 @@ use serde_json::json;
 use crate::api::models::{EDFFileInfo, DDAResult, ChunkData};
 use crate::api::auth::constant_time_eq;
 use crate::db::analysis_db::AnalysisDatabase;
+use crate::db::overview_cache_db::OverviewCacheDatabase;
 use crate::models::AnalysisResult;
 
 #[derive(Debug)]
@@ -17,6 +18,7 @@ pub struct ApiState {
     pub history_directory: PathBuf,
     pub dda_binary_path: Option<PathBuf>,
     pub analysis_db: Option<Arc<AnalysisDatabase>>,
+    pub overview_cache_db: Option<Arc<OverviewCacheDatabase>>,
     pub session_token: Arc<RwLock<Option<String>>>,
     pub require_auth: Arc<RwLock<bool>>,
 }
@@ -48,6 +50,25 @@ impl ApiState {
             None
         };
 
+        // Initialize SQLite database for overview caching
+        let overview_cache_db = if let Some(parent) = data_directory.parent() {
+            let db_path = parent.join("overview_cache.db");
+            log::info!("Initializing overview cache database at: {:?}", db_path);
+            match OverviewCacheDatabase::new(&db_path) {
+                Ok(db) => {
+                    log::info!("✅ Overview cache database initialized successfully");
+                    Some(Arc::new(db))
+                },
+                Err(e) => {
+                    log::error!("❌ Failed to initialize overview cache database: {}", e);
+                    None
+                }
+            }
+        } else {
+            log::error!("❌ Cannot determine overview cache database path - no parent directory");
+            None
+        };
+
         let state = Self {
             files: Arc::new(RwLock::new(HashMap::new())),
             analysis_results: Arc::new(RwLock::new(HashMap::new())),
@@ -56,6 +77,7 @@ impl ApiState {
             history_directory,
             dda_binary_path: None,
             analysis_db,
+            overview_cache_db,
             session_token: Arc::new(RwLock::new(None)),
             require_auth: Arc::new(RwLock::new(true)),
         };
@@ -135,5 +157,41 @@ impl ApiState {
     pub fn set_dda_binary_path(&mut self, path: PathBuf) {
         log::info!("Setting DDA binary path to: {:?}", path);
         self.dda_binary_path = Some(path);
+    }
+
+    /// Initialize overview cache on startup
+    /// This preloads metadata for complete caches into memory and logs incomplete caches
+    pub fn initialize_overview_cache(&self) {
+        if let Some(ref cache_db) = self.overview_cache_db {
+            log::info!("🔄 Initializing overview cache...");
+
+            match cache_db.get_incomplete_caches() {
+                Ok(incomplete_caches) => {
+                    if incomplete_caches.is_empty() {
+                        log::info!("✅ No incomplete overview caches found");
+                    } else {
+                        log::info!(
+                            "📊 Found {} incomplete overview cache(s) - they will resume on next request:",
+                            incomplete_caches.len()
+                        );
+                        for cache in incomplete_caches {
+                            log::info!(
+                                "   - {} ({:.1}% complete, {} channels)",
+                                cache.file_path,
+                                cache.completion_percentage,
+                                cache.channels.len()
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("❌ Failed to check incomplete caches: {}", e);
+                }
+            }
+
+            log::info!("✅ Overview cache initialization complete");
+        } else {
+            log::info!("⚠️ Overview cache database not available, skipping initialization");
+        }
     }
 }

@@ -196,6 +196,40 @@ export class ApiService {
     }
   }
 
+  async getOverviewProgress(
+    filePath: string,
+    requestedChannels?: string[],
+    maxPoints: number = 2000,
+    signal?: AbortSignal
+  ): Promise<{
+    has_cache: boolean
+    completion_percentage: number
+    is_complete: boolean
+    samples_processed?: number
+    total_samples?: number
+  }> {
+    try {
+      const params: any = {
+        file_path: filePath,
+        max_points: maxPoints,
+      }
+
+      if (requestedChannels && requestedChannels.length > 0) {
+        params.channels = requestedChannels.join(',')
+      }
+
+      const response = await this.client.get('/api/edf/overview/progress', {
+        params,
+        signal
+      })
+
+      return response.data
+    } catch (error) {
+      console.error('Failed to get overview progress:', error)
+      throw error
+    }
+  }
+
   // EDF Data
   async getChunkData(
     filePath: string,
