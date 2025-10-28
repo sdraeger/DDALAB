@@ -1,8 +1,8 @@
 pub mod actions;
-pub mod workflow;
 pub mod codegen;
 pub mod commands;
+pub mod workflow;
 
 pub use actions::WorkflowAction;
-pub use workflow::WorkflowGraph;
 pub use codegen::CodeGenerator;
+pub use workflow::WorkflowGraph;

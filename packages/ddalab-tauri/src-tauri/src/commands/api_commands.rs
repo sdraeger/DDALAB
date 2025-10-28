@@ -1,10 +1,10 @@
-use std::sync::Arc;
-use std::path::PathBuf;
-use parking_lot::{RwLock, Mutex};
-use tauri::{Manager, State, AppHandle};
-use tokio::task::JoinHandle;
+use ddalab_tauri::api::{self, start_api_server, ApiServerConfig};
+use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
-use ddalab_tauri::api::{self, ApiServerConfig, start_api_server};
+use std::path::PathBuf;
+use std::sync::Arc;
+use tauri::{AppHandle, Manager, State};
+use tokio::task::JoinHandle;
 
 // ============================================================================
 // API Connection Configuration
@@ -30,7 +30,7 @@ impl Default for ApiConnectionConfig {
         Self {
             host: "127.0.0.1".to_string(),
             port: 8765,
-            use_https: false,  // HTTP by default - HTTPS has WebView trust issues
+            use_https: false, // HTTP by default - HTTPS has WebView trust issues
             is_local: true,
             session_token: None,
         }
@@ -101,8 +101,7 @@ pub async fn save_api_config(
     let json = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-    std::fs::write(&config_path, json)
-        .map_err(|e| format!("Failed to write config: {}", e))?;
+    std::fs::write(&config_path, json).map_err(|e| format!("Failed to write config: {}", e))?;
 
     // Update in-memory state
     {
@@ -135,8 +134,8 @@ pub async fn load_api_config(
     let json = std::fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read config: {}", e))?;
 
-    let config: ApiConnectionConfig = serde_json::from_str(&json)
-        .map_err(|e| format!("Failed to parse config: {}", e))?;
+    let config: ApiConnectionConfig =
+        serde_json::from_str(&json).map_err(|e| format!("Failed to parse config: {}", e))?;
 
     // Update in-memory state
     {
@@ -182,10 +181,16 @@ pub async fn start_local_api_server(
     }
 
     // Load saved config or use defaults
-    let saved_config = load_api_config(app_handle.clone(), state.clone()).await.ok();
+    let saved_config = load_api_config(app_handle.clone(), state.clone())
+        .await
+        .ok();
 
-    let port = port.or_else(|| saved_config.as_ref().map(|c| c.port)).unwrap_or(8765);
-    let host = host.or_else(|| saved_config.as_ref().map(|c| c.host.clone())).unwrap_or_else(|| "127.0.0.1".to_string());
+    let port = port
+        .or_else(|| saved_config.as_ref().map(|c| c.port))
+        .unwrap_or(8765);
+    let host = host
+        .or_else(|| saved_config.as_ref().map(|c| c.host.clone()))
+        .unwrap_or_else(|| "127.0.0.1".to_string());
 
     let data_dir = if let Some(dir) = data_directory {
         PathBuf::from(dir)
@@ -205,7 +210,12 @@ pub async fn start_local_api_server(
             .map_err(|e| format!("Failed to create data directory: {}", e))?;
     }
 
-    log::info!("🚀 Starting local API server on {}:{} with data dir: {:?}", host, port, data_dir);
+    log::info!(
+        "🚀 Starting local API server on {}:{} with data dir: {:?}",
+        host,
+        port,
+        data_dir
+    );
 
     // Resolve DDA binary path
     let binary_resource_path = if cfg!(target_os = "windows") {
@@ -214,7 +224,8 @@ pub async fn start_local_api_server(
         "bin/run_DDA_AsciiEdf"
     };
 
-    let dda_binary_path = app_handle.path()
+    let dda_binary_path = app_handle
+        .path()
         .resolve(binary_resource_path, tauri::path::BaseDirectory::Resource)
         .ok()
         .and_then(|path| {
@@ -228,12 +239,20 @@ pub async fn start_local_api_server(
         });
 
     // Load use_https preference from app preferences
-    let use_https = match crate::commands::preference_commands::get_app_preferences(app_handle.clone()).await {
-        Ok(prefs) => prefs.use_https,
-        Err(_) => true, // Default to HTTPS for security
-    };
+    let use_https =
+        match crate::commands::preference_commands::get_app_preferences(app_handle.clone()).await {
+            Ok(prefs) => prefs.use_https,
+            Err(_) => true, // Default to HTTPS for security
+        };
 
-    log::info!("🔐 HTTPS mode: {}", if use_https { "enabled" } else { "disabled (HTTP)" });
+    log::info!(
+        "🔐 HTTPS mode: {}",
+        if use_https {
+            "enabled"
+        } else {
+            "disabled (HTTP)"
+        }
+    );
 
     // Configure the server
     let server_config = ApiServerConfig {
@@ -249,7 +268,10 @@ pub async fn start_local_api_server(
     // Start the server
     match start_api_server(server_config, data_dir, dda_binary_path).await {
         Ok((session_token, actual_port, task_handle)) => {
-            log::info!("✅ Local API server started successfully on port {}", actual_port);
+            log::info!(
+                "✅ Local API server started successfully on port {}",
+                actual_port
+            );
 
             // Store the task handle so we can stop the server later
             {
@@ -261,13 +283,14 @@ pub async fn start_local_api_server(
             // Create connection config with the ACTUAL port that was used
             let config = ApiConnectionConfig {
                 host: host.clone(),
-                port: actual_port,  // Use actual port, not requested port!
+                port: actual_port, // Use actual port, not requested port!
                 use_https,
                 is_local: true,
                 session_token: Some(session_token),
             };
 
-            log::info!("📡 API accessible at: {}://{}:{}",
+            log::info!(
+                "📡 API accessible at: {}://{}:{}",
                 if use_https { "https" } else { "http" },
                 host,
                 actual_port
@@ -299,9 +322,7 @@ pub async fn start_local_api_server(
 
 /// Stop the local API server
 #[tauri::command]
-pub async fn stop_local_api_server(
-    state: State<'_, ApiServerState>,
-) -> Result<(), String> {
+pub async fn stop_local_api_server(state: State<'_, ApiServerState>) -> Result<(), String> {
     log::info!("🛑 Attempting to stop local API server...");
 
     // Always try to abort the task, even if the flag says it's not running
@@ -377,7 +398,7 @@ pub async fn check_api_connection(
                         "healthy": false,
                         "url": url,
                         "error": "Invalid health response"
-                    }))
+                    })),
                 }
             } else {
                 Ok(serde_json::json!({
@@ -393,15 +414,13 @@ pub async fn check_api_connection(
             "healthy": false,
             "url": url,
             "error": e.to_string()
-        }))
+        })),
     }
 }
 
 /// Get current API server status
 #[tauri::command]
-pub async fn get_api_status(
-    state: State<'_, ApiServerState>,
-) -> Result<serde_json::Value, String> {
+pub async fn get_api_status(state: State<'_, ApiServerState>) -> Result<serde_json::Value, String> {
     let config = state.connection_config.read().clone();
     let is_local_running_flag = *state.is_local_server_running.lock();
 
@@ -415,7 +434,8 @@ pub async fn get_api_status(
             .ok();
 
         if let Some(client) = client {
-            client.get(&format!("{}/api/health", url))
+            client
+                .get(&format!("{}/api/health", url))
                 .send()
                 .await
                 .map(|r| r.status().is_success())
@@ -482,11 +502,10 @@ pub async fn connect_to_remote_api(
 
             Ok(config)
         }
-        Ok(response) => {
-            Err(format!("API server returned error: HTTP {}", response.status()))
-        }
-        Err(e) => {
-            Err(format!("Failed to connect to remote API server: {}", e))
-        }
+        Ok(response) => Err(format!(
+            "API server returned error: HTTP {}",
+            response.status()
+        )),
+        Err(e) => Err(format!("Failed to connect to remote API server: {}", e)),
     }
 }

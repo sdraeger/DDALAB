@@ -47,7 +47,6 @@ interface DDAParameters {
   variants: string[]
   windowLength: number
   windowStep: number
-  detrending: 'linear' | 'polynomial' | 'none'
   scaleMin: number
   scaleMax: number
   scaleNum: number
@@ -63,6 +62,14 @@ interface DDAParameters {
   ctWindowLength?: number
   ctWindowStep?: number
   ctChannelPairs: [string, string][]  // Pairs of channel names
+  // Parallelization
+  parallelCores?: number  // Number of CPU cores to use (1 = serial, >1 = parallel)
+  // NSG-specific resource configuration
+  nsgResourceConfig?: {
+    runtimeHours?: number  // Max runtime in hours
+    cores?: number  // Number of CPU cores
+    nodes?: number  // Number of compute nodes
+  }
 }
 
 export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
@@ -111,7 +118,6 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     variants: storedAnalysisParameters.variants,
     windowLength: storedAnalysisParameters.windowLength,
     windowStep: storedAnalysisParameters.windowStep,
-    detrending: storedAnalysisParameters.detrending,
     scaleMin: storedAnalysisParameters.scaleMin,
     scaleMax: storedAnalysisParameters.scaleMax,
     scaleNum: storedAnalysisParameters.scaleNum,
@@ -125,7 +131,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     },
     ctWindowLength: undefined,
     ctWindowStep: undefined,
-    ctChannelPairs: []
+    ctChannelPairs: [],
+    parallelCores: 1,  // Default to serial execution
+    nsgResourceConfig: {
+      runtimeHours: 1.0,
+      cores: 4,  // Default to 4 cores for NSG
+      nodes: 1
+    }
   })
 
   // Use local parameters directly - no need to merge with store
@@ -419,7 +431,6 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       variants: parameters.variants,
       windowLength: parameters.windowLength,
       windowStep: parameters.windowStep,
-      detrending: parameters.detrending,
       scaleMin: parameters.scaleMin,
       scaleMax: parameters.scaleMax,
       scaleNum: parameters.scaleNum
@@ -444,7 +455,6 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       variants: parameters.variants,
       window_length: parameters.windowLength,
       window_step: parameters.windowStep,
-      detrending: parameters.detrending,
       scale_min: parameters.scaleMin,
       scale_max: parameters.scaleMax,
       scale_num: parameters.scaleNum,
@@ -590,7 +600,6 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           end: parameters.timeEnd
         },
         preprocessing_options: {
-          detrending: parameters.detrending !== 'none' ? parameters.detrending : null,
           highpass: parameters.preprocessing.highpass || null,
           lowpass: parameters.preprocessing.lowpass || null
         },
@@ -615,7 +624,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               const idx1 = selectedFile.channels.indexOf(pair[1])
               return [idx0 >= 0 ? idx0 : 0, idx1 >= 0 ? idx1 : 0]
             })
-          : null
+          : null,
+        parallel_cores: parameters.nsgResourceConfig?.cores || 4,  // Use NSG cores setting
+        resource_config: parameters.nsgResourceConfig
       }
 
       // Map channel indices back to names for display
@@ -682,7 +693,6 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       variants: ['single_timeseries'],
       windowLength: defaultWindowLength,
       windowStep: 10,
-      detrending: 'linear',
       scaleMin: 1,
       scaleMax: 20,
       scaleNum: 20,
@@ -696,7 +706,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       },
       ctWindowLength: undefined,
       ctWindowStep: undefined,
-      ctChannelPairs: []
+      ctChannelPairs: [],
+      parallelCores: 1,
+      nsgResourceConfig: {
+        runtimeHours: 1.0,
+        cores: 4,
+        nodes: 1
+      }
     })
   }
 
@@ -954,25 +970,6 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     className="mt-2"
                   />
                 </div>
-                <div>
-                  <Label className="text-sm">Detrending</Label>
-                  <Select
-                    value={parameters.detrending}
-                    onValueChange={(value: 'linear' | 'polynomial' | 'none') =>
-                      setLocalParameters(prev => ({ ...prev, detrending: value }))
-                    }
-                    disabled={localIsRunning}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
-                      <SelectItem value="linear">Linear</SelectItem>
-                      <SelectItem value="polynomial">Polynomial</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
               </CardContent>
             </Card>
 
@@ -1122,6 +1119,69 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                 </div>
               </CardContent>
             </Card>
+
+            {/* NSG Resource Configuration */}
+            {TauriService.isTauri() && hasNsgCredentials && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">NSG Resource Configuration</CardTitle>
+                  <CardDescription>Neuroscience Gateway compute resources (for Submit to NSG)</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label className="text-sm">Runtime Limit: {parameters.nsgResourceConfig?.runtimeHours || 1.0} hours</Label>
+                    <Slider
+                      value={[parameters.nsgResourceConfig?.runtimeHours || 1.0]}
+                      onValueChange={([value]) => setLocalParameters(prev => ({
+                        ...prev,
+                        nsgResourceConfig: { ...prev.nsgResourceConfig, runtimeHours: value }
+                      }))}
+                      disabled={localIsRunning || isSubmittingToNsg}
+                      min={0.5}
+                      max={48}
+                      step={0.5}
+                      className="mt-2"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-sm">NSG CPU Cores: {parameters.nsgResourceConfig?.cores || 4}</Label>
+                    <Slider
+                      value={[parameters.nsgResourceConfig?.cores || 4]}
+                      onValueChange={([value]) => setLocalParameters(prev => ({
+                        ...prev,
+                        nsgResourceConfig: { ...prev.nsgResourceConfig, cores: value }
+                      }))}
+                      disabled={localIsRunning || isSubmittingToNsg}
+                      min={1}
+                      max={128}
+                      step={1}
+                      className="mt-2"
+                    />
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Max 128 cores per Expanse node
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-sm">Nodes: {parameters.nsgResourceConfig?.nodes || 1}</Label>
+                    <Slider
+                      value={[parameters.nsgResourceConfig?.nodes || 1]}
+                      onValueChange={([value]) => setLocalParameters(prev => ({
+                        ...prev,
+                        nsgResourceConfig: { ...prev.nsgResourceConfig, nodes: value }
+                      }))}
+                      disabled={localIsRunning || isSubmittingToNsg}
+                      min={1}
+                      max={4}
+                      step={1}
+                      className="mt-2"
+                    />
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Multi-node support (experimental)
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           {/* Channel Selection */}

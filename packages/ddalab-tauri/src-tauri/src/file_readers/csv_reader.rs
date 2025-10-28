@@ -1,10 +1,9 @@
+use super::{FileMetadata, FileReader, FileReaderError, FileResult};
+use crate::text_reader::TextFileReader as CoreTextReader;
 /// CSV File Reader
 ///
 /// Implementation of FileReader trait for CSV files.
-
 use std::path::Path;
-use crate::text_reader::TextFileReader as CoreTextReader;
-use super::{FileReader, FileMetadata, FileResult, FileReaderError};
 
 pub struct CSVFileReader {
     reader: CoreTextReader,
@@ -105,13 +104,7 @@ impl FileReader for CSVFileReader {
 
         let decimated: Vec<Vec<f64>> = full_data
             .into_iter()
-            .map(|channel_data| {
-                channel_data
-                    .iter()
-                    .step_by(decimation)
-                    .copied()
-                    .collect()
-            })
+            .map(|channel_data| channel_data.iter().step_by(decimation).copied().collect())
             .collect();
 
         Ok(decimated)

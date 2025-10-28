@@ -2,8 +2,8 @@ use crate::api::models::ChunkData;
 use crate::db::overview_cache_db::{OverviewCacheDatabase, OverviewCacheMetadata, OverviewSegment};
 use crate::edf::EDFReader;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// Segment size for progressive generation (samples per segment)
 const SEGMENT_SIZE: usize = 100_000;
@@ -30,8 +30,8 @@ impl ProgressiveOverviewGenerator {
         let path = Path::new(file_path);
 
         // Get file metadata for cache validation
-        let file_metadata = std::fs::metadata(path)
-            .map_err(|e| format!("Failed to get file metadata: {}", e))?;
+        let file_metadata =
+            std::fs::metadata(path).map_err(|e| format!("Failed to get file metadata: {}", e))?;
         let file_size = file_metadata.len();
         let file_modified_time = file_metadata
             .modified()
@@ -41,11 +41,11 @@ impl ProgressiveOverviewGenerator {
             .as_secs() as i64;
 
         // Open EDF file to get metadata
-        let edf = EDFReader::new(path)
-            .map_err(|e| format!("Failed to open EDF file: {}", e))?;
+        let edf = EDFReader::new(path).map_err(|e| format!("Failed to open EDF file: {}", e))?;
 
         // Determine channels to process
-        let (channels_to_read, channel_labels) = self.determine_channels(&edf, selected_channels)?;
+        let (channels_to_read, channel_labels) =
+            self.determine_channels(&edf, selected_channels)?;
 
         if channels_to_read.is_empty() {
             return Err("No valid channels found".to_string());
@@ -73,19 +73,25 @@ impl ProgressiveOverviewGenerator {
 
         tokio::task::spawn_blocking(move || {
             // Get or create cache metadata
-            let cache_metadata = generator.cache_db.get_or_create_cache_metadata(
-                &file_path_str,
-                file_size,
-                file_modified_time,
-                max_points,
-                &labels_clone,
-                total_samples,
-            )
-            .map_err(|e| format!("Failed to get/create cache metadata: {}", e))?;
+            let cache_metadata = generator
+                .cache_db
+                .get_or_create_cache_metadata(
+                    &file_path_str,
+                    file_size,
+                    file_modified_time,
+                    max_points,
+                    &labels_clone,
+                    total_samples,
+                )
+                .map_err(|e| format!("Failed to get/create cache metadata: {}", e))?;
 
             // Check if cache is complete
             if cache_metadata.is_complete {
-                return generator.retrieve_cached_overview_sync(&cache_metadata, sample_rate, total_samples);
+                return generator.retrieve_cached_overview_sync(
+                    &cache_metadata,
+                    sample_rate,
+                    total_samples,
+                );
             }
 
             generator.generate_progressive_sync(
@@ -174,7 +180,8 @@ impl ProgressiveOverviewGenerator {
         // Determine starting point for each channel
         let mut channel_start_positions: Vec<usize> = Vec::new();
         for idx in 0..channels_to_read.len() {
-            let last_end = self.cache_db
+            let last_end = self
+                .cache_db
                 .get_last_segment_end(cache_metadata.id, idx)
                 .ok()
                 .flatten()
@@ -190,9 +197,10 @@ impl ProgressiveOverviewGenerator {
                 continue;
             }
 
-            let mut edf = EDFReader::new(file_path)
-                .map_err(|e| format!("Failed to open EDF file: {}", e))?;
-            let full_data = edf.read_signal_window(signal_idx, 0.0, duration)
+            let mut edf =
+                EDFReader::new(file_path).map_err(|e| format!("Failed to open EDF file: {}", e))?;
+            let full_data = edf
+                .read_signal_window(signal_idx, 0.0, duration)
                 .map_err(|e| format!("Failed to read signal data: {}", e))?;
 
             // Process in segments
@@ -233,7 +241,10 @@ impl ProgressiveOverviewGenerator {
                     }
 
                     let min_val = bucket_data.iter().copied().fold(f64::INFINITY, f64::min);
-                    let max_val = bucket_data.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                    let max_val = bucket_data
+                        .iter()
+                        .copied()
+                        .fold(f64::NEG_INFINITY, f64::max);
 
                     downsampled_segment.push(min_val);
                     downsampled_segment.push(max_val);
@@ -278,7 +289,8 @@ impl ProgressiveOverviewGenerator {
         total_samples: usize,
     ) -> Result<ChunkData, String> {
         // Get segments from database
-        let segments = self.cache_db
+        let segments = self
+            .cache_db
             .get_segments(cache_metadata.id)
             .map_err(|e| format!("Failed to retrieve segments: {}", e))?;
 

@@ -1,11 +1,11 @@
-use anyhow::{Context, Result, anyhow};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use tauri::Emitter;
 use super::client::NSGClient;
 use super::models::{NSGCredentials, NSGResourceConfig};
 use crate::api::handlers::dda::DDARequest;
-use crate::db::{NSGJobsDatabase, NSGJob, NSGJobStatus};
+use crate::db::{NSGJob, NSGJobStatus, NSGJobsDatabase};
+use anyhow::{anyhow, Context, Result};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tauri::Emitter;
 
 pub struct NSGJobManager {
     client: Arc<NSGClient>,
@@ -19,11 +19,9 @@ impl NSGJobManager {
         db: Arc<NSGJobsDatabase>,
         output_dir: PathBuf,
     ) -> Result<Self> {
-        let client = NSGClient::new(credentials)
-            .context("Failed to create NSG client")?;
+        let client = NSGClient::new(credentials).context("Failed to create NSG client")?;
 
-        std::fs::create_dir_all(&output_dir)
-            .context("Failed to create NSG output directory")?;
+        std::fs::create_dir_all(&output_dir).context("Failed to create NSG output directory")?;
 
         Ok(Self {
             client: Arc::new(client),
@@ -38,7 +36,8 @@ impl NSGJobManager {
         dda_params: DDARequest,
         input_file_path: String,
     ) -> Result<NSGJob> {
-        self.create_job_with_resources(tool, dda_params, input_file_path, None).await
+        self.create_job_with_resources(tool, dda_params, input_file_path, None)
+            .await
     }
 
     pub async fn create_job_with_resources(
@@ -48,19 +47,23 @@ impl NSGJobManager {
         input_file_path: String,
         resource_config: Option<NSGResourceConfig>,
     ) -> Result<NSGJob> {
-        let mut params_json = serde_json::to_value(dda_params)
-            .context("Failed to serialize DDA parameters")?;
+        let mut params_json =
+            serde_json::to_value(dda_params).context("Failed to serialize DDA parameters")?;
 
         // Add resource configuration to job metadata if provided
         if let Some(resources) = resource_config {
             if let Some(obj) = params_json.as_object_mut() {
-                obj.insert("resource_config".to_string(), serde_json::to_value(resources)?);
+                obj.insert(
+                    "resource_config".to_string(),
+                    serde_json::to_value(resources)?,
+                );
             }
         }
 
         let job = NSGJob::new_from_dda_params(tool, params_json, input_file_path);
 
-        self.db.save_job(&job)
+        self.db
+            .save_job(&job)
             .context("Failed to save job to database")?;
 
         log::info!("📝 Created NSG job: {}", job.id);
@@ -69,7 +72,9 @@ impl NSGJobManager {
     }
 
     pub async fn submit_job(&self, job_id: &str) -> Result<NSGJob> {
-        let mut job = self.db.get_job(job_id)
+        let mut job = self
+            .db
+            .get_job(job_id)
             .context("Failed to get job from database")?
             .ok_or_else(|| anyhow!("Job not found: {}", job_id))?;
 
@@ -88,11 +93,14 @@ impl NSGJobManager {
 
         // Create ZIP package with modeldir structure, input file, wrapper script, and params.json
         log::info!("📦 Creating job package for: {}", job.id);
-        let zip_path = self.create_job_package(&job.id, &dda_params, input_path)
+        let zip_path = self
+            .create_job_package(&job.id, &dda_params, input_path)
             .context("Failed to create job package")?;
 
         // Extract resource configuration from job params
-        let resource_config = job.dda_params.get("resource_config")
+        let resource_config = job
+            .dda_params
+            .get("resource_config")
             .and_then(|v| serde_json::from_value::<NSGResourceConfig>(v.clone()).ok());
 
         // NOTE: PY_EXPANSE is a generic Python runner and doesn't accept custom vparam parameters
@@ -105,37 +113,56 @@ impl NSGJobManager {
             self.add_resource_params(&mut parameters, config);
         }
 
-        let response = self.client
+        let response = self
+            .client
             .submit_job(&job.tool, &zip_path, parameters, true)
             .await
             .context("Failed to submit job to NSG")?;
 
         job.mark_submitted(response.job_id().to_string());
 
-        self.db.update_job(&job)
+        self.db
+            .update_job(&job)
             .context("Failed to update job in database")?;
 
-        log::info!("✅ Submitted NSG job: {} -> {}", job.id, job.nsg_job_id.as_ref().unwrap());
+        log::info!(
+            "✅ Submitted NSG job: {} -> {}",
+            job.id,
+            job.nsg_job_id.as_ref().unwrap()
+        );
 
         Ok(job)
     }
 
     pub async fn update_job_status(&self, job_id: &str) -> Result<NSGJob> {
-        let mut job = self.db.get_job(job_id)
+        let mut job = self
+            .db
+            .get_job(job_id)
             .context("Failed to get job from database")?
             .ok_or_else(|| anyhow!("Job not found: {}", job_id))?;
 
-        log::debug!("🔄 Updating job status for {}: current status = {}", job_id, job.status);
+        log::debug!(
+            "🔄 Updating job status for {}: current status = {}",
+            job_id,
+            job.status
+        );
 
         if job.status.is_terminal() {
-            log::debug!("Job {} already in terminal state ({}), skipping update", job_id, job.status);
+            log::debug!(
+                "Job {} already in terminal state ({}), skipping update",
+                job_id,
+                job.status
+            );
             return Ok(job);
         }
 
-        let nsg_job_id = job.nsg_job_id.clone()
+        let nsg_job_id = job
+            .nsg_job_id
+            .clone()
             .ok_or_else(|| anyhow!("Job has not been submitted yet"))?;
 
-        let job_url = format!("{}/job/{}/{}",
+        let job_url = format!(
+            "{}/job/{}/{}",
             "https://nsgr.sdsc.edu:8443/cipresrest/v1",
             self.client.username(),
             nsg_job_id
@@ -143,7 +170,8 @@ impl NSGJobManager {
 
         log::debug!("📡 Querying NSG status for job {}: {}", nsg_job_id, job_url);
 
-        let status_response = self.client
+        let status_response = self
+            .client
             .get_job_status(&job_url)
             .await
             .context("Failed to get job status from NSG")?;
@@ -151,8 +179,13 @@ impl NSGJobManager {
         let new_status = status_response.to_status();
         let old_status = job.status.clone();
 
-        log::info!("📊 Job {} status: {} -> {} (NSG stage: {})",
-                   job_id, old_status, new_status, status_response.job_stage);
+        log::info!(
+            "📊 Job {} status: {} -> {} (NSG stage: {})",
+            job_id,
+            old_status,
+            new_status,
+            status_response.job_stage
+        );
 
         job.update_status(new_status.clone());
 
@@ -164,17 +197,17 @@ impl NSGJobManager {
 
         if new_status == NSGJobStatus::Completed {
             if let Some(ref output_files) = status_response.output_files {
-                job.output_files = output_files.iter()
-                    .map(|f| f.filename.clone())
-                    .collect();
+                job.output_files = output_files.iter().map(|f| f.filename.clone()).collect();
             } else if let Some(ref results_uri) = status_response.results_uri {
                 log::info!("📋 Fetching output files list for completed job {}", job_id);
                 match self.client.list_output_files(results_uri).await {
                     Ok(files) => {
-                        job.output_files = files.iter()
-                            .map(|f| f.filename.clone())
-                            .collect();
-                        log::info!("✅ Found {} output files for job {}", job.output_files.len(), job_id);
+                        job.output_files = files.iter().map(|f| f.filename.clone()).collect();
+                        log::info!(
+                            "✅ Found {} output files for job {}",
+                            job.output_files.len(),
+                            job_id
+                        );
                     }
                     Err(e) => {
                         log::error!("❌ Failed to list output files for job {}: {}", job_id, e);
@@ -183,40 +216,55 @@ impl NSGJobManager {
             }
         }
 
-        self.db.update_job(&job)
+        self.db
+            .update_job(&job)
             .context("Failed to update job in database")?;
 
         if old_status != new_status {
-            log::info!("📊 Job {} status changed: {:?} -> {:?}", job.id, old_status, new_status);
+            log::info!(
+                "📊 Job {} status changed: {:?} -> {:?}",
+                job.id,
+                old_status,
+                new_status
+            );
         }
 
         Ok(job)
     }
 
     pub async fn cancel_job(&self, job_id: &str) -> Result<NSGJob> {
-        let mut job = self.db.get_job(job_id)
+        let mut job = self
+            .db
+            .get_job(job_id)
             .context("Failed to get job from database")?
             .ok_or_else(|| anyhow!("Job not found: {}", job_id))?;
 
         if job.status.is_terminal() {
-            return Err(anyhow!("Job is already in terminal state: {:?}", job.status));
+            return Err(anyhow!(
+                "Job is already in terminal state: {:?}",
+                job.status
+            ));
         }
 
         if let Some(ref nsg_job_id) = job.nsg_job_id {
-            let job_url = format!("{}/job/{}/{}",
+            let job_url = format!(
+                "{}/job/{}/{}",
                 "https://nsgr.sdsc.edu:8443/cipresrest/v1",
                 self.client.username(),
                 nsg_job_id
             );
 
-            self.client.cancel_job(&job_url).await
+            self.client
+                .cancel_job(&job_url)
+                .await
                 .context("Failed to cancel job on NSG")?;
         }
 
         job.status = NSGJobStatus::Cancelled;
         job.completed_at = Some(chrono::Utc::now());
 
-        self.db.update_job(&job)
+        self.db
+            .update_job(&job)
             .context("Failed to update job in database")?;
 
         log::info!("🛑 Cancelled job: {}", job.id);
@@ -224,8 +272,14 @@ impl NSGJobManager {
         Ok(job)
     }
 
-    pub async fn download_results(&self, job_id: &str, app_handle: Option<tauri::AppHandle>) -> Result<Vec<PathBuf>> {
-        let job = self.db.get_job(job_id)
+    pub async fn download_results(
+        &self,
+        job_id: &str,
+        app_handle: Option<tauri::AppHandle>,
+    ) -> Result<Vec<PathBuf>> {
+        let job = self
+            .db
+            .get_job(job_id)
             .context("Failed to get job from database")?
             .ok_or_else(|| anyhow!("Job not found: {}", job_id))?;
 
@@ -233,29 +287,34 @@ impl NSGJobManager {
             return Err(anyhow!("Job is not completed: {:?}", job.status));
         }
 
-        let nsg_job_id = job.nsg_job_id
+        let nsg_job_id = job
+            .nsg_job_id
             .ok_or_else(|| anyhow!("Job has no NSG job ID"))?;
 
-        let job_url = format!("{}/job/{}/{}",
+        let job_url = format!(
+            "{}/job/{}/{}",
             "https://nsgr.sdsc.edu:8443/cipresrest/v1",
             self.client.username(),
             nsg_job_id
         );
 
         // Get job status to extract the results URI
-        let status_response = self.client
+        let status_response = self
+            .client
             .get_job_status(&job_url)
             .await
             .context("Failed to get job status from NSG")?;
 
         // Extract results URI from status response
-        let results_uri = status_response.results_uri
+        let results_uri = status_response
+            .results_uri
             .ok_or_else(|| anyhow!("No results URI available for this job"))?;
 
         log::info!("📋 Using results URI: {}", results_uri);
 
         // Use the results URI to get the actual output files list
-        let output_files = self.client
+        let output_files = self
+            .client
             .list_output_files(&results_uri)
             .await
             .context("Failed to list output files")?;
@@ -274,8 +333,13 @@ impl NSGJobManager {
         for (index, output_file) in output_files.iter().enumerate() {
             let output_path = job_output_dir.join(&output_file.filename);
 
-            log::info!("⬇️  Downloading file {}/{}: {} ({} bytes)",
-                index + 1, total_files, output_file.filename, output_file.length);
+            log::info!(
+                "⬇️  Downloading file {}/{}: {} ({} bytes)",
+                index + 1,
+                total_files,
+                output_file.filename,
+                output_file.length
+            );
 
             let job_id_clone = job_id.to_string();
             let filename_clone = output_file.filename.clone();
@@ -295,35 +359,47 @@ impl NSGJobManager {
                                 0
                             };
 
-                            let _ = handle.emit("nsg-download-progress", serde_json::json!({
-                                "job_id": job_id_clone,
-                                "current_file": file_number,
-                                "total_files": total_files,
-                                "filename": filename_clone,
-                                "bytes_downloaded": downloaded,
-                                "total_bytes": total,
-                                "file_progress": file_progress
-                            }));
+                            let _ = handle.emit(
+                                "nsg-download-progress",
+                                serde_json::json!({
+                                    "job_id": job_id_clone,
+                                    "current_file": file_number,
+                                    "total_files": total_files,
+                                    "filename": filename_clone,
+                                    "bytes_downloaded": downloaded,
+                                    "total_bytes": total,
+                                    "file_progress": file_progress
+                                }),
+                            );
                         }
-                    }
+                    },
                 )
                 .await
                 .context(format!("Failed to download file: {}", output_file.filename))?;
 
             downloaded_paths.push(output_path);
 
-            log::info!("✅ Downloaded file {}/{}: {}", index + 1, total_files, output_file.filename);
+            log::info!(
+                "✅ Downloaded file {}/{}: {}",
+                index + 1,
+                total_files,
+                output_file.filename
+            );
         }
 
-        log::info!("✅ Downloaded {} result files for job {}", downloaded_paths.len(), job.id);
+        log::info!(
+            "✅ Downloaded {} result files for job {}",
+            downloaded_paths.len(),
+            job.id
+        );
 
         Ok(downloaded_paths)
     }
 
     pub fn extract_tarball(&self, job_id: &str, tar_path: &str) -> Result<Vec<PathBuf>> {
         use flate2::read::GzDecoder;
-        use tar::Archive;
         use std::fs::File;
+        use tar::Archive;
 
         log::info!("📦 Extracting tarball: {}", tar_path);
 
@@ -333,12 +409,12 @@ impl NSGJobManager {
         }
 
         // Extract to the same directory as the tar file
-        let extract_dir = tar_path_buf.parent()
+        let extract_dir = tar_path_buf
+            .parent()
             .ok_or_else(|| anyhow!("Cannot get parent directory of tar file"))?;
 
         // Open and decompress the tar.gz file
-        let tar_file = File::open(tar_path_buf)
-            .context("Failed to open tarball")?;
+        let tar_file = File::open(tar_path_buf).context("Failed to open tarball")?;
         let decompressor = GzDecoder::new(tar_file);
         let mut archive = Archive::new(decompressor);
 
@@ -348,7 +424,10 @@ impl NSGJobManager {
         // Extract all entries
         for entry in archive.entries().context("Failed to read tar entries")? {
             let mut entry = entry.context("Failed to read tar entry")?;
-            let entry_path = entry.path().context("Failed to get entry path")?.to_path_buf();
+            let entry_path = entry
+                .path()
+                .context("Failed to get entry path")?
+                .to_path_buf();
             let output_path = extract_dir.join(&entry_path);
 
             // Create parent directories if needed
@@ -358,7 +437,8 @@ impl NSGJobManager {
             }
 
             // Extract the file
-            entry.unpack(&output_path)
+            entry
+                .unpack(&output_path)
                 .context(format!("Failed to extract: {}", entry_path.display()))?;
 
             log::debug!("  Extracted: {}", entry_path.display());
@@ -371,17 +451,20 @@ impl NSGJobManager {
     }
 
     pub fn list_jobs(&self) -> Result<Vec<NSGJob>> {
-        self.db.list_jobs()
+        self.db
+            .list_jobs()
             .context("Failed to list jobs from database")
     }
 
     pub fn get_job(&self, job_id: &str) -> Result<Option<NSGJob>> {
-        self.db.get_job(job_id)
+        self.db
+            .get_job(job_id)
             .context("Failed to get job from database")
     }
 
     pub fn delete_job(&self, job_id: &str) -> Result<()> {
-        self.db.delete_job(job_id)
+        self.db
+            .delete_job(job_id)
             .context("Failed to delete job from database")?;
 
         log::info!("🗑️  Deleted job: {}", job_id);
@@ -390,29 +473,40 @@ impl NSGJobManager {
     }
 
     pub fn get_active_jobs(&self) -> Result<Vec<NSGJob>> {
-        self.db.get_active_jobs()
+        self.db
+            .get_active_jobs()
             .context("Failed to get active jobs from database")
     }
 
-    fn create_job_package(&self, job_id: &str, dda_params: &DDARequest, input_file: &Path) -> Result<PathBuf> {
+    fn create_job_package(
+        &self,
+        job_id: &str,
+        dda_params: &DDARequest,
+        input_file: &Path,
+    ) -> Result<PathBuf> {
         use std::io::Write;
 
         let package_dir = self.output_dir.join(format!("{}_package", job_id));
-        std::fs::create_dir_all(&package_dir)
-            .context("Failed to create package directory")?;
+        std::fs::create_dir_all(&package_dir).context("Failed to create package directory")?;
 
-        let input_filename = input_file.file_name()
+        let input_filename = input_file
+            .file_name()
             .and_then(|n| n.to_str())
             .ok_or_else(|| anyhow!("Invalid input file name"))?;
 
         std::fs::copy(input_file, package_dir.join(input_filename))
             .context("Failed to copy input file to package")?;
 
+        // Use embedded resources instead of file paths
+        use crate::nsg::embedded;
+
         // NSG PY_EXPANSE tool expects the main script to be named input.py
-        let wrapper_script = include_str!("../../../../../nsg_wrapper/run_dda_nsg.py");
+        // Always use Python wrapper for NSG execution (serial only)
+        log::info!("📦 Using Python wrapper for NSG execution");
+        let wrapper_script = embedded::WRAPPER_SCRIPT;
+
         let wrapper_path = package_dir.join("input.py");
-        std::fs::write(&wrapper_path, wrapper_script)
-            .context("Failed to write wrapper script")?;
+        std::fs::write(&wrapper_path, wrapper_script).context("Failed to write wrapper script")?;
 
         #[cfg(unix)]
         {
@@ -422,10 +516,9 @@ impl NSGJobManager {
             std::fs::set_permissions(&wrapper_path, perms)?;
         }
 
-        // Include local dda.py module (fixed version with customizable parameters)
-        let dda_module = include_str!("../../../../../nsg_wrapper/dda.py");
+        // Include dda.py module for Python-based execution
         let dda_path = package_dir.join("dda.py");
-        std::fs::write(&dda_path, dda_module)
+        std::fs::write(&dda_path, embedded::DDA_PY_MODULE)
             .context("Failed to write dda.py module")?;
 
         let params_json = serde_json::json!({
@@ -439,31 +532,44 @@ impl NSGJobManager {
             "scale_max": dda_params.scale_parameters.scale_max,
             "scale_num": dda_params.scale_parameters.scale_num,
             "variants": dda_params.algorithm_selection.enabled_variants,
-            "detrending": dda_params.preprocessing_options.detrending,
             "highpass": dda_params.preprocessing_options.highpass,
             "lowpass": dda_params.preprocessing_options.lowpass,
         });
 
         log::info!("📋 NSG Job Parameters:");
         log::info!("   Channels: {:?}", dda_params.channels);
-        log::info!("   Time range: {} - {} seconds", dda_params.time_range.start, dda_params.time_range.end);
-        log::info!("   Window: length={}, step={}", dda_params.window_parameters.window_length, dda_params.window_parameters.window_step);
-        log::info!("   Scale: min={}, max={}, num={}", dda_params.scale_parameters.scale_min, dda_params.scale_parameters.scale_max, dda_params.scale_parameters.scale_num);
+        log::info!(
+            "   Time range: {} - {} seconds",
+            dda_params.time_range.start,
+            dda_params.time_range.end
+        );
+        log::info!(
+            "   Window: length={}, step={}",
+            dda_params.window_parameters.window_length,
+            dda_params.window_parameters.window_step
+        );
+        log::info!(
+            "   Scale: min={}, max={}, num={}",
+            dda_params.scale_parameters.scale_min,
+            dda_params.scale_parameters.scale_max,
+            dda_params.scale_parameters.scale_num
+        );
 
         let params_path = package_dir.join("params.json");
-        let mut params_file = std::fs::File::create(&params_path)
-            .context("Failed to create params.json")?;
-        params_file.write_all(serde_json::to_string_pretty(&params_json)?.as_bytes())
+        let mut params_file =
+            std::fs::File::create(&params_path).context("Failed to create params.json")?;
+        params_file
+            .write_all(serde_json::to_string_pretty(&params_json)?.as_bytes())
             .context("Failed to write params.json")?;
 
         let zip_path = self.output_dir.join(format!("{}_job.zip", job_id));
-        let zip_file = std::fs::File::create(&zip_path)
-            .context("Failed to create ZIP file")?;
+        let zip_file = std::fs::File::create(&zip_path).context("Failed to create ZIP file")?;
 
         let mut zip = zip::ZipWriter::new(zip_file);
-        let options: zip::write::FileOptions<zip::write::ExtendedFileOptions> = zip::write::FileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated)
-            .unix_permissions(0o755);
+        let options: zip::write::FileOptions<zip::write::ExtendedFileOptions> =
+            zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated)
+                .unix_permissions(0o755);
 
         // NSG requires all files to be in a subdirectory, not at root level
         let modeldir = "modeldir";
@@ -474,9 +580,10 @@ impl NSGJobManager {
             let name = path.strip_prefix(&package_dir)?;
 
             if path.is_file() {
-                let file_options = zip::write::FileOptions::<zip::write::ExtendedFileOptions>::default()
-                    .compression_method(zip::CompressionMethod::Deflated)
-                    .unix_permissions(0o755);
+                let file_options =
+                    zip::write::FileOptions::<zip::write::ExtendedFileOptions>::default()
+                        .compression_method(zip::CompressionMethod::Deflated)
+                        .unix_permissions(0o755);
                 // Prepend modeldir/ to the file path
                 let zip_path = format!("{}/{}", modeldir, name.to_string_lossy());
                 zip.start_file(zip_path, file_options)?;
@@ -487,8 +594,7 @@ impl NSGJobManager {
 
         zip.finish()?;
 
-        std::fs::remove_dir_all(&package_dir)
-            .context("Failed to clean up package directory")?;
+        std::fs::remove_dir_all(&package_dir).context("Failed to clean up package directory")?;
 
         log::info!("📦 Created job package: {}", zip_path.display());
 
@@ -498,29 +604,50 @@ impl NSGJobManager {
     fn convert_dda_params_to_nsg(&self, params: &DDARequest) -> Vec<(String, String)> {
         let mut nsg_params = Vec::new();
 
-        nsg_params.push(("vparam.channels_".to_string(),
-            params.channels.as_ref()
-                .map(|ch| ch.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(","))
-                .unwrap_or_default()));
+        nsg_params.push((
+            "vparam.channels_".to_string(),
+            params
+                .channels
+                .as_ref()
+                .map(|ch| {
+                    ch.iter()
+                        .map(|c| c.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                })
+                .unwrap_or_default(),
+        ));
 
-        nsg_params.push(("vparam.time_start_".to_string(), params.time_range.start.to_string()));
-        nsg_params.push(("vparam.time_end_".to_string(), params.time_range.end.to_string()));
+        nsg_params.push((
+            "vparam.time_start_".to_string(),
+            params.time_range.start.to_string(),
+        ));
+        nsg_params.push((
+            "vparam.time_end_".to_string(),
+            params.time_range.end.to_string(),
+        ));
 
-        nsg_params.push(("vparam.window_length_".to_string(),
-            params.window_parameters.window_length.to_string()));
-        nsg_params.push(("vparam.window_step_".to_string(),
-            params.window_parameters.window_step.to_string()));
+        nsg_params.push((
+            "vparam.window_length_".to_string(),
+            params.window_parameters.window_length.to_string(),
+        ));
+        nsg_params.push((
+            "vparam.window_step_".to_string(),
+            params.window_parameters.window_step.to_string(),
+        ));
 
-        nsg_params.push(("vparam.scale_min_".to_string(),
-            params.scale_parameters.scale_min.to_string()));
-        nsg_params.push(("vparam.scale_max_".to_string(),
-            params.scale_parameters.scale_max.to_string()));
-        nsg_params.push(("vparam.scale_num_".to_string(),
-            params.scale_parameters.scale_num.to_string()));
-
-        if let Some(ref detrending) = params.preprocessing_options.detrending {
-            nsg_params.push(("vparam.detrending_".to_string(), detrending.clone()));
-        }
+        nsg_params.push((
+            "vparam.scale_min_".to_string(),
+            params.scale_parameters.scale_min.to_string(),
+        ));
+        nsg_params.push((
+            "vparam.scale_max_".to_string(),
+            params.scale_parameters.scale_max.to_string(),
+        ));
+        nsg_params.push((
+            "vparam.scale_num_".to_string(),
+            params.scale_parameters.scale_num.to_string(),
+        ));
 
         if let Some(highpass) = params.preprocessing_options.highpass {
             nsg_params.push(("vparam.highpass_".to_string(), highpass.to_string()));
@@ -530,8 +657,10 @@ impl NSGJobManager {
             nsg_params.push(("vparam.lowpass_".to_string(), lowpass.to_string()));
         }
 
-        nsg_params.push(("vparam.variants_".to_string(),
-            params.algorithm_selection.enabled_variants.join(",")));
+        nsg_params.push((
+            "vparam.variants_".to_string(),
+            params.algorithm_selection.enabled_variants.join(","),
+        ));
 
         nsg_params
     }

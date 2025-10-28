@@ -1,8 +1,8 @@
-use tauri::State;
 use crate::state_manager::AppStateManager;
-use ddalab_tauri::db::{NSGJob, NSGJobStatus};
 use ddalab_tauri::api::handlers::dda::DDARequest;
-use serde::{Serialize, Deserialize};
+use ddalab_tauri::db::{NSGJob, NSGJobStatus};
+use serde::{Deserialize, Serialize};
+use tauri::State;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NSGCredentialsResponse {
@@ -36,18 +36,18 @@ pub async fn get_nsg_credentials(
         .get_nsg_credentials()
         .map_err(|e| format!("Failed to get NSG credentials: {}", e))?;
 
-    Ok(creds.map(|(username, password, app_key)| NSGCredentialsResponse {
-        username,
-        password,
-        app_key,
-    }))
+    Ok(
+        creds.map(|(username, password, app_key)| NSGCredentialsResponse {
+            username,
+            password,
+            app_key,
+        }),
+    )
 }
 
 /// Check if NSG credentials are stored
 #[tauri::command]
-pub async fn has_nsg_credentials(
-    state: State<'_, AppStateManager>,
-) -> Result<bool, String> {
+pub async fn has_nsg_credentials(state: State<'_, AppStateManager>) -> Result<bool, String> {
     let secrets_db = state.get_secrets_db();
     secrets_db
         .has_nsg_credentials()
@@ -56,9 +56,7 @@ pub async fn has_nsg_credentials(
 
 /// Delete NSG credentials from storage
 #[tauri::command]
-pub async fn delete_nsg_credentials(
-    state: State<'_, AppStateManager>,
-) -> Result<(), String> {
+pub async fn delete_nsg_credentials(state: State<'_, AppStateManager>) -> Result<(), String> {
     let secrets_db = state.get_secrets_db();
     secrets_db
         .delete_nsg_credentials()
@@ -67,9 +65,7 @@ pub async fn delete_nsg_credentials(
 
 /// Test NSG connection with current credentials
 #[tauri::command]
-pub async fn test_nsg_connection(
-    state: State<'_, AppStateManager>,
-) -> Result<bool, String> {
+pub async fn test_nsg_connection(state: State<'_, AppStateManager>) -> Result<bool, String> {
     let secrets_db = state.get_secrets_db();
 
     // Get credentials
@@ -105,7 +101,8 @@ pub async fn create_nsg_job(
     nodes: Option<u32>,
     state: State<'_, AppStateManager>,
 ) -> Result<String, String> {
-    let nsg_manager = state.get_nsg_manager()
+    let nsg_manager = state
+        .get_nsg_manager()
         .ok_or_else(|| "NSG manager not initialized".to_string())?;
 
     // Create resource configuration
@@ -133,7 +130,8 @@ pub async fn submit_nsg_job(
     job_id: String,
     state: State<'_, AppStateManager>,
 ) -> Result<NSGJob, String> {
-    let nsg_manager = state.get_nsg_manager()
+    let nsg_manager = state
+        .get_nsg_manager()
         .ok_or_else(|| "NSG manager not initialized".to_string())?;
 
     nsg_manager
@@ -148,7 +146,8 @@ pub async fn get_nsg_job_status(
     job_id: String,
     state: State<'_, AppStateManager>,
 ) -> Result<NSGJob, String> {
-    let nsg_manager = state.get_nsg_manager()
+    let nsg_manager = state
+        .get_nsg_manager()
         .ok_or_else(|| "NSG manager not initialized".to_string())?;
 
     // Update job status from NSG API
@@ -160,10 +159,9 @@ pub async fn get_nsg_job_status(
 
 /// List all NSG jobs
 #[tauri::command]
-pub async fn list_nsg_jobs(
-    state: State<'_, AppStateManager>,
-) -> Result<Vec<NSGJob>, String> {
-    let nsg_manager = state.get_nsg_manager()
+pub async fn list_nsg_jobs(state: State<'_, AppStateManager>) -> Result<Vec<NSGJob>, String> {
+    let nsg_manager = state
+        .get_nsg_manager()
         .ok_or_else(|| "NSG manager not initialized".to_string())?;
 
     nsg_manager
@@ -176,7 +174,8 @@ pub async fn list_nsg_jobs(
 pub async fn list_active_nsg_jobs(
     state: State<'_, AppStateManager>,
 ) -> Result<Vec<NSGJob>, String> {
-    let nsg_manager = state.get_nsg_manager()
+    let nsg_manager = state
+        .get_nsg_manager()
         .ok_or_else(|| "NSG manager not initialized".to_string())?;
 
     nsg_manager
@@ -190,7 +189,8 @@ pub async fn cancel_nsg_job(
     job_id: String,
     state: State<'_, AppStateManager>,
 ) -> Result<(), String> {
-    let nsg_manager = state.get_nsg_manager()
+    let nsg_manager = state
+        .get_nsg_manager()
         .ok_or_else(|| "NSG manager not initialized".to_string())?;
 
     nsg_manager
@@ -207,7 +207,8 @@ pub async fn download_nsg_results(
     state: State<'_, AppStateManager>,
     app: tauri::AppHandle,
 ) -> Result<Vec<String>, String> {
-    let nsg_manager = state.get_nsg_manager()
+    let nsg_manager = state
+        .get_nsg_manager()
         .ok_or_else(|| "NSG manager not initialized".to_string())?;
 
     let paths = nsg_manager
@@ -229,7 +230,8 @@ pub async fn extract_nsg_tarball(
     tar_path: String,
     state: State<'_, AppStateManager>,
 ) -> Result<Vec<String>, String> {
-    let nsg_manager = state.get_nsg_manager()
+    let nsg_manager = state
+        .get_nsg_manager()
         .ok_or_else(|| "NSG manager not initialized".to_string())?;
 
     let paths = nsg_manager
@@ -249,7 +251,8 @@ pub async fn delete_nsg_job(
     job_id: String,
     state: State<'_, AppStateManager>,
 ) -> Result<(), String> {
-    let nsg_manager = state.get_nsg_manager()
+    let nsg_manager = state
+        .get_nsg_manager()
         .ok_or_else(|| "NSG manager not initialized".to_string())?;
 
     nsg_manager
@@ -259,10 +262,9 @@ pub async fn delete_nsg_job(
 
 /// Manually trigger a poll of active jobs
 #[tauri::command]
-pub async fn poll_nsg_jobs(
-    state: State<'_, AppStateManager>,
-) -> Result<Vec<String>, String> {
-    let nsg_poller = state.get_nsg_poller()
+pub async fn poll_nsg_jobs(state: State<'_, AppStateManager>) -> Result<Vec<String>, String> {
+    let nsg_poller = state
+        .get_nsg_poller()
         .ok_or_else(|| "NSG poller not initialized".to_string())?;
 
     nsg_poller
@@ -276,7 +278,8 @@ pub async fn poll_nsg_jobs(
 pub async fn get_nsg_job_stats(
     state: State<'_, AppStateManager>,
 ) -> Result<serde_json::Value, String> {
-    let nsg_manager = state.get_nsg_manager()
+    let nsg_manager = state
+        .get_nsg_manager()
         .ok_or_else(|| "NSG manager not initialized".to_string())?;
 
     let jobs = nsg_manager
@@ -295,14 +298,30 @@ pub async fn get_nsg_job_stats(
 
     for job in jobs {
         match job.status {
-            NSGJobStatus::Pending => stats["pending"] = serde_json::json!(stats["pending"].as_u64().unwrap_or(0) + 1),
-            NSGJobStatus::Submitted => stats["submitted"] = serde_json::json!(stats["submitted"].as_u64().unwrap_or(0) + 1),
-            NSGJobStatus::Queue => stats["submitted"] = serde_json::json!(stats["submitted"].as_u64().unwrap_or(0) + 1),
-            NSGJobStatus::InputStaging => stats["submitted"] = serde_json::json!(stats["submitted"].as_u64().unwrap_or(0) + 1),
-            NSGJobStatus::Running => stats["running"] = serde_json::json!(stats["running"].as_u64().unwrap_or(0) + 1),
-            NSGJobStatus::Completed => stats["completed"] = serde_json::json!(stats["completed"].as_u64().unwrap_or(0) + 1),
-            NSGJobStatus::Failed => stats["failed"] = serde_json::json!(stats["failed"].as_u64().unwrap_or(0) + 1),
-            NSGJobStatus::Cancelled => stats["cancelled"] = serde_json::json!(stats["cancelled"].as_u64().unwrap_or(0) + 1),
+            NSGJobStatus::Pending => {
+                stats["pending"] = serde_json::json!(stats["pending"].as_u64().unwrap_or(0) + 1)
+            }
+            NSGJobStatus::Submitted => {
+                stats["submitted"] = serde_json::json!(stats["submitted"].as_u64().unwrap_or(0) + 1)
+            }
+            NSGJobStatus::Queue => {
+                stats["submitted"] = serde_json::json!(stats["submitted"].as_u64().unwrap_or(0) + 1)
+            }
+            NSGJobStatus::InputStaging => {
+                stats["submitted"] = serde_json::json!(stats["submitted"].as_u64().unwrap_or(0) + 1)
+            }
+            NSGJobStatus::Running => {
+                stats["running"] = serde_json::json!(stats["running"].as_u64().unwrap_or(0) + 1)
+            }
+            NSGJobStatus::Completed => {
+                stats["completed"] = serde_json::json!(stats["completed"].as_u64().unwrap_or(0) + 1)
+            }
+            NSGJobStatus::Failed => {
+                stats["failed"] = serde_json::json!(stats["failed"].as_u64().unwrap_or(0) + 1)
+            }
+            NSGJobStatus::Cancelled => {
+                stats["cancelled"] = serde_json::json!(stats["cancelled"].as_u64().unwrap_or(0) + 1)
+            }
         }
     }
 
@@ -311,10 +330,9 @@ pub async fn get_nsg_job_stats(
 
 /// Clean up old pending jobs (jobs that failed to submit properly)
 #[tauri::command]
-pub async fn cleanup_pending_nsg_jobs(
-    state: State<'_, AppStateManager>,
-) -> Result<usize, String> {
-    let nsg_manager = state.get_nsg_manager()
+pub async fn cleanup_pending_nsg_jobs(state: State<'_, AppStateManager>) -> Result<usize, String> {
+    let nsg_manager = state
+        .get_nsg_manager()
         .ok_or_else(|| "NSG manager not initialized".to_string())?;
 
     let jobs = nsg_manager

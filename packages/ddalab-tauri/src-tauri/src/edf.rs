@@ -2,35 +2,35 @@
 // Specification: https://www.edfplus.info/specs/edf.html
 
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom, Write, BufReader};
+use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct EDFHeader {
-    pub version: String,                      // 8 bytes: version of this data format (0)
-    pub patient_id: String,                   // 80 bytes: local patient identification
-    pub recording_id: String,                 // 80 bytes: local recording identification
-    pub start_date: String,                   // 8 bytes: startdate of recording (dd.mm.yy)
-    pub start_time: String,                   // 8 bytes: starttime of recording (hh.mm.ss)
-    pub header_bytes: usize,                  // 8 bytes: number of bytes in header record
-    pub reserved: String,                     // 44 bytes: reserved
-    pub num_data_records: i64,                // 8 bytes: number of data records (-1 if unknown)
-    pub duration_of_data_record: f64,         // 8 bytes: duration of a data record, in seconds
-    pub num_signals: usize,                   // 4 bytes: number of signals (channels)
+    pub version: String,              // 8 bytes: version of this data format (0)
+    pub patient_id: String,           // 80 bytes: local patient identification
+    pub recording_id: String,         // 80 bytes: local recording identification
+    pub start_date: String,           // 8 bytes: startdate of recording (dd.mm.yy)
+    pub start_time: String,           // 8 bytes: starttime of recording (hh.mm.ss)
+    pub header_bytes: usize,          // 8 bytes: number of bytes in header record
+    pub reserved: String,             // 44 bytes: reserved
+    pub num_data_records: i64,        // 8 bytes: number of data records (-1 if unknown)
+    pub duration_of_data_record: f64, // 8 bytes: duration of a data record, in seconds
+    pub num_signals: usize,           // 4 bytes: number of signals (channels)
 }
 
 #[derive(Debug, Clone)]
 pub struct EDFSignalHeader {
-    pub label: String,                        // 16 bytes: label (e.g. EEG Fpz-Cz)
-    pub transducer_type: String,              // 80 bytes: transducer type (e.g. AgAgCl electrode)
-    pub physical_dimension: String,           // 8 bytes: physical dimension (e.g. uV)
-    pub physical_minimum: f64,                // 8 bytes: physical minimum
-    pub physical_maximum: f64,                // 8 bytes: physical maximum
-    pub digital_minimum: i64,                 // 8 bytes: digital minimum
-    pub digital_maximum: i64,                 // 8 bytes: digital maximum
-    pub prefiltering: String,                 // 80 bytes: prefiltering
-    pub num_samples_per_record: usize,        // 8 bytes: number of samples in each data record
-    pub reserved: String,                     // 32 bytes: reserved
+    pub label: String,                 // 16 bytes: label (e.g. EEG Fpz-Cz)
+    pub transducer_type: String,       // 80 bytes: transducer type (e.g. AgAgCl electrode)
+    pub physical_dimension: String,    // 8 bytes: physical dimension (e.g. uV)
+    pub physical_minimum: f64,         // 8 bytes: physical minimum
+    pub physical_maximum: f64,         // 8 bytes: physical maximum
+    pub digital_minimum: i64,          // 8 bytes: digital minimum
+    pub digital_maximum: i64,          // 8 bytes: digital maximum
+    pub prefiltering: String,          // 80 bytes: prefiltering
+    pub num_samples_per_record: usize, // 8 bytes: number of samples in each data record
+    pub reserved: String,              // 32 bytes: reserved
 }
 
 impl EDFSignalHeader {
@@ -39,8 +39,8 @@ impl EDFSignalHeader {
     }
 
     pub fn gain(&self) -> f64 {
-        (self.physical_maximum - self.physical_minimum) /
-        (self.digital_maximum - self.digital_minimum) as f64
+        (self.physical_maximum - self.physical_minimum)
+            / (self.digital_maximum - self.digital_minimum) as f64
     }
 
     pub fn offset(&self) -> f64 {
@@ -57,8 +57,7 @@ pub struct EDFReader {
 
 impl EDFReader {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let file = File::open(path)
-            .map_err(|e| format!("Failed to open file: {}", e))?;
+        let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
         let mut file = BufReader::new(file);
 
         // Read main header (256 bytes)
@@ -79,7 +78,8 @@ impl EDFReader {
 
     fn read_fixed_string<R: Read>(reader: &mut R, size: usize) -> Result<String, String> {
         let mut buffer = vec![0u8; size];
-        reader.read_exact(&mut buffer)
+        reader
+            .read_exact(&mut buffer)
             .map_err(|e| format!("Failed to read string: {}", e))?;
         Ok(String::from_utf8_lossy(&buffer).trim().to_string())
     }
@@ -92,25 +92,39 @@ impl EDFReader {
         let start_time = Self::read_fixed_string(reader, 8)?;
 
         let header_bytes_str = Self::read_fixed_string(reader, 8)?;
-        let header_bytes = header_bytes_str.trim().parse::<usize>()
+        let header_bytes = header_bytes_str
+            .trim()
+            .parse::<usize>()
             .map_err(|e| format!("Invalid header bytes '{}': {}", header_bytes_str, e))?;
 
         let reserved = Self::read_fixed_string(reader, 44)?;
 
         let num_data_records_str = Self::read_fixed_string(reader, 8)?;
-        let num_data_records = num_data_records_str.trim().parse::<i64>()
-            .map_err(|e| format!("Invalid number of data records '{}': {}", num_data_records_str, e))?;
+        let num_data_records = num_data_records_str.trim().parse::<i64>().map_err(|e| {
+            format!(
+                "Invalid number of data records '{}': {}",
+                num_data_records_str, e
+            )
+        })?;
 
         let duration_str = Self::read_fixed_string(reader, 8)?;
-        let duration_of_data_record = duration_str.trim().parse::<f64>()
+        let duration_of_data_record = duration_str
+            .trim()
+            .parse::<f64>()
             .map_err(|e| format!("Invalid duration '{}': {}", duration_str, e))?;
 
         let num_signals_str = Self::read_fixed_string(reader, 4)?;
-        let num_signals = num_signals_str.trim().parse::<usize>()
+        let num_signals = num_signals_str
+            .trim()
+            .parse::<usize>()
             .map_err(|e| format!("Invalid number of signals '{}': {}", num_signals_str, e))?;
 
-        log::debug!("EDF header parsed: num_data_records={}, duration_of_data_record={}, num_signals={}",
-            num_data_records, duration_of_data_record, num_signals);
+        log::debug!(
+            "EDF header parsed: num_data_records={}, duration_of_data_record={}, num_signals={}",
+            num_data_records,
+            duration_of_data_record,
+            num_signals
+        );
 
         Ok(EDFHeader {
             version,
@@ -126,7 +140,10 @@ impl EDFReader {
         })
     }
 
-    fn read_signal_headers<R: Read>(reader: &mut R, num_signals: usize) -> Result<Vec<EDFSignalHeader>, String> {
+    fn read_signal_headers<R: Read>(
+        reader: &mut R,
+        num_signals: usize,
+    ) -> Result<Vec<EDFSignalHeader>, String> {
         let mut labels = Vec::new();
         let mut transducer_types = Vec::new();
         let mut physical_dimensions = Vec::new();
@@ -150,31 +167,46 @@ impl EDFReader {
         }
         for _ in 0..num_signals {
             let s = Self::read_fixed_string(reader, 8)?;
-            physical_minimums.push(s.trim().parse::<f64>()
-                .map_err(|e| format!("Invalid physical minimum '{}': {}", s, e))?);
+            physical_minimums.push(
+                s.trim()
+                    .parse::<f64>()
+                    .map_err(|e| format!("Invalid physical minimum '{}': {}", s, e))?,
+            );
         }
         for _ in 0..num_signals {
             let s = Self::read_fixed_string(reader, 8)?;
-            physical_maximums.push(s.trim().parse::<f64>()
-                .map_err(|e| format!("Invalid physical maximum '{}': {}", s, e))?);
+            physical_maximums.push(
+                s.trim()
+                    .parse::<f64>()
+                    .map_err(|e| format!("Invalid physical maximum '{}': {}", s, e))?,
+            );
         }
         for _ in 0..num_signals {
             let s = Self::read_fixed_string(reader, 8)?;
-            digital_minimums.push(s.trim().parse::<i64>()
-                .map_err(|e| format!("Invalid digital minimum '{}': {}", s, e))?);
+            digital_minimums.push(
+                s.trim()
+                    .parse::<i64>()
+                    .map_err(|e| format!("Invalid digital minimum '{}': {}", s, e))?,
+            );
         }
         for _ in 0..num_signals {
             let s = Self::read_fixed_string(reader, 8)?;
-            digital_maximums.push(s.trim().parse::<i64>()
-                .map_err(|e| format!("Invalid digital maximum '{}': {}", s, e))?);
+            digital_maximums.push(
+                s.trim()
+                    .parse::<i64>()
+                    .map_err(|e| format!("Invalid digital maximum '{}': {}", s, e))?,
+            );
         }
         for _ in 0..num_signals {
             prefilterings.push(Self::read_fixed_string(reader, 80)?);
         }
         for _ in 0..num_signals {
             let s = Self::read_fixed_string(reader, 8)?;
-            num_samples_per_records.push(s.trim().parse::<usize>()
-                .map_err(|e| format!("Invalid number of samples '{}': {}", s, e))?);
+            num_samples_per_records.push(
+                s.trim()
+                    .parse::<usize>()
+                    .map_err(|e| format!("Invalid number of samples '{}': {}", s, e))?,
+            );
         }
         for _ in 0..num_signals {
             reserveds.push(Self::read_fixed_string(reader, 32)?);
@@ -201,18 +233,24 @@ impl EDFReader {
 
     pub fn read_record(&mut self, record_index: usize) -> Result<Vec<Vec<i16>>, String> {
         if record_index >= self.header.num_data_records as usize {
-            return Err(format!("Record index {} out of bounds (max {})",
-                record_index, self.header.num_data_records - 1));
+            return Err(format!(
+                "Record index {} out of bounds (max {})",
+                record_index,
+                self.header.num_data_records - 1
+            ));
         }
 
         // Calculate record size in bytes (each sample is 2 bytes / 16 bits)
-        let record_size: usize = self.signal_headers.iter()
+        let record_size: usize = self
+            .signal_headers
+            .iter()
             .map(|sh| sh.num_samples_per_record * 2)
             .sum();
 
         // Seek to the record
         let record_offset = self.data_start_offset + (record_index * record_size) as u64;
-        self.file.seek(SeekFrom::Start(record_offset))
+        self.file
+            .seek(SeekFrom::Start(record_offset))
             .map_err(|e| format!("Failed to seek to record: {}", e))?;
 
         // Read all signals for this record
@@ -221,7 +259,8 @@ impl EDFReader {
             let mut samples = Vec::new();
             for _ in 0..signal_header.num_samples_per_record {
                 let mut buf = [0u8; 2];
-                self.file.read_exact(&mut buf)
+                self.file
+                    .read_exact(&mut buf)
                     .map_err(|e| format!("Failed to read sample: {}", e))?;
                 let sample = i16::from_le_bytes(buf);
                 samples.push(sample);
@@ -241,7 +280,8 @@ impl EDFReader {
             let gain = signal_header.gain();
             let offset = signal_header.offset();
 
-            let physical_samples: Vec<f64> = digital_samples.iter()
+            let physical_samples: Vec<f64> = digital_samples
+                .iter()
                 .map(|&digital| gain * digital as f64 + offset)
                 .collect();
 
@@ -251,9 +291,12 @@ impl EDFReader {
         Ok(physical_record)
     }
 
-    pub fn read_signal_window(&mut self, signal_index: usize, start_time_sec: f64, duration_sec: f64)
-        -> Result<Vec<f64>, String> {
-
+    pub fn read_signal_window(
+        &mut self,
+        signal_index: usize,
+        start_time_sec: f64,
+        duration_sec: f64,
+    ) -> Result<Vec<f64>, String> {
         if signal_index >= self.signal_headers.len() {
             return Err(format!("Signal index {} out of bounds", signal_index));
         }
@@ -269,7 +312,8 @@ impl EDFReader {
         // Calculate sample offsets within records
         let samples_per_record = signal_header.num_samples_per_record;
         let sample_rate = signal_header.sample_frequency(record_duration);
-        let start_sample_in_first_record = ((start_time_sec % record_duration) * sample_rate) as usize;
+        let start_sample_in_first_record =
+            ((start_time_sec % record_duration) * sample_rate) as usize;
         let total_samples_needed = (duration_sec * sample_rate).ceil() as usize;
 
         let mut result = Vec::new();
@@ -331,13 +375,12 @@ impl EDFWriter {
             start_time,
             header_bytes,
             reserved: "".to_string(),
-            num_data_records: -1, // Will be updated when finalized
+            num_data_records: -1,         // Will be updated when finalized
             duration_of_data_record: 1.0, // Default 1 second
             num_signals,
         };
 
-        let file = File::create(path)
-            .map_err(|e| format!("Failed to create file: {}", e))?;
+        let file = File::create(path).map_err(|e| format!("Failed to create file: {}", e))?;
 
         let mut writer = Self {
             file,
@@ -354,7 +397,8 @@ impl EDFWriter {
         let bytes = s.as_bytes();
         let copy_len = bytes.len().min(size);
         buffer[..copy_len].copy_from_slice(&bytes[..copy_len]);
-        self.file.write_all(&buffer)
+        self.file
+            .write_all(&buffer)
             .map_err(|e| format!("Failed to write string: {}", e))
     }
 
@@ -421,16 +465,23 @@ impl EDFWriter {
 
     pub fn write_physical_record(&mut self, physical_data: &[Vec<f64>]) -> Result<(), String> {
         if physical_data.len() != self.signal_headers.len() {
-            return Err(format!("Expected {} signals, got {}",
-                self.signal_headers.len(), physical_data.len()));
+            return Err(format!(
+                "Expected {} signals, got {}",
+                self.signal_headers.len(),
+                physical_data.len()
+            ));
         }
 
         for (signal_idx, physical_samples) in physical_data.iter().enumerate() {
             let signal_header = &self.signal_headers[signal_idx];
 
             if physical_samples.len() != signal_header.num_samples_per_record {
-                return Err(format!("Signal {} expected {} samples, got {}",
-                    signal_idx, signal_header.num_samples_per_record, physical_samples.len()));
+                return Err(format!(
+                    "Signal {} expected {} samples, got {}",
+                    signal_idx,
+                    signal_header.num_samples_per_record,
+                    physical_samples.len()
+                ));
             }
 
             let gain = signal_header.gain();
@@ -439,7 +490,8 @@ impl EDFWriter {
             for &physical in physical_samples {
                 let digital = ((physical - offset) / gain).round() as i16;
                 let bytes = digital.to_le_bytes();
-                self.file.write_all(&bytes)
+                self.file
+                    .write_all(&bytes)
                     .map_err(|e| format!("Failed to write sample: {}", e))?;
             }
         }
@@ -449,12 +501,14 @@ impl EDFWriter {
 
     pub fn finalize(mut self, num_records_written: i64) -> Result<(), String> {
         // Update the number of data records in the header
-        self.file.seek(SeekFrom::Start(236))
+        self.file
+            .seek(SeekFrom::Start(236))
             .map_err(|e| format!("Failed to seek to update header: {}", e))?;
 
         self.write_fixed_string(&num_records_written.to_string(), 8)?;
 
-        self.file.flush()
+        self.file
+            .flush()
             .map_err(|e| format!("Failed to flush file: {}", e))?;
 
         Ok(())

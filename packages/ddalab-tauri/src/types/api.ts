@@ -44,7 +44,6 @@ export interface DDAAnalysisRequest {
   variants: string[]
   window_length?: number
   window_step?: number
-  detrending?: 'linear' | 'polynomial' | 'none'
   scale_min?: number
   scale_max?: number
   scale_num?: number

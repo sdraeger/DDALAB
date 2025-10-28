@@ -1,13 +1,13 @@
-use std::sync::Arc;
-use std::path::PathBuf;
-use std::collections::HashMap;
-use parking_lot::RwLock;
-use serde_json::json;
-use crate::api::models::{EDFFileInfo, DDAResult, ChunkData};
 use crate::api::auth::constant_time_eq;
+use crate::api::models::{ChunkData, DDAResult, EDFFileInfo};
 use crate::db::analysis_db::AnalysisDatabase;
 use crate::db::overview_cache_db::OverviewCacheDatabase;
 use crate::models::AnalysisResult;
+use parking_lot::RwLock;
+use serde_json::json;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct ApiState {
@@ -27,7 +27,8 @@ impl ApiState {
     pub fn new(data_directory: PathBuf) -> Self {
         // NOTE: dda_history directory is obsolete - analysis persistence now uses SQLite only
         // The history_directory field is kept for backwards compatibility but no longer used
-        let history_directory = data_directory.parent()
+        let history_directory = data_directory
+            .parent()
             .unwrap_or(&data_directory)
             .join("dda_history");
 
@@ -39,7 +40,7 @@ impl ApiState {
                 Ok(db) => {
                     log::info!("✅ Analysis database initialized successfully");
                     Some(Arc::new(db))
-                },
+                }
                 Err(e) => {
                     log::error!("❌ Failed to initialize analysis database: {}", e);
                     None
@@ -58,7 +59,7 @@ impl ApiState {
                 Ok(db) => {
                     log::info!("✅ Overview cache database initialized successfully");
                     Some(Arc::new(db))
-                },
+                }
                 Err(e) => {
                     log::error!("❌ Failed to initialize overview cache database: {}", e);
                     None
@@ -131,7 +132,10 @@ impl ApiState {
                 id: result.id.clone(),
                 file_path: result.file_path.clone(),
                 timestamp: result.created_at.clone(),
-                variant_name: result.parameters.variants.first()
+                variant_name: result
+                    .parameters
+                    .variants
+                    .first()
                     .unwrap_or(&"single_timeseries".to_string())
                     .clone(),
                 variant_display_name: "Single Timeseries (ST)".to_string(),

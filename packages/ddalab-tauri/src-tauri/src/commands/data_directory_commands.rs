@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tauri::{Manager, AppHandle};
-use serde::{Serialize, Deserialize};
+use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataDirectoryConfig {
@@ -35,10 +35,7 @@ pub async fn get_data_directory(app_handle: AppHandle) -> Result<String, String>
 }
 
 #[tauri::command]
-pub async fn set_data_directory(
-    app_handle: AppHandle,
-    path: String,
-) -> Result<(), String> {
+pub async fn set_data_directory(app_handle: AppHandle, path: String) -> Result<(), String> {
     // Validate the path exists and is a directory
     let path_buf = PathBuf::from(&path);
     if !path_buf.exists() {
@@ -57,7 +54,8 @@ async fn save_data_directory(app_handle: &AppHandle, path: &str) -> Result<(), S
         path: path.to_string(),
     };
 
-    if let Some(state) = app_handle.try_state::<parking_lot::RwLock<Option<DataDirectoryConfig>>>() {
+    if let Some(state) = app_handle.try_state::<parking_lot::RwLock<Option<DataDirectoryConfig>>>()
+    {
         let mut guard = state.write();
         *guard = Some(config.clone());
     }
@@ -97,7 +95,9 @@ pub async fn load_data_directory(app_handle: &AppHandle) -> Result<String, Strin
                 match serde_json::from_str::<DataDirectoryConfig>(&json) {
                     Ok(config) => {
                         // Update in-memory state
-                        if let Some(state) = app_handle.try_state::<parking_lot::RwLock<Option<DataDirectoryConfig>>>() {
+                        if let Some(state) = app_handle
+                            .try_state::<parking_lot::RwLock<Option<DataDirectoryConfig>>>()
+                        {
                             let mut guard = state.write();
                             *guard = Some(config.clone());
                         }

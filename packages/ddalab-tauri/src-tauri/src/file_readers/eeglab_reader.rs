@@ -1,10 +1,9 @@
+use super::{FileMetadata, FileReader, FileReaderError, FileResult};
+use matfile::{Array, MatFile};
 /// EEGLAB File Reader
 ///
 /// Implementation of FileReader trait for EEGLAB .set files (MATLAB format).
-
 use std::path::Path;
-use matfile::{MatFile, Array};
-use super::{FileReader, FileMetadata, FileResult, FileReaderError};
 
 pub struct EEGLABFileReader {
     data: Vec<Vec<f64>>,
@@ -15,12 +14,14 @@ impl EEGLABFileReader {
     pub fn new(path: &Path) -> FileResult<Self> {
         // Load MAT file
         let file = std::fs::File::open(path)?;
-        let mat_file = MatFile::parse(file)
-            .map_err(|e| FileReaderError::ParseError(format!("Failed to parse .set file: {:?}", e)))?;
+        let mat_file = MatFile::parse(file).map_err(|e| {
+            FileReaderError::ParseError(format!("Failed to parse .set file: {:?}", e))
+        })?;
 
         // Extract EEG structure
-        let eeg = mat_file.find_by_name("EEG")
-            .ok_or_else(|| FileReaderError::InvalidData("No EEG structure found in .set file".to_string()))?;
+        let eeg = mat_file.find_by_name("EEG").ok_or_else(|| {
+            FileReaderError::InvalidData("No EEG structure found in .set file".to_string())
+        })?;
 
         // Parse metadata from EEG structure
         let (sample_rate, num_channels, num_samples, channels, data) =
@@ -48,7 +49,9 @@ impl EEGLABFileReader {
         Ok(Self { data, metadata })
     }
 
-    fn parse_eeg_structure(eeg: &Array) -> FileResult<(f64, usize, usize, Vec<String>, Vec<Vec<f64>>)> {
+    fn parse_eeg_structure(
+        eeg: &Array,
+    ) -> FileResult<(f64, usize, usize, Vec<String>, Vec<Vec<f64>>)> {
         // EEGLAB .set files contain a struct with fields:
         // - srate: sampling rate
         // - nbchan: number of channels
@@ -60,7 +63,8 @@ impl EEGLABFileReader {
         // For now, we'll return an error prompting for a more complete implementation
         Err(FileReaderError::UnsupportedFormat(
             "EEGLAB .set file parsing requires more complex implementation. \
-             Consider using EEGLAB to export as .csv or .edf format.".to_string()
+             Consider using EEGLAB to export as .csv or .edf format."
+                .to_string(),
         ))
     }
 }
@@ -125,13 +129,7 @@ impl FileReader for EEGLABFileReader {
 
         let decimated: Vec<Vec<f64>> = full_data
             .into_iter()
-            .map(|channel_data| {
-                channel_data
-                    .iter()
-                    .step_by(decimation)
-                    .copied()
-                    .collect()
-            })
+            .map(|channel_data| channel_data.iter().step_by(decimation).copied().collect())
             .collect();
 
         Ok(decimated)
