@@ -1,9 +1,11 @@
-use anyhow::{Context, Result, anyhow};
-use reqwest::{Client, multipart};
+use super::models::{
+    NSGCredentials, NSGJobResponse, NSGJobStatusInfo, NSGJobStatusResponse, NSGSelfUri,
+};
+use crate::db::NSGJobStatus;
+use anyhow::{anyhow, Context, Result};
+use reqwest::{multipart, Client};
 use std::path::Path;
 use std::time::Duration;
-use super::models::{NSGCredentials, NSGJobResponse, NSGJobStatusResponse, NSGJobStatusInfo, NSGSelfUri};
-use crate::db::NSGJobStatus;
 
 const NSG_BASE_URL: &str = "https://nsgr.sdsc.edu:8443/cipresrest/v1";
 const DEFAULT_TIMEOUT_SECS: u64 = 300; // 5 minutes for large file uploads
@@ -37,7 +39,8 @@ impl NSGClient {
     pub async fn test_connection(&self) -> Result<bool> {
         let url = format!("{}/job/{}", self.base_url, self.credentials.username);
 
-        let response = self.client
+        let response = self
+            .client
             .get(&url)
             .basic_auth(&self.credentials.username, Some(&self.credentials.password))
             .header("cipres-appkey", &self.credentials.app_key)
@@ -67,17 +70,20 @@ impl NSGClient {
             .context("Failed to read input file")?;
 
         let file_size_mb = file_bytes.len() as f64 / (1024.0 * 1024.0);
-        log::info!("📤 Submitting NSG job: tool={}, file={} ({:.2} MB)", tool, file_name, file_size_mb);
+        log::info!(
+            "📤 Submitting NSG job: tool={}, file={} ({:.2} MB)",
+            tool,
+            file_name,
+            file_size_mb
+        );
 
-        let mut form = multipart::Form::new()
-            .text("tool", tool.to_string())
-            .part(
-                "input.infile_",
-                multipart::Part::bytes(file_bytes)
-                    .file_name(file_name.to_string())
-                    .mime_str("application/octet-stream")
-                    .context("Failed to set MIME type")?,
-            );
+        let mut form = multipart::Form::new().text("tool", tool.to_string()).part(
+            "input.infile_",
+            multipart::Part::bytes(file_bytes)
+                .file_name(file_name.to_string())
+                .mime_str("application/octet-stream")
+                .context("Failed to set MIME type")?,
+        );
 
         if status_email {
             form = form.text("metadata.statusEmail", "true");
@@ -90,7 +96,8 @@ impl NSGClient {
             form = form.text(key, value);
         }
 
-        let response = match self.client
+        let response = match self
+            .client
             .post(&url)
             .basic_auth(&self.credentials.username, Some(&self.credentials.password))
             .header("cipres-appkey", &self.credentials.app_key)
@@ -98,72 +105,93 @@ impl NSGClient {
             // We'll parse XML response instead
             .multipart(form)
             .send()
-            .await {
-                Ok(resp) => {
-                    log::info!("✓ Received response from NSG");
-                    resp
-                },
-                Err(e) => {
-                    log::error!("Failed to send request to NSG: {:?}", e);
-                    if e.is_timeout() {
-                        return Err(anyhow!("NSG request timed out after {} seconds", DEFAULT_TIMEOUT_SECS));
-                    } else if e.is_connect() {
-                        return Err(anyhow!("Failed to connect to NSG server: {}", e));
-                    } else {
-                        return Err(anyhow!("Failed to submit job to NSG: {}", e));
-                    }
+            .await
+        {
+            Ok(resp) => {
+                log::info!("✓ Received response from NSG");
+                resp
+            }
+            Err(e) => {
+                log::error!("Failed to send request to NSG: {:?}", e);
+                if e.is_timeout() {
+                    return Err(anyhow!(
+                        "NSG request timed out after {} seconds",
+                        DEFAULT_TIMEOUT_SECS
+                    ));
+                } else if e.is_connect() {
+                    return Err(anyhow!("Failed to connect to NSG server: {}", e));
+                } else {
+                    return Err(anyhow!("Failed to submit job to NSG: {}", e));
                 }
-            };
+            }
+        };
 
         let status = response.status();
         log::info!("NSG response status: {}", status);
 
         if !status.is_success() {
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             log::error!("NSG submission failed: {} - {}", status, error_text);
-            return Err(anyhow!("NSG job submission failed: {} - {}", status, error_text));
+            return Err(anyhow!(
+                "NSG job submission failed: {} - {}",
+                status,
+                error_text
+            ));
         }
 
         // Get response text first for debugging
-        let response_text = response.text().await
+        let response_text = response
+            .text()
+            .await
             .context("Failed to read NSG response")?;
 
         log::debug!("NSG response body: {}", response_text);
 
         // Try to parse as JSON first
-        let job_response = if let Ok(json_response) = serde_json::from_str::<NSGJobResponse>(&response_text) {
-            json_response
-        } else {
-            // If JSON parsing fails, NSG might have returned XML - extract job ID from XML
-            log::warn!("Failed to parse JSON response, attempting XML extraction");
-
-            // Extract jobHandle from XML using string operations
-            let job_id = if let Some(start) = response_text.find("<jobHandle>") {
-                let start_idx = start + "<jobHandle>".len();
-                if let Some(end) = response_text[start_idx..].find("</jobHandle>") {
-                    response_text[start_idx..start_idx + end].to_string()
-                } else {
-                    return Err(anyhow!("Failed to find closing </jobHandle> tag in NSG response"));
-                }
+        let job_response =
+            if let Ok(json_response) = serde_json::from_str::<NSGJobResponse>(&response_text) {
+                json_response
             } else {
-                return Err(anyhow!("Failed to extract job ID from NSG response. Response was: {}", response_text));
-            };
+                // If JSON parsing fails, NSG might have returned XML - extract job ID from XML
+                log::warn!("Failed to parse JSON response, attempting XML extraction");
 
-            log::info!("Extracted job ID from XML: {}", job_id);
+                // Extract jobHandle from XML using string operations
+                let job_id = if let Some(start) = response_text.find("<jobHandle>") {
+                    let start_idx = start + "<jobHandle>".len();
+                    if let Some(end) = response_text[start_idx..].find("</jobHandle>") {
+                        response_text[start_idx..start_idx + end].to_string()
+                    } else {
+                        return Err(anyhow!(
+                            "Failed to find closing </jobHandle> tag in NSG response"
+                        ));
+                    }
+                } else {
+                    return Err(anyhow!(
+                        "Failed to extract job ID from NSG response. Response was: {}",
+                        response_text
+                    ));
+                };
 
-            // Create a minimal NSGJobResponse structure
-            // Since we only need the job_id for mark_submitted, we can use a placeholder structure
-            NSGJobResponse {
-                jobstatus: NSGJobStatusInfo {
-                    job_handle: job_id.clone(),
-                    self_uri: NSGSelfUri {
-                        url: format!("https://nsgr.sdsc.edu:8443/cipresrest/v1/job/{}/{}",
-                                    self.credentials.username, job_id),
-                        title: job_id,
+                log::info!("Extracted job ID from XML: {}", job_id);
+
+                // Create a minimal NSGJobResponse structure
+                // Since we only need the job_id for mark_submitted, we can use a placeholder structure
+                NSGJobResponse {
+                    jobstatus: NSGJobStatusInfo {
+                        job_handle: job_id.clone(),
+                        self_uri: NSGSelfUri {
+                            url: format!(
+                                "https://nsgr.sdsc.edu:8443/cipresrest/v1/job/{}/{}",
+                                self.credentials.username, job_id
+                            ),
+                            title: job_id,
+                        },
                     },
-                },
-            }
-        };
+                }
+            };
 
         log::info!("✅ NSG job submitted: {}", job_response.job_id());
 
@@ -171,7 +199,8 @@ impl NSGClient {
     }
 
     pub async fn get_job_status(&self, job_url: &str) -> Result<NSGJobStatusResponse> {
-        let response = self.client
+        let response = self
+            .client
             .get(job_url)
             .basic_auth(&self.credentials.username, Some(&self.credentials.password))
             .header("cipres-appkey", &self.credentials.app_key)
@@ -183,15 +212,26 @@ impl NSGClient {
 
         let status = response.status();
         if !status.is_success() {
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(anyhow!("Failed to get job status: {} - {}", status, error_text));
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(anyhow!(
+                "Failed to get job status: {} - {}",
+                status,
+                error_text
+            ));
         }
 
         // Try JSON first, fall back to XML if needed
-        let response_text = response.text().await
+        let response_text = response
+            .text()
+            .await
             .context("Failed to read NSG status response")?;
 
-        let status_response = if let Ok(json_response) = serde_json::from_str::<NSGJobStatusResponse>(&response_text) {
+        let status_response = if let Ok(json_response) =
+            serde_json::from_str::<NSGJobStatusResponse>(&response_text)
+        {
             json_response
         } else {
             // NSG returned XML - parse manually
@@ -253,9 +293,14 @@ impl NSGClient {
     where
         F: FnMut(u64, u64),
     {
-        log::info!("📥 Downloading NSG output file to: {} (size: {} bytes)", output_path.display(), total_size);
+        log::info!(
+            "📥 Downloading NSG output file to: {} (size: {} bytes)",
+            output_path.display(),
+            total_size
+        );
 
-        let response = self.client
+        let response = self
+            .client
             .get(download_uri)
             .basic_auth(&self.credentials.username, Some(&self.credentials.password))
             .header("cipres-appkey", &self.credentials.app_key)
@@ -296,7 +341,11 @@ impl NSGClient {
 
         file.flush().await.context("Failed to flush file")?;
 
-        log::info!("✅ Downloaded output file: {} ({} bytes)", output_path.display(), downloaded);
+        log::info!(
+            "✅ Downloaded output file: {} ({} bytes)",
+            output_path.display(),
+            downloaded
+        );
 
         Ok(())
     }
@@ -304,7 +353,8 @@ impl NSGClient {
     pub async fn cancel_job(&self, job_url: &str) -> Result<()> {
         log::info!("🛑 Cancelling NSG job: {}", job_url);
 
-        let response = self.client
+        let response = self
+            .client
             .delete(job_url)
             .basic_auth(&self.credentials.username, Some(&self.credentials.password))
             .header("cipres-appkey", &self.credentials.app_key)
@@ -314,7 +364,10 @@ impl NSGClient {
 
         let status = response.status();
         if !status.is_success() {
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(anyhow!("Failed to cancel job: {} - {}", status, error_text));
         }
 
@@ -326,7 +379,8 @@ impl NSGClient {
     pub async fn list_user_jobs(&self) -> Result<Vec<NSGJobResponse>> {
         let url = format!("{}/job/{}", self.base_url, self.credentials.username);
 
-        let response = self.client
+        let response = self
+            .client
             .get(&url)
             .basic_auth(&self.credentials.username, Some(&self.credentials.password))
             .header("cipres-appkey", &self.credentials.app_key)
@@ -336,7 +390,10 @@ impl NSGClient {
 
         let status = response.status();
         if !status.is_success() {
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(anyhow!("Failed to list jobs: {} - {}", status, error_text));
         }
 
@@ -353,10 +410,14 @@ impl NSGClient {
     }
 
     /// List output files for a completed job using the results URI
-    pub async fn list_output_files(&self, results_uri: &str) -> Result<Vec<super::models::NSGOutputFile>> {
+    pub async fn list_output_files(
+        &self,
+        results_uri: &str,
+    ) -> Result<Vec<super::models::NSGOutputFile>> {
         log::info!("📂 Listing output files from: {}", results_uri);
 
-        let response = self.client
+        let response = self
+            .client
             .get(results_uri)
             .basic_auth(&self.credentials.username, Some(&self.credentials.password))
             .header("cipres-appkey", &self.credentials.app_key)
@@ -366,11 +427,20 @@ impl NSGClient {
 
         let status = response.status();
         if !status.is_success() {
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(anyhow!("Failed to list output files: {} - {}", status, error_text));
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(anyhow!(
+                "Failed to list output files: {} - {}",
+                status,
+                error_text
+            ));
         }
 
-        let response_text = response.text().await
+        let response_text = response
+            .text()
+            .await
             .context("Failed to read output files response")?;
 
         log::debug!("Output files response: {}", response_text);
@@ -408,7 +478,8 @@ impl NSGClient {
                     if let Some(url_start) = file_xml[uri_section_start..].find("<url>") {
                         let url_start_idx = uri_section_start + url_start + "<url>".len();
                         if let Some(url_end) = file_xml[url_start_idx..].find("</url>") {
-                            let mut uri = file_xml[url_start_idx..url_start_idx + url_end].to_string();
+                            let mut uri =
+                                file_xml[url_start_idx..url_start_idx + url_end].to_string();
                             // Decode XML entities
                             uri = uri.replace("&amp;", "&");
                             uri

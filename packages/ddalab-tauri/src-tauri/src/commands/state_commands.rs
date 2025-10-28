@@ -1,5 +1,7 @@
-use crate::db::{Annotation, FileAnnotations, FileViewState, FileStateRegistry, FileSpecificState};
-use crate::models::{AnalysisResult, AppState, DDAState, FileManagerState, PlotState, UIState, WindowState};
+use crate::db::{Annotation, FileAnnotations, FileSpecificState, FileStateRegistry, FileViewState};
+use crate::models::{
+    AnalysisResult, AppState, DDAState, FileManagerState, PlotState, UIState, WindowState,
+};
 use crate::state_manager::AppStateManager;
 use std::collections::HashMap;
 use tauri::State;
@@ -131,9 +133,7 @@ pub async fn save_complete_state(
     state_manager: State<'_, AppStateManager>,
     complete_state: serde_json::Value,
 ) -> Result<(), String> {
-    log::debug!(
-        "save_complete_state called (deprecated - forwarding to save_ui_state_only)"
-    );
+    log::debug!("save_complete_state called (deprecated - forwarding to save_ui_state_only)");
 
     // Forward to new lightweight save
     save_ui_state_only(state_manager, complete_state).await

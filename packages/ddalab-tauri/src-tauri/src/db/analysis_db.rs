@@ -78,26 +78,28 @@ impl AnalysisDatabase {
             .transpose()?;
         let now = chrono::Utc::now().to_rfc3339();
 
-        self.conn.lock().execute(
-            "INSERT OR REPLACE INTO analyses
+        self.conn
+            .lock()
+            .execute(
+                "INSERT OR REPLACE INTO analyses
              (id, file_path, timestamp, variant_name, variant_display_name, parameters,
               chunk_position, plot_data, name, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
                      COALESCE((SELECT created_at FROM analyses WHERE id = ?1), ?10), ?10)",
-            params![
-                analysis.id,
-                analysis.file_path,
-                analysis.timestamp,
-                analysis.variant_name,
-                analysis.variant_display_name,
-                parameters_json,
-                analysis.chunk_position,
-                plot_data_json,
-                analysis.name,
-                now,
-            ],
-        )
-        .context("Failed to save analysis")?;
+                params![
+                    analysis.id,
+                    analysis.file_path,
+                    analysis.timestamp,
+                    analysis.variant_name,
+                    analysis.variant_display_name,
+                    parameters_json,
+                    analysis.chunk_position,
+                    plot_data_json,
+                    analysis.name,
+                    now,
+                ],
+            )
+            .context("Failed to save analysis")?;
 
         Ok(())
     }
@@ -246,7 +248,8 @@ impl AnalysisDatabase {
 
     pub fn get_file_paths(&self) -> Result<Vec<String>> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare("SELECT DISTINCT file_path FROM analyses ORDER BY file_path")?;
+        let mut stmt =
+            conn.prepare("SELECT DISTINCT file_path FROM analyses ORDER BY file_path")?;
 
         let paths = stmt
             .query_map([], |row| row.get(0))?

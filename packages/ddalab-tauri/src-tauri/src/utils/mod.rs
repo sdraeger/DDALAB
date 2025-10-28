@@ -4,8 +4,7 @@ pub mod certs;
 
 /// Get the application configuration directory
 pub fn get_app_config_dir() -> Result<PathBuf, String> {
-    let config_dir = dirs::config_dir()
-        .ok_or("Could not find config directory")?;
+    let config_dir = dirs::config_dir().ok_or("Could not find config directory")?;
 
     let app_config_dir = config_dir.join("ddalab");
     std::fs::create_dir_all(&app_config_dir)
@@ -16,8 +15,7 @@ pub fn get_app_config_dir() -> Result<PathBuf, String> {
 
 /// Get the application data directory
 pub fn get_app_data_dir() -> Result<PathBuf, String> {
-    let data_dir = dirs::data_dir()
-        .ok_or("Could not find data directory")?;
+    let data_dir = dirs::data_dir().ok_or("Could not find data directory")?;
 
     let app_data_dir = data_dir.join("com.ddalab.app");
     std::fs::create_dir_all(&app_data_dir)

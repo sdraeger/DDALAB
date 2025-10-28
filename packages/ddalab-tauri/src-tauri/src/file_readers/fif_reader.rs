@@ -29,33 +29,33 @@
  * **Not suitable for:** Advanced MEG analysis (use MNE-Python)
  */
 
+use super::{FileMetadata, FileReader, FileReaderError, FileResult};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
-use super::{FileReader, FileMetadata, FileResult, FileReaderError};
 
 use fiff::{
+    channel_type_name,
+    dir_tree_find,
     // Core functions
     open_fiff,
-    dir_tree_find,
     type_size,
-    channel_type_name,
+    ChannelInfo,
     // Data structures
     MeasInfo,
-    ChannelInfo,
     Tag,
     TreeNode,
+    FIFFB_CONTINUOUS_DATA,
     // Block type constants
     FIFFB_RAW_DATA,
-    FIFFB_CONTINUOUS_DATA,
-    // Tag kind constants
-    FIFF_FIRST_SAMPLE,
-    FIFF_DATA_SKIP,
-    FIFF_DATA_BUFFER,
-    FIFF_MEAS_DATE,
     // Channel type constants
     FIFFV_MEG_CH,
     FIFFV_STIM_CH,
+    FIFF_DATA_BUFFER,
+    FIFF_DATA_SKIP,
+    // Tag kind constants
+    FIFF_FIRST_SAMPLE,
+    FIFF_MEAS_DATE,
 };
 
 pub struct FIFFileReader {
@@ -81,8 +81,9 @@ impl FIFFileReader {
 
         // Read measurement info
         let start = std::time::Instant::now();
-        let meas_info = MeasInfo::read(&mut reader, &tree)
-            .map_err(|e| FileReaderError::ParseError(format!("Failed to read measurement info: {}", e)))?;
+        let meas_info = MeasInfo::read(&mut reader, &tree).map_err(|e| {
+            FileReaderError::ParseError(format!("Failed to read measurement info: {}", e))
+        })?;
         log::info!("⏱️ FIF MeasInfo::read: {:?}", start.elapsed());
 
         // Find raw data block
@@ -143,11 +144,10 @@ impl FIFFileReader {
 
         // Build file metadata
         let duration = total_samples as f64 / meas_info.sfreq;
-        let file_size = std::fs::metadata(path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
-        let channels: Vec<String> = meas_info.channels
+        let channels: Vec<String> = meas_info
+            .channels
             .iter()
             .map(|ch| ch.ch_name.clone())
             .collect();
@@ -184,7 +184,8 @@ impl FIFFileReader {
 
     /// Get data channel indices (excluding stimulus, etc.)
     pub fn data_channel_indices(&self) -> Vec<usize> {
-        self.meas_info.channels
+        self.meas_info
+            .channels
             .iter()
             .enumerate()
             .filter(|(_, ch)| ch.is_data_channel())
@@ -194,7 +195,8 @@ impl FIFFileReader {
 
     /// Get data channel names (excluding stimulus, etc.)
     pub fn data_channel_names(&self) -> Vec<String> {
-        self.meas_info.channels
+        self.meas_info
+            .channels
             .iter()
             .filter(|ch| ch.is_data_channel())
             .map(|ch| ch.ch_name.clone())
@@ -203,7 +205,8 @@ impl FIFFileReader {
 
     /// Get channel info by type
     pub fn channels_by_type(&self, kind: i32) -> Vec<(usize, &ChannelInfo)> {
-        self.meas_info.channels
+        self.meas_info
+            .channels
             .iter()
             .enumerate()
             .filter(|(_, ch)| ch.kind == kind)
@@ -221,8 +224,12 @@ impl FIFFileReader {
 
         eprintln!("Channel types in file:");
         for (kind, count) in type_counts.iter() {
-            eprintln!("  {} ({}): {} channels",
-                channel_type_name(*kind), kind, count);
+            eprintln!(
+                "  {} ({}): {} channels",
+                channel_type_name(*kind),
+                kind,
+                count
+            );
         }
     }
 
@@ -246,16 +253,18 @@ impl FIFFileReader {
         let nchan = self.meas_info.nchan;
         let directory = &self.raw_node.directory;
 
-        log::info!("⏱️ FIF read_data_range request: start={}, num={}, channels={:?}",
-            start_sample, num_samples, channels.map(|c| c.len()));
+        log::info!(
+            "⏱️ FIF read_data_range request: start={}, num={}, channels={:?}",
+            start_sample,
+            num_samples,
+            channels.map(|c| c.len())
+        );
 
         // Determine which channels to read
         let channel_indices: Vec<usize> = if let Some(ch_names) = channels {
-            ch_names.iter()
-                .filter_map(|name| {
-                    self.metadata.channels.iter()
-                        .position(|ch| ch == name)
-                })
+            ch_names
+                .iter()
+                .filter_map(|name| self.metadata.channels.iter().position(|ch| ch == name))
                 .collect()
         } else {
             (0..nchan).collect()
@@ -281,8 +290,15 @@ impl FIFFileReader {
             let buffer_nsamp = entry.size as usize / (type_sz * nchan);
             let buffer_end = buffer_start + buffer_nsamp;
 
-            log::info!("⏱️ FIF buffer {}: start={}, end={}, nsamp={}, requested=[{}, {}]",
-                entry_idx, buffer_start, buffer_end, buffer_nsamp, start_sample, start_sample + num_samples);
+            log::info!(
+                "⏱️ FIF buffer {}: start={}, end={}, nsamp={}, requested=[{}, {}]",
+                entry_idx,
+                buffer_start,
+                buffer_end,
+                buffer_nsamp,
+                start_sample,
+                start_sample + num_samples
+            );
 
             // Check if this buffer overlaps with requested range
             let overlaps = buffer_end > start_sample && buffer_start < start_sample + num_samples;
@@ -294,12 +310,14 @@ impl FIFFileReader {
             }
 
             // Read the tag data
-            let tag = Tag::read_at(&mut self.reader, entry.pos)
-                .map_err(|e| FileReaderError::ParseError(format!("Failed to read data buffer: {}", e)))?;
+            let tag = Tag::read_at(&mut self.reader, entry.pos).map_err(|e| {
+                FileReaderError::ParseError(format!("Failed to read data buffer: {}", e))
+            })?;
 
             // Parse samples (all channels)
-            let all_samples = tag.as_samples(nchan)
-                .map_err(|e| FileReaderError::ParseError(format!("Failed to parse samples: {}", e)))?;
+            let all_samples = tag.as_samples(nchan).map_err(|e| {
+                FileReaderError::ParseError(format!("Failed to parse samples: {}", e))
+            })?;
 
             // Determine which part of this buffer to use
             let buf_offset = if buffer_start < start_sample {
@@ -320,24 +338,36 @@ impl FIFFileReader {
                 dst.copy_from_slice(src);
             }
 
-            log::info!("⏱️ FIF buffer copied {} samples for {} channels", samples_to_copy, channel_indices.len());
+            log::info!(
+                "⏱️ FIF buffer copied {} samples for {} channels",
+                samples_to_copy,
+                channel_indices.len()
+            );
 
             current_sample += samples_to_copy;
 
             if current_sample >= num_samples {
-                log::info!("⏱️ FIF finished reading: current_sample={} >= num_samples={}", current_sample, num_samples);
+                log::info!(
+                    "⏱️ FIF finished reading: current_sample={} >= num_samples={}",
+                    current_sample,
+                    num_samples
+                );
                 break;
             }
 
             buffer_start = buffer_end;
         }
 
-        log::info!("⏱️ FIF read_data_range completed: filled {}/{} samples", current_sample, num_samples);
+        log::info!(
+            "⏱️ FIF read_data_range completed: filled {}/{} samples",
+            current_sample,
+            num_samples
+        );
 
         // Apply calibration (cal × range) to convert from raw ADC counts to physical units
         for (out_ch_idx, &orig_ch_idx) in channel_indices.iter().enumerate() {
             let ch_info = &self.meas_info.channels[orig_ch_idx];
-            let scaling = ch_info.calibration();  // Returns f64: cal * range
+            let scaling = ch_info.calibration(); // Returns f64: cal * range
 
             if scaling != 1.0 {
                 for sample in &mut result[out_ch_idx] {
@@ -382,13 +412,7 @@ impl FileReader for FIFFileReader {
 
         let decimated: Vec<Vec<f64>> = full_data
             .iter()
-            .map(|channel| {
-                channel
-                    .iter()
-                    .step_by(decimation_factor)
-                    .copied()
-                    .collect()
-            })
+            .map(|channel| channel.iter().step_by(decimation_factor).copied().collect())
             .collect();
 
         Ok(decimated)
@@ -405,8 +429,8 @@ impl FileReader for FIFFileReader {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::FileReaderFactory;
+    use super::*;
     use std::path::Path;
 
     // Note: These tests are based on MNE-Python's test_raw_fiff.py
@@ -445,7 +469,9 @@ mod tests {
             eprintln!("  - {}", candidate);
         }
         eprintln!("\nTo specify a custom file, use:");
-        eprintln!("  TEST_FIF_FILE=/path/to/your/file.fif cargo test --lib fif_reader -- --ignored");
+        eprintln!(
+            "  TEST_FIF_FILE=/path/to/your/file.fif cargo test --lib fif_reader -- --ignored"
+        );
 
         std::path::PathBuf::from(&candidates[0])
     }
@@ -481,7 +507,11 @@ mod tests {
         if let Err(ref e) = raw {
             eprintln!("❌ Error opening FIF file: {:?}", e);
         }
-        assert!(raw.is_ok(), "Failed to open FIF file: {:?}", raw.as_ref().err());
+        assert!(
+            raw.is_ok(),
+            "Failed to open FIF file: {:?}",
+            raw.as_ref().err()
+        );
         let raw = raw.unwrap();
 
         let info = raw.metadata().unwrap();
@@ -509,7 +539,9 @@ mod tests {
         let test_size = 1000.min(metadata.num_samples);
 
         // Read first channel
-        let data1 = raw.read_chunk(0, test_size, Some(&vec![metadata.channels[0].clone()])).unwrap();
+        let data1 = raw
+            .read_chunk(0, test_size, Some(&vec![metadata.channels[0].clone()]))
+            .unwrap();
         assert_eq!(data1.len(), 1);
         assert_eq!(data1[0].len(), test_size);
 
@@ -545,8 +577,12 @@ mod tests {
 
         for (ch_idx, (ch1, ch2)) in data1.iter().zip(data2.iter()).enumerate() {
             for (samp_idx, (&s1, &s2)) in ch1.iter().zip(ch2.iter()).enumerate() {
-                assert!((s1 - s2).abs() < 1e-20,
-                    "Mismatch at ch {}, samp {}", ch_idx, samp_idx);
+                assert!(
+                    (s1 - s2).abs() < 1e-20,
+                    "Mismatch at ch {}, samp {}",
+                    ch_idx,
+                    samp_idx
+                );
             }
         }
     }
@@ -691,8 +727,14 @@ mod tests {
         // Print first few channel names and their types
         eprintln!("First 10 channels:");
         for (idx, ch) in raw.meas_info.channels.iter().take(10).enumerate() {
-            eprintln!("  {}: {} ({}) - cal={}, range={}",
-                idx, ch.ch_name, ch.type_name(), ch.cal, ch.range);
+            eprintln!(
+                "  {}: {} ({}) - cal={}, range={}",
+                idx,
+                ch.ch_name,
+                ch.type_name(),
+                ch.cal,
+                ch.range
+            );
         }
     }
 
@@ -835,8 +877,14 @@ mod tests {
 
         // For MEG data in Tesla, expect values in range of 1e-15 to 1e-11 typically
         // But we'll just verify they're not uncalibrated raw values (which would be huge)
-        assert!(first_channel_max.abs() < 1e6, "Max value suggests uncalibrated data");
-        assert!(first_channel_min.abs() < 1e6, "Min value suggests uncalibrated data");
+        assert!(
+            first_channel_max.abs() < 1e6,
+            "Max value suggests uncalibrated data"
+        );
+        assert!(
+            first_channel_min.abs() < 1e6,
+            "Min value suggests uncalibrated data"
+        );
     }
 
     /// Test sequential access patterns

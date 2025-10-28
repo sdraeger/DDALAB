@@ -1,11 +1,11 @@
-use serde::{Deserialize, Serialize};
 use crate::api::handlers::dda::DDARequest;
 use crate::db::{NSGJob, NSGJobStatus};
+use serde::{Deserialize, Serialize};
 
 impl NSGJob {
     pub fn new(tool: String, dda_params: DDARequest, input_file_path: String) -> Self {
-        let params_json = serde_json::to_value(dda_params)
-            .unwrap_or_else(|_| serde_json::json!({}));
+        let params_json =
+            serde_json::to_value(dda_params).unwrap_or_else(|_| serde_json::json!({}));
 
         Self::new_from_dda_params(tool, params_json, input_file_path)
     }
@@ -128,9 +128,14 @@ impl NSGJobStatusResponse {
 
     pub fn get_error_message(&self) -> Option<String> {
         if self.failed {
-            let error_msgs: Vec<String> = self.messages
+            let error_msgs: Vec<String> = self
+                .messages
                 .iter()
-                .filter(|m| m.text.contains("error") || m.text.contains("Error") || m.text.contains("failed"))
+                .filter(|m| {
+                    m.text.contains("error")
+                        || m.text.contains("Error")
+                        || m.text.contains("failed")
+                })
                 .map(|m| m.text.clone())
                 .collect();
 

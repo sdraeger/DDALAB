@@ -1,7 +1,7 @@
+use crate::api::models::HealthStatus;
 use axum::Json;
 use chrono::Utc;
 use std::collections::HashMap;
-use crate::api::models::HealthStatus;
 
 pub async fn health() -> Json<HealthStatus> {
     let mut services = HashMap::new();

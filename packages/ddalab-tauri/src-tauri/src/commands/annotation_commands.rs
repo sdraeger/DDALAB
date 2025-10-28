@@ -1,4 +1,4 @@
-use crate::annotations::{AnnotationFile, AnnotationEntry};
+use crate::annotations::{AnnotationEntry, AnnotationFile};
 use crate::db::annotation_db::Annotation;
 use crate::file_readers::FileReaderFactory;
 use crate::state_manager::AppStateManager;

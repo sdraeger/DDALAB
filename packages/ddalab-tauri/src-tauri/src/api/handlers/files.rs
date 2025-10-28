@@ -1,16 +1,16 @@
-use std::sync::Arc;
-use std::path::PathBuf;
-use std::collections::HashMap;
+use crate::api::models::{ChunkData, EDFFileInfo};
+use crate::api::state::ApiState;
+use crate::api::utils::{create_file_info, FileType};
+use crate::file_readers::FileReaderFactory;
 use axum::{
-    extract::{State, Path, Query},
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
 use chrono::Utc;
-use crate::api::state::ApiState;
-use crate::api::models::{EDFFileInfo, ChunkData};
-use crate::api::utils::{FileType, create_file_info};
-use crate::file_readers::FileReaderFactory;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 pub async fn list_files(
     State(state): State<Arc<ApiState>>,
@@ -68,15 +68,26 @@ pub async fn list_files(
 
                             // Include supported files and MEG files (with warning flag)
                             if file_type.is_supported() || file_type.is_meg() {
-                                log::debug!("Found data file: {:?} (type: {:?})", entry_path, file_type);
+                                log::debug!(
+                                    "Found data file: {:?} (type: {:?})",
+                                    entry_path,
+                                    file_type
+                                );
 
                                 if let Ok(metadata) = entry.metadata() {
-                                    let last_modified = metadata.modified()
+                                    let last_modified = metadata
+                                        .modified()
                                         .ok()
                                         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                                         .map(|d| {
-                                            let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0);
-                                            datetime.map(|dt| dt.to_rfc3339()).unwrap_or_else(|| Utc::now().to_rfc3339())
+                                            let datetime =
+                                                chrono::DateTime::<chrono::Utc>::from_timestamp(
+                                                    d.as_secs() as i64,
+                                                    0,
+                                                );
+                                            datetime
+                                                .map(|dt| dt.to_rfc3339())
+                                                .unwrap_or_else(|| Utc::now().to_rfc3339())
                                         })
                                         .unwrap_or_else(|| Utc::now().to_rfc3339());
 
@@ -104,7 +115,10 @@ pub async fn list_files(
             }
         }
     } else {
-        log::warn!("Search path does not exist or is not a directory: {:?}", search_path);
+        log::warn!(
+            "Search path does not exist or is not a directory: {:?}",
+            search_path
+        );
     }
 
     let response = serde_json::json!({
@@ -130,7 +144,10 @@ pub async fn get_file_info(
 
     let full_path = PathBuf::from(&file_path);
     if let Some(file_info) = create_file_info(full_path).await {
-        log::info!("Created file info, channels: {:?}", file_info.channels.len());
+        log::info!(
+            "Created file info, channels: {:?}",
+            file_info.channels.len()
+        );
         {
             let mut file_cache = state.files.write();
             file_cache.insert(file_path, file_info.clone());
@@ -206,7 +223,8 @@ fn read_chunk_with_file_reader(
     let reader = FileReaderFactory::create_reader(path)
         .map_err(|e| format!("Failed to create file reader: {}", e))?;
 
-    let metadata = reader.metadata()
+    let metadata = reader
+        .metadata()
         .map_err(|e| format!("Failed to read metadata: {}", e))?;
 
     let sample_rate = metadata.sample_rate;
@@ -214,7 +232,8 @@ fn read_chunk_with_file_reader(
     let num_samples = (duration * sample_rate) as usize;
 
     let channel_names = channels.as_ref().map(|v| v.as_slice());
-    let data = reader.read_chunk(start_sample, num_samples, channel_names)
+    let data = reader
+        .read_chunk(start_sample, num_samples, channel_names)
         .map_err(|e| format!("Failed to read chunk: {}", e))?;
 
     let returned_channels = if let Some(selected) = &channels {

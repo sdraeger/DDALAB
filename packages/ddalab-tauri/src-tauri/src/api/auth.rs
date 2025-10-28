@@ -1,14 +1,14 @@
-use std::sync::Arc;
+use crate::api::state::ApiState;
 use axum::{
-    extract::{State, Request},
-    http::{StatusCode, HeaderMap, header::AUTHORIZATION},
+    body::Body,
+    extract::{Request, State},
+    http::{header::AUTHORIZATION, HeaderMap, StatusCode},
     middleware::Next,
     response::Response,
-    body::Body,
 };
-use rand::Rng;
 use base64::Engine;
-use crate::api::state::ApiState;
+use rand::Rng;
+use std::sync::Arc;
 
 /// Generate a random session token
 pub fn generate_session_token() -> String {
@@ -22,7 +22,10 @@ pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }
 
 /// Authentication middleware for protected routes
@@ -54,9 +57,15 @@ pub async fn auth_middleware(
     // Verify token
     if !state.verify_session_token(token) {
         log::warn!("🔒 Invalid session token attempted");
-        log::warn!("   Received token (first 8 chars): {}...", &token[..8.min(token.len())]);
+        log::warn!(
+            "   Received token (first 8 chars): {}...",
+            &token[..8.min(token.len())]
+        );
         if let Some(expected) = state.get_session_token() {
-            log::warn!("   Expected token (first 8 chars): {}...", &expected[..8.min(expected.len())]);
+            log::warn!(
+                "   Expected token (first 8 chars): {}...",
+                &expected[..8.min(expected.len())]
+            );
         } else {
             log::warn!("   No session token set in server state!");
         }

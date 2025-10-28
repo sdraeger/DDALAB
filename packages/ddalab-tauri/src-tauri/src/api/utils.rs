@@ -1,9 +1,9 @@
-use std::path::{Path, PathBuf};
-use chrono::Utc;
-use crate::api::models::{EDFFileInfo, ChunkData};
+use crate::api::models::{ChunkData, EDFFileInfo};
 use crate::edf::EDFReader;
+use crate::file_readers::{parse_edf_datetime, FileReaderFactory};
 use crate::text_reader::TextFileReader;
-use crate::file_readers::{FileReaderFactory, parse_edf_datetime};
+use chrono::Utc;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileType {
@@ -12,8 +12,8 @@ pub enum FileType {
     EDF,
     BrainVision,
     EEGLAB,
-    FIF,  // FIFF format (Neuromag/Elekta MEG)
-    MEG,  // Other MEG formats (not yet supported for analysis)
+    FIF, // FIFF format (Neuromag/Elekta MEG)
+    MEG, // Other MEG formats (not yet supported for analysis)
     Unknown,
 }
 
@@ -41,7 +41,15 @@ impl FileType {
     }
 
     pub fn is_supported(&self) -> bool {
-        matches!(self, FileType::EDF | FileType::FIF | FileType::CSV | FileType::ASCII | FileType::BrainVision | FileType::EEGLAB)
+        matches!(
+            self,
+            FileType::EDF
+                | FileType::FIF
+                | FileType::CSV
+                | FileType::ASCII
+                | FileType::BrainVision
+                | FileType::EEGLAB
+        )
     }
 
     pub fn is_meg(&self) -> bool {
@@ -50,47 +58,65 @@ impl FileType {
 }
 
 pub fn read_file_metadata_with_reader(path: &Path) -> Result<EDFFileInfo, String> {
-    let metadata = std::fs::metadata(path)
-        .map_err(|e| format!("Failed to read file metadata: {}", e))?;
+    let metadata =
+        std::fs::metadata(path).map_err(|e| format!("Failed to read file metadata: {}", e))?;
 
-    let file_name = path.file_name()
+    let file_name = path
+        .file_name()
         .and_then(|n| n.to_str())
         .ok_or("Invalid filename")?
         .to_string();
 
-    let file_path = path.to_str()
-        .ok_or("Invalid file path")?
-        .to_string();
+    let file_path = path.to_str().ok_or("Invalid file path")?.to_string();
 
-    let last_modified = metadata.modified().ok()
+    let last_modified = metadata
+        .modified()
+        .ok()
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|duration| {
-            let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(duration.as_secs() as i64, 0);
-            datetime.map(|dt| dt.to_rfc3339()).unwrap_or_else(|| Utc::now().to_rfc3339())
+            let datetime =
+                chrono::DateTime::<chrono::Utc>::from_timestamp(duration.as_secs() as i64, 0);
+            datetime
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_else(|| Utc::now().to_rfc3339())
         })
         .unwrap_or_else(|| Utc::now().to_rfc3339());
 
-    let created_at = metadata.created().ok()
+    let created_at = metadata
+        .created()
+        .ok()
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|duration| {
-            let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(duration.as_secs() as i64, 0);
-            datetime.map(|dt| dt.to_rfc3339()).unwrap_or_else(|| Utc::now().to_rfc3339())
+            let datetime =
+                chrono::DateTime::<chrono::Utc>::from_timestamp(duration.as_secs() as i64, 0);
+            datetime
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_else(|| Utc::now().to_rfc3339())
         })
         .unwrap_or_else(|| last_modified.clone());
 
     let reader = FileReaderFactory::create_reader(path)
         .map_err(|e| format!("Failed to create file reader: {}", e))?;
 
-    let file_metadata = reader.metadata()
+    let file_metadata = reader
+        .metadata()
         .map_err(|e| format!("Failed to read file metadata: {}", e))?;
 
     // Use file's recording start time if available, otherwise use created_at
-    let start_time = file_metadata.start_time.clone().unwrap_or_else(|| created_at.clone());
-    log::info!("File metadata start_time: {:?}, using: {}", file_metadata.start_time, start_time);
+    let start_time = file_metadata
+        .start_time
+        .clone()
+        .unwrap_or_else(|| created_at.clone());
+    log::info!(
+        "File metadata start_time: {:?}, using: {}",
+        file_metadata.start_time,
+        start_time
+    );
 
     // Calculate end time as start_time + duration
     let end_time = if let Ok(start_dt) = chrono::DateTime::parse_from_rfc3339(&start_time) {
-        let end_dt = start_dt + chrono::Duration::milliseconds((file_metadata.duration * 1000.0) as i64);
+        let end_dt =
+            start_dt + chrono::Duration::milliseconds((file_metadata.duration * 1000.0) as i64);
         log::info!("Calculated end_time: {}", end_dt.to_rfc3339());
         end_dt.to_rfc3339()
     } else {
@@ -119,23 +145,36 @@ pub fn generate_overview_with_file_reader(
     max_points: usize,
     selected_channels: Option<Vec<String>>,
 ) -> Result<ChunkData, String> {
-    log::info!("Generating overview for: {:?} (max_points: {})", path, max_points);
+    log::info!(
+        "Generating overview for: {:?} (max_points: {})",
+        path,
+        max_points
+    );
 
     let reader = FileReaderFactory::create_reader(path)
         .map_err(|e| format!("Failed to create file reader: {}", e))?;
 
-    let metadata = reader.metadata()
+    let metadata = reader
+        .metadata()
         .map_err(|e| format!("Failed to read metadata: {}", e))?;
 
-    log::info!("Metadata: {} channels, {} samples, {:.2} Hz",
-        metadata.num_channels, metadata.num_samples, metadata.sample_rate);
+    log::info!(
+        "Metadata: {} channels, {} samples, {:.2} Hz",
+        metadata.num_channels,
+        metadata.num_samples,
+        metadata.sample_rate
+    );
 
     let channel_names = selected_channels.as_ref().map(|v| v.as_slice());
-    let data = reader.read_overview(max_points, channel_names)
+    let data = reader
+        .read_overview(max_points, channel_names)
         .map_err(|e| format!("Failed to read overview: {}", e))?;
 
-    log::info!("Overview data: {} channels, {} points per channel",
-        data.len(), if !data.is_empty() { data[0].len() } else { 0 });
+    log::info!(
+        "Overview data: {} channels, {} points per channel",
+        data.len(),
+        if !data.is_empty() { data[0].len() } else { 0 }
+    );
 
     let returned_channels = if let Some(selected) = &selected_channels {
         selected.clone()
@@ -154,8 +193,11 @@ pub fn generate_overview_with_file_reader(
         total_samples: Some(metadata.num_samples as u64),
     };
 
-    log::info!("Returning ChunkData with {} channels, chunk_size: {}",
-        result.channel_labels.len(), result.chunk_size);
+    log::info!(
+        "Returning ChunkData with {} channels, chunk_size: {}",
+        result.channel_labels.len(),
+        result.chunk_size
+    );
 
     Ok(result)
 }
@@ -170,21 +212,30 @@ pub fn read_edf_file_chunk(
 ) -> Result<ChunkData, String> {
     let mut edf = EDFReader::new(path)?;
 
-    let all_channel_labels: Vec<String> = edf.signal_headers
+    let all_channel_labels: Vec<String> = edf
+        .signal_headers
         .iter()
         .map(|sh| sh.label.trim().to_string())
         .collect();
 
     if all_channel_labels.is_empty() {
-        return Err(format!("No channels found in EDF file '{}'", file_path_clone));
+        return Err(format!(
+            "No channels found in EDF file '{}'",
+            file_path_clone
+        ));
     }
 
-    let (channels_to_read, channel_labels): (Vec<usize>, Vec<String>) = if let Some(ref selected) = channels {
+    let (channels_to_read, channel_labels): (Vec<usize>, Vec<String>) = if let Some(ref selected) =
+        channels
+    {
         let mut indices = Vec::new();
         let mut labels = Vec::new();
 
         for channel_name in selected {
-            if let Some(idx) = all_channel_labels.iter().position(|label| label == channel_name) {
+            if let Some(idx) = all_channel_labels
+                .iter()
+                .position(|label| label == channel_name)
+            {
                 indices.push(idx);
                 labels.push(channel_name.clone());
             } else {
@@ -195,27 +246,44 @@ pub fn read_edf_file_chunk(
         if indices.is_empty() {
             let num_fallback_channels = all_channel_labels.len().min(10);
             log::warn!("[CHUNK] None of the selected channels found in EDF file, falling back to first {} channels", num_fallback_channels);
-            ((0..num_fallback_channels).collect(), all_channel_labels.iter().take(num_fallback_channels).cloned().collect())
+            (
+                (0..num_fallback_channels).collect(),
+                all_channel_labels
+                    .iter()
+                    .take(num_fallback_channels)
+                    .cloned()
+                    .collect(),
+            )
         } else {
             (indices, labels)
         }
     } else {
-        ((0..all_channel_labels.len()).collect(), all_channel_labels.clone())
+        (
+            (0..all_channel_labels.len()).collect(),
+            all_channel_labels.clone(),
+        )
     };
 
-    let sample_rate = edf.signal_headers[channels_to_read[0]].sample_frequency(edf.header.duration_of_data_record);
+    let sample_rate = edf.signal_headers[channels_to_read[0]]
+        .sample_frequency(edf.header.duration_of_data_record);
 
     let (actual_start_time, actual_duration) = if needs_sample_rate {
         let start_samples = start_time as usize;
         let num_samples = duration as usize;
-        (start_samples as f64 / sample_rate, num_samples as f64 / sample_rate)
+        (
+            start_samples as f64 / sample_rate,
+            num_samples as f64 / sample_rate,
+        )
     } else {
         (start_time, duration)
     };
 
     log::info!(
         "Reading chunk from '{}': start_time={:.2}s, duration={:.2}s, channels={:?}",
-        file_path_clone, actual_start_time, actual_duration, channel_labels
+        file_path_clone,
+        actual_start_time,
+        actual_duration,
+        channel_labels
     );
 
     let mut data: Vec<Vec<f64>> = Vec::new();
@@ -230,7 +298,11 @@ pub fn read_edf_file_chunk(
     let samples_per_record = edf.signal_headers[channels_to_read[0]].num_samples_per_record as u64;
     let total_samples_per_channel = edf.header.num_data_records as u64 * samples_per_record;
 
-    log::info!("Read {} channels, {} samples per channel", data.len(), chunk_size);
+    log::info!(
+        "Read {} channels, {} samples per channel",
+        data.len(),
+        chunk_size
+    );
 
     Ok(ChunkData {
         data,

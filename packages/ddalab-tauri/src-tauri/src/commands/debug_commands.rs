@@ -1,6 +1,6 @@
-use tauri::AppHandle;
-use std::process::Command;
 use std::fs;
+use std::process::Command;
+use tauri::AppHandle;
 
 #[tauri::command]
 pub async fn open_logs_folder(_app_handle: AppHandle) -> Result<(), String> {
@@ -54,10 +54,11 @@ pub async fn read_logs_content(_app_handle: AppHandle) -> Result<String, String>
 
     // Check if log file exists
     if !log_file.exists() {
-        return Ok(String::from("Log file not found. The application may not have generated any logs yet."));
+        return Ok(String::from(
+            "Log file not found. The application may not have generated any logs yet.",
+        ));
     }
 
     // Read the log file content
-    fs::read_to_string(&log_file)
-        .map_err(|e| format!("Failed to read log file: {}", e))
+    fs::read_to_string(&log_file).map_err(|e| format!("Failed to read log file: {}", e))
 }

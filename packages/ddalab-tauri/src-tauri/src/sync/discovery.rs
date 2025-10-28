@@ -71,9 +71,7 @@ pub async fn discover_brokers(timeout_secs: u64) -> Result<Vec<DiscoveredBroker>
                         .get_property_val_str("institution")
                         .unwrap_or("Unknown Institution");
 
-                    let version = properties
-                        .get_property_val_str("version")
-                        .unwrap_or("1.0");
+                    let version = properties.get_property_val_str("version").unwrap_or("1.0");
 
                     let auth_required = properties
                         .get_property_val_str("auth_required")
@@ -113,9 +111,7 @@ pub async fn discover_brokers(timeout_secs: u64) -> Result<Vec<DiscoveredBroker>
                             true
                         })
                         // Prefer IPv4 over IPv6
-                        .min_by_key(|scoped_ip| {
-                            if scoped_ip.is_ipv4() { 0 } else { 1 }
-                        })
+                        .min_by_key(|scoped_ip| if scoped_ip.is_ipv4() { 0 } else { 1 })
                         .map(|scoped_ip| scoped_ip.to_string())
                         .unwrap_or_else(|| info.get_hostname().to_string());
 
@@ -148,7 +144,10 @@ pub async fn discover_brokers(timeout_secs: u64) -> Result<Vec<DiscoveredBroker>
     }
 
     let brokers: Vec<DiscoveredBroker> = brokers_map.into_values().collect();
-    info!("Discovery complete. Found {} unique broker(s)", brokers.len());
+    info!(
+        "Discovery complete. Found {} unique broker(s)",
+        brokers.len()
+    );
 
     // Shutdown the mDNS daemon to clean up resources
     // Note: mdns-sd library produces harmless "sending on closed channel" errors

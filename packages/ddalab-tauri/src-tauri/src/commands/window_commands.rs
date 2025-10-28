@@ -1,5 +1,5 @@
 use crate::state_manager::AppStateManager;
-use tauri::{State, WebviewWindowBuilder, WebviewUrl, Manager};
+use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 #[tauri::command]
 pub async fn focus_main_window(app: tauri::AppHandle) -> Result<(), String> {
@@ -25,7 +25,7 @@ pub async fn create_popout_window(
     title: String,
     url: String,
     width: f64,
-    height: f64
+    height: f64,
 ) -> Result<String, String> {
     let label = format!("popout-{}-{}", window_type, window_id);
 
@@ -40,7 +40,7 @@ pub async fn create_popout_window(
         Ok(_window) => {
             log::info!("Created popout window: {}", label);
             Ok(label)
-        },
+        }
         Err(e) => {
             log::error!("Failed to create popout window: {}", e);
             Err(format!("Failed to create window: {}", e))
@@ -56,7 +56,10 @@ pub async fn store_analysis_preview_data(
 ) -> Result<(), String> {
     log::info!("Storing analysis preview data for window: {}", window_id);
     if let Some(obj) = analysis_data.as_object() {
-        log::info!("Storing preview data keys: {:?}", obj.keys().collect::<Vec<_>>());
+        log::info!(
+            "Storing preview data keys: {:?}",
+            obj.keys().collect::<Vec<_>>()
+        );
         if let Some(channels) = obj.get("channels") {
             if let Some(arr) = channels.as_array() {
                 log::info!("Storing {} channels", arr.len());
@@ -76,9 +79,15 @@ pub async fn get_analysis_preview_data(
 
     match state_manager.get_analysis_preview_data(&window_id) {
         Some(data) => {
-            log::info!("Found preview data, type: {}", if data.is_object() { "object" } else { "other" });
+            log::info!(
+                "Found preview data, type: {}",
+                if data.is_object() { "object" } else { "other" }
+            );
             if let Some(obj) = data.as_object() {
-                log::info!("Retrieved preview data keys: {:?}", obj.keys().collect::<Vec<_>>());
+                log::info!(
+                    "Retrieved preview data keys: {:?}",
+                    obj.keys().collect::<Vec<_>>()
+                );
                 if let Some(channels) = obj.get("channels") {
                     if let Some(arr) = channels.as_array() {
                         log::info!("Retrieved {} channels", arr.len());
@@ -86,10 +95,13 @@ pub async fn get_analysis_preview_data(
                 }
             }
             Ok(data)
-        },
+        }
         None => {
             log::error!("Analysis preview data not found for window: {}", window_id);
-            Err(format!("Analysis preview data not found for window: {}", window_id))
+            Err(format!(
+                "Analysis preview data not found for window: {}",
+                window_id
+            ))
         }
     }
 }

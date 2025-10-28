@@ -8,9 +8,9 @@ pub struct TimeRange {
 }
 
 /// Preprocessing options
+/// Note: Preprocessing should be done before DDA analysis, not by this package
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PreprocessingOptions {
-    pub detrending: Option<String>,
     pub highpass: Option<f64>,
     pub lowpass: Option<f64>,
 }
@@ -51,7 +51,7 @@ pub struct ScaleParameters {
 pub struct DDARequest {
     pub file_path: String,
     #[serde(alias = "channel_list")]
-    pub channels: Option<Vec<usize>>,  // Channel indices (0-based)
+    pub channels: Option<Vec<usize>>, // Channel indices (0-based)
     pub time_range: TimeRange,
     pub preprocessing_options: PreprocessingOptions,
     pub algorithm_selection: AlgorithmSelection,
@@ -66,11 +66,11 @@ pub struct DDARequest {
 /// Variant-specific DDA result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariantResult {
-    pub variant_id: String,          // "ST", "CT", "CD", "DE"
-    pub variant_name: String,        // "Single Timeseries (ST)", etc.
-    pub q_matrix: Vec<Vec<f64>>,    // Q matrix for this variant [channels × timepoints]
+    pub variant_id: String,      // "ST", "CT", "CD", "DE"
+    pub variant_name: String,    // "Single Timeseries (ST)", etc.
+    pub q_matrix: Vec<Vec<f64>>, // Q matrix for this variant [channels × timepoints]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub channel_labels: Option<Vec<String>>,  // Optional channel labels specific to this variant
+    pub channel_labels: Option<Vec<String>>, // Optional channel labels specific to this variant
 }
 
 /// DDA analysis result
@@ -79,9 +79,9 @@ pub struct DDAResult {
     pub id: String,
     pub file_path: String,
     pub channels: Vec<String>,
-    pub q_matrix: Vec<Vec<f64>>,  // Primary variant Q matrix (for backward compatibility)
-    pub variant_results: Option<Vec<VariantResult>>,  // All variant results
-    pub raw_output: Option<String>,  // Optional: keep raw output for debugging
+    pub q_matrix: Vec<Vec<f64>>, // Primary variant Q matrix (for backward compatibility)
+    pub variant_results: Option<Vec<VariantResult>>, // All variant results
+    pub raw_output: Option<String>, // Optional: keep raw output for debugging
     pub window_parameters: WindowParameters,
     pub scale_parameters: ScaleParameters,
     pub created_at: String,

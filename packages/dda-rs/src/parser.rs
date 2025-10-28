@@ -32,14 +32,23 @@ pub fn parse_dda_output(content: &str) -> Result<Vec<Vec<f64>>> {
     }
 
     if matrix.is_empty() {
-        return Err(DDAError::ParseError("No valid data found in DDA output".to_string()));
+        return Err(DDAError::ParseError(
+            "No valid data found in DDA output".to_string(),
+        ));
     }
 
-    log::info!("Loaded DDA output shape: {} rows × {} columns", matrix.len(), matrix[0].len());
+    log::info!(
+        "Loaded DDA output shape: {} rows × {} columns",
+        matrix.len(),
+        matrix[0].len()
+    );
 
     // Log first row for debugging
     if !matrix.is_empty() && matrix[0].len() >= 10 {
-        log::debug!("First row sample (first 10 values): {:?}", &matrix[0][0..10]);
+        log::debug!(
+            "First row sample (first 10 values): {:?}",
+            &matrix[0][0..10]
+        );
     }
 
     // Process according to DDA format: skip first 2 columns, then take every 4th column
@@ -53,11 +62,18 @@ pub fn parse_dda_output(content: &str) -> Result<Vec<Vec<f64>>> {
             after_skip.push(skipped);
         }
 
-        log::debug!("After skipping first 2 columns: {} rows × {} columns", after_skip.len(), after_skip[0].len());
+        log::debug!(
+            "After skipping first 2 columns: {} rows × {} columns",
+            after_skip.len(),
+            after_skip[0].len()
+        );
 
         // Log some values from after_skip to see what we have
         if !after_skip.is_empty() && after_skip[0].len() >= 10 {
-            log::debug!("After skip, first row (first 10 values): {:?}", &after_skip[0][0..10]);
+            log::debug!(
+                "After skip, first row (first 10 values): {:?}",
+                &after_skip[0][0..10]
+            );
         }
 
         // Now take every 4th column starting from index 0 (0-indexed from the skipped array)
@@ -76,17 +92,26 @@ pub fn parse_dda_output(content: &str) -> Result<Vec<Vec<f64>>> {
 
         // Log extracted sample
         if !extracted.is_empty() && extracted[0].len() >= 5 {
-            log::debug!("First extracted row sample (first 5 values): {:?}", &extracted[0][0..5]);
+            log::debug!(
+                "First extracted row sample (first 5 values): {:?}",
+                &extracted[0][0..5]
+            );
         }
 
         if extracted.is_empty() || extracted[0].is_empty() {
-            return Err(DDAError::ParseError("No data after column extraction".to_string()));
+            return Err(DDAError::ParseError(
+                "No data after column extraction".to_string(),
+            ));
         }
 
         let num_rows = extracted.len();
         let num_cols = extracted[0].len();
 
-        log::info!("Extracted matrix shape: {} rows × {} columns (time windows × delays/scales)", num_rows, num_cols);
+        log::info!(
+            "Extracted matrix shape: {} rows × {} columns (time windows × delays/scales)",
+            num_rows,
+            num_cols
+        );
 
         // Transpose: convert from [time_windows × scales] to [scales × time_windows]
         // This gives us [channel/scale][timepoint] format expected by frontend
@@ -94,7 +119,12 @@ pub fn parse_dda_output(content: &str) -> Result<Vec<Vec<f64>>> {
 
         for (row_idx, row) in extracted.iter().enumerate() {
             if row.len() != num_cols {
-                log::warn!("Row {} has {} columns, expected {}. Skipping this row.", row_idx, row.len(), num_cols);
+                log::warn!(
+                    "Row {} has {} columns, expected {}. Skipping this row.",
+                    row_idx,
+                    row.len(),
+                    num_cols
+                );
                 continue;
             }
             for (col_idx, &value) in row.iter().enumerate() {
@@ -103,10 +133,16 @@ pub fn parse_dda_output(content: &str) -> Result<Vec<Vec<f64>>> {
         }
 
         if transposed.is_empty() || transposed[0].is_empty() {
-            return Err(DDAError::ParseError("Transpose resulted in empty data".to_string()));
+            return Err(DDAError::ParseError(
+                "Transpose resulted in empty data".to_string(),
+            ));
         }
 
-        log::info!("Transposed to: {} channels × {} timepoints", transposed.len(), transposed[0].len());
+        log::info!(
+            "Transposed to: {} channels × {} timepoints",
+            transposed.len(),
+            transposed[0].len()
+        );
 
         Ok(transposed)
     } else {

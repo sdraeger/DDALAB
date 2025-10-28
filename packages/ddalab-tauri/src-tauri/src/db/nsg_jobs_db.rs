@@ -21,11 +21,20 @@ pub enum NSGJobStatus {
 
 impl NSGJobStatus {
     pub fn is_active(&self) -> bool {
-        matches!(self, NSGJobStatus::Submitted | NSGJobStatus::Queue | NSGJobStatus::InputStaging | NSGJobStatus::Running)
+        matches!(
+            self,
+            NSGJobStatus::Submitted
+                | NSGJobStatus::Queue
+                | NSGJobStatus::InputStaging
+                | NSGJobStatus::Running
+        )
     }
 
     pub fn is_terminal(&self) -> bool {
-        matches!(self, NSGJobStatus::Completed | NSGJobStatus::Failed | NSGJobStatus::Cancelled)
+        matches!(
+            self,
+            NSGJobStatus::Completed | NSGJobStatus::Failed | NSGJobStatus::Cancelled
+        )
     }
 }
 
@@ -62,7 +71,11 @@ pub struct NSGJob {
 }
 
 impl NSGJob {
-    pub fn new_from_dda_params(tool: String, dda_params: serde_json::Value, input_file_path: String) -> Self {
+    pub fn new_from_dda_params(
+        tool: String,
+        dda_params: serde_json::Value,
+        input_file_path: String,
+    ) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             nsg_job_id: None,
@@ -108,8 +121,7 @@ pub struct NSGJobsDatabase {
 
 impl NSGJobsDatabase {
     pub fn new(db_path: &Path) -> Result<Self> {
-        let conn = Connection::open(db_path)
-            .context("Failed to open NSG jobs database")?;
+        let conn = Connection::open(db_path).context("Failed to open NSG jobs database")?;
 
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -140,22 +152,26 @@ impl NSGJobsDatabase {
                 progress INTEGER
             )",
             [],
-        ).context("Failed to create nsg_jobs table")?;
+        )
+        .context("Failed to create nsg_jobs table")?;
 
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_nsg_jobs_status ON nsg_jobs(status)",
             [],
-        ).context("Failed to create status index")?;
+        )
+        .context("Failed to create status index")?;
 
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_nsg_jobs_nsg_job_id ON nsg_jobs(nsg_job_id)",
             [],
-        ).context("Failed to create nsg_job_id index")?;
+        )
+        .context("Failed to create nsg_job_id index")?;
 
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_nsg_jobs_created_at ON nsg_jobs(created_at DESC)",
             [],
-        ).context("Failed to create created_at index")?;
+        )
+        .context("Failed to create created_at index")?;
 
         Ok(())
     }
@@ -163,11 +179,11 @@ impl NSGJobsDatabase {
     pub fn save_job(&self, job: &NSGJob) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
-        let output_files_json = serde_json::to_string(&job.output_files)
-            .context("Failed to serialize output files")?;
+        let output_files_json =
+            serde_json::to_string(&job.output_files).context("Failed to serialize output files")?;
 
-        let dda_params_json = serde_json::to_string(&job.dda_params)
-            .context("Failed to serialize DDA parameters")?;
+        let dda_params_json =
+            serde_json::to_string(&job.dda_params).context("Failed to serialize DDA parameters")?;
 
         conn.execute(
             "INSERT INTO nsg_jobs (
@@ -189,7 +205,8 @@ impl NSGJobsDatabase {
                 job.last_polled.map(|t| t.to_rfc3339()),
                 job.progress,
             ],
-        ).context("Failed to insert job into database")?;
+        )
+        .context("Failed to insert job into database")?;
 
         Ok(())
     }
@@ -197,11 +214,11 @@ impl NSGJobsDatabase {
     pub fn update_job(&self, job: &NSGJob) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
-        let output_files_json = serde_json::to_string(&job.output_files)
-            .context("Failed to serialize output files")?;
+        let output_files_json =
+            serde_json::to_string(&job.output_files).context("Failed to serialize output files")?;
 
-        let dda_params_json = serde_json::to_string(&job.dda_params)
-            .context("Failed to serialize DDA parameters")?;
+        let dda_params_json =
+            serde_json::to_string(&job.dda_params).context("Failed to serialize DDA parameters")?;
 
         conn.execute(
             "UPDATE nsg_jobs SET
@@ -231,7 +248,8 @@ impl NSGJobsDatabase {
                 job.last_polled.map(|t| t.to_rfc3339()),
                 job.progress,
             ],
-        ).context("Failed to update job in database")?;
+        )
+        .context("Failed to update job in database")?;
 
         Ok(())
     }
@@ -239,12 +257,87 @@ impl NSGJobsDatabase {
     pub fn get_job(&self, job_id: &str) -> Result<Option<NSGJob>> {
         let conn = self.conn.lock().unwrap();
 
-        let job = conn.query_row(
-            "SELECT id, nsg_job_id, tool, status, created_at, submitted_at, completed_at,
+        let job = conn
+            .query_row(
+                "SELECT id, nsg_job_id, tool, status, created_at, submitted_at, completed_at,
                     dda_params, input_file_path, output_files, error_message, last_polled, progress
              FROM nsg_jobs WHERE id = ?1",
-            params![job_id],
-            |row| {
+                params![job_id],
+                |row| {
+                    let status_str: String = row.get(3)?;
+                    let status = Self::parse_status(&status_str);
+
+                    let created_at_str: String = row.get(4)?;
+                    let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                        .unwrap_or_else(|_| chrono::Utc::now());
+
+                    let submitted_at: Option<String> = row.get(5)?;
+                    let submitted_at = submitted_at.and_then(|s| {
+                        chrono::DateTime::parse_from_rfc3339(&s)
+                            .ok()
+                            .map(|dt| dt.with_timezone(&chrono::Utc))
+                    });
+
+                    let completed_at: Option<String> = row.get(6)?;
+                    let completed_at = completed_at.and_then(|s| {
+                        chrono::DateTime::parse_from_rfc3339(&s)
+                            .ok()
+                            .map(|dt| dt.with_timezone(&chrono::Utc))
+                    });
+
+                    let dda_params_json: String = row.get(7)?;
+                    let dda_params: serde_json::Value = serde_json::from_str(&dda_params_json)
+                        .unwrap_or_else(|_| serde_json::json!({}));
+
+                    let output_files_json: String = row.get(9)?;
+                    let output_files: Vec<String> =
+                        serde_json::from_str(&output_files_json).unwrap_or_default();
+
+                    let last_polled: Option<String> = row.get(11)?;
+                    let last_polled = last_polled.and_then(|s| {
+                        chrono::DateTime::parse_from_rfc3339(&s)
+                            .ok()
+                            .map(|dt| dt.with_timezone(&chrono::Utc))
+                    });
+
+                    Ok(NSGJob {
+                        id: row.get(0)?,
+                        nsg_job_id: row.get(1)?,
+                        tool: row.get(2)?,
+                        status,
+                        created_at,
+                        submitted_at,
+                        completed_at,
+                        dda_params,
+                        input_file_path: row.get(8)?,
+                        output_files,
+                        error_message: row.get(10)?,
+                        last_polled,
+                        progress: row.get(12)?,
+                    })
+                },
+            )
+            .optional()
+            .context("Failed to query job from database")?;
+
+        Ok(job)
+    }
+
+    pub fn list_jobs(&self) -> Result<Vec<NSGJob>> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, nsg_job_id, tool, status, created_at, submitted_at, completed_at,
+                    dda_params, input_file_path, output_files, error_message, last_polled, progress
+             FROM nsg_jobs
+             ORDER BY created_at DESC",
+            )
+            .context("Failed to prepare list jobs query")?;
+
+        let jobs = stmt
+            .query_map([], |row| {
                 let status_str: String = row.get(3)?;
                 let status = Self::parse_status(&status_str);
 
@@ -272,8 +365,8 @@ impl NSGJobsDatabase {
                     .unwrap_or_else(|_| serde_json::json!({}));
 
                 let output_files_json: String = row.get(9)?;
-                let output_files: Vec<String> = serde_json::from_str(&output_files_json)
-                    .unwrap_or_default();
+                let output_files: Vec<String> =
+                    serde_json::from_str(&output_files_json).unwrap_or_default();
 
                 let last_polled: Option<String> = row.get(11)?;
                 let last_polled = last_polled.and_then(|s| {
@@ -297,80 +390,10 @@ impl NSGJobsDatabase {
                     last_polled,
                     progress: row.get(12)?,
                 })
-            },
-        ).optional()
-        .context("Failed to query job from database")?;
-
-        Ok(job)
-    }
-
-    pub fn list_jobs(&self) -> Result<Vec<NSGJob>> {
-        let conn = self.conn.lock().unwrap();
-
-        let mut stmt = conn.prepare(
-            "SELECT id, nsg_job_id, tool, status, created_at, submitted_at, completed_at,
-                    dda_params, input_file_path, output_files, error_message, last_polled, progress
-             FROM nsg_jobs
-             ORDER BY created_at DESC"
-        ).context("Failed to prepare list jobs query")?;
-
-        let jobs = stmt.query_map([], |row| {
-            let status_str: String = row.get(3)?;
-            let status = Self::parse_status(&status_str);
-
-            let created_at_str: String = row.get(4)?;
-            let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
-                .map(|dt| dt.with_timezone(&chrono::Utc))
-                .unwrap_or_else(|_| chrono::Utc::now());
-
-            let submitted_at: Option<String> = row.get(5)?;
-            let submitted_at = submitted_at.and_then(|s| {
-                chrono::DateTime::parse_from_rfc3339(&s)
-                    .ok()
-                    .map(|dt| dt.with_timezone(&chrono::Utc))
-            });
-
-            let completed_at: Option<String> = row.get(6)?;
-            let completed_at = completed_at.and_then(|s| {
-                chrono::DateTime::parse_from_rfc3339(&s)
-                    .ok()
-                    .map(|dt| dt.with_timezone(&chrono::Utc))
-            });
-
-            let dda_params_json: String = row.get(7)?;
-            let dda_params: serde_json::Value = serde_json::from_str(&dda_params_json)
-                .unwrap_or_else(|_| serde_json::json!({}));
-
-            let output_files_json: String = row.get(9)?;
-            let output_files: Vec<String> = serde_json::from_str(&output_files_json)
-                .unwrap_or_default();
-
-            let last_polled: Option<String> = row.get(11)?;
-            let last_polled = last_polled.and_then(|s| {
-                chrono::DateTime::parse_from_rfc3339(&s)
-                    .ok()
-                    .map(|dt| dt.with_timezone(&chrono::Utc))
-            });
-
-            Ok(NSGJob {
-                id: row.get(0)?,
-                nsg_job_id: row.get(1)?,
-                tool: row.get(2)?,
-                status,
-                created_at,
-                submitted_at,
-                completed_at,
-                dda_params,
-                input_file_path: row.get(8)?,
-                output_files,
-                error_message: row.get(10)?,
-                last_polled,
-                progress: row.get(12)?,
             })
-        })
-        .context("Failed to execute list jobs query")?
-        .collect::<Result<Vec<_>, _>>()
-        .context("Failed to collect jobs")?;
+            .context("Failed to execute list jobs query")?
+            .collect::<Result<Vec<_>, _>>()
+            .context("Failed to collect jobs")?;
 
         Ok(jobs)
     }
@@ -378,71 +401,74 @@ impl NSGJobsDatabase {
     pub fn get_active_jobs(&self) -> Result<Vec<NSGJob>> {
         let conn = self.conn.lock().unwrap();
 
-        let mut stmt = conn.prepare(
-            "SELECT id, nsg_job_id, tool, status, created_at, submitted_at, completed_at,
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, nsg_job_id, tool, status, created_at, submitted_at, completed_at,
                     dda_params, input_file_path, output_files, error_message, last_polled, progress
              FROM nsg_jobs
              WHERE status IN ('submitted', 'queue', 'running')
-             ORDER BY created_at ASC"
-        ).context("Failed to prepare active jobs query")?;
+             ORDER BY created_at ASC",
+            )
+            .context("Failed to prepare active jobs query")?;
 
-        let jobs = stmt.query_map([], |row| {
-            let status_str: String = row.get(3)?;
-            let status = Self::parse_status(&status_str);
+        let jobs = stmt
+            .query_map([], |row| {
+                let status_str: String = row.get(3)?;
+                let status = Self::parse_status(&status_str);
 
-            let created_at_str: String = row.get(4)?;
-            let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
-                .map(|dt| dt.with_timezone(&chrono::Utc))
-                .unwrap_or_else(|_| chrono::Utc::now());
-
-            let submitted_at: Option<String> = row.get(5)?;
-            let submitted_at = submitted_at.and_then(|s| {
-                chrono::DateTime::parse_from_rfc3339(&s)
-                    .ok()
+                let created_at_str: String = row.get(4)?;
+                let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
                     .map(|dt| dt.with_timezone(&chrono::Utc))
-            });
+                    .unwrap_or_else(|_| chrono::Utc::now());
 
-            let completed_at: Option<String> = row.get(6)?;
-            let completed_at = completed_at.and_then(|s| {
-                chrono::DateTime::parse_from_rfc3339(&s)
-                    .ok()
-                    .map(|dt| dt.with_timezone(&chrono::Utc))
-            });
+                let submitted_at: Option<String> = row.get(5)?;
+                let submitted_at = submitted_at.and_then(|s| {
+                    chrono::DateTime::parse_from_rfc3339(&s)
+                        .ok()
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                });
 
-            let dda_params_json: String = row.get(7)?;
-            let dda_params: serde_json::Value = serde_json::from_str(&dda_params_json)
-                .unwrap_or_else(|_| serde_json::json!({}));
+                let completed_at: Option<String> = row.get(6)?;
+                let completed_at = completed_at.and_then(|s| {
+                    chrono::DateTime::parse_from_rfc3339(&s)
+                        .ok()
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                });
 
-            let output_files_json: String = row.get(9)?;
-            let output_files: Vec<String> = serde_json::from_str(&output_files_json)
-                .unwrap_or_default();
+                let dda_params_json: String = row.get(7)?;
+                let dda_params: serde_json::Value = serde_json::from_str(&dda_params_json)
+                    .unwrap_or_else(|_| serde_json::json!({}));
 
-            let last_polled: Option<String> = row.get(11)?;
-            let last_polled = last_polled.and_then(|s| {
-                chrono::DateTime::parse_from_rfc3339(&s)
-                    .ok()
-                    .map(|dt| dt.with_timezone(&chrono::Utc))
-            });
+                let output_files_json: String = row.get(9)?;
+                let output_files: Vec<String> =
+                    serde_json::from_str(&output_files_json).unwrap_or_default();
 
-            Ok(NSGJob {
-                id: row.get(0)?,
-                nsg_job_id: row.get(1)?,
-                tool: row.get(2)?,
-                status,
-                created_at,
-                submitted_at,
-                completed_at,
-                dda_params,
-                input_file_path: row.get(8)?,
-                output_files,
-                error_message: row.get(10)?,
-                last_polled,
-                progress: row.get(12)?,
+                let last_polled: Option<String> = row.get(11)?;
+                let last_polled = last_polled.and_then(|s| {
+                    chrono::DateTime::parse_from_rfc3339(&s)
+                        .ok()
+                        .map(|dt| dt.with_timezone(&chrono::Utc))
+                });
+
+                Ok(NSGJob {
+                    id: row.get(0)?,
+                    nsg_job_id: row.get(1)?,
+                    tool: row.get(2)?,
+                    status,
+                    created_at,
+                    submitted_at,
+                    completed_at,
+                    dda_params,
+                    input_file_path: row.get(8)?,
+                    output_files,
+                    error_message: row.get(10)?,
+                    last_polled,
+                    progress: row.get(12)?,
+                })
             })
-        })
-        .context("Failed to execute active jobs query")?
-        .collect::<Result<Vec<_>, _>>()
-        .context("Failed to collect active jobs")?;
+            .context("Failed to execute active jobs query")?
+            .collect::<Result<Vec<_>, _>>()
+            .context("Failed to collect active jobs")?;
 
         Ok(jobs)
     }
@@ -450,10 +476,8 @@ impl NSGJobsDatabase {
     pub fn delete_job(&self, job_id: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
-        conn.execute(
-            "DELETE FROM nsg_jobs WHERE id = ?1",
-            params![job_id],
-        ).context("Failed to delete job from database")?;
+        conn.execute("DELETE FROM nsg_jobs WHERE id = ?1", params![job_id])
+            .context("Failed to delete job from database")?;
 
         Ok(())
     }
@@ -496,7 +520,10 @@ mod tests {
             crate::api::handlers::dda::DDARequest {
                 file_path: "/test/file.edf".to_string(),
                 channels: None,
-                time_range: crate::api::handlers::dda::TimeRange { start: 0.0, end: 10.0 },
+                time_range: crate::api::handlers::dda::TimeRange {
+                    start: 0.0,
+                    end: 10.0,
+                },
                 preprocessing_options: crate::api::handlers::dda::PreprocessingOptions {
                     detrending: None,
                     highpass: None,

@@ -1,11 +1,11 @@
-use tauri::State;
 use parking_lot::RwLock;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tauri::State;
 
-use super::workflow::WorkflowGraph;
-use super::actions::{WorkflowNode, WorkflowEdge, WorkflowAction};
+use super::actions::{WorkflowAction, WorkflowEdge, WorkflowNode};
 use super::codegen::CodeGenerator;
+use super::workflow::WorkflowGraph;
 
 pub struct WorkflowState {
     workflow: Arc<RwLock<WorkflowGraph>>,
@@ -99,13 +99,15 @@ pub async fn workflow_get_node(
     let workflow = workflow_state.workflow.read();
 
     if let Some(node) = workflow.get_node(&node_id) {
-        let dependencies = workflow.get_dependencies(&node_id)
+        let dependencies = workflow
+            .get_dependencies(&node_id)
             .map_err(|e| e.to_string())?
             .into_iter()
             .map(|(id, _)| id)
             .collect();
 
-        let dependents = workflow.get_dependents(&node_id)
+        let dependents = workflow
+            .get_dependents(&node_id)
             .map_err(|e| e.to_string())?
             .into_iter()
             .map(|(id, _)| id)
@@ -147,9 +149,7 @@ pub async fn workflow_get_topological_order(
 }
 
 #[tauri::command]
-pub async fn workflow_validate(
-    state: State<'_, Arc<RwLock<WorkflowState>>>,
-) -> Result<(), String> {
+pub async fn workflow_validate(state: State<'_, Arc<RwLock<WorkflowState>>>) -> Result<(), String> {
     let workflow_state = state.read();
     let workflow = workflow_state.workflow.read();
     workflow.validate().map_err(|e| e.to_string())
@@ -161,7 +161,10 @@ pub async fn workflow_generate_python(
 ) -> Result<String, String> {
     let workflow_state = state.read();
     let workflow = workflow_state.workflow.read();
-    workflow_state.code_generator.generate_python(&workflow).map_err(|e| e.to_string())
+    workflow_state
+        .code_generator
+        .generate_python(&workflow)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -170,13 +173,14 @@ pub async fn workflow_generate_julia(
 ) -> Result<String, String> {
     let workflow_state = state.read();
     let workflow = workflow_state.workflow.read();
-    workflow_state.code_generator.generate_julia(&workflow).map_err(|e| e.to_string())
+    workflow_state
+        .code_generator
+        .generate_julia(&workflow)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn workflow_clear(
-    state: State<'_, Arc<RwLock<WorkflowState>>>,
-) -> Result<(), String> {
+pub async fn workflow_clear(state: State<'_, Arc<RwLock<WorkflowState>>>) -> Result<(), String> {
     let workflow_state = state.read();
     let mut workflow = workflow_state.workflow.write();
     workflow.clear();

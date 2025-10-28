@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
-use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UpdateStatus {
@@ -30,7 +30,10 @@ pub async fn check_native_update(app: AppHandle) -> Result<UpdateStatus, String>
 
     log::info!("========================================");
     log::info!("UPDATE CHECK START");
-    log::info!("CARGO_PKG_VERSION (compile-time constant): {}", env!("CARGO_PKG_VERSION"));
+    log::info!(
+        "CARGO_PKG_VERSION (compile-time constant): {}",
+        env!("CARGO_PKG_VERSION")
+    );
     log::info!("current_version variable: {}", current_version);
     log::info!("current_version bytes: {:?}", current_version.as_bytes());
     log::info!("current_version length: {}", current_version.len());
@@ -40,11 +43,10 @@ pub async fn check_native_update(app: AppHandle) -> Result<UpdateStatus, String>
     use tauri_plugin_updater::UpdaterExt;
 
     log::info!("Building updater...");
-    let updater = app.updater_builder().build()
-        .map_err(|e| {
-            log::error!("Failed to build updater: {}", e);
-            format!("Failed to build updater: {}", e)
-        })?;
+    let updater = app.updater_builder().build().map_err(|e| {
+        log::error!("Failed to build updater: {}", e);
+        format!("Failed to build updater: {}", e)
+    })?;
 
     log::info!("Calling updater.check()...");
     match updater.check().await {
@@ -81,7 +83,10 @@ pub async fn check_native_update(app: AppHandle) -> Result<UpdateStatus, String>
             log::error!("ERROR DURING UPDATE CHECK");
             log::error!("Error: {}", e);
             log::error!("Error debug: {:?}", e);
-            log::error!("Current version that was being checked: {}", current_version);
+            log::error!(
+                "Current version that was being checked: {}",
+                current_version
+            );
             log::error!("========================================");
             Err(format!("Failed to check for updates: {}", e))
         }
@@ -95,7 +100,9 @@ pub async fn download_and_install_update(app: AppHandle) -> Result<(), String> {
 
     use tauri_plugin_updater::UpdaterExt;
 
-    let updater = app.updater_builder().build()
+    let updater = app
+        .updater_builder()
+        .build()
         .map_err(|e| format!("Failed to build updater: {}", e))?;
 
     match updater.check().await {
@@ -127,9 +134,7 @@ pub async fn download_and_install_update(app: AppHandle) -> Result<(), String> {
                 }
             }
         }
-        Ok(None) => {
-            Err("No update available".to_string())
-        }
+        Ok(None) => Err("No update available".to_string()),
         Err(e) => {
             log::error!("Error checking for updates: {}", e);
             Err(format!("Failed to check for updates: {}", e))

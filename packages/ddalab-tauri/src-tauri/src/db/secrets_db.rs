@@ -1,13 +1,13 @@
-use rusqlite::{Connection, params};
+use aes_gcm::aead::generic_array::{typenum, GenericArray};
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm, Nonce,
 };
-use aes_gcm::aead::generic_array::{GenericArray, typenum};
-use sha2::{Sha256, Digest};
+use anyhow::{Context, Result};
+use rusqlite::{params, Connection};
+use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::sync::Mutex;
-use anyhow::{Result, Context};
 
 /// Secure secrets database with AES-256-GCM encryption
 /// Uses machine-specific key derivation to avoid password prompts
@@ -19,8 +19,7 @@ pub struct SecretsDatabase {
 impl SecretsDatabase {
     /// Create or open the secrets database
     pub fn new(db_path: &Path) -> Result<Self> {
-        let conn = Connection::open(db_path)
-            .context("Failed to open secrets database")?;
+        let conn = Connection::open(db_path).context("Failed to open secrets database")?;
 
         // Create secrets table if it doesn't exist
         conn.execute(
@@ -32,21 +31,25 @@ impl SecretsDatabase {
                 updated_at INTEGER NOT NULL
             )",
             [],
-        ).context("Failed to create secrets table")?;
+        )
+        .context("Failed to create secrets table")?;
 
         // Derive encryption key from machine-specific identifier
         let encryption_key = Self::derive_encryption_key()?;
         let cipher = Aes256Gcm::new(&encryption_key);
 
-        Ok(Self { conn: Mutex::new(conn), cipher })
+        Ok(Self {
+            conn: Mutex::new(conn),
+            cipher,
+        })
     }
 
     /// Derive a 256-bit encryption key from machine-specific data
     /// This avoids password prompts while still providing encryption at rest
     fn derive_encryption_key() -> Result<GenericArray<u8, typenum::U32>> {
         // Get machine-specific identifier
-        let machine_id = machine_uid::get()
-            .map_err(|e| anyhow::anyhow!("Failed to get machine ID: {}", e))?;
+        let machine_id =
+            machine_uid::get().map_err(|e| anyhow::anyhow!("Failed to get machine ID: {}", e))?;
 
         // Add application-specific salt
         let app_salt = b"ddalab-secrets-v1";
@@ -66,19 +69,24 @@ impl SecretsDatabase {
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
         // Encrypt the value
-        let encrypted = self.cipher
+        let encrypted = self
+            .cipher
             .encrypt(&nonce, value.as_bytes())
             .map_err(|e| anyhow::anyhow!("Encryption failed: {}", e))?;
 
         let now = chrono::Utc::now().timestamp();
 
         // Store encrypted value and nonce
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Failed to lock database: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Failed to lock database: {}", e))?;
         conn.execute(
             "INSERT OR REPLACE INTO secrets (key, encrypted_value, nonce, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?4)",
             params![key, encrypted, nonce.as_slice(), now],
-        ).context("Failed to store secret")?;
+        )
+        .context("Failed to store secret")?;
 
         log::info!("[SECRETS_DB] Stored encrypted secret: {}", key);
         Ok(())
@@ -86,10 +94,13 @@ impl SecretsDatabase {
 
     /// Retrieve and decrypt a secret
     pub fn get_secret(&self, key: &str) -> Result<Option<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Failed to lock database: {}", e))?;
-        let mut stmt = conn.prepare(
-            "SELECT encrypted_value, nonce FROM secrets WHERE key = ?1"
-        ).context("Failed to prepare query")?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Failed to lock database: {}", e))?;
+        let mut stmt = conn
+            .prepare("SELECT encrypted_value, nonce FROM secrets WHERE key = ?1")
+            .context("Failed to prepare query")?;
 
         let result = stmt.query_row(params![key], |row| {
             let encrypted: Vec<u8> = row.get(0)?;
@@ -102,12 +113,13 @@ impl SecretsDatabase {
                 let nonce = Nonce::from_slice(&nonce_bytes);
 
                 // Decrypt the value
-                let decrypted = self.cipher
+                let decrypted = self
+                    .cipher
                     .decrypt(nonce, encrypted.as_ref())
                     .map_err(|e| anyhow::anyhow!("Decryption failed: {}", e))?;
 
-                let value = String::from_utf8(decrypted)
-                    .context("Decrypted value is not valid UTF-8")?;
+                let value =
+                    String::from_utf8(decrypted).context("Decrypted value is not valid UTF-8")?;
 
                 log::info!("[SECRETS_DB] Retrieved encrypted secret: {}", key);
                 Ok(Some(value))
@@ -122,12 +134,16 @@ impl SecretsDatabase {
 
     /// Check if a secret exists
     pub fn has_secret(&self, key: &str) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Failed to lock database: {}", e))?;
-        let mut stmt = conn.prepare(
-            "SELECT 1 FROM secrets WHERE key = ?1"
-        ).context("Failed to prepare query")?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Failed to lock database: {}", e))?;
+        let mut stmt = conn
+            .prepare("SELECT 1 FROM secrets WHERE key = ?1")
+            .context("Failed to prepare query")?;
 
-        let exists = stmt.exists(params![key])
+        let exists = stmt
+            .exists(params![key])
             .context("Failed to check secret existence")?;
 
         Ok(exists)
@@ -135,11 +151,12 @@ impl SecretsDatabase {
 
     /// Delete a secret
     pub fn delete_secret(&self, key: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Failed to lock database: {}", e))?;
-        conn.execute(
-            "DELETE FROM secrets WHERE key = ?1",
-            params![key],
-        ).context("Failed to delete secret")?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Failed to lock database: {}", e))?;
+        conn.execute("DELETE FROM secrets WHERE key = ?1", params![key])
+            .context("Failed to delete secret")?;
 
         log::info!("[SECRETS_DB] Deleted secret: {}", key);
         Ok(())
@@ -147,12 +164,16 @@ impl SecretsDatabase {
 
     /// List all secret keys (without values)
     pub fn list_keys(&self) -> Result<Vec<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Failed to lock database: {}", e))?;
-        let mut stmt = conn.prepare(
-            "SELECT key FROM secrets ORDER BY key"
-        ).context("Failed to prepare query")?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Failed to lock database: {}", e))?;
+        let mut stmt = conn
+            .prepare("SELECT key FROM secrets ORDER BY key")
+            .context("Failed to prepare query")?;
 
-        let keys = stmt.query_map([], |row| row.get(0))
+        let keys = stmt
+            .query_map([], |row| row.get(0))
             .context("Failed to query keys")?
             .collect::<std::result::Result<Vec<String>, _>>()
             .context("Failed to collect keys")?;
@@ -160,7 +181,12 @@ impl SecretsDatabase {
         Ok(keys)
     }
 
-    pub fn save_nsg_credentials(&self, username: &str, password: &str, app_key: &str) -> Result<()> {
+    pub fn save_nsg_credentials(
+        &self,
+        username: &str,
+        password: &str,
+        app_key: &str,
+    ) -> Result<()> {
         let credentials_json = serde_json::json!({
             "username": username,
             "password": password,
@@ -178,27 +204,34 @@ impl SecretsDatabase {
     }
 
     pub fn get_nsg_credentials(&self) -> Result<Option<(String, String, String)>> {
-        let credentials_str = self.get_secret("nsg_credentials")
+        let credentials_str = self
+            .get_secret("nsg_credentials")
             .context("Failed to retrieve NSG credentials")?;
 
         match credentials_str {
             Some(json_str) => {
-                let credentials: serde_json::Value = serde_json::from_str(&json_str)
-                    .context("Failed to parse NSG credentials")?;
+                let credentials: serde_json::Value =
+                    serde_json::from_str(&json_str).context("Failed to parse NSG credentials")?;
 
-                let username = credentials["username"].as_str()
+                let username = credentials["username"]
+                    .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing username in NSG credentials"))?
                     .to_string();
 
-                let password = credentials["password"].as_str()
+                let password = credentials["password"]
+                    .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing password in NSG credentials"))?
                     .to_string();
 
-                let app_key = credentials["app_key"].as_str()
+                let app_key = credentials["app_key"]
+                    .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing app_key in NSG credentials"))?
                     .to_string();
 
-                log::info!("[SECRETS_DB] Retrieved NSG credentials for user: {}", username);
+                log::info!(
+                    "[SECRETS_DB] Retrieved NSG credentials for user: {}",
+                    username
+                );
                 Ok(Some((username, password, app_key)))
             }
             None => {

@@ -60,7 +60,9 @@ impl OverviewCacheDatabase {
     }
 
     fn create_tables(&self) -> Result<()> {
-        let conn = self.conn.try_lock_for(std::time::Duration::from_secs(5))
+        let conn = self
+            .conn
+            .try_lock_for(std::time::Duration::from_secs(5))
             .ok_or_else(|| anyhow::anyhow!("Timeout waiting for database lock in create_tables"))?;
 
         conn.execute_batch(
@@ -125,7 +127,7 @@ impl OverviewCacheDatabase {
                     total_samples, samples_processed, completion_percentage, is_complete,
                     created_at, updated_at
              FROM overview_cache
-             WHERE file_path = ?1 AND max_points = ?2 AND channels = ?3"
+             WHERE file_path = ?1 AND max_points = ?2 AND channels = ?3",
         )?;
 
         let existing = stmt
@@ -152,7 +154,8 @@ impl OverviewCacheDatabase {
 
         if let Some(metadata) = existing {
             // Check if file has been modified
-            if metadata.file_size == file_size && metadata.file_modified_time == file_modified_time {
+            if metadata.file_size == file_size && metadata.file_modified_time == file_modified_time
+            {
                 log::info!(
                     "[OVERVIEW CACHE] Found existing cache for '{}' ({}% complete)",
                     file_path,
@@ -186,9 +189,9 @@ impl OverviewCacheDatabase {
                         max_points as i64,
                         channels_json,
                         total_samples as i64,
-                        0, // samples_processed
+                        0,   // samples_processed
                         0.0, // completion_percentage
-                        0, // is_complete
+                        0,   // is_complete
                         &now,
                     ],
                 )?;
@@ -238,7 +241,11 @@ impl OverviewCacheDatabase {
 
         let id = conn.last_insert_rowid();
 
-        log::info!("[OVERVIEW CACHE] Created new cache entry for '{}' (ID: {})", file_path, id);
+        log::info!(
+            "[OVERVIEW CACHE] Created new cache entry for '{}' (ID: {})",
+            file_path,
+            id
+        );
 
         Ok(OverviewCacheMetadata {
             id,
@@ -295,11 +302,7 @@ impl OverviewCacheDatabase {
     /// Save segment data
     pub fn save_segment(&self, segment: &OverviewSegment) -> Result<()> {
         // Serialize f64 vector to bytes
-        let data_bytes: Vec<u8> = segment
-            .data
-            .iter()
-            .flat_map(|&f| f.to_le_bytes())
-            .collect();
+        let data_bytes: Vec<u8> = segment.data.iter().flat_map(|&f| f.to_le_bytes()).collect();
 
         self.conn.lock().execute(
             "INSERT OR REPLACE INTO overview_cache_data
@@ -332,10 +335,12 @@ impl OverviewCacheDatabase {
                 let data_bytes: Vec<u8> = row.get(4)?;
                 let data: Vec<f64> = data_bytes
                     .chunks_exact(8)
-                    .map(|chunk| f64::from_le_bytes([
-                        chunk[0], chunk[1], chunk[2], chunk[3],
-                        chunk[4], chunk[5], chunk[6], chunk[7],
-                    ]))
+                    .map(|chunk| {
+                        f64::from_le_bytes([
+                            chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6],
+                            chunk[7],
+                        ])
+                    })
                     .collect();
 
                 Ok(OverviewSegment {
@@ -388,7 +393,10 @@ impl OverviewCacheDatabase {
     /// Delete cache and all associated segments
     pub fn delete_cache(&self, cache_id: i64) -> Result<()> {
         let conn = self.conn.lock();
-        conn.execute("DELETE FROM overview_cache WHERE id = ?1", params![cache_id])?;
+        conn.execute(
+            "DELETE FROM overview_cache WHERE id = ?1",
+            params![cache_id],
+        )?;
         log::info!("[OVERVIEW CACHE] Deleted cache ID {}", cache_id);
         Ok(())
     }
@@ -429,7 +437,11 @@ impl OverviewCacheDatabase {
     }
 
     /// Get the last processed segment for a channel
-    pub fn get_last_segment_end(&self, cache_id: i64, channel_index: usize) -> Result<Option<usize>> {
+    pub fn get_last_segment_end(
+        &self,
+        cache_id: i64,
+        channel_index: usize,
+    ) -> Result<Option<usize>> {
         let conn = self.conn.lock();
         let result: Option<i64> = conn
             .query_row(
@@ -458,21 +470,23 @@ impl OverviewCacheDatabase {
              FROM overview_cache
              WHERE file_path = ?1 AND max_points = ?2 AND (channels = ?3 OR ?3 = '')
              ORDER BY updated_at DESC
-             LIMIT 1"
+             LIMIT 1",
         )?;
 
-        let result = stmt.query_row(
-            params![file_path, max_points as i64, channels_json],
-            |row| {
-                Ok(serde_json::json!({
-                    "has_cache": true,
-                    "completion_percentage": row.get::<_, f64>(0)?,
-                    "is_complete": row.get::<_, i32>(1)? != 0,
-                    "samples_processed": row.get::<_, i64>(2)?,
-                    "total_samples": row.get::<_, i64>(3)?,
-                }))
-            }
-        ).optional()?;
+        let result = stmt
+            .query_row(
+                params![file_path, max_points as i64, channels_json],
+                |row| {
+                    Ok(serde_json::json!({
+                        "has_cache": true,
+                        "completion_percentage": row.get::<_, f64>(0)?,
+                        "is_complete": row.get::<_, i32>(1)? != 0,
+                        "samples_processed": row.get::<_, i64>(2)?,
+                        "total_samples": row.get::<_, i64>(3)?,
+                    }))
+                },
+            )
+            .optional()?;
 
         Ok(result)
     }

@@ -1,13 +1,16 @@
-use crate::state_manager::AppStateManager;
 use crate::models::WindowState;
+use crate::state_manager::AppStateManager;
 use tauri::{App, Manager, PhysicalPosition, PhysicalSize};
 
 pub fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
-    let window = app.get_webview_window("main")
+    let window = app
+        .get_webview_window("main")
         .ok_or("Failed to get main window")?;
 
     // Initialize state manager with Tauri's app_config_dir for consistency
-    let config_dir = app.path().app_config_dir()
+    let config_dir = app
+        .path()
+        .app_config_dir()
         .map_err(|e| format!("Failed to get app config dir: {}", e))?;
     let state_manager = AppStateManager::new(config_dir)
         .map_err(|e| format!("Failed to initialize state manager: {}", e))?;
@@ -15,8 +18,12 @@ pub fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     // Restore window state if available
     let ui_state = state_manager.get_ui_state();
     if let Some(saved_window_state) = ui_state.windows.get("main") {
-        log::info!("📐 Restoring window state: position={:?}, size={:?}, maximized={}",
-            saved_window_state.position, saved_window_state.size, saved_window_state.maximized);
+        log::info!(
+            "📐 Restoring window state: position={:?}, size={:?}, maximized={}",
+            saved_window_state.position,
+            saved_window_state.size,
+            saved_window_state.maximized
+        );
 
         // Restore position and size
         let _ = window.set_position(PhysicalPosition::new(
@@ -92,11 +99,17 @@ fn save_main_window_state(window: &tauri::WebviewWindow) -> Result<(), Box<dyn s
 
     // Save to state manager
     state_manager.update_ui_state(|ui_state| {
-        ui_state.windows.insert("main".to_string(), window_state.clone());
+        ui_state
+            .windows
+            .insert("main".to_string(), window_state.clone());
     })?;
 
-    log::debug!("💾 Saved window state: position={:?}, size={:?}, maximized={}",
-        window_state.position, window_state.size, window_state.maximized);
+    log::debug!(
+        "💾 Saved window state: position={:?}, size={:?}, maximized={}",
+        window_state.position,
+        window_state.size,
+        window_state.maximized
+    );
 
     Ok(())
 }

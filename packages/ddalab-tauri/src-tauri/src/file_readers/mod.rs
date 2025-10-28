@@ -1,3 +1,4 @@
+use crate::intermediate_format::{ChannelData, DataMetadata, IntermediateData};
 /// File Readers Module
 ///
 /// This module provides a modular, extensible architecture for reading various
@@ -6,22 +7,20 @@
 ///
 /// Data Pipeline:
 /// File Format → FileReader → IntermediateData → ASCII/CSV for DDA or direct use
-
 use std::path::Path;
-use crate::intermediate_format::{IntermediateData, DataMetadata, ChannelData};
 
-pub mod edf_reader;
-pub mod csv_reader;
 pub mod ascii_reader;
 pub mod brainvision_reader;
+pub mod csv_reader;
+pub mod edf_reader;
 pub mod eeglab_reader;
-pub mod fif_reader;  // FIF/FIFF reader (uses external fiff crate)
+pub mod fif_reader; // FIF/FIFF reader (uses external fiff crate)
 
 // Re-export readers
-pub use edf_reader::EDFFileReader;
-pub use csv_reader::CSVFileReader;
 pub use ascii_reader::ASCIIFileReader;
 pub use brainvision_reader::BrainVisionFileReader;
+pub use csv_reader::CSVFileReader;
+pub use edf_reader::EDFFileReader;
 pub use eeglab_reader::EEGLABFileReader;
 pub use fif_reader::FIFFileReader;
 
@@ -52,7 +51,7 @@ pub fn parse_edf_datetime(date_str: &str, time_str: &str) -> Option<String> {
     let second: u32 = time_parts[2].parse().ok()?;
 
     // Create naive datetime and convert to UTC
-    use chrono::{NaiveDate, NaiveTime, NaiveDateTime, TimeZone, Utc};
+    use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
     let naive_date = NaiveDate::from_ymd_opt(year, month, day)?;
     let naive_time = NaiveTime::from_hms_opt(hour, minute, second)?;
     let naive_datetime = NaiveDateTime::new(naive_date, naive_time);
@@ -162,10 +161,7 @@ pub struct FileReaderFactory;
 impl FileReaderFactory {
     /// Create a file reader for the given path
     pub fn create_reader(path: &Path) -> FileResult<Box<dyn FileReader>> {
-        let extension = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         match extension.to_lowercase().as_str() {
             "edf" => Ok(Box::new(EDFFileReader::new(path)?)),
@@ -246,7 +242,10 @@ impl FileReaderFactory {
         // Create intermediate metadata
         let mut custom_metadata = std::collections::HashMap::new();
         custom_metadata.insert("file_size".to_string(), file_metadata.file_size.to_string());
-        custom_metadata.insert("num_samples".to_string(), file_metadata.num_samples.to_string());
+        custom_metadata.insert(
+            "num_samples".to_string(),
+            file_metadata.num_samples.to_string(),
+        );
 
         let intermediate_metadata = DataMetadata {
             source_file: file_metadata.file_path.clone(),
@@ -261,11 +260,13 @@ impl FileReaderFactory {
         let mut intermediate_data = IntermediateData::new(intermediate_metadata);
 
         // Determine which channels to read
-        let channels_to_read = selected_channels.map(|c| c.to_vec())
+        let channels_to_read = selected_channels
+            .map(|c| c.to_vec())
             .unwrap_or_else(|| file_metadata.channels.clone());
 
         // Read full data for all selected channels
-        let chunk_data = reader.read_chunk(0, file_metadata.num_samples, Some(&channels_to_read))?;
+        let chunk_data =
+            reader.read_chunk(0, file_metadata.num_samples, Some(&channels_to_read))?;
 
         // Convert to intermediate format channels
         for (idx, channel_label) in channels_to_read.iter().enumerate() {
@@ -342,4 +343,3 @@ mod tests {
         assert!(datetime_str.contains("10:38:36"));
     }
 }
-

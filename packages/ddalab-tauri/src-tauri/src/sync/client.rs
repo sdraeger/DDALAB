@@ -6,9 +6,9 @@ use futures_util::{SinkExt, StreamExt};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
-use tokio_tungstenite::{connect_async, tungstenite::Message, WebSocketStream, MaybeTlsStream};
 use tokio::net::TcpStream;
+use tokio::sync::{mpsc, oneshot};
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use tracing::{debug, error, info, warn};
 
 type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -150,13 +150,10 @@ impl SyncClient {
         self.ws_tx.send(request_msg)?;
 
         // Wait for response with timeout
-        let share_info = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            rx
-        )
-        .await
-        .map_err(|_| anyhow!("Timeout waiting for share info"))?
-        .map_err(|_| anyhow!("Failed to receive share info"))?;
+        let share_info = tokio::time::timeout(std::time::Duration::from_secs(10), rx)
+            .await
+            .map_err(|_| anyhow!("Timeout waiting for share info"))?
+            .map_err(|_| anyhow!("Failed to receive share info"))?;
 
         Ok(share_info)
     }

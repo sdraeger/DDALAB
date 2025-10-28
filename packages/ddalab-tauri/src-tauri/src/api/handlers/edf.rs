@@ -1,18 +1,20 @@
-use std::sync::Arc;
-use std::path::PathBuf;
-use std::collections::HashMap;
+use crate::api::models::{ChunkData, EDFFileInfo};
+use crate::api::overview_generator::ProgressiveOverviewGenerator;
+use crate::api::state::ApiState;
+use crate::api::utils::{
+    create_file_info, generate_overview_with_file_reader, read_edf_file_chunk, FileType,
+};
+use crate::edf::EDFReader;
+use crate::file_readers::FileReaderFactory;
+use crate::text_reader::TextFileReader;
 use axum::{
-    extract::{State, Query},
+    extract::{Query, State},
     http::StatusCode,
     Json,
 };
-use crate::api::state::ApiState;
-use crate::api::models::{EDFFileInfo, ChunkData};
-use crate::api::utils::{FileType, create_file_info, read_edf_file_chunk, generate_overview_with_file_reader};
-use crate::api::overview_generator::ProgressiveOverviewGenerator;
-use crate::edf::EDFReader;
-use crate::text_reader::TextFileReader;
-use crate::file_readers::FileReaderFactory;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 pub async fn get_edf_info(
     State(state): State<Arc<ApiState>>,
@@ -33,7 +35,10 @@ pub async fn get_edf_info(
     log::info!("Attempting to load EDF file: {:?}", full_path);
 
     if let Some(file_info) = create_file_info(full_path).await {
-        log::info!("Created file info, channels: {:?}", file_info.channels.len());
+        log::info!(
+            "Created file info, channels: {:?}",
+            file_info.channels.len()
+        );
         {
             let mut file_cache = state.files.write();
             file_cache.insert(file_path.clone(), file_info.clone());
@@ -51,31 +56,40 @@ pub async fn get_edf_data(
 ) -> Result<Json<ChunkData>, StatusCode> {
     let file_path = params.get("file_path").ok_or(StatusCode::BAD_REQUEST)?;
 
-    let (start_time, duration, needs_sample_rate) = if let Some(chunk_start_str) = params.get("chunk_start") {
-        let chunk_start: usize = chunk_start_str.parse().unwrap_or(0);
-        let chunk_size: usize = params.get("chunk_size")
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(7680);
+    let (start_time, duration, needs_sample_rate) =
+        if let Some(chunk_start_str) = params.get("chunk_start") {
+            let chunk_start: usize = chunk_start_str.parse().unwrap_or(0);
+            let chunk_size: usize = params
+                .get("chunk_size")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(7680);
 
-        (chunk_start as f64, chunk_size as f64, true)
-    } else {
-        let start_time = params
-            .get("start_time")
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0.0);
-        let duration = params
-            .get("duration")
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(30.0);
+            (chunk_start as f64, chunk_size as f64, true)
+        } else {
+            let start_time = params
+                .get("start_time")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.0);
+            let duration = params
+                .get("duration")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(30.0);
 
-        (start_time, duration, false)
-    };
+            (start_time, duration, false)
+        };
 
-    let selected_channels: Option<Vec<String>> = params.get("channels")
+    let selected_channels: Option<Vec<String>> = params
+        .get("channels")
         .map(|s| s.split(',').map(|c| c.trim().to_string()).collect());
 
     let chunk_key = if let Some(ref channels) = selected_channels {
-        format!("{}:{}:{}:{}", file_path, start_time, duration, channels.join(","))
+        format!(
+            "{}:{}:{}:{}",
+            file_path,
+            start_time,
+            duration,
+            channels.join(",")
+        )
     } else {
         format!("{}:{}:{}", file_path, start_time, duration)
     };
@@ -101,8 +115,19 @@ pub async fn get_edf_data(
                     log::error!("Failed to parse CSV file '{}': {}", file_path_clone, e);
                     e
                 })?;
-                log::info!("CSV file loaded: {} channels, {} samples", reader.info.num_channels, reader.info.num_samples);
-                read_text_file_chunk(reader, &file_path_clone, start_time, duration, needs_sample_rate, selected_channels)
+                log::info!(
+                    "CSV file loaded: {} channels, {} samples",
+                    reader.info.num_channels,
+                    reader.info.num_samples
+                );
+                read_text_file_chunk(
+                    reader,
+                    &file_path_clone,
+                    start_time,
+                    duration,
+                    needs_sample_rate,
+                    selected_channels,
+                )
             }
             FileType::ASCII => {
                 log::info!("Reading ASCII file: {}", file_path_clone);
@@ -110,22 +135,44 @@ pub async fn get_edf_data(
                     log::error!("Failed to parse ASCII file '{}': {}", file_path_clone, e);
                     e
                 })?;
-                log::info!("ASCII file loaded: {} channels, {} samples", reader.info.num_channels, reader.info.num_samples);
-                read_text_file_chunk(reader, &file_path_clone, start_time, duration, needs_sample_rate, selected_channels)
+                log::info!(
+                    "ASCII file loaded: {} channels, {} samples",
+                    reader.info.num_channels,
+                    reader.info.num_samples
+                );
+                read_text_file_chunk(
+                    reader,
+                    &file_path_clone,
+                    start_time,
+                    duration,
+                    needs_sample_rate,
+                    selected_channels,
+                )
             }
-            FileType::EDF => {
-                read_edf_file_chunk(path, &file_path_clone, start_time, duration, needs_sample_rate, selected_channels)
-            }
+            FileType::EDF => read_edf_file_chunk(
+                path,
+                &file_path_clone,
+                start_time,
+                duration,
+                needs_sample_rate,
+                selected_channels,
+            ),
             FileType::FIF | FileType::BrainVision | FileType::EEGLAB => {
                 log::info!("Reading file using modular reader: {}", file_path_clone);
-                read_chunk_with_file_reader(path, &file_path_clone, start_time, duration, needs_sample_rate, selected_channels)
+                read_chunk_with_file_reader(
+                    path,
+                    &file_path_clone,
+                    start_time,
+                    duration,
+                    needs_sample_rate,
+                    selected_channels,
+                )
             }
-            FileType::MEG => {
-                Err(format!("MEG files are not yet supported for analysis: {}", file_path_clone))
-            }
-            FileType::Unknown => {
-                Err(format!("Unknown file type: {}", file_path_clone))
-            }
+            FileType::MEG => Err(format!(
+                "MEG files are not yet supported for analysis: {}",
+                file_path_clone
+            )),
+            FileType::Unknown => Err(format!("Unknown file type: {}", file_path_clone)),
         }
     })
     .await
@@ -152,11 +199,13 @@ pub async fn get_overview_progress(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let file_path = params.get("file_path").ok_or(StatusCode::BAD_REQUEST)?;
 
-    let max_points: usize = params.get("max_points")
+    let max_points: usize = params
+        .get("max_points")
         .and_then(|s| s.parse().ok())
         .unwrap_or(2000);
 
-    let selected_channels: Option<Vec<String>> = params.get("channels")
+    let selected_channels: Option<Vec<String>> = params
+        .get("channels")
         .map(|s| s.split(',').map(|c| c.trim().to_string()).collect());
 
     if let Some(cache_db) = state.overview_cache_db.as_ref() {
@@ -174,7 +223,9 @@ pub async fn get_overview_progress(
 
         match tokio::task::spawn_blocking(move || {
             cache_db.query_progress(&file_path_clone, max_points, &channels_json_clone)
-        }).await {
+        })
+        .await
+        {
             Ok(Ok(Some(result))) => {
                 return Ok(Json(result));
             }
@@ -202,11 +253,13 @@ pub async fn get_edf_overview(
 ) -> Result<Json<ChunkData>, StatusCode> {
     let file_path = params.get("file_path").ok_or(StatusCode::BAD_REQUEST)?;
 
-    let max_points: usize = params.get("max_points")
+    let max_points: usize = params
+        .get("max_points")
         .and_then(|s| s.parse().ok())
         .unwrap_or(2000);
 
-    let selected_channels: Option<Vec<String>> = params.get("channels")
+    let selected_channels: Option<Vec<String>> = params
+        .get("channels")
         .map(|s| s.split(',').map(|c| c.trim().to_string()).collect());
 
     let path = std::path::Path::new(file_path);
@@ -220,7 +273,10 @@ pub async fn get_edf_overview(
     // Use progressive cache for EDF files if available
     if matches!(file_type, FileType::EDF) {
         if let Some(ref cache_db) = state.overview_cache_db {
-            log::info!("[OVERVIEW] Using progressive cache for EDF file: {}", file_path);
+            log::info!(
+                "[OVERVIEW] Using progressive cache for EDF file: {}",
+                file_path
+            );
 
             let generator = ProgressiveOverviewGenerator::new(cache_db.clone());
             let file_path_clone = file_path.to_string();
@@ -236,13 +292,20 @@ pub async fn get_edf_overview(
 
             return Ok(Json(chunk));
         } else {
-            log::warn!("[OVERVIEW] Cache database not available, falling back to legacy generation");
+            log::warn!(
+                "[OVERVIEW] Cache database not available, falling back to legacy generation"
+            );
         }
     }
 
     // Fallback to legacy cache and generation for non-EDF files or if cache DB unavailable
     let cache_key = if let Some(ref channels) = selected_channels {
-        format!("overview:{}:{}:{}", file_path, max_points, channels.join(","))
+        format!(
+            "overview:{}:{}:{}",
+            file_path,
+            max_points,
+            channels.join(",")
+        )
     } else {
         format!("overview:{}:{}", file_path, max_points)
     };
@@ -255,7 +318,11 @@ pub async fn get_edf_overview(
         }
     }
 
-    log::info!("[OVERVIEW] Generating overview for {} with max_points={}", file_path, max_points);
+    log::info!(
+        "[OVERVIEW] Generating overview for {} with max_points={}",
+        file_path,
+        max_points
+    );
 
     let file_path_clone = file_path.clone();
     let chunk = tokio::task::spawn_blocking(move || -> Result<ChunkData, String> {
@@ -274,15 +341,17 @@ pub async fn get_edf_overview(
                 generate_edf_file_overview(path, &file_path_clone, max_points, selected_channels)
             }
             FileType::FIF | FileType::BrainVision | FileType::EEGLAB => {
-                log::info!("Generating overview using modular reader: {}", file_path_clone);
+                log::info!(
+                    "Generating overview using modular reader: {}",
+                    file_path_clone
+                );
                 generate_overview_with_file_reader(path, max_points, selected_channels)
             }
-            FileType::MEG => {
-                Err(format!("MEG files are not yet supported for analysis: {}", file_path_clone))
-            }
-            FileType::Unknown => {
-                Err(format!("Unknown file type: {}", file_path_clone))
-            }
+            FileType::MEG => Err(format!(
+                "MEG files are not yet supported for analysis: {}",
+                file_path_clone
+            )),
+            FileType::Unknown => Err(format!("Unknown file type: {}", file_path_clone)),
         }
     })
     .await
@@ -318,7 +387,8 @@ fn read_chunk_with_file_reader(
         .map_err(|e| format!("Failed to create file reader: {}", e))?;
     log::warn!("⏱️ FileReaderFactory::create_reader: {:?}", start.elapsed());
 
-    let metadata = reader.metadata()
+    let metadata = reader
+        .metadata()
         .map_err(|e| format!("Failed to read metadata: {}", e))?;
 
     let sample_rate = metadata.sample_rate;
@@ -355,7 +425,7 @@ fn read_chunk_with_file_reader(
             channel_labels: returned_channels,
             sampling_frequency: sample_rate,
             chunk_size: 0,
-            chunk_start: 0,  // Reset to start
+            chunk_start: 0, // Reset to start
             total_samples: Some(metadata.num_samples as u64),
         });
     }
@@ -365,11 +435,15 @@ fn read_chunk_with_file_reader(
 
     log::info!(
         "Reading chunk: start_sample={}, num_samples={}, start_time={:.2}s, duration={:.2}s",
-        start_sample, num_samples, start_time, duration
+        start_sample,
+        num_samples,
+        start_time,
+        duration
     );
 
     let channel_names = channels.as_ref().map(|v| v.as_slice());
-    let data = reader.read_chunk(start_sample, num_samples, channel_names)
+    let data = reader
+        .read_chunk(start_sample, num_samples, channel_names)
         .map_err(|e| format!("Failed to read chunk: {}", e))?;
 
     let returned_channels = if let Some(selected) = &channels {
@@ -389,7 +463,10 @@ fn read_chunk_with_file_reader(
         total_samples: Some(metadata.num_samples as u64),
     };
 
-    log::warn!("⏱️ read_chunk_with_file_reader TOTAL: {:?}", start_total.elapsed());
+    log::warn!(
+        "⏱️ read_chunk_with_file_reader TOTAL: {:?}",
+        start_total.elapsed()
+    );
     Ok(result)
 }
 
@@ -407,12 +484,17 @@ fn read_text_file_chunk(
         return Err(format!("No channels found in file '{}'", file_path_clone));
     }
 
-    let (channels_to_read, channel_labels): (Vec<usize>, Vec<String>) = if let Some(ref selected) = selected_channels {
+    let (channels_to_read, channel_labels): (Vec<usize>, Vec<String>) = if let Some(ref selected) =
+        selected_channels
+    {
         let mut indices = Vec::new();
         let mut labels = Vec::new();
 
         for channel_name in selected {
-            if let Some(idx) = all_channel_labels.iter().position(|label| label == channel_name) {
+            if let Some(idx) = all_channel_labels
+                .iter()
+                .position(|label| label == channel_name)
+            {
                 indices.push(idx);
                 labels.push(channel_name.clone());
             } else {
@@ -423,12 +505,22 @@ fn read_text_file_chunk(
         if indices.is_empty() {
             let num_fallback_channels = all_channel_labels.len().min(10);
             log::warn!("[CHUNK] None of the selected channels found in text file, falling back to first {} channels", num_fallback_channels);
-            ((0..num_fallback_channels).collect(), all_channel_labels.iter().take(num_fallback_channels).cloned().collect())
+            (
+                (0..num_fallback_channels).collect(),
+                all_channel_labels
+                    .iter()
+                    .take(num_fallback_channels)
+                    .cloned()
+                    .collect(),
+            )
         } else {
             (indices, labels)
         }
     } else {
-        ((0..all_channel_labels.len()).collect(), all_channel_labels.clone())
+        (
+            (0..all_channel_labels.len()).collect(),
+            all_channel_labels.clone(),
+        )
     };
 
     let sample_rate = 1.0;
@@ -438,13 +530,16 @@ fn read_text_file_chunk(
     } else {
         (
             (start_time * sample_rate) as usize,
-            (duration * sample_rate) as usize
+            (duration * sample_rate) as usize,
         )
     };
 
     log::info!(
         "Reading chunk from '{}': start_sample={}, num_samples={}, channels={:?}",
-        file_path_clone, start_sample, num_samples, channel_labels
+        file_path_clone,
+        start_sample,
+        num_samples,
+        channel_labels
     );
 
     let data = reader.read_window(start_sample, num_samples, &channels_to_read)?;
@@ -453,7 +548,8 @@ fn read_text_file_chunk(
 
     log::info!(
         "Read {} channels, {} samples per channel",
-        data.len(), chunk_size
+        data.len(),
+        chunk_size
     );
 
     Ok(ChunkData {
@@ -480,42 +576,63 @@ fn generate_edf_file_overview(
     if let Some(ref selected) = selected_channels {
         let filtered_channels: Vec<usize> = selected
             .iter()
-            .filter_map(|name| edf.signal_headers.iter().position(|h| h.label.trim() == name.trim()))
+            .filter_map(|name| {
+                edf.signal_headers
+                    .iter()
+                    .position(|h| h.label.trim() == name.trim())
+            })
             .collect();
 
         if filtered_channels.is_empty() {
             let num_fallback_channels = edf.signal_headers.len().min(10);
             log::warn!("[OVERVIEW] None of the selected channels found in EDF file, falling back to first {} channels", num_fallback_channels);
             channels_to_read = (0..num_fallback_channels).collect();
-            channel_labels = edf.signal_headers.iter().take(num_fallback_channels).map(|h| h.label.trim().to_string()).collect();
+            channel_labels = edf
+                .signal_headers
+                .iter()
+                .take(num_fallback_channels)
+                .map(|h| h.label.trim().to_string())
+                .collect();
         } else {
             channels_to_read = filtered_channels;
-            channel_labels = channels_to_read.iter()
+            channel_labels = channels_to_read
+                .iter()
                 .map(|&idx| edf.signal_headers[idx].label.trim().to_string())
                 .collect();
         }
     } else {
         channels_to_read = (0..edf.signal_headers.len()).collect();
-        channel_labels = edf.signal_headers.iter().map(|h| h.label.trim().to_string()).collect();
+        channel_labels = edf
+            .signal_headers
+            .iter()
+            .map(|h| h.label.trim().to_string())
+            .collect();
     }
 
     if channels_to_read.is_empty() {
         return Err("No valid channels found".to_string());
     }
 
-    let sample_rate = edf.signal_headers[channels_to_read[0]].sample_frequency(edf.header.duration_of_data_record);
+    let sample_rate = edf.signal_headers[channels_to_read[0]]
+        .sample_frequency(edf.header.duration_of_data_record);
     let duration = edf.header.num_data_records as f64 * edf.header.duration_of_data_record;
     let total_samples = (duration * sample_rate) as usize;
 
     log::info!(
         "[OVERVIEW] File: '{}', duration={:.2}s, total_samples={}, max_points={}",
-        file_path, duration, total_samples, max_points
+        file_path,
+        duration,
+        total_samples,
+        max_points
     );
 
     let downsample_ratio = (total_samples as f64 / max_points as f64).ceil() as usize;
     let bucket_size = downsample_ratio.max(1);
 
-    log::info!("[OVERVIEW] Using min-max downsampling with bucket_size={}", bucket_size);
+    log::info!(
+        "[OVERVIEW] Using min-max downsampling with bucket_size={}",
+        bucket_size
+    );
 
     let mut downsampled_data: Vec<Vec<f64>> = Vec::new();
 
@@ -580,10 +697,17 @@ fn generate_text_file_overview(
             let num_fallback_channels = reader.info.num_channels.min(10);
             log::warn!("[OVERVIEW] None of the selected channels found in text file, falling back to first {} channels", num_fallback_channels);
             channels_to_read = (0..num_fallback_channels).collect();
-            channel_labels = reader.info.channel_labels.iter().take(num_fallback_channels).cloned().collect();
+            channel_labels = reader
+                .info
+                .channel_labels
+                .iter()
+                .take(num_fallback_channels)
+                .cloned()
+                .collect();
         } else {
             channels_to_read = filtered_channels;
-            channel_labels = channels_to_read.iter()
+            channel_labels = channels_to_read
+                .iter()
                 .map(|&idx| reader.info.channel_labels[idx].clone())
                 .collect();
         }
@@ -598,13 +722,18 @@ fn generate_text_file_overview(
 
     log::info!(
         "[OVERVIEW] File: '{}', total_samples={}, max_points={}",
-        file_path, total_samples, max_points
+        file_path,
+        total_samples,
+        max_points
     );
 
     let downsample_ratio = (total_samples as f64 / max_points as f64).ceil() as usize;
     let bucket_size = downsample_ratio.max(1);
 
-    log::info!("[OVERVIEW] Using min-max downsampling with bucket_size={}", bucket_size);
+    log::info!(
+        "[OVERVIEW] Using min-max downsampling with bucket_size={}",
+        bucket_size
+    );
 
     let full_data = reader.read_window(0, total_samples, &channels_to_read)?;
 

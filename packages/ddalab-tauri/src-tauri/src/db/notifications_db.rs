@@ -82,8 +82,7 @@ pub struct NotificationsDatabase {
 
 impl NotificationsDatabase {
     pub fn new(db_path: &Path) -> Result<Self> {
-        let conn = Connection::open(db_path)
-            .context("Failed to open notifications database")?;
+        let conn = Connection::open(db_path).context("Failed to open notifications database")?;
 
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -109,20 +108,23 @@ impl NotificationsDatabase {
                 action_data TEXT
             )",
             [],
-        ).context("Failed to create notifications table")?;
+        )
+        .context("Failed to create notifications table")?;
 
         // Create index for faster queries
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_notifications_created_at
              ON notifications(created_at DESC)",
             [],
-        ).context("Failed to create notifications index")?;
+        )
+        .context("Failed to create notifications index")?;
 
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_notifications_read
              ON notifications(read, created_at DESC)",
             [],
-        ).context("Failed to create notifications read index")?;
+        )
+        .context("Failed to create notifications read index")?;
 
         Ok(())
     }
@@ -142,11 +144,14 @@ impl NotificationsDatabase {
                 &notification.created_at.to_rfc3339(),
                 &(notification.read as i32).to_string(),
                 &notification.action_type.as_ref().unwrap_or(&String::new()),
-                &notification.action_data.as_ref()
+                &notification
+                    .action_data
+                    .as_ref()
                     .map(|v| serde_json::to_string(v).unwrap_or_default())
                     .unwrap_or_default(),
             ],
-        ).context("Failed to insert notification")?;
+        )
+        .context("Failed to insert notification")?;
 
         Ok(())
     }
@@ -168,13 +173,19 @@ impl NotificationsDatabase {
                 id: row.get(0)?,
                 title: row.get(1)?,
                 message: row.get(2)?,
-                notification_type: notification_type_str.parse()
+                notification_type: notification_type_str
+                    .parse()
                     .unwrap_or(NotificationType::Info),
-                created_at: row.get::<_, String>(4)?
+                created_at: row
+                    .get::<_, String>(4)?
                     .parse()
                     .unwrap_or_else(|_| Utc::now()),
                 read: row.get::<_, i32>(5)? != 0,
-                action_type: if action_type.is_empty() { None } else { Some(action_type) },
+                action_type: if action_type.is_empty() {
+                    None
+                } else {
+                    Some(action_type)
+                },
                 action_data: if action_data_str.is_empty() {
                     None
                 } else {
@@ -200,30 +211,37 @@ impl NotificationsDatabase {
              LIMIT ?1"
         )?;
 
-        let notifications = stmt.query_map([limit], |row| {
-            let notification_type_str: String = row.get(3)?;
-            let action_type: String = row.get(6)?;
-            let action_data_str: String = row.get(7)?;
+        let notifications = stmt
+            .query_map([limit], |row| {
+                let notification_type_str: String = row.get(3)?;
+                let action_type: String = row.get(6)?;
+                let action_data_str: String = row.get(7)?;
 
-            Ok(Notification {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                message: row.get(2)?,
-                notification_type: notification_type_str.parse()
-                    .unwrap_or(NotificationType::Info),
-                created_at: row.get::<_, String>(4)?
-                    .parse()
-                    .unwrap_or_else(|_| Utc::now()),
-                read: row.get::<_, i32>(5)? != 0,
-                action_type: if action_type.is_empty() { None } else { Some(action_type) },
-                action_data: if action_data_str.is_empty() {
-                    None
-                } else {
-                    serde_json::from_str(&action_data_str).ok()
-                },
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+                Ok(Notification {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    message: row.get(2)?,
+                    notification_type: notification_type_str
+                        .parse()
+                        .unwrap_or(NotificationType::Info),
+                    created_at: row
+                        .get::<_, String>(4)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                    read: row.get::<_, i32>(5)? != 0,
+                    action_type: if action_type.is_empty() {
+                        None
+                    } else {
+                        Some(action_type)
+                    },
+                    action_data: if action_data_str.is_empty() {
+                        None
+                    } else {
+                        serde_json::from_str(&action_data_str).ok()
+                    },
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(notifications)
     }
@@ -243,10 +261,8 @@ impl NotificationsDatabase {
     pub fn mark_as_read(&self, id: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
-        conn.execute(
-            "UPDATE notifications SET read = 1 WHERE id = ?1",
-            [id],
-        ).context("Failed to mark notification as read")?;
+        conn.execute("UPDATE notifications SET read = 1 WHERE id = ?1", [id])
+            .context("Failed to mark notification as read")?;
 
         Ok(())
     }
@@ -254,10 +270,8 @@ impl NotificationsDatabase {
     pub fn mark_all_as_read(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
-        conn.execute(
-            "UPDATE notifications SET read = 1",
-            [],
-        ).context("Failed to mark all notifications as read")?;
+        conn.execute("UPDATE notifications SET read = 1", [])
+            .context("Failed to mark all notifications as read")?;
 
         Ok(())
     }
@@ -265,10 +279,8 @@ impl NotificationsDatabase {
     pub fn delete_notification(&self, id: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
-        conn.execute(
-            "DELETE FROM notifications WHERE id = ?1",
-            [id],
-        ).context("Failed to delete notification")?;
+        conn.execute("DELETE FROM notifications WHERE id = ?1", [id])
+            .context("Failed to delete notification")?;
 
         Ok(())
     }
@@ -278,10 +290,12 @@ impl NotificationsDatabase {
 
         let cutoff_date = Utc::now() - chrono::Duration::days(days);
 
-        let deleted = conn.execute(
-            "DELETE FROM notifications WHERE created_at < ?1",
-            [cutoff_date.to_rfc3339()],
-        ).context("Failed to delete old notifications")?;
+        let deleted = conn
+            .execute(
+                "DELETE FROM notifications WHERE created_at < ?1",
+                [cutoff_date.to_rfc3339()],
+            )
+            .context("Failed to delete old notifications")?;
 
         Ok(deleted)
     }

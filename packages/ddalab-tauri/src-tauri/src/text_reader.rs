@@ -40,11 +40,11 @@ impl TextFileReader {
 
     /// Generic file reader with configurable delimiter
     fn read_file<P: AsRef<Path>>(path: P, delimiter: u8) -> Result<Self, String> {
-        let file = File::open(path.as_ref())
-            .map_err(|e| format!("Failed to open file: {}", e))?;
+        let file = File::open(path.as_ref()).map_err(|e| format!("Failed to open file: {}", e))?;
 
         let reader = BufReader::new(file);
-        let lines: Vec<String> = reader.lines()
+        let lines: Vec<String> = reader
+            .lines()
             .collect::<Result<_, _>>()
             .map_err(|e| format!("Failed to read file: {}", e))?;
 
@@ -69,9 +69,7 @@ impl TextFileReader {
 
         let (channel_labels, data_start_idx) = if has_header {
             // Use first row as channel labels
-            let labels: Vec<String> = first_row.iter()
-                .map(|s| s.trim().to_string())
-                .collect();
+            let labels: Vec<String> = first_row.iter().map(|s| s.trim().to_string()).collect();
             (labels, 1)
         } else {
             // Generate default channel labels
@@ -106,11 +104,14 @@ impl TextFileReader {
 
             // Parse each value and add to corresponding channel
             for (ch_idx, value_str) in values.iter().enumerate() {
-                let value = value_str.trim().parse::<f64>()
-                    .map_err(|_| format!(
+                let value = value_str.trim().parse::<f64>().map_err(|_| {
+                    format!(
                         "Invalid numeric value '{}' at line {}, column {}",
-                        value_str, line_idx + 1, ch_idx + 1
-                    ))?;
+                        value_str,
+                        line_idx + 1,
+                        ch_idx + 1
+                    )
+                })?;
                 data[ch_idx].push(value);
             }
 
@@ -143,9 +144,7 @@ impl TextFileReader {
             }
             None => {
                 // Split by any whitespace (for ASCII/TSV)
-                line.split_whitespace()
-                    .map(|s| s.to_string())
-                    .collect()
+                line.split_whitespace().map(|s| s.to_string()).collect()
             }
         };
 
@@ -211,7 +210,10 @@ mod tests {
         assert_eq!(reader.info.num_channels, 3);
         assert_eq!(reader.info.num_samples, 3);
         assert!(reader.info.has_header);
-        assert_eq!(reader.info.channel_labels, vec!["Time", "Signal1", "Signal2"]);
+        assert_eq!(
+            reader.info.channel_labels,
+            vec!["Time", "Signal1", "Signal2"]
+        );
         assert_eq!(reader.data[0][0], 0.0);
         assert_eq!(reader.data[1][0], 1.5);
         assert_eq!(reader.data[2][0], 2.5);
@@ -230,7 +232,10 @@ mod tests {
         assert_eq!(reader.info.num_channels, 3);
         assert_eq!(reader.info.num_samples, 3);
         assert!(!reader.info.has_header);
-        assert_eq!(reader.info.channel_labels, vec!["Channel 1", "Channel 2", "Channel 3"]);
+        assert_eq!(
+            reader.info.channel_labels,
+            vec!["Channel 1", "Channel 2", "Channel 3"]
+        );
     }
 
     #[test]

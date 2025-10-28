@@ -60,15 +60,9 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
 
 /// Compare two semver version strings
 fn is_newer_version(current: &str, latest: &str) -> bool {
-    let current_parts: Vec<u32> = current
-        .split('.')
-        .filter_map(|s| s.parse().ok())
-        .collect();
+    let current_parts: Vec<u32> = current.split('.').filter_map(|s| s.parse().ok()).collect();
 
-    let latest_parts: Vec<u32> = latest
-        .split('.')
-        .filter_map(|s| s.parse().ok())
-        .collect();
+    let latest_parts: Vec<u32> = latest.split('.').filter_map(|s| s.parse().ok()).collect();
 
     // Pad with zeros if needed
     let max_len = current_parts.len().max(latest_parts.len());
