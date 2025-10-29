@@ -135,6 +135,8 @@ fn main() {
             select_data_directory,
             get_data_directory,
             set_data_directory,
+            // File operation commands
+            segment_file,
             // Update commands
             check_for_updates,
             get_app_version,
