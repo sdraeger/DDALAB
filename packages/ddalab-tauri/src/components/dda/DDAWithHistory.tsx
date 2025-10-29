@@ -18,9 +18,13 @@ interface DDAWithHistoryProps {
 }
 
 export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
-  const fileManager = useAppStore(state => state.fileManager)
+  // Only select the specific properties we need, not entire objects
+  // This prevents re-renders when other properties change
+  const currentFilePath = useAppStore(state => state.fileManager.selectedFile?.file_path)
+  const currentAnalysisId = useAppStore(state => state.dda.currentAnalysis?.id)
+  const currentAnalysisFilePath = useAppStore(state => state.dda.currentAnalysis?.file_path)
   const currentAnalysis = useAppStore(state => state.dda.currentAnalysis)
-  const previousAnalysis = useAppStore(state => state.dda.previousAnalysis)
+  const hasPreviousAnalysis = useAppStore(state => !!state.dda.previousAnalysis)
   const setCurrentAnalysis = useAppStore(state => state.setCurrentAnalysis)
   const restorePreviousAnalysis = useAppStore(state => state.restorePreviousAnalysis)
   const isServerReady = useAppStore(state => state.ui.isServerReady)
@@ -38,7 +42,6 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   } = useDDAHistory(apiService, isServerReady && !!apiService.getSessionToken())
 
   // Memoize filtered history to prevent unnecessary re-renders
-  const currentFilePath = fileManager.selectedFile?.file_path
   const fileHistory = useMemo(
     () => allHistory?.filter(item => item.file_path === currentFilePath) || [],
     [allHistory, currentFilePath]
@@ -53,7 +56,7 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   } = useAnalysisFromHistory(
     apiService,
     selectedAnalysisId,
-    !!selectedAnalysisId && selectedAnalysisId !== currentAnalysis?.id
+    !!selectedAnalysisId && selectedAnalysisId !== currentAnalysisId
   )
 
   // Mutations
@@ -62,39 +65,72 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
 
   // Initialize selected ID when current analysis changes or file changes
   useEffect(() => {
-    if (currentAnalysis?.file_path === currentFilePath) {
-      setSelectedAnalysisId(currentAnalysis.id)
-    } else if (!currentAnalysis && fileHistory.length > 0) {
+    if (currentAnalysisFilePath === currentFilePath && currentAnalysisId) {
+      // Only update if actually different to prevent unnecessary state updates
+      if (selectedAnalysisId !== currentAnalysisId) {
+        setSelectedAnalysisId(currentAnalysisId)
+      }
+    } else if (!currentAnalysisId && fileHistory.length > 0) {
       // Auto-select most recent for this file
-      setSelectedAnalysisId(fileHistory[0].id)
-    } else if (!currentAnalysis) {
+      const mostRecentId = fileHistory[0].id
+      if (selectedAnalysisId !== mostRecentId) {
+        setSelectedAnalysisId(mostRecentId)
+      }
+    } else if (!currentAnalysisId && selectedAnalysisId !== null) {
       setSelectedAnalysisId(null)
     }
-  }, [currentAnalysis?.id, currentFilePath]) // Only depend on IDs, not whole objects
+  }, [currentAnalysisId, currentAnalysisFilePath, currentFilePath, selectedAnalysisId, fileHistory])
 
   // Update store when full analysis data is loaded
+  // CRITICAL FIX: Only call setCurrentAnalysis when the analysis ID actually changes
+  // DashboardLayout handles initial auto-load, so we only need to handle manual selection changes
+  const lastSetAnalysisId = useRef<string | null>(null)
+
   useEffect(() => {
-    if (selectedAnalysisData && !isSettingAnalysis.current) {
-      isSettingAnalysis.current = true
-      console.log('[DDA HISTORY] Setting loaded analysis as current:', {
-        id: selectedAnalysisData.id,
-        hasResults: !!selectedAnalysisData.results,
-        hasScales: !!selectedAnalysisData.results?.scales,
-        scalesLength: selectedAnalysisData.results?.scales?.length,
-        variantsCount: selectedAnalysisData.results?.variants?.length,
-        firstVariantId: selectedAnalysisData.results?.variants?.[0]?.variant_id,
-        hasMatrixData: !!selectedAnalysisData.results?.variants?.[0]?.dda_matrix,
-        matrixChannels: selectedAnalysisData.results?.variants?.[0]?.dda_matrix
-          ? Object.keys(selectedAnalysisData.results.variants[0].dda_matrix).length
-          : 0
-      })
-      setCurrentAnalysis(selectedAnalysisData)
-      // Use setTimeout to break out of sync rendering
-      setTimeout(() => {
-        isSettingAnalysis.current = false
-      }, 0)
+    // Skip if no selected analysis data
+    if (!selectedAnalysisData) {
+      return
     }
-  }, [selectedAnalysisData?.id]) // Only depend on ID
+
+    // Skip if this is the same analysis we just set (prevents duplicate calls)
+    if (lastSetAnalysisId.current === selectedAnalysisData.id) {
+      return
+    }
+
+    // Skip if this analysis is already the current one (prevents duplicate calls from DashboardLayout)
+    if (currentAnalysisId === selectedAnalysisData.id) {
+      console.log('[DDA HISTORY] Analysis already set as current, skipping duplicate setCurrentAnalysis call')
+      lastSetAnalysisId.current = selectedAnalysisData.id
+      return
+    }
+
+    // Prevent concurrent calls
+    if (isSettingAnalysis.current) {
+      return
+    }
+
+    isSettingAnalysis.current = true
+    console.log('[DDA HISTORY] Setting loaded analysis as current:', {
+      id: selectedAnalysisData.id,
+      hasResults: !!selectedAnalysisData.results,
+      hasScales: !!selectedAnalysisData.results?.scales,
+      scalesLength: selectedAnalysisData.results?.scales?.length,
+      variantsCount: selectedAnalysisData.results?.variants?.length,
+      firstVariantId: selectedAnalysisData.results?.variants?.[0]?.variant_id,
+      hasMatrixData: !!selectedAnalysisData.results?.variants?.[0]?.dda_matrix,
+      matrixChannels: selectedAnalysisData.results?.variants?.[0]?.dda_matrix
+        ? Object.keys(selectedAnalysisData.results.variants[0].dda_matrix).length
+        : 0
+    })
+
+    setCurrentAnalysis(selectedAnalysisData)
+    lastSetAnalysisId.current = selectedAnalysisData.id
+
+    // Use setTimeout to break out of sync rendering
+    setTimeout(() => {
+      isSettingAnalysis.current = false
+    }, 0)
+  }, [selectedAnalysisData?.id]) // Only depend on selected analysis ID, not current analysis
 
   const handleSelectAnalysis = (analysis: DDAResult) => {
     // Prevent multiple clicks while loading
@@ -140,34 +176,52 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
 
   const handleRenameAnalysis = async (id: string, name: string) => {
     try {
-      await renameAnalysisMutation.mutateAsync({ id, name })
+      await renameAnalysisMutation.mutateAsync({ analysisId: id, newName: name })
       await refetchHistory()
     } catch (error) {
       console.error('[DDA] Failed to rename analysis:', error)
     }
   }
 
-  // Determine what to display
+  // Determine what to display - HEAVILY MEMOIZED to prevent excessive re-renders of DDAResults
   // Keep showing current analysis while new one loads to prevent flash of empty state
-  const displayAnalysis = selectedAnalysisData
-    ? selectedAnalysisData
-    : (currentAnalysis?.id === selectedAnalysisId ? currentAnalysis : null)
+  // CRITICAL: Use refs to access current data, but only recalculate when IDs change
+  const selectedAnalysisRef = useRef(selectedAnalysisData)
+  const currentAnalysisRef = useRef(currentAnalysis)
+
+  // Update refs on every render (cheap)
+  selectedAnalysisRef.current = selectedAnalysisData
+  currentAnalysisRef.current = currentAnalysis
+
+  // But only recalculate displayAnalysis when IDs actually change (expensive)
+  const displayAnalysis = useMemo(() => {
+    const selected = selectedAnalysisRef.current
+    const current = currentAnalysisRef.current
+
+    if (selected) return selected
+    if (current?.id === selectedAnalysisId) return current
+    return null
+  }, [
+    selectedAnalysisData?.id,  // Only depend on IDs
+    currentAnalysisId,
+    selectedAnalysisId
+  ])
 
   // Auto-switch to Results tab when a new analysis completes
   useEffect(() => {
     if (currentAnalysis && currentAnalysis.status === 'completed') {
       setActiveTab('results')
     }
-  }, [currentAnalysis?.id])
+  }, [currentAnalysisId])
 
   // Log what we're about to display
   useEffect(() => {
     console.log('[DDA HISTORY] Display state changed:', {
       selectedAnalysisId,
-      currentAnalysisId: currentAnalysis?.id,
+      currentAnalysisId,
       hasDisplayAnalysis: !!displayAnalysis,
       displayAnalysisId: displayAnalysis?.id,
-      displaySource: displayAnalysis?.id === currentAnalysis?.id ? 'currentAnalysis' : 'selectedAnalysisData',
+      displaySource: displayAnalysis?.id === currentAnalysisId ? 'currentAnalysis' : 'selectedAnalysisData',
       hasResultsData: !!displayAnalysis?.results,
       hasScales: !!displayAnalysis?.results?.scales,
       scalesLength: displayAnalysis?.results?.scales?.length,
@@ -231,7 +285,7 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
               // Key forces re-mount when switching between analyses
               <div key={displayAnalysis.id} className="p-4 space-y-4">
                 {/* NSG Results Indicator Banner */}
-                {displayAnalysis.source === 'nsg' && previousAnalysis && (
+                {displayAnalysis.source === 'nsg' && hasPreviousAnalysis && (
                   <Alert className="border-blue-200 bg-blue-50">
                     <Cloud className="h-4 w-4 text-blue-600" />
                     <AlertDescription className="flex items-center justify-between">
@@ -253,12 +307,6 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
                   </Alert>
                 )}
 
-                {console.log('[DDA HISTORY] Rendering DDAResults with:', {
-                  id: displayAnalysis.id,
-                  hasResults: !!displayAnalysis.results,
-                  scalesLength: displayAnalysis.results?.scales?.length,
-                  variantsCount: displayAnalysis.results?.variants?.length
-                })}
                 <DDAResults result={displayAnalysis} />
               </div>
             ) : (

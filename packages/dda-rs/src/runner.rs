@@ -1,5 +1,6 @@
 use crate::error::{DDAError, Result};
 use crate::parser::parse_dda_output;
+use crate::profiling::ProfileScope;
 use crate::types::*;
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
@@ -409,13 +410,16 @@ impl DDARunner {
 
         // Handle CT separately if we ran ST separately
         if run_st_separately && has_ct_pairs {
-            log::info!(
-                "Now processing CT variant with {} channel pairs",
-                request.ct_channel_pairs.as_ref().unwrap().len()
-            );
+            let num_pairs = request.ct_channel_pairs.as_ref().unwrap().len();
+            log::info!("Now processing CT variant with {} channel pairs", num_pairs);
 
             let pairs = request.ct_channel_pairs.as_ref().unwrap();
             let mut combined_ct_matrix: Vec<Vec<f64>> = Vec::new();
+
+            // Process all CT pairs sequentially (parallel processing causes excessive memory consumption)
+            let _profile =
+                ProfileScope::new(format!("ct_pair_processing_serial_{}_pairs", num_pairs));
+            log::info!("⏭️ Processing {} CT pairs sequentially", num_pairs);
 
             // Process all CT pairs
             for (pair_idx, pair) in pairs.iter().enumerate() {

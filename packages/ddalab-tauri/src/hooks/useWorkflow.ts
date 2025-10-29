@@ -6,8 +6,7 @@ import type {
   WorkflowEdge,
   WorkflowAction,
   WorkflowInfo,
-  NodeInfo,
-  WorkflowExport
+  NodeInfo
 } from '@/types/workflow'
 
 /**

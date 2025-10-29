@@ -394,20 +394,14 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     };
   }, []);
 
-  // Process and render chunk data when query data changes
-  useEffect(() => {
-    if (!chunkData || !fileManager.selectedFile) return;
-
-    console.log("[ECharts] Chunk data received from query:", {
-      dataLength: chunkData.data?.length,
-      timestampsLength: chunkData.timestamps?.length,
-      channels: chunkData.channels?.length,
-    });
-
-    if (!chunkData.data || chunkData.data.length === 0) {
-      console.error("No data received from query");
-      return;
+  // Memoize preprocessing to avoid redundant computation on re-renders
+  const preprocessedChunkData = useMemo(() => {
+    if (!chunkData || !fileManager.selectedFile || !chunkData.data || chunkData.data.length === 0) {
+      return null;
     }
+
+    const startTime = performance.now();
+    console.log("[PERF] Starting preprocessing for", chunkData.data.length, "channels");
 
     // Apply preprocessing
     const preprocessedData = chunkData.data.map((channelData) =>
@@ -418,30 +412,36 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       )
     );
 
-    const processedChunk: ChunkData = {
+    const elapsed = performance.now() - startTime;
+    console.log(`[PERF] Preprocessing completed in ${elapsed.toFixed(2)}ms`);
+
+    return {
       ...chunkData,
       data: preprocessedData,
     };
+  }, [chunkData, fileManager.selectedFile, preprocessing]);
 
-    setCurrentChunk(processedChunk);
-    renderChart(processedChunk, currentTime);
-  }, [chunkData, fileManager.selectedFile, preprocessing, currentTime, timeWindow]);
-
-  // Separate effect for updating annotations without re-rendering the entire chart
+  // Process and render chunk data when query data changes
   useEffect(() => {
-    if (!chartInstanceRef.current || !isChartReady) return;
+    if (!preprocessedChunkData) return;
 
-    // Only update markLine in the first series
-    const currentOption = chartInstanceRef.current.getOption() as any;
-    if (!currentOption || !currentOption.series || currentOption.series.length === 0) {
-      console.log('[ECharts] Skipping annotation update - chart not ready or no series yet');
-      return;
-    }
+    console.log("[ECharts] Chunk data received from query:", {
+      dataLength: preprocessedChunkData.data?.length,
+      timestampsLength: preprocessedChunkData.timestamps?.length,
+      channels: preprocessedChunkData.channels?.length,
+    });
 
-    console.log('[ECharts] Updating annotations - count:', annotationsFromStore.length);
+    setCurrentChunk(preprocessedChunkData);
+    renderChart(preprocessedChunkData, currentTime);
+  }, [preprocessedChunkData, currentTime, timeWindow]);
 
-    // Build markLine configuration
-    const markLine = annotationsFromStore.length > 0 ? {
+  // Memoize annotation markLine config to avoid rebuilding on every update
+  const annotationMarkLine = useMemo(() => {
+    if (annotationsFromStore.length === 0) return undefined;
+
+    const startTime = performance.now();
+
+    const markLine = {
       symbol: ['none', 'none'],
       silent: false,
       animation: false,
@@ -485,22 +485,37 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
           formatter: annotation.label,
         },
       })),
-    } : undefined;
+    };
 
-    // Update ALL series with markLine (each channel needs to know about annotations)
-    const updatedSeries = currentOption.series.map((series: any, index: number) => ({
-      ...series,
-      markLine: index === 0 ? markLine : undefined, // Only first series gets markLine to avoid duplicates
-    }));
+    const elapsed = performance.now() - startTime;
+    console.log(`[PERF] Annotation markLine built in ${elapsed.toFixed(2)}ms`);
 
-    // Use setOption with notMerge: false to update in place
+    return markLine;
+  }, [annotationsFromStore]);
+
+  // Separate effect for updating annotations without re-rendering the entire chart
+  useEffect(() => {
+    if (!chartInstanceRef.current || !isChartReady) return;
+
+    // Only update markLine in the first series
+    const currentOption = chartInstanceRef.current.getOption() as any;
+    if (!currentOption || !currentOption.series || currentOption.series.length === 0) {
+      console.log('[ECharts] Skipping annotation update - chart not ready or no series yet');
+      return;
+    }
+
+    console.log('[ECharts] Updating annotations - count:', annotationsFromStore.length);
+
+    // Use setOption with notMerge: false to efficiently update just the markLine
     chartInstanceRef.current.setOption({
-      series: updatedSeries,
+      series: [{
+        markLine: annotationMarkLine
+      }]
     }, {
-      notMerge: false, // Merge with existing options
-      lazyUpdate: false, // Update immediately
+      notMerge: false, // Merge with existing options (efficient update)
+      lazyUpdate: true, // Batch updates
     });
-  }, [annotationsFromStore, isChartReady]);
+  }, [annotationMarkLine, isChartReady]);
 
   // Load chunk - with TanStack Query, we just update the currentTime state
   // The query will automatically refetch based on the new query key
@@ -591,19 +606,28 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     // Auto-calculate stable offset based on data range with proper spacing
     let autoOffset = 0;
     if (stableOffsetRef.current === null) {
+      const startTimeRanges = performance.now();
+
       // Calculate peak-to-peak range for each channel (more robust than just first 100 samples)
       const channelRanges = chunkData.data.map((channelData) => {
         // Sample across the entire chunk for better representation
         const sampleSize = Math.min(1000, channelData.length);
         const step = Math.max(1, Math.floor(channelData.length / sampleSize));
-        const samples = [];
+        let min = Infinity;
+        let max = -Infinity;
+
+        // Optimized loop - avoid array allocation
         for (let i = 0; i < channelData.length; i += step) {
-          samples.push(channelData[i]);
+          const val = channelData[i];
+          if (val < min) min = val;
+          if (val > max) max = val;
         }
-        const min = Math.min(...samples);
-        const max = Math.max(...samples);
+
         return max - min;
       });
+
+      const elapsedRanges = performance.now() - startTimeRanges;
+      console.log(`[PERF] Channel ranges computed in ${elapsedRanges.toFixed(2)}ms`);
 
       const maxRange = Math.max(...channelRanges);
       const avgRange =
@@ -633,6 +657,8 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     }
 
     console.log("[ECharts] Auto-calculated offset:", autoOffset);
+
+    const startTimeSeries = performance.now();
 
     // Prepare series data with aggressive decimation for better performance
     const series = chunkData.channels.map((channelName, channelIndex) => {
@@ -739,6 +765,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
         markLine,
       };
     });
+
+    const elapsedSeries = performance.now() - startTimeSeries;
+    console.log(`[PERF] Series data built in ${elapsedSeries.toFixed(2)}ms for ${chunkData.channels.length} channels`);
 
     // Configure chart options
     const option: echarts.EChartsOption = {

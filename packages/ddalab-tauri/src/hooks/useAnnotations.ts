@@ -4,6 +4,7 @@ import { PlotAnnotation } from '@/types/annotations'
 import { DDAResult } from '@/types/api'
 import { timeSeriesAnnotationToDDA } from '@/utils/annotationSync'
 import { useAvailablePlots } from './useAvailablePlots'
+import { shallow } from 'zustand/shallow'
 
 interface UseTimeSeriesAnnotationsOptions {
   filePath: string
@@ -120,58 +121,74 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
   const addTimeSeriesAnnotation = useAppStore(state => state.addTimeSeriesAnnotation)
   const availablePlots = useAvailablePlots()
 
-  // Get DDA-specific annotations
-  const ddaAnnotations = useAppStore(state => {
-    const key = `${resultId}_${variantId}_${plotType}`
-    return state.annotations.ddaResults[key]?.annotations || []
-  })
+  // Extract primitive values from ddaResult for stable dependencies
+  const startTime = ddaResult.parameters.start_time || 0
+  const endTime = ddaResult.parameters.end_time || Infinity
+  const filePath = ddaResult.file_path
 
-  // Get timeseries annotations and transform them to DDA coordinates
-  const timeSeriesAnnotations = useAppStore(state => {
-    const fileAnnotations = state.annotations.timeSeries[ddaResult.file_path]
-    return fileAnnotations?.globalAnnotations || []
-  })
+  // Get DDA-specific annotations with shallow equality to prevent re-renders
+  const ddaAnnotations = useAppStore(
+    state => {
+      const key = `${resultId}_${variantId}_${plotType}`
+      return state.annotations.ddaResults[key]?.annotations || []
+    },
+    shallow  // Only re-render if array contents actually changed
+  )
+
+  // Get timeseries annotations with shallow equality
+  const timeSeriesAnnotations = useAppStore(
+    state => {
+      const fileAnnotations = state.annotations.timeSeries[filePath]
+      return fileAnnotations?.globalAnnotations || []
+    },
+    shallow  // Only re-render if array contents actually changed
+  )
 
   // Merge both annotation sets with coordinate transformation
   const annotations = useMemo(() => {
     const currentPlotId = `dda:${variantId}:${plotType === 'heatmap' ? 'heatmap' : 'lineplot'}`
 
-    const transformed = timeSeriesAnnotations
-      .filter(ann => {
-        // Only include annotations within the DDA result's time range
-        const startTime = ddaResult.parameters.start_time || 0
-        const endTime = ddaResult.parameters.end_time || Infinity
-        return ann.position >= startTime && ann.position <= endTime
-      })
-      .filter(ann => {
-        // Filter based on plot visibility
-        if (!ann.visible_in_plots || ann.visible_in_plots.length === 0) return true
-        // Check if current DDA plot is in the visibility list
-        return ann.visible_in_plots.includes(currentPlotId)
-      })
+    // Filter by time range
+    const inTimeRange = timeSeriesAnnotations.filter(ann =>
+      ann.position >= startTime && ann.position <= endTime
+    )
+
+    // Filter by visibility
+    const visibleAnnotations = inTimeRange.filter(ann => {
+      if (!ann.visible_in_plots || ann.visible_in_plots.length === 0) return true
+      return ann.visible_in_plots.includes(currentPlotId)
+    })
+
+    // Transform to DDA coordinates
+    const transformed = visibleAnnotations
       .map(ann => timeSeriesAnnotationToDDA(ann, ddaResult, sampleRate))
-      .filter(ann => {
-        // Filter out invalid transformations (position = -1)
-        return ann.position >= 0
-      })
+      .filter(ann => ann.position >= 0)
 
     // Combine DDA-specific and transformed timeseries annotations
-    // Use Map to deduplicate by ID (DDA-specific takes precedence)
     const annotationMap = new Map<string, PlotAnnotation>()
 
     // Add transformed timeseries first
     transformed.forEach(ann => annotationMap.set(ann.id, ann))
 
     // Add DDA-specific (overrides transformed if same ID) and filter by plot visibility
-    ddaAnnotations
-      .filter(ann => {
-        if (!ann.visible_in_plots || ann.visible_in_plots.length === 0) return true
-        return ann.visible_in_plots.includes(currentPlotId)
-      })
-      .forEach(ann => annotationMap.set(ann.id, ann))
+    const filteredDDA = ddaAnnotations.filter(ann => {
+      if (!ann.visible_in_plots || ann.visible_in_plots.length === 0) return true
+      return ann.visible_in_plots.includes(currentPlotId)
+    })
+
+    filteredDDA.forEach(ann => annotationMap.set(ann.id, ann))
 
     return Array.from(annotationMap.values()).sort((a, b) => a.position - b.position)
-  }, [timeSeriesAnnotations, ddaAnnotations, ddaResult, sampleRate, variantId, plotType])
+  }, [
+    timeSeriesAnnotations,
+    ddaAnnotations,
+    startTime,
+    endTime,
+    resultId,  // Use resultId as proxy for ddaResult changes
+    sampleRate,
+    variantId,
+    plotType
+  ])
 
   const [contextMenu, setContextMenu] = useState<{
     x: number
@@ -224,9 +241,9 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
 
       // Save to timeseries annotations (not DDA-specific)
       // This allows the annotation to show up in all views
-      addTimeSeriesAnnotation(ddaResult.file_path, annotation)
+      addTimeSeriesAnnotation(filePath, annotation)
     },
-    [ddaResult, sampleRate, addTimeSeriesAnnotation, variantId, plotType, availablePlots]
+    [filePath, sampleRate, addTimeSeriesAnnotation, variantId, plotType, availablePlots, ddaResult]
   )
 
   const handleUpdateAnnotation = useCallback(
@@ -236,13 +253,13 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
         // Update the original timeseries annotation
         const originalId = id.replace('_dda', '')
         const updateTimeSeriesAnnotation = useAppStore.getState().updateTimeSeriesAnnotation
-        updateTimeSeriesAnnotation(ddaResult.file_path, originalId, { label, description, visible_in_plots: visibleInPlots })
+        updateTimeSeriesAnnotation(filePath, originalId, { label, description, visible_in_plots: visibleInPlots })
       } else {
         // Update DDA-specific annotation
         updateDDAAnnotation(resultId, variantId, plotType, id, { label, description, visible_in_plots: visibleInPlots })
       }
     },
-    [ddaResult, resultId, variantId, plotType, updateDDAAnnotation]
+    [filePath, resultId, variantId, plotType, updateDDAAnnotation]
   )
 
   const handleDeleteAnnotation = useCallback(
@@ -252,13 +269,13 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
         // Delete the original timeseries annotation
         const originalId = id.replace('_dda', '')
         const deleteTimeSeriesAnnotation = useAppStore.getState().deleteTimeSeriesAnnotation
-        deleteTimeSeriesAnnotation(ddaResult.file_path, originalId)
+        deleteTimeSeriesAnnotation(filePath, originalId)
       } else {
         // Delete DDA-specific annotation
         deleteDDAAnnotation(resultId, variantId, plotType, id)
       }
     },
-    [ddaResult, resultId, variantId, plotType, deleteDDAAnnotation]
+    [filePath, resultId, variantId, plotType, deleteDDAAnnotation]
   )
 
   const openContextMenu = useCallback(
@@ -283,7 +300,21 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
     return `dda:${variantId}:${plotType === 'heatmap' ? 'heatmap' : 'lineplot'}`
   }, [variantId, plotType])
 
-  return {
+  // Debug logging to track annotation retrieval
+  useEffect(() => {
+    if (annotations.length > 0) {
+      console.log('[useDDAAnnotations] Retrieved annotations:', {
+        plotType,
+        resultId,
+        variantId,
+        count: annotations.length,
+        annotations: annotations.map(a => ({ id: a.id, label: a.label, position: a.position }))
+      })
+    }
+  }, [annotations, plotType, resultId, variantId])
+
+  // Memoize the return object to prevent creating new references on every render
+  return useMemo(() => ({
     annotations,
     contextMenu,
     handleCreateAnnotation,
@@ -294,5 +325,5 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
     handleAnnotationClick,
     availablePlots,
     currentPlotId
-  }
+  }), [annotations, contextMenu, handleCreateAnnotation, handleUpdateAnnotation, handleDeleteAnnotation, openContextMenu, closeContextMenu, handleAnnotationClick, availablePlots, currentPlotId])
 }

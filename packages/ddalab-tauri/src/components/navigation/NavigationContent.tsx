@@ -1,48 +1,49 @@
-'use client'
+"use client";
 
-import { useAppStore } from '@/store/appStore'
-import { ApiService } from '@/services/apiService'
+import { useAppStore } from "@/store/appStore";
+import { ApiService } from "@/services/apiService";
 
 // Import existing components
-import { TimeSeriesPlotECharts } from '@/components/TimeSeriesPlotECharts'
-import { AnnotationsTab } from '@/components/AnnotationsTab'
-import { DDAWithHistory } from '@/components/dda/DDAWithHistory'
-import { SettingsPanel } from '@/components/SettingsPanel'
-import { OpenNeuroBrowser } from '@/components/OpenNeuroBrowser'
-import { NSGJobManager } from '@/components/NSGJobManager'
-import { NotificationHistory } from '@/components/NotificationHistory'
-import { FileInfoCard } from '@/components/FileInfoCard'
-import { Card, CardContent } from '@/components/ui/card'
-import { Brain, Activity, FileText } from 'lucide-react'
+import { TimeSeriesPlotECharts } from "@/components/TimeSeriesPlotECharts";
+import { AnnotationsTab } from "@/components/AnnotationsTab";
+import { DDAWithHistory } from "@/components/dda/DDAWithHistory";
+import { SettingsPanel } from "@/components/SettingsPanel";
+import { OpenNeuroBrowser } from "@/components/OpenNeuroBrowser";
+import { NSGJobManager } from "@/components/NSGJobManager";
+import { NotificationHistory } from "@/components/NotificationHistory";
+import { FileInfoCard } from "@/components/FileInfoCard";
+import { Card, CardContent } from "@/components/ui/card";
+import { Brain, Activity, FileText } from "lucide-react";
 
 interface NavigationContentProps {
-  apiService: ApiService
+  apiService: ApiService;
 }
 
 export function NavigationContent({ apiService }: NavigationContentProps) {
-  const primaryNav = useAppStore(state => state.ui.primaryNav)
-  const secondaryNav = useAppStore(state => state.ui.secondaryNav)
-  const fileManager = useAppStore(state => state.fileManager)
+  const primaryNav = useAppStore((state) => state.ui.primaryNav);
+  const secondaryNav = useAppStore((state) => state.ui.secondaryNav);
+  // Select ONLY a primitive boolean, not the entire selectedFile object
+  // This prevents re-renders when the selectedFile object reference changes
+  const hasSelectedFile = useAppStore(
+    (state) => !!state.fileManager.selectedFile
+  );
 
   // Overview
-  if (primaryNav === 'overview') {
+  if (primaryNav === "overview") {
     return (
       <div className="p-6">
         <OverviewDashboard />
       </div>
-    )
+    );
   }
 
   // Explore
-  if (primaryNav === 'explore') {
-    if (secondaryNav === 'timeseries') {
+  if (primaryNav === "explore") {
+    if (secondaryNav === "timeseries") {
       return (
         <div className="p-4 h-full">
-          {fileManager.selectedFile ? (
-            <TimeSeriesPlotECharts
-              file={fileManager.selectedFile}
-              apiService={apiService}
-            />
+          {hasSelectedFile ? (
+            <TimeSeriesPlotECharts apiService={apiService} />
           ) : (
             <EmptyState
               icon={Activity}
@@ -51,31 +52,31 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
             />
           )}
         </div>
-      )
+      );
     }
 
-    if (secondaryNav === 'annotations') {
+    if (secondaryNav === "annotations") {
       return (
         <div className="p-4 h-full">
           <AnnotationsTab />
         </div>
-      )
+      );
     }
 
     return (
       <ComingSoonPlaceholder
-        feature={secondaryNav || 'Feature'}
+        feature={secondaryNav || "Feature"}
         category="Data Visualization"
       />
-    )
+    );
   }
 
   // Analyze
-  if (primaryNav === 'analyze') {
-    if (secondaryNav === 'dda') {
+  if (primaryNav === "analyze") {
+    if (secondaryNav === "dda") {
       return (
         <div className="h-full">
-          {fileManager.selectedFile ? (
+          {hasSelectedFile ? (
             <DDAWithHistory apiService={apiService} />
           ) : (
             <div className="p-4 h-full">
@@ -87,88 +88,97 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
             </div>
           )}
         </div>
-      )
+      );
     }
 
     return (
       <ComingSoonPlaceholder
-        feature={secondaryNav || 'Feature'}
+        feature={secondaryNav || "Feature"}
         category="Analysis Tools"
       />
-    )
+    );
   }
 
   // Manage
-  if (primaryNav === 'manage') {
-    if (secondaryNav === 'settings') {
+  if (primaryNav === "manage") {
+    if (secondaryNav === "settings") {
       return (
         <div className="p-4 h-full">
           <SettingsPanel />
         </div>
-      )
+      );
     }
 
-    if (secondaryNav === 'data-sources') {
+    if (secondaryNav === "data-sources") {
       return (
         <div className="p-4 h-full">
-          <OpenNeuroBrowser apiService={apiService} />
+          <OpenNeuroBrowser />
         </div>
-      )
+      );
     }
 
-    if (secondaryNav === 'jobs') {
+    if (secondaryNav === "jobs") {
       return (
         <div className="p-4 h-full">
           <NSGJobManager />
         </div>
-      )
+      );
     }
   }
 
   // Notifications
-  if (primaryNav === 'notifications') {
+  if (primaryNav === "notifications") {
     return (
       <div className="p-4 h-full">
         <NotificationHistory />
       </div>
-    )
+    );
   }
 
-  return <div className="p-6">Unknown navigation state</div>
+  return <div className="p-6">Unknown navigation state</div>;
 }
 
 function OverviewDashboard() {
-  const fileManager = useAppStore(state => state.fileManager)
-  const currentAnalysis = useAppStore(state => state.dda.currentAnalysis)
-  const setPrimaryNav = useAppStore(state => state.setPrimaryNav)
-  const setSecondaryNav = useAppStore(state => state.setSecondaryNav)
+  // Select ONLY the specific properties we need
+  const selectedFileName = useAppStore(
+    (state) => state.fileManager.selectedFile?.file_name
+  );
+  const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
+  const hasCurrentAnalysis = useAppStore(
+    (state) => !!state.dda.currentAnalysis
+  );
+  const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
+  const setSecondaryNav = useAppStore((state) => state.setSecondaryNav);
 
   const handleQuickAction = (primary: any, secondary: any) => {
-    setPrimaryNav(primary)
-    if (secondary) setSecondaryNav(secondary)
-  }
+    setPrimaryNav(primary);
+    if (secondary) setSecondaryNav(secondary);
+  };
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold mb-2">Overview</h2>
         <p className="text-muted-foreground">
-          {fileManager.selectedFile
-            ? `Working on: ${fileManager.selectedFile.file_name}`
-            : 'No file selected'}
+          {selectedFileName
+            ? `Working on: ${selectedFileName}`
+            : "No file selected"}
         </p>
       </div>
 
-      {fileManager.selectedFile && (
+      {selectedFile && (
         <>
           {/* File Information Card */}
-          <FileInfoCard fileInfo={fileManager.selectedFile} />
+          <FileInfoCard fileInfo={selectedFile} />
 
           {/* Quick Actions */}
           <div>
             <h3 className="text-lg font-semibold mb-3">Quick Actions</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleQuickAction('explore', 'timeseries')}>
+              <Card
+                className="cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => handleQuickAction("explore", "timeseries")}
+              >
                 <CardContent className="p-6">
                   <Activity className="h-8 w-8 mb-3 text-primary" />
                   <h3 className="font-semibold mb-1">View Data</h3>
@@ -178,7 +188,10 @@ function OverviewDashboard() {
                 </CardContent>
               </Card>
 
-              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleQuickAction('analyze', 'dda')}>
+              <Card
+                className="cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => handleQuickAction("analyze", "dda")}
+              >
                 <CardContent className="p-6">
                   <Brain className="h-8 w-8 mb-3 text-primary" />
                   <h3 className="font-semibold mb-1">Run Analysis</h3>
@@ -188,12 +201,17 @@ function OverviewDashboard() {
                 </CardContent>
               </Card>
 
-              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleQuickAction('explore', 'annotations')}>
+              <Card
+                className="cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => handleQuickAction("explore", "annotations")}
+              >
                 <CardContent className="p-6">
                   <FileText className="h-8 w-8 mb-3 text-primary" />
                   <h3 className="font-semibold mb-1">Annotations</h3>
                   <p className="text-sm text-muted-foreground">
-                    {currentAnalysis ? 'View/edit annotations' : 'Add annotations'}
+                    {hasCurrentAnalysis
+                      ? "View/edit annotations"
+                      : "Add annotations"}
                   </p>
                 </CardContent>
               </Card>
@@ -202,7 +220,7 @@ function OverviewDashboard() {
         </>
       )}
 
-      {!fileManager.selectedFile && (
+      {!selectedFile && (
         <Card>
           <CardContent className="p-12 text-center">
             <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
@@ -214,10 +232,18 @@ function OverviewDashboard() {
         </Card>
       )}
     </div>
-  )
+  );
 }
 
-function EmptyState({ icon: Icon, title, description }: { icon: any; title: string; description: string }) {
+function EmptyState({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: any;
+  title: string;
+  description: string;
+}) {
   return (
     <div className="flex items-center justify-center h-full">
       <div className="text-center">
@@ -226,10 +252,16 @@ function EmptyState({ icon: Icon, title, description }: { icon: any; title: stri
         <p className="text-muted-foreground">{description}</p>
       </div>
     </div>
-  )
+  );
 }
 
-function ComingSoonPlaceholder({ feature, category }: { feature: string; category: string }) {
+function ComingSoonPlaceholder({
+  feature,
+  category,
+}: {
+  feature: string;
+  category: string;
+}) {
   return (
     <div className="flex items-center justify-center h-full">
       <Card className="max-w-md">
@@ -247,5 +279,5 @@ function ComingSoonPlaceholder({ feature, category }: { feature: string; categor
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

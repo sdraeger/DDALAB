@@ -1,10 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { TauriService } from '@/services/tauriService'
 import { Activity, Play, Square, RefreshCw } from 'lucide-react'
+import {
+  useApiStatus,
+  useStartLocalApiServer,
+  useStopLocalApiServer,
+} from '@/hooks/useApiStatus'
 
 interface ApiStatus {
   running: boolean
@@ -20,91 +23,39 @@ interface ApiHealth {
 }
 
 export function AnalysisEngineSettings() {
-  const [embeddedApiStatus, setEmbeddedApiStatus] = useState<ApiStatus>({
-    running: false,
-    port: 8765,
+  // TanStack Query hooks
+  const {
+    data: embeddedApiStatus,
+    isLoading: isLoadingStatus,
+    refetch: refreshStatus,
+  } = useApiStatus({
+    refetchInterval: 10 * 1000, // Poll every 10 seconds
   })
-  const [embeddedApiHealth, setEmbeddedApiHealth] = useState<ApiHealth>({
-    status: 'unknown',
-    healthy: false,
-  })
-  const [isLoading, setIsLoading] = useState(false)
 
-  const refreshEmbeddedApiStatus = async () => {
-    if (!TauriService.isTauri()) return
+  const startServerMutation = useStartLocalApiServer()
+  const stopServerMutation = useStopLocalApiServer()
 
-    try {
-      const status = await TauriService.getApiStatus()
-      // Backend returns is_local_server_running, not running
-      const running = status?.is_local_server_running || false
-      setEmbeddedApiStatus({ running, port: status?.port || 8765, url: status?.url })
+  const isLoading = startServerMutation.isPending || stopServerMutation.isPending
 
-      if (running) {
-        setEmbeddedApiHealth({ status: 'running', healthy: true })
-      } else {
-        setEmbeddedApiHealth({ status: 'stopped', healthy: false })
-      }
-    } catch (error) {
-      console.error('Failed to get API status:', error)
-      setEmbeddedApiHealth({
-        status: 'error',
-        healthy: false,
-        error: String(error),
-      })
-    }
+  // Derived state for health
+  const embeddedApiHealth = {
+    status: embeddedApiStatus?.running ? 'running' : 'stopped',
+    healthy: embeddedApiStatus?.running || false,
   }
 
-  useEffect(() => {
-    refreshEmbeddedApiStatus()
-
-    const autoStartEmbedded = async () => {
-      try {
-        const status = await TauriService.getApiStatus()
-        if (!status?.is_local_server_running && TauriService.isTauri()) {
-          await TauriService.startLocalApiServer()
-          await new Promise(resolve => setTimeout(resolve, 1000))
-          await refreshEmbeddedApiStatus()
-        }
-      } catch (error) {
-        console.error('Failed to auto-start embedded API:', error)
-      }
-    }
-
-    setTimeout(autoStartEmbedded, 500)
-
-    const healthCheckInterval = setInterval(refreshEmbeddedApiStatus, 10000)
-
-    return () => {
-      clearInterval(healthCheckInterval)
-    }
-  }, [])
-
   const handleStartEmbeddedApi = async () => {
-    if (!TauriService.isTauri()) return
-
     try {
-      setIsLoading(true)
-      await TauriService.startLocalApiServer()
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      await refreshEmbeddedApiStatus()
+      await startServerMutation.mutateAsync()
     } catch (error) {
       console.error('Failed to start local API:', error)
-    } finally {
-      setIsLoading(false)
     }
   }
 
   const handleStopEmbeddedApi = async () => {
-    if (!TauriService.isTauri()) return
-
     try {
-      setIsLoading(true)
-      await TauriService.stopLocalApiServer()
-      await refreshEmbeddedApiStatus()
+      await stopServerMutation.mutateAsync()
     } catch (error) {
       console.error('Failed to stop local API:', error)
-    } finally {
-      setIsLoading(false)
     }
   }
 
@@ -134,17 +85,19 @@ export function AnalysisEngineSettings() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={refreshEmbeddedApiStatus}
-                disabled={isLoading}
+                onClick={() => refreshStatus()}
+                disabled={isLoading || isLoadingStatus}
               >
-                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+                <RefreshCw
+                  className={`h-4 w-4 ${isLoading || isLoadingStatus ? 'animate-spin' : ''}`}
+                />
               </Button>
             </div>
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span>API Endpoint:</span>
                 <span className="font-mono text-xs">
-                  {embeddedApiStatus.url || 'http://localhost:8765'}
+                  {embeddedApiStatus?.url || 'http://localhost:8765'}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -160,13 +113,13 @@ export function AnalysisEngineSettings() {
               </div>
               <div className="flex justify-between">
                 <span>Port:</span>
-                <span>{embeddedApiStatus.port}</span>
+                <span>{embeddedApiStatus?.port || 8765}</span>
               </div>
             </div>
           </div>
 
           <div className="flex gap-2">
-            {embeddedApiStatus.running ? (
+            {embeddedApiStatus?.running ? (
               <Button
                 onClick={handleStopEmbeddedApi}
                 disabled={isLoading}

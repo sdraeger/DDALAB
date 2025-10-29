@@ -73,12 +73,13 @@ interface DDAParameters {
 }
 
 export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
-  // Use granular selectors to prevent unnecessary re-renders
-  const fileManager = useAppStore((state) => state.fileManager)
+  // OPTIMIZED: Use granular selectors to prevent unnecessary re-renders
+  // Select only the specific properties we need, not entire objects
+  const selectedFile = useAppStore((state) => state.fileManager.selectedFile)
   const storedAnalysisParameters = useAppStore((state) => state.dda.analysisParameters)
   const currentAnalysis = useAppStore((state) => state.dda.currentAnalysis)
   const isRunning = useAppStore((state) => state.dda.isRunning)
-  const workflowRecording = useAppStore((state) => state.workflowRecording)
+  const isWorkflowRecording = useAppStore((state) => state.workflowRecording.isRecording)
   const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis)
   const addAnalysisToHistory = useAppStore((state) => state.addAnalysisToHistory)
   const updateAnalysisParameters = useAppStore((state) => state.updateAnalysisParameters)
@@ -122,7 +123,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     scaleMax: storedAnalysisParameters.scaleMax,
     scaleNum: storedAnalysisParameters.scaleNum,
     timeStart: 0,
-    timeEnd: fileManager.selectedFile?.duration || 30,
+    timeEnd: selectedFile?.duration || 30,
     selectedChannels: [],
     preprocessing: {
       highpass: 0.5,
@@ -393,14 +394,14 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
   // Initialize with file data - run when file changes or duration is loaded
   useEffect(() => {
-    if (fileManager.selectedFile) {
-      const fileDuration = fileManager.selectedFile.duration
+    if (selectedFile) {
+      const fileDuration = selectedFile.duration
 
       // Only update if we have a valid duration (> 0)
       if (fileDuration && fileDuration > 0) {
-        const defaultChannels = fileManager.selectedFile.channels.slice(0, Math.min(8, fileManager.selectedFile.channels.length))
+        const defaultChannels = selectedFile.channels.slice(0, Math.min(8, selectedFile.channels.length))
         // Calculate default window length as 1/4 second (0.25 * sampling_rate)
-        const defaultWindowLength = Math.round(0.25 * fileManager.selectedFile.sample_rate)
+        const defaultWindowLength = Math.round(0.25 * selectedFile.sample_rate)
 
         console.log('[DDAAnalysis] Updating time range - file duration:', fileDuration, 'seconds')
 
@@ -414,13 +415,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         // Update window length based on sampling rate
         setLocalParameters(prev => ({ ...prev, windowLength: defaultWindowLength }))
       } else {
-        console.warn('[DDAAnalysis] File loaded but duration not available yet:', fileManager.selectedFile.file_path)
+        console.warn('[DDAAnalysis] File loaded but duration not available yet:', selectedFile.file_path)
       }
     }
-  }, [fileManager.selectedFile?.file_path, fileManager.selectedFile?.duration]) // Depend on both file path and duration
+  }, [selectedFile?.file_path, selectedFile?.duration]) // Depend on both file path and duration
 
   const runAnalysis = async () => {
-    if (!fileManager.selectedFile || parameters.selectedChannels.length === 0) {
+    if (!selectedFile || parameters.selectedChannels.length === 0) {
       // Can't use setError directly anymore, error comes from mutation
       console.error('Please select a file and at least one channel')
       return
@@ -438,17 +439,17 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
     // Convert CT channel pairs from names to indices
     const ctChannelPairs: [number, number][] | undefined =
-      parameters.ctChannelPairs.length > 0 && fileManager.selectedFile
+      parameters.ctChannelPairs.length > 0 && selectedFile
         ? parameters.ctChannelPairs.map(([ch1, ch2]) => {
-            const idx1 = fileManager.selectedFile!.channels.indexOf(ch1)
-            const idx2 = fileManager.selectedFile!.channels.indexOf(ch2)
+            const idx1 = selectedFile!.channels.indexOf(ch1)
+            const idx2 = selectedFile!.channels.indexOf(ch2)
             return [idx1, idx2] as [number, number]
           }).filter(([idx1, idx2]) => idx1 !== -1 && idx2 !== -1)
         : undefined
 
     // Prepare the analysis request
     const request: DDAAnalysisRequest = {
-      file_path: fileManager.selectedFile.file_path,
+      file_path: selectedFile.file_path,
       channels: parameters.selectedChannels,
       start_time: parameters.timeStart,
       end_time: parameters.timeEnd,
@@ -465,12 +466,12 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
     // Convert channel names to indices for comparison
     const channelIndices = parameters.selectedChannels.map(ch =>
-      typeof ch === 'string' ? fileManager.selectedFile!.channels.indexOf(ch) : ch
+      typeof ch === 'string' ? selectedFile!.channels.indexOf(ch) : ch
     )
 
     console.log('📋 [LOCAL] DDA Analysis Parameters:')
-    console.log(`   File: ${fileManager.selectedFile.file_path}`)
-    console.log(`   Sample rate: ${fileManager.selectedFile.sample_rate} Hz`)
+    console.log(`   File: ${selectedFile.file_path}`)
+    console.log(`   Sample rate: ${selectedFile.sample_rate} Hz`)
     console.log(`   Channels (names): [${request.channels.join(', ')}]`)
     console.log(`   Channels (indices): [${channelIndices.join(', ')}]`)
     console.log(`   Time range: ${request.start_time} - ${request.end_time} seconds`)
@@ -478,7 +479,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     console.log(`   Scale: min=${request.scale_min}, max=${request.scale_max}, num=${request.scale_num}`)
 
     // Record DDA parameters if recording is active
-    if (workflowRecording.isRecording) {
+    if (isWorkflowRecording) {
       try {
         const paramAction = createSetDDAParametersAction(
           parameters.scaleMin, // lag (using scaleMin as proxy)
@@ -514,10 +515,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         setResultsFromPersistence(false) // Mark as fresh analysis, not from persistence
 
         // Record DDA analysis execution if recording is active
-        if (workflowRecording.isRecording && fileManager.selectedFile) {
+        if (isWorkflowRecording && selectedFile) {
           // Convert channel names to their actual indices in the file's channel list
           const channelIndices = parameters.selectedChannels
-            .map(channelName => fileManager.selectedFile!.channels.indexOf(channelName))
+            .map(channelName => selectedFile!.channels.indexOf(channelName))
             .filter(idx => idx !== -1) // Remove any channels not found
 
           console.log('[WORKFLOW] Recording DDA analysis with channel indices:', channelIndices)
@@ -554,7 +555,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         }
 
         console.error('📤 Analysis request parameters:', {
-          file_path: fileManager.selectedFile?.file_path,
+          file_path: selectedFile?.file_path,
           channels: parameters.selectedChannels,
           time_range: [parameters.timeStart, parameters.timeEnd],
           variants: parameters.variants,
@@ -569,7 +570,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       return
     }
 
-    if (!fileManager.selectedFile || parameters.selectedChannels.length === 0) {
+    if (!selectedFile || parameters.selectedChannels.length === 0) {
       setNsgError('Please select a file and at least one channel')
       return
     }
@@ -585,13 +586,12 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       setNsgSubmissionPhase('Preparing job parameters...')
 
       // Build DDA request parameters in the format expected by Rust DDARequest struct
-      // Note: fileManager.selectedFile is guaranteed to be non-null by the check above
-      const selectedFile = fileManager.selectedFile!
+      // Note: selectedFile is guaranteed to be non-null by the check above
       const request = {
-        file_path: selectedFile.file_path,
+        file_path: selectedFile!.file_path,
         channels: parameters.selectedChannels.length > 0
           ? parameters.selectedChannels.map(ch => {
-              const channelIndex = selectedFile.channels.indexOf(ch)
+              const channelIndex = selectedFile!.channels.indexOf(ch)
               return channelIndex >= 0 ? channelIndex : 0
             })
           : null,
@@ -685,8 +685,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
   const resetParameters = () => {
     // Calculate default window length based on sampling rate (0.25 seconds)
-    const defaultWindowLength = fileManager.selectedFile
-      ? Math.round(0.25 * fileManager.selectedFile.sample_rate)
+    const defaultWindowLength = selectedFile
+      ? Math.round(0.25 * selectedFile.sample_rate)
       : 64 // Fallback for 256 Hz: 0.25 * 256 = 64
 
     setLocalParameters({
@@ -697,8 +697,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       scaleMax: 20,
       scaleNum: 20,
       timeStart: 0,
-      timeEnd: fileManager.selectedFile?.duration || 30,
-      selectedChannels: fileManager.selectedFile?.channels.slice(0, 8) || [],
+      timeEnd: selectedFile?.duration || 30,
+      selectedChannels: selectedFile?.channels.slice(0, 8) || [],
       preprocessing: {
         highpass: 0.5,
         lowpass: 70,
@@ -725,7 +725,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     }))
   }
 
-  if (!fileManager.selectedFile) {
+  if (!selectedFile) {
     return (
       <Card className="h-full flex items-center justify-center">
         <CardContent>
@@ -908,7 +908,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     }))}
                     disabled={localIsRunning}
                     min="0"
-                    max={fileManager.selectedFile?.duration}
+                    max={selectedFile?.duration}
                     step="0.1"
                   />
                 </div>
@@ -919,7 +919,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     value={parameters.timeEnd}
                     onChange={(e) => {
                       const inputValue = parseFloat(e.target.value) || 0
-                      const maxDuration = fileManager.selectedFile?.duration || Infinity
+                      const maxDuration = selectedFile?.duration || Infinity
                       setLocalParameters(prev => ({
                         ...prev,
                         timeEnd: Math.min(maxDuration, Math.max(prev.timeStart + 0.1, inputValue))
@@ -927,7 +927,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     }}
                     disabled={localIsRunning}
                     min={parameters.timeStart + 1}
-                    max={fileManager.selectedFile?.duration}
+                    max={selectedFile?.duration}
                     step="0.1"
                   />
                 </div>
@@ -1051,9 +1051,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     )}
 
                     {/* Channel pair picker */}
-                    {fileManager.selectedFile && (
+                    {selectedFile && (
                       <CTChannelPairPicker
-                        channels={fileManager.selectedFile.channels}
+                        channels={selectedFile.channels}
                         onPairAdded={(ch1, ch2) => {
                           setLocalParameters(prev => ({
                             ...prev,
@@ -1186,7 +1186,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
           {/* Channel Selection */}
           <ChannelSelector
-            channels={fileManager.selectedFile.channels}
+            channels={selectedFile.channels}
             selectedChannels={parameters.selectedChannels}
             onSelectionChange={(channels) => {
               setLocalParameters(prev => ({

@@ -157,7 +157,7 @@ pub async fn get_nsg_job_status(
         .map_err(|e| format!("Failed to get NSG job status: {}", e))
 }
 
-/// List all NSG jobs
+/// List all NSG jobs (both DDALAB and external jobs)
 #[tauri::command]
 pub async fn list_nsg_jobs(state: State<'_, AppStateManager>) -> Result<Vec<NSGJob>, String> {
     let nsg_manager = state
@@ -165,7 +165,8 @@ pub async fn list_nsg_jobs(state: State<'_, AppStateManager>) -> Result<Vec<NSGJ
         .ok_or_else(|| "NSG manager not initialized".to_string())?;
 
     nsg_manager
-        .list_jobs()
+        .list_all_jobs()
+        .await
         .map_err(|e| format!("Failed to list NSG jobs: {}", e))
 }
 

@@ -13,11 +13,11 @@ tauri-build = { version = "2.5.1", features = [] }
 
 [dependencies]
 tauri = { version = "2.9.1", features = ["tray-icon"] }
-tauri-plugin-shell = "2.3.2"
-tauri-plugin-dialog = "2.4.1"
-tauri-plugin-fs = "2.4.3"
-tauri-plugin-process = "2.0.0"
-tauri-plugin-notification = "2.3.2"
+tauri-plugin-shell = "2.3.3"
+tauri-plugin-dialog = "2.4.2"
+tauri-plugin-fs = "2.4.4"
+tauri-plugin-process = "2.3.1"
+tauri-plugin-notification = "2.3.3"
 tauri-plugin-updater = "2.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0"
@@ -62,18 +62,22 @@ hex = "0.4"
 aes-gcm = "0.10"    # AES-256-GCM encryption
 machine-uid = "0.5" # Get machine-specific ID for encryption key derivation
 # DDA binary interface
-dda-rs = { path = "../../dda-rs" }
+dda-rs = { path = "../../dda-rs", features = [] }
 # Session recording workflow
 petgraph = "0.8.3"
 tera = "1.19"
 # Additional EEG file format support
-bvreader = "0.1"                                        # BrainVision format (.vhdr, .vmrk, .eeg)
+bvreader = "0.1.5"                                      # BrainVision format (.vhdr, .vmrk, .eeg)
 matfile = { version = "0.5.0", features = ["ndarray"] } # MATLAB .mat/.set files
-ndarray = "0.16"                                        # Array processing for MAT files
-fiff = "0.1"                                            # FIFF/FIF format parser (MEG/EEG)
+ndarray = "0.16.1"                                      # Array processing for MAT files
+fiff = "0.1.0"                                          # FIFF/FIF format parser (MEG/EEG)
+nifti = "0.17.0"
 # Embedded database
 rusqlite = { version = "0.37", features = ["bundled", "chrono", "uuid"] }
 serde_rusqlite = "0.40.1"
+rayon = "1.11.0"
+# NSG Client
+nsg-cli = "0.1.3"
 
 [dev-dependencies]
 hyper = "1.0"
@@ -93,3 +97,4 @@ path = "src/main.rs"
 default = ["custom-protocol", "devtools"]
 custom-protocol = ["tauri/custom-protocol"]
 devtools = ["tauri/devtools"]
+parallel = []  # Enable parallel processing with Rayon (overview generation only)

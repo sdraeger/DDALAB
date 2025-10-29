@@ -8,10 +8,11 @@ import { Badge } from '@/components/ui/badge'
 
 export function DDAProgressIndicator() {
   const isRunning = useAppStore((state) => state.dda.isRunning)
-  const currentAnalysis = useAppStore((state) => state.dda.currentAnalysis)
+  // OPTIMIZED: Only select the ID, not the entire currentAnalysis object
+  const currentAnalysisId = useAppStore((state) => state.dda.currentAnalysis?.id)
 
   // Get progress from the hook (it listens to Tauri events)
-  const progressEvent = useDDAProgress(currentAnalysis?.id, isRunning)
+  const progressEvent = useDDAProgress(currentAnalysisId, isRunning)
 
   if (!isRunning) {
     return null

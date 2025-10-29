@@ -1,14 +1,24 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { PlotInfo } from '@/types/annotations'
+import { shallow } from 'zustand/shallow'
 
 /**
  * Hook to get list of all available plots for annotation visibility control
  * Includes timeseries plot + all DDA result plots for the current file
  */
 export const useAvailablePlots = (): PlotInfo[] => {
-  const currentFile = useAppStore(state => state.fileManager.selectedFile)
-  const analysisHistory = useAppStore(state => state.dda.analysisHistory)
+  // Use shallow equality to prevent re-renders when file object is recreated but content is same
+  const currentFilePath = useAppStore(
+    state => state.fileManager.selectedFile?.file_path,
+    (a, b) => a === b
+  )
+
+  // Use shallow equality to prevent re-renders when history array is recreated but content is same
+  const analysisHistory = useAppStore(state => state.dda.analysisHistory, shallow)
+
+  // Keep a stable reference to previous plots to avoid recreating array if content is identical
+  const previousPlotsRef = useRef<PlotInfo[]>([])
 
   return useMemo(() => {
     const plots: PlotInfo[] = []
@@ -20,8 +30,8 @@ export const useAvailablePlots = (): PlotInfo[] => {
     })
 
     // Include all DDA result plots for the current file
-    if (currentFile) {
-      const fileResults = analysisHistory.filter(r => r.file_path === currentFile.file_path)
+    if (currentFilePath) {
+      const fileResults = analysisHistory.filter(r => r.file_path === currentFilePath)
 
       for (const result of fileResults) {
         // Add a plot entry for each variant x plot type combination
@@ -41,6 +51,19 @@ export const useAvailablePlots = (): PlotInfo[] => {
       }
     }
 
-    return plots
-  }, [currentFile, analysisHistory])
+    // Compare with previous plots to avoid returning new array reference if content is identical
+    const previousPlots = previousPlotsRef.current
+    const plotIdsChanged =
+      plots.length !== previousPlots.length ||
+      plots.some((plot, idx) => plot.id !== previousPlots[idx]?.id)
+
+    if (plotIdsChanged) {
+      // Content changed, update ref and return new array
+      previousPlotsRef.current = plots
+      return plots
+    }
+
+    // Content identical, return stable reference
+    return previousPlots
+  }, [currentFilePath, analysisHistory])
 }

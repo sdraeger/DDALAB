@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useCallback } from 'react'
+import { useEffect } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { ApiService } from '@/services/apiService'
-import { TauriService } from '@/services/tauriService'
 import { useSync } from '@/hooks/useSync'
+import { useHealthCheck } from '@/hooks/useHealthCheck'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -26,94 +26,47 @@ interface HealthStatusBarProps {
 }
 
 export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
-  const { health, ui, updateHealthStatus } = useAppStore()
+  const { ui, updateHealthStatus } = useAppStore()
   const { isConnected: syncConnected, isLoading: syncLoading } = useSync()
 
-  const checkApiHealth = useCallback(async () => {
-    const startTime = Date.now()
+  // Use TanStack Query for health checks with automatic polling
+  const {
+    data: healthData,
+    isLoading: isCheckingHealth,
+    refetch: refetchHealth,
+  } = useHealthCheck(apiService, {
+    enabled: ui.isServerReady,
+    refetchInterval: 120 * 1000, // Poll every 2 minutes
+  })
 
-    try {
-      updateHealthStatus({ apiStatus: 'checking' })
+  // Sync health check results to Zustand store for backward compatibility
+  useEffect(() => {
+    if (!healthData) return
 
-      // In Tauri, use the Tauri command instead of axios
-      // This avoids CORS and connection issues during startup
-      if (TauriService.isTauri()) {
-        const isConnected = await TauriService.checkApiConnection(apiService.baseURL)
-        const responseTime = Date.now() - startTime
-
-        if (isConnected) {
-          updateHealthStatus({
-            apiStatus: 'healthy',
-            lastCheck: Date.now(),
-            responseTime,
-            errors: []
-          })
-        } else {
-          throw new Error('Embedded API server not responding')
-        }
-      } else {
-        // For external mode, use regular HTTP request
-        await apiService.checkHealth()
-        const responseTime = Date.now() - startTime
-
-        updateHealthStatus({
-          apiStatus: 'healthy',
-          lastCheck: Date.now(),
-          responseTime,
-          errors: []
-        })
-      }
-    } catch (error) {
-      const responseTime = Date.now() - startTime
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-
-      // Get current errors from the store to avoid stale closure
+    if (healthData.isHealthy) {
+      updateHealthStatus({
+        apiStatus: 'healthy',
+        lastCheck: healthData.timestamp,
+        responseTime: healthData.responseTime,
+        errors: [],
+      })
+    } else {
       updateHealthStatus((currentHealth) => ({
         apiStatus: 'unhealthy',
-        lastCheck: Date.now(),
-        responseTime,
-        errors: [errorMessage, ...currentHealth.errors.slice(0, 4)] // Keep last 5 errors
+        lastCheck: healthData.timestamp,
+        responseTime: healthData.responseTime,
+        errors: healthData.error
+          ? [healthData.error, ...currentHealth.errors.slice(0, 4)]
+          : currentHealth.errors,
       }))
     }
-  }, [apiService, updateHealthStatus])
+  }, [healthData, updateHealthStatus])
 
-  const setupWebSocket = useCallback(() => {
-    // WebSocket endpoint not yet implemented in API
-    // Keeping infrastructure ready for future implementation
-    console.log('WebSocket health monitoring not yet available')
-    updateHealthStatus({ websocketConnected: false })
-    return null
-  }, [updateHealthStatus])
-
-  // Initial health check and setup periodic checks
-  // Wait for server to be ready before starting health checks
-  useEffect(() => {
-    // Don't start health checks until server is ready
-    if (!ui.isServerReady) {
-      console.log('[HEALTH] Waiting for server to be ready before health checks')
-      return
-    }
-
-    console.log('[HEALTH] Server ready, starting health checks')
-
-    // Start health check immediately
-    checkApiHealth()
-
-    // Setup periodic health checks
-    const interval = setInterval(checkApiHealth, 120000) // Check every 2 minutes
-
-    return () => {
-      clearInterval(interval)
-    }
-  }, [ui.isServerReady, checkApiHealth])
-
-  // Setup WebSocket connection
-  useEffect(() => {
-    // WebSocket setup disabled for now as endpoint not implemented
-    // Will enable when backend supports WebSocket health monitoring
-  }, [health.apiStatus])
+  // Get health status from store (synced from query)
+  const { health } = useAppStore()
 
   const getStatusColor = () => {
+    if (isCheckingHealth) return 'text-yellow-600'
     switch (health.apiStatus) {
       case 'healthy':
         return 'text-green-600'
@@ -127,6 +80,7 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
   }
 
   const getStatusIcon = () => {
+    if (isCheckingHealth) return <RefreshCw className="h-4 w-4 animate-spin" />
     switch (health.apiStatus) {
       case 'healthy':
         return <CheckCircle className="h-4 w-4" />
@@ -201,11 +155,11 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={checkApiHealth}
-            disabled={health.apiStatus === 'checking'}
+            onClick={() => refetchHealth()}
+            disabled={isCheckingHealth}
             className="h-6 px-2"
           >
-            <RefreshCw className={`h-3 w-3 ${health.apiStatus === 'checking' ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-3 w-3 ${isCheckingHealth ? 'animate-spin' : ''}`} />
           </Button>
 
           {/* Activity Indicator */}

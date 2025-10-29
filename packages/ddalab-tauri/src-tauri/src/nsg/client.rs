@@ -379,6 +379,8 @@ impl NSGClient {
     pub async fn list_user_jobs(&self) -> Result<Vec<NSGJobResponse>> {
         let url = format!("{}/job/{}", self.base_url, self.credentials.username);
 
+        log::info!("🔍 Fetching all jobs from NSG API: {}", url);
+
         let response = self
             .client
             .get(&url)
@@ -389,18 +391,89 @@ impl NSGClient {
             .context("Failed to list jobs from NSG")?;
 
         let status = response.status();
+        log::info!("📡 NSG list jobs response status: {}", status);
+
         if !status.is_success() {
             let error_text = response
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
+            log::error!("❌ NSG list jobs failed: {} - {}", status, error_text);
             return Err(anyhow!("Failed to list jobs: {} - {}", status, error_text));
         }
 
-        let jobs: Vec<NSGJobResponse> = response
-            .json()
+        // Get response text - NSG returns XML for job list
+        let response_text = response
+            .text()
             .await
-            .context("Failed to parse job list response")?;
+            .context("Failed to read NSG list response")?;
+
+        log::debug!(
+            "📄 NSG list jobs raw response (first 500 chars): {}",
+            &response_text.chars().take(500).collect::<String>()
+        );
+
+        // Parse XML to extract job IDs
+        // NSG returns: <joblist><jobs><jobstatus><selfUri><title>JOB_ID</title>...
+        let mut jobs = Vec::new();
+        let jobstatus_tag = "<jobstatus>";
+        let jobstatus_end = "</jobstatus>";
+        let mut search_pos = 0;
+
+        while let Some(job_start) = response_text[search_pos..].find(jobstatus_tag) {
+            let job_start_idx = search_pos + job_start + jobstatus_tag.len();
+
+            if let Some(job_end) = response_text[job_start_idx..].find(jobstatus_end) {
+                let job_xml = &response_text[job_start_idx..job_start_idx + job_end];
+
+                // Extract job handle from <selfUri><title>JOB_ID</title>
+                if let Some(title_start) = job_xml.find("<title>") {
+                    let title_start_idx = title_start + "<title>".len();
+                    if let Some(title_end) = job_xml[title_start_idx..].find("</title>") {
+                        let job_handle =
+                            job_xml[title_start_idx..title_start_idx + title_end].to_string();
+
+                        // Extract URL
+                        let url = if let Some(url_start) = job_xml.find("<url>") {
+                            let url_start_idx = url_start + "<url>".len();
+                            if let Some(url_end) = job_xml[url_start_idx..].find("</url>") {
+                                job_xml[url_start_idx..url_start_idx + url_end].to_string()
+                            } else {
+                                format!(
+                                    "{}/job/{}/{}",
+                                    self.base_url, self.credentials.username, job_handle
+                                )
+                            }
+                        } else {
+                            format!(
+                                "{}/job/{}/{}",
+                                self.base_url, self.credentials.username, job_handle
+                            )
+                        };
+
+                        // Create minimal NSGJobResponse
+                        jobs.push(NSGJobResponse {
+                            jobstatus: super::models::NSGJobStatusInfo {
+                                job_handle,
+                                self_uri: super::models::NSGSelfUri {
+                                    url: url.clone(),
+                                    title: url.split('/').last().unwrap_or("").to_string(),
+                                },
+                            },
+                        });
+                    }
+                }
+
+                search_pos = job_start_idx + job_end + jobstatus_end.len();
+            } else {
+                break;
+            }
+        }
+
+        log::info!(
+            "✅ Successfully parsed {} jobs from NSG API (XML)",
+            jobs.len()
+        );
 
         Ok(jobs)
     }

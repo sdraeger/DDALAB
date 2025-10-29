@@ -5,6 +5,11 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { CheckCircle2, XCircle, Loader2, Play, Square, Zap } from 'lucide-react'
 import { TauriService } from '@/services/tauriService'
+import {
+  useApiStatusWithHealth,
+  useStartLocalApiServer,
+  useStopLocalApiServer,
+} from '@/hooks/useApiStatus'
 
 interface EmbeddedApiManagerProps {
   onApiReady?: (apiUrl: string) => void
@@ -24,38 +29,37 @@ interface EmbeddedApiHealth {
 }
 
 export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiReady }) => {
-  const [status, setStatus] = useState<EmbeddedApiStatus | null>(null)
-  const [health, setHealth] = useState<EmbeddedApiHealth | null>(null)
-  const [loading, setLoading] = useState(false)
+  // TanStack Query hooks
+  const {
+    status,
+    health,
+    isLoading: isCheckingStatus,
+    refetchAll,
+  } = useApiStatusWithHealth({
+    refetchInterval: 10 * 1000, // Poll every 10 seconds
+  })
+
+  const startServerMutation = useStartLocalApiServer()
+  const stopServerMutation = useStopLocalApiServer()
+
   const [error, setError] = useState<string | null>(null)
 
-  // Load initial status and auto-start if not running
+  // Auto-start server if not running (on mount)
   useEffect(() => {
-    const initializeServer = async () => {
-      await checkStatus()
-
-      // Get status to check if server is running
-      const currentStatus = await TauriService.getApiStatus()
-
-      // Auto-start server if not running
-      if (!currentStatus) {
+    const autoStart = async () => {
+      if (status && !status.running) {
         console.log('Local API not running, auto-starting...')
-        await startServer()
+        try {
+          await startServerMutation.mutateAsync()
+        } catch (err) {
+          console.error('Failed to auto-start server:', err)
+        }
       }
     }
 
-    initializeServer()
-  }, [])
-
-  // Auto-refresh status every 10 seconds when running
-  useEffect(() => {
-    if (status?.running) {
-      const interval = setInterval(() => {
-        checkStatus()
-        checkHealth()
-      }, 10000)
-      return () => clearInterval(interval)
-    }
+    // Small delay to ensure initial status check completes
+    const timer = setTimeout(autoStart, 500)
+    return () => clearTimeout(timer)
   }, [status?.running])
 
   // Notify parent when API becomes ready
@@ -65,79 +69,25 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiRea
     }
   }, [status, health, onApiReady])
 
-  const checkStatus = async () => {
+  const handleStartServer = async () => {
     try {
-      const result = await TauriService.getApiStatus()
-      if (result) {
-        setStatus({ running: true, port: result.port || 8765, url: result.url })
-      } else {
-        setStatus({ running: false, port: 8765 })
-        setHealth(null)
-      }
-    } catch (err) {
-      console.error('Failed to check API status:', err)
-    }
-  }
-
-  const checkHealth = async () => {
-    try {
-      let apiUrl = status?.url
-
-      // If no URL in status, build it from config
-      if (!apiUrl) {
-        const apiConfig = await TauriService.getApiConfig()
-        // CRITICAL: Default to HTTP if use_https is not explicitly true
-        const protocol = apiConfig?.use_https === true ? 'https' : 'http'
-        const port = apiConfig?.port || 8765
-        apiUrl = `${protocol}://localhost:${port}`
-      }
-
-      const connected = await TauriService.checkApiConnection(apiUrl)
-      setHealth({
-        status: connected ? 'healthy' : 'error',
-        healthy: connected,
-        error: connected ? undefined : 'API not reachable'
-      })
-    } catch (err) {
-      console.error('Failed to check API health:', err)
-    }
-  }
-
-  const startServer = async () => {
-    try {
-      setLoading(true)
       setError(null)
-
-      await TauriService.startLocalApiServer()
-
-      // Wait a bit for the server to start
-      await new Promise(resolve => setTimeout(resolve, 2000))
-
-      await checkStatus()
-      await checkHealth()
-
+      await startServerMutation.mutateAsync()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start local API server')
-    } finally {
-      setLoading(false)
     }
   }
 
-  const stopServer = async () => {
+  const handleStopServer = async () => {
     try {
-      setLoading(true)
       setError(null)
-
-      await TauriService.stopLocalApiServer()
-      await checkStatus()
-      setHealth(null)
-
+      await stopServerMutation.mutateAsync()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to stop local API server')
-    } finally {
-      setLoading(false)
     }
   }
+
+  const isLoading = startServerMutation.isPending || stopServerMutation.isPending
 
   const getStatusBadge = () => {
     if (!status?.running) {
@@ -181,7 +131,7 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiRea
             <AlertDescription className="text-green-800 dark:text-green-200">
               <div className="font-medium">API server is running</div>
               <div className="text-sm mt-1">
-                Available at: <code className="bg-green-100 dark:bg-green-900 px-1 py-0.5 rounded">{status.url}</code>
+                Available at: <code className="bg-green-100 dark:bg-green-900 px-1 py-0.5 rounded">{status?.url || 'http://localhost:8765'}</code>
               </div>
             </AlertDescription>
           </Alert>
@@ -216,12 +166,8 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiRea
 
           <div className="flex gap-2 pt-2">
             {!status?.running ? (
-              <Button
-                onClick={startServer}
-                disabled={loading}
-                className="flex-1"
-              >
-                {loading ? (
+              <Button onClick={handleStartServer} disabled={isLoading} className="flex-1">
+                {isLoading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     Starting...
@@ -235,12 +181,12 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiRea
               </Button>
             ) : (
               <Button
-                onClick={stopServer}
-                disabled={loading}
+                onClick={handleStopServer}
+                disabled={isLoading}
                 variant="destructive"
                 className="flex-1"
               >
-                {loading ? (
+                {isLoading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     Stopping...
