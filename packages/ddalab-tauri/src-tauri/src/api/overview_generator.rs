@@ -6,7 +6,6 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 /// Segment size for progressive generation (samples per segment)
@@ -231,56 +230,15 @@ impl ProgressiveOverviewGenerator {
                 let bucket_indices: Vec<usize> =
                     (segment_start_bucket..segment_end_bucket).collect();
 
-                // Process buckets with conditional parallelization
-                let downsampled_segment: Vec<f64>;
+                // Process buckets in parallel
+                let _profile = ProfileScope::new(format!(
+                    "overview_bucketing_ch{}_seg{}",
+                    channel_idx, current_position
+                ));
 
-                #[cfg(feature = "parallel")]
-                {
-                    let _profile = ProfileScope::new(format!(
-                        "overview_bucketing_parallel_ch{}_seg{}",
-                        channel_idx, current_position
-                    ));
-
-                    downsampled_segment = bucket_indices
-                        .par_iter()
-                        .filter_map(|&bucket_idx| {
-                            let bucket_start = bucket_idx * bucket_size;
-                            let bucket_end = ((bucket_idx + 1) * bucket_size).min(total_samples);
-
-                            let data_start = bucket_start.max(current_position);
-                            let data_end = bucket_end.min(segment_end);
-
-                            if data_start >= data_end {
-                                return None;
-                            }
-
-                            let bucket_data = &full_data[data_start..data_end];
-
-                            if bucket_data.is_empty() {
-                                return None;
-                            }
-
-                            let min_val = bucket_data.iter().copied().fold(f64::INFINITY, f64::min);
-                            let max_val = bucket_data
-                                .iter()
-                                .copied()
-                                .fold(f64::NEG_INFINITY, f64::max);
-
-                            Some(vec![min_val, max_val])
-                        })
-                        .flatten()
-                        .collect();
-                }
-
-                #[cfg(not(feature = "parallel"))]
-                {
-                    let _profile = ProfileScope::new(format!(
-                        "overview_bucketing_serial_ch{}_seg{}",
-                        channel_idx, current_position
-                    ));
-
-                    let mut segment_data = Vec::new();
-                    for bucket_idx in bucket_indices {
+                let downsampled_segment: Vec<f64> = bucket_indices
+                    .par_iter()
+                    .filter_map(|&bucket_idx| {
                         let bucket_start = bucket_idx * bucket_size;
                         let bucket_end = ((bucket_idx + 1) * bucket_size).min(total_samples);
 
@@ -288,13 +246,13 @@ impl ProgressiveOverviewGenerator {
                         let data_end = bucket_end.min(segment_end);
 
                         if data_start >= data_end {
-                            continue;
+                            return None;
                         }
 
                         let bucket_data = &full_data[data_start..data_end];
 
                         if bucket_data.is_empty() {
-                            continue;
+                            return None;
                         }
 
                         let min_val = bucket_data.iter().copied().fold(f64::INFINITY, f64::min);
@@ -303,11 +261,10 @@ impl ProgressiveOverviewGenerator {
                             .copied()
                             .fold(f64::NEG_INFINITY, f64::max);
 
-                        segment_data.push(min_val);
-                        segment_data.push(max_val);
-                    }
-                    downsampled_segment = segment_data;
-                }
+                        Some(vec![min_val, max_val])
+                    })
+                    .flatten()
+                    .collect();
 
                 // Save segment to database
                 let segment = OverviewSegment {
