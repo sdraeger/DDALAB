@@ -1,9 +1,13 @@
 use crate::api::models::ChunkData;
 use crate::db::overview_cache_db::{OverviewCacheDatabase, OverviewCacheMetadata, OverviewSegment};
 use crate::edf::EDFReader;
+use crate::profiling::ProfileScope;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 /// Segment size for progressive generation (samples per segment)
 const SEGMENT_SIZE: usize = 100_000;
@@ -191,6 +195,9 @@ impl ProgressiveOverviewGenerator {
 
         // Process each channel
         for (channel_idx, &signal_idx) in channels_to_read.iter().enumerate() {
+            let _profile_channel =
+                ProfileScope::new(format!("overview_channel_processing_ch{}", channel_idx));
+
             let start_sample = channel_start_positions[channel_idx];
 
             if start_sample >= total_samples {
@@ -218,36 +225,88 @@ impl ProgressiveOverviewGenerator {
                 let segment_end = (current_position + SEGMENT_SIZE).min(total_samples);
 
                 // Downsample this segment using min-max bucketing
-                let mut downsampled_segment = Vec::new();
                 let segment_start_bucket = current_position / bucket_size;
                 let segment_end_bucket = (segment_end + bucket_size - 1) / bucket_size;
 
-                for bucket_idx in segment_start_bucket..segment_end_bucket {
-                    let bucket_start = bucket_idx * bucket_size;
-                    let bucket_end = ((bucket_idx + 1) * bucket_size).min(total_samples);
+                let bucket_indices: Vec<usize> =
+                    (segment_start_bucket..segment_end_bucket).collect();
 
-                    // Get data within this bucket that falls in our segment
-                    let data_start = bucket_start.max(current_position);
-                    let data_end = bucket_end.min(segment_end);
+                // Process buckets with conditional parallelization
+                let downsampled_segment: Vec<f64>;
 
-                    if data_start >= data_end {
-                        continue;
+                #[cfg(feature = "parallel")]
+                {
+                    let _profile = ProfileScope::new(format!(
+                        "overview_bucketing_parallel_ch{}_seg{}",
+                        channel_idx, current_position
+                    ));
+
+                    downsampled_segment = bucket_indices
+                        .par_iter()
+                        .filter_map(|&bucket_idx| {
+                            let bucket_start = bucket_idx * bucket_size;
+                            let bucket_end = ((bucket_idx + 1) * bucket_size).min(total_samples);
+
+                            let data_start = bucket_start.max(current_position);
+                            let data_end = bucket_end.min(segment_end);
+
+                            if data_start >= data_end {
+                                return None;
+                            }
+
+                            let bucket_data = &full_data[data_start..data_end];
+
+                            if bucket_data.is_empty() {
+                                return None;
+                            }
+
+                            let min_val = bucket_data.iter().copied().fold(f64::INFINITY, f64::min);
+                            let max_val = bucket_data
+                                .iter()
+                                .copied()
+                                .fold(f64::NEG_INFINITY, f64::max);
+
+                            Some(vec![min_val, max_val])
+                        })
+                        .flatten()
+                        .collect();
+                }
+
+                #[cfg(not(feature = "parallel"))]
+                {
+                    let _profile = ProfileScope::new(format!(
+                        "overview_bucketing_serial_ch{}_seg{}",
+                        channel_idx, current_position
+                    ));
+
+                    let mut segment_data = Vec::new();
+                    for bucket_idx in bucket_indices {
+                        let bucket_start = bucket_idx * bucket_size;
+                        let bucket_end = ((bucket_idx + 1) * bucket_size).min(total_samples);
+
+                        let data_start = bucket_start.max(current_position);
+                        let data_end = bucket_end.min(segment_end);
+
+                        if data_start >= data_end {
+                            continue;
+                        }
+
+                        let bucket_data = &full_data[data_start..data_end];
+
+                        if bucket_data.is_empty() {
+                            continue;
+                        }
+
+                        let min_val = bucket_data.iter().copied().fold(f64::INFINITY, f64::min);
+                        let max_val = bucket_data
+                            .iter()
+                            .copied()
+                            .fold(f64::NEG_INFINITY, f64::max);
+
+                        segment_data.push(min_val);
+                        segment_data.push(max_val);
                     }
-
-                    let bucket_data = &full_data[data_start..data_end];
-
-                    if bucket_data.is_empty() {
-                        continue;
-                    }
-
-                    let min_val = bucket_data.iter().copied().fold(f64::INFINITY, f64::min);
-                    let max_val = bucket_data
-                        .iter()
-                        .copied()
-                        .fold(f64::NEG_INFINITY, f64::max);
-
-                    downsampled_segment.push(min_val);
-                    downsampled_segment.push(max_val);
+                    downsampled_segment = segment_data;
                 }
 
                 // Save segment to database

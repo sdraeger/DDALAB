@@ -27,9 +27,21 @@ import {
   Copy,
   Check,
   Eye,
+  Search,
 } from 'lucide-react'
 import { TauriService, type NSGJob, NSGJobStatus } from '@/services/tauriService'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  useNSGCredentials,
+  useNSGJobs,
+  useUpdateNSGJobStatus,
+  useDownloadNSGResults,
+  useCancelNSGJob,
+  useDeleteNSGJob,
+  useCleanupPendingNSGJobs,
+  useExtractNSGTarball,
+  isExternalJob,
+} from '@/hooks/useNSGJobs'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,15 +61,26 @@ function formatBytes(bytes: number): string {
 }
 
 export function NSGJobManager() {
-  const [jobs, setJobs] = useState<NSGJob[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  // TanStack Query hooks
+  const { data: hasCredentials = false } = useNSGCredentials()
+  const {
+    data: jobs = [],
+    isLoading,
+    error: jobsError,
+    refetch: refetchJobs,
+  } = useNSGJobs({ enabled: hasCredentials })
+  const updateJobStatus = useUpdateNSGJobStatus()
+  const downloadResults = useDownloadNSGResults()
+  const cancelJob = useCancelNSGJob()
+  const deleteJob = useDeleteNSGJob()
+  const cleanupPendingJobs = useCleanupPendingNSGJobs()
+  const extractTarball = useExtractNSGTarball()
+
+  // Local UI state
   const [error, setError] = useState<string | null>(null)
-  const [pollingJobId, setPollingJobId] = useState<string | null>(null)
-  const [downloadingJobId, setDownloadingJobId] = useState<string | null>(null)
-  const [deletingJobId, setDeletingJobId] = useState<string | null>(null)
-  const [hasCredentials, setHasCredentials] = useState(false)
   const [copiedJobId, setCopiedJobId] = useState<string | null>(null)
   const [viewingJobId, setViewingJobId] = useState<string | null>(null)
+  const [searchTerm, setSearchTerm] = useState<string>('')
   const [successDialog, setSuccessDialog] = useState<{
     show: boolean
     jobId: string
@@ -74,38 +97,53 @@ export function NSGJobManager() {
     fileProgress: number
   } | null>(null)
 
+  // Track job status changes for notifications
   useEffect(() => {
-    if (!TauriService.isTauri()) return
+    if (!jobs.length) return
 
-    const checkCredentials = async () => {
-      try {
-        const hasCreds = await TauriService.hasNSGCredentials()
-        setHasCredentials(hasCreds)
-      } catch (error) {
-        console.error('Failed to check NSG credentials:', error)
+    const newStatuses = new Map<string, NSGJobStatus>()
+    for (const job of jobs) {
+      newStatuses.set(job.id, job.status)
+
+      const previousStatus = previousJobStatuses.get(job.id)
+
+      // Fire notification if job just completed
+      if (
+        previousStatus &&
+        previousStatus !== NSGJobStatus.Completed &&
+        job.status === NSGJobStatus.Completed
+      ) {
+        TauriService.createNotification(
+          'NSG Job Completed',
+          `Job ${job.id.substring(0, 8)}... has finished successfully. Results are ready to download.`,
+          'Success' as any,
+          'navigate_nsg_manager',
+          { jobId: job.id }
+        ).catch((error) => {
+          console.error('[NSG] Failed to create completion notification:', error)
+        })
+      }
+
+      // Fire notification if job failed
+      if (
+        previousStatus &&
+        previousStatus !== NSGJobStatus.Failed &&
+        job.status === NSGJobStatus.Failed
+      ) {
+        TauriService.createNotification(
+          'NSG Job Failed',
+          `Job ${job.id.substring(0, 8)}... has failed. Check the job details for more information.`,
+          'Error' as any,
+          'navigate_nsg_manager',
+          { jobId: job.id }
+        ).catch((error) => {
+          console.error('[NSG] Failed to create failure notification:', error)
+        })
       }
     }
 
-    checkCredentials()
-
-    // Re-check credentials every 5 seconds to detect when user saves them in Settings
-    const interval = setInterval(checkCredentials, 5000)
-
-    return () => clearInterval(interval)
-  }, [])
-
-  useEffect(() => {
-    if (!TauriService.isTauri() || !hasCredentials) return
-
-    loadJobs()
-
-    // Poll for job updates every 30 seconds
-    const interval = setInterval(() => {
-      loadJobs()
-    }, 30000)
-
-    return () => clearInterval(interval)
-  }, [hasCredentials])
+    setPreviousJobStatuses(newStatuses)
+  }, [jobs])
 
   useEffect(() => {
     if (!TauriService.isTauri()) return
@@ -142,101 +180,42 @@ export function NSGJobManager() {
     }
   }, [])
 
-  const loadJobs = async () => {
-    try {
-      setError(null)
-      const allJobs = await TauriService.listNSGJobs()
-
-      // Check for status changes and fire notifications for completed jobs
-      const newStatuses = new Map<string, NSGJobStatus>()
-      for (const job of allJobs) {
-        newStatuses.set(job.id, job.status)
-
-        const previousStatus = previousJobStatuses.get(job.id)
-
-        // Fire notification if job just completed
-        if (previousStatus && previousStatus !== NSGJobStatus.Completed && job.status === NSGJobStatus.Completed) {
-          try {
-            await TauriService.createNotification(
-              'NSG Job Completed',
-              `Job ${job.id.substring(0, 8)}... has finished successfully. Results are ready to download.`,
-              'Success' as any,
-              'navigate_nsg_manager',
-              { jobId: job.id }
-            )
-          } catch (notifError) {
-            console.error('[NSG] Failed to create completion notification:', notifError)
-          }
-        }
-
-        // Fire notification if job failed
-        if (previousStatus && previousStatus !== NSGJobStatus.Failed && job.status === NSGJobStatus.Failed) {
-          try {
-            await TauriService.createNotification(
-              'NSG Job Failed',
-              `Job ${job.id.substring(0, 8)}... has failed. Check the job details for more information.`,
-              'Error' as any,
-              'navigate_nsg_manager',
-              { jobId: job.id }
-            )
-          } catch (notifError) {
-            console.error('[NSG] Failed to create failure notification:', notifError)
-          }
-        }
-      }
-
-      setPreviousJobStatuses(newStatuses)
-
-      setJobs(allJobs.sort((a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      ))
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to load jobs')
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
   const handleRefresh = async () => {
-    setIsLoading(true)
-    await loadJobs()
+    setError(null)
+    await refetchJobs()
   }
 
   const handleUpdateStatus = async (jobId: string) => {
     try {
-      setPollingJobId(jobId)
-      const updatedJob = await TauriService.getNSGJobStatus(jobId)
-      setJobs(jobs.map(job => job.id === jobId ? updatedJob : job))
+      setError(null)
+      await updateJobStatus.mutateAsync(jobId)
     } catch (error) {
       console.error('[NSG] Failed to update job status:', error)
       const errorMsg = error instanceof Error ? error.message : String(error)
 
       // If job hasn't been submitted yet, show a clearer message
       if (errorMsg.includes('has not been submitted yet') || errorMsg.includes('Job not found')) {
-        setError('Cannot update status: Job is still pending submission. Try deleting and re-submitting this job.')
+        setError(
+          'Cannot update status: Job is still pending submission. Try deleting and re-submitting this job.'
+        )
       } else {
         setError(`Failed to update job status: ${errorMsg}`)
       }
-    } finally {
-      setPollingJobId(null)
     }
   }
 
   const handleDownloadResults = async (jobId: string) => {
     try {
-      setDownloadingJobId(jobId)
-      const files = await TauriService.downloadNSGResults(jobId)
+      setError(null)
+      const files = await downloadResults.mutateAsync(jobId)
 
       if (files.length > 0) {
         alert(`Downloaded ${files.length} files:\n${files.join('\n')}`)
-        await loadJobs() // Refresh to show updated output_files
       } else {
         alert('No result files available')
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to download results')
-    } finally {
-      setDownloadingJobId(null)
     }
   }
 
@@ -244,45 +223,45 @@ export function NSGJobManager() {
     if (!confirm('Are you sure you want to cancel this job?')) return
 
     try {
-      await TauriService.cancelNSGJob(jobId)
-      await loadJobs()
+      setError(null)
+      await cancelJob.mutateAsync(jobId)
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to cancel job')
     }
   }
 
   const handleDeleteJob = async (jobId: string) => {
-    if (!confirm('Are you sure you want to delete this job? This will remove it from the database.')) return
+    if (
+      !confirm('Are you sure you want to delete this job? This will remove it from the database.')
+    )
+      return
 
     try {
-      setDeletingJobId(jobId)
-      await TauriService.deleteNSGJob(jobId)
-      setJobs(jobs.filter(job => job.id !== jobId))
+      setError(null)
+      await deleteJob.mutateAsync(jobId)
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to delete job')
-    } finally {
-      setDeletingJobId(null)
     }
   }
 
   const handleCleanupPending = async () => {
-    const pendingCount = jobs.filter(j => j.status === NSGJobStatus.Pending).length
+    const pendingCount = jobs.filter((j) => j.status === NSGJobStatus.Pending).length
     if (pendingCount === 0) {
       alert('No pending jobs to clean up')
       return
     }
 
-    if (!confirm(`This will delete ${pendingCount} pending job(s) that failed to submit. Continue?`)) return
+    if (
+      !confirm(`This will delete ${pendingCount} pending job(s) that failed to submit. Continue?`)
+    )
+      return
 
     try {
-      setIsLoading(true)
-      const deletedCount = await TauriService.cleanupPendingNSGJobs()
+      setError(null)
+      const deletedCount = await cleanupPendingJobs.mutateAsync()
       alert(`Cleaned up ${deletedCount} pending job(s)`)
-      await loadJobs()
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to cleanup pending jobs')
-    } finally {
-      setIsLoading(false)
     }
   }
 
@@ -319,11 +298,11 @@ export function NSGJobManager() {
       }
 
       // Check if output.tar.gz exists - need to extract it
-      const tarFile = files.find(f => f.includes('output.tar.gz'))
+      const tarFile = files.find((f) => f.includes('output.tar.gz'))
       if (tarFile) {
         console.log('[NSG] Found output.tar.gz, extracting...')
         try {
-          const extractedFiles = await TauriService.extractNSGTarball(jobId, tarFile)
+          const extractedFiles = await extractTarball.mutateAsync({ jobId, tarFilePath: tarFile })
           console.log('[NSG] Extracted files:', extractedFiles)
           // Add extracted files to the files list
           files.push(...extractedFiles)
@@ -573,6 +552,28 @@ export function NSGJobManager() {
     return new Date(dateStr).toLocaleString()
   }
 
+  // Filter jobs based on search term across all fields
+  const filteredJobs = jobs.filter((job) => {
+    if (!searchTerm.trim()) return true
+
+    const search = searchTerm.toLowerCase()
+    const jobId = (job.nsg_job_id || job.id || '').toLowerCase()
+    const status = job.status.toLowerCase()
+    const tool = job.tool.toLowerCase()
+    const created = formatDate(job.created_at).toLowerCase()
+    const submitted = formatDate(job.submitted_at).toLowerCase()
+    const completed = formatDate(job.completed_at).toLowerCase()
+
+    return (
+      jobId.includes(search) ||
+      status.includes(search) ||
+      tool.includes(search) ||
+      created.includes(search) ||
+      submitted.includes(search) ||
+      completed.includes(search)
+    )
+  })
+
   const canCancel = (job: NSGJob) => {
     return [NSGJobStatus.Submitted, NSGJobStatus.Queue, NSGJobStatus.Running].includes(job.status)
   }
@@ -582,7 +583,11 @@ export function NSGJobManager() {
   }
 
   const canViewResults = (job: NSGJob) => {
-    // Show view button for all completed jobs
+    // External jobs cannot be viewed in DDALAB (no DDA params)
+    if (isExternalJob(job)) {
+      return false
+    }
+    // Show view button for all completed DDALAB jobs
     // Files will be downloaded on-demand when clicking view
     return job.status === NSGJobStatus.Completed
   }
@@ -637,8 +642,13 @@ export function NSGJobManager() {
               </CardDescription>
             </div>
             <div className="flex gap-2">
-              {jobs.some(j => j.status === NSGJobStatus.Pending) && (
-                <Button onClick={handleCleanupPending} variant="outline" size="sm" disabled={isLoading}>
+              {jobs.some((j) => j.status === NSGJobStatus.Pending) && (
+                <Button
+                  onClick={handleCleanupPending}
+                  variant="outline"
+                  size="sm"
+                  disabled={cleanupPendingJobs.isPending}
+                >
                   <XCircle className="h-4 w-4 mr-2" />
                   Clean Up Pending
                 </Button>
@@ -651,11 +661,36 @@ export function NSGJobManager() {
           </div>
         </CardHeader>
         <CardContent>
-          {error && (
+          {(error || jobsError) && (
             <Alert variant="destructive" className="mb-4">
               <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
+              <AlertDescription>
+                {error || (jobsError instanceof Error ? jobsError.message : 'Failed to load jobs')}
+              </AlertDescription>
             </Alert>
+          )}
+
+          {/* Search Bar */}
+          {jobs.length > 0 && (
+            <div className="mb-4 relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search jobs by ID, status, tool, or date..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  title="Clear search"
+                >
+                  <XCircle className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           )}
 
           {isLoading && jobs.length === 0 ? (
@@ -665,6 +700,10 @@ export function NSGJobManager() {
           ) : jobs.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               No NSG jobs found. Submit a job from the DDA analysis panel to get started.
+            </div>
+          ) : filteredJobs.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No jobs match your search "{searchTerm}". Try a different search term.
             </div>
           ) : (
             <div className="rounded-md border">
@@ -682,11 +721,23 @@ export function NSGJobManager() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {jobs.map((job) => (
+                  {filteredJobs.map((job) => (
                     <TableRow key={job.id}>
                       <TableCell className="font-mono text-xs">
                         <div className="flex items-center gap-2">
-                          <span>{job.nsg_job_id || job.id.slice(0, 8)}</span>
+                          <div className="flex items-center gap-1.5">
+                            {isExternalJob(job) ? (
+                              <Badge variant="outline" className="text-xs px-1.5 py-0">
+                                <Cloud className="h-3 w-3 mr-1" />
+                                External
+                              </Badge>
+                            ) : (
+                              <Badge variant="default" className="text-xs px-1.5 py-0 bg-blue-600">
+                                DDALAB
+                              </Badge>
+                            )}
+                            <span>{job.nsg_job_id || job.id.slice(0, 8)}</span>
+                          </div>
                           <Button
                             size="sm"
                             variant="ghost"
@@ -710,9 +761,17 @@ export function NSGJobManager() {
                       <TableCell className="text-sm">
                         {(() => {
                           const canView = canViewResults(job)
-                          console.log('[NSG] Job', job.id.slice(0, 8), '- Status:', job.status, '- Can view?', canView, '- Output files:', job.output_files.length)
                           const isDownloading = viewingJobId === job.id
                           const showProgress = isDownloading && downloadProgress?.jobId === job.id
+
+                          // Show message for external jobs
+                          if (isExternalJob(job)) {
+                            return (
+                              <span className="text-xs text-muted-foreground italic">
+                                External job (view in NSG portal)
+                              </span>
+                            )
+                          }
 
                           return canView ? (
                             <div className="flex flex-col gap-1">
@@ -766,10 +825,10 @@ export function NSGJobManager() {
                               size="sm"
                               variant="ghost"
                               onClick={() => handleUpdateStatus(job.id)}
-                              disabled={pollingJobId === job.id}
+                              disabled={updateJobStatus.isPending}
                               title="Update job status"
                             >
-                              {pollingJobId === job.id ? (
+                              {updateJobStatus.isPending ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
                               ) : (
                                 <RefreshCw className="h-4 w-4" />
@@ -781,9 +840,9 @@ export function NSGJobManager() {
                               size="sm"
                               variant="ghost"
                               onClick={() => handleDownloadResults(job.id)}
-                              disabled={downloadingJobId === job.id}
+                              disabled={downloadResults.isPending}
                             >
-                              {downloadingJobId === job.id ? (
+                              {downloadResults.isPending ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
                               ) : (
                                 <Download className="h-4 w-4" />
@@ -795,17 +854,22 @@ export function NSGJobManager() {
                               size="sm"
                               variant="ghost"
                               onClick={() => handleCancelJob(job.id)}
+                              disabled={cancelJob.isPending}
                             >
-                              <XCircle className="h-4 w-4" />
+                              {cancelJob.isPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <XCircle className="h-4 w-4" />
+                              )}
                             </Button>
                           )}
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => handleDeleteJob(job.id)}
-                            disabled={deletingJobId === job.id}
+                            disabled={deleteJob.isPending}
                           >
-                            {deletingJobId === job.id ? (
+                            {deleteJob.isPending ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
                               <Trash2 className="h-4 w-4" />

@@ -2,6 +2,7 @@ use crate::api::models::{ChunkData, EDFFileInfo};
 use crate::api::state::ApiState;
 use crate::api::utils::{create_file_info, FileType};
 use crate::file_readers::FileReaderFactory;
+use crate::profiling::ProfileScope;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -11,6 +12,81 @@ use chrono::Utc;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
+/// Helper function to process a single directory entry
+fn process_directory_entry(entry: &std::fs::DirEntry) -> Option<serde_json::Value> {
+    let entry_path = entry.path();
+    let file_name = entry_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_string();
+
+    if entry_path.is_dir() {
+        let last_modified = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| {
+                let datetime =
+                    chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0);
+                datetime
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_else(|| Utc::now().to_rfc3339())
+            })
+            .unwrap_or_else(|| Utc::now().to_rfc3339());
+
+        Some(serde_json::json!({
+            "path": entry_path.to_str().unwrap_or(""),
+            "name": file_name,
+            "size": 0,
+            "last_modified": last_modified,
+            "is_directory": true
+        }))
+    } else if entry_path.is_file() {
+        if let Some(extension) = entry_path.extension() {
+            let ext = extension.to_str().unwrap_or("");
+            let file_type = FileType::from_extension(ext);
+
+            // Include supported files and MEG files (with warning flag)
+            if file_type.is_supported() || file_type.is_meg() {
+                if let Ok(metadata) = entry.metadata() {
+                    let last_modified = metadata
+                        .modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| {
+                            let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(
+                                d.as_secs() as i64,
+                                0,
+                            );
+                            datetime
+                                .map(|dt| dt.to_rfc3339())
+                                .unwrap_or_else(|| Utc::now().to_rfc3339())
+                        })
+                        .unwrap_or_else(|| Utc::now().to_rfc3339());
+
+                    return Some(serde_json::json!({
+                        "path": entry_path.to_str().unwrap_or(""),
+                        "name": file_name,
+                        "size": metadata.len(),
+                        "last_modified": last_modified,
+                        "is_directory": false,
+                        "is_meg": file_type.is_meg(),
+                        "is_supported": file_type.is_supported()
+                    }));
+                }
+            }
+        }
+        None
+    } else {
+        None
+    }
+}
 
 pub async fn list_files(
     State(state): State<Arc<ApiState>>,
@@ -32,82 +108,50 @@ pub async fn list_files(
     let mut items = Vec::new();
 
     if search_path.exists() && search_path.is_dir() {
-        let start = std::time::Instant::now();
         log::info!("📂 Listing directory: {:?}", search_path);
 
         match std::fs::read_dir(&search_path) {
             Ok(entries) => {
-                for entry in entries.filter_map(|e| e.ok()) {
-                    let entry_path = entry.path();
-                    let file_name = entry_path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("")
-                        .to_string();
+                // Collect entries into a Vec for parallel processing
+                let entries_vec: Vec<std::fs::DirEntry> = entries.filter_map(|e| e.ok()).collect();
+                let num_entries = entries_vec.len();
 
-                    if entry_path.is_dir() {
-                        items.push(serde_json::json!({
-                            "path": entry_path.to_str().unwrap_or(""),
-                            "name": file_name,
-                            "size": 0,
-                            "last_modified": entry.metadata()
-                                .and_then(|m| m.modified())
-                                .ok()
-                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                                .map(|d| {
-                                    let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0);
-                                    datetime.map(|dt| dt.to_rfc3339()).unwrap_or_else(|| Utc::now().to_rfc3339())
-                                })
-                                .unwrap_or_else(|| Utc::now().to_rfc3339()),
-                            "is_directory": true
-                        }));
-                    } else if entry_path.is_file() {
-                        if let Some(extension) = entry_path.extension() {
-                            let ext = extension.to_str().unwrap_or("");
-                            let file_type = FileType::from_extension(ext);
+                // Process entries with conditional parallelization
+                #[cfg(feature = "parallel")]
+                {
+                    let _profile =
+                        ProfileScope::new(format!("file_listing_parallel_{}_entries", num_entries));
+                    log::info!(
+                        "🔀 Processing {} directory entries in PARALLEL mode",
+                        num_entries
+                    );
 
-                            // Include supported files and MEG files (with warning flag)
-                            if file_type.is_supported() || file_type.is_meg() {
-                                log::debug!(
-                                    "Found data file: {:?} (type: {:?})",
-                                    entry_path,
-                                    file_type
-                                );
-
-                                if let Ok(metadata) = entry.metadata() {
-                                    let last_modified = metadata
-                                        .modified()
-                                        .ok()
-                                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                                        .map(|d| {
-                                            let datetime =
-                                                chrono::DateTime::<chrono::Utc>::from_timestamp(
-                                                    d.as_secs() as i64,
-                                                    0,
-                                                );
-                                            datetime
-                                                .map(|dt| dt.to_rfc3339())
-                                                .unwrap_or_else(|| Utc::now().to_rfc3339())
-                                        })
-                                        .unwrap_or_else(|| Utc::now().to_rfc3339());
-
-                                    items.push(serde_json::json!({
-                                        "path": entry_path.to_str().unwrap_or(""),
-                                        "name": file_name,
-                                        "size": metadata.len(),
-                                        "last_modified": last_modified,
-                                        "is_directory": false,
-                                        "is_meg": file_type.is_meg(),
-                                        "is_supported": file_type.is_supported()
-                                    }));
-                                }
-                            }
-                        }
-                    }
+                    items = entries_vec
+                        .par_iter()
+                        .filter_map(|entry| process_directory_entry(entry))
+                        .collect();
                 }
 
-                let elapsed = start.elapsed();
-                log::info!("✅ Listed {} items in {:?}", items.len(), elapsed);
+                #[cfg(not(feature = "parallel"))]
+                {
+                    let _profile =
+                        ProfileScope::new(format!("file_listing_serial_{}_entries", num_entries));
+                    log::info!(
+                        "⏭️ Processing {} directory entries in SERIAL mode",
+                        num_entries
+                    );
+
+                    items = entries_vec
+                        .iter()
+                        .filter_map(|entry| process_directory_entry(entry))
+                        .collect();
+                }
+
+                log::info!(
+                    "✅ Listed {} items from {} entries",
+                    items.len(),
+                    num_entries
+                );
             }
             Err(e) => {
                 log::error!("Failed to read directory: {}", e);

@@ -1,53 +1,34 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { TauriService } from '@/services/tauriService'
 import { Download, RefreshCw, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-
-interface UpdateStatus {
-  available: boolean
-  current_version: string
-  latest_version?: string
-  release_notes?: string
-  release_date?: string
-}
+import { useAppVersion } from '@/hooks/useAppInfo'
+import { useCheckForUpdates, useDownloadAndInstallUpdate } from '@/hooks/useUpdates'
 
 export function UpdatesSettings() {
-  const [currentVersion, setCurrentVersion] = useState<string>('')
-  const [checking, setChecking] = useState(false)
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
-  const [error, setError] = useState<string>('')
-  const [downloading, setDownloading] = useState(false)
+  // TanStack Query hooks
+  const { data: currentVersion = 'Unknown' } = useAppVersion()
+  const checkForUpdatesMutation = useCheckForUpdates()
+  const downloadAndInstallMutation = useDownloadAndInstallUpdate()
+
+  // Local UI state
   const [installSuccess, setInstallSuccess] = useState(false)
 
-  useEffect(() => {
-    loadCurrentVersion()
-  }, [])
+  const updateStatus = checkForUpdatesMutation.data
+  const checking = checkForUpdatesMutation.isPending
+  const downloading = downloadAndInstallMutation.isPending
+  const error =
+    checkForUpdatesMutation.error?.message || downloadAndInstallMutation.error?.message || ''
 
-  const loadCurrentVersion = async () => {
-    try {
-      const version = await TauriService.getAppVersion()
-      setCurrentVersion(version)
-    } catch (err) {
-      console.error('Failed to get app version:', err)
-      setCurrentVersion('Unknown')
-    }
-  }
-
-  const checkForUpdates = async () => {
-    setChecking(true)
-    setError('')
-    setUpdateStatus(null)
+  const handleCheckForUpdates = async () => {
     setInstallSuccess(false)
-
     try {
       console.log('[UPDATES] Checking for updates...')
-      const status = await TauriService.checkNativeUpdate()
+      const status = await checkForUpdatesMutation.mutateAsync()
       console.log('[UPDATES] Update status:', status)
-      setUpdateStatus(status)
 
       if (status.available) {
         console.log(`[UPDATES] Update available: ${status.latest_version}`)
@@ -55,29 +36,18 @@ export function UpdatesSettings() {
         console.log('[UPDATES] No updates available')
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to check for updates'
       console.error('[UPDATES] Error checking for updates:', err)
-      setError(errorMessage)
-    } finally {
-      setChecking(false)
     }
   }
 
-  const downloadAndInstall = async () => {
-    setDownloading(true)
-    setError('')
-
+  const handleDownloadAndInstall = async () => {
     try {
       console.log('[UPDATES] Starting download and installation...')
-      await TauriService.downloadAndInstallUpdate()
+      await downloadAndInstallMutation.mutateAsync()
       console.log('[UPDATES] Update installed successfully')
       setInstallSuccess(true)
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to download and install update'
       console.error('[UPDATES] Error installing update:', err)
-      setError(errorMessage)
-    } finally {
-      setDownloading(false)
     }
   }
 
@@ -105,11 +75,7 @@ export function UpdatesSettings() {
                 Last checked: {updateStatus ? 'Just now' : 'Never'}
               </p>
             </div>
-            <Button
-              onClick={checkForUpdates}
-              disabled={checking}
-              variant="outline"
-            >
+            <Button onClick={handleCheckForUpdates} disabled={checking} variant="outline">
               {checking ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -166,14 +132,14 @@ export function UpdatesSettings() {
             <div>
               <div className="flex items-baseline gap-2 mb-2">
                 <span className="text-sm text-muted-foreground">Current:</span>
-                <span className="font-mono font-semibold">v{updateStatus.current_version}</span>
+                <span className="font-mono font-semibold">v{updateStatus?.current_version}</span>
                 <span className="text-muted-foreground">→</span>
                 <span className="font-mono font-semibold text-green-600 dark:text-green-400">
-                  v{updateStatus.latest_version}
+                  v{updateStatus?.latest_version}
                 </span>
               </div>
 
-              {updateStatus.release_notes && (
+              {updateStatus?.release_notes && (
                 <div className="mt-4 p-4 bg-muted/50 rounded-lg">
                   <p className="text-sm font-medium mb-2">Release Notes:</p>
                   <div className="text-sm text-muted-foreground whitespace-pre-wrap">
@@ -184,7 +150,7 @@ export function UpdatesSettings() {
             </div>
 
             <Button
-              onClick={downloadAndInstall}
+              onClick={handleDownloadAndInstall}
               disabled={downloading}
               className="w-full"
               size="lg"
@@ -197,7 +163,7 @@ export function UpdatesSettings() {
               ) : (
                 <>
                   <Download className="mr-2 h-5 w-5" />
-                  Download and Install v{updateStatus.latest_version}
+                  Download and Install v{updateStatus?.latest_version}
                 </>
               )}
             </Button>

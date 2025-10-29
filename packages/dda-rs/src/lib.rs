@@ -1,5 +1,6 @@
 pub mod error;
 pub mod parser;
+pub mod profiling;
 pub mod runner;
 pub mod types;
 
