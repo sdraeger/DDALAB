@@ -1,28 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { TauriService } from '@/services/tauriService'
 import { FileText, FolderOpen, Bug } from 'lucide-react'
+import { useLogsPath } from '@/hooks/useAppInfo'
 
 export function DebugSettings() {
-  const [logsPath, setLogsPath] = useState<string>('')
-
-  useEffect(() => {
-    const fetchLogsPath = async () => {
-      if (!TauriService.isTauri()) return
-      try {
-        const path = await TauriService.getLogsPath()
-        setLogsPath(path)
-      } catch (error) {
-        console.error('Failed to fetch logs path:', error)
-      }
-    }
-
-    fetchLogsPath()
-  }, [])
+  // TanStack Query hook
+  const { data: logsPath = '' } = useLogsPath()
 
   const handleOpenLogs = async () => {
     if (!TauriService.isTauri()) return

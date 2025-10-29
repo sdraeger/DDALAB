@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { listen, UnlistenFn } from '@tauri-apps/api/event'
 import { windowManager, WindowType } from '@/utils/windowManager'
 
@@ -18,7 +18,14 @@ export function usePopoutWindows(): UsePopoutWindowsResult {
   useEffect(() => {
     // Sync with window manager state
     const updateOpenedWindows = () => {
-      setOpenedWindows(windowManager.getAllWindows())
+      const windows = windowManager.getAllWindows()
+      // Only update state if the array contents actually changed
+      setOpenedWindows(prev => {
+        if (prev.length !== windows.length) return windows
+        // Check if all window IDs are the same
+        const hasChanged = prev.some((id, index) => id !== windows[index])
+        return hasChanged ? windows : prev
+      })
     }
 
     // Initial sync
@@ -73,7 +80,8 @@ export function usePopoutWindows(): UsePopoutWindowsResult {
     await windowManager.broadcastToType(type, eventName, data)
   }, [])
 
-  return {
+  // Memoize the return object to prevent creating new references on every render
+  return useMemo(() => ({
     openedWindows,
     createWindow,
     closeWindow,
@@ -81,7 +89,7 @@ export function usePopoutWindows(): UsePopoutWindowsResult {
     toggleWindowLock,
     isWindowLocked,
     broadcastToType
-  }
+  }), [openedWindows, createWindow, closeWindow, updateWindowData, toggleWindowLock, isWindowLocked, broadcastToType])
 }
 
 interface UsePopoutListenerResult {

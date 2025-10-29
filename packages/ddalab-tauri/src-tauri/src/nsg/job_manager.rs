@@ -3,14 +3,24 @@ use super::models::{NSGCredentials, NSGResourceConfig};
 use crate::api::handlers::dda::DDARequest;
 use crate::db::{NSGJob, NSGJobStatus, NSGJobsDatabase};
 use anyhow::{anyhow, Context, Result};
+use chrono::Utc;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::Emitter;
+
+// Store NSG credentials for nsg-cli usage
+#[derive(Clone)]
+struct StoredCredentials {
+    username: String,
+    password: String,
+    app_key: String,
+}
 
 pub struct NSGJobManager {
     client: Arc<NSGClient>,
     db: Arc<NSGJobsDatabase>,
     output_dir: PathBuf,
+    credentials: StoredCredentials,
 }
 
 impl NSGJobManager {
@@ -19,14 +29,22 @@ impl NSGJobManager {
         db: Arc<NSGJobsDatabase>,
         output_dir: PathBuf,
     ) -> Result<Self> {
-        let client = NSGClient::new(credentials).context("Failed to create NSG client")?;
+        let client = NSGClient::new(credentials.clone()).context("Failed to create NSG client")?;
 
         std::fs::create_dir_all(&output_dir).context("Failed to create NSG output directory")?;
+
+        // Store credentials for nsg-cli usage
+        let stored_creds = StoredCredentials {
+            username: credentials.username.clone(),
+            password: credentials.password.clone(),
+            app_key: credentials.app_key.clone(),
+        };
 
         Ok(Self {
             client: Arc::new(client),
             db,
             output_dir,
+            credentials: stored_creds,
         })
     }
 
@@ -454,6 +472,149 @@ impl NSGJobManager {
         self.db
             .list_jobs()
             .context("Failed to list jobs from database")
+    }
+
+    /// List all jobs - merges local DDALAB jobs with remote NSG jobs using nsg-cli 0.1.3
+    pub async fn list_all_jobs(&self) -> Result<Vec<NSGJob>> {
+        // Get local jobs
+        let mut local_jobs = self.db.list_jobs()?;
+
+        log::info!("📋 Found {} local DDALAB jobs", local_jobs.len());
+
+        // Use nsg-cli to list all jobs with enhanced metadata
+        let creds = self.credentials.clone();
+        let remote_jobs =
+            tokio::task::spawn_blocking(move || -> Result<Vec<nsg_cli::models::JobSummary>> {
+                let credentials = nsg_cli::Credentials {
+                    username: creds.username,
+                    password: creds.password,
+                    app_key: creds.app_key,
+                };
+
+                let client = nsg_cli::NsgClient::new(credentials)
+                    .context("Failed to create nsg-cli client")?;
+
+                client.list_jobs()
+            })
+            .await
+            .context("Task join error")?;
+
+        let remote_jobs = match remote_jobs {
+            Ok(jobs) => {
+                log::info!(
+                    "📋 Successfully fetched {} total jobs from NSG API using nsg-cli",
+                    jobs.len()
+                );
+                jobs
+            }
+            Err(e) => {
+                log::warn!(
+                    "⚠️ Failed to fetch remote NSG jobs: {}. Showing local jobs only.",
+                    e
+                );
+                return Ok(local_jobs);
+            }
+        };
+
+        // Merge: Add remote jobs that aren't in local DB
+        for remote_job in remote_jobs {
+            // Check if this remote job is already in our local database
+            if local_jobs.iter().any(|j| {
+                j.nsg_job_id
+                    .as_ref()
+                    .map(|id| id == &remote_job.job_id)
+                    .unwrap_or(false)
+            }) {
+                // Job already exists locally, skip
+                continue;
+            }
+
+            // This is an external job - use enhanced JobSummary fields from nsg-cli 0.1.3
+            let tool = remote_job.tool.unwrap_or_else(|| "Unknown".to_string());
+
+            // Map NSG job stage to our status enum
+            let status = if remote_job.failed {
+                NSGJobStatus::Failed
+            } else if let Some(stage) = &remote_job.job_stage {
+                match stage.as_str() {
+                    "SUBMITTED" => NSGJobStatus::Submitted,
+                    "QUEUE" => NSGJobStatus::Queue,
+                    "INPUTSTAGING" => NSGJobStatus::InputStaging,
+                    "RUNNING" | "RUN" => NSGJobStatus::Running,
+                    "COMPLETED" | "COMPLETE" => NSGJobStatus::Completed,
+                    "FAILED" | "TERMINATED" => NSGJobStatus::Failed,
+                    _ => NSGJobStatus::Submitted,
+                }
+            } else {
+                NSGJobStatus::Submitted
+            };
+
+            // Parse dates from nsg-cli JobSummary
+            let submitted_at = remote_job
+                .date_submitted
+                .as_ref()
+                .and_then(|date_str| chrono::DateTime::parse_from_rfc3339(date_str).ok())
+                .map(|dt| dt.with_timezone(&Utc));
+
+            let completed_at = remote_job
+                .date_completed
+                .as_ref()
+                .and_then(|date_str| chrono::DateTime::parse_from_rfc3339(date_str).ok())
+                .map(|dt| dt.with_timezone(&Utc));
+
+            let created_at = submitted_at.unwrap_or_else(Utc::now);
+
+            log::debug!(
+                "📊 External job {}: tool={}, status={:?}, submitted={:?}, completed={:?}",
+                remote_job.job_id,
+                tool,
+                status,
+                submitted_at,
+                completed_at
+            );
+
+            // Create external job entry with real metadata from nsg-cli
+            let external_job = NSGJob {
+                id: format!("external_{}", remote_job.job_id),
+                nsg_job_id: Some(remote_job.job_id.clone()),
+                tool,
+                status,
+                created_at,
+                submitted_at,
+                completed_at,
+                dda_params: serde_json::json!({ "external": true }), // Mark as external
+                input_file_path: String::new(),
+                output_files: vec![],
+                error_message: None,
+                last_polled: Some(Utc::now()),
+                progress: None,
+            };
+
+            local_jobs.push(external_job);
+        }
+
+        // Sort by creation date (most recent first)
+        local_jobs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+        let external_count = local_jobs
+            .iter()
+            .filter(|j| {
+                j.dda_params
+                    .get("external")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+            })
+            .count();
+        let local_count = local_jobs.len() - external_count;
+
+        log::info!(
+            "✅ Merged jobs: {} local + {} external = {} total",
+            local_count,
+            external_count,
+            local_jobs.len()
+        );
+
+        Ok(local_jobs)
     }
 
     pub fn get_job(&self, job_id: &str) -> Result<Option<NSGJob>> {

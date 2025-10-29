@@ -26,20 +26,23 @@ interface DashboardLayoutProps {
 }
 
 export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) {
-  console.log('[DASHBOARD] DashboardLayout rendered with apiUrl:', apiUrl, 'hasToken:', !!sessionToken);
-
   const [apiService, setApiService] = useState(() => {
-    console.log('[DASHBOARD] Creating initial ApiService with URL:', apiUrl);
     return new ApiService(apiUrl, sessionToken);
   });
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
 
-  // Use selectors to prevent unnecessary re-renders
-  const ui = useAppStore((state) => state.ui);
-  const fileManager = useAppStore((state) => state.fileManager);
-  const currentAnalysis = useAppStore((state) => state.dda.currentAnalysis);
-  const analysisHistory = useAppStore((state) => state.dda.analysisHistory);
+  // FIX: Use specific selectors to prevent unnecessary re-renders
+  // Only select the specific properties we need, not entire objects
+  const isServerReady = useAppStore((state) => state.ui.isServerReady);
+  const sidebarOpen = useAppStore((state) => state.ui.sidebarOpen);
+  const activeTab = useAppStore((state) => state.ui.activeTab);
+  const primaryNav = useAppStore((state) => state.ui.primaryNav);
+  const secondaryNav = useAppStore((state) => state.ui.secondaryNav);
+  const currentFilePath = useAppStore((state) => state.fileManager.selectedFile?.file_path);
+  const selectedFileName = useAppStore((state) => state.fileManager.selectedFile?.file_name);
+  const hasCurrentAnalysis = useAppStore((state) => !!state.dda.currentAnalysis);
+  const currentAnalysisId = useAppStore((state) => state.dda.currentAnalysis?.id);
   const isPersistenceRestored = useAppStore((state) => state.isPersistenceRestored);
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
   const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
@@ -54,7 +57,7 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
     data: historyData,
     isLoading: isLoadingHistory,
     error: historyError
-  } = useDDAHistory(apiService, ui.isServerReady && isAuthReady);
+  } = useDDAHistory(apiService, isServerReady && isAuthReady);
 
   // Sync history data to Zustand store when it changes
   useEffect(() => {
@@ -70,9 +73,8 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
   // Determine which analysis to auto-load (if any)
   // Only enable auto-load if: no current analysis, persistence restored, and history loaded
   // IMPORTANT: Filter history by current file to prevent loading results from different files
-  const currentFilePath = fileManager.selectedFile?.file_path;
   const fileSpecificHistory = historyData?.filter(item => item.file_path === currentFilePath) || [];
-  const shouldAutoLoad = !currentAnalysis && isPersistenceRestored && fileSpecificHistory.length > 0 && !isLoadingHistory && !!currentFilePath;
+  const shouldAutoLoad = !hasCurrentAnalysis && isPersistenceRestored && fileSpecificHistory.length > 0 && !isLoadingHistory && !!currentFilePath;
   const analysisIdToLoad = shouldAutoLoad ? fileSpecificHistory[0].id : null;
 
   // Use Tanstack Query to load the most recent analysis (async, non-blocking)
@@ -82,21 +84,10 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
   } = useAnalysisFromHistory(apiService, analysisIdToLoad, !!analysisIdToLoad);
 
   // Set the auto-loaded analysis once it's fetched
-  // IMPORTANT: Verify the analysis belongs to the current file before setting it
-  useEffect(() => {
-    if (autoLoadedAnalysis && !currentAnalysis && currentFilePath) {
-      // Double-check the file path matches to prevent race conditions
-      if (autoLoadedAnalysis.file_path === currentFilePath) {
-        console.log("[DASHBOARD] Setting auto-loaded analysis:", autoLoadedAnalysis.id, "for file:", currentFilePath);
-        setCurrentAnalysis(autoLoadedAnalysis);
-      } else {
-        console.warn("[DASHBOARD] Skipping auto-load - analysis file path mismatch:", {
-          analysisFile: autoLoadedAnalysis.file_path,
-          currentFile: currentFilePath
-        });
-      }
-    }
-  }, [autoLoadedAnalysis, currentAnalysis, currentFilePath, setCurrentAnalysis]);
+  // DISABLED: Auto-loading is now handled by DDAWithHistory component
+  // This prevents duplicate setCurrentAnalysis calls when DDAWithHistory loads from manual selection
+  // DDAWithHistory will auto-select the most recent analysis, so we don't need to do it here
+  // The autoLoadedAnalysis state is still used by DDAWithHistory to know which analysis to display
 
   // Update API service when URL or session token changes
   useEffect(() => {
@@ -104,42 +95,26 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
     const newApiUrl = apiUrl;
     const currentToken = apiService.getSessionToken();
 
-    console.log('[DASHBOARD] API service check:', {
-      currentURL: apiService.baseURL,
-      newURL: newApiUrl,
-      currentToken: currentToken?.substring(0, 8) + '...' || 'NONE',
-      newToken: sessionToken?.substring(0, 8) + '...' || 'NONE',
-      needsUpdate: apiService.baseURL !== newApiUrl || (sessionToken && currentToken !== sessionToken)
-    });
-
     // If only token changed, update the existing instance to avoid recreating
     if (apiService.baseURL === newApiUrl && sessionToken && currentToken !== sessionToken) {
-      console.log('[DASHBOARD] Updating token on existing API service:', sessionToken?.substring(0, 8) + '...');
       apiService.setSessionToken(sessionToken);
       setIsAuthReady(true);
-
-      // Dispatch event to signal that auth is ready - this allows page.tsx to wait
-      console.log('[DASHBOARD] Dispatching api-service-auth-ready event');
       window.dispatchEvent(new CustomEvent('api-service-auth-ready'));
     }
     // If URL changed, we need a new instance
     else if (apiService.baseURL !== newApiUrl) {
-      console.log('[DASHBOARD] Creating new API service with URL:', newApiUrl, 'and token:', sessionToken?.substring(0, 8) + '...');
       const newService = new ApiService(newApiUrl, sessionToken);
       setApiService(newService);
       setIsAuthReady(!!sessionToken);
 
       // Dispatch event to signal that auth is ready
       if (sessionToken) {
-        console.log('[DASHBOARD] Dispatching api-service-auth-ready event');
         window.dispatchEvent(new CustomEvent('api-service-auth-ready'));
       }
     }
     // Mark as ready if token already matches
     else if (sessionToken && currentToken === sessionToken) {
       setIsAuthReady(true);
-      // Dispatch event to signal that auth is ready
-      console.log('[DASHBOARD] Dispatching api-service-auth-ready event (token already set)');
       window.dispatchEvent(new CustomEvent('api-service-auth-ready'));
     }
   }, [apiUrl, sessionToken, apiService.baseURL]);
@@ -147,7 +122,6 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
   // Listen for navigation events from NSG Job Manager
   useEffect(() => {
     const handleNavigateToMainResults = () => {
-      console.log('[DASHBOARD] Navigating to Analyze > DDA for NSG results');
       setPrimaryNav('analyze');
       setSecondaryNav('dda');
     };
@@ -185,7 +159,7 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
   useEffect(() => {
     if (!TauriService.isTauri()) return;
 
-    if (ui.activeTab === 'notifications') {
+    if (activeTab === 'notifications') {
       // Refresh after a short delay to allow notifications to be marked as read
       const timeout = setTimeout(async () => {
         try {
@@ -198,7 +172,7 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
 
       return () => clearTimeout(timeout);
     }
-  }, [ui.activeTab]);
+  }, [activeTab]);
 
   // Handle notification navigation
   const handleNotificationNavigate = (actionType: string, actionData: any) => {
@@ -253,10 +227,10 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setSidebarOpen(!ui.sidebarOpen)}
+            onClick={() => setSidebarOpen(!sidebarOpen)}
             className="h-8 w-8"
           >
-            {ui.sidebarOpen ? (
+            {sidebarOpen ? (
               <PanelLeftClose className="h-4 w-4" />
             ) : (
               <PanelLeftOpen className="h-4 w-4" />
@@ -273,7 +247,7 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
 
         <div className="flex items-center space-x-2">
           <div className="text-sm text-muted-foreground">
-            {fileManager.selectedFile?.file_name || "No file selected"}
+            {selectedFileName || "No file selected"}
           </div>
 
           {TauriService.isTauri() && (
@@ -310,7 +284,7 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar */}
-        {ui.sidebarOpen ? (
+        {sidebarOpen ? (
           <div className="w-80 flex-shrink-0 border-r bg-background overflow-hidden flex flex-col">
             <FileManager apiService={apiService} />
           </div>
