@@ -2,6 +2,7 @@ pub mod annotation_commands;
 pub mod api_commands; // Unified API commands (local and remote)
 pub mod data_directory_commands;
 pub mod debug_commands;
+pub mod file_commands;
 pub mod native_updater_commands;
 pub mod notification_commands;
 pub mod nsg_commands;
@@ -15,6 +16,7 @@ pub use annotation_commands::*;
 pub use api_commands::*;
 pub use data_directory_commands::*;
 pub use debug_commands::*;
+pub use file_commands::*;
 pub use native_updater_commands::*;
 pub use notification_commands::*;
 pub use nsg_commands::*;

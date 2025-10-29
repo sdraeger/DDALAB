@@ -862,4 +862,60 @@ export class TauriService {
       throw error
     }
   }
+
+  static async selectDirectory(): Promise<string | null> {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Select Output Directory'
+      })
+
+      if (!selected || typeof selected !== 'string') {
+        return null
+      }
+
+      return selected
+    } catch (error) {
+      console.error('Failed to select directory:', error)
+      throw error
+    }
+  }
+
+  static async segmentFile(params: {
+    filePath: string
+    startTime: number
+    startUnit: 'seconds' | 'samples'
+    endTime: number
+    endUnit: 'seconds' | 'samples'
+    outputDirectory: string
+    outputFormat: 'same' | 'edf' | 'csv' | 'ascii'
+    outputFilename: string
+    selectedChannels: number[] | null
+  }): Promise<{ outputPath: string }> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) {
+        throw new Error('Not running in Tauri environment')
+      }
+
+      return await api.invoke('segment_file', {
+        params: {
+          filePath: params.filePath,
+          startTime: params.startTime,
+          startUnit: params.startUnit,
+          endTime: params.endTime,
+          endUnit: params.endUnit,
+          outputDirectory: params.outputDirectory,
+          outputFormat: params.outputFormat,
+          outputFilename: params.outputFilename,
+          selectedChannels: params.selectedChannels,
+        }
+      })
+    } catch (error) {
+      console.error('[FILE] Failed to segment file:', error)
+      throw error
+    }
+  }
 }

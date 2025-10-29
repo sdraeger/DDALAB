@@ -318,7 +318,25 @@ export function NSGJobManager() {
       if (!resultsFile) {
         // Show all downloaded files for debugging
         console.error('[NSG] Available files:', files)
-        alert(`DDA results file not found.\n\nDownloaded files:\n${files.map(f => f.split('/').pop()).join('\n')}\n\nThe job may have failed. Check STDERR for errors.`)
+
+        // Check if this is an external non-DDALAB job
+        const isExternalNonDDALAB = isExternalJob({ id: jobId } as NSGJob)
+
+        if (isExternalNonDDALAB) {
+          alert(
+            `This external job doesn't have DDALAB DDA results.\n\n` +
+            `This appears to be a job submitted outside of DDALAB (possibly through the NSG portal directly).\n\n` +
+            `Only DDALAB DDA analysis jobs have viewable results in the application.\n\n` +
+            `Downloaded files (${files.length} total):\n${files.map(f => f.split('/').pop()).join('\n')}\n\n` +
+            `Files have been downloaded to your local system. Check STDOUT/STDERR for job output.`
+          )
+        } else {
+          alert(
+            `DDA results file not found.\n\n` +
+            `Downloaded files:\n${files.map(f => f.split('/').pop()).join('\n')}\n\n` +
+            `The job may have failed. Check STDERR for errors.`
+          )
+        }
         return
       }
 
@@ -583,16 +601,15 @@ export function NSGJobManager() {
   }
 
   const canViewResults = (job: NSGJob) => {
-    // External jobs cannot be viewed in DDALAB (no DDA params)
-    if (isExternalJob(job)) {
-      return false
-    }
-    // Show view button for all completed DDALAB jobs
+    // Show view button for all completed jobs (both DDALAB and external)
+    // Results are read from dda_results.json which contains all necessary data
     // Files will be downloaded on-demand when clicking view
     return job.status === NSGJobStatus.Completed
   }
 
   const canUpdateStatus = (job: NSGJob) => {
+    // External jobs are automatically synced from NSG - can't manually update status
+    if (isExternalJob(job)) return false
     return ![NSGJobStatus.Completed, NSGJobStatus.Failed, NSGJobStatus.Cancelled].includes(job.status)
   }
 
@@ -763,15 +780,7 @@ export function NSGJobManager() {
                           const canView = canViewResults(job)
                           const isDownloading = viewingJobId === job.id
                           const showProgress = isDownloading && downloadProgress?.jobId === job.id
-
-                          // Show message for external jobs
-                          if (isExternalJob(job)) {
-                            return (
-                              <span className="text-xs text-muted-foreground italic">
-                                External job (view in NSG portal)
-                              </span>
-                            )
-                          }
+                          const isExternal = isExternalJob(job)
 
                           return canView ? (
                             <div className="flex flex-col gap-1">
@@ -781,14 +790,26 @@ export function NSGJobManager() {
                                 onClick={() => handleViewResults(job.id)}
                                 disabled={isDownloading}
                                 className="h-7"
-                                title="View results"
+                                title={
+                                  isExternal
+                                    ? 'Download files (DDA results may not be available for external jobs)'
+                                    : 'View DDA results'
+                                }
                               >
                                 {isDownloading ? (
                                   <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                ) : isExternal ? (
+                                  <Download className="h-3 w-3 mr-1" />
                                 ) : (
                                   <Eye className="h-3 w-3 mr-1" />
                                 )}
-                                {job.output_files.length > 0 ? `View (${job.output_files.length})` : 'View Results'}
+                                {isExternal
+                                  ? job.output_files.length > 0
+                                    ? `Download (${job.output_files.length})`
+                                    : 'Download Files'
+                                  : job.output_files.length > 0
+                                  ? `View (${job.output_files.length})`
+                                  : 'View Results'}
                               </Button>
                               {showProgress && (
                                 <div className="flex flex-col gap-1 min-w-[200px]">

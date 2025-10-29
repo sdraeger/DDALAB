@@ -47,6 +47,8 @@ import { createLoadFileAction } from '@/types/workflow'
 import { BIDSBrowser } from '@/components/BIDSBrowser'
 import { BIDSUploadDialog } from '@/components/BIDSUploadDialog'
 import { openNeuroService } from '@/services/openNeuroService'
+import { FileContextMenu } from '@/components/FileContextMenu'
+import { FileSegmentationDialog, type SegmentationParams } from '@/components/FileSegmentationDialog'
 
 interface FileManagerProps {
   apiService: ApiService
@@ -98,6 +100,9 @@ export function FileManager({ apiService }: FileManagerProps) {
   const [uploadDatasetPath, setUploadDatasetPath] = useState<string | null>(null)
   const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [isOpenNeuroAuthenticated, setIsOpenNeuroAuthenticated] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: EDFFileInfo } | null>(null)
+  const [showSegmentationDialog, setShowSegmentationDialog] = useState(false)
+  const [fileToSegment, setFileToSegment] = useState<EDFFileInfo | null>(null)
 
   // Extract directories and files from query data
   const directories = useMemo(() => {
@@ -386,6 +391,35 @@ export function FileManager({ apiService }: FileManagerProps) {
   const cancelFileSelection = () => {
     setPendingFileSelection(null)
     setShowConfirmDialog(false)
+  }
+
+  const handleContextMenu = (e: React.MouseEvent, file: EDFFileInfo) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({ x: e.clientX, y: e.clientY, file })
+  }
+
+  const handleSegmentFile = (file: EDFFileInfo) => {
+    setFileToSegment(file)
+    setShowSegmentationDialog(true)
+  }
+
+  const handleSegment = async (params: SegmentationParams) => {
+    try {
+      console.log('[FILEMANAGER] Cutting file with params:', params)
+      const result = await TauriService.segmentFile(params)
+      console.log('[FILEMANAGER] Cut result:', result)
+
+      alert(`File cut successfully!\n\nCreated file:\n${result.outputPath}`)
+
+      // Refresh directory listing if output directory is the current directory
+      if (params.outputDirectory === absolutePath) {
+        refetchDirectory()
+      }
+    } catch (error) {
+      console.error('[FILEMANAGER] File cut failed:', error)
+      throw error
+    }
   }
 
   const handleDirectorySelect = (dir: DirectoryEntry) => {
@@ -806,6 +840,7 @@ export function FileManager({ apiService }: FileManagerProps) {
               <div
                 key={`${file.file_path}-${index}`}
                 onClick={() => handleFileSelect(file)}
+                onContextMenu={(e) => handleContextMenu(e, file)}
                 className={`flex items-center gap-3 p-3 rounded-lg border transition-all
                   ${(fileManager.pendingFileSelection || loadFileInfoMutation.isPending)
                     ? 'opacity-50 cursor-wait pointer-events-none'
@@ -922,6 +957,29 @@ export function FileManager({ apiService }: FileManagerProps) {
           }}
         />
       )}
+
+      {/* File Context Menu */}
+      {contextMenu && (
+        <FileContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          file={contextMenu.file}
+          onClose={() => setContextMenu(null)}
+          onSegmentFile={handleSegmentFile}
+        />
+      )}
+
+      {/* File Segmentation Dialog */}
+      <FileSegmentationDialog
+        open={showSegmentationDialog}
+        onClose={() => {
+          setShowSegmentationDialog(false)
+          setFileToSegment(null)
+        }}
+        file={fileToSegment}
+        onSegment={handleSegment}
+        apiService={apiService}
+      />
 
     </Card>
   )

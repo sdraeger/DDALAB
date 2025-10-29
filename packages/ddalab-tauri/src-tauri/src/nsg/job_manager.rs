@@ -153,6 +153,13 @@ impl NSGJobManager {
     }
 
     pub async fn update_job_status(&self, job_id: &str) -> Result<NSGJob> {
+        // External jobs are not stored in the database and are fetched fresh from NSG API
+        if job_id.starts_with("external_") {
+            return Err(anyhow!(
+                "Cannot update status for external jobs - they are automatically synced from NSG"
+            ));
+        }
+
         let mut job = self
             .db
             .get_job(job_id)
@@ -251,6 +258,29 @@ impl NSGJobManager {
     }
 
     pub async fn cancel_job(&self, job_id: &str) -> Result<NSGJob> {
+        // Handle external jobs - they're not in the database
+        if job_id.starts_with("external_") {
+            let nsg_job_id = job_id.strip_prefix("external_").unwrap();
+            let job_url = format!(
+                "{}/job/{}/{}",
+                "https://nsgr.sdsc.edu:8443/cipresrest/v1",
+                self.client.username(),
+                nsg_job_id
+            );
+
+            self.client
+                .cancel_job(&job_url)
+                .await
+                .context("Failed to cancel external job on NSG")?;
+
+            log::info!("✅ Cancelled external NSG job: {}", nsg_job_id);
+
+            // Return a dummy job object since we don't store external jobs in DB
+            return Err(anyhow!(
+                "External job cancelled successfully. Refresh the job list to see updated status."
+            ));
+        }
+
         let mut job = self
             .db
             .get_job(job_id)
@@ -295,19 +325,27 @@ impl NSGJobManager {
         job_id: &str,
         app_handle: Option<tauri::AppHandle>,
     ) -> Result<Vec<PathBuf>> {
-        let job = self
-            .db
-            .get_job(job_id)
-            .context("Failed to get job from database")?
-            .ok_or_else(|| anyhow!("Job not found: {}", job_id))?;
+        // Handle external jobs differently - they're not in the database
+        let nsg_job_id = if job_id.starts_with("external_") {
+            // Extract NSG job ID by removing the "external_" prefix
+            let nsg_id = job_id.strip_prefix("external_").unwrap().to_string();
+            log::info!("📋 External job detected, using NSG job ID: {}", nsg_id);
+            nsg_id
+        } else {
+            // Local job - look it up in the database
+            let job = self
+                .db
+                .get_job(job_id)
+                .context("Failed to get job from database")?
+                .ok_or_else(|| anyhow!("Job not found: {}", job_id))?;
 
-        if job.status != NSGJobStatus::Completed {
-            return Err(anyhow!("Job is not completed: {:?}", job.status));
-        }
+            if job.status != NSGJobStatus::Completed {
+                return Err(anyhow!("Job is not completed: {:?}", job.status));
+            }
 
-        let nsg_job_id = job
-            .nsg_job_id
-            .ok_or_else(|| anyhow!("Job has no NSG job ID"))?;
+            job.nsg_job_id
+                .ok_or_else(|| anyhow!("Job has no NSG job ID"))?
+        };
 
         let job_url = format!(
             "{}/job/{}/{}",
@@ -341,7 +379,7 @@ impl NSGJobManager {
             return Err(anyhow!("No output files available"));
         }
 
-        let job_output_dir = self.output_dir.join(&job.id);
+        let job_output_dir = self.output_dir.join(job_id);
         std::fs::create_dir_all(&job_output_dir)
             .context("Failed to create job output directory")?;
 
@@ -408,7 +446,7 @@ impl NSGJobManager {
         log::info!(
             "✅ Downloaded {} result files for job {}",
             downloaded_paths.len(),
-            job.id
+            job_id
         );
 
         Ok(downloaded_paths)
