@@ -493,12 +493,6 @@ export function AnalysisPreviewWindow({ analysis, onClose }: AnalysisPreviewWind
                   <p className="font-medium">{analysis.parameters.window_step}</p>
                 </div>
               )}
-              {analysis.parameters.detrending && (
-                <div>
-                  <p className="text-muted-foreground">Detrending</p>
-                  <p className="font-medium">{analysis.parameters.detrending}</p>
-                </div>
-              )}
               {analysis.parameters.scale_min && analysis.parameters.scale_max && (
                 <div>
                   <p className="text-muted-foreground">Scale Range</p>
