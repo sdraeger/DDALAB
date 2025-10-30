@@ -95,14 +95,19 @@ struct PlotAnnotation {
     updated_at: Option<String>,
 }
 
-/// Export annotations for a file to a JSON file
+/// Export annotations for a file to a JSON or CSV file
 #[tauri::command]
 pub async fn export_annotations(
     app: tauri::AppHandle,
     state_manager: State<'_, AppStateManager>,
     file_path: String,
+    format: String, // "json" or "csv"
 ) -> Result<Option<String>, String> {
-    log::info!("Exporting annotations for file: {}", file_path);
+    log::info!(
+        "Exporting annotations for file: {} (format: {})",
+        file_path,
+        format
+    );
 
     // Get file metadata for validation
     let path = std::path::Path::new(&file_path);
@@ -238,12 +243,17 @@ pub async fn export_annotations(
         log::info!("No annotation state found for file: {}", file_path);
     }
 
-    // Show save file dialog
+    // Show save file dialog based on format
+    let (filter_name, filter_ext, default_filename) = match format.as_str() {
+        "csv" => ("CSV Files", vec!["csv"], "annotations.csv"),
+        _ => ("JSON Files", vec!["json"], "annotations.json"),
+    };
+
     let save_path = app
         .dialog()
         .file()
-        .add_filter("Annotation Files", &["json"])
-        .set_file_name("annotations.json")
+        .add_filter(filter_name, &filter_ext)
+        .set_file_name(default_filename)
         .blocking_save_file();
 
     if let Some(file_path) = save_path {
@@ -252,15 +262,21 @@ pub async fn export_annotations(
             .ok_or_else(|| "Invalid file path".to_string())?;
         let path_str = path.to_string_lossy().to_string();
 
-        // Save to file
-        annotation_file
-            .save_to_file(path)
-            .map_err(|e| format!("Failed to save annotation file: {}", e))?;
+        // Save to file in the requested format
+        match format.as_str() {
+            "csv" => annotation_file
+                .save_to_csv(path)
+                .map_err(|e| format!("Failed to save CSV file: {}", e))?,
+            _ => annotation_file
+                .save_to_file(path)
+                .map_err(|e| format!("Failed to save JSON file: {}", e))?,
+        }
 
         log::info!(
-            "Successfully exported {} annotations to: {}",
+            "Successfully exported {} annotations to: {} (format: {})",
             annotation_file.total_count(),
-            path_str
+            path_str,
+            format
         );
 
         Ok(Some(path_str))
@@ -1205,13 +1221,17 @@ pub async fn import_selected_annotations(
     Ok(imported_count)
 }
 
-/// Export ALL annotations from all tracked files to a single JSON file
+/// Export ALL annotations from all tracked files to a single JSON or CSV file
 #[tauri::command]
 pub async fn export_all_annotations(
     app: tauri::AppHandle,
     state_manager: State<'_, AppStateManager>,
+    format: String, // "json" or "csv"
 ) -> Result<Option<String>, String> {
-    log::info!("Exporting all annotations from all tracked files");
+    log::info!(
+        "Exporting all annotations from all tracked files (format: {})",
+        format
+    );
 
     // Create a structure to hold all files' annotations
     #[derive(serde::Serialize)]
@@ -1385,12 +1405,17 @@ pub async fn export_all_annotations(
         export.files.len()
     );
 
-    // Show save file dialog
+    // Show save file dialog based on format
+    let (filter_name, filter_ext, default_filename) = match format.as_str() {
+        "csv" => ("CSV Files", vec!["csv"], "all_annotations.csv"),
+        _ => ("JSON Files", vec!["json"], "all_annotations.json"),
+    };
+
     let save_path = app
         .dialog()
         .file()
-        .add_filter("Annotation Files", &["json"])
-        .set_file_name("all_annotations.json")
+        .add_filter(filter_name, &filter_ext)
+        .set_file_name(default_filename)
         .blocking_save_file();
 
     if let Some(file_path) = save_path {
@@ -1399,17 +1424,105 @@ pub async fn export_all_annotations(
             .ok_or_else(|| "Invalid file path".to_string())?;
         let path_str = path.to_string_lossy().to_string();
 
-        // Save to file
-        let json = serde_json::to_string_pretty(&export)
-            .map_err(|e| format!("Failed to serialize annotations: {}", e))?;
-        std::fs::write(path, json)
-            .map_err(|e| format!("Failed to write annotation file: {}", e))?;
+        // Save to file in the requested format
+        match format.as_str() {
+            "csv" => {
+                // For CSV, flatten all annotations from all files into a single CSV
+                use crate::annotations::AnnotationEntry;
+                use flatten_json_object::Flattener;
+                use json_objects_to_csv::Json2Csv;
+
+                #[derive(serde::Serialize)]
+                struct FlatAnnotation {
+                    file_path: String,
+                    file_hash: String,
+                    channel: String,
+                    position: f64,
+                    label: String,
+                    description: String,
+                    color: String,
+                    id: String,
+                    created_at: String,
+                    updated_at: String,
+                }
+
+                let mut flat_annotations = Vec::new();
+
+                // Flatten annotations from all files
+                for (file_path, ann_file) in &export.files {
+                    // Add global annotations
+                    for ann in &ann_file.global_annotations {
+                        flat_annotations.push(FlatAnnotation {
+                            file_path: file_path.clone(),
+                            file_hash: ann_file.file_hash.clone().unwrap_or_default(),
+                            channel: "global".to_string(),
+                            position: ann.position,
+                            label: ann.label.clone(),
+                            description: ann.description.clone().unwrap_or_default(),
+                            color: ann.color.clone().unwrap_or_default(),
+                            id: ann.id.clone(),
+                            created_at: ann.created_at.clone(),
+                            updated_at: ann.updated_at.clone().unwrap_or_default(),
+                        });
+                    }
+
+                    // Add channel-specific annotations
+                    for (channel, anns) in &ann_file.channel_annotations {
+                        for ann in anns {
+                            flat_annotations.push(FlatAnnotation {
+                                file_path: file_path.clone(),
+                                file_hash: ann_file.file_hash.clone().unwrap_or_default(),
+                                channel: channel.clone(),
+                                position: ann.position,
+                                label: ann.label.clone(),
+                                description: ann.description.clone().unwrap_or_default(),
+                                color: ann.color.clone().unwrap_or_default(),
+                                id: ann.id.clone(),
+                                created_at: ann.created_at.clone(),
+                                updated_at: ann.updated_at.clone().unwrap_or_default(),
+                            });
+                        }
+                    }
+                }
+
+                // Use json-objects-to-csv crate
+                let flattener = Flattener::new();
+                let mut output = Vec::<u8>::new();
+                let csv_writer = csv::WriterBuilder::new()
+                    .delimiter(b',')
+                    .from_writer(&mut output);
+
+                // Convert Vec to slice of serde_json::Value
+                let json_values: Vec<serde_json::Value> = flat_annotations
+                    .into_iter()
+                    .map(|ann| serde_json::to_value(ann).unwrap())
+                    .collect();
+
+                Json2Csv::new(flattener)
+                    .convert_from_array(&json_values, csv_writer)
+                    .map_err(|e| format!("Failed to convert to CSV: {}", e))?;
+
+                let csv = String::from_utf8(output)
+                    .map_err(|e| format!("Failed to convert CSV output to string: {}", e))?;
+
+                std::fs::write(path, csv)
+                    .map_err(|e| format!("Failed to write CSV file: {}", e))?;
+            }
+            _ => {
+                // JSON format - save the structured export
+                let json = serde_json::to_string_pretty(&export)
+                    .map_err(|e| format!("Failed to serialize annotations: {}", e))?;
+                std::fs::write(path, json)
+                    .map_err(|e| format!("Failed to write JSON file: {}", e))?;
+            }
+        }
 
         log::info!(
-            "Successfully exported {} annotations from {} files to: {}",
+            "Successfully exported {} annotations from {} files to: {} (format: {})",
             total_count,
             export.files.len(),
-            path_str
+            path_str,
+            format
         );
 
         Ok(Some(path_str))

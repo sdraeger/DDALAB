@@ -255,11 +255,17 @@ impl ProgressiveOverviewGenerator {
                             return None;
                         }
 
-                        let min_val = bucket_data.iter().copied().fold(f64::INFINITY, f64::min);
-                        let max_val = bucket_data
-                            .iter()
+                        // Parallel min/max computation
+                        let min_val = bucket_data
+                            .par_iter()
                             .copied()
-                            .fold(f64::NEG_INFINITY, f64::max);
+                            .reduce_with(f64::min)
+                            .unwrap_or(f64::INFINITY);
+                        let max_val = bucket_data
+                            .par_iter()
+                            .copied()
+                            .reduce_with(f64::max)
+                            .unwrap_or(f64::NEG_INFINITY);
 
                         Some(vec![min_val, max_val])
                     })
