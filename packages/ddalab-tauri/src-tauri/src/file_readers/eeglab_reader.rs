@@ -1,5 +1,6 @@
 use super::{FileMetadata, FileReader, FileReaderError, FileResult};
 use matfile::{Array, MatFile};
+use rayon::prelude::*;
 /// EEGLAB File Reader
 ///
 /// Implementation of FileReader trait for EEGLAB .set files (MATLAB format).
@@ -127,8 +128,9 @@ impl FileReader for EEGLABFileReader {
         // Read full data and decimate
         let full_data = self.read_chunk(0, total_samples, channels)?;
 
+        // Parallelize channel decimation for better performance (order preserved by rayon)
         let decimated: Vec<Vec<f64>> = full_data
-            .into_iter()
+            .into_par_iter()
             .map(|channel_data| channel_data.iter().step_by(decimation).copied().collect())
             .collect();
 

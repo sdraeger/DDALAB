@@ -30,6 +30,7 @@
  */
 
 use super::{FileMetadata, FileReader, FileReaderError, FileResult};
+use rayon::prelude::*;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -410,8 +411,9 @@ impl FileReader for FIFFileReader {
         // Read full data then decimate
         let full_data = self.read_chunk(0, total_samples, channels)?;
 
+        // Parallelize channel decimation for better performance (order preserved by rayon)
         let decimated: Vec<Vec<f64>> = full_data
-            .iter()
+            .par_iter()
             .map(|channel| channel.iter().step_by(decimation_factor).copied().collect())
             .collect();
 

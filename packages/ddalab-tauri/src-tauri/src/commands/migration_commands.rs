@@ -1,6 +1,9 @@
 use crate::state_manager::AppStateManager;
 use crate::utils::file_hash::compute_file_hash;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 use tauri::State;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,70 +53,83 @@ pub async fn migrate_file_hashes(
     // Get annotation database
     let annotation_db = state_manager.get_annotation_db();
 
-    // Process each file
-    for (index, file_path) in tracked_files.iter().enumerate() {
-        if index % 10 == 0 {
-            log::info!(
-                "Processing file {}/{}: {}",
-                index + 1,
-                report.total_files,
-                file_path
-            );
-        }
+    // Thread-safe counters for parallel processing
+    let hashed_files = AtomicUsize::new(0);
+    let already_hashed = AtomicUsize::new(0);
+    let failed_files = Mutex::new(Vec::new());
 
-        // Check if file exists
-        if !std::path::Path::new(file_path).exists() {
-            log::warn!("File not found, skipping: {}", file_path);
-            report.failed_files.push(FailedFileReport {
-                file_path: file_path.clone(),
-                error: "File not found".to_string(),
-            });
-            continue;
-        }
-
-        // Compute file hash
-        let hash = match compute_file_hash(file_path) {
-            Ok(h) => h,
-            Err(e) => {
-                log::warn!("Failed to hash file {}: {}", file_path, e);
-                report.failed_files.push(FailedFileReport {
-                    file_path: file_path.clone(),
-                    error: format!("Failed to compute hash: {}", e),
-                });
-                continue;
+    // Process files in parallel using rayon
+    tracked_files
+        .par_iter()
+        .enumerate()
+        .for_each(|(index, file_path)| {
+            if index % 10 == 0 {
+                log::info!(
+                    "Processing file {}/{}: {}",
+                    index + 1,
+                    report.total_files,
+                    file_path
+                );
             }
-        };
 
-        // Update annotations with file hash
-        match update_annotation_hashes(&annotation_db, file_path, &hash) {
-            Ok(updated) => {
-                if updated {
-                    report.hashed_files += 1;
-                    log::debug!(
-                        "Updated annotations for {}: hash={}",
-                        file_path,
-                        &hash[..16]
-                    );
-                } else {
-                    report.already_hashed += 1;
+            // Check if file exists
+            if !std::path::Path::new(file_path).exists() {
+                log::warn!("File not found, skipping: {}", file_path);
+                failed_files.lock().unwrap().push(FailedFileReport {
+                    file_path: file_path.clone(),
+                    error: "File not found".to_string(),
+                });
+                return;
+            }
+
+            // Compute file hash
+            let hash = match compute_file_hash(file_path) {
+                Ok(h) => h,
+                Err(e) => {
+                    log::warn!("Failed to hash file {}: {}", file_path, e);
+                    failed_files.lock().unwrap().push(FailedFileReport {
+                        file_path: file_path.clone(),
+                        error: format!("Failed to compute hash: {}", e),
+                    });
+                    return;
+                }
+            };
+
+            // Update annotations with file hash
+            match update_annotation_hashes(&annotation_db, file_path, &hash) {
+                Ok(updated) => {
+                    if updated {
+                        hashed_files.fetch_add(1, Ordering::Relaxed);
+                        log::debug!(
+                            "Updated annotations for {}: hash={}",
+                            file_path,
+                            &hash[..16]
+                        );
+                    } else {
+                        already_hashed.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to update annotations for {}: {}", file_path, e);
+                    // Don't fail the whole migration, just log it
                 }
             }
-            Err(e) => {
-                log::warn!("Failed to update annotations for {}: {}", file_path, e);
-                // Don't fail the whole migration, just log it
-            }
-        }
 
-        // Update file state metadata with hash
-        match update_file_state_hash(&file_state_db, file_path, &hash) {
-            Ok(_) => {
-                log::debug!("Updated file state for {}: hash={}", file_path, &hash[..16]);
+            // Update file state metadata with hash
+            match update_file_state_hash(&file_state_db, file_path, &hash) {
+                Ok(_) => {
+                    log::debug!("Updated file state for {}: hash={}", file_path, &hash[..16]);
+                }
+                Err(e) => {
+                    log::warn!("Failed to update file state for {}: {}", file_path, e);
+                }
             }
-            Err(e) => {
-                log::warn!("Failed to update file state for {}: {}", file_path, e);
-            }
-        }
-    }
+        });
+
+    // Collect results from parallel processing
+    report.hashed_files = hashed_files.load(Ordering::Relaxed);
+    report.already_hashed = already_hashed.load(Ordering::Relaxed);
+    report.failed_files = failed_files.into_inner().unwrap();
 
     report.duration_ms = start_time.elapsed().as_millis();
 
