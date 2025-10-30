@@ -515,37 +515,39 @@ mod tests {
         let db_path = dir.path().join("test.db");
         let db = NSGJobsDatabase::new(&db_path).unwrap();
 
-        let job = NSGJob::new(
-            "TEST_TOOL".to_string(),
-            crate::api::handlers::dda::DDARequest {
-                file_path: "/test/file.edf".to_string(),
-                channels: None,
-                time_range: crate::api::handlers::dda::TimeRange {
-                    start: 0.0,
-                    end: 10.0,
-                },
-                preprocessing_options: crate::api::handlers::dda::PreprocessingOptions {
-                    detrending: None,
-                    highpass: None,
-                    lowpass: None,
-                },
-                algorithm_selection: crate::api::handlers::dda::AlgorithmSelection {
-                    enabled_variants: vec!["single_timeseries".to_string()],
-                    select_mask: None,
-                },
-                window_parameters: crate::api::handlers::dda::WindowParameters {
-                    window_length: 1000,
-                    window_step: 100,
-                    ct_window_length: None,
-                    ct_window_step: None,
-                },
-                scale_parameters: crate::api::handlers::dda::ScaleParameters {
-                    scale_min: 1,
-                    scale_max: 100,
-                    scale_num: 50,
-                },
-                ct_channel_pairs: None,
+        // Create simple test DDA params as JSON
+        let dda_params = serde_json::json!({
+            "file_path": "/test/file.edf",
+            "channels": null,
+            "time_range": {
+                "start": 0.0,
+                "end": 10.0
             },
+            "preprocessing_options": {
+                "highpass": null,
+                "lowpass": null
+            },
+            "algorithm_selection": {
+                "enabled_variants": ["single_timeseries"],
+                "select_mask": null
+            },
+            "window_parameters": {
+                "window_length": 1000,
+                "window_step": 100,
+                "ct_window_length": null,
+                "ct_window_step": null
+            },
+            "scale_parameters": {
+                "scale_min": 1,
+                "scale_max": 100,
+                "scale_num": 50
+            },
+            "ct_channel_pairs": null
+        });
+
+        let job = NSGJob::new_from_dda_params(
+            "TEST_TOOL".to_string(),
+            dda_params,
             "/test/file.edf".to_string(),
         );
 

@@ -5,6 +5,7 @@ import { ApiService } from "@/services/apiService";
 import { useAppStore } from "@/store/appStore";
 import { useDDAHistory, useAnalysisFromHistory } from "@/hooks/useDDAAnalysis";
 import { FileManager } from "@/components/FileManager";
+import { ResizeHandle } from "@/components/ResizeHandle";
 import { HealthStatusBar } from "@/components/HealthStatusBar";
 import { DDAProgressIndicator } from "@/components/DDAProgressIndicator";
 import { PrimaryNavigation } from "@/components/navigation/PrimaryNavigation";
@@ -36,6 +37,7 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
   // Only select the specific properties we need, not entire objects
   const isServerReady = useAppStore((state) => state.ui.isServerReady);
   const sidebarOpen = useAppStore((state) => state.ui.sidebarOpen);
+  const sidebarWidth = useAppStore((state) => state.ui.sidebarWidth);
   const activeTab = useAppStore((state) => state.ui.activeTab);
   const primaryNav = useAppStore((state) => state.ui.primaryNav);
   const secondaryNav = useAppStore((state) => state.ui.secondaryNav);
@@ -45,6 +47,7 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
   const currentAnalysisId = useAppStore((state) => state.dda.currentAnalysis?.id);
   const isPersistenceRestored = useAppStore((state) => state.isPersistenceRestored);
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
+  const setSidebarWidth = useAppStore((state) => state.setSidebarWidth);
   const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
   const setSecondaryNav = useAppStore((state) => state.setSecondaryNav);
   const setLayout = useAppStore((state) => state.setLayout);
@@ -285,9 +288,20 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar */}
         {sidebarOpen ? (
-          <div className="w-80 flex-shrink-0 border-r bg-background overflow-hidden flex flex-col">
-            <FileManager apiService={apiService} />
-          </div>
+          <>
+            <div
+              className="flex-shrink-0 border-r bg-background overflow-hidden flex flex-col"
+              style={{ width: `${sidebarWidth}px` }}
+            >
+              <FileManager apiService={apiService} />
+            </div>
+            <ResizeHandle
+              onResize={setSidebarWidth}
+              initialWidth={sidebarWidth}
+              minWidth={200}
+              maxWidth={600}
+            />
+          </>
         ) : (
           <div
             className="w-12 flex-shrink-0 border-r bg-background hover:bg-accent transition-colors cursor-pointer flex items-center justify-center"

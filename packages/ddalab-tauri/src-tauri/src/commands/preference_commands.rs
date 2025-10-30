@@ -103,14 +103,21 @@ pub fn open_file_dialog_sync(app: tauri::AppHandle) -> Result<Option<String>, St
 }
 
 #[tauri::command]
-pub async fn show_notification(title: String, body: String) -> Result<(), String> {
-    // TODO: Implement with tauri-plugin-notification v2 API
-    // Example: use tauri_plugin_notification::NotificationExt;
-    // app.notification()
-    //     .builder()
-    //     .title(&title)
-    //     .body(&body)
-    //     .show()?;
-    log::info!("Notification: {} - {}", title, body);
+pub async fn show_notification(
+    app: tauri::AppHandle,
+    title: String,
+    body: String,
+) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+
+    log::info!("Showing notification: {} - {}", title, body);
+
+    app.notification()
+        .builder()
+        .title(&title)
+        .body(&body)
+        .show()
+        .map_err(|e| format!("Failed to show notification: {}", e))?;
+
     Ok(())
 }

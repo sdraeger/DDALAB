@@ -26,7 +26,7 @@
    - EDF file reading and visualization
    - Multi-channel time series plotting
    - DDA analysis (Single Timeseries, Cross Timeseries, Cross Dynamical, Dynamical Ergodicity)
-   - Preprocessing options with comprehensive UI panel (highpass, lowpass, notch filters, baseline correction, detrending, artifact removal, smoothing)
+   - Preprocessing options with comprehensive UI panel (highpass, lowpass, notch filters, baseline correction, artifact removal, smoothing)
    - Channel selection and persistence
    - Analysis history with MinIO storage
    - File manager with directory browsing
@@ -134,11 +134,13 @@ See `packages/ddalab-tauri/PERFORMANCE_OPTIMIZATION.md` for detailed implementat
 ### Usage
 
 **Terminal 1 - API Server (with hot-reload):**
+
 ```bash
 npm run api:dev
 ```
 
 **Terminal 2 - Tauri App:**
+
 ```bash
 npm run tauri:dev
 ```
@@ -162,14 +164,14 @@ npm run tauri:dev
 
 ### Comparison
 
-| Feature | Traditional | Background API |
-|---------|-------------|----------------|
-| Tauri startup | 9-10 seconds | 1-2 seconds |
-| Backend changes | Restart Tauri | Auto hot-reload |
-| API testing | Via Tauri only | curl/Postman |
-| Log separation | Mixed | Separate consoles |
-| Development speed | Slower | Faster |
-| Production | ✅ Same | ✅ Same |
+| Feature           | Traditional    | Background API    |
+| ----------------- | -------------- | ----------------- |
+| Tauri startup     | 9-10 seconds   | 1-2 seconds       |
+| Backend changes   | Restart Tauri  | Auto hot-reload   |
+| API testing       | Via Tauri only | curl/Postman      |
+| Log separation    | Mixed          | Separate consoles |
+| Development speed | Slower         | Faster            |
+| Production        | ✅ Same        | ✅ Same           |
 
 **Note:** This workflow is for development only. Production builds work exactly as before with embedded API.
 
@@ -375,6 +377,7 @@ npm run tauri:dev
 #### Phase 1: Core NSG Infrastructure (✅ COMPLETED - January 2025)
 
 - [x] **NSG API Client** ([src/nsg/client.rs](packages/ddalab-tauri/src-tauri/src/nsg/client.rs))
+
   - HTTP Basic Auth + API Key authentication
   - Job submission with multipart file uploads
   - Job status polling (GET /job/{username}/{jobId})
@@ -385,6 +388,7 @@ npm run tauri:dev
   - Base URL: `https://nsgr.sdsc.edu:8443/cipresrest/v1`
 
 - [x] **Job Database** ([src/db/nsg_jobs_db.rs](packages/ddalab-tauri/src-tauri/src/db/nsg_jobs_db.rs))
+
   - SQLite schema with 7 job statuses (Pending, Submitted, Queue, Running, Completed, Failed, Cancelled)
   - Job CRUD operations (save, update, get, list, delete)
   - Active job queries (submitted/queue/running)
@@ -393,6 +397,7 @@ npm run tauri:dev
   - Output files tracking
 
 - [x] **Job Manager** ([src/nsg/job_manager.rs](packages/ddalab-tauri/src-tauri/src/nsg/job_manager.rs))
+
   - Create jobs from DDA parameters
   - Submit jobs to NSG API
   - Update job status from NSG
@@ -402,6 +407,7 @@ npm run tauri:dev
   - Package jobs as ZIP files (Python wrapper + data + params)
 
 - [x] **Background Poller** ([src/nsg/poller.rs](packages/ddalab-tauri/src-tauri/src/nsg/poller.rs))
+
   - Automatic polling of active jobs
   - Configurable poll intervals (default: 5 min, fast: 1 min for recent jobs)
   - Fast polling for recently submitted jobs (< 10 minutes old)
@@ -410,12 +416,14 @@ npm run tauri:dev
   - Polling status tracking
 
 - [x] **Secure Credentials Storage** ([src/db/secrets_db.rs](packages/ddalab-tauri/src-tauri/src/db/secrets_db.rs))
+
   - Encrypted NSG credentials (username, password, app_key)
   - Machine-specific AES-256-GCM encryption
   - No password prompts (derived from machine ID)
   - Save/get/delete/check NSG credentials
 
 - [x] **Python Wrapper for NSG Execution** ([nsg_wrapper/run_dda_nsg.py](nsg_wrapper/run_dda_nsg.py))
+
   - Downloads DDA binary from GitHub releases
   - Executes DDA with user parameters
   - Returns results as JSON
@@ -423,6 +431,7 @@ npm run tauri:dev
   - Error handling and timeout (1 hour limit)
 
 - [x] **Job Packaging** ([src/nsg/job_manager.rs:242-320](packages/ddalab-tauri/src-tauri/src/nsg/job_manager.rs#L242-L320))
+
   - Creates ZIP packages: wrapper script + EDF file + params.json
   - Automatic file permissions (executable Python script)
   - Cleans up temporary directories
@@ -458,6 +467,7 @@ Since DDA is not yet a pre-installed NSG tool, we use a **Python wrapper approac
 7. **Import**: Convert to DDAResult and add to analysis history
 
 **Alternative: Official NSG Tool Installation** (Future)
+
 - Contact `nsghelp@sdsc.edu` to install DDA as official tool
 - Simplifies to: Submit job → NSG runs DDA directly → Download results
 - No wrapper script needed
@@ -465,6 +475,7 @@ Since DDA is not yet a pre-installed NSG tool, we use a **Python wrapper approac
 **Implementation Tasks:**
 
 - [ ] **Extend AppStateManager** ([src/state_manager.rs](packages/ddalab-tauri/src-tauri/src/state_manager.rs))
+
   - Add `nsg_job_manager: Option<Arc<NSGJobManager>>`
   - Add `nsg_poller: Option<Arc<NSGJobPoller>>`
   - Add `nsg_jobs_db: Arc<NSGJobsDatabase>`
@@ -472,6 +483,7 @@ Since DDA is not yet a pre-installed NSG tool, we use a **Python wrapper approac
   - Store poller JoinHandle for cleanup
 
 - [ ] **Create Tauri Commands** ([src/commands/nsg_commands.rs](packages/ddalab-tauri/src-tauri/src/commands/nsg_commands.rs))
+
   ```rust
   #[tauri::command]
   async fn nsg_save_credentials(username: String, password: String, app_key: String) -> Result<(), String>
@@ -520,15 +532,16 @@ Since DDA is not yet a pre-installed NSG tool, we use a **Python wrapper approac
 #### Phase 3: Frontend Integration (❌ NOT STARTED)
 
 - [ ] **Create TypeScript Types** ([src/types/nsg.ts](packages/ddalab-tauri/src/types/nsg.ts))
+
   ```typescript
   export type NSGJobStatus =
-    | 'pending'
-    | 'submitted'
-    | 'queue'
-    | 'running'
-    | 'completed'
-    | 'failed'
-    | 'cancelled';
+    | "pending"
+    | "submitted"
+    | "queue"
+    | "running"
+    | "completed"
+    | "failed"
+    | "cancelled";
 
   export interface NSGJob {
     id: string;
@@ -554,24 +567,27 @@ Since DDA is not yet a pre-installed NSG tool, we use a **Python wrapper approac
   ```
 
 - [ ] **Create React Hooks** ([src/hooks/useNSG.ts](packages/ddalab-tauri/src/hooks/useNSG.ts))
+
   - Use TanStack Query (following Phase 2 migration pattern)
+
   ```typescript
   // Queries
-  export function useNSGCredentials()
-  export function useNSGJobs()
-  export function useNSGJob(jobId: string)
+  export function useNSGCredentials();
+  export function useNSGJobs();
+  export function useNSGJob(jobId: string);
 
   // Mutations
-  export function useSaveNSGCredentials()
-  export function useTestNSGConnection()
-  export function useCreateNSGJob()
-  export function useSubmitNSGJob()
-  export function useCancelNSGJob()
-  export function useDeleteNSGJob()
-  export function useDownloadNSGResults()
+  export function useSaveNSGCredentials();
+  export function useTestNSGConnection();
+  export function useCreateNSGJob();
+  export function useSubmitNSGJob();
+  export function useCancelNSGJob();
+  export function useDeleteNSGJob();
+  export function useDownloadNSGResults();
   ```
 
 - [ ] **Create NSG Settings Panel** ([src/components/NSGSettings.tsx](packages/ddalab-tauri/src/components/NSGSettings.tsx))
+
   - Credentials form (username, password, app key)
   - "Test Connection" button
   - Connection status indicator
@@ -580,6 +596,7 @@ Since DDA is not yet a pre-installed NSG tool, we use a **Python wrapper approac
   - Documentation link for getting API key
 
 - [ ] **Create NSG Job Manager UI** ([src/components/NSGJobManager.tsx](packages/ddalab-tauri/src/components/NSGJobManager.tsx))
+
   - Job list table with columns:
     - Status badge (color-coded: pending=gray, submitted=blue, running=yellow, completed=green, failed=red)
     - Job ID (local + NSG)
@@ -596,6 +613,7 @@ Since DDA is not yet a pre-installed NSG tool, we use a **Python wrapper approac
   - Download button for completed jobs
 
 - [ ] **Create Job Submission Dialog** ([src/components/dialogs/SubmitNSGJobDialog.tsx](packages/ddalab-tauri/src/components/dialogs/SubmitNSGJobDialog.tsx))
+
   - Tool selection dropdown:
     - `PY_EXPANSE` (Python in Singularity on EXPANSE) - **Recommended**
     - `GPU_PY_EXPANSE` (Python on Expanse GPUs) - For GPU-accelerated workloads
@@ -606,12 +624,14 @@ Since DDA is not yet a pre-installed NSG tool, we use a **Python wrapper approac
   - "Submit" button
 
 - [ ] **Integrate into DDA Analysis Page**
+
   - Add "Submit to NSG" button next to "Run Analysis"
   - Check if NSG credentials exist before enabling button
   - Show tooltip if credentials missing: "Configure NSG credentials in Settings"
   - On click, open SubmitNSGJobDialog
 
 - [ ] **Add NSG Tab to Settings** ([src/components/SettingsPanel.tsx](packages/ddalab-tauri/src/components/SettingsPanel.tsx))
+
   - New tab: "HPC (NSG)"
   - Render NSGSettings component
   - Show active jobs count badge
@@ -625,6 +645,7 @@ Since DDA is not yet a pre-installed NSG tool, we use a **Python wrapper approac
 #### Phase 4: Background Polling & Events (❌ NOT STARTED)
 
 - [ ] **Tauri Event Emitter for Job Status Changes**
+
   ```rust
   // In NSGJobPoller::poll_once()
   if updated_job.status != old_status {
@@ -638,25 +659,39 @@ Since DDA is not yet a pre-installed NSG tool, we use a **Python wrapper approac
   ```
 
 - [ ] **Frontend Event Listener** ([src/hooks/useNSG.ts](packages/ddalab-tauri/src/hooks/useNSG.ts))
+
   ```typescript
   export function useNSGJobEvents() {
     const queryClient = useQueryClient();
 
     useEffect(() => {
-      const unlisten = listen<NSGJobEvent>('nsg-job-status-changed', (event) => {
-        // Invalidate job queries to trigger refetch
-        queryClient.invalidateQueries({ queryKey: ['nsg', 'jobs'] });
-        queryClient.invalidateQueries({ queryKey: ['nsg', 'job', event.payload.job_id] });
+      const unlisten = listen<NSGJobEvent>(
+        "nsg-job-status-changed",
+        (event) => {
+          // Invalidate job queries to trigger refetch
+          queryClient.invalidateQueries({ queryKey: ["nsg", "jobs"] });
+          queryClient.invalidateQueries({
+            queryKey: ["nsg", "job", event.payload.job_id],
+          });
 
-        // Show notification for completed/failed jobs
-        if (event.payload.new_status === 'completed') {
-          showNotification('NSG job completed', `Job ${event.payload.job_id} finished successfully`);
-        } else if (event.payload.new_status === 'failed') {
-          showNotification('NSG job failed', event.payload.error_message || 'Unknown error');
+          // Show notification for completed/failed jobs
+          if (event.payload.new_status === "completed") {
+            showNotification(
+              "NSG job completed",
+              `Job ${event.payload.job_id} finished successfully`
+            );
+          } else if (event.payload.new_status === "failed") {
+            showNotification(
+              "NSG job failed",
+              event.payload.error_message || "Unknown error"
+            );
+          }
         }
-      });
+      );
 
-      return () => { unlisten.then(fn => fn()); };
+      return () => {
+        unlisten.then((fn) => fn());
+      };
     }, [queryClient]);
   }
   ```
@@ -669,12 +704,14 @@ Since DDA is not yet a pre-installed NSG tool, we use a **Python wrapper approac
 #### Phase 5: Testing & Documentation (❌ NOT STARTED)
 
 - [ ] **Unit Tests**
+
   - Test NSG API client methods (mock HTTP)
   - Test job manager CRUD operations
   - Test poller logic (mock time)
   - Test job packaging (ZIP creation)
 
 - [ ] **Integration Tests**
+
   - Submit real job to NSG (use test account)
   - Verify job appears in NSG portal
   - Poll until completion
@@ -682,6 +719,7 @@ Since DDA is not yet a pre-installed NSG tool, we use a **Python wrapper approac
   - Import into analysis history
 
 - [ ] **User Documentation** ([docs/NSG_INTEGRATION.md](docs/NSG_INTEGRATION.md))
+
   - How to register for NSG account
   - How to get API credentials
   - How to submit DDA jobs
@@ -700,6 +738,7 @@ Since DDA is not yet a pre-installed NSG tool, we use a **Python wrapper approac
 #### Phase 6: Official NSG Tool Installation (FUTURE)
 
 - [ ] **Contact NSG Team**
+
   - Email: `nsghelp@sdsc.edu`
   - Subject: "Request to Add DDA Tool to NSG"
   - Include: DDA binary, installation instructions, test data
@@ -714,6 +753,7 @@ Since DDA is not yet a pre-installed NSG tool, we use a **Python wrapper approac
 ### Data Models
 
 **NSGJob Structure:**
+
 ```rust
 pub struct NSGJob {
     pub id: String,                    // Local UUID
@@ -733,6 +773,7 @@ pub struct NSGJob {
 ```
 
 **NSG API Endpoints Used:**
+
 - `POST /job/{username}` - Submit job (multipart form: tool + input file)
 - `GET /job/{username}/{jobId}` - Get job status
 - `GET /job/{username}` - List all user jobs
@@ -803,168 +844,168 @@ pub struct NSGJob {
 ✅ "Integrate with existing neuroscience infrastructure (NSG)"
 ✅ "Support BRAIN Initiative ecosystem"
 
-   #### Phase 4: Background Download System
+#### Phase 4: Background Download System
 
-   - [ ] Implement download queue in Rust (`src-tauri/src/downloads/`)
+- [ ] Implement download queue in Rust (`src-tauri/src/downloads/`)
 
-     ```rust
-     pub struct Download {
-         id: String,
-         url: String,
-         destination: PathBuf,
-         total_bytes: u64,
-         downloaded_bytes: u64,
-         status: DownloadStatus, // Pending, Downloading, Paused, Completed, Failed
-         speed: f64, // bytes/sec
-         error: Option<String>
-     }
+  ```rust
+  pub struct Download {
+      id: String,
+      url: String,
+      destination: PathBuf,
+      total_bytes: u64,
+      downloaded_bytes: u64,
+      status: DownloadStatus, // Pending, Downloading, Paused, Completed, Failed
+      speed: f64, // bytes/sec
+      error: Option<String>
+  }
 
-     pub struct DownloadManager {
-         downloads: Arc<RwLock<Vec<Download>>>,
-         active_count: usize,
-         max_concurrent: usize
-     }
-     ```
+  pub struct DownloadManager {
+      downloads: Arc<RwLock<Vec<Download>>>,
+      active_count: usize,
+      max_concurrent: usize
+  }
+  ```
 
-   - [ ] Add Tauri commands for download management
+- [ ] Add Tauri commands for download management
 
-     ```rust
-     #[tauri::command]
-     async fn add_download(url: String, destination: String) -> Result<String, String>
+  ```rust
+  #[tauri::command]
+  async fn add_download(url: String, destination: String) -> Result<String, String>
 
-     #[tauri::command]
-     async fn pause_download(id: String) -> Result<(), String>
+  #[tauri::command]
+  async fn pause_download(id: String) -> Result<(), String>
 
-     #[tauri::command]
-     async fn resume_download(id: String) -> Result<(), String>
+  #[tauri::command]
+  async fn resume_download(id: String) -> Result<(), String>
 
-     #[tauri::command]
-     async fn cancel_download(id: String) -> Result<(), String>
+  #[tauri::command]
+  async fn cancel_download(id: String) -> Result<(), String>
 
-     #[tauri::command]
-     async fn get_downloads() -> Result<Vec<Download>, String>
-     ```
+  #[tauri::command]
+  async fn get_downloads() -> Result<Vec<Download>, String>
+  ```
 
-   - [ ] Implement progress events via Tauri events
-     - Emit progress updates every 500ms
-     - Frontend subscribes to download progress
-     - Update UI reactively without polling
-   - [ ] Add download persistence
-     - Save download queue to disk
-     - Resume incomplete downloads on app restart
-     - Clean up completed/cancelled downloads
+- [ ] Implement progress events via Tauri events
+  - Emit progress updates every 500ms
+  - Frontend subscribes to download progress
+  - Update UI reactively without polling
+- [ ] Add download persistence
+  - Save download queue to disk
+  - Resume incomplete downloads on app restart
+  - Clean up completed/cancelled downloads
 
-   #### Phase 5: Data Standardization & Export
+#### Phase 5: Data Standardization & Export
 
-   - [ ] Create BIDS derivatives for DDA results
-     - Define DDA-specific derivatives format
-     - Export Q matrices in standardized format
-     - Include processing pipeline metadata
-     - Generate README describing analysis
-   - [ ] Implement sharing workflow
-     - Export → BIDS format → Upload to OpenNeuro
-     - One-click "Share Analysis" button
-     - Pre-filled metadata from session
-     - OpenNeuro upload with progress
-   - [ ] Add citation generator
-     - Generate BibTeX for datasets used
-     - Include DDALAB software citation
-     - Export citations with analysis results
+- [ ] Create BIDS derivatives for DDA results
+  - Define DDA-specific derivatives format
+  - Export Q matrices in standardized format
+  - Include processing pipeline metadata
+  - Generate README describing analysis
+- [ ] Implement sharing workflow
+  - Export → BIDS format → Upload to OpenNeuro
+  - One-click "Share Analysis" button
+  - Pre-filled metadata from session
+  - OpenNeuro upload with progress
+- [ ] Add citation generator
+  - Generate BibTeX for datasets used
+  - Include DDALAB software citation
+  - Export citations with analysis results
 
-   #### Phase 6: UI Integration & Polish
+#### Phase 6: UI Integration & Polish
 
-   - [ ] Add "Data Sources" menu to main nav
-     - OpenNeuro Browser
-     - NEMAR Resources
-     - Local BIDS Datasets
-     - Import from BIDS
-   - [ ] Add download indicator to header
-     - Badge showing active download count
-     - Click to expand download manager
-     - System notifications for completed downloads
-   - [ ] Add "Export to BIDS" to analysis results
-     - One-click export with smart defaults
-     - Validation before export
-     - Success notification with folder location
-   - [ ] Create onboarding tour for new features
-     - Highlight OpenNeuro integration
-     - Show BIDS import/export workflow
-     - Demonstrate NEMAR HPC submission
+- [ ] Add "Data Sources" menu to main nav
+  - OpenNeuro Browser
+  - NEMAR Resources
+  - Local BIDS Datasets
+  - Import from BIDS
+- [ ] Add download indicator to header
+  - Badge showing active download count
+  - Click to expand download manager
+  - System notifications for completed downloads
+- [ ] Add "Export to BIDS" to analysis results
+  - One-click export with smart defaults
+  - Validation before export
+  - Success notification with folder location
+- [ ] Create onboarding tour for new features
+  - Highlight OpenNeuro integration
+  - Show BIDS import/export workflow
+  - Demonstrate NEMAR HPC submission
 
-   ### Technical Requirements
+### Technical Requirements
 
-   **Dependencies:**
+**Dependencies:**
 
-   - BIDS Validator (JavaScript library or Rust port)
-   - OpenNeuro GraphQL client
-   - NEMAR API SDK (if available)
-   - Async HTTP client (reqwest in Rust)
-   - Resume-capable downloader (range requests)
+- BIDS Validator (JavaScript library or Rust port)
+- OpenNeuro GraphQL client
+- NEMAR API SDK (if available)
+- Async HTTP client (reqwest in Rust)
+- Resume-capable downloader (range requests)
 
-   **APIs to Integrate:**
+**APIs to Integrate:**
 
-   - OpenNeuro GraphQL API: `https://openneuro.org/crn/graphql`
-   - NEMAR REST API (documentation needed)
-   - NSG (Neuroscience Gateway) job submission API
-   - SDSC (San Diego Supercomputer Center) APIs
+- OpenNeuro GraphQL API: `https://openneuro.org/crn/graphql`
+- NEMAR REST API (documentation needed)
+- NSG (Neuroscience Gateway) job submission API
+- SDSC (San Diego Supercomputer Center) APIs
 
-   **Data Format Specifications:**
+**Data Format Specifications:**
 
-   - BIDS EEG: https://bids-specification.readthedocs.io/en/stable/04-modality-specific-files/03-electroencephalography.html
-   - BIDS iEEG: https://bids-specification.readthedocs.io/en/stable/04-modality-specific-files/04-intracranial-electroencephalography.html
-   - BIDS Derivatives: https://bids-specification.readthedocs.io/en/stable/05-derivatives/01-introduction.html
+- BIDS EEG: https://bids-specification.readthedocs.io/en/stable/04-modality-specific-files/03-electroencephalography.html
+- BIDS iEEG: https://bids-specification.readthedocs.io/en/stable/04-modality-specific-files/04-intracranial-electroencephalography.html
+- BIDS Derivatives: https://bids-specification.readthedocs.io/en/stable/05-derivatives/01-introduction.html
 
-   ### Files to Create
+### Files to Create
 
-   - `src/services/bids/validator.ts`
-   - `src/services/bids/reader.ts`
-   - `src/services/bids/exporter.ts`
-   - `src/services/openneuro/client.ts`
-   - `src/services/nemar/client.ts`
-   - `src/services/nemar/hpcSubmission.ts`
-   - `src/components/BidsImport.tsx`
-   - `src/components/OpenNeuroBrowser.tsx`
-   - `src/components/NemarUpload.tsx`
-   - `src/components/DownloadManager.tsx`
-   - `src/components/HpcJobManager.tsx`
-   - `src-tauri/src/openneuro/mod.rs`
-   - `src-tauri/src/downloads/manager.rs`
-   - `src-tauri/src/downloads/queue.rs`
+- `src/services/bids/validator.ts`
+- `src/services/bids/reader.ts`
+- `src/services/bids/exporter.ts`
+- `src/services/openneuro/client.ts`
+- `src/services/nemar/client.ts`
+- `src/services/nemar/hpcSubmission.ts`
+- `src/components/BidsImport.tsx`
+- `src/components/OpenNeuroBrowser.tsx`
+- `src/components/NemarUpload.tsx`
+- `src/components/DownloadManager.tsx`
+- `src/components/HpcJobManager.tsx`
+- `src-tauri/src/openneuro/mod.rs`
+- `src-tauri/src/downloads/manager.rs`
+- `src-tauri/src/downloads/queue.rs`
 
-   ### Files to Modify
+### Files to Modify
 
-   - `src/components/DashboardLayout.tsx` - Add Data Sources menu
-   - `src/components/FileManager.tsx` - Add BIDS dataset detection
-   - `src/components/DDAResults.tsx` - Add "Export to BIDS" button
-   - `src-tauri/src/main.rs` - Register download management commands
-   - `src-tauri/Cargo.toml` - Add reqwest, futures for async downloads
+- `src/components/DashboardLayout.tsx` - Add Data Sources menu
+- `src/components/FileManager.tsx` - Add BIDS dataset detection
+- `src/components/DDAResults.tsx` - Add "Export to BIDS" button
+- `src-tauri/src/main.rs` - Register download management commands
+- `src-tauri/Cargo.toml` - Add reqwest, futures for async downloads
 
-   ### Success Criteria
+### Success Criteria
 
-   - [ ] Can import BIDS-formatted EEG/iEEG datasets
-   - [ ] Can validate BIDS structure and show helpful errors
-   - [ ] Can export local analyses to valid BIDS format
-   - [ ] Can browse and search OpenNeuro datasets
-   - [ ] Can download OpenNeuro datasets with progress tracking
-   - [ ] Can pause/resume/cancel downloads
-   - [ ] Downloads persist across app restarts
-   - [ ] Can upload datasets to NEMAR
-   - [ ] Can submit HPC jobs to NSG/SDSC
-   - [ ] Can monitor HPC job status and retrieve results
-   - [ ] Download manager shows all active/completed downloads
-   - [ ] System notifications for download completion
-   - [ ] One-click workflow: OpenNeuro → Download → Import → Analyze → Export BIDS → Share
+- [ ] Can import BIDS-formatted EEG/iEEG datasets
+- [ ] Can validate BIDS structure and show helpful errors
+- [ ] Can export local analyses to valid BIDS format
+- [ ] Can browse and search OpenNeuro datasets
+- [ ] Can download OpenNeuro datasets with progress tracking
+- [ ] Can pause/resume/cancel downloads
+- [ ] Downloads persist across app restarts
+- [ ] Can upload datasets to NEMAR
+- [ ] Can submit HPC jobs to NSG/SDSC
+- [ ] Can monitor HPC job status and retrieve results
+- [ ] Download manager shows all active/completed downloads
+- [ ] System notifications for download completion
+- [ ] One-click workflow: OpenNeuro → Download → Import → Analyze → Export BIDS → Share
 
-   ### Grant Alignment
+### Grant Alignment
 
-   This feature directly addresses the NIH grant goals:
+This feature directly addresses the NIH grant goals:
 
-   - ✅ "Develop interfaces with recordings stored in OpenNeuro archive"
-   - ✅ "Imported directly from OpenNeuro into the NEMAR resource"
-   - ✅ "Processed via the Neuroscience Gateway (NSG) at SDSC for HPC"
-   - ✅ "Integrate DDALAB into the existing ecosystem supported by the BRAIN Initiative"
-   - ✅ "Openly available through GitHub with an Open Source Software license"
-   - ✅ "Not depend on proprietary data formats" (BIDS is open standard)
+- ✅ "Develop interfaces with recordings stored in OpenNeuro archive"
+- ✅ "Imported directly from OpenNeuro into the NEMAR resource"
+- ✅ "Processed via the Neuroscience Gateway (NSG) at SDSC for HPC"
+- ✅ "Integrate DDALAB into the existing ecosystem supported by the BRAIN Initiative"
+- ✅ "Openly available through GitHub with an Open Source Software license"
+- ✅ "Not depend on proprietary data formats" (BIDS is open standard)
 
 9. **MATLAB-inspired Session Recording** (IN PROGRESS - Backend Complete, Frontend Needed)
 
@@ -1238,6 +1279,7 @@ pub struct NSGJob {
 ### Architecture Decision Framework
 
 **Use TanStack Query when:**
+
 - Fetching data from APIs (REST, GraphQL)
 - Reading from backend that returns quickly (< 5s)
 - Data should be cached and reused
@@ -1245,6 +1287,7 @@ pub struct NSGJob {
 - Multiple components may need the same data
 
 **Use Tauri Events when:**
+
 - Long-running operations (downloads, file processing, analysis)
 - Need real-time progress updates
 - Operations can be cancelled
@@ -1254,6 +1297,7 @@ pub struct NSGJob {
 ### Phase 1: OpenNeuro Integration (✅ COMPLETED)
 
 #### Migrated Operations:
+
 - [x] Dataset search/listing → **TanStack Query** (cached 10 min)
 - [x] Dataset details fetching → **TanStack Query** (cached 15 min)
 - [x] Dataset file tree → **TanStack Query** (lazy-loaded)
@@ -1263,6 +1307,7 @@ pub struct NSGJob {
 - [x] Dataset downloads → **Mutation** + **Tauri Events** for progress
 
 #### Files Modified:
+
 - [x] Created `src/providers/QueryProvider.tsx` - QueryClient setup
 - [x] Created `src/hooks/useOpenNeuro.ts` - 12 custom hooks
 - [x] Updated `src/app/layout.tsx` - Wrapped app with QueryProvider
@@ -1270,6 +1315,7 @@ pub struct NSGJob {
 - [x] Updated `src/components/OpenNeuroDownloadDialog.tsx` - Uses mutations
 
 #### Results:
+
 - ✅ 70% reduction in network requests (caching)
 - ✅ Instant component re-mounts (cached data)
 - ✅ No manual loading/error states
@@ -1282,17 +1328,18 @@ pub struct NSGJob {
 
 #### Operations to Migrate:
 
-| Operation | Current State | Target Mechanism | File | Reason |
-|-----------|---------------|------------------|------|--------|
-| `getAvailableFiles()` | Manual fetch | **TanStack Query** | `apiService.ts:28` | Cached file list, multiple components use it |
-| `getFileInfo(path)` | Manual fetch | **TanStack Query** | `apiService.ts:62` | Cache file metadata, frequently re-queried |
-| `listDirectory(path)` | Manual fetch | **TanStack Query** | `apiService.ts` | Browsing directories benefits from cache |
-| BIDS detection | Hook with useState | **TanStack Query** | `useBIDSDetection.ts` | Parallel directory checks, cache results |
-| BIDS dataset reading | Direct service call | **TanStack Query** | `bids/reader.ts` | Cache parsed BIDS metadata |
+| Operation             | Current State       | Target Mechanism   | File                  | Reason                                       |
+| --------------------- | ------------------- | ------------------ | --------------------- | -------------------------------------------- |
+| `getAvailableFiles()` | Manual fetch        | **TanStack Query** | `apiService.ts:28`    | Cached file list, multiple components use it |
+| `getFileInfo(path)`   | Manual fetch        | **TanStack Query** | `apiService.ts:62`    | Cache file metadata, frequently re-queried   |
+| `listDirectory(path)` | Manual fetch        | **TanStack Query** | `apiService.ts`       | Browsing directories benefits from cache     |
+| BIDS detection        | Hook with useState  | **TanStack Query** | `useBIDSDetection.ts` | Parallel directory checks, cache results     |
+| BIDS dataset reading  | Direct service call | **TanStack Query** | `bids/reader.ts`      | Cache parsed BIDS metadata                   |
 
 #### Implementation Steps:
 
 - [x] Create `src/hooks/useFileManagement.ts` ✅
+
   - `useAvailableFiles()` - Cached file list
   - `useFileInfo()` - Cached file metadata
   - `useDirectoryListing()` - Cached directory contents
@@ -1301,12 +1348,14 @@ pub struct NSGJob {
   - `useInvalidateFileCache()` - Cache invalidation utilities
 
 - [x] Create `src/hooks/useBIDSQuery.ts` ✅
+
   - `useBIDSDetection()` - Single directory BIDS check
   - `useBIDSDescription()` - Dataset description
   - `useBIDSSummary()` - Dataset summary
   - `useBIDSMultipleDetections()` - Parallel detection for multiple directories
 
 - [x] Update `src/components/FileManager.tsx` to use queries ✅
+
   - Replaced manual directory loading with `useDirectoryListing`
   - Replaced file info loading with `useLoadFileInfo` mutation
   - Replaced BIDS detection with `useBIDSMultipleDetections`
@@ -1318,11 +1367,13 @@ pub struct NSGJob {
   - Service layer remains testable independently
 
 #### Files Modified:
+
 - [x] Created `src/hooks/useFileManagement.ts` - File operation hooks
 - [x] Created `src/hooks/useBIDSQuery.ts` - BIDS detection hooks
 - [x] Updated `src/components/FileManager.tsx` - Uses TanStack Query
 
 #### Results:
+
 - ✅ Directory listings cached (2 min stale time)
 - ✅ File metadata cached (10 min stale time)
 - ✅ BIDS detection cached (15 min stale time)
@@ -1337,15 +1388,16 @@ pub struct NSGJob {
 
 #### Operations to Migrate:
 
-| Operation | Current State | Target Mechanism | File | Reason |
-|-----------|---------------|------------------|------|--------|
-| `getChunkData()` | Manual fetch + LRU cache | **TanStack Query** | `apiService.ts:156` | Query cache replaces LRU cache, better cache management |
-| `getOverviewData()` | Manual fetch | **TanStack Query** | `apiService.ts` | Cache overview per channel combo |
-| Channel overview loading | useEffect loop | **TanStack Query** | Components | Parallel queries, automatic deduplication |
+| Operation                | Current State            | Target Mechanism   | File                | Reason                                                  |
+| ------------------------ | ------------------------ | ------------------ | ------------------- | ------------------------------------------------------- |
+| `getChunkData()`         | Manual fetch + LRU cache | **TanStack Query** | `apiService.ts:156` | Query cache replaces LRU cache, better cache management |
+| `getOverviewData()`      | Manual fetch             | **TanStack Query** | `apiService.ts`     | Cache overview per channel combo                        |
+| Channel overview loading | useEffect loop           | **TanStack Query** | Components          | Parallel queries, automatic deduplication               |
 
 #### Implementation Steps:
 
 - [x] Create `src/hooks/useTimeSeriesData.ts` ✅
+
   ```typescript
   export function useChunkData(
     filePath: string,
@@ -1355,8 +1407,9 @@ pub struct NSGJob {
     enabled = true
   ) {
     return useQuery({
-      queryKey: ['chunk', filePath, channels, startTime, endTime],
-      queryFn: () => apiService.getChunkData(filePath, channels, startTime, endTime),
+      queryKey: ["chunk", filePath, channels, startTime, endTime],
+      queryFn: () =>
+        apiService.getChunkData(filePath, channels, startTime, endTime),
       enabled,
       staleTime: 30 * 60 * 1000, // Chunk data never changes
       gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
@@ -1369,7 +1422,7 @@ pub struct NSGJob {
     enabled = true
   ) {
     return useQuery({
-      queryKey: ['overview', filePath, channels],
+      queryKey: ["overview", filePath, channels],
       queryFn: () => apiService.getOverviewData(filePath, channels),
       enabled,
       staleTime: 30 * 60 * 1000,
@@ -1383,8 +1436,8 @@ pub struct NSGJob {
     enabled = true
   ) {
     return useQueries({
-      queries: channelsList.map(channels => ({
-        queryKey: ['overview', filePath, channels],
+      queries: channelsList.map((channels) => ({
+        queryKey: ["overview", filePath, channels],
         queryFn: () => apiService.getOverviewData(filePath, channels),
         enabled,
         staleTime: 30 * 60 * 1000,
@@ -1401,6 +1454,7 @@ pub struct NSGJob {
   - `usePrefetchChunkData()` - Prefetch chunks ahead of time
 
 - [x] Update `src/components/TimeSeriesPlotECharts.tsx` to use queries ✅
+
   - Replaced manual `loadChunkData` with `useChunkData` query
   - Replaced manual `loadOverview` with `useOverviewData` query
   - Removed manual loading/error state management
@@ -1413,10 +1467,12 @@ pub struct NSGJob {
 - [ ] Consider removing `chunkCache.ts` after migration proves stable in production
 
 #### Files Modified:
+
 - [x] Created `src/hooks/useTimeSeriesData.ts` - Time series data hooks with 8 functions
 - [x] Updated `src/components/TimeSeriesPlotECharts.tsx` - Uses TanStack Query for chunk and overview data
 
 #### Results:
+
 - ✅ Chunk data cached (30 min stale time, 60 min gc time)
 - ✅ Overview data cached (30 min stale time, 60 min gc time)
 - ✅ Automatic request cancellation on navigation
@@ -1429,6 +1485,7 @@ pub struct NSGJob {
 - ✅ Preprocessing changes automatically trigger refetch
 
 **Benefits:**
+
 - TanStack Query cache replaces custom LRU cache (simpler)
 - Automatic deduplication (no duplicate requests for same chunk)
 - Built-in retry logic for failed fetches
@@ -1444,22 +1501,24 @@ pub struct NSGJob {
 
 #### Operations to Migrate:
 
-| Operation | Current State | Target Mechanism | File | Reason |
-|-----------|---------------|------------------|------|--------|
-| `submitDDAAnalysis()` | Manual fetch | **Mutation** + **Tauri Events** | `apiService.ts` | Long-running, needs progress |
-| Analysis queue polling | Manual interval | **Tauri Events** | Backend | Real-time status updates |
-| Get analysis results | Manual fetch | **TanStack Query** | `apiService.ts` | Cache results |
-| List past analyses | Manual fetch | **TanStack Query** | `apiService.ts` | Cache history |
-| Save to history | Manual fetch | **Mutation** | `apiService.ts` | Invalidate history cache |
-| Delete from history | Manual fetch | **Mutation** | `apiService.ts` | Invalidate history cache |
+| Operation              | Current State   | Target Mechanism                | File            | Reason                       |
+| ---------------------- | --------------- | ------------------------------- | --------------- | ---------------------------- |
+| `submitDDAAnalysis()`  | Manual fetch    | **Mutation** + **Tauri Events** | `apiService.ts` | Long-running, needs progress |
+| Analysis queue polling | Manual interval | **Tauri Events**                | Backend         | Real-time status updates     |
+| Get analysis results   | Manual fetch    | **TanStack Query**              | `apiService.ts` | Cache results                |
+| List past analyses     | Manual fetch    | **TanStack Query**              | `apiService.ts` | Cache history                |
+| Save to history        | Manual fetch    | **Mutation**                    | `apiService.ts` | Invalidate history cache     |
+| Delete from history    | Manual fetch    | **Mutation**                    | `apiService.ts` | Invalidate history cache     |
 
 #### Implementation Steps:
 
 - [x] Add DDA progress event types to `src/types/api.ts` ✅
+
   - `DDAProgressPhase` type (6 phases)
   - `DDAProgressEvent` interface
 
 - [x] Create `src/hooks/useDDAAnalysis.ts` ✅
+
   - `useSubmitDDAAnalysis()` - Mutation for submitting analysis
   - `useDDAResult()` - Query for fetching single result (cached infinitely)
   - `useDDAHistory()` - Query for fetching history (30s stale time)
@@ -1470,6 +1529,7 @@ pub struct NSGJob {
   - `ddaKeys` - Query key factory
 
 - [x] Update `src/components/DDAAnalysis.tsx` to use mutation ✅
+
   - Replaced manual `submitDDAAnalysis` call with `submitAnalysisMutation.mutate()`
   - Replaced manual progress tracking with `useDDAProgress()` hook
   - Removed manual loading/error state management (~60 lines)
@@ -1477,6 +1537,7 @@ pub struct NSGJob {
   - Save to history uses mutation instead of direct API call
 
 - [ ] **Backend**: Add Tauri event emitter for DDA progress (optional future enhancement)
+
   ```rust
   // src-tauri/src/analysis/mod.rs
   app.emit_all("dda-progress", DDAProgress {
@@ -1488,6 +1549,7 @@ pub struct NSGJob {
   ```
 
 - [ ] Create `src/hooks/useDDAAnalysis.ts`
+
   ```typescript
   export function useSubmitDDAAnalysis() {
     const queryClient = useQueryClient();
@@ -1497,28 +1559,29 @@ pub struct NSGJob {
         apiService.submitDDAAnalysis(request),
       onSuccess: (result) => {
         // Invalidate analysis history to show new analysis
-        queryClient.invalidateQueries({ queryKey: ['dda', 'history'] });
+        queryClient.invalidateQueries({ queryKey: ["dda", "history"] });
       },
     });
   }
 
   export function useDDAResult(resultId: string, enabled = true) {
     return useQuery({
-      queryKey: ['dda', 'result', resultId],
+      queryKey: ["dda", "result", resultId],
       queryFn: () => apiService.getDDAResult(resultId),
       enabled,
       staleTime: Infinity, // Results never change
     });
   }
-
   ```
 
 #### Files Modified:
+
 - [x] Created `src/types/api.ts` - Added DDA progress event types
 - [x] Created `src/hooks/useDDAAnalysis.ts` - 8 hooks for DDA operations
 - [x] Updated `src/components/DDAAnalysis.tsx` - Uses mutation and progress events
 
 #### Results:
+
 - ✅ Analysis submission uses mutation (automatic retry, error handling)
 - ✅ Progress tracking via Tauri events (real-time updates)
 - ✅ Analysis results cached infinitely (instant viewing)
@@ -1528,6 +1591,7 @@ pub struct NSGJob {
 - ✅ TypeScript typecheck passes
 
 **Benefits:**
+
 - Real-time progress updates without polling (ready for backend implementation)
 - Analysis results cached (instant viewing of completed analyses)
 - History cached (faster navigation between analyses)
@@ -1543,20 +1607,21 @@ pub struct NSGJob {
 
 #### Operations to Migrate:
 
-| Operation | Current State | Target Mechanism | File | Reason |
-|-----------|---------------|------------------|------|--------|
-| Save annotations | Zustand mutation | **Mutation** + persistence | `useAnnotations.ts` | Trigger cache update |
-| Load annotations | Zustand state | **TanStack Query** | `useAnnotations.ts` | Cache loaded annotations |
+| Operation        | Current State    | Target Mechanism           | File                | Reason                   |
+| ---------------- | ---------------- | -------------------------- | ------------------- | ------------------------ |
+| Save annotations | Zustand mutation | **Mutation** + persistence | `useAnnotations.ts` | Trigger cache update     |
+| Load annotations | Zustand state    | **TanStack Query**         | `useAnnotations.ts` | Cache loaded annotations |
 
 **Note**: Annotations are currently synchronous (Zustand store). Only migrate if backend persistence is added.
 
 #### Implementation Steps (if backend added):
 
 - [ ] Create `src/hooks/useAnnotationsQuery.ts`
+
   ```typescript
   export function useTimeSeriesAnnotations(filePath: string, channel?: string) {
     return useQuery({
-      queryKey: ['annotations', 'timeseries', filePath, channel],
+      queryKey: ["annotations", "timeseries", filePath, channel],
       queryFn: () => apiService.getAnnotations(filePath, channel),
       staleTime: Infinity, // Annotations don't change unless user edits
     });
@@ -1570,7 +1635,7 @@ pub struct NSGJob {
         apiService.saveAnnotation(data.filePath, data.annotation),
       onSuccess: (_, variables) => {
         queryClient.invalidateQueries({
-          queryKey: ['annotations', 'timeseries', variables.filePath],
+          queryKey: ["annotations", "timeseries", variables.filePath],
         });
       },
     });
@@ -1578,6 +1643,7 @@ pub struct NSGJob {
   ```
 
 **Benefits:**
+
 - Annotations cached across components
 - Automatic refetch after save
 - Optimistic updates possible
@@ -1588,22 +1654,23 @@ pub struct NSGJob {
 
 #### Operations to Migrate:
 
-| Operation | Current State | Target Mechanism | File | Reason |
-|-----------|---------------|------------------|------|--------|
-| `checkConnection()` | Manual polling (5s interval) | **TanStack Query** | `useSync.ts:10` | Cache connection state |
-| `discoverBrokers()` | Manual invoke | **TanStack Query** | `useSync.ts:111` | Cache discovered brokers |
-| `connect()` / `disconnect()` | Manual invoke | **Mutation** | `useSync.ts:30,50` | Trigger reconnection |
-| `shareResult()` | Manual invoke | **Mutation** | `useSync.ts:66` | Invalidate shares list |
-| `accessShare()` | Manual invoke | **TanStack Query** | `useSync.ts:88` | Cache shared results |
+| Operation                    | Current State                | Target Mechanism   | File               | Reason                   |
+| ---------------------------- | ---------------------------- | ------------------ | ------------------ | ------------------------ |
+| `checkConnection()`          | Manual polling (5s interval) | **TanStack Query** | `useSync.ts:10`    | Cache connection state   |
+| `discoverBrokers()`          | Manual invoke                | **TanStack Query** | `useSync.ts:111`   | Cache discovered brokers |
+| `connect()` / `disconnect()` | Manual invoke                | **Mutation**       | `useSync.ts:30,50` | Trigger reconnection     |
+| `shareResult()`              | Manual invoke                | **Mutation**       | `useSync.ts:66`    | Invalidate shares list   |
+| `accessShare()`              | Manual invoke                | **TanStack Query** | `useSync.ts:88`    | Cache shared results     |
 
 #### Implementation Steps:
 
 - [ ] Create `src/hooks/useSyncQuery.ts`
+
   ```typescript
   export function useSyncConnection() {
     return useQuery({
-      queryKey: ['sync', 'connection'],
-      queryFn: () => invoke<boolean>('sync_is_connected'),
+      queryKey: ["sync", "connection"],
+      queryFn: () => invoke<boolean>("sync_is_connected"),
       refetchInterval: 5000, // Poll every 5 seconds
       staleTime: 4000,
     });
@@ -1611,8 +1678,9 @@ pub struct NSGJob {
 
   export function useBrokerDiscovery(enabled = false) {
     return useQuery({
-      queryKey: ['sync', 'brokers'],
-      queryFn: () => invoke<DiscoveredBroker[]>('sync_discover_brokers', { timeoutSecs: 5 }),
+      queryKey: ["sync", "brokers"],
+      queryFn: () =>
+        invoke<DiscoveredBroker[]>("sync_discover_brokers", { timeoutSecs: 5 }),
       enabled, // Only run when user clicks "Discover"
       staleTime: 30 * 1000, // Brokers don't change frequently
     });
@@ -1623,9 +1691,9 @@ pub struct NSGJob {
 
     return useMutation({
       mutationFn: (config: SyncConnectionConfig) =>
-        invoke('sync_connect', config),
+        invoke("sync_connect", config),
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ['sync', 'connection'] });
+        queryClient.invalidateQueries({ queryKey: ["sync", "connection"] });
       },
     });
   }
@@ -1633,14 +1701,14 @@ pub struct NSGJob {
   export function useShareResult() {
     return useMutation({
       mutationFn: (data: ShareResultData) =>
-        invoke<string>('sync_share_result', data),
+        invoke<string>("sync_share_result", data),
     });
   }
 
   export function useAccessSharedResult(token: string, enabled = false) {
     return useQuery({
-      queryKey: ['sync', 'share', token],
-      queryFn: () => invoke<SharedResultInfo>('sync_access_share', { token }),
+      queryKey: ["sync", "share", token],
+      queryFn: () => invoke<SharedResultInfo>("sync_access_share", { token }),
       enabled,
       staleTime: 10 * 60 * 1000,
     });
@@ -1652,6 +1720,7 @@ pub struct NSGJob {
 - [ ] Remove manual polling interval (TanStack Query handles it)
 
 **Benefits:**
+
 - No manual polling intervals (React Query handles refetch)
 - Connection status cached
 - Broker discovery results cached
@@ -1664,22 +1733,23 @@ pub struct NSGJob {
 
 #### Operations to Migrate:
 
-| Operation | Current State | Target Mechanism | File | Reason |
-|-----------|---------------|------------------|------|--------|
-| `workflow_get_all_nodes()` | Direct invoke | **TanStack Query** | Future hook | Cache workflow state |
-| `workflow_generate_python()` | Direct invoke | **Mutation** | Future hook | Generate code |
-| `workflow_add_node()` | Direct invoke | **Mutation** | Future hook | Update workflow cache |
+| Operation                    | Current State | Target Mechanism   | File        | Reason                |
+| ---------------------------- | ------------- | ------------------ | ----------- | --------------------- |
+| `workflow_get_all_nodes()`   | Direct invoke | **TanStack Query** | Future hook | Cache workflow state  |
+| `workflow_generate_python()` | Direct invoke | **Mutation**       | Future hook | Generate code         |
+| `workflow_add_node()`        | Direct invoke | **Mutation**       | Future hook | Update workflow cache |
 
 **Note**: Backend exists, frontend not implemented yet. When implementing frontend, use TanStack Query from the start.
 
 #### Implementation Steps (when frontend is built):
 
 - [ ] Create `src/hooks/useWorkflowQuery.ts`
+
   ```typescript
   export function useWorkflowNodes() {
     return useQuery({
-      queryKey: ['workflow', 'nodes'],
-      queryFn: () => invoke('workflow_get_all_nodes'),
+      queryKey: ["workflow", "nodes"],
+      queryFn: () => invoke("workflow_get_all_nodes"),
       staleTime: Infinity, // Workflow only changes when user acts
     });
   }
@@ -1688,27 +1758,27 @@ pub struct NSGJob {
     const queryClient = useQueryClient();
 
     return useMutation({
-      mutationFn: (node: WorkflowNode) =>
-        invoke('workflow_add_node', { node }),
+      mutationFn: (node: WorkflowNode) => invoke("workflow_add_node", { node }),
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ['workflow', 'nodes'] });
+        queryClient.invalidateQueries({ queryKey: ["workflow", "nodes"] });
       },
     });
   }
 
-  export function useGenerateWorkflowCode(language: 'python' | 'julia') {
+  export function useGenerateWorkflowCode(language: "python" | "julia") {
     return useMutation({
       mutationFn: () =>
         invoke<string>(
-          language === 'python'
-            ? 'workflow_generate_python'
-            : 'workflow_generate_julia'
+          language === "python"
+            ? "workflow_generate_python"
+            : "workflow_generate_julia"
         ),
     });
   }
   ```
 
 **Benefits:**
+
 - Workflow state cached
 - Code generation doesn't block UI
 - Automatic cache updates on node additions
@@ -1718,11 +1788,13 @@ pub struct NSGJob {
 **For All Migrations:**
 
 1. **Keep Service Layer Intact**
+
    - Don't modify `apiService.ts`, `openNeuroService.ts`, etc.
    - Wrap existing service methods with React Query hooks
    - Service layer remains testable independently
 
 2. **Create Dedicated Hook Files**
+
    - `useOpenNeuro.ts` - OpenNeuro operations
    - `useFileManagement.ts` - File/directory operations
    - `useBIDSQuery.ts` - BIDS detection/reading
@@ -1732,11 +1804,13 @@ pub struct NSGJob {
    - `useWorkflowQuery.ts` - Workflow recording
 
 3. **Query Key Structure**
+
    - Use consistent array format: `['domain', 'operation', ...params]`
    - Example: `['files', 'info', filePath]`
    - Makes cache invalidation easier
 
 4. **Stale Time Guidelines**
+
    - Static data (Git availability, API keys): `Infinity`
    - File metadata: `10-15 minutes`
    - Directory listings: `2-5 minutes`
@@ -1745,17 +1819,20 @@ pub struct NSGJob {
    - Connection status: `4 seconds` (polling)
 
 5. **When to Use `enabled` Parameter**
+
    - Conditional fetching (user must click button)
    - Dependent queries (wait for first query to complete)
    - Expensive operations (BIDS detection, size calculation)
 
 6. **Error Handling**
+
    - TanStack Query handles retries automatically (2 attempts by default)
    - Display `error.message` in UI
    - Use `onError` callback for logging
    - Don't manually catch errors in queryFn (let React Query handle it)
 
 7. **Testing During Migration**
+
    - Enable React Query DevTools (already enabled in QueryProvider)
    - Watch cache behavior (hit/miss rates)
    - Verify no duplicate requests
@@ -1805,10 +1882,12 @@ Use this checklist when migrating each operation:
 ### Related Files
 
 **Core Infrastructure:**
+
 - `src/providers/QueryProvider.tsx` - QueryClient setup
 - `src/hooks/useOpenNeuro.ts` - OpenNeuro queries/mutations (✅ reference implementation)
 
 **To Migrate:**
+
 - `src/services/apiService.ts` - File & chunk operations
 - `src/services/bids/` - BIDS detection/reading
 - `src/hooks/useBIDSDetection.ts` - Needs query wrapper
@@ -1816,6 +1895,7 @@ Use this checklist when migrating each operation:
 - `src/hooks/useAnnotations.ts` - Annotations (if backend added)
 
 **Components Using Async:**
+
 - `src/components/FileManager.tsx`
 - `src/components/TimeSeriesPlot.tsx`
 - `src/components/TimeSeriesPlotECharts.tsx`

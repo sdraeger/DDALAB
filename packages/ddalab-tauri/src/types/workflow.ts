@@ -29,7 +29,6 @@ export interface PlotOptions {
  */
 export type TransformType =
   | { type: 'Normalize' }
-  | { type: 'Detrend' }
   | { type: 'BandpassFilter'; low_freq: number; high_freq: number }
 
 /**

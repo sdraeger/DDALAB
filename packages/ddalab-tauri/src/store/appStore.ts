@@ -82,6 +82,7 @@ export interface UIState {
   // Remember last secondary tab for each primary category
   lastSecondaryNav: Record<PrimaryNavTab, SecondaryNavTab | null>
   sidebarOpen: boolean
+  sidebarWidth: number  // Width of file manager sidebar in pixels
   panelSizes: number[]
   layout: 'default' | 'analysis' | 'plots'
   theme: 'light' | 'dark' | 'auto'
@@ -149,6 +150,7 @@ export interface AppState {
   setPrimaryNav: (tab: PrimaryNavTab) => void
   setSecondaryNav: (tab: SecondaryNavTab | null) => void
   setSidebarOpen: (open: boolean) => void
+  setSidebarWidth: (width: number) => void
   setPanelSizes: (sizes: number[]) => void
   setLayout: (layout: UIState['layout']) => void
   setTheme: (theme: UIState['theme']) => void
@@ -160,6 +162,7 @@ export interface AppState {
   updateTimeSeriesAnnotation: (filePath: string, annotationId: string, updates: Partial<PlotAnnotation>, channel?: string) => void
   deleteTimeSeriesAnnotation: (filePath: string, annotationId: string, channel?: string) => void
   getTimeSeriesAnnotations: (filePath: string, channel?: string) => PlotAnnotation[]
+  loadAllFileAnnotations: () => Promise<void>
   addDDAAnnotation: (resultId: string, variantId: string, plotType: 'heatmap' | 'line', annotation: PlotAnnotation) => void
   updateDDAAnnotation: (resultId: string, variantId: string, plotType: 'heatmap' | 'line', annotationId: string, updates: Partial<PlotAnnotation>) => void
   deleteDDAAnnotation: (resultId: string, variantId: string, plotType: 'heatmap' | 'line', annotationId: string) => void
@@ -246,6 +249,7 @@ const defaultUIState: UIState = {
     notifications: null,
   },
   sidebarOpen: true,
+  sidebarWidth: 320,  // Default width in pixels (equivalent to w-80 = 20rem = 320px)
   panelSizes: [25, 50, 25],
   layout: 'default',
   theme: 'auto',
@@ -437,6 +441,7 @@ export const useAppStore = create<AppState>()(
               ...state.ui,
               activeTab: persistedState.active_tab,
               sidebarOpen: !persistedState.sidebar_collapsed,
+              sidebarWidth: persistedState.ui?.sidebarWidth || 320,  // Load persisted width or use default
               panelSizes: [
                 persistedState.panel_sizes.sidebar * 100,
                 persistedState.panel_sizes.main * 100 - persistedState.panel_sizes.sidebar * 100,
@@ -578,14 +583,18 @@ export const useAppStore = create<AppState>()(
   setSelectedFile: (file) => {
     console.log('[STORE] setSelectedFile called with:', file?.file_path || 'null')
 
-    // IMMEDIATELY clear DDA state and set the file synchronously to prevent race conditions
-    // where components render with old state before async loading happens
-    console.log('[STORE] Clearing DDA state and setting file immediately (synchronous)')
+    // IMMEDIATELY clear DDA state, reset chunk position, and set the file synchronously
+    // This prevents race conditions where components render with old chunk position and new file
+    console.log('[STORE] Clearing DDA state, resetting chunk position, and setting file immediately (synchronous)')
     // OPTIMIZED: Using Immer - direct mutation syntax
     set((state) => {
       state.dda.currentAnalysis = null
       state.dda.analysisHistory = []
       state.fileManager.selectedFile = file
+      // Reset chunk position to 0 when switching files
+      // The correct position will be loaded from file-centric state if available
+      state.plot.chunkStart = 0
+      state.fileManager.selectedChannels = []
     })
 
     // Load file-centric state asynchronously and apply it
@@ -608,9 +617,19 @@ export const useAppStore = create<AppState>()(
           // Apply plot state if available
           if (fileState.plot) {
             const plotState = fileState.plot as FilePlotState
+
+            // Validate chunkStart against file duration
+            // If persisted position exceeds file duration, reset to 0
+            const chunkStartTime = (plotState.chunkStart || 0) / file.sample_rate
+            const isOutOfBounds = chunkStartTime >= file.duration
+
+            if (isOutOfBounds) {
+              console.log(`[STORE] Persisted chunkStart (${chunkStartTime.toFixed(2)}s) exceeds file duration (${file.duration.toFixed(2)}s) - resetting to 0`)
+            }
+
             // OPTIMIZED: Using Immer - direct mutation syntax
             set((state) => {
-              state.plot.chunkStart = plotState.chunkStart || 0
+              state.plot.chunkStart = isOutOfBounds ? 0 : (plotState.chunkStart || 0)
               state.plot.chunkSize = plotState.chunkSize || 8192
               state.plot.amplitude = plotState.amplitude || 1.0
               state.plot.showAnnotations = plotState.showAnnotations ?? true
@@ -662,133 +681,143 @@ export const useAppStore = create<AppState>()(
             })
           }
 
-          // Apply annotation state if available
+          // CRITICAL: Load annotations from BOTH FileStateManager AND SQLite database, then merge
+          // This ensures annotations in SQLite but not in FileStateManager are not lost
+          console.log('[STORE] Loading annotations for file from both sources:', file.file_path)
+
           const annotationState = fileState.annotations as FileAnnotationState | undefined
-          const hasAnnotations = annotationState && (
-            (annotationState.timeSeries?.global?.length || 0) > 0 ||
-            Object.keys(annotationState.timeSeries?.channels || {}).length > 0
-          )
 
-          if (annotationState && hasAnnotations) {
-            console.log('[STORE] Loading annotations from file state:', {
-              filePath: file.file_path,
-              hasTimeSeries: !!annotationState.timeSeries,
-              globalCount: annotationState.timeSeries?.global?.length || 0,
-              channelsCount: Object.keys(annotationState.timeSeries?.channels || {}).length,
-              annotationState
-            })
+          // Load asynchronously to merge from both sources
+          ;(async () => {
+            try {
+              // 1. Start with annotations from FileStateManager (if any)
+              let mergedGlobalAnnotations: PlotAnnotation[] = []
+              let mergedChannelAnnotations: Record<string, PlotAnnotation[]> = {}
 
-            // OPTIMIZED: Using Immer - direct mutation syntax
-            set((state) => {
-              // Load timeSeries annotations
-              state.annotations.timeSeries[file.file_path] = {
-                filePath: file.file_path,
-                globalAnnotations: annotationState.timeSeries?.global || [],
-                channelAnnotations: annotationState.timeSeries?.channels || {}
-              }
+              if (annotationState?.timeSeries) {
+                const fsGlobal = annotationState.timeSeries.global || []
+                const fsChannels = annotationState.timeSeries.channels || {}
 
-              // Load DDA results annotations
-              // Convert from flat file-centric format to structured global format
-              if (annotationState.ddaResults) {
-                Object.entries(annotationState.ddaResults).forEach(([key, plotAnnotations]) => {
-                  // Parse key format: resultId_variantId_plotType
-                  const parts = key.split('_')
-                  if (parts.length >= 3) {
-                    const plotType = parts[parts.length - 1] as 'heatmap' | 'line'
-                    const variantId = parts[parts.length - 2]
-                    const resultId = parts.slice(0, parts.length - 2).join('_')
-
-                    state.annotations.ddaResults[key] = {
-                      resultId,
-                      variantId,
-                      plotType,
-                      annotations: plotAnnotations
-                    }
-                  }
+                console.log('[STORE] Loaded from FileStateManager:', {
+                  globalCount: fsGlobal.length,
+                  channelsCount: Object.keys(fsChannels).length
                 })
+
+                mergedGlobalAnnotations = [...fsGlobal]
+                mergedChannelAnnotations = { ...fsChannels }
               }
 
-              console.log('[STORE] After loading annotations, store state:', {
-                filePath: file.file_path,
-                globalAnnotations: state.annotations.timeSeries[file.file_path].globalAnnotations
-              })
-            })
-          } else {
-            // No annotations in FileStateManager - try to migrate from old SQLite format
-            console.log('[STORE] No annotations in file state, checking old SQLite format for:', file.file_path)
+              // 2. Load from SQLite database and merge
+              const { invoke } = await import('@tauri-apps/api/core')
+              const sqliteAnnotations = await invoke<any>('get_file_annotations', { filePath: file.file_path })
 
-            ;(async () => {
-              try {
-                const { invoke } = await import('@tauri-apps/api/core')
-                const oldAnnotations = await invoke<any>('get_file_annotations', { filePath: file.file_path })
+              if (sqliteAnnotations) {
+                const sqliteGlobal = sqliteAnnotations.global_annotations || []
+                const sqliteChannels = sqliteAnnotations.channel_annotations || {}
 
-                if (oldAnnotations && (oldAnnotations.global_annotations?.length > 0 || Object.keys(oldAnnotations.channel_annotations || {}).length > 0)) {
-                  console.log('[STORE] Found old SQLite annotations, migrating:', {
-                    globalCount: oldAnnotations.global_annotations?.length || 0,
-                    channelsCount: Object.keys(oldAnnotations.channel_annotations || {}).length
-                  })
+                console.log('[STORE] Loaded from SQLite database:', {
+                  globalCount: sqliteGlobal.length,
+                  channelsCount: Object.keys(sqliteChannels).length
+                })
 
-                  // Convert old format to new format
-                  const globalAnnotations = (oldAnnotations.global_annotations || []).map((ann: any) => ({
-                    id: ann.id,
-                    position: ann.position,
-                    label: ann.label,
-                    color: ann.color || '#ef4444',
-                    description: ann.description,
-                    createdAt: ann.created_at || new Date().toISOString(),
-                    updatedAt: ann.updated_at || new Date().toISOString()
-                  }))
-
-                  const channelAnnotations: Record<string, PlotAnnotation[]> = {}
-                  for (const [channel, anns] of Object.entries(oldAnnotations.channel_annotations || {})) {
-                    channelAnnotations[channel] = (anns as any[]).map((ann: any) => ({
-                      id: ann.id,
-                      position: ann.position,
-                      label: ann.label,
-                      color: ann.color || '#ef4444',
-                      description: ann.description,
-                      createdAt: ann.created_at || new Date().toISOString(),
-                      updatedAt: ann.updated_at || new Date().toISOString()
-                    }))
+                // Merge global annotations (deduplicate by ID)
+                const existingIds = new Set(mergedGlobalAnnotations.map(a => a.id))
+                for (const sqliteAnn of sqliteGlobal) {
+                  if (!existingIds.has(sqliteAnn.id)) {
+                    mergedGlobalAnnotations.push({
+                      id: sqliteAnn.id,
+                      position: sqliteAnn.position,
+                      label: sqliteAnn.label,
+                      color: sqliteAnn.color || '#ef4444',
+                      description: sqliteAnn.description,
+                      createdAt: sqliteAnn.created_at || new Date().toISOString(),
+                      updatedAt: sqliteAnn.updated_at || new Date().toISOString()
+                    })
                   }
+                }
 
-                  // Update store
-                  // OPTIMIZED: Using Immer - direct mutation syntax
-                  set((state) => {
-                    state.annotations.timeSeries[file.file_path] = {
-                      filePath: file.file_path,
-                      globalAnnotations,
-                      channelAnnotations
+                // Merge channel annotations
+                for (const [channel, sqliteAnns] of Object.entries(sqliteChannels)) {
+                  if (!mergedChannelAnnotations[channel]) {
+                    mergedChannelAnnotations[channel] = []
+                  }
+                  const channelExistingIds = new Set(mergedChannelAnnotations[channel].map(a => a.id))
+                  for (const sqliteAnn of (sqliteAnns as any[])) {
+                    if (!channelExistingIds.has(sqliteAnn.id)) {
+                      mergedChannelAnnotations[channel].push({
+                        id: sqliteAnn.id,
+                        position: sqliteAnn.position,
+                        label: sqliteAnn.label,
+                        color: sqliteAnn.color || '#ef4444',
+                        description: sqliteAnn.description,
+                        createdAt: sqliteAnn.created_at || new Date().toISOString(),
+                        updatedAt: sqliteAnn.updated_at || new Date().toISOString()
+                      })
                     }
-                  })
-
-                  // Save to FileStateManager
-                  const fileStateManager = getInitializedFileStateManager()
-                  const fileAnnotationState: FileAnnotationState = {
-                    timeSeries: {
-                      global: globalAnnotations,
-                      channels: channelAnnotations
-                    },
-                    ddaResults: {},
-                    lastUpdated: new Date().toISOString()
                   }
-                  await fileStateManager.updateModuleState(file.file_path, 'annotations', fileAnnotationState)
-                  console.log('[STORE] Migrated annotations to FileStateManager')
-                } else {
-                  // No old annotations either - initialize empty
-                  // OPTIMIZED: Using Immer - direct mutation syntax
-                  set((state) => {
-                    state.annotations.timeSeries[file.file_path] = {
-                      filePath: file.file_path,
-                      globalAnnotations: [],
-                      channelAnnotations: {}
+                }
+              }
+
+              const totalMerged = mergedGlobalAnnotations.length +
+                Object.values(mergedChannelAnnotations).reduce((sum, anns) => sum + anns.length, 0)
+
+              console.log('[STORE] Merged annotations from both sources:', {
+                filePath: file.file_path,
+                totalAnnotations: totalMerged,
+                globalCount: mergedGlobalAnnotations.length,
+                channelsCount: Object.keys(mergedChannelAnnotations).length
+              })
+
+              // Update store with merged annotations
+              // OPTIMIZED: Using Immer - direct mutation syntax
+              set((state) => {
+                state.annotations.timeSeries[file.file_path] = {
+                  filePath: file.file_path,
+                  globalAnnotations: mergedGlobalAnnotations,
+                  channelAnnotations: mergedChannelAnnotations
+                }
+
+                // Load DDA results annotations from FileStateManager
+                if (annotationState?.ddaResults) {
+                  Object.entries(annotationState.ddaResults).forEach(([key, plotAnnotations]) => {
+                    const parts = key.split('_')
+                    if (parts.length >= 3) {
+                      const plotType = parts[parts.length - 1] as 'heatmap' | 'line'
+                      const variantId = parts[parts.length - 2]
+                      const resultId = parts.slice(0, parts.length - 2).join('_')
+
+                      state.annotations.ddaResults[key] = {
+                        resultId,
+                        variantId,
+                        plotType,
+                        annotations: plotAnnotations
+                      }
                     }
                   })
                 }
-              } catch (err) {
-                console.error('[STORE] Failed to check/migrate old annotations:', err)
-                // Initialize empty on error
+              })
+
+              console.log('[STORE] After loading merged annotations, store state:', {
+                filePath: file.file_path,
+                globalAnnotations: get().annotations.timeSeries[file.file_path].globalAnnotations.length
+              })
+            } catch (err) {
+              console.error('[STORE] Failed to load/merge annotations for file:', file.file_path, err)
+
+              // Fallback: at least load from FileStateManager if available
+              if (annotationState?.timeSeries) {
+                console.log('[STORE] Fallback: using FileStateManager annotations only for:', file.file_path)
+
                 // OPTIMIZED: Using Immer - direct mutation syntax
+                set((state) => {
+                  state.annotations.timeSeries[file.file_path] = {
+                    filePath: file.file_path,
+                    globalAnnotations: annotationState.timeSeries?.global || [],
+                    channelAnnotations: annotationState.timeSeries?.channels || {}
+                  }
+                })
+              } else {
+                // Initialize empty if no annotations found
                 set((state) => {
                   state.annotations.timeSeries[file.file_path] = {
                     filePath: file.file_path,
@@ -797,8 +826,8 @@ export const useAppStore = create<AppState>()(
                   }
                 })
               }
-            })()
-          }
+            }
+          })()
 
           // File was already set synchronously above
           // Now just save state after loading file-centric state
@@ -1316,6 +1345,27 @@ export const useAppStore = create<AppState>()(
     }
   },
 
+  setSidebarWidth: (width) => {
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    // Clamp width between minimum (200px) and maximum (600px) for usability
+    const clampedWidth = Math.max(200, Math.min(600, width))
+    set((state) => {
+      state.ui.sidebarWidth = clampedWidth
+    })
+
+    // Debounce Tauri state updates - dragging triggers many rapid updates
+    if (typeof (window as any).__sidebarWidthUpdateTimeout !== 'undefined') {
+      clearTimeout((window as any).__sidebarWidthUpdateTimeout)
+    }
+
+    (window as any).__sidebarWidthUpdateTimeout = setTimeout(() => {
+      if (TauriService.isTauri()) {
+        // Fire and forget - don't block UI
+        TauriService.updateUIState({ sidebarWidth: clampedWidth }).catch(console.error)
+      }
+    }, 150) // Wait 150ms after last resize before saving
+  },
+
   setPanelSizes: (sizes) => {
     // OPTIMIZED: Using Immer - direct mutation syntax
     set((state) => {
@@ -1510,10 +1560,14 @@ export const useAppStore = create<AppState>()(
       }
     })
 
-    // Delete annotation from file state manager
+    // Delete annotation from database and file state manager
     setTimeout(async () => {
       if (TauriService.isTauri()) {
         try {
+          // KEY FIX: Delete from database first
+          await TauriService.deleteAnnotation(annotationId)
+          console.log('[ANNOTATION] Deleted from database:', annotationId)
+
           const fileStateManager = getInitializedFileStateManager()
           const currentAnnotations = get().annotations
           const fileAnnotations = currentAnnotations.timeSeries[filePath]
@@ -1538,7 +1592,7 @@ export const useAppStore = create<AppState>()(
             console.log('[ANNOTATION] Deleted from FileStateManager:', annotationId)
           }
         } catch (err) {
-          console.error('[ANNOTATION] Failed to delete from FileStateManager:', err)
+          console.error('[ANNOTATION] Failed to delete annotation:', err)
         }
       }
     }, 100)
@@ -1554,6 +1608,106 @@ export const useAppStore = create<AppState>()(
       return [...fileAnnotations.globalAnnotations, ...fileAnnotations.channelAnnotations[channel]]
     }
     return fileAnnotations.globalAnnotations
+  },
+
+  loadAllFileAnnotations: async () => {
+    if (!TauriService.isTauri()) {
+      console.log('[ANNOTATION] Not in Tauri environment, skipping load all annotations')
+      return
+    }
+
+    try {
+      console.log('[ANNOTATION] Loading annotations from both SQLite database and FileStateManager...')
+
+      // Load all annotations from SQLite database (primary source)
+      const sqliteAnnotations = await TauriService.getAllAnnotations()
+      console.log('[ANNOTATION] Found', Object.keys(sqliteAnnotations).length, 'files with annotations in SQLite database')
+
+      // Also load from FileStateManager (for legacy annotations that might not be in SQLite)
+      const fileStateManager = getInitializedFileStateManager()
+      const trackedFiles = fileStateManager.getTrackedFiles()
+      console.log('[ANNOTATION] Found', trackedFiles.length, 'tracked files in FileStateManager')
+
+      // Build merged annotations object outside of set() for better debugging
+      const mergedAnnotations: Record<string, TimeSeriesAnnotations> = {}
+
+      // First, load from SQLite (primary source of truth)
+      for (const [filePath, fileAnnotations] of Object.entries(sqliteAnnotations)) {
+        const globalCount = fileAnnotations.global_annotations?.length || 0
+        const channelCount = Object.keys(fileAnnotations.channel_annotations || {}).length
+
+        if (globalCount > 0 || channelCount > 0) {
+          console.log('[ANNOTATION] Loading from SQLite for file:', filePath, {
+            globalCount,
+            channelsCount: channelCount
+          })
+
+          // Convert SQLite annotations to PlotAnnotation format (add missing fields)
+          const globalAnnotations = fileAnnotations.global_annotations.map(ann => ({
+            ...ann,
+            createdAt: new Date().toISOString(), // SQLite doesn't track creation time
+            visible_in_plots: ann.visible_in_plots || []
+          }))
+
+          const channelAnnotations: Record<string, PlotAnnotation[]> = {}
+          for (const [channel, anns] of Object.entries(fileAnnotations.channel_annotations || {})) {
+            channelAnnotations[channel] = anns.map(ann => ({
+              ...ann,
+              createdAt: new Date().toISOString(),
+              visible_in_plots: ann.visible_in_plots || []
+            }))
+          }
+
+          mergedAnnotations[filePath] = {
+            filePath: filePath,
+            globalAnnotations,
+            channelAnnotations
+          }
+        }
+      }
+
+      // Then, load from FileStateManager (for files not in SQLite - legacy data)
+      for (const filePath of trackedFiles) {
+        // Skip if already loaded from SQLite
+        if (mergedAnnotations[filePath]) continue
+
+        try {
+          const moduleState = fileStateManager.getModuleState(filePath, 'annotations')
+          if (moduleState) {
+            const annotationState = moduleState as FileAnnotationState
+            const hasAnnotations = annotationState && (
+              (annotationState.timeSeries?.global?.length || 0) > 0 ||
+              Object.keys(annotationState.timeSeries?.channels || {}).length > 0
+            )
+
+            if (hasAnnotations) {
+              console.log('[ANNOTATION] Loading from FileStateManager for file:', filePath, {
+                globalCount: annotationState.timeSeries?.global?.length || 0,
+                channelsCount: Object.keys(annotationState.timeSeries?.channels || {}).length
+              })
+
+              mergedAnnotations[filePath] = {
+                filePath: filePath,
+                globalAnnotations: annotationState.timeSeries?.global || [],
+                channelAnnotations: annotationState.timeSeries?.channels || {}
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[ANNOTATION] Failed to load from FileStateManager for file:', filePath, err)
+        }
+      }
+
+      // OPTIMIZED: Using Immer - direct mutation syntax for efficient state updates
+      set((state) => {
+        state.annotations.timeSeries = mergedAnnotations
+      })
+
+      console.log('[ANNOTATION] Finished loading all annotations. Total files with annotations:',
+        Object.keys(get().annotations.timeSeries).length)
+    } catch (err) {
+      console.error('[ANNOTATION] Failed to load all file annotations:', err)
+    }
   },
 
   addDDAAnnotation: (resultId, variantId, plotType, annotation) => {
@@ -1815,6 +1969,7 @@ export const useAppStore = create<AppState>()(
         ui: {
           activeTab: currentState.ui.activeTab,
           sidebarOpen: currentState.ui.sidebarOpen,
+          sidebarWidth: currentState.ui.sidebarWidth,
           panelSizes: currentState.ui.panelSizes,
           layout: currentState.ui.layout,
           theme: currentState.ui.theme
