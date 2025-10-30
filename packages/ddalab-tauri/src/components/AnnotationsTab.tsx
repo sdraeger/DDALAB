@@ -120,21 +120,12 @@ export function AnnotationsTab() {
       const storeState = useAppStore.getState()
 
       // Check if this file is already selected
-      let file = storeState.fileManager.selectedFile
+      const file = storeState.fileManager.selectedFile
 
       if (!file || file.file_path !== filePath) {
-        // File not selected, try to find and select it
-        const files = storeState.fileManager.files || []
-        file = files.find(f => f.file_path === filePath) || null
-
-        if (!file) {
-          console.warn('[ANNOTATION] File not found in files list:', filePath)
-          setError(`File not found: ${filePath}. Please load the file first.`)
-          return
-        }
-
-        // Select the file
-        storeState.selectFile(file)
+        console.warn('[ANNOTATION] File not selected:', filePath)
+        setError(`File not selected: ${filePath}. Please load the file first.`)
+        return
       }
 
       // Calculate time window from plot state

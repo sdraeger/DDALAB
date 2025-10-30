@@ -703,11 +703,24 @@ export const useAppStore = create<AppState>((set, get) => ({
               }
 
               // Load DDA results annotations
+              // Convert from flat file-centric format to structured global format
               if (annotationState.ddaResults) {
-                annotations.ddaResults = {
-                  ...annotations.ddaResults,
-                  ...annotationState.ddaResults
-                }
+                Object.entries(annotationState.ddaResults).forEach(([key, plotAnnotations]) => {
+                  // Parse key format: resultId_variantId_plotType
+                  const parts = key.split('_')
+                  if (parts.length >= 3) {
+                    const plotType = parts[parts.length - 1] as 'heatmap' | 'line'
+                    const variantId = parts[parts.length - 2]
+                    const resultId = parts.slice(0, parts.length - 2).join('_')
+
+                    annotations.ddaResults[key] = {
+                      resultId,
+                      variantId,
+                      plotType,
+                      annotations: plotAnnotations
+                    }
+                  }
+                })
               }
 
               console.log('[STORE] After loading annotations, store state:', {
@@ -862,7 +875,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       // Save to file-centric state
-      if (fileManager.selectedFile?.file_path) {
+      const selectedFilePath = fileManager.selectedFile?.file_path
+      if (selectedFilePath) {
         (async () => {
           try {
             const fileStateManager = getInitializedFileStateManager()
@@ -878,7 +892,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             }
 
             await fileStateManager.updateModuleState(
-              fileManager.selectedFile.file_path,
+              selectedFilePath,
               'plot',
               filePlotState
             )
@@ -1063,7 +1077,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
 
         // Save to file-centric state if we have a selected file
-        if (fileManager.selectedFile?.file_path && analysis) {
+        const selectedFilePath = fileManager.selectedFile?.file_path
+        if (selectedFilePath && analysis) {
           (async () => {
             try {
               const fileStateManager = getInitializedFileStateManager()
@@ -1076,13 +1091,13 @@ export const useAppStore = create<AppState>((set, get) => ({
               }
 
               await fileStateManager.updateModuleState(
-                fileManager.selectedFile.file_path,
+                selectedFilePath,
                 'dda',
                 fileDDAState
               )
 
               console.log('[STORE] Saved file-centric DDA state:', {
-                filePath: fileManager.selectedFile.file_path,
+                filePath: selectedFilePath,
                 currentAnalysisId: analysis.id
               })
             } catch (err) {
@@ -1150,7 +1165,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
 
         // Save to file-centric state if we have a selected file
-        if (fileManager.selectedFile?.file_path) {
+        const selectedFilePath = fileManager.selectedFile?.file_path
+        if (selectedFilePath) {
           (async () => {
             try {
               const fileStateManager = getInitializedFileStateManager()
@@ -1163,13 +1179,13 @@ export const useAppStore = create<AppState>((set, get) => ({
               }
 
               await fileStateManager.updateModuleState(
-                fileManager.selectedFile.file_path,
+                selectedFilePath,
                 'dda',
                 fileDDAState
               )
 
               console.log('[STORE] Saved file-centric DDA state (history updated):', {
-                filePath: fileManager.selectedFile.file_path,
+                filePath: selectedFilePath,
                 historyCount: dda.analysisHistory.length
               })
             } catch (err) {

@@ -58,7 +58,7 @@ export const navigationConfig: Record<PrimaryNavTab, NavigationCategory> = {
     id: 'manage',
     label: 'Manage',
     icon: 'Settings',
-    description: 'Settings and data sources',
+    description: 'Settings and data repositories',
     secondaryTabs: ['settings', 'data-sources', 'jobs'],
   },
   notifications: {
@@ -137,14 +137,14 @@ export const secondaryTabConfig: Record<SecondaryNavTab, SecondaryTabConfig> = {
   },
   'data-sources': {
     id: 'data-sources',
-    label: 'Data Sources',
+    label: 'OpenNeuro (+ NEMAR)',
     icon: 'Database',
-    description: 'External data sources',
+    description: 'Data repositories',
   },
   jobs: {
     id: 'jobs',
-    label: 'Jobs',
+    label: 'NSG Jobs',
     icon: 'Cloud',
-    description: 'Remote computation jobs',
+    description: 'NSG jobs',
   },
 }

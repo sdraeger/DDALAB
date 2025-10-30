@@ -742,9 +742,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   }
 
   return (
-    <div className="h-full flex flex-col space-y-4 overflow-y-auto">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-        <div className="flex items-center justify-between">
+    <div className="h-full flex flex-col overflow-hidden">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+        <div className="flex items-center justify-between flex-shrink-0 pb-4">
           <TabsList>
             <TabsTrigger value="parameters">Parameters</TabsTrigger>
             <TabsTrigger value="results">Results</TabsTrigger>
@@ -803,21 +803,21 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         </div>
 
         {nsgSubmissionPhase && (
-          <Alert className="mt-4">
+          <Alert className="mt-4 flex-shrink-0">
             <Cloud className="h-4 w-4 animate-pulse" />
             <AlertDescription>{nsgSubmissionPhase}</AlertDescription>
           </Alert>
         )}
 
         {nsgError && (
-          <Alert variant="destructive" className="mt-4">
+          <Alert variant="destructive" className="mt-4 flex-shrink-0">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>{nsgError}</AlertDescription>
           </Alert>
         )}
 
 
-        <TabsContent value="parameters" className="flex-1 space-y-4">
+        <TabsContent value="parameters" className="flex-1 min-h-0 space-y-4 overflow-y-auto">
           {/* Analysis Status - only show for active/recent analysis, not restored from persistence */}
           {(localIsRunning || autoLoadingResults || (results && !resultsFromPersistence)) && (
             <Card>
@@ -1228,7 +1228,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           </Card>
         </TabsContent>
 
-        <TabsContent value="results" className="flex-1">
+        <TabsContent value="results" className="flex-1 min-h-0 overflow-y-auto">
           {(results || currentAnalysis) ? (
             <DDAResults result={results || currentAnalysis!} />
           ) : (
@@ -1244,7 +1244,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           )}
         </TabsContent>
 
-        <TabsContent value="history" className="flex-1">
+        <TabsContent value="history" className="flex-1 min-h-0 overflow-y-auto">
           <Card>
             <CardHeader className="flex-row items-center justify-between">
               <div>

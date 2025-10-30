@@ -253,7 +253,7 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
 
       {/* Main Content with Tabs */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as 'configure' | 'results')} className="flex-1 flex flex-col">
+        <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as 'configure' | 'results')} className="flex-1 flex flex-col min-h-0">
           <TabsList className="flex-shrink-0 mx-4 mt-4">
             <TabsTrigger value="configure" className="flex items-center gap-2">
               <Settings className="h-4 w-4" />
@@ -265,13 +265,13 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="configure" className="flex-1 overflow-auto m-0">
-            <div className="p-4">
+          <TabsContent value="configure" className="flex-1 min-h-0 overflow-auto m-0">
+            <div className="p-4 h-full">
               <DDAAnalysis apiService={apiService} />
             </div>
           </TabsContent>
 
-          <TabsContent value="results" className="flex-1 overflow-auto m-0">
+          <TabsContent value="results" className="flex-1 min-h-0 overflow-auto m-0">
             {(isLoadingAnalysis || isFetchingAnalysis) && selectedAnalysisId ? (
               // Show loading state while fetching analysis data
               <div className="flex items-center justify-center h-full">

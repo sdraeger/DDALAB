@@ -3,6 +3,7 @@ use crate::api::models::{ChunkData, DDAResult, EDFFileInfo};
 use crate::db::analysis_db::AnalysisDatabase;
 use crate::db::overview_cache_db::OverviewCacheDatabase;
 use crate::models::AnalysisResult;
+use crate::utils::get_database_path;
 use parking_lot::RwLock;
 use serde_json::json;
 use std::collections::HashMap;
@@ -33,41 +34,47 @@ impl ApiState {
             .join("dda_history");
 
         // Initialize SQLite database for analysis persistence
-        let analysis_db = if let Some(parent) = data_directory.parent() {
-            let db_path = parent.join("analysis.db");
-            log::info!("Initializing analysis database at: {:?}", db_path);
-            match AnalysisDatabase::new(&db_path) {
-                Ok(db) => {
-                    log::info!("✅ Analysis database initialized successfully");
-                    Some(Arc::new(db))
-                }
-                Err(e) => {
-                    log::error!("❌ Failed to initialize analysis database: {}", e);
-                    None
+        // Use platform-specific database directory (NOT the data_directory parent)
+        let analysis_db = match get_database_path("api_analysis.db") {
+            Ok(db_path) => {
+                log::info!("Initializing API analysis database at: {:?}", db_path);
+                match AnalysisDatabase::new(&db_path) {
+                    Ok(db) => {
+                        log::info!("✅ API analysis database initialized successfully");
+                        Some(Arc::new(db))
+                    }
+                    Err(e) => {
+                        log::error!("❌ Failed to initialize API analysis database: {}", e);
+                        None
+                    }
                 }
             }
-        } else {
-            log::error!("❌ Cannot determine database path - no parent directory");
-            None
+            Err(e) => {
+                log::error!("❌ Cannot determine API analysis database path: {}", e);
+                None
+            }
         };
 
         // Initialize SQLite database for overview caching
-        let overview_cache_db = if let Some(parent) = data_directory.parent() {
-            let db_path = parent.join("overview_cache.db");
-            log::info!("Initializing overview cache database at: {:?}", db_path);
-            match OverviewCacheDatabase::new(&db_path) {
-                Ok(db) => {
-                    log::info!("✅ Overview cache database initialized successfully");
-                    Some(Arc::new(db))
-                }
-                Err(e) => {
-                    log::error!("❌ Failed to initialize overview cache database: {}", e);
-                    None
+        // Use platform-specific database directory (NOT the data_directory parent)
+        let overview_cache_db = match get_database_path("overview_cache.db") {
+            Ok(db_path) => {
+                log::info!("Initializing overview cache database at: {:?}", db_path);
+                match OverviewCacheDatabase::new(&db_path) {
+                    Ok(db) => {
+                        log::info!("✅ Overview cache database initialized successfully");
+                        Some(Arc::new(db))
+                    }
+                    Err(e) => {
+                        log::error!("❌ Failed to initialize overview cache database: {}", e);
+                        None
+                    }
                 }
             }
-        } else {
-            log::error!("❌ Cannot determine overview cache database path - no parent directory");
-            None
+            Err(e) => {
+                log::error!("❌ Cannot determine overview cache database path: {}", e);
+                None
+            }
         };
 
         let state = Self {

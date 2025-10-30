@@ -1035,7 +1035,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   // }, [result.id, selectedVariant, colorScheme, viewMode, selectedChannels, colorRange, autoScale, broadcastToType])
 
   return (
-    <div className="h-full flex flex-col overflow-y-auto">
+    <div className="flex flex-col pb-4">
       {/* Controls */}
       <Card className="flex-shrink-0">
         <CardHeader className="pb-4">
