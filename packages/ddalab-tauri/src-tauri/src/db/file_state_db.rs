@@ -1,5 +1,6 @@
+use anyhow::{Context, Result};
 use parking_lot::Mutex;
-use rusqlite::{params, Connection, Result};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -139,9 +140,78 @@ impl FileStateDatabase {
             [],
         )?;
 
-        Ok(Self {
+        let db = Self {
             conn: Mutex::new(conn),
-        })
+        };
+
+        // Run schema migrations
+        db.migrate_schema()?;
+
+        Ok(db)
+    }
+
+    fn migrate_schema(&self) -> Result<()> {
+        let conn = self.conn.lock();
+
+        // Check if file_hash column exists in file_state_modules
+        let file_hash_exists_modules: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('file_state_modules') WHERE name='file_hash'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0)
+            > 0;
+
+        if !file_hash_exists_modules {
+            log::info!("Adding file_hash column to file_state_modules table");
+            conn.execute(
+                "ALTER TABLE file_state_modules ADD COLUMN file_hash TEXT",
+                [],
+            )
+            .context("Failed to add file_hash column to file_state_modules")?;
+
+            // Create index on file_hash for fast lookups
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_file_state_modules_hash
+                 ON file_state_modules(file_hash, module_id)",
+                [],
+            )
+            .context("Failed to create file_hash index on file_state_modules")?;
+
+            log::info!("file_hash column and index added successfully to file_state_modules");
+        }
+
+        // Check if file_hash column exists in file_state_metadata
+        let file_hash_exists_metadata: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('file_state_metadata') WHERE name='file_hash'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0)
+            > 0;
+
+        if !file_hash_exists_metadata {
+            log::info!("Adding file_hash column to file_state_metadata table");
+            conn.execute(
+                "ALTER TABLE file_state_metadata ADD COLUMN file_hash TEXT",
+                [],
+            )
+            .context("Failed to add file_hash column to file_state_metadata")?;
+
+            // Create index on file_hash
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_file_state_metadata_hash
+                 ON file_state_metadata(file_hash)",
+                [],
+            )
+            .context("Failed to create file_hash index on file_state_metadata")?;
+
+            log::info!("file_hash column and index added successfully to file_state_metadata");
+        }
+
+        Ok(())
     }
 
     /// Save or update file viewing state
@@ -318,6 +388,27 @@ impl FileStateDatabase {
             "DELETE FROM file_state_modules WHERE file_path = ?1",
             params![file_path],
         )?;
+        Ok(())
+    }
+
+    /// Update file hash for all modules and metadata of a specific file (for migration)
+    pub fn update_file_hash(&self, file_path: &str, file_hash: &str) -> Result<()> {
+        let conn = self.conn.lock();
+
+        // Update file_state_metadata
+        conn.execute(
+            "UPDATE file_state_metadata SET file_hash = ?1 WHERE file_path = ?2",
+            params![file_hash, file_path],
+        )
+        .context("Failed to update file_state_metadata hash")?;
+
+        // Update file_state_modules
+        conn.execute(
+            "UPDATE file_state_modules SET file_hash = ?1 WHERE file_path = ?2",
+            params![file_hash, file_path],
+        )
+        .context("Failed to update file_state_modules hash")?;
+
         Ok(())
     }
 

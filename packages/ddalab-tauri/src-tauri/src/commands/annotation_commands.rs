@@ -130,6 +130,22 @@ pub async fn export_annotations(
     annotation_file.sample_rate = sample_rate;
     annotation_file.duration = duration;
 
+    // Compute and set file hash for cross-machine compatibility
+    if path.exists() {
+        match crate::utils::file_hash::compute_file_hash(path) {
+            Ok(hash) => {
+                annotation_file.file_hash = Some(hash);
+                log::info!(
+                    "Computed file hash for export: {}...",
+                    &annotation_file.file_hash.as_ref().unwrap()[..16]
+                );
+            }
+            Err(e) => {
+                log::warn!("Failed to compute file hash for export: {}", e);
+            }
+        }
+    }
+
     // Get annotations from file-centric state module
     let file_state_result = state_manager
         .get_file_state_db()
@@ -1243,6 +1259,19 @@ pub async fn export_all_annotations(
         let mut annotation_file = AnnotationFile::new(file_path.clone());
         annotation_file.sample_rate = sample_rate;
         annotation_file.duration = duration;
+
+        // Compute and set file hash for cross-machine compatibility
+        if path.exists() {
+            match crate::utils::file_hash::compute_file_hash(path) {
+                Ok(hash) => {
+                    log::debug!("Computed file hash for {}: {}...", file_path, &hash[..16]);
+                    annotation_file.file_hash = Some(hash);
+                }
+                Err(e) => {
+                    log::warn!("Failed to compute file hash for {}: {}", file_path, e);
+                }
+            }
+        }
 
         // Get annotations from file-centric state module
         let file_state_result = file_state_db

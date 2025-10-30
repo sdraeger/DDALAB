@@ -217,7 +217,7 @@ function OverviewPlotComponent({
                     // Use the annotation's color or default to red
                     const color = annotation.color || '#ef4444';
 
-                    // Draw vertical line
+                    // Draw vertical bar
                     ctx.strokeStyle = color;
                     ctx.lineWidth = 2;
                     ctx.globalAlpha = 0.8;
@@ -225,16 +225,6 @@ function OverviewPlotComponent({
                     ctx.moveTo(pixelX, u.bbox.top);
                     ctx.lineTo(pixelX, u.bbox.top + u.bbox.height);
                     ctx.stroke();
-
-                    // Draw small triangle at top to make it more visible
-                    ctx.fillStyle = color;
-                    ctx.globalAlpha = 1.0;
-                    ctx.beginPath();
-                    ctx.moveTo(pixelX, u.bbox.top);
-                    ctx.lineTo(pixelX - 4, u.bbox.top + 8);
-                    ctx.lineTo(pixelX + 4, u.bbox.top + 8);
-                    ctx.closePath();
-                    ctx.fill();
                   }
                 });
 

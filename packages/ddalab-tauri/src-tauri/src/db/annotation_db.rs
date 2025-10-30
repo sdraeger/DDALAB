@@ -98,6 +98,31 @@ impl AnnotationDatabase {
             .context("Failed to add visible_in_plots column")?;
         }
 
+        // Check if file_hash column exists
+        let file_hash_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('annotations') WHERE name='file_hash'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0)
+            > 0;
+
+        if !file_hash_exists {
+            log::info!("Adding file_hash column to annotations table");
+            conn.execute("ALTER TABLE annotations ADD COLUMN file_hash TEXT", [])
+                .context("Failed to add file_hash column")?;
+
+            // Create index on file_hash for fast lookups
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_annotations_file_hash ON annotations(file_hash)",
+                [],
+            )
+            .context("Failed to create file_hash index")?;
+
+            log::info!("file_hash column and index added successfully");
+        }
+
         Ok(())
     }
 
@@ -111,11 +136,27 @@ impl AnnotationDatabase {
         let visible_in_plots_json = serde_json::to_string(&annotation.visible_in_plots)
             .context("Failed to serialize visible_in_plots")?;
 
+        // Compute file hash if file exists
+        let file_hash = if std::path::Path::new(file_path).exists() {
+            match crate::utils::file_hash::compute_file_hash(file_path) {
+                Ok(hash) => {
+                    log::debug!("Computed file hash for annotation: {}", hash);
+                    Some(hash)
+                }
+                Err(e) => {
+                    log::warn!("Failed to compute file hash for {}: {}", file_path, e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         self.conn.lock().execute(
             "INSERT OR REPLACE INTO annotations
-             (id, file_path, channel, position, label, color, description, visible_in_plots, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
-                     COALESCE((SELECT created_at FROM annotations WHERE id = ?1), ?9), ?9)",
+             (id, file_path, channel, position, label, color, description, visible_in_plots, file_hash, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+                     COALESCE((SELECT created_at FROM annotations WHERE id = ?1), ?10), ?10)",
             params![
                 annotation.id,
                 file_path,
@@ -125,6 +166,7 @@ impl AnnotationDatabase {
                 annotation.color,
                 annotation.description,
                 visible_in_plots_json,
+                file_hash,
                 now,
             ],
         )
@@ -133,7 +175,91 @@ impl AnnotationDatabase {
         Ok(())
     }
 
+    /// Get annotations by file hash (content-based lookup)
+    pub fn get_annotations_by_hash(&self, file_hash: &str) -> Result<FileAnnotations> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, channel, position, label, color, description, visible_in_plots
+             FROM annotations
+             WHERE file_hash = ?1
+             ORDER BY position",
+        )?;
+
+        let mut global_annotations = Vec::new();
+        let mut channel_annotations: HashMap<String, Vec<Annotation>> = HashMap::new();
+
+        let rows = stmt.query_map(params![file_hash], |row| {
+            let channel: Option<String> = row.get(1)?;
+            let visible_in_plots_json: Option<String> = row.get(6)?;
+            let visible_in_plots = visible_in_plots_json
+                .and_then(|json| serde_json::from_str(&json).ok())
+                .unwrap_or_else(Vec::new);
+
+            let annotation = Annotation {
+                id: row.get(0)?,
+                position: row.get(2)?,
+                label: row.get(3)?,
+                color: row.get(4)?,
+                description: row.get(5)?,
+                visible_in_plots,
+            };
+            Ok((channel, annotation))
+        })?;
+
+        for row in rows {
+            let (channel, annotation) = row?;
+            if let Some(ch) = channel {
+                channel_annotations
+                    .entry(ch)
+                    .or_insert_with(Vec::new)
+                    .push(annotation);
+            } else {
+                global_annotations.push(annotation);
+            }
+        }
+
+        Ok(FileAnnotations {
+            global_annotations,
+            channel_annotations,
+        })
+    }
+
+    /// Get annotations with dual lookup: hash-based (preferred) with path fallback
+    /// This enables cross-machine compatibility while maintaining backward compatibility
     pub fn get_file_annotations(&self, file_path: &str) -> Result<FileAnnotations> {
+        // Try hash-based lookup first if file exists
+        if std::path::Path::new(file_path).exists() {
+            if let Ok(hash) = crate::utils::file_hash::compute_file_hash(file_path) {
+                match self.get_annotations_by_hash(&hash) {
+                    Ok(annotations)
+                        if !annotations.global_annotations.is_empty()
+                            || !annotations.channel_annotations.is_empty() =>
+                    {
+                        log::debug!(
+                            "Found annotations by hash for: {} (hash: {})",
+                            file_path,
+                            &hash[..16]
+                        );
+                        return Ok(annotations);
+                    }
+                    _ => {
+                        log::debug!(
+                            "No annotations found by hash for: {} (hash: {}), trying path lookup",
+                            file_path,
+                            &hash[..16]
+                        );
+                    }
+                }
+            }
+        }
+
+        // Fallback to path-based lookup (for backward compatibility or if hash lookup failed)
+        log::debug!("Using path-based annotation lookup for: {}", file_path);
+        self.get_annotations_by_path(file_path)
+    }
+
+    /// Get annotations by file path (legacy method for backward compatibility)
+    fn get_annotations_by_path(&self, file_path: &str) -> Result<FileAnnotations> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT id, channel, position, label, color, description, visible_in_plots
@@ -249,6 +375,59 @@ impl AnnotationDatabase {
             .context("Failed to get file paths")?;
 
         Ok(paths)
+    }
+
+    /// Update file hash for all annotations of a specific file (for migration)
+    pub fn update_file_hash(&self, file_path: &str, file_hash: &str) -> Result<usize> {
+        let updated = self
+            .conn
+            .lock()
+            .execute(
+                "UPDATE annotations SET file_hash = ?1 WHERE file_path = ?2 AND file_hash IS NULL",
+                params![file_hash, file_path],
+            )
+            .context("Failed to update annotation file hashes")?;
+
+        Ok(updated)
+    }
+
+    /// Check if any annotations for a file have a hash (for migration status)
+    pub fn has_file_hash(&self, file_path: &str) -> Result<bool> {
+        let count: i64 = self
+            .conn
+            .lock()
+            .query_row(
+                "SELECT COUNT(*) FROM annotations WHERE file_path = ?1 AND file_hash IS NOT NULL",
+                params![file_path],
+                |row| row.get(0),
+            )
+            .context("Failed to check for file hashes")?;
+
+        Ok(count > 0)
+    }
+
+    /// Get migration statistics - how many files have and don't have hashes
+    /// Returns (files_with_hash, files_without_hash)
+    pub fn get_hash_migration_stats(&self) -> Result<(usize, usize)> {
+        let conn = self.conn.lock();
+
+        let with_hash: i64 = conn
+            .query_row(
+                "SELECT COUNT(DISTINCT file_path) FROM annotations WHERE file_hash IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .context("Failed to count hashed files")?;
+
+        let without_hash: i64 = conn
+            .query_row(
+                "SELECT COUNT(DISTINCT file_path) FROM annotations WHERE file_hash IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .context("Failed to count non-hashed files")?;
+
+        Ok((with_hash as usize, without_hash as usize))
     }
 
     pub fn get_annotations_in_range(
