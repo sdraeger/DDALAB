@@ -21,18 +21,18 @@ interface FileAnnotationsResult {
 }
 
 export function AnnotationsTab() {
-  const {
-    fileManager,
-    annotations: storeAnnotations,
-    setPrimaryNav,
-    setSecondaryNav,
-    setCurrentAnalysis,
-    dda
-  } = useAppStore();
+  // OPTIMIZED: Select specific properties instead of entire objects to prevent re-renders
+  const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
+  const storeAnnotations = useAppStore((state) => state.annotations);
+  const ddaAnalysisHistory = useAppStore((state) => state.dda.analysisHistory);
+  const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
+  const setSecondaryNav = useAppStore((state) => state.setSecondaryNav);
+  const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis);
+
   const [annotationsByFile, setAnnotationsByFile] = useState<Map<string, AnnotationWithFile[]>>(new Map());
   const [ddaAnnotationCount, setDDAAnnotationCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const currentFilePath = fileManager.selectedFile?.file_path;
+  const currentFilePath = selectedFile?.file_path;
 
   // Load annotations from store (includes both time series and DDA annotations)
   useEffect(() => {
@@ -169,7 +169,7 @@ export function AnnotationsTab() {
   const handleDDAAnnotationClick = (resultId: string, variantId: string, plotType: string) => {
     try {
       // Find the DDA result
-      const result = dda.analysisHistory.find(r => r.id === resultId)
+      const result = ddaAnalysisHistory.find(r => r.id === resultId)
 
       if (!result) {
         console.warn('[ANNOTATION] DDA result not found:', resultId)

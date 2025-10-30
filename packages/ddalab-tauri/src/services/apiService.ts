@@ -158,13 +158,16 @@ export class ApiService {
     signal?: AbortSignal
   ): Promise<ChunkData> {
     try {
+      // IMMER/TanStack Query FIX: Clone requestedChannels if provided (might be frozen from store)
+      const channels = requestedChannels ? JSON.parse(JSON.stringify(requestedChannels)) : undefined
+
       const params: any = {
         file_path: filePath,
         max_points: maxPoints,
       }
 
-      if (requestedChannels && requestedChannels.length > 0) {
-        params.channels = requestedChannels.join(',')
+      if (channels && channels.length > 0) {
+        params.channels = channels.join(',')
       }
 
       console.log('[ApiService] Fetching overview data:', params)
@@ -173,22 +176,27 @@ export class ApiService {
         signal
       })
 
+      // IMMER/TanStack Query FIX: Deep clone the response data immediately to ensure
+      // we're working with mutable objects before any processing
+      const responseData = JSON.parse(JSON.stringify(response.data))
+
       console.log('[ApiService] Received overview data:', {
-        dataLength: response.data.data?.length,
-        pointsPerChannel: response.data.data?.[0]?.length,
-        channels: response.data.channel_labels?.length,
+        dataLength: responseData.data?.length,
+        pointsPerChannel: responseData.data?.[0]?.length,
+        channels: responseData.channel_labels?.length,
       })
 
       const chunkData: ChunkData = {
-        data: response.data.data || [],
-        channels: response.data.channel_labels || response.data.channels || [],
-        timestamps: response.data.timestamps || [],
-        sample_rate: response.data.sampling_frequency || response.data.sample_rate || 256,
-        chunk_start: response.data.chunk_start || 0,
-        chunk_size: response.data.chunk_size || 0,
-        file_path: response.data.file_path || filePath
+        data: responseData.data || [],
+        channels: responseData.channel_labels || responseData.channels || [],
+        timestamps: responseData.timestamps || [],
+        sample_rate: responseData.sampling_frequency || responseData.sample_rate || 256,
+        chunk_start: responseData.chunk_start || 0,
+        chunk_size: responseData.chunk_size || 0,
+        file_path: responseData.file_path || filePath
       }
 
+      // Return the chunk data (already cloned from response)
       return chunkData
     } catch (error) {
       console.error('Failed to get overview data:', error)
@@ -209,13 +217,16 @@ export class ApiService {
     total_samples?: number
   }> {
     try {
+      // IMMER/TanStack Query FIX: Clone requestedChannels if provided (might be frozen from store)
+      const channels = requestedChannels ? JSON.parse(JSON.stringify(requestedChannels)) : undefined
+
       const params: any = {
         file_path: filePath,
         max_points: maxPoints,
       }
 
-      if (requestedChannels && requestedChannels.length > 0) {
-        params.channels = requestedChannels.join(',')
+      if (channels && channels.length > 0) {
+        params.channels = channels.join(',')
       }
 
       const response = await this.client.get('/api/edf/overview/progress', {
@@ -244,12 +255,18 @@ export class ApiService {
     }
   ): Promise<ChunkData> {
     try {
+      // IMMER/TanStack Query FIX: Clone all input parameters that might come from frozen store state
+      const preprocessingOptions = preprocessing ? JSON.parse(JSON.stringify(preprocessing)) : undefined
+      const channelList = requestedChannels ? JSON.parse(JSON.stringify(requestedChannels)) : undefined
+
       // Check cache first (only if no preprocessing)
-      if (!preprocessing) {
-        const cached = this.chunkCache.get(filePath, chunkStart, chunkSize, requestedChannels)
+      if (!preprocessingOptions) {
+        const cached = this.chunkCache.get(filePath, chunkStart, chunkSize, channelList)
         if (cached) {
           console.log('[ApiService] Cache HIT - using cached chunk data')
-          return cached
+          // IMMER/TanStack Query FIX: Deep clone cached data to avoid readonly property errors
+          // TanStack Query freezes returned data in development mode
+          return JSON.parse(JSON.stringify(cached))
         }
       }
 
@@ -261,14 +278,14 @@ export class ApiService {
         chunk_size: chunkSize,
       }
 
-      if (requestedChannels && requestedChannels.length > 0) {
-        params.channels = requestedChannels.join(',')
+      if (channelList && channelList.length > 0) {
+        params.channels = channelList.join(',')
       }
 
-      if (preprocessing) {
-        if (preprocessing.highpass) params.highpass = preprocessing.highpass
-        if (preprocessing.lowpass) params.lowpass = preprocessing.lowpass
-        if (preprocessing.notch) params.notch = preprocessing.notch.join(',')
+      if (preprocessingOptions) {
+        if (preprocessingOptions.highpass) params.highpass = preprocessingOptions.highpass
+        if (preprocessingOptions.lowpass) params.lowpass = preprocessingOptions.lowpass
+        if (preprocessingOptions.notch) params.notch = preprocessingOptions.notch.join(',')
       }
 
       console.log('Making chunk data request with params:', params)
@@ -278,14 +295,18 @@ export class ApiService {
       })
       console.log('Raw chunk data response:', response.data)
 
+      // IMMER/TanStack Query FIX: Deep clone the response data immediately to ensure
+      // we're working with mutable objects before any processing
+      const responseData = JSON.parse(JSON.stringify(response.data))
+
       // Extract data structure first
-      const data = response.data.data || []
-      const channels = response.data.channel_labels || response.data.channels || []
-      const actualChunkSize = response.data.chunk_size || chunkSize
-      const sampleRate = response.data.sampling_frequency || response.data.sample_rate || 256
+      const data = responseData.data || []
+      const channels = responseData.channel_labels || responseData.channels || []
+      const actualChunkSize = responseData.chunk_size || chunkSize
+      const sampleRate = responseData.sampling_frequency || responseData.sample_rate || 256
 
       // Generate timestamps if not provided
-      let timestamps = response.data.timestamps || []
+      let timestamps = responseData.timestamps || []
       if (timestamps.length === 0 && actualChunkSize > 0) {
         timestamps = Array.from({ length: actualChunkSize }, (_, i) => (chunkStart + i) / sampleRate)
       }
@@ -307,19 +328,22 @@ export class ApiService {
         channels: channels,
         timestamps: timestamps,
         sample_rate: sampleRate,
-        chunk_start: response.data.chunk_start || chunkStart,
+        chunk_start: responseData.chunk_start || chunkStart,
         chunk_size: actualChunkSize,
-        file_path: response.data.file_path || filePath
+        file_path: responseData.file_path || filePath
       }
 
       console.log('Processed chunk data:', chunkData)
 
       // Store in cache (only if no preprocessing applied)
-      if (!preprocessing) {
-        this.chunkCache.set(filePath, chunkStart, chunkSize, chunkData, requestedChannels)
+      if (!preprocessingOptions) {
+        this.chunkCache.set(filePath, chunkStart, chunkSize, chunkData, channelList)
       }
 
-      return chunkData
+      // IMMER/TanStack Query FIX: Deep clone before returning to prevent TanStack Query
+      // from freezing the same object reference that's stored in cache. This ensures
+      // the cache retains a mutable copy while TanStack Query freezes a separate clone.
+      return JSON.parse(JSON.stringify(chunkData))
     } catch (error) {
       console.error('Failed to get chunk data:', error)
       throw error

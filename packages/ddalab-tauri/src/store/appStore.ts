@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { immer } from 'zustand/middleware/immer'
 import { EDFFileInfo, ChunkData, DDAResult, Annotation } from '@/types/api'
 import { TauriService } from '@/services/tauriService'
 import { getStatePersistenceService, StatePersistenceService } from '@/services/statePersistenceService'
@@ -263,7 +264,8 @@ const defaultWorkflowRecordingState: WorkflowRecordingState = {
   lastActionTimestamp: null
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
+export const useAppStore = create<AppState>()(
+  immer((set, get) => ({
   isInitialized: false,
   isPersistenceRestored: false,
   persistenceService: null,
@@ -470,9 +472,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   fileManager: defaultFileManagerState,
 
   setDataDirectoryPath: (path) => {
-    set((state) => ({
-      fileManager: { ...state.fileManager, dataDirectoryPath: path }
-    }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.fileManager.dataDirectoryPath = path
+    })
 
     if (TauriService.isTauri()) {
       const { fileManager, persistenceService, isPersistenceRestored } = get()
@@ -506,9 +509,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setCurrentPath: (path) => {
-    set((state) => ({
-      fileManager: { ...state.fileManager, currentPath: path }
-    }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.fileManager.currentPath = path
+    })
 
     if (TauriService.isTauri()) {
       const { fileManager, persistenceService, isPersistenceRestored } = get()
@@ -542,9 +546,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Synchronously clear currentPath and persist immediately - used when changing data directory
   resetCurrentPathSync: async () => {
-    set((state) => ({
-      fileManager: { ...state.fileManager, currentPath: [] }
-    }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.fileManager.currentPath = []
+    })
 
     if (TauriService.isTauri()) {
       const { fileManager, persistenceService } = get()
@@ -576,17 +581,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     // IMMEDIATELY clear DDA state and set the file synchronously to prevent race conditions
     // where components render with old state before async loading happens
     console.log('[STORE] Clearing DDA state and setting file immediately (synchronous)')
-    set((state) => ({
-      dda: {
-        ...state.dda,
-        currentAnalysis: null,
-        analysisHistory: []
-      },
-      fileManager: {
-        ...state.fileManager,
-        selectedFile: file
-      }
-    }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.dda.currentAnalysis = null
+      state.dda.analysisHistory = []
+      state.fileManager.selectedFile = file
+    })
 
     // Load file-centric state asynchronously and apply it
     // This ensures all state (plot, DDA, annotations) is loaded from persistence
@@ -608,34 +608,24 @@ export const useAppStore = create<AppState>((set, get) => ({
           // Apply plot state if available
           if (fileState.plot) {
             const plotState = fileState.plot as FilePlotState
-            set((state) => ({
-              plot: {
-                ...state.plot,
-                chunkStart: plotState.chunkStart || 0,
-                chunkSize: plotState.chunkSize || 8192,
-                amplitude: plotState.amplitude || 1.0,
-                showAnnotations: plotState.showAnnotations ?? true,
-                preprocessing: plotState.preprocessing,
-                selectedChannelColors: plotState.channelColors || {}
-              },
-              fileManager: {
-                ...state.fileManager,
-                selectedChannels: plotState.selectedChannels || []
-              }
-            }))
+            // OPTIMIZED: Using Immer - direct mutation syntax
+            set((state) => {
+              state.plot.chunkStart = plotState.chunkStart || 0
+              state.plot.chunkSize = plotState.chunkSize || 8192
+              state.plot.amplitude = plotState.amplitude || 1.0
+              state.plot.showAnnotations = plotState.showAnnotations ?? true
+              state.plot.preprocessing = plotState.preprocessing
+              state.plot.selectedChannelColors = plotState.channelColors || {}
+              state.fileManager.selectedChannels = plotState.selectedChannels || []
+            })
           } else {
             // Reset to defaults if no saved plot state
-            set((state) => ({
-              plot: {
-                ...state.plot,
-                chunkStart: 0,
-                chunkSize: state.plot.chunkSize || 8192
-              },
-              fileManager: {
-                ...state.fileManager,
-                selectedChannels: []
-              }
-            }))
+            // OPTIMIZED: Using Immer - direct mutation syntax
+            set((state) => {
+              state.plot.chunkStart = 0
+              state.plot.chunkSize = state.plot.chunkSize || 8192
+              state.fileManager.selectedChannels = []
+            })
           }
 
           // Apply DDA state if available
@@ -648,18 +638,16 @@ export const useAppStore = create<AppState>((set, get) => ({
             })
 
             // Update DDA parameters from saved state
-            set((state) => ({
-              dda: {
-                ...state.dda,
-                analysisParameters: {
-                  ...state.dda.analysisParameters,
-                  ...ddaState.lastParameters
-                },
-                // Clear current analysis - components will load by ID if needed
-                currentAnalysis: null,
-                analysisHistory: []
+            // OPTIMIZED: Using Immer - direct mutation syntax
+            set((state) => {
+              state.dda.analysisParameters = {
+                ...state.dda.analysisParameters,
+                ...ddaState.lastParameters
               }
-            }))
+              // Clear current analysis - components will load by ID if needed
+              state.dda.currentAnalysis = null
+              state.dda.analysisHistory = []
+            })
 
             // TODO: Optionally load the actual analysis results from the database
             // using ddaState.currentAnalysisId and ddaState.analysisHistory
@@ -667,13 +655,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           } else {
             // No DDA state for this file - clear any existing results
             console.log('[STORE] No DDA state for this file - clearing results')
-            set((state) => ({
-              dda: {
-                ...state.dda,
-                currentAnalysis: null,
-                analysisHistory: []
-              }
-            }))
+            // OPTIMIZED: Using Immer - direct mutation syntax
+            set((state) => {
+              state.dda.currentAnalysis = null
+              state.dda.analysisHistory = []
+            })
           }
 
           // Apply annotation state if available
@@ -692,11 +678,10 @@ export const useAppStore = create<AppState>((set, get) => ({
               annotationState
             })
 
+            // OPTIMIZED: Using Immer - direct mutation syntax
             set((state) => {
-              const annotations = { ...state.annotations }
-
               // Load timeSeries annotations
-              annotations.timeSeries[file.file_path] = {
+              state.annotations.timeSeries[file.file_path] = {
                 filePath: file.file_path,
                 globalAnnotations: annotationState.timeSeries?.global || [],
                 channelAnnotations: annotationState.timeSeries?.channels || {}
@@ -713,7 +698,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                     const variantId = parts[parts.length - 2]
                     const resultId = parts.slice(0, parts.length - 2).join('_')
 
-                    annotations.ddaResults[key] = {
+                    state.annotations.ddaResults[key] = {
                       resultId,
                       variantId,
                       plotType,
@@ -725,10 +710,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
               console.log('[STORE] After loading annotations, store state:', {
                 filePath: file.file_path,
-                globalAnnotations: annotations.timeSeries[file.file_path].globalAnnotations
+                globalAnnotations: state.annotations.timeSeries[file.file_path].globalAnnotations
               })
-
-              return { annotations }
             })
           } else {
             // No annotations in FileStateManager - try to migrate from old SQLite format
@@ -770,14 +753,13 @@ export const useAppStore = create<AppState>((set, get) => ({
                   }
 
                   // Update store
+                  // OPTIMIZED: Using Immer - direct mutation syntax
                   set((state) => {
-                    const annotations = { ...state.annotations }
-                    annotations.timeSeries[file.file_path] = {
+                    state.annotations.timeSeries[file.file_path] = {
                       filePath: file.file_path,
                       globalAnnotations,
                       channelAnnotations
                     }
-                    return { annotations }
                   })
 
                   // Save to FileStateManager
@@ -794,27 +776,25 @@ export const useAppStore = create<AppState>((set, get) => ({
                   console.log('[STORE] Migrated annotations to FileStateManager')
                 } else {
                   // No old annotations either - initialize empty
+                  // OPTIMIZED: Using Immer - direct mutation syntax
                   set((state) => {
-                    const annotations = { ...state.annotations }
-                    annotations.timeSeries[file.file_path] = {
+                    state.annotations.timeSeries[file.file_path] = {
                       filePath: file.file_path,
                       globalAnnotations: [],
                       channelAnnotations: {}
                     }
-                    return { annotations }
                   })
                 }
               } catch (err) {
                 console.error('[STORE] Failed to check/migrate old annotations:', err)
                 // Initialize empty on error
+                // OPTIMIZED: Using Immer - direct mutation syntax
                 set((state) => {
-                  const annotations = { ...state.annotations }
-                  annotations.timeSeries[file.file_path] = {
+                  state.annotations.timeSeries[file.file_path] = {
                     filePath: file.file_path,
                     globalAnnotations: [],
                     channelAnnotations: {}
                   }
-                  return { annotations }
                 })
               }
             })()
@@ -861,9 +841,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setSelectedChannels: (channels) => {
-    set((state) => ({
-      fileManager: { ...state.fileManager, selectedChannels: channels }
-    }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.fileManager.selectedChannels = channels
+    })
 
     if (TauriService.isTauri()) {
       const { fileManager, plot, isPersistenceRestored } = get()
@@ -916,15 +897,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setTimeWindow: (window) => {
-    set((state) => ({
-      fileManager: { ...state.fileManager, timeWindow: window }
-    }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.fileManager.timeWindow = window
+    })
   },
 
   updateFileManagerState: (updates) => {
-    set((state) => ({
-      fileManager: { ...state.fileManager, ...updates }
-    }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      Object.assign(state.fileManager, updates)
+    })
 
     if (TauriService.isTauri()) {
       const { fileManager } = get()
@@ -942,20 +925,27 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   clearPendingFileSelection: () => {
-    set((state) => ({
-      fileManager: { ...state.fileManager, pendingFileSelection: null }
-    }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.fileManager.pendingFileSelection = null
+    })
   },
 
   // Plotting
   plot: defaultPlotState,
 
   setCurrentChunk: (chunk) => {
-    set((state) => ({ plot: { ...state.plot, currentChunk: chunk } }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.plot.currentChunk = chunk
+    })
   },
 
   updatePlotState: (updates) => {
-    set((state) => ({ plot: { ...state.plot, ...updates } }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      Object.assign(state.plot, updates)
+    })
 
     if (TauriService.isTauri()) {
       const { plot, persistenceService, isPersistenceRestored } = get()
@@ -1039,14 +1029,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       isNSGResult: analysis?.source === 'nsg',
       stack: new Error().stack
     })
-    set((state) => ({
-      dda: {
-        ...state.dda,
-        currentAnalysis: analysis,
-        // Save previous analysis only when loading NSG results
-        previousAnalysis: analysis?.source === 'nsg' ? state.dda.currentAnalysis : state.dda.previousAnalysis
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.dda.currentAnalysis = analysis
+      // Save previous analysis only when loading NSG results
+      if (analysis?.source === 'nsg') {
+        state.dda.previousAnalysis = state.dda.currentAnalysis
       }
-    }))
+    })
 
     // Persist the current analysis change asynchronously to avoid blocking UI
     if (TauriService.isTauri()) {
@@ -1116,25 +1106,21 @@ export const useAppStore = create<AppState>((set, get) => ({
         previousId: dda.previousAnalysis.id,
         currentId: dda.currentAnalysis?.id
       })
-      set((state) => ({
-        dda: {
-          ...state.dda,
-          currentAnalysis: state.dda.previousAnalysis,
-          previousAnalysis: null  // Clear previous analysis after restoring
-        }
-      }))
+      // OPTIMIZED: Using Immer - direct mutation syntax
+      set((state) => {
+        state.dda.currentAnalysis = state.dda.previousAnalysis
+        state.dda.previousAnalysis = null  // Clear previous analysis after restoring
+      })
     } else {
       console.warn('[STORE] No previous analysis to restore')
     }
   },
 
   addAnalysisToHistory: (analysis) => {
-    set((state) => ({
-      dda: {
-        ...state.dda,
-        analysisHistory: [analysis, ...state.dda.analysisHistory.slice(0, 9)]
-      }
-    }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.dda.analysisHistory = [analysis, ...state.dda.analysisHistory.slice(0, 9)]
+    })
 
     // Persist the analysis history change asynchronously to avoid blocking UI
     if (TauriService.isTauri()) {
@@ -1198,16 +1184,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setAnalysisHistory: (analyses) => {
-    set((state) => ({ dda: { ...state.dda, analysisHistory: analyses } }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.dda.analysisHistory = analyses
+    })
   },
 
   updateAnalysisParameters: (parameters) => {
-    set((state) => ({
-      dda: {
-        ...state.dda,
-        analysisParameters: { ...state.dda.analysisParameters, ...parameters }
-      }
-    }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      Object.assign(state.dda.analysisParameters, parameters)
+    })
 
     // Debounce Tauri state updates to prevent lag during UI interactions
     // Clear existing timeout and schedule new one
@@ -1240,17 +1227,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setDDARunning: (running) => {
-    set((state) => ({ dda: { ...state.dda, isRunning: running } }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.dda.isRunning = running
+    })
   },
 
   // Health monitoring
   health: defaultHealthState,
 
   updateHealthStatus: (status) => {
+    // OPTIMIZED: Using Immer - direct mutation syntax
     if (typeof status === 'function') {
-      set((state) => ({ health: { ...state.health, ...status(state.health) } }))
+      set((state) => {
+        Object.assign(state.health, status(state.health))
+      })
     } else {
-      set((state) => ({ health: { ...state.health, ...status } }))
+      set((state) => {
+        Object.assign(state.health, status)
+      })
     }
   },
 
@@ -1258,14 +1253,21 @@ export const useAppStore = create<AppState>((set, get) => ({
   sync: defaultSyncState,
 
   updateSyncStatus: (status) => {
-    set((state) => ({ sync: { ...state.sync, ...status, lastStatusCheck: Date.now() } }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      Object.assign(state.sync, status)
+      state.sync.lastStatusCheck = Date.now()
+    })
   },
 
   // UI state
   ui: defaultUIState,
 
   setActiveTab: (tab) => {
-    set((state) => ({ ui: { ...state.ui, activeTab: tab } }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.ui.activeTab = tab
+    })
 
     if (TauriService.isTauri()) {
       // Fire and forget - don't block UI
@@ -1277,13 +1279,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { ui } = get()
     const lastSecondary = ui.lastSecondaryNav[tab]
 
-    set((state) => ({
-      ui: {
-        ...state.ui,
-        primaryNav: tab,
-        secondaryNav: lastSecondary,
-      }
-    }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.ui.primaryNav = tab
+      state.ui.secondaryNav = lastSecondary
+    })
 
     if (TauriService.isTauri()) {
       TauriService.updateUIState({ primaryNav: tab, secondaryNav: lastSecondary }).catch(console.error)
@@ -1293,16 +1293,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSecondaryNav: (tab) => {
     const { ui } = get()
 
-    set((state) => ({
-      ui: {
-        ...state.ui,
-        secondaryNav: tab,
-        lastSecondaryNav: {
-          ...state.ui.lastSecondaryNav,
-          [ui.primaryNav]: tab,
-        },
-      }
-    }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.ui.secondaryNav = tab
+      state.ui.lastSecondaryNav[ui.primaryNav] = tab
+    })
 
     if (TauriService.isTauri()) {
       TauriService.updateUIState({ secondaryNav: tab }).catch(console.error)
@@ -1310,7 +1305,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setSidebarOpen: (open) => {
-    set((state) => ({ ui: { ...state.ui, sidebarOpen: open } }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.ui.sidebarOpen = open
+    })
 
     if (TauriService.isTauri()) {
       // Fire and forget - don't block UI
@@ -1319,7 +1317,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setPanelSizes: (sizes) => {
-    set((state) => ({ ui: { ...state.ui, panelSizes: sizes } }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.ui.panelSizes = sizes
+    })
 
     // Debounce Tauri state updates - panel resizing triggers many rapid updates
     if (typeof (window as any).__panelSizesUpdateTimeout !== 'undefined') {
@@ -1335,7 +1336,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setLayout: (layout) => {
-    set((state) => ({ ui: { ...state.ui, layout } }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.ui.layout = layout
+    })
 
     if (TauriService.isTauri()) {
       // Fire and forget - don't block UI
@@ -1344,7 +1348,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setTheme: (theme) => {
-    set((state) => ({ ui: { ...state.ui, theme } }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.ui.theme = theme
+    })
 
     if (TauriService.isTauri()) {
       // Fire and forget - don't block UI
@@ -1355,46 +1362,45 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setServerReady: (ready) => {
     console.log('[SERVER_READY] Setting server ready state:', ready)
-    set((state) => ({ ui: { ...state.ui, isServerReady: ready } }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.ui.isServerReady = ready
+    })
   },
 
   // Annotations
   annotations: defaultAnnotationState,
 
   addTimeSeriesAnnotation: (filePath, annotation, channel) => {
+    // OPTIMIZED: Using Immer - direct mutation syntax
     set((state) => {
-      const annotations = { ...state.annotations }
-
-      if (!annotations.timeSeries[filePath]) {
-        annotations.timeSeries[filePath] = {
+      if (!state.annotations.timeSeries[filePath]) {
+        state.annotations.timeSeries[filePath] = {
           filePath,
           globalAnnotations: [],
           channelAnnotations: {}
         }
       }
 
-      // IMPORTANT: Create new arrays instead of mutating to ensure Zustand detects changes
+      // With Immer, we can directly push to arrays and it handles immutability
       if (channel) {
-        if (!annotations.timeSeries[filePath].channelAnnotations) {
-          annotations.timeSeries[filePath].channelAnnotations = {}
+        if (!state.annotations.timeSeries[filePath].channelAnnotations) {
+          state.annotations.timeSeries[filePath].channelAnnotations = {}
         }
-        const existingChannelAnnotations = annotations.timeSeries[filePath].channelAnnotations![channel] || []
-        annotations.timeSeries[filePath].channelAnnotations![channel] = [...existingChannelAnnotations, annotation]
+        if (!state.annotations.timeSeries[filePath].channelAnnotations![channel]) {
+          state.annotations.timeSeries[filePath].channelAnnotations![channel] = []
+        }
+        state.annotations.timeSeries[filePath].channelAnnotations![channel].push(annotation)
       } else {
-        annotations.timeSeries[filePath].globalAnnotations = [
-          ...annotations.timeSeries[filePath].globalAnnotations,
-          annotation
-        ]
+        state.annotations.timeSeries[filePath].globalAnnotations.push(annotation)
       }
 
       console.log('[ANNOTATION] After adding annotation, state:', {
         filePath,
-        globalAnnotationsCount: annotations.timeSeries[filePath].globalAnnotations.length,
-        globalAnnotations: annotations.timeSeries[filePath].globalAnnotations,
+        globalAnnotationsCount: state.annotations.timeSeries[filePath].globalAnnotations.length,
+        globalAnnotations: state.annotations.timeSeries[filePath].globalAnnotations,
         annotation
       })
-
-      return { annotations }
     })
 
     // Save annotation to file state manager
@@ -1432,22 +1438,23 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateTimeSeriesAnnotation: (filePath, annotationId, updates, channel) => {
+    // OPTIMIZED: Using Immer - direct mutation syntax
     set((state) => {
-      const annotations = { ...state.annotations }
-      const fileAnnotations = annotations.timeSeries[filePath]
+      const fileAnnotations = state.annotations.timeSeries[filePath]
+      if (!fileAnnotations) return
 
-      if (!fileAnnotations) return state
-
-      const updateAnnotationInArray = (arr: PlotAnnotation[]) =>
-        arr.map(a => a.id === annotationId ? { ...a, ...updates, updatedAt: new Date().toISOString() } : a)
-
-      if (channel && fileAnnotations.channelAnnotations?.[channel]) {
-        fileAnnotations.channelAnnotations[channel] = updateAnnotationInArray(fileAnnotations.channelAnnotations[channel])
-      } else {
-        fileAnnotations.globalAnnotations = updateAnnotationInArray(fileAnnotations.globalAnnotations)
+      const updateAnnotationInArray = (arr: PlotAnnotation[]) => {
+        const index = arr.findIndex(a => a.id === annotationId)
+        if (index !== -1) {
+          Object.assign(arr[index], updates, { updatedAt: new Date().toISOString() })
+        }
       }
 
-      return { annotations }
+      if (channel && fileAnnotations.channelAnnotations?.[channel]) {
+        updateAnnotationInArray(fileAnnotations.channelAnnotations[channel])
+      } else {
+        updateAnnotationInArray(fileAnnotations.globalAnnotations)
+      }
     })
 
     // Save updated annotation to file state manager
@@ -1485,19 +1492,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteTimeSeriesAnnotation: (filePath, annotationId, channel) => {
+    // OPTIMIZED: Using Immer - direct mutation syntax
     set((state) => {
-      const annotations = { ...state.annotations }
-      const fileAnnotations = annotations.timeSeries[filePath]
-
-      if (!fileAnnotations) return state
+      const fileAnnotations = state.annotations.timeSeries[filePath]
+      if (!fileAnnotations) return
 
       if (channel && fileAnnotations.channelAnnotations?.[channel]) {
-        fileAnnotations.channelAnnotations[channel] = fileAnnotations.channelAnnotations[channel].filter(a => a.id !== annotationId)
+        const index = fileAnnotations.channelAnnotations[channel].findIndex(a => a.id === annotationId)
+        if (index !== -1) {
+          fileAnnotations.channelAnnotations[channel].splice(index, 1)
+        }
       } else {
-        fileAnnotations.globalAnnotations = fileAnnotations.globalAnnotations.filter(a => a.id !== annotationId)
+        const index = fileAnnotations.globalAnnotations.findIndex(a => a.id === annotationId)
+        if (index !== -1) {
+          fileAnnotations.globalAnnotations.splice(index, 1)
+        }
       }
-
-      return { annotations }
     })
 
     // Delete annotation from file state manager
@@ -1547,12 +1557,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   addDDAAnnotation: (resultId, variantId, plotType, annotation) => {
+    // OPTIMIZED: Using Immer - direct mutation syntax
     set((state) => {
-      const annotations = { ...state.annotations }
       const key = `${resultId}_${variantId}_${plotType}`
 
-      if (!annotations.ddaResults[key]) {
-        annotations.ddaResults[key] = {
+      if (!state.annotations.ddaResults[key]) {
+        state.annotations.ddaResults[key] = {
           resultId,
           variantId,
           plotType,
@@ -1560,8 +1570,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
 
-      annotations.ddaResults[key].annotations.push(annotation)
-      return { annotations }
+      state.annotations.ddaResults[key].annotations.push(annotation)
     })
 
     // Save to FileStateManager
@@ -1599,18 +1608,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateDDAAnnotation: (resultId, variantId, plotType, annotationId, updates) => {
+    // OPTIMIZED: Using Immer - direct mutation syntax
     set((state) => {
-      const annotations = { ...state.annotations }
       const key = `${resultId}_${variantId}_${plotType}`
-      const plotAnnotations = annotations.ddaResults[key]
+      const plotAnnotations = state.annotations.ddaResults[key]
 
-      if (!plotAnnotations) return state
+      if (!plotAnnotations) return
 
-      plotAnnotations.annotations = plotAnnotations.annotations.map(a =>
-        a.id === annotationId ? { ...a, ...updates, updatedAt: new Date().toISOString() } : a
-      )
-
-      return { annotations }
+      const index = plotAnnotations.annotations.findIndex(a => a.id === annotationId)
+      if (index !== -1) {
+        Object.assign(plotAnnotations.annotations[index], updates, { updatedAt: new Date().toISOString() })
+      }
     })
 
     // Save to FileStateManager
@@ -1648,15 +1656,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteDDAAnnotation: (resultId, variantId, plotType, annotationId) => {
+    // OPTIMIZED: Using Immer - direct mutation syntax
     set((state) => {
-      const annotations = { ...state.annotations }
       const key = `${resultId}_${variantId}_${plotType}`
-      const plotAnnotations = annotations.ddaResults[key]
+      const plotAnnotations = state.annotations.ddaResults[key]
 
-      if (!plotAnnotations) return state
+      if (!plotAnnotations) return
 
-      plotAnnotations.annotations = plotAnnotations.annotations.filter(a => a.id !== annotationId)
-      return { annotations }
+      const index = plotAnnotations.annotations.findIndex(a => a.id === annotationId)
+      if (index !== -1) {
+        plotAnnotations.annotations.splice(index, 1)
+      }
     })
 
     // Save to FileStateManager
@@ -1704,35 +1714,30 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   startWorkflowRecording: (sessionName) => {
     const name = sessionName || `session_${new Date().toISOString().split('T')[0]}_${Date.now()}`
-    set({
-      workflowRecording: {
-        isRecording: true,
-        currentSessionName: name,
-        actionCount: 0,
-        lastActionTimestamp: Date.now()
-      }
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.workflowRecording.isRecording = true
+      state.workflowRecording.currentSessionName = name
+      state.workflowRecording.actionCount = 0
+      state.workflowRecording.lastActionTimestamp = Date.now()
     })
     console.log('[WORKFLOW] Recording started:', name)
   },
 
   stopWorkflowRecording: () => {
-    set((state) => ({
-      workflowRecording: {
-        ...state.workflowRecording,
-        isRecording: false
-      }
-    }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.workflowRecording.isRecording = false
+    })
     console.log('[WORKFLOW] Recording stopped')
   },
 
   incrementActionCount: () => {
-    set((state) => ({
-      workflowRecording: {
-        ...state.workflowRecording,
-        actionCount: state.workflowRecording.actionCount + 1,
-        lastActionTimestamp: Date.now()
-      }
-    }))
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.workflowRecording.actionCount += 1
+      state.workflowRecording.lastActionTimestamp = Date.now()
+    })
   },
 
   getRecordingStatus: () => {
@@ -1860,3 +1865,4 @@ export const useAppStore = create<AppState>((set, get) => ({
     return null;
   }
 }))
+)

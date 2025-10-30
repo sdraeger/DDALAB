@@ -68,6 +68,8 @@ interface TimeSeriesPlotProps {
 }
 
 export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
+  // TODO: OPTIMIZE - Select specific properties instead of entire objects to prevent re-renders
+  // and avoid issues with Immer freezing. See FileManager.tsx and AnnotationsTab.tsx for examples.
   const {
     fileManager,
     plot,
@@ -230,7 +232,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   // Sync preprocessing with plot state
   useEffect(() => {
     if (plot.preprocessing) {
-      setPreprocessing(plot.preprocessing);
+      // IMMER FIX: Deep clone the preprocessing options from the store
+      // because Immer freezes store state and we need a mutable copy
+      setPreprocessing(JSON.parse(JSON.stringify(plot.preprocessing)));
     }
   }, [plot.preprocessing]);
 
@@ -400,11 +404,16 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       return null;
     }
 
+    // IMMER/TanStack Query FIX: Deep clone chunkData because TanStack Query freezes
+    // results in development mode, and Immer also freezes store objects. We need
+    // mutable copies to process and return.
+    const clonedChunkData = JSON.parse(JSON.stringify(chunkData));
+
     const startTime = performance.now();
-    console.log("[PERF] Starting preprocessing for", chunkData.data.length, "channels");
+    console.log("[PERF] Starting preprocessing for", clonedChunkData.data.length, "channels");
 
     // Apply preprocessing
-    const preprocessedData = chunkData.data.map((channelData) =>
+    const preprocessedData = clonedChunkData.data.map((channelData: number[]) =>
       applyPreprocessing(
         channelData,
         fileManager.selectedFile!.sample_rate,
@@ -416,7 +425,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     console.log(`[PERF] Preprocessing completed in ${elapsed.toFixed(2)}ms`);
 
     return {
-      ...chunkData,
+      ...clonedChunkData,
       data: preprocessedData,
     };
   }, [chunkData, fileManager.selectedFile, preprocessing]);
