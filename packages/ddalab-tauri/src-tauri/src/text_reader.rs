@@ -9,6 +9,7 @@
 // - Each row represents a time point
 // - No sampling rate encoded (assumed non-physiological data)
 
+use rayon::prelude::*;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -82,40 +83,51 @@ impl TextFileReader {
 
         let num_channels = channel_labels.len();
 
-        // Read all data rows
-        let mut data: Vec<Vec<f64>> = vec![Vec::new(); num_channels];
-        let mut num_samples = 0;
+        // Parallel parsing of data rows
+        let parsed_rows: Vec<Vec<f64>> = lines
+            .par_iter()
+            .enumerate()
+            .skip(data_start_idx)
+            .filter(|(_, line)| !line.trim().is_empty())
+            .map(|(line_idx, line)| {
+                let values = Self::parse_line(line, delim_str)
+                    .map_err(|e| format!("Line {}: {}", line_idx + 1, e))?;
 
-        for (line_idx, line) in lines.iter().enumerate().skip(data_start_idx) {
-            if line.trim().is_empty() {
-                continue; // Skip empty lines
-            }
-
-            let values = Self::parse_line(line, delim_str)?;
-
-            if values.len() != num_channels {
-                return Err(format!(
-                    "Line {} has {} values, expected {} channels",
-                    line_idx + 1,
-                    values.len(),
-                    num_channels
-                ));
-            }
-
-            // Parse each value and add to corresponding channel
-            for (ch_idx, value_str) in values.iter().enumerate() {
-                let value = value_str.trim().parse::<f64>().map_err(|_| {
-                    format!(
-                        "Invalid numeric value '{}' at line {}, column {}",
-                        value_str,
+                if values.len() != num_channels {
+                    return Err(format!(
+                        "Line {} has {} values, expected {} channels",
                         line_idx + 1,
-                        ch_idx + 1
-                    )
-                })?;
+                        values.len(),
+                        num_channels
+                    ));
+                }
+
+                // Parse all values in this row
+                values
+                    .iter()
+                    .enumerate()
+                    .map(|(ch_idx, value_str)| {
+                        value_str.trim().parse::<f64>().map_err(|_| {
+                            format!(
+                                "Invalid numeric value '{}' at line {}, column {}",
+                                value_str,
+                                line_idx + 1,
+                                ch_idx + 1
+                            )
+                        })
+                    })
+                    .collect::<Result<Vec<f64>, String>>()
+            })
+            .collect::<Result<Vec<Vec<f64>>, String>>()?;
+
+        let num_samples = parsed_rows.len();
+
+        // Transpose: rows -> columns (samples -> channels)
+        let mut data: Vec<Vec<f64>> = vec![Vec::with_capacity(num_samples); num_channels];
+        for row in parsed_rows {
+            for (ch_idx, value) in row.into_iter().enumerate() {
                 data[ch_idx].push(value);
             }
-
-            num_samples += 1;
         }
 
         if num_samples == 0 {

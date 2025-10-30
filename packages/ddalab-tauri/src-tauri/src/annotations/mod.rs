@@ -1,4 +1,6 @@
 use anyhow::{Context, Result};
+use flatten_json_object::Flattener;
+use json_objects_to_csv::Json2Csv;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -142,6 +144,87 @@ impl AnnotationFile {
                 .values()
                 .map(|v| v.len())
                 .sum::<usize>()
+    }
+
+    /// Convert annotations to CSV format
+    pub fn to_csv(&self) -> Result<String> {
+        // Create a flattened representation for CSV
+        #[derive(Serialize)]
+        struct FlatAnnotation {
+            file_path: String,
+            file_hash: String,
+            channel: String,
+            position: f64,
+            label: String,
+            description: String,
+            color: String,
+            id: String,
+            created_at: String,
+            updated_at: String,
+        }
+
+        let mut flat_annotations = Vec::new();
+
+        // Add global annotations
+        for ann in &self.global_annotations {
+            flat_annotations.push(FlatAnnotation {
+                file_path: self.file_path.clone(),
+                file_hash: self.file_hash.clone().unwrap_or_default(),
+                channel: "global".to_string(),
+                position: ann.position,
+                label: ann.label.clone(),
+                description: ann.description.clone().unwrap_or_default(),
+                color: ann.color.clone().unwrap_or_default(),
+                id: ann.id.clone(),
+                created_at: ann.created_at.clone(),
+                updated_at: ann.updated_at.clone().unwrap_or_default(),
+            });
+        }
+
+        // Add channel-specific annotations
+        for (channel, anns) in &self.channel_annotations {
+            for ann in anns {
+                flat_annotations.push(FlatAnnotation {
+                    file_path: self.file_path.clone(),
+                    file_hash: self.file_hash.clone().unwrap_or_default(),
+                    channel: channel.clone(),
+                    position: ann.position,
+                    label: ann.label.clone(),
+                    description: ann.description.clone().unwrap_or_default(),
+                    color: ann.color.clone().unwrap_or_default(),
+                    id: ann.id.clone(),
+                    created_at: ann.created_at.clone(),
+                    updated_at: ann.updated_at.clone().unwrap_or_default(),
+                });
+            }
+        }
+
+        // Use json-objects-to-csv crate
+        let flattener = Flattener::new();
+        let mut output = Vec::<u8>::new();
+        let csv_writer = csv::WriterBuilder::new()
+            .delimiter(b',')
+            .from_writer(&mut output);
+
+        // Convert Vec to slice of serde_json::Value
+        let json_values: Vec<serde_json::Value> = flat_annotations
+            .into_iter()
+            .map(|ann| serde_json::to_value(ann).unwrap())
+            .collect();
+
+        Json2Csv::new(flattener)
+            .convert_from_array(&json_values, csv_writer)
+            .context("Failed to convert JSON to CSV")?;
+
+        let csv = String::from_utf8(output).context("Failed to convert CSV output to string")?;
+        Ok(csv)
+    }
+
+    /// Export to CSV file
+    pub fn save_to_csv<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        let csv = self.to_csv()?;
+        std::fs::write(path, csv).context("Failed to write CSV file")?;
+        Ok(())
     }
 }
 
