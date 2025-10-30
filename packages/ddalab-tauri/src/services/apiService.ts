@@ -425,7 +425,6 @@ export class ApiService {
           end: request.end_time
         },
         preprocessing_options: {
-          detrending: request.detrending === 'none' ? null : request.detrending || 'linear',
           highpass: request.scale_min ? request.scale_min * 0.1 : null,
           lowpass: request.scale_max ? request.scale_max * 2 : null
         },

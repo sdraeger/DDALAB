@@ -53,7 +53,6 @@ export class DDAStateModule implements FileStateModule<FileDDAState> {
         variants: ['single_timeseries'],
         windowLength: 64,
         windowStep: 10,
-        detrending: 'linear',
         scaleMin: 1,
         scaleMax: 20,
         scaleNum: 20,

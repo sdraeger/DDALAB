@@ -83,7 +83,6 @@ export interface FileDDAState {
     variants: string[]
     windowLength: number
     windowStep: number
-    detrending: 'linear' | 'polynomial' | 'none'
     scaleMin: number
     scaleMax: number
     scaleNum: number
