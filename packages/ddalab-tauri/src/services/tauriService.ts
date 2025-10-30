@@ -828,26 +828,26 @@ export class TauriService {
   }
 
   // Annotation export/import methods
-  static async exportAnnotations(filePath: string): Promise<string | null> {
+  static async exportAnnotations(filePath: string, format: 'json' | 'csv' = 'json'): Promise<string | null> {
     try {
       const api = await getTauriAPI()
       if (!api) {
         throw new Error('Not running in Tauri environment')
       }
-      return await api.invoke('export_annotations', { filePath })
+      return await api.invoke('export_annotations', { filePath, format })
     } catch (error) {
       console.error('[ANNOTATIONS] Failed to export annotations:', error)
       throw error
     }
   }
 
-  static async exportAllAnnotations(): Promise<string | null> {
+  static async exportAllAnnotations(format: 'json' | 'csv' = 'json'): Promise<string | null> {
     try {
       const api = await getTauriAPI()
       if (!api) {
         throw new Error('Not running in Tauri environment')
       }
-      return await api.invoke('export_all_annotations')
+      return await api.invoke('export_all_annotations', { format })
     } catch (error) {
       console.error('[ANNOTATIONS] Failed to export all annotations:', error)
       throw error

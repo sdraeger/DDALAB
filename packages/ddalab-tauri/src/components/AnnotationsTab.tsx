@@ -6,7 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Download, Upload, FileText, Trash2, Folder } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Download, Upload, FileText, Trash2, Folder, ChevronDown } from 'lucide-react';
 import { PlotAnnotation } from '@/types/annotations';
 import { ImportPreviewDialog } from '@/components/ImportPreviewDialog';
 
@@ -101,11 +107,13 @@ export function AnnotationsTab() {
     setDDAAnnotationCount(ddaCount);
   };
 
-  const handleExport = async (filePath: string) => {
+  const handleExport = async (filePath: string, format: 'json' | 'csv' = 'json') => {
     try {
-      const exportedPath = await TauriService.exportAnnotations(filePath);
+      const exportedPath = await TauriService.exportAnnotations(filePath, format);
       if (exportedPath) {
-        console.log('Annotations exported to:', exportedPath);
+        console.log(`Annotations exported to ${format.toUpperCase()}:`, exportedPath);
+        setSuccessMessage(`Annotations exported successfully as ${format.toUpperCase()}`);
+        setTimeout(() => setSuccessMessage(null), 3000);
       }
     } catch (err) {
       console.error('Failed to export annotations:', err);
@@ -113,11 +121,13 @@ export function AnnotationsTab() {
     }
   };
 
-  const handleExportAll = async () => {
+  const handleExportAll = async (format: 'json' | 'csv' = 'json') => {
     try {
-      const exportedPath = await TauriService.exportAllAnnotations();
+      const exportedPath = await TauriService.exportAllAnnotations(format);
       if (exportedPath) {
-        console.log('All annotations exported to:', exportedPath);
+        console.log(`All annotations exported to ${format.toUpperCase()}:`, exportedPath);
+        setSuccessMessage(`All annotations exported successfully as ${format.toUpperCase()}`);
+        setTimeout(() => setSuccessMessage(null), 3000);
       }
     } catch (err) {
       console.error('Failed to export all annotations:', err);
@@ -282,15 +292,27 @@ export function AnnotationsTab() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            onClick={handleExportAll}
-            variant="default"
-            size="sm"
-            disabled={totalAnnotations === 0}
-          >
-            <Download className="h-4 w-4 mr-2" />
-            Export All
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="default"
+                size="sm"
+                disabled={totalAnnotations === 0}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export All
+                <ChevronDown className="h-4 w-4 ml-2" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={() => handleExportAll('json')}>
+                Export as JSON
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportAll('csv')}>
+                Export as CSV
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button onClick={handleImport} variant="outline" size="sm" disabled={!currentFilePath}>
             <Upload className="h-4 w-4 mr-2" />
             Import
@@ -352,14 +374,26 @@ export function AnnotationsTab() {
                 <AccordionContent>
                   <div className="space-y-2 pt-2">
                     <div className="flex justify-end mb-2">
-                      <Button
-                        onClick={() => handleExport(filePath)}
-                        variant="outline"
-                        size="sm"
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Export ({annotations.length})
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                          >
+                            <Download className="h-4 w-4 mr-2" />
+                            Export ({annotations.length})
+                            <ChevronDown className="h-4 w-4 ml-2" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                          <DropdownMenuItem onClick={() => handleExport(filePath, 'json')}>
+                            Export as JSON
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleExport(filePath, 'csv')}>
+                            Export as CSV
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                     {annotations.map((item) => (
                       <Card

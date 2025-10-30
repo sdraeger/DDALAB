@@ -1,6 +1,7 @@
 // EDF (European Data Format) file reader/writer implementation
 // Specification: https://www.edfplus.info/specs/edf.html
 
+use rayon::prelude::*;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -274,19 +275,21 @@ impl EDFReader {
     pub fn read_physical_record(&mut self, record_index: usize) -> Result<Vec<Vec<f64>>, String> {
         let digital_record = self.read_record(record_index)?;
 
-        let mut physical_record = Vec::new();
-        for (signal_idx, digital_samples) in digital_record.iter().enumerate() {
-            let signal_header = &self.signal_headers[signal_idx];
-            let gain = signal_header.gain();
-            let offset = signal_header.offset();
+        // Parallel conversion of digital to physical values across all channels
+        let physical_record: Vec<Vec<f64>> = digital_record
+            .par_iter()
+            .enumerate()
+            .map(|(signal_idx, digital_samples)| {
+                let signal_header = &self.signal_headers[signal_idx];
+                let gain = signal_header.gain();
+                let offset = signal_header.offset();
 
-            let physical_samples: Vec<f64> = digital_samples
-                .iter()
-                .map(|&digital| gain * digital as f64 + offset)
-                .collect();
-
-            physical_record.push(physical_samples);
-        }
+                digital_samples
+                    .iter()
+                    .map(|&digital| gain * digital as f64 + offset)
+                    .collect()
+            })
+            .collect();
 
         Ok(physical_record)
     }
@@ -472,23 +475,35 @@ impl EDFWriter {
             ));
         }
 
-        for (signal_idx, physical_samples) in physical_data.iter().enumerate() {
-            let signal_header = &self.signal_headers[signal_idx];
+        // Parallel conversion of physical to digital, then sequential write
+        let digital_data: Vec<Vec<i16>> = physical_data
+            .par_iter()
+            .enumerate()
+            .map(|(signal_idx, physical_samples)| {
+                let signal_header = &self.signal_headers[signal_idx];
 
-            if physical_samples.len() != signal_header.num_samples_per_record {
-                return Err(format!(
-                    "Signal {} expected {} samples, got {}",
-                    signal_idx,
-                    signal_header.num_samples_per_record,
-                    physical_samples.len()
-                ));
-            }
+                if physical_samples.len() != signal_header.num_samples_per_record {
+                    panic!(
+                        "Signal {} expected {} samples, got {}",
+                        signal_idx,
+                        signal_header.num_samples_per_record,
+                        physical_samples.len()
+                    );
+                }
 
-            let gain = signal_header.gain();
-            let offset = signal_header.offset();
+                let gain = signal_header.gain();
+                let offset = signal_header.offset();
 
-            for &physical in physical_samples {
-                let digital = ((physical - offset) / gain).round() as i16;
+                physical_samples
+                    .iter()
+                    .map(|&physical| ((physical - offset) / gain).round() as i16)
+                    .collect()
+            })
+            .collect();
+
+        // Sequential write (I/O bound)
+        for digital_samples in digital_data {
+            for digital in digital_samples {
                 let bytes = digital.to_le_bytes();
                 self.file
                     .write_all(&bytes)

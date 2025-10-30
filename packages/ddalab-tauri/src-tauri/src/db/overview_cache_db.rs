@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use parking_lot::Mutex;
+use rayon::prelude::*;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -301,8 +302,12 @@ impl OverviewCacheDatabase {
 
     /// Save segment data
     pub fn save_segment(&self, segment: &OverviewSegment) -> Result<()> {
-        // Serialize f64 vector to bytes
-        let data_bytes: Vec<u8> = segment.data.iter().flat_map(|&f| f.to_le_bytes()).collect();
+        // Parallel serialization of f64 vector to bytes
+        let data_bytes: Vec<u8> = segment
+            .data
+            .par_iter()
+            .flat_map(|&f| f.to_le_bytes())
+            .collect();
 
         self.conn.lock().execute(
             "INSERT OR REPLACE INTO overview_cache_data

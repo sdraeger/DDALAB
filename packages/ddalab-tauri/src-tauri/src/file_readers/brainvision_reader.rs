@@ -25,9 +25,9 @@ struct SimpleBVHeader {
 
 impl SimpleBVHeader {
     fn parse(vhdr_path: &Path) -> FileResult<Self> {
-        // Read as bytes and convert from Latin-1 to UTF-8
+        // Read as bytes and convert from Latin-1 to UTF-8 (parallel)
         let bytes = fs::read(vhdr_path)?;
-        let content: String = bytes.iter().map(|&b| b as char).collect();
+        let content: String = bytes.par_iter().map(|&b| b as char).collect();
 
         let mut data_file = String::new();
         let mut marker_file = None;
@@ -129,8 +129,8 @@ impl BrainVisionFileReader {
         let convert_text_file = |input_path: &Path, output_path: &Path| -> FileResult<()> {
             let bytes = fs::read(input_path)?;
 
-            // Convert from Latin-1 to UTF-8
-            let text: String = bytes.iter().map(|&b| b as char).collect();
+            // Convert from Latin-1 to UTF-8 (parallel)
+            let text: String = bytes.par_iter().map(|&b| b as char).collect();
 
             // Convert LF to CRLF (normalize line endings)
             let text_crlf = text.replace("\r\n", "\n").replace('\n', "\r\n");
