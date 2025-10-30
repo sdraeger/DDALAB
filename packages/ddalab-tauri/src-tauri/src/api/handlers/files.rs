@@ -9,12 +9,10 @@ use axum::{
     Json,
 };
 use chrono::Utc;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
 
 /// Helper function to process a single directory entry
 fn process_directory_entry(entry: &std::fs::DirEntry) -> Option<serde_json::Value> {
@@ -116,36 +114,17 @@ pub async fn list_files(
                 let entries_vec: Vec<std::fs::DirEntry> = entries.filter_map(|e| e.ok()).collect();
                 let num_entries = entries_vec.len();
 
-                // Process entries with conditional parallelization
-                #[cfg(feature = "parallel")]
-                {
-                    let _profile =
-                        ProfileScope::new(format!("file_listing_parallel_{}_entries", num_entries));
-                    log::info!(
-                        "🔀 Processing {} directory entries in PARALLEL mode",
-                        num_entries
-                    );
+                let _profile =
+                    ProfileScope::new(format!("file_listing_parallel_{}_entries", num_entries));
+                log::info!(
+                    "🔀 Processing {} directory entries in PARALLEL mode",
+                    num_entries
+                );
 
-                    items = entries_vec
-                        .par_iter()
-                        .filter_map(|entry| process_directory_entry(entry))
-                        .collect();
-                }
-
-                #[cfg(not(feature = "parallel"))]
-                {
-                    let _profile =
-                        ProfileScope::new(format!("file_listing_serial_{}_entries", num_entries));
-                    log::info!(
-                        "⏭️ Processing {} directory entries in SERIAL mode",
-                        num_entries
-                    );
-
-                    items = entries_vec
-                        .iter()
-                        .filter_map(|entry| process_directory_entry(entry))
-                        .collect();
-                }
+                items = entries_vec
+                    .par_iter()
+                    .filter_map(|entry| process_directory_entry(entry))
+                    .collect();
 
                 log::info!(
                     "✅ Listed {} items from {} entries",

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, memo } from "react";
 import { ChunkData } from "@/types/api";
+import { PlotAnnotation } from "@/types/annotations";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 
@@ -17,6 +18,7 @@ interface OverviewPlotProps {
     completion_percentage: number;
     is_complete: boolean;
   };
+  annotations?: PlotAnnotation[];
 }
 
 function OverviewPlotComponent({
@@ -27,6 +29,7 @@ function OverviewPlotComponent({
   onSeek,
   loading = false,
   progress,
+  annotations = [],
 }: OverviewPlotProps) {
   const plotRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
@@ -34,13 +37,16 @@ function OverviewPlotComponent({
   const onSeekRef = useRef(onSeek);
   const currentTimeRef = useRef(currentTime);
   const timeWindowRef = useRef(timeWindow);
+  const annotationsRef = useRef<PlotAnnotation[]>(annotations);
+  const lastDurationRef = useRef<number | null>(null);
 
   // Keep refs up to date
   useEffect(() => {
     onSeekRef.current = onSeek;
     currentTimeRef.current = currentTime;
     timeWindowRef.current = timeWindow;
-  }, [onSeek, currentTime, timeWindow]);
+    annotationsRef.current = annotations;
+  }, [onSeek, currentTime, timeWindow, annotations]);
 
   // Render overview plot
   useEffect(() => {
@@ -49,6 +55,19 @@ function OverviewPlotComponent({
     }
 
     const container = plotRef.current;
+
+    // Check if duration changed significantly (indicates file switch)
+    // If so, destroy the existing plot to force recreation with correct scale
+    const durationChanged = lastDurationRef.current !== null &&
+      Math.abs(lastDurationRef.current - duration) > 0.1;
+
+    if (durationChanged && uplotRef.current) {
+      console.log('[OverviewPlot] Duration changed from', lastDurationRef.current, 'to', duration, '- destroying plot');
+      uplotRef.current.destroy();
+      uplotRef.current = null;
+    }
+
+    lastDurationRef.current = duration;
 
     // Calculate time array for overview (spans entire file duration)
     const numPoints = overviewData.data[0]?.length || 0;
@@ -176,6 +195,54 @@ function OverviewPlotComponent({
             ],
           },
         },
+        // Plugin to draw annotation markers
+        {
+          hooks: {
+            draw: [
+              (u) => {
+                const ctx = u.ctx;
+                const currentAnnotations = annotationsRef.current;
+
+                if (!currentAnnotations || currentAnnotations.length === 0) {
+                  return;
+                }
+
+                ctx.save();
+
+                // Draw each annotation as a vertical line
+                currentAnnotations.forEach((annotation) => {
+                  const pixelX = u.valToPos(annotation.position, "x", true);
+
+                  if (pixelX !== null) {
+                    // Use the annotation's color or default to red
+                    const color = annotation.color || '#ef4444';
+
+                    // Draw vertical line
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 2;
+                    ctx.globalAlpha = 0.8;
+                    ctx.beginPath();
+                    ctx.moveTo(pixelX, u.bbox.top);
+                    ctx.lineTo(pixelX, u.bbox.top + u.bbox.height);
+                    ctx.stroke();
+
+                    // Draw small triangle at top to make it more visible
+                    ctx.fillStyle = color;
+                    ctx.globalAlpha = 1.0;
+                    ctx.beginPath();
+                    ctx.moveTo(pixelX, u.bbox.top);
+                    ctx.lineTo(pixelX - 4, u.bbox.top + 8);
+                    ctx.lineTo(pixelX + 4, u.bbox.top + 8);
+                    ctx.closePath();
+                    ctx.fill();
+                  }
+                });
+
+                ctx.restore();
+              },
+            ],
+          },
+        },
       ],
     };
 
@@ -220,13 +287,13 @@ function OverviewPlotComponent({
     };
   }, []);
 
-  // Update current position indicator when time changes (without recreating the plot)
+  // Update current position indicator and annotations when they change (without recreating the plot)
   useEffect(() => {
     if (uplotRef.current) {
-      // Just redraw to update the blue highlight box, don't recreate the whole plot
+      // Just redraw to update the blue highlight box and annotation markers, don't recreate the whole plot
       uplotRef.current.redraw();
     }
-  }, [currentTime, timeWindow]);
+  }, [currentTime, timeWindow, annotations]);
 
   const getChannelColor = (index: number): string => {
     const colors = [
@@ -311,7 +378,7 @@ function OverviewPlotComponent({
 // Memoize to prevent unnecessary re-renders (but allow currentTime and timeWindow to update)
 export const OverviewPlot = memo(OverviewPlotComponent, (prevProps, nextProps) => {
   // Return TRUE to skip re-render, FALSE to allow re-render
-  // We want to re-render when currentTime or timeWindow changes (for the blue box)
+  // We want to re-render when currentTime, timeWindow, or annotations change
   // But skip re-render if only unrelated props changed
   const shouldSkip = (
     prevProps.overviewData === nextProps.overviewData &&
@@ -319,7 +386,8 @@ export const OverviewPlot = memo(OverviewPlotComponent, (prevProps, nextProps) =
     prevProps.loading === nextProps.loading &&
     prevProps.currentTime === nextProps.currentTime &&
     prevProps.timeWindow === nextProps.timeWindow &&
-    prevProps.progress?.completion_percentage === nextProps.progress?.completion_percentage
+    prevProps.progress?.completion_percentage === nextProps.progress?.completion_percentage &&
+    prevProps.annotations === nextProps.annotations
   );
 
   return shouldSkip;

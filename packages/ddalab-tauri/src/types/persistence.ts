@@ -32,8 +32,6 @@ export interface PreprocessingOptions {
     windowSize: number;        // samples
     polynomialOrder?: number;  // for Savitzky-Golay
   };
-  detrending?: 'none' | 'linear' | 'polynomial';
-  polynomialDegree?: number;   // for polynomial detrending
   baselineCorrection?: 'none' | 'mean' | 'median';
 
   // Artifact removal

@@ -69,7 +69,6 @@ pub struct PlotOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TransformType {
     Normalize,
-    Detrend,
     BandpassFilter { low_freq: f64, high_freq: f64 },
 }
 

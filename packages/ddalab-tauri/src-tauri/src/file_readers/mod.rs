@@ -15,6 +15,7 @@ pub mod csv_reader;
 pub mod edf_reader;
 pub mod eeglab_reader;
 pub mod fif_reader; // FIF/FIFF reader (uses external fiff crate)
+pub mod nifti_reader; // NIfTI reader (uses external nifti crate)
 
 // Re-export readers
 pub use ascii_reader::ASCIIFileReader;
@@ -23,6 +24,7 @@ pub use csv_reader::CSVFileReader;
 pub use edf_reader::EDFFileReader;
 pub use eeglab_reader::EEGLABFileReader;
 pub use fif_reader::FIFFileReader;
+pub use nifti_reader::NIfTIFileReader;
 
 /// Parse EDF datetime from date (dd.mm.yy) and time (hh.mm.ss) strings to RFC3339 format
 pub fn parse_edf_datetime(date_str: &str, time_str: &str) -> Option<String> {
@@ -161,6 +163,12 @@ pub struct FileReaderFactory;
 impl FileReaderFactory {
     /// Create a file reader for the given path
     pub fn create_reader(path: &Path) -> FileResult<Box<dyn FileReader>> {
+        // Handle .nii.gz files specially (double extension)
+        let path_str = path.to_string_lossy();
+        if path_str.ends_with(".nii.gz") {
+            return Ok(Box::new(NIfTIFileReader::new(path)?));
+        }
+
         let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         match extension.to_lowercase().as_str() {
@@ -170,6 +178,7 @@ impl FileReaderFactory {
             "vhdr" => Ok(Box::new(BrainVisionFileReader::new(path)?)),
             "set" => Ok(Box::new(EEGLABFileReader::new(path)?)),
             "fif" => Ok(Box::new(FIFFileReader::new(path)?)),
+            "nii" => Ok(Box::new(NIfTIFileReader::new(path)?)),
             _ => Err(FileReaderError::UnsupportedFormat(format!(
                 "Unsupported file extension: {}",
                 extension
@@ -179,7 +188,9 @@ impl FileReaderFactory {
 
     /// Get list of supported extensions for reading/analysis
     pub fn supported_extensions() -> Vec<&'static str> {
-        vec!["edf", "csv", "txt", "ascii", "vhdr", "set", "fif"]
+        vec![
+            "edf", "csv", "txt", "ascii", "vhdr", "set", "fif", "nii", "gz",
+        ]
     }
 
     /// Get list of recognized but unsupported MEG extensions
@@ -196,6 +207,12 @@ impl FileReaderFactory {
 
     /// Check if a file extension is supported for analysis
     pub fn is_supported(path: &Path) -> bool {
+        // Check for .nii.gz files specially
+        let path_str = path.to_string_lossy();
+        if path_str.ends_with(".nii.gz") {
+            return true;
+        }
+
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             Self::supported_extensions().contains(&ext.to_lowercase().as_str())
         } else {
