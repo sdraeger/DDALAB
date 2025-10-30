@@ -10,6 +10,7 @@ use axum::{
 };
 use chrono::Utc;
 use dda_rs::DDARunner;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -234,8 +235,8 @@ pub async fn run_dda_analysis(
     );
 
     let all_values: Vec<f64> = q_matrix
-        .iter()
-        .flat_map(|row| row.iter().copied())
+        .par_iter()
+        .flat_map(|row| row.par_iter().copied())
         .collect();
 
     let input_edf_channels: Vec<String> = {
@@ -845,7 +846,7 @@ fn calculate_mean(values: &[f64]) -> f64 {
     if values.is_empty() {
         return 0.0;
     }
-    values.iter().sum::<f64>() / values.len() as f64
+    values.par_iter().sum::<f64>() / values.len() as f64
 }
 
 fn calculate_std(values: &[f64]) -> f64 {
@@ -853,6 +854,6 @@ fn calculate_std(values: &[f64]) -> f64 {
         return 0.0;
     }
     let mean = calculate_mean(values);
-    let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
+    let variance = values.par_iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
     variance.sqrt()
 }

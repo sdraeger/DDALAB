@@ -12,6 +12,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -508,7 +509,7 @@ fn read_text_file_chunk(
             (
                 (0..num_fallback_channels).collect(),
                 all_channel_labels
-                    .iter()
+                    .par_iter()
                     .take(num_fallback_channels)
                     .cloned()
                     .collect(),
@@ -575,7 +576,7 @@ fn generate_edf_file_overview(
 
     if let Some(ref selected) = selected_channels {
         let filtered_channels: Vec<usize> = selected
-            .iter()
+            .par_iter()
             .filter_map(|name| {
                 edf.signal_headers
                     .iter()
@@ -589,14 +590,14 @@ fn generate_edf_file_overview(
             channels_to_read = (0..num_fallback_channels).collect();
             channel_labels = edf
                 .signal_headers
-                .iter()
+                .par_iter()
                 .take(num_fallback_channels)
                 .map(|h| h.label.trim().to_string())
                 .collect();
         } else {
             channels_to_read = filtered_channels;
             channel_labels = channels_to_read
-                .iter()
+                .par_iter()
                 .map(|&idx| edf.signal_headers[idx].label.trim().to_string())
                 .collect();
         }
@@ -604,7 +605,7 @@ fn generate_edf_file_overview(
         channels_to_read = (0..edf.signal_headers.len()).collect();
         channel_labels = edf
             .signal_headers
-            .iter()
+            .par_iter()
             .map(|h| h.label.trim().to_string())
             .collect();
     }
@@ -646,8 +647,16 @@ fn generate_edf_file_overview(
                 continue;
             }
 
-            let min_val = chunk.iter().copied().fold(f64::INFINITY, f64::min);
-            let max_val = chunk.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let min_val = chunk
+                .par_iter()
+                .copied()
+                .reduce_with(f64::min)
+                .unwrap_or(f64::INFINITY);
+            let max_val = chunk
+                .par_iter()
+                .copied()
+                .reduce_with(f64::max)
+                .unwrap_or(f64::NEG_INFINITY);
 
             channel_downsampled.push(min_val);
             channel_downsampled.push(max_val);
@@ -689,7 +698,7 @@ fn generate_text_file_overview(
 
     if let Some(ref selected) = selected_channels {
         let filtered_channels: Vec<usize> = selected
-            .iter()
+            .par_iter()
             .filter_map(|name| reader.info.channel_labels.iter().position(|n| n == name))
             .collect();
 
@@ -700,14 +709,14 @@ fn generate_text_file_overview(
             channel_labels = reader
                 .info
                 .channel_labels
-                .iter()
+                .par_iter()
                 .take(num_fallback_channels)
                 .cloned()
                 .collect();
         } else {
             channels_to_read = filtered_channels;
             channel_labels = channels_to_read
-                .iter()
+                .par_iter()
                 .map(|&idx| reader.info.channel_labels[idx].clone())
                 .collect();
         }
@@ -747,8 +756,16 @@ fn generate_text_file_overview(
                 continue;
             }
 
-            let min_val = chunk.iter().copied().fold(f64::INFINITY, f64::min);
-            let max_val = chunk.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let min_val = chunk
+                .par_iter()
+                .copied()
+                .reduce_with(f64::min)
+                .unwrap_or(f64::INFINITY);
+            let max_val = chunk
+                .par_iter()
+                .copied()
+                .reduce_with(f64::max)
+                .unwrap_or(f64::NEG_INFINITY);
 
             channel_downsampled.push(min_val);
             channel_downsampled.push(max_val);

@@ -1,5 +1,6 @@
 use super::{FileMetadata, FileReader, FileReaderError, FileResult};
 use crate::text_reader::TextFileReader as CoreTextReader;
+use rayon::prelude::*;
 /// ASCII/TSV File Reader
 ///
 /// Implementation of FileReader trait for ASCII/TSV files.
@@ -59,7 +60,7 @@ impl FileReader for ASCIIFileReader {
         // Determine which channels to read
         let channel_indices: Vec<usize> = if let Some(selected) = channels {
             selected
-                .iter()
+                .par_iter()
                 .filter_map(|ch| all_channels.iter().position(|c| c == ch))
                 .collect()
         } else {
@@ -102,8 +103,9 @@ impl FileReader for ASCIIFileReader {
         // Read full data and decimate
         let full_data = self.read_chunk(0, total_samples, channels)?;
 
+        // Parallelize channel decimation for better performance (order preserved by rayon)
         let decimated: Vec<Vec<f64>> = full_data
-            .into_iter()
+            .into_par_iter()
             .map(|channel_data| channel_data.iter().step_by(decimation).copied().collect())
             .collect();
 

@@ -1,5 +1,6 @@
 use super::{parse_edf_datetime, FileMetadata, FileReader, FileReaderError, FileResult};
 use crate::edf::EDFReader as CoreEDFReader;
+use rayon::prelude::*;
 /// EDF (European Data Format) File Reader
 ///
 /// Implementation of FileReader trait for EDF files.
@@ -28,7 +29,10 @@ impl FileReader for EDFFileReader {
         let signal_headers = &self.edf.signal_headers;
 
         // Get channel labels from signal headers
-        let channels: Vec<String> = signal_headers.iter().map(|sh| sh.label.clone()).collect();
+        let channels: Vec<String> = signal_headers
+            .par_iter()
+            .map(|sh| sh.label.clone())
+            .collect();
 
         // Calculate sample rate (assuming all channels have same rate)
         let sample_rate = if !signal_headers.is_empty() {
@@ -84,12 +88,15 @@ impl FileReader for EDFFileReader {
         let signal_headers = &self.edf.signal_headers;
 
         // Get all channel labels
-        let all_channels: Vec<String> = signal_headers.iter().map(|sh| sh.label.clone()).collect();
+        let all_channels: Vec<String> = signal_headers
+            .par_iter()
+            .map(|sh| sh.label.clone())
+            .collect();
 
         // Determine which channels to read
         let channel_indices: Vec<usize> = if let Some(selected) = channels {
             selected
-                .iter()
+                .par_iter()
                 .filter_map(|ch| all_channels.iter().position(|c| c == ch))
                 .collect()
         } else {
@@ -137,8 +144,9 @@ impl FileReader for EDFFileReader {
         // Read full data and decimate
         let full_data = self.read_chunk(0, total_samples, channels)?;
 
+        // Parallelize channel decimation for better performance
         let decimated: Vec<Vec<f64>> = full_data
-            .into_iter()
+            .into_par_iter()
             .map(|channel_data| channel_data.iter().step_by(decimation).copied().collect())
             .collect();
 

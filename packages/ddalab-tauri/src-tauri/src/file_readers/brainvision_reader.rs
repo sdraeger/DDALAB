@@ -1,5 +1,6 @@
 use super::{FileMetadata, FileReader, FileReaderError, FileResult};
 use bvreader::bv_reader::BVFile;
+use rayon::prelude::*;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 #[cfg(unix)]
@@ -475,7 +476,8 @@ impl BrainVisionFileReader {
 
             if start_sample < channel_data.len() {
                 let data_slice = &channel_data[start_sample..end_sample.min(channel_data.len())];
-                let data_f64: Vec<f64> = data_slice.iter().map(|&v| v as f64).collect();
+                // Parallelize type conversion for better performance on large datasets
+                let data_f64: Vec<f64> = data_slice.par_iter().map(|&v| v as f64).collect();
                 result.push(data_f64);
             } else {
                 result.push(Vec::new());
@@ -601,8 +603,9 @@ impl FileReader for BrainVisionFileReader {
         // Small file or bvreader: read full data and decimate
         let full_data = self.read_chunk(0, total_samples, channels)?;
 
+        // Parallelize channel decimation for better performance (order preserved by rayon)
         let decimated: Vec<Vec<f64>> = full_data
-            .into_iter()
+            .into_par_iter()
             .map(|channel_data| channel_data.iter().step_by(decimation).copied().collect())
             .collect();
 

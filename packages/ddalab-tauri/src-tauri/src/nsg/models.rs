@@ -1,5 +1,6 @@
 use crate::api::handlers::dda::DDARequest;
 use crate::db::{NSGJob, NSGJobStatus};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 impl NSGJob {
@@ -130,7 +131,7 @@ impl NSGJobStatusResponse {
         if self.failed {
             let error_msgs: Vec<String> = self
                 .messages
-                .iter()
+                .par_iter()
                 .filter(|m| {
                     m.text.contains("error")
                         || m.text.contains("Error")

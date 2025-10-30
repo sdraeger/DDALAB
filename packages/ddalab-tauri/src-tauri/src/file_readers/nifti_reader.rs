@@ -26,6 +26,7 @@
 
 use super::{FileMetadata, FileReader, FileReaderError, FileResult};
 use nifti::{IntoNdArray, NiftiObject, NiftiVolume, ReaderOptions};
+use rayon::prelude::*;
 use std::path::Path;
 
 pub struct NIfTIFileReader {
@@ -166,8 +167,8 @@ impl NIfTIFileReader {
                 // Flatten [x, y, z] → [num_voxels]
                 let flat: Vec<f64> = ndarray.iter().map(|&v| v as f64).collect();
 
-                // Each voxel is a channel with 1 sample
-                let result: Vec<Vec<f64>> = flat.into_iter().map(|v| vec![v]).collect();
+                // Each voxel is a channel with 1 sample (parallelize wrapping for performance)
+                let result: Vec<Vec<f64>> = flat.into_par_iter().map(|v| vec![v]).collect();
                 Ok(result)
             }
             4 => {
@@ -259,8 +260,9 @@ impl FileReader for NIfTIFileReader {
         // Read full data then decimate
         let full_data = self.read_chunk(0, total_samples, channels)?;
 
+        // Parallelize channel decimation for better performance (order preserved by rayon)
         let decimated: Vec<Vec<f64>> = full_data
-            .iter()
+            .par_iter()
             .map(|channel| channel.iter().step_by(decimation_factor).copied().collect())
             .collect();
 
