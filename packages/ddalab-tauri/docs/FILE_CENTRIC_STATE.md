@@ -28,16 +28,16 @@ All tabs display file-specific state
 Singleton service that coordinates all file-specific state:
 
 ```typescript
-import { getFileStateManager } from '@/services/fileStateManager'
+import { getFileStateManager } from "@/services/fileStateManager";
 
-const fileStateManager = getFileStateManager()
-await fileStateManager.initialize()
+const fileStateManager = getFileStateManager();
+await fileStateManager.initialize();
 
 // Load state for a file
-const fileState = await fileStateManager.loadFileState(filePath)
+const fileState = await fileStateManager.loadFileState(filePath);
 
 // Update state for a specific module
-await fileStateManager.updateModuleState(filePath, 'plot', plotState)
+await fileStateManager.updateModuleState(filePath, "plot", plotState);
 ```
 
 ### 2. State Modules ([stateModules/](../src/services/stateModules/))
@@ -51,6 +51,7 @@ Each module implements the `FileStateModule<T>` interface:
 ### 3. Backend Storage ([file_state_db.rs](../src-tauri/src/db/file_state_db.rs))
 
 SQLite database with three tables:
+
 - `file_state_modules` - Module-specific state (JSON)
 - `file_state_metadata` - File access tracking
 - `file_state_registry` - Cross-file coordination
@@ -61,15 +62,15 @@ SQLite database with three tables:
 
 ```typescript
 interface FilePlotState {
-  chunkStart: number           // Current position (seconds)
-  chunkSize: number            // Chunk size (samples)
-  selectedChannels: string[]   // Active channels
-  amplitude: number            // Amplitude scale
-  showAnnotations: boolean     // Annotations visible
-  preprocessing?: PreprocessingOptions
-  channelColors?: Record<string, string>
-  timeWindow?: { start: number; end: number }
-  lastUpdated: string
+  chunkStart: number; // Current position (seconds)
+  chunkSize: number; // Chunk size (samples)
+  selectedChannels: string[]; // Active channels
+  amplitude: number; // Amplitude scale
+  showAnnotations: boolean; // Annotations visible
+  preprocessing?: PreprocessingOptions;
+  channelColors?: Record<string, string>;
+  timeWindow?: { start: number; end: number };
+  lastUpdated: string;
 }
 ```
 
@@ -77,19 +78,18 @@ interface FilePlotState {
 
 ```typescript
 interface FileDDAState {
-  currentAnalysisId: string | null
-  analysisHistory: string[]    // Array of analysis IDs
+  currentAnalysisId: string | null;
+  analysisHistory: string[]; // Array of analysis IDs
   lastParameters: {
-    variants: string[]
-    windowLength: number
-    windowStep: number
-    detrending: 'linear' | 'polynomial' | 'none'
-    scaleMin: number
-    scaleMax: number
-    scaleNum: number
-  }
-  selectedVariants: string[]
-  lastUpdated: string
+    variants: string[];
+    windowLength: number;
+    windowStep: number;
+    scaleMin: number;
+    scaleMax: number;
+    scaleNum: number;
+  };
+  selectedVariants: string[];
+  lastUpdated: string;
 }
 ```
 
@@ -98,11 +98,11 @@ interface FileDDAState {
 ```typescript
 interface FileAnnotationState {
   timeSeries: {
-    global: PlotAnnotation[]
-    channels: Record<string, PlotAnnotation[]>
-  }
-  ddaResults: Record<string, PlotAnnotation[]>
-  lastUpdated: string
+    global: PlotAnnotation[];
+    channels: Record<string, PlotAnnotation[]>;
+  };
+  ddaResults: Record<string, PlotAnnotation[]>;
+  lastUpdated: string;
 }
 ```
 
@@ -116,12 +116,12 @@ State is automatically loaded when a file is selected:
 // In appStore.ts
 setSelectedFile: (file) => {
   if (file && isFileStateSystemInitialized()) {
-    const fileStateManager = getInitializedFileStateManager()
-    const fileState = await fileStateManager.loadFileState(file.file_path)
+    const fileStateManager = getInitializedFileStateManager();
+    const fileState = await fileStateManager.loadFileState(file.file_path);
 
     // State is automatically applied to the store
   }
-}
+};
 ```
 
 ### Automatic State Saving
@@ -131,17 +131,17 @@ State is automatically saved when it changes:
 ```typescript
 // In appStore.ts
 updatePlotState: (updates) => {
-  set((state) => ({ plot: { ...state.plot, ...updates } }))
+  set((state) => ({ plot: { ...state.plot, ...updates } }));
 
   if (fileManager.selectedFile && isFileStateSystemInitialized()) {
-    const fileStateManager = getInitializedFileStateManager()
+    const fileStateManager = getInitializedFileStateManager();
     await fileStateManager.updateModuleState(
       fileManager.selectedFile.file_path,
-      'plot',
+      "plot",
       filePlotState
-    )
+    );
   }
-}
+};
 ```
 
 ### Creating a New State Module
@@ -152,47 +152,47 @@ To add a new state module (e.g., for MEG analysis):
 
 ```typescript
 export interface FileMEGState {
-  sensorLayout: string
-  filterSettings: MEGFilterSettings
-  artifactRejection: ArtifactSettings
-  lastUpdated: string
+  sensorLayout: string;
+  filterSettings: MEGFilterSettings;
+  artifactRejection: ArtifactSettings;
+  lastUpdated: string;
 }
 ```
 
 2. **Create the module** in `services/stateModules/megStateModule.ts`:
 
 ```typescript
-import { FileStateModule, FileMEGState } from '@/types/fileCentricState'
+import { FileStateModule, FileMEGState } from "@/types/fileCentricState";
 
 export class MEGStateModule implements FileStateModule<FileMEGState> {
-  readonly moduleId = 'meg'
+  readonly moduleId = "meg";
 
   async loadState(filePath: string): Promise<FileMEGState | null> {
     try {
-      const state = await invoke<FileMEGState>('get_file_meg_state', {
+      const state = await invoke<FileMEGState>("get_file_meg_state", {
         filePath,
-      })
-      return state
+      });
+      return state;
     } catch (error) {
-      return null
+      return null;
     }
   }
 
   async saveState(filePath: string, state: FileMEGState): Promise<void> {
-    await invoke('save_file_meg_state', { filePath, state })
+    await invoke("save_file_meg_state", { filePath, state });
   }
 
   async clearState(filePath: string): Promise<void> {
-    await invoke('clear_file_meg_state', { filePath })
+    await invoke("clear_file_meg_state", { filePath });
   }
 
   getDefaultState(): FileMEGState {
     return {
-      sensorLayout: 'default',
+      sensorLayout: "default",
       filterSettings: getDefaultFilterSettings(),
       artifactRejection: getDefaultArtifactSettings(),
       lastUpdated: new Date().toISOString(),
-    }
+    };
   }
 }
 ```
@@ -200,13 +200,13 @@ export class MEGStateModule implements FileStateModule<FileMEGState> {
 3. **Register the module** in `services/stateModules/index.ts`:
 
 ```typescript
-import { MEGStateModule } from './megStateModule'
+import { MEGStateModule } from "./megStateModule";
 
 export function registerCoreModules(fileStateManager: FileStateManager): void {
-  fileStateManager.registerModule(new PlotStateModule(), 10)
-  fileStateManager.registerModule(new DDAStateModule(), 20)
-  fileStateManager.registerModule(new AnnotationStateModule(), 30)
-  fileStateManager.registerModule(new MEGStateModule(), 40)  // Add new module
+  fileStateManager.registerModule(new PlotStateModule(), 10);
+  fileStateManager.registerModule(new DDAStateModule(), 20);
+  fileStateManager.registerModule(new AnnotationStateModule(), 30);
+  fileStateManager.registerModule(new MEGStateModule(), 40); // Add new module
 }
 ```
 
@@ -235,6 +235,7 @@ clear_file_meg_state,
 ```
 
 That's it! Your new module will automatically:
+
 - Load state when a file is selected
 - Save state when it changes
 - Persist to SQLite database
@@ -312,10 +313,10 @@ The system includes fallback logic for legacy state:
 ```typescript
 if (isFileStateSystemInitialized()) {
   // Use new file-centric state
-  const fileState = await fileStateManager.loadFileState(filePath)
+  const fileState = await fileStateManager.loadFileState(filePath);
 } else {
   // Fall back to legacy annotation loading
-  const annotations = await invoke('get_file_annotations', { filePath })
+  const annotations = await invoke("get_file_annotations", { filePath });
 }
 ```
 

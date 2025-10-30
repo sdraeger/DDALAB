@@ -73,7 +73,6 @@ pub struct TimeRange {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PreprocessingOptions {
-    pub detrend: bool,
     pub normalize: bool,
 }
 

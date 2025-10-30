@@ -145,7 +145,6 @@ impl CodeGenerator {
                 transform_type,
             } => match transform_type {
                 TransformType::Normalize => "data = (data - data.mean()) / data.std()".to_string(),
-                TransformType::Detrend => "data = signal.detrend(data)".to_string(),
                 TransformType::BandpassFilter {
                     low_freq,
                     high_freq,
@@ -226,7 +225,6 @@ impl CodeGenerator {
                 transform_type,
             } => match transform_type {
                 TransformType::Normalize => "data = (data .- mean(data)) ./ std(data)".to_string(),
-                TransformType::Detrend => "data = detrend(data)".to_string(),
                 TransformType::BandpassFilter {
                     low_freq,
                     high_freq,
@@ -371,11 +369,6 @@ end
 function plot_statistics(result; title=nothing)
     """Generate statistical summary visualization"""
     # TODO: Implement statistics visualization
-end
-
-function detrend(data)
-    """Remove trend from data"""
-    # TODO: Implement detrending
 end
 
 function bandpass_filter(data, low_freq, high_freq)

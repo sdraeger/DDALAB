@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 pub mod certs;
+pub mod file_hash;
 
 /// Get the application configuration directory
 pub fn get_app_config_dir() -> Result<PathBuf, String> {

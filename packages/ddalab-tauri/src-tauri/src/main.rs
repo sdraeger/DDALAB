@@ -84,7 +84,10 @@ fn main() {
             get_all_annotations,
             // Annotation file export/import commands
             export_annotations,
+            export_all_annotations,
+            preview_import_annotations,
             import_annotations,
+            import_selected_annotations,
             // File view state database commands
             save_file_view_state,
             get_file_view_state,

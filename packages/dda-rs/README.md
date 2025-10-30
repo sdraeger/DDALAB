@@ -35,7 +35,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         channels: Some(vec![0, 1]),  // 0-based channel indices
         time_range: TimeRange { start: 0.0, end: 100.0 },
         preprocessing_options: PreprocessingOptions {
-            detrending: Some("linear".to_string()),
             highpass: None,
             lowpass: None,
         },
@@ -78,12 +77,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Binary Execution
 
 The crate automatically handles the APE (Actually Portable Executable) format:
+
 - **Unix (macOS/Linux)**: Runs through `sh` wrapper to handle polyglot format
 - **Windows**: Executes `.exe` directly
 
 ### Output Processing
 
 The parser implements the same transformation as dda-py:
+
 1. Skip first 2 columns
 2. Take every 4th column from the remaining data
 3. Transpose to get [channels/scales × timepoints] format

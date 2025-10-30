@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '@/store/appStore';
 import { TauriService } from '@/services/tauriService';
+import { ApiService } from '@/services/apiService';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Download, Upload, FileText, Trash2, Folder } from 'lucide-react';
 import { PlotAnnotation } from '@/types/annotations';
+import { ImportPreviewDialog } from '@/components/ImportPreviewDialog';
 
 interface AnnotationWithFile {
   annotation: PlotAnnotation;
@@ -28,11 +30,26 @@ export function AnnotationsTab() {
   const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
   const setSecondaryNav = useAppStore((state) => state.setSecondaryNav);
   const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis);
+  const loadAllFileAnnotations = useAppStore((state) => state.loadAllFileAnnotations);
 
   const [annotationsByFile, setAnnotationsByFile] = useState<Map<string, AnnotationWithFile[]>>(new Map());
   const [ddaAnnotationCount, setDDAAnnotationCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isLoadingAll, setIsLoadingAll] = useState(true);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<any>(null);
   const currentFilePath = selectedFile?.file_path;
+
+  // Load annotations from ALL files on mount
+  useEffect(() => {
+    const loadAll = async () => {
+      setIsLoadingAll(true);
+      await loadAllFileAnnotations();
+      setIsLoadingAll(false);
+    };
+    loadAll();
+  }, [loadAllFileAnnotations]);
 
   // Load annotations from store (includes both time series and DDA annotations)
   useEffect(() => {
@@ -96,18 +113,64 @@ export function AnnotationsTab() {
     }
   };
 
+  const handleExportAll = async () => {
+    try {
+      const exportedPath = await TauriService.exportAllAnnotations();
+      if (exportedPath) {
+        console.log('All annotations exported to:', exportedPath);
+      }
+    } catch (err) {
+      console.error('Failed to export all annotations:', err);
+      setError(err instanceof Error ? err.message : 'Failed to export all annotations');
+    }
+  };
+
   const handleImport = async () => {
     if (!currentFilePath) return;
 
     try {
-      const importedCount = await TauriService.importAnnotations(currentFilePath);
-      console.log(`Imported ${importedCount} annotations`);
-      await loadAllAnnotations();
+      const preview = await TauriService.previewImportAnnotations(currentFilePath);
+
+      if (!preview) {
+        setError('No annotation file selected');
+        return;
+      }
+
+      setPreviewData(preview);
+      setIsPreviewOpen(true);
+      setError(null);
     } catch (err) {
-      console.error('Failed to import annotations:', err);
-      setError(err instanceof Error ? err.message : 'Failed to import annotations');
+      console.error('Failed to preview import annotations:', err);
+      setError(err instanceof Error ? err.message : 'Failed to preview import annotations');
     }
   };
+
+  const handleConfirmImport = useCallback(async (importFilePath: string, targetFilePath: string, selectedIds: string[]) => {
+    try {
+      const importedCount = await TauriService.importSelectedAnnotations(
+        importFilePath,
+        targetFilePath,
+        selectedIds
+      );
+
+      setError(null);
+      setSuccessMessage(`Successfully imported ${importedCount} annotation${importedCount !== 1 ? 's' : ''}`);
+
+      setTimeout(() => setSuccessMessage(null), 5000);
+
+      await loadAllFileAnnotations();
+      setIsPreviewOpen(false);
+      setPreviewData(null);
+    } catch (err) {
+      console.error('Failed to import selected annotations:', err);
+      setError(err instanceof Error ? err.message : 'Failed to import selected annotations');
+    }
+  }, [loadAllFileAnnotations]);
+
+  const handleCloseDialog = useCallback(() => {
+    setIsPreviewOpen(false);
+    setPreviewData(null);
+  }, []);
 
   const handleDelete = async (id: string, filePath: string, channel?: string) => {
     const deleteAnnotation = useAppStore.getState().deleteTimeSeriesAnnotation;
@@ -124,7 +187,7 @@ export function AnnotationsTab() {
 
       if (!file || file.file_path !== filePath) {
         console.warn('[ANNOTATION] File not selected:', filePath)
-        setError(`File not selected: ${filePath}. Please load the file first.`)
+        setError(`Please select the file first: ${filePath.split('/').pop()}`)
         return
       }
 
@@ -144,22 +207,27 @@ export function AnnotationsTab() {
       const maxStart = Math.max(0, file.duration - timeWindow)
       centeredStart = Math.min(maxStart, centeredStart)
 
-      // IMPORTANT: plot.chunkStart expects time in seconds, not samples
-      // TimeSeriesPlotECharts will convert to samples internally
-      // Update plot position
-      storeState.updatePlotState({ chunkStart: centeredStart })
+      // CRITICAL FIX: Convert time (seconds) to samples
+      // The plot state expects chunkStart in samples, not seconds
+      const centeredStartSamples = Math.floor(centeredStart * sampleRate)
+
+      console.log('[ANNOTATION] Centering on annotation:', {
+        filePath,
+        annotationPosition: position,
+        timeWindow,
+        centeredStart,
+        centeredStartSamples,
+        sampleRate
+      })
+
+      // Update plot position - pass samples, not time
+      storeState.updatePlotState({ chunkStart: centeredStartSamples })
 
       // Navigate to timeseries tab
       setPrimaryNav('explore')
       setSecondaryNav('timeseries')
 
-      console.log('[ANNOTATION] Navigated to time series annotation (centered):', {
-        filePath,
-        annotationPosition: position,
-        timeWindow,
-        centeredStart,
-        sampleRate
-      })
+      console.log('[ANNOTATION] Navigated to time series annotation (centered)')
     } catch (err) {
       console.error('[ANNOTATION] Error navigating to annotation:', err)
       setError(err instanceof Error ? err.message : 'Failed to navigate to annotation')
@@ -214,6 +282,15 @@ export function AnnotationsTab() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            onClick={handleExportAll}
+            variant="default"
+            size="sm"
+            disabled={totalAnnotations === 0}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export All
+          </Button>
           <Button onClick={handleImport} variant="outline" size="sm" disabled={!currentFilePath}>
             <Upload className="h-4 w-4 mr-2" />
             Import
@@ -227,8 +304,24 @@ export function AnnotationsTab() {
         </div>
       )}
 
+      {successMessage && (
+        <div className="bg-green-500/10 text-green-700 dark:text-green-400 px-4 py-3 rounded-md">
+          {successMessage}
+        </div>
+      )}
+
       <div className="flex-1 overflow-auto">
-        {annotationsByFile.size === 0 && ddaAnnotationCount === 0 ? (
+        {isLoadingAll ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center text-muted-foreground">
+              <div className="h-12 w-12 mx-auto mb-4 animate-spin">⏳</div>
+              <p className="text-lg">Loading annotations...</p>
+              <p className="text-sm mt-2">
+                Scanning all files for annotations
+              </p>
+            </div>
+          </div>
+        ) : annotationsByFile.size === 0 && ddaAnnotationCount === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center text-muted-foreground">
               <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -414,6 +507,13 @@ export function AnnotationsTab() {
           )}
         </p>
       </div>
+
+      <ImportPreviewDialog
+        isOpen={isPreviewOpen}
+        onClose={handleCloseDialog}
+        previewData={previewData}
+        onConfirm={handleConfirmImport}
+      />
     </div>
   );
 }

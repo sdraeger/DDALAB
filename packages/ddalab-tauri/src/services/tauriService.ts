@@ -1,18 +1,10 @@
-// TODO: Update for Tauri v2 API structure
+// Tauri v2 API - properly integrated
 // Dynamic imports to avoid SSR issues
 const getTauriAPI = async () => {
   if (typeof window === 'undefined') return null
-  const { invoke } = await import('@tauri-apps/api/core')  // TODO: Changed from 'tauri' to 'core' in v2
-  // TODO: Update dialog import - now from plugins
-  // const { open } = await import('@tauri-apps/plugin-dialog')
-  // For now, fall back to invoke command until plugin is properly integrated
-  const open = null  // TODO: Replace with plugin API
-  // TODO: Update notification import - now from plugins
-  // const { sendNotification } = await import('@tauri-apps/plugin-notification')
-  // For now, fall back to invoke command until plugin is properly integrated
-  const sendNotification = null  // TODO: Replace with plugin API
-  const { getCurrentWindow } = await import('@tauri-apps/api/window')  // TODO: Updated from appWindow to getCurrentWindow
-  return { invoke, open, sendNotification, appWindow: getCurrentWindow() }
+  const { invoke } = await import('@tauri-apps/api/core')
+  const { getCurrentWindow } = await import('@tauri-apps/api/window')
+  return { invoke, appWindow: getCurrentWindow() }
 }
 
 export interface FileManagerState {
@@ -330,8 +322,7 @@ export class TauriService {
       const api = await getTauriAPI()
       if (!api) return
 
-      // TODO: Replace with tauri-plugin-notification v2 API once properly integrated
-      // For now, use the Rust command fallback
+      // Use Rust command which implements tauri-plugin-notification v2 API
       await api.invoke('show_notification', { title, body })
     } catch (error) {
       console.error('Failed to show notification:', error)
@@ -850,7 +841,64 @@ export class TauriService {
     }
   }
 
-  static async importAnnotations(targetFilePath: string): Promise<number> {
+  static async exportAllAnnotations(): Promise<string | null> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) {
+        throw new Error('Not running in Tauri environment')
+      }
+      return await api.invoke('export_all_annotations')
+    } catch (error) {
+      console.error('[ANNOTATIONS] Failed to export all annotations:', error)
+      throw error
+    }
+  }
+
+  static async previewImportAnnotations(targetFilePath: string): Promise<{
+    source_file: string
+    target_file: string
+    annotations: Array<{
+      id: string
+      position: number
+      label: string
+      description?: string
+      color?: string
+      channel?: string
+      status: 'new' | 'duplicate' | 'near_duplicate'
+      similarity_score: number
+      closest_existing?: {
+        label: string
+        position: number
+        time_diff: number
+      }
+    }>
+    warnings: string[]
+    summary: {
+      total: number
+      new: number
+      duplicates: number
+      near_duplicates: number
+    }
+  } | null> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) {
+        throw new Error('Not running in Tauri environment')
+      }
+      return await api.invoke('preview_import_annotations', { targetFilePath })
+    } catch (error) {
+      console.error('[ANNOTATIONS] Failed to preview annotations:', error)
+      throw error
+    }
+  }
+
+  static async importAnnotations(targetFilePath: string): Promise<{
+    total_in_file: number
+    imported: number
+    skipped_duplicates: number
+    skipped_near_duplicates: number
+    warnings: string[]
+  }> {
     try {
       const api = await getTauriAPI()
       if (!api) {
@@ -859,6 +907,70 @@ export class TauriService {
       return await api.invoke('import_annotations', { targetFilePath })
     } catch (error) {
       console.error('[ANNOTATIONS] Failed to import annotations:', error)
+      throw error
+    }
+  }
+
+  static async importSelectedAnnotations(
+    importFilePath: string,
+    targetFilePath: string,
+    selectedIds: string[]
+  ): Promise<number> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) {
+        throw new Error('Not running in Tauri environment')
+      }
+      return await api.invoke('import_selected_annotations', {
+        importFilePath,
+        targetFilePath,
+        selectedIds,
+      })
+    } catch (error) {
+      console.error('[ANNOTATIONS] Failed to import selected annotations:', error)
+      throw error
+    }
+  }
+
+  static async deleteAnnotation(annotationId: string): Promise<void> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) {
+        throw new Error('Not running in Tauri environment')
+      }
+      await api.invoke('delete_annotation', { annotationId })
+    } catch (error) {
+      console.error('[ANNOTATIONS] Failed to delete annotation:', error)
+      throw error
+    }
+  }
+
+  static async getAllAnnotations(): Promise<Record<string, {
+    global_annotations: Array<{
+      id: string
+      position: number
+      label: string
+      color?: string
+      description?: string
+      visible_in_plots: string[]
+    }>
+    channel_annotations: Record<string, Array<{
+      id: string
+      position: number
+      label: string
+      color?: string
+      description?: string
+      visible_in_plots: string[]
+    }>>
+  }>> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) {
+        throw new Error('Not running in Tauri environment')
+      }
+      return await api.invoke('get_all_annotations')
+    } catch (error) {
+      console.error('[ANNOTATIONS] Failed to get all annotations:', error)
       throw error
     }
   }

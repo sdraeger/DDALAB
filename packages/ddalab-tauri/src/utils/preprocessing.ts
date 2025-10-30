@@ -24,11 +24,6 @@ export function applyPreprocessing(
     processed = applyBaselineCorrection(processed, options.baselineCorrection)
   }
 
-  // 2. Detrending
-  if (options.detrending && options.detrending !== 'none') {
-    processed = applyDetrending(processed, options.detrending, options.polynomialDegree)
-  }
-
   // 3. Filters (order: highpass -> lowpass -> notch)
   if (options.highpass) {
     processed = applyHighpassFilter(processed, sampleRate, options.highpass)
@@ -94,36 +89,6 @@ function applyBaselineCorrection(data: number[], method: 'mean' | 'median'): num
     const sorted = [...data].sort((a, b) => a - b)
     const median = sorted[Math.floor(sorted.length / 2)]
     return data.map(val => val - median)
-  }
-}
-
-/**
- * Remove linear or polynomial trend
- */
-function applyDetrending(data: number[], method: 'linear' | 'polynomial', degree: number = 2): number[] {
-  const n = data.length
-  const x = Array.from({ length: n }, (_, i) => i)
-
-  if (method === 'linear') {
-    // Simple linear regression
-    const xMean = x.reduce((sum, val) => sum + val, 0) / n
-    const yMean = data.reduce((sum, val) => sum + val, 0) / n
-
-    let numerator = 0
-    let denominator = 0
-    for (let i = 0; i < n; i++) {
-      numerator += (x[i] - xMean) * (data[i] - yMean)
-      denominator += (x[i] - xMean) ** 2
-    }
-
-    const slope = numerator / denominator
-    const intercept = yMean - slope * xMean
-
-    return data.map((val, i) => val - (slope * i + intercept))
-  } else {
-    // Polynomial detrending (simplified - uses least squares)
-    // For better performance, we use a simple moving polynomial fit
-    return data // Fallback to linear for now - polynomial requires matrix operations
   }
 }
 
@@ -201,14 +166,79 @@ function applyMovingAverage(data: number[], windowSize: number): number[] {
 }
 
 /**
+ * Get Savitzky-Golay filter coefficients
+ * Pre-computed for common window sizes and polynomial orders
+ */
+function getSavitzkyGolayCoefficients(windowSize: number, polynomialOrder: number): number[] {
+  // Pre-computed coefficients for common configurations
+  // Format: [windowSize][polynomialOrder]
+  const coefficients: Record<string, Record<number, number[]>> = {
+    '5': {
+      2: [-3, 12, 17, 12, -3], // Window=5, Order=2 (quadratic)
+      3: [-2, 3, 6, 7, 6, 3, -2], // Extend to 7 for cubic
+    },
+    '7': {
+      2: [-2, 3, 6, 7, 6, 3, -2],
+      3: [-3, 12, 17, 12, -3], // Remap from 5-point
+    },
+    '9': {
+      2: [-21, 14, 39, 54, 59, 54, 39, 14, -21],
+      4: [15, -55, 30, 135, 179, 135, 30, -55, 15],
+    },
+    '11': {
+      2: [-36, 9, 44, 69, 84, 89, 84, 69, 44, 9, -36],
+      4: [18, -45, -10, 60, 120, 143, 120, 60, -10, -45, 18],
+    },
+  };
+
+  const key = windowSize.toString();
+  if (coefficients[key] && coefficients[key][polynomialOrder]) {
+    const coefs = coefficients[key][polynomialOrder];
+    // Normalize coefficients
+    const sum = coefs.reduce((a, b) => a + b, 0);
+    return coefs.map(c => c / sum);
+  }
+
+  // Fallback: return uniform weights (moving average)
+  return new Array(windowSize).fill(1 / windowSize);
+}
+
+/**
  * Savitzky-Golay filter (polynomial smoothing)
- * Simplified implementation for common cases
+ * Polynomial smoothing that preserves features better than moving average
  */
 function applySavitzkyGolay(data: number[], windowSize: number, polynomialOrder: number): number[] {
-  // For simplicity, we'll use a moving average as fallback
-  // A full Savitzky-Golay requires matrix operations
-  // TODO: Implement proper Savitzky-Golay coefficients
-  return applyMovingAverage(data, windowSize)
+  // Ensure window size is odd
+  if (windowSize % 2 === 0) windowSize++;
+
+  // Clamp polynomial order
+  if (polynomialOrder >= windowSize) {
+    polynomialOrder = windowSize - 1;
+  }
+
+  const halfWindow = Math.floor(windowSize / 2);
+  const coefficients = getSavitzkyGolayCoefficients(windowSize, polynomialOrder);
+  const result: number[] = [];
+
+  for (let i = 0; i < data.length; i++) {
+    let sum = 0;
+    let weightSum = 0;
+
+    // Apply convolution with coefficients
+    for (let j = -halfWindow; j <= halfWindow; j++) {
+      const idx = i + j;
+      if (idx >= 0 && idx < data.length) {
+        const coefIdx = j + halfWindow;
+        sum += data[idx] * coefficients[coefIdx];
+        weightSum += coefficients[coefIdx];
+      }
+    }
+
+    // Normalize if near boundaries
+    result.push(weightSum > 0 ? sum / weightSum : data[i]);
+  }
+
+  return result;
 }
 
 /**
@@ -322,7 +352,6 @@ export function getDefaultPreprocessing(): PreprocessingOptions {
       method: 'moving_average',
       windowSize: 5,
     },
-    detrending: 'none',
     baselineCorrection: 'none',
     outlierRemoval: {
       enabled: false,

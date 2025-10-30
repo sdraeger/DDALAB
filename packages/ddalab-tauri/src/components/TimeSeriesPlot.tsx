@@ -53,7 +53,10 @@ import {
 import { useWorkflow } from "@/hooks/useWorkflow";
 import { createTransformDataAction } from "@/types/workflow";
 import { OverviewPlot } from "@/components/OverviewPlot";
-import { useOverviewData, useOverviewProgress } from "@/hooks/useTimeSeriesData";
+import {
+  useOverviewData,
+  useOverviewProgress,
+} from "@/hooks/useTimeSeriesData";
 
 interface TimeSeriesPlotProps {
   apiService: ApiService;
@@ -83,7 +86,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   // Generate available plots for annotation visibility
   const availablePlots = useMemo<PlotInfo[]>(() => {
     const plots: PlotInfo[] = [
-      { id: 'timeseries', label: 'Data Visualization' }
+      { id: "timeseries", label: "Data Visualization" },
     ];
 
     // TODO: Add DDA results for this file if they exist
@@ -97,7 +100,10 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   const uplotRef = useRef<uPlot | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const userZoomRef = useRef<{ min: number; max: number } | null>(null);
-  const currentChunkRangeRef = useRef<{ min: number; max: number }>({ min: 0, max: 10 });
+  const currentChunkRangeRef = useRef<{ min: number; max: number }>({
+    min: 0,
+    max: 10,
+  });
   const stableOffsetRef = useRef<number | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -138,7 +144,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   // IMPORTANT: These hooks must come AFTER selectedChannels is declared
   const { data: overviewData, isLoading: overviewLoading } = useOverviewData(
     apiService,
-    fileManager.selectedFile?.file_path || '',
+    fileManager.selectedFile?.file_path || "",
     selectedChannels,
     2000, // max points
     !!fileManager.selectedFile && selectedChannels.length > 0
@@ -146,7 +152,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
 
   const { data: overviewProgress } = useOverviewProgress(
     apiService,
-    fileManager.selectedFile?.file_path || '',
+    fileManager.selectedFile?.file_path || "",
     selectedChannels,
     2000, // max points
     overviewLoading && !!fileManager.selectedFile && selectedChannels.length > 0
@@ -241,422 +247,450 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     }
   }, [fileManager.selectedFile, persistSelectedChannels]);
 
-  const renderPlot = useCallback((chunkData: ChunkData, startTime: number, channelsToShow?: string[]) => {
-    // Use provided channels, or fall back to ref (which is updated synchronously), or selectedChannels
-    const channelsToDisplay = channelsToShow || channelsToDisplayRef.current || selectedChannels;
-    if (!plotRef.current) {
-      console.error("Plot ref is not available");
-      return;
-    }
+  const renderPlot = useCallback(
+    (chunkData: ChunkData, startTime: number, channelsToShow?: string[]) => {
+      // Use provided channels, or fall back to ref (which is updated synchronously), or selectedChannels
+      const channelsToDisplay =
+        channelsToShow || channelsToDisplayRef.current || selectedChannels;
+      if (!plotRef.current) {
+        console.error("Plot ref is not available");
+        return;
+      }
 
-    if (!chunkData.data || chunkData.data.length === 0) {
-      console.error("No data available for plotting:", chunkData);
-      setError("No data available for plotting");
-      return;
-    }
+      if (!chunkData.data || chunkData.data.length === 0) {
+        console.error("No data available for plotting:", chunkData);
+        setError("No data available for plotting");
+        return;
+      }
 
-    // Removed verbose logging
-
-    // Prepare data for uPlot
-    const dataLength = chunkData.data?.[0]?.length || 0;
-    // Generate absolute time data starting from current position in file
-    const timeData = Array.from(
-      { length: dataLength },
-      (_, i) => startTime + (i / chunkData.sample_rate)
-    );
-
-    // Removed verbose logging
-
-    // Calculate auto-scaled offset based on maximum data range across all channels
-    // Use stable offset if already calculated, otherwise calculate and store it
-    let autoOffset = stableOffsetRef.current;
-    if (autoOffset === null && chunkData.data.length > 1) {
-      const channelRanges = chunkData.data.map((channelData) => {
-        const validData = channelData.filter((v) => typeof v === "number" && !isNaN(v));
-        if (validData.length === 0) return 0;
-        const min = Math.min(...validData);
-        const max = Math.max(...validData);
-        return max - min;
-      });
-      const maxRange = Math.max(...channelRanges);
-      // Use 3.5x the maximum channel range as offset to ensure clear separation
-      // Also factor in user-defined offset slider (50 = 1.0x multiplier, scales proportionally)
-      const offsetMultiplier = 3.5 * (channelOffsetRef.current / 50);
-      autoOffset = Math.max(maxRange * offsetMultiplier, channelOffsetRef.current);
-      // Store for consistent use across all chunks
-      stableOffsetRef.current = autoOffset;
-      console.log("Auto-calculated STABLE channel offset:", {
-        channelRanges,
-        maxRange,
-        offsetMultiplier,
-        autoOffset,
-        userOffset: channelOffsetRef.current,
-      });
-    } else if (autoOffset === null) {
-      // Fallback if only one channel
-      autoOffset = channelOffsetRef.current;
-      stableOffsetRef.current = autoOffset;
-    } else {
       // Removed verbose logging
-    }
 
-    // Build selected channel data in the order specified by channelsToDisplay (which is already sorted by file order)
-    const selectedChannelData: Array<{ name: string; data: number[]; originalIndex: number }> = [];
-    channelsToDisplay.forEach((channelName) => {
-      const index = chunkData.channels.indexOf(channelName);
-      if (index !== -1) {
-        selectedChannelData.push({
-          name: channelName,
-          data: chunkData.data[index],
-          originalIndex: index
-        });
-      }
-    });
-
-    console.log("Processing selected channels in file order:", {
-      totalChannels: chunkData.channels.length,
-      selectedChannelsCount: selectedChannelData.length,
-      selectedChannels: selectedChannelData.map(c => `${c.name} (idx ${c.originalIndex})`),
-    });
-
-    // Stack ONLY selected channels with contiguous offsets (no gaps)
-    const processedData = selectedChannelData.map((channelInfo, displayIndex) => {
-      const channelData = channelInfo.data;
-
-      if (!Array.isArray(channelData)) {
-        console.error(
-          `Channel ${channelInfo.name} data is not an array:`,
-          typeof channelData,
-          channelData
-        );
-        return Array(dataLength).fill(0);
-      }
-
-      const processed = channelData.map((value) => {
-        if (typeof value !== "number") {
-          console.warn(`Non-numeric value found:`, value, typeof value);
-          return 0;
-        }
-
-        // Add channel offset for stacking - use displayIndex for contiguous stacking
-        const offsetValue = value + displayIndex * autoOffset;
-
-        return isNaN(offsetValue) ? 0 : offsetValue;
-      });
-
-      // Reduced logging - only log first and last channel to avoid console spam
-      if (displayIndex === 0 || displayIndex === selectedChannelData.length - 1) {
-        console.log(
-          `Channel ${displayIndex} (${channelInfo.name}, file idx ${channelInfo.originalIndex}) processed:`,
-          {
-            originalLength: channelData.length,
-            processedLength: processed.length,
-            displayIndex,
-            originalIndex: channelInfo.originalIndex,
-            originalRange: [
-              Math.min(...channelData.slice(0, 100)),
-              Math.max(...channelData.slice(0, 100)),
-            ],
-            processedRange: [
-              Math.min(...processed.slice(0, 100)),
-              Math.max(...processed.slice(0, 100)),
-            ],
-            sampleValues: {
-              original: channelData.slice(0, 5),
-              processed: processed.slice(0, 5),
-            },
-            hasNaN: processed.some((v) => isNaN(v)),
-          }
-        );
-      }
-      return processed;
-    });
-
-    const data: uPlot.AlignedData = [timeData, ...processedData];
-
-    console.log("Final uPlot data:", {
-      seriesCount: data.length,
-      timeLength: data[0].length,
-      dataLengths: data.slice(1).map((series) => series.length),
-      timeDataSample: data[0].slice(0, 10),
-      dataSeriesSamples: data.slice(1).map((series, idx) => ({
-        channel: idx,
-        values: series.slice(0, 10),
-        range: [
-          Math.min(...(series as number[])),
-          Math.max(...(series as number[])),
-        ],
-      })),
-      hasVariation: data.slice(1).map((series, idx) => {
-        const arr = series as number[];
-        const min = Math.min(...arr);
-        const max = Math.max(...arr);
-        return {
-          channel: idx,
-          min,
-          max,
-          range: max - min,
-          hasVariation: max - min > 0.01,
-        };
-      }),
-    });
-
-    // Validate data integrity
-    const hasValidData = data.every(
-      (series) => Array.isArray(series) && series.length > 0
-    );
-    const hasNumericData = data
-      .slice(1)
-      .every((series: any) =>
-        series.every((val: any) => typeof val === "number" && !isNaN(val))
+      // Prepare data for uPlot
+      const dataLength = chunkData.data?.[0]?.length || 0;
+      // Generate absolute time data starting from current position in file
+      const timeData = Array.from(
+        { length: dataLength },
+        (_, i) => startTime + i / chunkData.sample_rate
       );
 
-    console.log("Data validation:", {
-      hasValidData,
-      hasNumericData,
-      allLengthsEqual: data.every((series) => series.length === data[0].length),
-    });
+      // Removed verbose logging
 
-    if (!hasValidData || !hasNumericData) {
-      console.error("Invalid data detected, aborting plot creation");
-      setError("Invalid data format received");
-      return;
-    }
-
-    // Create series config for ONLY selected channels
-    const series: uPlot.Series[] = [
-      {}, // time axis
-      ...selectedChannelData.map((channelInfo) => ({
-        label: channelInfo.name,
-        stroke: getChannelColor(channelInfo.originalIndex), // Use original index for consistent colors
-        width: 1.5,
-        points: { show: false },
-        focus: { alpha: 1.0 },
-        // All series are visible since we only include selected channels
-        // Use default linear paths instead of custom function
-        // paths: (u: uPlot, seriesIdx: number, idx0: number, idx1: number) => {
-        //   return uPlot.paths?.linear?.()(u, seriesIdx, idx0, idx1) || null
-        // }
-      })),
-    ];
-
-    console.log("Series configuration:", {
-      seriesCount: series.length,
-      selectedChannelsCount: selectedChannelData.length,
-      seriesLabels: series.slice(1).map((s) => s.label),
-      originalIndices: selectedChannelData.map(c => c.originalIndex),
-      fullSeriesDetails: series.slice(1).map((s, i) => ({
-        index: i,
-        label: s.label,
-        channelName: selectedChannelData[i]?.name,
-        fileIdx: selectedChannelData[i]?.originalIndex
-      }))
-    });
-
-    const scales: uPlot.Scales = {
-      x: {
-        time: false,
-        range: (u, dataMin, dataMax) => {
-          // Use user zoom if set, otherwise use current chunk range
-          if (userZoomRef.current) {
-            return [userZoomRef.current.min, userZoomRef.current.max];
-          }
-          return [currentChunkRangeRef.current.min, currentChunkRangeRef.current.max];
-        },
-      },
-      y: {
-        range: (u, min, max) => {
-          console.log("Y-axis range calculation:", { min, max });
-
-          // If all data is zero or invalid, use a default range based on number of selected channels
-          if (isNaN(min) || isNaN(max) || min === max) {
-            console.log("Using default Y range due to invalid data");
-            const selectedCount = selectedChannelData.length;
-            const totalOffset = (selectedCount - 1) * autoOffset;
-            return [-autoOffset * 0.8, totalOffset + autoOffset * 0.8];
-          }
-
-          // Add more padding to show all channels clearly with better vertical spacing
-          const padding = autoOffset * 0.8;
-          const range = [min - padding, max + padding];
-          console.log("Calculated Y range:", range);
-          return range as [number, number];
-        },
-      },
-    };
-
-    const axes: uPlot.Axis[] = [
-      {
-        label: "Time (s)",
-        labelSize: 30,
-        size: 50,
-      },
-      {
-        label: "",
-        labelSize: 0,
-        size: 100,
-        values: () => {
-          // Return only selected channel names in the correct order
-          return selectedChannelData.map((ch) => ch.name);
-        },
-        splits: () => {
-          // Return Y-axis positions for only selected channels (contiguous stacking)
-          return selectedChannelData.map((_, displayIdx) => {
-            return displayIdx * autoOffset;
-          });
-        },
-        gap: 5,
-      },
-    ];
-
-    const opts: uPlot.Options = {
-      width: plotRef.current.clientWidth,
-      height: plotRef.current.clientHeight || 400,
-      series,
-      scales,
-      axes,
-      legend: {
-        show: false,
-      },
-      cursor: {
-        show: true,
-        x: true,
-        y: true,
-        lock: false,
-        drag: {
-          x: true,
-          y: false,
-        },
-      },
-      select: {
-        show: true,
-        left: 0,
-        top: 0,
-        width: 0,
-        height: 0,
-      },
-      hooks: {
-        setSelect: [
-          (u) => {
-            if (!u.select.width || u.select.width < 10) {
-              return;
-            }
-
-            const minX = u.posToVal(u.select.left, "x");
-            const maxX = u.posToVal(u.select.left + u.select.width, "x");
-
-            console.log("Zoom selected:", { minX, maxX });
-
-            // Track user zoom
-            userZoomRef.current = { min: minX, max: maxX };
-
-            u.setScale("x", {
-              min: minX,
-              max: maxX,
-            });
-
-            // Clear the selection box
-            setTimeout(() => {
-              u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
-            }, 10);
-          },
-        ],
-        ready: [
-          (u) => {
-            // Add double-click handler to reset zoom
-            const plotElement = u.root.querySelector(".u-over");
-            if (plotElement) {
-              plotElement.addEventListener("dblclick", () => {
-                console.log("Double-click detected - resetting zoom");
-                // Clear user zoom
-                userZoomRef.current = null;
-                // Redraw with current chunk range
-                u.redraw();
-              });
-            }
-          },
-        ],
-      },
-    };
-
-    console.log("Creating uPlot with options:", {
-      width: opts.width,
-      height: opts.height,
-      dataLength: data.length,
-      plotContainer: !!plotRef.current,
-    });
-
-    try {
-      // Check if we need to recreate the plot (series count changed)
-      if (uplotRef.current && uplotRef.current.series.length !== series.length) {
-        console.log("Series count changed - recreating uPlot", {
-          oldSeriesCount: uplotRef.current.series.length,
-          newSeriesCount: series.length,
+      // Calculate auto-scaled offset based on maximum data range across all channels
+      // Use stable offset if already calculated, otherwise calculate and store it
+      let autoOffset = stableOffsetRef.current;
+      if (autoOffset === null && chunkData.data.length > 1) {
+        const channelRanges = chunkData.data.map((channelData) => {
+          const validData = channelData.filter(
+            (v) => typeof v === "number" && !isNaN(v)
+          );
+          if (validData.length === 0) return 0;
+          const min = Math.min(...validData);
+          const max = Math.max(...validData);
+          return max - min;
         });
-        uplotRef.current.destroy();
-        uplotRef.current = null;
-
-        // Clear the DOM container to ensure no leftover elements
-        if (plotRef.current) {
-          // Remove all child nodes
-          while (plotRef.current.firstChild) {
-            plotRef.current.removeChild(plotRef.current.firstChild);
-          }
-        }
-      }
-
-      if (uplotRef.current) {
-        // Update existing plot with new data (same series count)
-        console.log("Updating existing uPlot with new data");
-        // Update the chunk range ref BEFORE setting data
-        currentChunkRangeRef.current = {
-          min: startTime,
-          max: startTime + timeWindowRef.current,
-        };
-
-        uplotRef.current.setData(data);
-
-        // Force a redraw to ensure the plot updates visually
-        uplotRef.current.redraw();
+        const maxRange = Math.max(...channelRanges);
+        // Use 3.5x the maximum channel range as offset to ensure clear separation
+        // Also factor in user-defined offset slider (50 = 1.0x multiplier, scales proportionally)
+        const offsetMultiplier = 3.5 * (channelOffsetRef.current / 50);
+        autoOffset = Math.max(
+          maxRange * offsetMultiplier,
+          channelOffsetRef.current
+        );
+        // Store for consistent use across all chunks
+        stableOffsetRef.current = autoOffset;
+        console.log("Auto-calculated STABLE channel offset:", {
+          channelRanges,
+          maxRange,
+          offsetMultiplier,
+          autoOffset,
+          userOffset: channelOffsetRef.current,
+        });
+      } else if (autoOffset === null) {
+        // Fallback if only one channel
+        autoOffset = channelOffsetRef.current;
+        stableOffsetRef.current = autoOffset;
       } else {
-        // Set chunk range BEFORE creating plot
-        currentChunkRangeRef.current = {
-          min: startTime,
-          max: startTime + timeWindowRef.current,
-        };
-
-        // Create new plot only if none exists
-        uplotRef.current = new uPlot(opts, data, plotRef.current);
-        console.log("uPlot created successfully:", {
-          plotCreated: !!uplotRef.current,
-          chunkRange: currentChunkRangeRef.current,
-          scaleRange: {
-            min: uplotRef.current.scales.x.min,
-            max: uplotRef.current.scales.x.max,
-          },
-          series: uplotRef.current.series.map((s) => ({
-            label: s.label,
-            show: s.show,
-          })),
-        });
-
-        // Set up resize observer for the plot
-        if (!resizeObserverRef.current && plotRef.current) {
-          resizeObserverRef.current = new ResizeObserver((entries) => {
-            if (uplotRef.current && entries[0]) {
-              const { width, height } = entries[0].contentRect;
-              uplotRef.current.setSize({ width, height });
-            }
-          });
-          resizeObserverRef.current.observe(plotRef.current);
-        }
+        // Removed verbose logging
       }
-    } catch (error) {
-      console.error("Failed to create/update uPlot:", error);
-      setError("Failed to create plot: " + error);
-      return;
-    }
-  }, []);
+
+      // Build selected channel data in the order specified by channelsToDisplay (which is already sorted by file order)
+      const selectedChannelData: Array<{
+        name: string;
+        data: number[];
+        originalIndex: number;
+      }> = [];
+      channelsToDisplay.forEach((channelName) => {
+        const index = chunkData.channels.indexOf(channelName);
+        if (index !== -1) {
+          selectedChannelData.push({
+            name: channelName,
+            data: chunkData.data[index],
+            originalIndex: index,
+          });
+        }
+      });
+
+      console.log("Processing selected channels in file order:", {
+        totalChannels: chunkData.channels.length,
+        selectedChannelsCount: selectedChannelData.length,
+        selectedChannels: selectedChannelData.map(
+          (c) => `${c.name} (idx ${c.originalIndex})`
+        ),
+      });
+
+      // Stack ONLY selected channels with contiguous offsets (no gaps)
+      const processedData = selectedChannelData.map(
+        (channelInfo, displayIndex) => {
+          const channelData = channelInfo.data;
+
+          if (!Array.isArray(channelData)) {
+            console.error(
+              `Channel ${channelInfo.name} data is not an array:`,
+              typeof channelData,
+              channelData
+            );
+            return Array(dataLength).fill(0);
+          }
+
+          const processed = channelData.map((value) => {
+            if (typeof value !== "number") {
+              console.warn(`Non-numeric value found:`, value, typeof value);
+              return 0;
+            }
+
+            // Add channel offset for stacking - use displayIndex for contiguous stacking
+            const offsetValue = value + displayIndex * autoOffset;
+
+            return isNaN(offsetValue) ? 0 : offsetValue;
+          });
+
+          // Reduced logging - only log first and last channel to avoid console spam
+          if (
+            displayIndex === 0 ||
+            displayIndex === selectedChannelData.length - 1
+          ) {
+            console.log(
+              `Channel ${displayIndex} (${channelInfo.name}, file idx ${channelInfo.originalIndex}) processed:`,
+              {
+                originalLength: channelData.length,
+                processedLength: processed.length,
+                displayIndex,
+                originalIndex: channelInfo.originalIndex,
+                originalRange: [
+                  Math.min(...channelData.slice(0, 100)),
+                  Math.max(...channelData.slice(0, 100)),
+                ],
+                processedRange: [
+                  Math.min(...processed.slice(0, 100)),
+                  Math.max(...processed.slice(0, 100)),
+                ],
+                sampleValues: {
+                  original: channelData.slice(0, 5),
+                  processed: processed.slice(0, 5),
+                },
+                hasNaN: processed.some((v) => isNaN(v)),
+              }
+            );
+          }
+          return processed;
+        }
+      );
+
+      const data: uPlot.AlignedData = [timeData, ...processedData];
+
+      console.log("Final uPlot data:", {
+        seriesCount: data.length,
+        timeLength: data[0].length,
+        dataLengths: data.slice(1).map((series) => series.length),
+        timeDataSample: data[0].slice(0, 10),
+        dataSeriesSamples: data.slice(1).map((series, idx) => ({
+          channel: idx,
+          values: series.slice(0, 10),
+          range: [
+            Math.min(...(series as number[])),
+            Math.max(...(series as number[])),
+          ],
+        })),
+        hasVariation: data.slice(1).map((series, idx) => {
+          const arr = series as number[];
+          const min = Math.min(...arr);
+          const max = Math.max(...arr);
+          return {
+            channel: idx,
+            min,
+            max,
+            range: max - min,
+            hasVariation: max - min > 0.01,
+          };
+        }),
+      });
+
+      // Validate data integrity
+      const hasValidData = data.every(
+        (series) => Array.isArray(series) && series.length > 0
+      );
+      const hasNumericData = data
+        .slice(1)
+        .every((series: any) =>
+          series.every((val: any) => typeof val === "number" && !isNaN(val))
+        );
+
+      console.log("Data validation:", {
+        hasValidData,
+        hasNumericData,
+        allLengthsEqual: data.every(
+          (series) => series.length === data[0].length
+        ),
+      });
+
+      if (!hasValidData || !hasNumericData) {
+        console.error("Invalid data detected, aborting plot creation");
+        setError("Invalid data format received");
+        return;
+      }
+
+      // Create series config for ONLY selected channels
+      const series: uPlot.Series[] = [
+        {}, // time axis
+        ...selectedChannelData.map((channelInfo) => ({
+          label: channelInfo.name,
+          stroke: getChannelColor(channelInfo.originalIndex), // Use original index for consistent colors
+          width: 1.5,
+          points: { show: false },
+          focus: { alpha: 1.0 },
+          // All series are visible since we only include selected channels
+          // Use default linear paths instead of custom function
+          // paths: (u: uPlot, seriesIdx: number, idx0: number, idx1: number) => {
+          //   return uPlot.paths?.linear?.()(u, seriesIdx, idx0, idx1) || null
+          // }
+        })),
+      ];
+
+      console.log("Series configuration:", {
+        seriesCount: series.length,
+        selectedChannelsCount: selectedChannelData.length,
+        seriesLabels: series.slice(1).map((s) => s.label),
+        originalIndices: selectedChannelData.map((c) => c.originalIndex),
+        fullSeriesDetails: series.slice(1).map((s, i) => ({
+          index: i,
+          label: s.label,
+          channelName: selectedChannelData[i]?.name,
+          fileIdx: selectedChannelData[i]?.originalIndex,
+        })),
+      });
+
+      const scales: uPlot.Scales = {
+        x: {
+          time: false,
+          range: (u, dataMin, dataMax) => {
+            // Use user zoom if set, otherwise use current chunk range
+            if (userZoomRef.current) {
+              return [userZoomRef.current.min, userZoomRef.current.max];
+            }
+            return [
+              currentChunkRangeRef.current.min,
+              currentChunkRangeRef.current.max,
+            ];
+          },
+        },
+        y: {
+          range: (u, min, max) => {
+            console.log("Y-axis range calculation:", { min, max });
+
+            // If all data is zero or invalid, use a default range based on number of selected channels
+            if (isNaN(min) || isNaN(max) || min === max) {
+              console.log("Using default Y range due to invalid data");
+              const selectedCount = selectedChannelData.length;
+              const totalOffset = (selectedCount - 1) * autoOffset;
+              return [-autoOffset * 0.8, totalOffset + autoOffset * 0.8];
+            }
+
+            // Add more padding to show all channels clearly with better vertical spacing
+            const padding = autoOffset * 0.8;
+            const range = [min - padding, max + padding];
+            console.log("Calculated Y range:", range);
+            return range as [number, number];
+          },
+        },
+      };
+
+      const axes: uPlot.Axis[] = [
+        {
+          label: "Time (s)",
+          labelSize: 30,
+          size: 50,
+        },
+        {
+          label: "",
+          labelSize: 0,
+          size: 100,
+          values: () => {
+            // Return only selected channel names in the correct order
+            return selectedChannelData.map((ch) => ch.name);
+          },
+          splits: () => {
+            // Return Y-axis positions for only selected channels (contiguous stacking)
+            return selectedChannelData.map((_, displayIdx) => {
+              return displayIdx * autoOffset;
+            });
+          },
+          gap: 5,
+        },
+      ];
+
+      const opts: uPlot.Options = {
+        width: plotRef.current.clientWidth,
+        height: plotRef.current.clientHeight || 400,
+        series,
+        scales,
+        axes,
+        legend: {
+          show: false,
+        },
+        cursor: {
+          show: true,
+          x: true,
+          y: true,
+          lock: false,
+          drag: {
+            x: true,
+            y: false,
+          },
+        },
+        select: {
+          show: true,
+          left: 0,
+          top: 0,
+          width: 0,
+          height: 0,
+        },
+        hooks: {
+          setSelect: [
+            (u) => {
+              if (!u.select.width || u.select.width < 10) {
+                return;
+              }
+
+              const minX = u.posToVal(u.select.left, "x");
+              const maxX = u.posToVal(u.select.left + u.select.width, "x");
+
+              console.log("Zoom selected:", { minX, maxX });
+
+              // Track user zoom
+              userZoomRef.current = { min: minX, max: maxX };
+
+              u.setScale("x", {
+                min: minX,
+                max: maxX,
+              });
+
+              // Clear the selection box
+              setTimeout(() => {
+                u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
+              }, 10);
+            },
+          ],
+          ready: [
+            (u) => {
+              // Add double-click handler to reset zoom
+              const plotElement = u.root.querySelector(".u-over");
+              if (plotElement) {
+                plotElement.addEventListener("dblclick", () => {
+                  console.log("Double-click detected - resetting zoom");
+                  // Clear user zoom
+                  userZoomRef.current = null;
+                  // Redraw with current chunk range
+                  u.redraw();
+                });
+              }
+            },
+          ],
+        },
+      };
+
+      console.log("Creating uPlot with options:", {
+        width: opts.width,
+        height: opts.height,
+        dataLength: data.length,
+        plotContainer: !!plotRef.current,
+      });
+
+      try {
+        // Check if we need to recreate the plot (series count changed)
+        if (
+          uplotRef.current &&
+          uplotRef.current.series.length !== series.length
+        ) {
+          console.log("Series count changed - recreating uPlot", {
+            oldSeriesCount: uplotRef.current.series.length,
+            newSeriesCount: series.length,
+          });
+          uplotRef.current.destroy();
+          uplotRef.current = null;
+
+          // Clear the DOM container to ensure no leftover elements
+          if (plotRef.current) {
+            // Remove all child nodes
+            while (plotRef.current.firstChild) {
+              plotRef.current.removeChild(plotRef.current.firstChild);
+            }
+          }
+        }
+
+        if (uplotRef.current) {
+          // Update existing plot with new data (same series count)
+          console.log("Updating existing uPlot with new data");
+          // Update the chunk range ref BEFORE setting data
+          currentChunkRangeRef.current = {
+            min: startTime,
+            max: startTime + timeWindowRef.current,
+          };
+
+          uplotRef.current.setData(data);
+
+          // Force a redraw to ensure the plot updates visually
+          uplotRef.current.redraw();
+        } else {
+          // Set chunk range BEFORE creating plot
+          currentChunkRangeRef.current = {
+            min: startTime,
+            max: startTime + timeWindowRef.current,
+          };
+
+          // Create new plot only if none exists
+          uplotRef.current = new uPlot(opts, data, plotRef.current);
+          console.log("uPlot created successfully:", {
+            plotCreated: !!uplotRef.current,
+            chunkRange: currentChunkRangeRef.current,
+            scaleRange: {
+              min: uplotRef.current.scales.x.min,
+              max: uplotRef.current.scales.x.max,
+            },
+            series: uplotRef.current.series.map((s) => ({
+              label: s.label,
+              show: s.show,
+            })),
+          });
+
+          // Set up resize observer for the plot
+          if (!resizeObserverRef.current && plotRef.current) {
+            resizeObserverRef.current = new ResizeObserver((entries) => {
+              if (uplotRef.current && entries[0]) {
+                const { width, height } = entries[0].contentRect;
+                uplotRef.current.setSize({ width, height });
+              }
+            });
+            resizeObserverRef.current.observe(plotRef.current);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to create/update uPlot:", error);
+        setError("Failed to create plot: " + error);
+        return;
+      }
+    },
+    []
+  );
 
   // Clean up plot and observer on unmount
   useEffect(() => {
@@ -697,7 +731,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     try {
       // Cancel any pending request before starting a new one
       if (abortControllerRef.current) {
-        console.log('[ABORT] Cancelling previous chunk request');
+        console.log("[ABORT] Cancelling previous chunk request");
         abortControllerRef.current.abort();
       }
 
@@ -789,8 +823,8 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       });
     } catch (err) {
       // Don't show error if request was aborted - this is expected when user changes channel selection
-      if (err instanceof Error && err.name === 'CanceledError') {
-        console.log('[ABORT] Chunk request was cancelled');
+      if (err instanceof Error && err.name === "CanceledError") {
+        console.log("[ABORT] Chunk request was cancelled");
         setLoading(false);
         return;
       }
@@ -873,7 +907,10 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     // Update the store (this will trigger useEffect to reload data)
     persistSelectedChannels(newChannels);
 
-    console.log(`Channel toggled: ${channel} -> ${checked}. New selection:`, newChannels);
+    console.log(
+      `Channel toggled: ${channel} -> ${checked}. New selection:`,
+      newChannels
+    );
   };
 
   const handlePopOut = useCallback(async () => {
@@ -922,11 +959,12 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     // Load data if:
     // 1. We have a file AND channels selected
     // 2. AND this is either a new file OR initial channel set for the file
-    if (fileManager.selectedFile &&
-        fileManager.selectedFile.channels?.length > 0 &&
-        hasChannelsSelected &&
-        (isNewFile || isInitialChannelSet)) {
-
+    if (
+      fileManager.selectedFile &&
+      fileManager.selectedFile.channels?.length > 0 &&
+      hasChannelsSelected &&
+      (isNewFile || isInitialChannelSet)
+    ) {
       console.log("Triggering chunk load - new file or initial channel set");
       // Destroy existing plot when file changes to ensure clean state
       if (isNewFile && uplotRef.current) {
@@ -942,7 +980,9 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       loadedFileRef.current = currentFilePath;
       isInitialChannelSetRef.current = false; // Mark as no longer initial
     } else if (!isNewFile && !isInitialChannelSet && hasChannelsSelected) {
-      console.log("Same file, channels changed - reloading chunk with new channel selection");
+      console.log(
+        "Same file, channels changed - reloading chunk with new channel selection"
+      );
       // Debounce the reload to avoid rapid API calls when toggling multiple channels
       if (loadChunkTimeout) {
         clearTimeout(loadChunkTimeout);
@@ -1028,17 +1068,17 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
             const action = createTransformDataAction(
               fileManager.selectedFile!.file_path,
               {
-                type: 'BandpassFilter',
+                type: "BandpassFilter",
                 low_freq: preprocessing.highpass || 0.1,
-                high_freq: preprocessing.lowpass || 100
+                high_freq: preprocessing.lowpass || 100,
               }
             );
             await recordAction(action);
             incrementActionCount();
-            console.log('[WORKFLOW] Recorded bandpass filter');
+            console.log("[WORKFLOW] Recorded bandpass filter");
           }
         } catch (error) {
-          console.error('[WORKFLOW] Failed to record preprocessing:', error);
+          console.error("[WORKFLOW] Failed to record preprocessing:", error);
         }
       };
       recordPreprocessing();
@@ -1395,28 +1435,6 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                       <SelectItem value="none">None</SelectItem>
                       <SelectItem value="mean">Mean</SelectItem>
                       <SelectItem value="median">Median</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label className="text-xs">Detrending</Label>
-                  <Select
-                    value={preprocessing.detrending || "none"}
-                    onValueChange={(value: "linear" | "polynomial" | "none") =>
-                      setPreprocessing((prev) => ({
-                        ...prev,
-                        detrending: value,
-                      }))
-                    }
-                  >
-                    <SelectTrigger className="h-8">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
-                      <SelectItem value="linear">Linear</SelectItem>
-                      <SelectItem value="polynomial">Polynomial</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

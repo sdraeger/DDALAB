@@ -417,8 +417,7 @@ impl DDARunner {
             let mut combined_ct_matrix: Vec<Vec<f64>> = Vec::new();
 
             // Process all CT pairs sequentially (parallel processing causes excessive memory consumption)
-            let _profile =
-                ProfileScope::new(format!("ct_pair_processing_{}_pairs", num_pairs));
+            let _profile = ProfileScope::new(format!("ct_pair_processing_{}_pairs", num_pairs));
             log::info!("⏭️ Processing {} CT pairs sequentially", num_pairs);
 
             // Process all CT pairs
