@@ -88,6 +88,9 @@ fn main() {
             preview_import_annotations,
             import_annotations,
             import_selected_annotations,
+            // Migration commands
+            migrate_file_hashes,
+            get_hash_migration_status,
             // File view state database commands
             save_file_view_state,
             get_file_view_state,
