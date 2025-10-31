@@ -28,6 +28,9 @@ import {
   Check,
   Eye,
   Search,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from 'lucide-react'
 import { TauriService, type NSGJob, NSGJobStatus } from '@/services/tauriService'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -96,6 +99,36 @@ export function NSGJobManager() {
     totalBytes: number
     fileProgress: number
   } | null>(null)
+
+  // Sort state with localStorage persistence
+  type SortColumn = 'jobId' | 'status' | 'tool' | 'created' | 'submitted' | 'completed'
+  type SortDirection = 'asc' | 'desc'
+  const [sortColumn, setSortColumn] = useState<SortColumn>(() => {
+    const saved = localStorage.getItem('nsgJobManager_sortColumn')
+    return (saved as SortColumn) || 'created'
+  })
+  const [sortDirection, setSortDirection] = useState<SortDirection>(() => {
+    const saved = localStorage.getItem('nsgJobManager_sortDirection')
+    return (saved as SortDirection) || 'desc'
+  })
+
+  // Persist sort preferences
+  useEffect(() => {
+    localStorage.setItem('nsgJobManager_sortColumn', sortColumn)
+    localStorage.setItem('nsgJobManager_sortDirection', sortDirection)
+  }, [sortColumn, sortDirection])
+
+  // Handle column header click for sorting
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      // Toggle direction if same column
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      // New column, default to descending for dates, ascending for others
+      setSortColumn(column)
+      setSortDirection(['created', 'submitted', 'completed'].includes(column) ? 'desc' : 'asc')
+    }
+  }
 
   // Track job status changes for notifications
   useEffect(() => {
@@ -571,26 +604,70 @@ export function NSGJobManager() {
   }
 
   // Filter jobs based on search term across all fields
-  const filteredJobs = jobs.filter((job) => {
-    if (!searchTerm.trim()) return true
+  const filteredJobs = jobs
+    .filter((job) => {
+      if (!searchTerm.trim()) return true
 
-    const search = searchTerm.toLowerCase()
-    const jobId = (job.nsg_job_id || job.id || '').toLowerCase()
-    const status = job.status.toLowerCase()
-    const tool = job.tool.toLowerCase()
-    const created = formatDate(job.created_at).toLowerCase()
-    const submitted = formatDate(job.submitted_at).toLowerCase()
-    const completed = formatDate(job.completed_at).toLowerCase()
+      const search = searchTerm.toLowerCase()
+      const jobId = (job.nsg_job_id || job.id || '').toLowerCase()
+      const status = job.status.toLowerCase()
+      const tool = job.tool.toLowerCase()
+      const created = formatDate(job.created_at).toLowerCase()
+      const submitted = formatDate(job.submitted_at).toLowerCase()
+      const completed = formatDate(job.completed_at).toLowerCase()
 
-    return (
-      jobId.includes(search) ||
-      status.includes(search) ||
-      tool.includes(search) ||
-      created.includes(search) ||
-      submitted.includes(search) ||
-      completed.includes(search)
-    )
-  })
+      return (
+        jobId.includes(search) ||
+        status.includes(search) ||
+        tool.includes(search) ||
+        created.includes(search) ||
+        submitted.includes(search) ||
+        completed.includes(search)
+      )
+    })
+    .sort((a, b) => {
+      let aVal: string | number | null
+      let bVal: string | number | null
+
+      switch (sortColumn) {
+        case 'jobId':
+          aVal = a.nsg_job_id || a.id || ''
+          bVal = b.nsg_job_id || b.id || ''
+          break
+        case 'status':
+          aVal = a.status
+          bVal = b.status
+          break
+        case 'tool':
+          aVal = a.tool
+          bVal = b.tool
+          break
+        case 'created':
+          aVal = a.created_at ? new Date(a.created_at).getTime() : 0
+          bVal = b.created_at ? new Date(b.created_at).getTime() : 0
+          break
+        case 'submitted':
+          aVal = a.submitted_at ? new Date(a.submitted_at).getTime() : 0
+          bVal = b.submitted_at ? new Date(b.submitted_at).getTime() : 0
+          break
+        case 'completed':
+          aVal = a.completed_at ? new Date(a.completed_at).getTime() : 0
+          bVal = b.completed_at ? new Date(b.completed_at).getTime() : 0
+          break
+        default:
+          return 0
+      }
+
+      // Handle null/empty values - push to end
+      if (!aVal && bVal) return 1
+      if (aVal && !bVal) return -1
+      if (!aVal && !bVal) return 0
+
+      // Compare values
+      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1
+      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1
+      return 0
+    })
 
   const canCancel = (job: NSGJob) => {
     return [NSGJobStatus.Submitted, NSGJobStatus.Queue, NSGJobStatus.Running].includes(job.status)
@@ -727,12 +804,108 @@ export function NSGJobManager() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Job ID</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Tool</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Submitted</TableHead>
-                    <TableHead>Completed</TableHead>
+                    <TableHead>
+                      <button
+                        onClick={() => handleSort('jobId')}
+                        className="flex items-center gap-1 hover:text-foreground transition-colors"
+                      >
+                        Job ID
+                        {sortColumn === 'jobId' ? (
+                          sortDirection === 'asc' ? (
+                            <ArrowUp className="h-4 w-4" />
+                          ) : (
+                            <ArrowDown className="h-4 w-4" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="h-4 w-4 opacity-30" />
+                        )}
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button
+                        onClick={() => handleSort('status')}
+                        className="flex items-center gap-1 hover:text-foreground transition-colors"
+                      >
+                        Status
+                        {sortColumn === 'status' ? (
+                          sortDirection === 'asc' ? (
+                            <ArrowUp className="h-4 w-4" />
+                          ) : (
+                            <ArrowDown className="h-4 w-4" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="h-4 w-4 opacity-30" />
+                        )}
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button
+                        onClick={() => handleSort('tool')}
+                        className="flex items-center gap-1 hover:text-foreground transition-colors"
+                      >
+                        Tool
+                        {sortColumn === 'tool' ? (
+                          sortDirection === 'asc' ? (
+                            <ArrowUp className="h-4 w-4" />
+                          ) : (
+                            <ArrowDown className="h-4 w-4" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="h-4 w-4 opacity-30" />
+                        )}
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button
+                        onClick={() => handleSort('created')}
+                        className="flex items-center gap-1 hover:text-foreground transition-colors"
+                      >
+                        Created
+                        {sortColumn === 'created' ? (
+                          sortDirection === 'asc' ? (
+                            <ArrowUp className="h-4 w-4" />
+                          ) : (
+                            <ArrowDown className="h-4 w-4" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="h-4 w-4 opacity-30" />
+                        )}
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button
+                        onClick={() => handleSort('submitted')}
+                        className="flex items-center gap-1 hover:text-foreground transition-colors"
+                      >
+                        Submitted
+                        {sortColumn === 'submitted' ? (
+                          sortDirection === 'asc' ? (
+                            <ArrowUp className="h-4 w-4" />
+                          ) : (
+                            <ArrowDown className="h-4 w-4" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="h-4 w-4 opacity-30" />
+                        )}
+                      </button>
+                    </TableHead>
+                    <TableHead>
+                      <button
+                        onClick={() => handleSort('completed')}
+                        className="flex items-center gap-1 hover:text-foreground transition-colors"
+                      >
+                        Completed
+                        {sortColumn === 'completed' ? (
+                          sortDirection === 'asc' ? (
+                            <ArrowUp className="h-4 w-4" />
+                          ) : (
+                            <ArrowDown className="h-4 w-4" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="h-4 w-4 opacity-30" />
+                        )}
+                      </button>
+                    </TableHead>
                     <TableHead>Results</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
