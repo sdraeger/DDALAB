@@ -2,14 +2,16 @@ use crate::error::{DDAError, Result};
 
 /// Parse DDA binary output and return as 2D matrix [channels × timepoints]
 ///
-/// Based on dda-py _process_output: skip first 2 columns, take every 4th column, then transpose
+/// Based on dda-py _process_output: skip first 2 columns, take every Nth column, then transpose
 ///
 /// # Arguments
 /// * `content` - Raw text output from run_DDA_AsciiEdf binary
+/// * `column_stride` - Optional stride for column extraction (default 4 for ST/CT, use 2 for CD)
 ///
 /// # Returns
 /// Processed matrix in [channels/scales × timepoints] format
-pub fn parse_dda_output(content: &str) -> Result<Vec<Vec<f64>>> {
+pub fn parse_dda_output(content: &str, column_stride: Option<usize>) -> Result<Vec<Vec<f64>>> {
+    let stride = column_stride.unwrap_or(4);
     let mut matrix: Vec<Vec<f64>> = Vec::new();
 
     // Parse the file into a matrix (rows = time windows, columns = various outputs)
@@ -76,8 +78,9 @@ pub fn parse_dda_output(content: &str) -> Result<Vec<Vec<f64>>> {
             );
         }
 
-        // Now take every 4th column starting from index 0 (0-indexed from the skipped array)
-        // Try index 0 first: [:, 0::4] which takes indices 0, 4, 8, 12...
+        // Now take every Nth column starting from index 0 (0-indexed from the skipped array)
+        // stride=4 for ST/CT: [:, 0::4] which takes indices 0, 4, 8, 12...
+        // stride=2 for CD: [:, 0::2] which takes indices 0, 2, 4, 6...
         let mut extracted: Vec<Vec<f64>> = Vec::new();
 
         for row in &after_skip {
@@ -85,7 +88,7 @@ pub fn parse_dda_output(content: &str) -> Result<Vec<Vec<f64>>> {
             let mut col_idx = 0; // Start at column index 0 of the already-skipped array
             while col_idx < row.len() {
                 row_values.push(row[col_idx]);
-                col_idx += 4;
+                col_idx += stride;
             }
             extracted.push(row_values);
         }
@@ -161,14 +164,14 @@ mod tests {
                        1.0 2.0 3.0 4.0 5.0 6.0\n\
                        7.0 8.0 9.0 10.0 11.0 12.0\n";
 
-        let result = parse_dda_output(content).unwrap();
+        let result = parse_dda_output(content, None).unwrap();
         assert!(!result.is_empty());
     }
 
     #[test]
     fn test_parse_empty_content() {
         let content = "# Only comments\n# More comments\n";
-        let result = parse_dda_output(content);
+        let result = parse_dda_output(content, None);
         assert!(result.is_err());
     }
 }

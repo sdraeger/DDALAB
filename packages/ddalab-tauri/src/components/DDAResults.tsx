@@ -231,6 +231,9 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
     const channels = Object.keys(currentVariantData.dda_matrix)
 
+    // Reset the prevHeatmapDataRef range when variant changes to force color range recalculation
+    prevHeatmapDataRef.current.range = [0, 1]
+
     // Check if channels have actually changed (compare arrays)
     setSelectedChannels(prev => {
       const hasChanged = prev.length !== channels.length ||
@@ -1125,6 +1128,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
               setSelectedChannels(result.channels)
               setColorRange([0, 1])
               setAutoScale(true)
+              prevHeatmapDataRef.current.range = [0, 1]
             }}>
               <RotateCcw className="h-4 w-4 mr-2" />
               Reset

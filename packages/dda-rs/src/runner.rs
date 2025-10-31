@@ -35,17 +35,20 @@ impl DDARunner {
     ///
     /// # Arguments
     /// * `request` - DDA analysis configuration
-    /// * `start_bound` - Starting sample index for analysis (based on time_range.start)
-    /// * `end_bound` - Maximum sample index for analysis (with safety margin)
+    /// * `start_bound` - Optional starting sample index. If None, uses time_range.start with file's sample rate
+    /// * `end_bound` - Optional ending sample index. If None, uses time_range.end with file's sample rate
     /// * `edf_channel_names` - Optional list of EDF channel names for labeling
     ///
     /// # Returns
     /// DDAResult containing the processed Q matrix and metadata
+    ///
+    /// # Note
+    /// When bounds are None, the entire file duration specified in time_range will be used
     pub async fn run(
         &self,
         request: &DDARequest,
-        start_bound: u64,
-        end_bound: u64,
+        start_bound: Option<u64>,
+        end_bound: Option<u64>,
         edf_channel_names: Option<&[String]>,
     ) -> Result<DDAResult> {
         let analysis_id = Uuid::new_v4().to_string();
@@ -105,24 +108,35 @@ impl DDARunner {
         let select_bits: Vec<&str> = select_mask.split_whitespace().collect();
         let st_enabled = select_bits.get(0).map(|&b| b == "1").unwrap_or(false);
         let ct_enabled = select_bits.get(1).map(|&b| b == "1").unwrap_or(false);
+        let cd_enabled = select_bits.get(2).map(|&b| b == "1").unwrap_or(false);
         let has_ct_pairs = ct_enabled
             && request
                 .ct_channel_pairs
                 .as_ref()
                 .map(|p| !p.is_empty())
                 .unwrap_or(false);
+        let has_cd_pairs = cd_enabled
+            && request
+                .cd_channel_pairs
+                .as_ref()
+                .map(|p| !p.is_empty())
+                .unwrap_or(false);
 
-        // If both ST and CT are enabled with CT pairs, we need to run separate executions:
+        // If ST is enabled with either CT or CD pairs, we need to run separate executions:
         // 1. First run: ST only (with all individual channels)
-        // 2. Additional runs: CT only (one per pair)
-        let run_st_separately = st_enabled && has_ct_pairs;
+        // 2. Additional runs: CT only (one per pair) if has_ct_pairs
+        // 3. Additional run: CD only (with directed pairs) if has_cd_pairs
+        let run_st_separately = st_enabled && (has_ct_pairs || has_cd_pairs);
 
         // Determine SELECT mask for this first execution
         let first_select_mask = if run_st_separately {
-            // First run will be ST-only, CT will be run separately
+            // First run will be ST-only, CT and CD will be run separately
             let mut bits = select_bits.clone();
             if bits.len() > 1 {
                 bits[1] = "0"; // Disable CT for first run
+            }
+            if bits.len() > 2 && has_cd_pairs {
+                bits[2] = "0"; // Disable CD for first run if CD pairs provided
             }
             bits.join(" ")
         } else {
@@ -131,10 +145,18 @@ impl DDARunner {
 
         log::info!("First execution SELECT mask: {}", first_select_mask);
         if run_st_separately {
-            log::info!(
-                "Will run CT separately for {} channel pairs",
-                request.ct_channel_pairs.as_ref().unwrap().len()
-            );
+            if has_ct_pairs {
+                log::info!(
+                    "Will run CT separately for {} channel pairs",
+                    request.ct_channel_pairs.as_ref().unwrap().len()
+                );
+            }
+            if has_cd_pairs {
+                log::info!(
+                    "Will run CD separately for {} directed channel pairs",
+                    request.cd_channel_pairs.as_ref().unwrap().len()
+                );
+            }
         }
 
         // Determine file type based on extension
@@ -208,6 +230,17 @@ impl DDARunner {
                 "Using {} individual channels for ST variant",
                 channel_indices.len()
             );
+        } else if cd_enabled && has_cd_pairs {
+            // CD-DDA: use directed channel pairs as flat list (e.g., 1 2 1 3 1 4)
+            let pairs = request.cd_channel_pairs.as_ref().unwrap();
+            for pair in pairs {
+                command.arg((pair[0] + 1).to_string()); // from channel (1-based)
+                command.arg((pair[1] + 1).to_string()); // to channel (1-based)
+            }
+            log::info!(
+                "CD-DDA: using {} directed channel pairs (flat list format)",
+                pairs.len()
+            );
         } else if ct_enabled && has_ct_pairs {
             // CT is enabled without ST - use first pair
             let pairs = request.ct_channel_pairs.as_ref().unwrap();
@@ -273,11 +306,14 @@ impl DDARunner {
             command.arg(delay.to_string());
         }
 
-        // Add time bounds (sample indices)
-        command
-            .arg("-StartEnd")
-            .arg(start_bound.to_string())
-            .arg(end_bound.to_string());
+        // Add time bounds (sample indices) only if provided
+        // If not provided, the binary processes the entire file
+        if let (Some(start), Some(end)) = (start_bound, end_bound) {
+            command
+                .arg("-StartEnd")
+                .arg(start.to_string())
+                .arg(end.to_string());
+        }
 
         log::info!("Executing DDA command: {:?}", command);
 
@@ -358,10 +394,34 @@ impl DDARunner {
                 .map(|s| PathBuf::from(format!("{}_{}", s, variant)))
                 .ok_or_else(|| DDAError::ExecutionFailed("Invalid output path".to_string()))?;
 
+            // CD-DDA creates files with _CD_DDA_ST suffix instead of just _CD
+            // Use full output path (including .txt) not just stem
+            let cd_special_path = if *variant == "CD" {
+                output_file
+                    .to_str()
+                    .map(|s| PathBuf::from(format!("{}_{}_DDA_ST", s, variant)))
+            } else {
+                None
+            };
+
             let actual_output_file = if variant_file_path.exists() {
                 variant_file_path.clone()
             } else if variant_file_with_ext.exists() {
                 variant_file_with_ext.clone()
+            } else if let Some(ref cd_path) = cd_special_path {
+                if cd_path.exists() {
+                    log::info!("Found CD output with special suffix: {:?}", cd_path);
+                    cd_path.clone()
+                } else {
+                    log::warn!(
+                        "Output file not found for variant {}. Tried: {:?}, {:?}, {:?}",
+                        variant,
+                        variant_file_path,
+                        variant_file_with_ext,
+                        cd_path
+                    );
+                    continue;
+                }
             } else {
                 log::warn!(
                     "Output file not found for variant {}. Tried: {:?}, {:?}",
@@ -390,7 +450,8 @@ impl DDARunner {
             );
 
             // Parse the output file to extract Q matrix [channels × timepoints]
-            let q_matrix = parse_dda_output(&output_content)?;
+            // ST/CT use default stride=4
+            let q_matrix = parse_dda_output(&output_content, None)?;
 
             if !q_matrix.is_empty() {
                 let num_channels = q_matrix.len();
@@ -480,11 +541,13 @@ impl DDARunner {
                     pair_command.arg(delay.to_string());
                 }
 
-                // Add time bounds
-                pair_command
-                    .arg("-StartEnd")
-                    .arg(start_bound.to_string())
-                    .arg(end_bound.to_string());
+                // Add time bounds only if provided
+                if let (Some(start), Some(end)) = (start_bound, end_bound) {
+                    pair_command
+                        .arg("-StartEnd")
+                        .arg(start.to_string())
+                        .arg(end.to_string());
+                }
 
                 log::info!(
                     "Executing DDA for CT pair {} (1-based): [{}, {}]",
@@ -536,7 +599,8 @@ impl DDARunner {
                     .await
                     .map_err(|e| DDAError::IoError(e))?;
 
-                let pair_q_matrix = parse_dda_output(&pair_content)?;
+                // CT uses default stride=4
+                let pair_q_matrix = parse_dda_output(&pair_content, None)?;
 
                 // Append this pair's channel to the combined CT matrix
                 if !pair_q_matrix.is_empty() {
@@ -569,11 +633,155 @@ impl DDARunner {
             }
         }
 
+        // Handle CD separately if we ran ST separately
+        if run_st_separately && has_cd_pairs {
+            let pairs = request.cd_channel_pairs.as_ref().unwrap();
+            let num_pairs = pairs.len();
+            log::info!(
+                "Now processing CD variant with {} directed channel pairs",
+                num_pairs
+            );
+
+            let cd_output_file = temp_dir.join(format!("dda_output_{}_cd.txt", analysis_id));
+
+            // Build command for CD with all directed pairs as flat list
+            let mut cd_command = if cfg!(target_os = "windows") {
+                Command::new(&self.binary_path)
+            } else {
+                let mut cmd = Command::new("sh");
+                cmd.arg(&self.binary_path);
+                cmd
+            };
+
+            cd_command
+                .arg("-DATA_FN")
+                .arg(&actual_input_file)
+                .arg("-OUT_FN")
+                .arg(cd_output_file.to_str().unwrap())
+                .arg(file_type_flag)
+                .arg("-CH_list");
+
+            // Add all directed channel pairs as flat list: from1 to1 from2 to2 ...
+            for pair in pairs.iter() {
+                cd_command.arg((pair[0] + 1).to_string()); // from channel (1-based)
+                cd_command.arg((pair[1] + 1).to_string()); // to channel (1-based)
+            }
+
+            cd_command
+                .arg("-dm")
+                .arg("4")
+                .arg("-order")
+                .arg("4")
+                .arg("-nr_tau")
+                .arg("2")
+                .arg("-WL")
+                .arg(request.window_parameters.window_length.to_string())
+                .arg("-WS")
+                .arg(request.window_parameters.window_step.to_string());
+
+            // Add SELECT mask - CD only (0 0 1 0) but need ST and CT enabled for CD to work
+            cd_command
+                .arg("-SELECT")
+                .arg("1") // ST must be enabled for CD
+                .arg("1") // CT must be enabled for CD
+                .arg("1") // CD
+                .arg("0"); // DE
+
+            cd_command.arg("-MODEL").arg("1").arg("2").arg("10");
+
+            // Add CT-specific window parameters (required for CD)
+            let ct_wl = request.window_parameters.ct_window_length.unwrap_or(2);
+            let ct_ws = request.window_parameters.ct_window_step.unwrap_or(2);
+            cd_command.arg("-WL_CT").arg(ct_wl.to_string());
+            cd_command.arg("-WS_CT").arg(ct_ws.to_string());
+
+            // Add delay values
+            let delay_min = request.scale_parameters.scale_min as i32;
+            let delay_max = request.scale_parameters.scale_max as i32;
+            cd_command.arg("-TAU");
+            for delay in delay_min..=delay_max {
+                cd_command.arg(delay.to_string());
+            }
+
+            // Add time bounds only if provided
+            if let (Some(start), Some(end)) = (start_bound, end_bound) {
+                cd_command
+                    .arg("-StartEnd")
+                    .arg(start.to_string())
+                    .arg(end.to_string());
+            }
+
+            log::info!(
+                "Executing DDA for CD variant with {} directed pairs",
+                num_pairs
+            );
+            log::debug!("CD command: {:?}", cd_command);
+
+            // Execute
+            let cd_output = cd_command.output().await.map_err(|e| {
+                DDAError::ExecutionFailed(format!("Failed to execute binary for CD: {}", e))
+            })?;
+
+            if !cd_output.status.success() {
+                let stderr = String::from_utf8_lossy(&cd_output.stderr);
+                log::error!("DDA binary failed for CD variant: {}", stderr);
+            } else {
+                // Read the CD output - look for _CD_DDA_ST suffix
+                let cd_file_with_special_suffix = cd_output_file
+                    .to_str()
+                    .map(|s| PathBuf::from(format!("{}_CD_DDA_ST", s)))
+                    .ok_or_else(|| {
+                        DDAError::ExecutionFailed("Invalid CD output path".to_string())
+                    })?;
+
+                if cd_file_with_special_suffix.exists() {
+                    log::info!("Found CD output file: {:?}", cd_file_with_special_suffix);
+
+                    let cd_content = tokio::fs::read_to_string(&cd_file_with_special_suffix)
+                        .await
+                        .map_err(|e| DDAError::IoError(e))?;
+
+                    // CD uses stride=1: each column after window bounds is one directed pair
+                    let cd_q_matrix = crate::parser::parse_dda_output(&cd_content, Some(1))?;
+
+                    let num_channels = cd_q_matrix.len();
+                    let num_timepoints = cd_q_matrix.get(0).map(|r| r.len()).unwrap_or(0);
+                    log::info!(
+                        "CD Q matrix dimensions: {} channels × {} timepoints",
+                        num_channels,
+                        num_timepoints
+                    );
+
+                    variant_matrices.push(("CD".to_string(), cd_q_matrix));
+
+                    // Clean up CD output files
+                    let _ = tokio::fs::remove_file(&cd_file_with_special_suffix).await;
+                } else {
+                    log::warn!(
+                        "CD output file not found at: {:?}",
+                        cd_file_with_special_suffix
+                    );
+                }
+
+                let _ = tokio::fs::remove_file(&cd_output_file).await;
+            }
+        }
+
         // Clean up temporary files
         let _ = tokio::fs::remove_file(&output_file).await;
         for variant in &enabled_variants {
             let variant_path = output_dir.join(format!("{}_{}", output_file_stem, variant));
             let _ = tokio::fs::remove_file(&variant_path).await;
+
+            // Clean up CD special file naming (_CD_DDA_ST)
+            if *variant == "CD" {
+                if let Some(cd_path) = output_file
+                    .to_str()
+                    .map(|s| PathBuf::from(format!("{}_{}_DDA_ST", s, variant)))
+                {
+                    let _ = tokio::fs::remove_file(&cd_path).await;
+                }
+            }
         }
 
         // Clean up temporary ASCII file if we created one
@@ -613,8 +821,8 @@ impl DDARunner {
             match id {
                 "ST" => "Single Timeseries (ST)".to_string(),
                 "CT" => "Cross-Timeseries (CT)".to_string(),
-                "CD" => "Cross-Delay (CD)".to_string(),
-                "DE" => "Delay Evolution (DE)".to_string(),
+                "CD" => "Cross-Dynamical (CD)".to_string(),
+                "DE" => "Dynamical Ergodicity (DE)".to_string(),
                 _ => id.to_string(),
             }
         };
@@ -624,7 +832,26 @@ impl DDARunner {
             .iter()
             .map(|(variant_id, q_matrix)| {
                 // Generate variant-specific channel labels
-                let channel_labels = if variant_id == "CT" && request.ct_channel_pairs.is_some() {
+                let channel_labels = if variant_id == "CD" && request.cd_channel_pairs.is_some() {
+                    // For CD, generate directed pair labels like "LAT2 → LPT1"
+                    let pairs = request.cd_channel_pairs.as_ref().unwrap();
+                    Some(
+                        pairs
+                            .iter()
+                            .map(|pair| {
+                                if let Some(names) = edf_channel_names {
+                                    let from_name =
+                                        names.get(pair[0]).map(|s| s.as_str()).unwrap_or("?");
+                                    let to_name =
+                                        names.get(pair[1]).map(|s| s.as_str()).unwrap_or("?");
+                                    format!("{} → {}", from_name, to_name)
+                                } else {
+                                    format!("Ch{} → Ch{}", pair[0] + 1, pair[1] + 1)
+                                }
+                            })
+                            .collect(),
+                    )
+                } else if variant_id == "CT" && request.ct_channel_pairs.is_some() {
                     // For CT, generate pair labels like "LAT2 ⟷ LPT1"
                     let pairs = request.ct_channel_pairs.as_ref().unwrap();
                     Some(

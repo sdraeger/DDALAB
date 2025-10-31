@@ -62,6 +62,8 @@ pub struct DDARequest {
     pub scale_parameters: ScaleParameters,
     #[serde(default)]
     pub ct_channel_pairs: Option<Vec<[usize; 2]>>,
+    #[serde(default)]
+    pub cd_channel_pairs: Option<Vec<[usize; 2]>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -206,8 +208,8 @@ pub async fn run_dda_analysis(
     let dda_result = runner
         .run(
             &dda_request,
-            start_bound,
-            end_bound,
+            Some(start_bound),
+            Some(end_bound),
             edf_channel_names.as_deref(),
         )
         .await
@@ -752,28 +754,33 @@ fn get_dda_binary_path(state: &ApiState) -> Result<PathBuf, StatusCode> {
 }
 
 fn generate_select_mask(enabled_variants: &[String]) -> String {
-    let st = if enabled_variants.iter().any(|v| v == "single_timeseries") {
-        "1"
-    } else {
-        "0"
-    };
-    let ct = if enabled_variants.iter().any(|v| v == "cross_timeseries") {
-        "1"
-    } else {
-        "0"
-    };
-    let cd = if enabled_variants.iter().any(|v| v == "cross_dynamical") {
-        "1"
-    } else {
-        "0"
-    };
+    // Check which variants are explicitly enabled
+    let cd_enabled = enabled_variants.iter().any(|v| v == "cross_dynamical");
+    let st_explicit = enabled_variants.iter().any(|v| v == "single_timeseries");
+    let ct_explicit = enabled_variants.iter().any(|v| v == "cross_timeseries");
+
+    // CD requires ST and CT to be enabled as well
+    // If CD is enabled, automatically enable ST and CT
+    let st = if st_explicit || cd_enabled { "1" } else { "0" };
+    let ct = if ct_explicit || cd_enabled { "1" } else { "0" };
+    let cd = if cd_enabled { "1" } else { "0" };
     let de = if enabled_variants.iter().any(|v| v == "dynamical_ergodicity") {
         "1"
     } else {
         "0"
     };
 
-    format!("{} {} {} {}", st, ct, cd, de)
+    let mask = format!("{} {} {} {}", st, ct, cd, de);
+
+    // Log when CD auto-enables ST and CT
+    if cd_enabled && (!st_explicit || !ct_explicit) {
+        log::info!(
+            "CD-DDA enabled: automatically enabling ST and CT (SELECT mask: {})",
+            mask
+        );
+    }
+
+    mask
 }
 
 fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
@@ -827,6 +834,7 @@ fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
             scale_num: api_req.scale_parameters.scale_num as u32,
         },
         ct_channel_pairs: api_req.ct_channel_pairs.clone(),
+        cd_channel_pairs: api_req.cd_channel_pairs.clone(),
     };
 
     dda_request
@@ -836,7 +844,7 @@ fn map_variant_id_to_frontend(variant_id: &str) -> String {
     match variant_id {
         "ST" => "single_timeseries".to_string(),
         "CT" => "cross_timeseries".to_string(),
-        "CD" => "cross_delay".to_string(),
+        "CD" => "cross_dynamical".to_string(),
         "DE" => "delay_evolution".to_string(),
         _ => variant_id.to_lowercase().replace('-', "_"),
     }

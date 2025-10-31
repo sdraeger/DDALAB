@@ -466,7 +466,8 @@ export class ApiService {
           scale_max: request.scale_max || 20,
           scale_num: request.scale_num || 20
         },
-        ct_channel_pairs: request.ct_channel_pairs
+        ct_channel_pairs: request.ct_channel_pairs,
+        cd_channel_pairs: request.cd_channel_pairs
       }
 
       console.log('Submitting DDA request:', ddaRequest)
