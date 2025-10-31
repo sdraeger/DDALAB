@@ -51,6 +51,8 @@ export interface DDAAnalysisRequest {
   ct_window_length?: number
   ct_window_step?: number
   ct_channel_pairs?: [number, number][]  // Array of channel index pairs
+  // CD-specific parameters
+  cd_channel_pairs?: [number, number][]  // Array of directed channel pairs (from -> to)
 }
 
 export interface DDAVariantResult {

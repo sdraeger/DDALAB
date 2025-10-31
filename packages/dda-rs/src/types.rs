@@ -61,6 +61,11 @@ pub struct DDARequest {
     /// Each pair is [channel_i, channel_j] where channels are 0-based indices
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ct_channel_pairs: Option<Vec<[usize; 2]>>,
+    /// Channel pairs for CD (Cross-Dynamical) analysis
+    /// Each pair is [from_channel, to_channel] representing directed relationships
+    /// Format: [(1, 2), (1, 3), (1, 4)] → CH_list: 1 2 1 3 1 4
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cd_channel_pairs: Option<Vec<[usize; 2]>>,
 }
 
 /// Variant-specific DDA result

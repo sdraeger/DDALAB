@@ -10,9 +10,11 @@
     "core:event:allow-emit",
     "core:event:allow-listen",
     "shell:allow-open",
+    "dialog:default",
     "dialog:allow-open",
     "dialog:allow-message",
     "dialog:allow-ask",
+    "dialog:allow-confirm",
     {
       "identifier": "fs:allow-read-file",
       "allow": [
