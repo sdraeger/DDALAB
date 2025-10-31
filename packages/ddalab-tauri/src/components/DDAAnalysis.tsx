@@ -6,6 +6,7 @@ import { ApiService } from "@/services/apiService";
 import { DDAAnalysisRequest, DDAResult } from "@/types/api";
 import { DDAResults } from "@/components/DDAResults";
 import { CTChannelPairPicker } from "@/components/CTChannelPairPicker";
+import { CDChannelPairPicker } from "@/components/CDChannelPairPicker";
 import { useWorkflow } from "@/hooks/useWorkflow";
 import {
   createSetDDAParametersAction,
@@ -48,6 +49,7 @@ import {
   Pencil,
   Trash2,
   Cloud,
+  X,
 } from "lucide-react";
 import { TauriService, NotificationType } from "@/services/tauriService";
 
@@ -74,6 +76,8 @@ interface DDAParameters {
   ctWindowLength?: number;
   ctWindowStep?: number;
   ctChannelPairs: [string, string][]; // Pairs of channel names
+  // CD-specific parameters
+  cdChannelPairs: [string, string][]; // Directed pairs of channel names (from -> to)
   // Parallelization
   parallelCores?: number; // Number of CPU cores to use (1 = serial, >1 = parallel)
   // NSG-specific resource configuration
@@ -157,6 +161,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     ctWindowLength: undefined,
     ctWindowStep: undefined,
     ctChannelPairs: [],
+    cdChannelPairs: [],
     parallelCores: 1, // Default to serial execution
     nsgResourceConfig: {
       runtimeHours: 1.0,
@@ -553,6 +558,18 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             .filter(([idx1, idx2]) => idx1 !== -1 && idx2 !== -1)
         : undefined;
 
+    // Convert CD channel pairs from names to indices (directed pairs)
+    const cdChannelPairs: [number, number][] | undefined =
+      parameters.cdChannelPairs.length > 0 && selectedFile
+        ? parameters.cdChannelPairs
+            .map(([from, to]) => {
+              const fromIdx = selectedFile!.channels.indexOf(from);
+              const toIdx = selectedFile!.channels.indexOf(to);
+              return [fromIdx, toIdx] as [number, number];
+            })
+            .filter(([fromIdx, toIdx]) => fromIdx !== -1 && toIdx !== -1)
+        : undefined;
+
     // Prepare the analysis request
     const request: DDAAnalysisRequest = {
       file_path: selectedFile.file_path,
@@ -568,6 +585,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       ct_window_length: parameters.ctWindowLength,
       ct_window_step: parameters.ctWindowStep,
       ct_channel_pairs: ctChannelPairs,
+      cd_channel_pairs: cdChannelPairs,
     };
 
     // Convert channel names to indices for comparison
@@ -589,6 +607,12 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     console.log(
       `   Scale: min=${request.scale_min}, max=${request.scale_max}, num=${request.scale_num}`
     );
+    if (ctChannelPairs && ctChannelPairs.length > 0) {
+      console.log(`   CT channel pairs: ${ctChannelPairs.map(([a, b]) => `[${a}, ${b}]`).join(", ")}`);
+    }
+    if (cdChannelPairs && cdChannelPairs.length > 0) {
+      console.log(`   CD channel pairs (directed): ${cdChannelPairs.map(([from, to]) => `[${from} → ${to}]`).join(", ")}`);
+    }
 
     // Record DDA parameters if recording is active
     if (isWorkflowRecording) {
@@ -849,6 +873,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       ctWindowLength: undefined,
       ctWindowStep: undefined,
       ctChannelPairs: [],
+      cdChannelPairs: [],
       parallelCores: 1,
       nsgResourceConfig: {
         runtimeHours: 1.0,
@@ -1116,11 +1141,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           <div className="grid grid-cols-2 gap-4">
             {/* Window Parameters */}
             <Card>
-              <CardHeader>
+              <CardHeader className="pb-3">
                 <CardTitle className="text-base">Window Parameters</CardTitle>
-                <CardDescription>Analysis window configuration</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-3">
                 <div>
                   <Label className="text-sm">
                     Window Length: {parameters.windowLength}
@@ -1137,7 +1161,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     min={50}
                     max={500}
                     step={10}
-                    className="mt-2"
+                    className="mt-1"
                   />
                 </div>
                 <div>
@@ -1156,7 +1180,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     min={1}
                     max={50}
                     step={1}
-                    className="mt-2"
+                    className="mt-1"
                   />
                 </div>
               </CardContent>
@@ -1281,6 +1305,77 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               </Card>
             )}
 
+            {/* CD-Specific Parameters */}
+            {parameters.variants.includes("cross_dynamical") && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">CD Parameters</CardTitle>
+                  <CardDescription>
+                    Cross-Dynamical specific settings
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label className="text-sm font-semibold">
+                      Channel Pairs (Directed)
+                    </Label>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Select directed channel pairs for Cross-Dynamical analysis (From → To)
+                    </p>
+
+                    {/* Display current pairs */}
+                    {parameters.cdChannelPairs.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {parameters.cdChannelPairs.map(([from, to], idx) => (
+                          <Badge
+                            key={idx}
+                            variant="secondary"
+                            className="cursor-pointer hover:bg-destructive/20"
+                            onClick={() => {
+                              if (!localIsRunning) {
+                                setLocalParameters((prev) => ({
+                                  ...prev,
+                                  cdChannelPairs: prev.cdChannelPairs.filter(
+                                    (_, i) => i !== idx
+                                  ),
+                                }));
+                              }
+                            }}
+                          >
+                            {from} → {to}
+                            <X className="ml-1 h-3 w-3" />
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+
+                    {parameters.cdChannelPairs.length === 0 && (
+                      <p className="text-sm text-amber-600 mb-2">
+                        No directed pairs selected. Please add at least one pair.
+                      </p>
+                    )}
+
+                    {/* Channel pair picker */}
+                    {selectedFile && (
+                      <CDChannelPairPicker
+                        channels={selectedFile.channels}
+                        onPairAdded={(from, to) => {
+                          setLocalParameters((prev) => ({
+                            ...prev,
+                            cdChannelPairs: [
+                              ...prev.cdChannelPairs,
+                              [from, to],
+                            ],
+                          }));
+                        }}
+                        disabled={localIsRunning}
+                      />
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Delay Parameters */}
             <Card>
               <CardHeader>
@@ -1348,97 +1443,6 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                 </div>
               </CardContent>
             </Card>
-
-            {/* NSG Resource Configuration */}
-            {TauriService.isTauri() && hasNsgCredentials && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">
-                    NSG Resource Configuration
-                  </CardTitle>
-                  <CardDescription>
-                    Neuroscience Gateway compute resources (for Submit to NSG)
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label className="text-sm">
-                      Runtime Limit:{" "}
-                      {parameters.nsgResourceConfig?.runtimeHours || 1.0} hours
-                    </Label>
-                    <Slider
-                      value={[
-                        parameters.nsgResourceConfig?.runtimeHours || 1.0,
-                      ]}
-                      onValueChange={([value]) =>
-                        setLocalParameters((prev) => ({
-                          ...prev,
-                          nsgResourceConfig: {
-                            ...prev.nsgResourceConfig,
-                            runtimeHours: value,
-                          },
-                        }))
-                      }
-                      disabled={localIsRunning || isSubmittingToNsg}
-                      min={0.5}
-                      max={48}
-                      step={0.5}
-                      className="mt-2"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-sm">
-                      NSG CPU Cores: {parameters.nsgResourceConfig?.cores || 4}
-                    </Label>
-                    <Slider
-                      value={[parameters.nsgResourceConfig?.cores || 4]}
-                      onValueChange={([value]) =>
-                        setLocalParameters((prev) => ({
-                          ...prev,
-                          nsgResourceConfig: {
-                            ...prev.nsgResourceConfig,
-                            cores: value,
-                          },
-                        }))
-                      }
-                      disabled={localIsRunning || isSubmittingToNsg}
-                      min={1}
-                      max={128}
-                      step={1}
-                      className="mt-2"
-                    />
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Max 128 cores per Expanse node
-                    </p>
-                  </div>
-                  <div>
-                    <Label className="text-sm">
-                      Nodes: {parameters.nsgResourceConfig?.nodes || 1}
-                    </Label>
-                    <Slider
-                      value={[parameters.nsgResourceConfig?.nodes || 1]}
-                      onValueChange={([value]) =>
-                        setLocalParameters((prev) => ({
-                          ...prev,
-                          nsgResourceConfig: {
-                            ...prev.nsgResourceConfig,
-                            nodes: value,
-                          },
-                        }))
-                      }
-                      disabled={localIsRunning || isSubmittingToNsg}
-                      min={1}
-                      max={4}
-                      step={1}
-                      className="mt-2"
-                    />
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Multi-node support (experimental)
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </div>
 
           {/* Channel Selection */}
