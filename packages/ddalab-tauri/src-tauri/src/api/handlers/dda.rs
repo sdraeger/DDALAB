@@ -17,25 +17,31 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+macro_rules! common_derive {
+    () => {
+        #[derive(Debug, Clone, Deserialize, Serialize)]
+    };
+}
+
+common_derive!()
 pub struct TimeRange {
     pub start: f64,
     pub end: f64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+common_derive!()
 pub struct PreprocessingOptions {
     pub highpass: Option<f64>,
     pub lowpass: Option<f64>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+common_derive!()
 pub struct AlgorithmSelection {
     pub enabled_variants: Vec<String>,
     pub select_mask: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+common_derive!()
 pub struct WindowParameters {
     pub window_length: usize,
     pub window_step: usize,
@@ -43,14 +49,14 @@ pub struct WindowParameters {
     pub ct_window_step: Option<usize>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+common_derive!()
 pub struct ScaleParameters {
     pub scale_min: i32,
     pub scale_max: i32,
     pub scale_num: usize,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+common_derive!()
 pub struct DDARequest {
     pub file_path: String,
     #[serde(alias = "channel_list")]
