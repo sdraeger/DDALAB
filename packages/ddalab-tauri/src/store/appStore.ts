@@ -448,6 +448,7 @@ export const useAppStore = create<AppState>()(
               activeTab: persistedState.active_tab,
               sidebarOpen: !persistedState.sidebar_collapsed,
               sidebarWidth: persistedState.ui?.sidebarWidth || 320,  // Load persisted width or use default
+              zoom: persistedState.ui?.zoom || 1.0,  // Load persisted zoom or use default
               panelSizes: [
                 persistedState.panel_sizes.sidebar * 100,
                 persistedState.panel_sizes.main * 100 - persistedState.panel_sizes.sidebar * 100,

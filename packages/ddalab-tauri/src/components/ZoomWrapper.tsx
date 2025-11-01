@@ -8,10 +8,7 @@ export function ZoomWrapper({ children }: { children: React.ReactNode }) {
   return (
     <div
       style={{
-        transform: `scale(${zoom})`,
-        transformOrigin: 'top left',
-        width: `${100 / zoom}%`,
-        height: `${100 / zoom}%`,
+        zoom: zoom,
       }}
     >
       {children}
