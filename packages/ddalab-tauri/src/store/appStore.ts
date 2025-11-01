@@ -87,6 +87,7 @@ export interface UIState {
   layout: 'default' | 'analysis' | 'plots'
   theme: 'light' | 'dark' | 'auto'
   isServerReady: boolean  // Tracks if API server is ready to accept requests
+  zoom: number  // Global zoom level (0.75 to 1.5, default 1.0)
 }
 
 export interface AnnotationState {
@@ -151,6 +152,10 @@ export interface AppState {
   setSecondaryNav: (tab: SecondaryNavTab | null) => void
   setSidebarOpen: (open: boolean) => void
   setSidebarWidth: (width: number) => void
+  setZoom: (zoom: number) => void
+  increaseZoom: () => void
+  decreaseZoom: () => void
+  resetZoom: () => void
   setPanelSizes: (sizes: number[]) => void
   setLayout: (layout: UIState['layout']) => void
   setTheme: (theme: UIState['theme']) => void
@@ -250,6 +255,7 @@ const defaultUIState: UIState = {
   },
   sidebarOpen: true,
   sidebarWidth: 320,  // Default width in pixels (equivalent to w-80 = 20rem = 320px)
+  zoom: 1.0,  // Default zoom level (100%)
   panelSizes: [25, 50, 25],
   layout: 'default',
   theme: 'auto',
@@ -1364,6 +1370,43 @@ export const useAppStore = create<AppState>()(
         TauriService.updateUIState({ sidebarWidth: clampedWidth }).catch(console.error)
       }
     }, 150) // Wait 150ms after last resize before saving
+  },
+
+  setZoom: (zoom) => {
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    // Clamp zoom between 75% and 150% for usability
+    const clampedZoom = Math.max(0.75, Math.min(1.5, zoom))
+    set((state) => {
+      state.ui.zoom = clampedZoom
+    })
+
+    // Debounce Tauri state updates
+    if (typeof (window as any).__zoomUpdateTimeout !== 'undefined') {
+      clearTimeout((window as any).__zoomUpdateTimeout)
+    }
+
+    (window as any).__zoomUpdateTimeout = setTimeout(() => {
+      if (TauriService.isTauri()) {
+        // Fire and forget - don't block UI
+        TauriService.updateUIState({ zoom: clampedZoom }).catch(console.error)
+      }
+    }, 150) // Wait 150ms after last change before saving
+  },
+
+  increaseZoom: () => {
+    const currentZoom = get().ui.zoom
+    const newZoom = Math.min(1.5, currentZoom + 0.1)
+    get().setZoom(newZoom)
+  },
+
+  decreaseZoom: () => {
+    const currentZoom = get().ui.zoom
+    const newZoom = Math.max(0.75, currentZoom - 0.1)
+    get().setZoom(newZoom)
+  },
+
+  resetZoom: () => {
+    get().setZoom(1.0)
   },
 
   setPanelSizes: (sizes) => {

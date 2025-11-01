@@ -78,8 +78,14 @@ pub struct UIState {
     pub last_selected_file: Option<String>,
     pub file_manager: FileManagerState,
     pub windows: HashMap<String, WindowState>,
+    #[serde(default = "default_zoom")]
+    pub zoom: f64, // Global zoom level (0.75 to 1.5, default 1.0)
     #[serde(default)]
     pub ui_extras: HashMap<String, serde_json::Value>, // For misc UI state
+}
+
+fn default_zoom() -> f64 {
+    1.0
 }
 
 // Legacy AppState for backward compatibility during migration
@@ -170,6 +176,7 @@ impl Default for UIState {
             last_selected_file: None,
             file_manager: FileManagerState::default(),
             windows: HashMap::new(),
+            zoom: 1.0,
             ui_extras: HashMap::new(),
         }
     }
