@@ -15,6 +15,10 @@ function PopoutContent() {
   const [currentData, setCurrentData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState('Initializing...')
+  const [isHeatmapReady, setIsHeatmapReady] = useState(false)
+  const [isLinePlotReady, setIsLinePlotReady] = useState(false)
+  const [heatmapDimensions, setHeatmapDimensions] = useState({ width: 0, height: 0 })
+  const [linePlotDimensions, setLinePlotDimensions] = useState({ width: 0, height: 0 })
 
   // Refs for plot containers
   const timeSeriesPlotRef = useRef<HTMLDivElement>(null)
@@ -271,6 +275,7 @@ function PopoutContent() {
     if (uplotHeatmapRef.current) {
       uplotHeatmapRef.current.destroy()
       uplotHeatmapRef.current = null
+      setIsHeatmapReady(false)
     }
 
     try {
@@ -281,19 +286,32 @@ function PopoutContent() {
       const selectedVariantIndex = uiState?.selectedVariant ?? 0
       const variants = result.results?.variants
 
+      console.log('[POPOUT HEATMAP] uiState:', uiState, 'selectedVariantIndex:', selectedVariantIndex)
+
       let dda_matrix, scales
       if (variants && variants.length > 0) {
         const variant = variants[selectedVariantIndex] || variants[0]
         dda_matrix = variant.dda_matrix
         scales = result.results?.scales
-        console.log('[POPOUT] Using variant:', variant.variant_name || variant.variant_id)
+        console.log('[POPOUT] Using variant:', variant.variant_name || variant.variant_id, 'at index:', selectedVariantIndex)
       } else {
         // Fallback to legacy format
         dda_matrix = result.results?.dda_matrix
         scales = result.results?.scales
       }
 
-      const channels = uiState?.selectedChannels || result.channels || Object.keys(dda_matrix || {})
+      // Use broadcast channels if they exist in the variant, otherwise use all variant channels
+      const broadcastChannels = uiState?.selectedChannels || []
+      const variantChannels = Object.keys(dda_matrix || {})
+      const validChannels = broadcastChannels.filter((ch: string) => dda_matrix[ch])
+      const channels = validChannels.length > 0 ? validChannels : variantChannels
+
+      console.log('[POPOUT HEATMAP] Channel selection:', {
+        broadcastChannels,
+        variantChannels,
+        validChannels,
+        finalChannels: channels
+      })
 
       if (!scales || !dda_matrix || channels.length === 0) {
         console.warn('[POPOUT] Missing data for heatmap:', { scales: !!scales, dda_matrix: !!dda_matrix, channels: channels.length })
@@ -431,6 +449,19 @@ function PopoutContent() {
 
       uplotHeatmapRef.current = new uPlot(opts, plotData, ddaHeatmapRef.current)
 
+      // Set initial dimensions
+      const initialWidth = ddaHeatmapRef.current.clientWidth
+      const initialHeight = Math.max(300, channels.length * 30 + 100)
+      setHeatmapDimensions({ width: initialWidth, height: initialHeight })
+
+      // Wait for browser to complete layout before marking as ready
+      // Double RAF ensures we're past the paint phase
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setIsHeatmapReady(true)
+        })
+      })
+
       // Handle resize
       const resizeObserver = new ResizeObserver(() => {
         if (uplotHeatmapRef.current && ddaHeatmapRef.current) {
@@ -441,6 +472,8 @@ function PopoutContent() {
             height: newHeight
           })
           uplotHeatmapRef.current.redraw()
+          // Update dimensions to trigger annotation re-render
+          setHeatmapDimensions({ width: newWidth, height: newHeight })
         }
       })
 
@@ -451,6 +484,7 @@ function PopoutContent() {
         if (uplotHeatmapRef.current) {
           uplotHeatmapRef.current.destroy()
           uplotHeatmapRef.current = null
+          setIsHeatmapReady(false)
         }
       }
     } catch (error) {
@@ -466,6 +500,7 @@ function PopoutContent() {
     if (uplotLinePlotRef.current) {
       uplotLinePlotRef.current.destroy()
       uplotLinePlotRef.current = null
+      setIsLinePlotReady(false)
     }
 
     try {
@@ -476,12 +511,15 @@ function PopoutContent() {
       const selectedVariantIndex = uiState?.selectedVariant ?? 0
       const variants = result.results?.variants
 
+      console.log('[POPOUT LINEPLOT] uiState:', uiState, 'selectedVariantIndex:', selectedVariantIndex)
+
       let dda_matrix, scales, exponents
       if (variants && variants.length > 0) {
         const variant = variants[selectedVariantIndex] || variants[0]
         dda_matrix = variant.dda_matrix
         exponents = variant.exponents || {}
         scales = result.results?.scales
+        console.log('[POPOUT] Using variant for lineplot:', variant.variant_name || variant.variant_id, 'at index:', selectedVariantIndex)
       } else {
         // Fallback to legacy format
         dda_matrix = result.results?.dda_matrix
@@ -495,7 +533,18 @@ function PopoutContent() {
       }
 
       // Prepare data for line plot
-      const channels = uiState?.selectedChannels || Object.keys(dda_matrix)
+      // Use broadcast channels if they exist in the variant, otherwise use all variant channels
+      const broadcastChannels = uiState?.selectedChannels || []
+      const variantChannels = Object.keys(dda_matrix)
+      const validChannels = broadcastChannels.filter((ch: string) => dda_matrix[ch])
+      const channels = validChannels.length > 0 ? validChannels : variantChannels
+
+      console.log('[POPOUT LINEPLOT] Channel selection:', {
+        broadcastChannels,
+        variantChannels,
+        validChannels,
+        finalChannels: channels
+      })
 
       // Validate that we have data for the channels
       const channelData: number[][] = []
@@ -520,16 +569,16 @@ function PopoutContent() {
       const plotData: uPlot.AlignedData = [scales, ...channelData]
 
       // Create series configuration - only for channels that have data
-      const validChannels: string[] = []
+      const channelsForPlot: string[] = []
       channels.forEach((channel: string) => {
         if (dda_matrix[channel] && Array.isArray(dda_matrix[channel]) && dda_matrix[channel].length > 0) {
-          validChannels.push(channel)
+          channelsForPlot.push(channel)
         }
       })
 
       const series: uPlot.Series[] = [
         {}, // x-axis
-        ...validChannels.map((channel, index) => ({
+        ...channelsForPlot.map((channel, index) => ({
           label: `${channel} (α=${exponents[channel]?.toFixed(3) || 'N/A'})`,
           stroke: getChannelColor(index),
           width: 2,
@@ -574,13 +623,30 @@ function PopoutContent() {
 
       uplotLinePlotRef.current = new uPlot(opts, plotData, ddaLinePlotRef.current)
 
+      // Set initial dimensions
+      const initialWidth = ddaLinePlotRef.current.clientWidth
+      const initialHeight = 300
+      setLinePlotDimensions({ width: initialWidth, height: initialHeight })
+
+      // Wait for browser to complete layout before marking as ready
+      // Double RAF ensures we're past the paint phase
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setIsLinePlotReady(true)
+        })
+      })
+
       // Handle resize
       const resizeObserver = new ResizeObserver(() => {
         if (uplotLinePlotRef.current && ddaLinePlotRef.current) {
+          const newWidth = ddaLinePlotRef.current.clientWidth
+          const newHeight = 300
           uplotLinePlotRef.current.setSize({
-            width: ddaLinePlotRef.current.clientWidth,
-            height: 300
+            width: newWidth,
+            height: newHeight
           })
+          // Update dimensions to trigger annotation re-render
+          setLinePlotDimensions({ width: newWidth, height: newHeight })
         }
       })
 
@@ -591,6 +657,7 @@ function PopoutContent() {
         if (uplotLinePlotRef.current) {
           uplotLinePlotRef.current.destroy()
           uplotLinePlotRef.current = null
+          setIsLinePlotReady(false)
         }
       }
     } catch (error) {
@@ -731,6 +798,31 @@ function PopoutContent() {
       return <div className="p-4">No DDA results available</div>
     }
 
+    console.log('[POPOUT] DDA Results data:')
+    console.log('  Annotations:', {
+      hasAnnotations: !!data.annotations,
+      heatmapCount: data.annotations?.heatmap?.length || 0,
+      lineplotCount: data.annotations?.lineplot?.length || 0,
+    })
+    console.log('  Ready states:', {
+      isHeatmapReady,
+      isLinePlotReady,
+      uplotHeatmapRefExists: !!uplotHeatmapRef.current,
+      uplotLinePlotRefExists: !!uplotLinePlotRef.current
+    })
+    console.log('  Heatmap bbox:', uplotHeatmapRef.current?.bbox)
+    console.log('  Lineplot bbox:', uplotLinePlotRef.current?.bbox)
+    console.log('  Heatmap annotation will render:',
+      data.annotations?.heatmap &&
+      data.annotations.heatmap.length > 0 &&
+      isHeatmapReady &&
+      !!uplotHeatmapRef.current)
+    console.log('  Lineplot annotation will render:',
+      data.annotations?.lineplot &&
+      data.annotations.lineplot.length > 0 &&
+      isLinePlotReady &&
+      !!uplotLinePlotRef.current)
+
     const result = data.result
     const uiState = data.uiState
 
@@ -768,20 +860,154 @@ function PopoutContent() {
         {/* DDA Heatmap */}
         <div className="flex-shrink-0 mb-4">
           <h3 className="text-sm font-medium mb-2">DDA Heatmap</h3>
-          <div
-            ref={ddaHeatmapRef}
-            className="w-full border border-gray-200 rounded bg-white"
-            style={{ minHeight: '300px' }}
-          />
+          <div className="relative">
+            <div
+              ref={ddaHeatmapRef}
+              className="w-full border border-gray-200 rounded bg-white"
+              style={{ minHeight: '300px' }}
+            />
+            {/* Annotation overlay */}
+            {data.annotations?.heatmap && data.annotations.heatmap.length > 0 && isHeatmapReady && uplotHeatmapRef.current && (
+              <svg
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: ddaHeatmapRef.current?.clientWidth || 0,
+                  height: ddaHeatmapRef.current?.clientHeight || 0,
+                  pointerEvents: 'none'
+                }}
+              >
+                {data.annotations.heatmap.map((annotation: any) => {
+                  if (!uplotHeatmapRef.current) return null
+                  const bbox = uplotHeatmapRef.current.bbox
+                  if (!bbox) return null
+
+                  const canvasX = uplotHeatmapRef.current.valToPos(annotation.position, 'x')
+                  if (canvasX === null || canvasX === undefined) return null
+
+                  const xPosition = canvasX + bbox.left
+                  const yOffset = bbox.top
+                  const plotHeight = bbox.height
+                  const color = annotation.color || '#ef4444'
+
+                  return (
+                    <g key={annotation.id}>
+                      {/* Vertical dashed line */}
+                      <line
+                        x1={xPosition}
+                        y1={yOffset}
+                        x2={xPosition}
+                        y2={yOffset + plotHeight}
+                        stroke={color}
+                        strokeWidth={2}
+                        strokeDasharray="5,5"
+                        opacity={0.7}
+                      />
+                      {/* Label background */}
+                      <rect
+                        x={xPosition + 5}
+                        y={yOffset + 10}
+                        rx={3}
+                        ry={3}
+                        fill={color}
+                        opacity={0.9}
+                        width={annotation.label.length * 7 + 10}
+                        height={20}
+                      />
+                      {/* Label text */}
+                      <text
+                        x={xPosition + 10}
+                        y={yOffset + 23}
+                        fill="white"
+                        fontSize="12"
+                        fontWeight="500"
+                        className="select-none"
+                      >
+                        {annotation.label}
+                      </text>
+                    </g>
+                  )
+                })}
+              </svg>
+            )}
+          </div>
         </div>
 
         {/* DDA Line Plot */}
         <div className="flex-1 min-h-0 mb-4">
           <h3 className="text-sm font-medium mb-2">DDA Time Series</h3>
-          <div
-            ref={ddaLinePlotRef}
-            className="w-full h-full border border-gray-200 rounded bg-white"
-          />
+          <div className="relative h-full">
+            <div
+              ref={ddaLinePlotRef}
+              className="w-full h-full border border-gray-200 rounded bg-white"
+            />
+            {/* Annotation overlay */}
+            {data.annotations?.lineplot && data.annotations.lineplot.length > 0 && isLinePlotReady && uplotLinePlotRef.current && (
+              <svg
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: ddaLinePlotRef.current?.clientWidth || 0,
+                  height: ddaLinePlotRef.current?.clientHeight || 0,
+                  pointerEvents: 'none'
+                }}
+              >
+                {data.annotations.lineplot.map((annotation: any) => {
+                  if (!uplotLinePlotRef.current) return null
+                  const bbox = uplotLinePlotRef.current.bbox
+                  if (!bbox) return null
+
+                  const canvasX = uplotLinePlotRef.current.valToPos(annotation.position, 'x')
+                  if (canvasX === null || canvasX === undefined) return null
+
+                  const xPosition = canvasX + bbox.left
+                  const yOffset = bbox.top
+                  const plotHeight = bbox.height
+                  const color = annotation.color || '#ef4444'
+
+                  return (
+                    <g key={annotation.id}>
+                      {/* Vertical dashed line */}
+                      <line
+                        x1={xPosition}
+                        y1={yOffset}
+                        x2={xPosition}
+                        y2={yOffset + plotHeight}
+                        stroke={color}
+                        strokeWidth={2}
+                        strokeDasharray="5,5"
+                        opacity={0.7}
+                      />
+                      {/* Label background */}
+                      <rect
+                        x={xPosition + 5}
+                        y={yOffset + 10}
+                        rx={3}
+                        ry={3}
+                        fill={color}
+                        opacity={0.9}
+                        width={annotation.label.length * 7 + 10}
+                        height={20}
+                      />
+                      {/* Label text */}
+                      <text
+                        x={xPosition + 10}
+                        y={yOffset + 23}
+                        fill="white"
+                        fontSize="12"
+                        fontWeight="500"
+                        className="select-none"
+                      >
+                        {annotation.label}
+                      </text>
+                    </g>
+                  )
+                })}
+              </svg>
+            )}
+          </div>
         </div>
 
         {/* Statistics */}

@@ -562,9 +562,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       },
       lineStyle: {
         color: "#ef4444",
-        width: 3,
-        type: "solid" as const,
-        opacity: 0.8,
+        width: 2,
+        type: "dashed" as const,
+        opacity: 0.7,
       },
       emphasis: {
         lineStyle: {
@@ -850,9 +850,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
           },
           lineStyle: {
             color: "#ef4444",
-            width: 3, // Thicker line for easier clicking
-            type: "solid" as const, // Solid line is easier to see and click
-            opacity: 0.8,
+            width: 2,
+            type: "dashed" as const,
+            opacity: 0.7,
           },
           emphasis: {
             // Highlight on hover

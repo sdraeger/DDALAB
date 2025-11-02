@@ -28,6 +28,9 @@ import {
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import { usePopoutWindows } from '@/hooks/usePopoutWindows'
+import { TauriService } from '@/services/tauriService'
+import { exportDDAToCSV, exportDDAToJSON, getDefaultExportFilename } from '@/utils/ddaExport'
+import { canvasToPNG, canvasToSVG, getDefaultPlotFilename } from '@/utils/plotExport'
 import { useDDAAnnotations } from '@/hooks/useAnnotations'
 import { AnnotationContextMenu } from '@/components/annotations/AnnotationContextMenu'
 import { AnnotationMarker } from '@/components/annotations/AnnotationMarker'
@@ -59,6 +62,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   const renderTimerRef = useRef<NodeJS.Timeout | null>(null)
   const lastBroadcastTime = useRef<number>(0)
   const broadcastThrottleMs = 500 // Only broadcast every 500ms max
+  const lastAnnotationCount = useRef<{ heatmap: number; lineplot: number }>({ heatmap: 0, lineplot: 0 })
   const heatmapCleanupRef = useRef<(() => void) | null>(null)
   const linePlotCleanupRef = useRef<(() => void) | null>(null)
   // Track current channel count for ResizeObserver callback (initialized later)
@@ -877,6 +881,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         selectedChannels,
         colorRange,
         autoScale
+      },
+      annotations: {
+        heatmap: heatmapAnnotations.annotations,
+        lineplot: linePlotAnnotations.annotations
       }
     }
 
@@ -886,12 +894,98 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     } catch (error) {
       console.error('Failed to create popout window:', error)
     }
-  }, [result, selectedVariant, colorScheme, viewMode, selectedChannels, colorRange, autoScale, createWindow])
+  }, [result, selectedVariant, colorScheme, viewMode, selectedChannels, colorRange, autoScale, createWindow, heatmapAnnotations.annotations, linePlotAnnotations.annotations])
 
-  const exportPlot = (format: 'png' | 'svg') => {
-    // Implementation would depend on which plot is active
-    console.log(`Exporting ${viewMode} as ${format}`)
-  }
+  const exportPlot = useCallback(async (format: 'png' | 'svg') => {
+    try {
+      let canvas: HTMLCanvasElement | null = null
+      let plotTypeForFilename: 'heatmap' | 'lineplot' = 'heatmap'
+
+      if (viewMode === 'heatmap') {
+        canvas = heatmapRef.current?.querySelector('canvas') || null
+        plotTypeForFilename = 'heatmap'
+      } else if (viewMode === 'lineplot') {
+        canvas = linePlotRef.current?.querySelector('canvas') || null
+        plotTypeForFilename = 'lineplot'
+      } else if (viewMode === 'both') {
+        const heatmapCanvas = heatmapRef.current?.querySelector('canvas')
+        const linePlotCanvas = linePlotRef.current?.querySelector('canvas')
+
+        if (heatmapCanvas && linePlotCanvas) {
+          const combinedCanvas = document.createElement('canvas')
+          combinedCanvas.width = Math.max(heatmapCanvas.width, linePlotCanvas.width)
+          combinedCanvas.height = heatmapCanvas.height + linePlotCanvas.height + 20
+
+          const ctx = combinedCanvas.getContext('2d')
+          if (ctx) {
+            ctx.fillStyle = '#ffffff'
+            ctx.fillRect(0, 0, combinedCanvas.width, combinedCanvas.height)
+            ctx.drawImage(heatmapCanvas, 0, 0)
+            ctx.drawImage(linePlotCanvas, 0, heatmapCanvas.height + 20)
+            canvas = combinedCanvas
+            plotTypeForFilename = 'heatmap'
+          }
+        } else {
+          canvas = (heatmapCanvas || linePlotCanvas) ?? null
+          plotTypeForFilename = heatmapCanvas ? 'heatmap' : 'lineplot'
+        }
+      }
+
+      if (!canvas) {
+        console.error('No canvas found to export')
+        return
+      }
+
+      const resultName = result.name || result.id.slice(0, 8)
+      const variant = availableVariants[selectedVariant]
+      const variantId = variant?.variant_id || 'unknown'
+      const filename = getDefaultPlotFilename(resultName, variantId, plotTypeForFilename, format)
+
+      let imageData: Uint8Array
+      if (format === 'png') {
+        imageData = await canvasToPNG(canvas)
+      } else {
+        imageData = await canvasToSVG(canvas)
+      }
+
+      const savedPath = await TauriService.savePlotExportFile(imageData, format, filename)
+      if (savedPath) {
+        console.log(`Plot exported successfully to: ${savedPath}`)
+      }
+    } catch (error) {
+      console.error(`Failed to export plot as ${format}:`, error)
+    }
+  }, [viewMode, selectedVariant, result, availableVariants])
+
+  const exportData = useCallback(async (format: 'csv' | 'json') => {
+    try {
+      let content: string
+      const variant = availableVariants[selectedVariant]
+      const variantId = variant?.variant_id
+
+      if (format === 'csv') {
+        content = exportDDAToCSV(result, {
+          variant: variantId,
+          channels: selectedChannels,
+          includeMetadata: true
+        })
+      } else {
+        content = exportDDAToJSON(result, {
+          variant: variantId,
+          channels: selectedChannels
+        })
+      }
+
+      const filename = getDefaultExportFilename(result, format, variantId)
+      const savedPath = await TauriService.saveDDAExportFile(content, format, filename)
+
+      if (savedPath) {
+        console.log(`Data exported successfully to: ${savedPath}`)
+      }
+    } catch (error) {
+      console.error(`Failed to export data as ${format}:`, error)
+    }
+  }, [result, selectedVariant, selectedChannels, availableVariants])
 
   // Re-render plots when dependencies change - using IntersectionObserver to detect visibility
   // CRITICAL FIX: Track what we've rendered to prevent duplicate renders
@@ -1007,35 +1101,56 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     }
   }, [viewMode, selectedVariant, result.id, availableVariants.length, selectedChannels.join(',')])
 
-  // TEMPORARILY DISABLED: Broadcast effect to test if it's causing re-render loop
-  // useEffect(() => {
-  //   const now = Date.now()
-  //   const timeSinceLastBroadcast = now - lastBroadcastTime.current
+  // Broadcast state changes to popout windows
+  useEffect(() => {
+    const now = Date.now()
+    const timeSinceLastBroadcast = now - lastBroadcastTime.current
 
-  //   // Throttle broadcasts to prevent excessive updates
-  //   if (timeSinceLastBroadcast < broadcastThrottleMs) {
-  //     return
-  //   }
+    const currentHeatmapCount = heatmapAnnotations.annotations.length
+    const currentLineplotCount = linePlotAnnotations.annotations.length
+    const annotationsChanged =
+      currentHeatmapCount !== lastAnnotationCount.current.heatmap ||
+      currentLineplotCount !== lastAnnotationCount.current.lineplot
 
-  //   lastBroadcastTime.current = now
+    // Throttle broadcasts to prevent excessive updates, UNLESS annotations just loaded
+    if (timeSinceLastBroadcast < broadcastThrottleMs && !annotationsChanged) {
+      return
+    }
 
-  //   // Only broadcast if there are actually pop-out windows of this type
-  //   // This prevents unnecessary work when no windows are listening
-  //   const ddaResultsData = {
-  //     result,
-  //     uiState: {
-  //       selectedVariant,
-  //       colorScheme,
-  //       viewMode,
-  //       selectedChannels,
-  //       colorRange,
-  //       autoScale
-  //     }
-  //   }
+    lastBroadcastTime.current = now
+    lastAnnotationCount.current = { heatmap: currentHeatmapCount, lineplot: currentLineplotCount }
 
-  //   // Fire and forget - don't block on broadcast
-  //   broadcastToType('dda-results', 'data-update', ddaResultsData).catch(console.error)
-  // }, [result.id, selectedVariant, colorScheme, viewMode, selectedChannels, colorRange, autoScale, broadcastToType])
+    // Only broadcast if there are actually pop-out windows of this type
+    // This prevents unnecessary work when no windows are listening
+    const ddaResultsData = {
+      result,
+      uiState: {
+        selectedVariant,
+        colorScheme,
+        viewMode,
+        selectedChannels,
+        colorRange,
+        autoScale
+      },
+      annotations: {
+        heatmap: heatmapAnnotations.annotations,
+        lineplot: linePlotAnnotations.annotations
+      }
+    }
+
+    console.log('[DDA MAIN] Broadcasting data with annotations:', {
+      resultId: result.id,
+      variantIndex: selectedVariant,
+      heatmapCount: heatmapAnnotations.annotations.length,
+      lineplotCount: linePlotAnnotations.annotations.length,
+      heatmapAnnotations: heatmapAnnotations.annotations,
+      lineplotAnnotations: linePlotAnnotations.annotations,
+      bypassedThrottle: annotationsChanged
+    })
+
+    // Fire and forget - don't block on broadcast
+    broadcastToType('dda-results', 'data-update', ddaResultsData).catch(console.error)
+  }, [result.id, selectedVariant, colorScheme, viewMode, selectedChannels, colorRange, autoScale, broadcastToType, heatmapAnnotations.annotations, linePlotAnnotations.annotations])
 
   return (
     <div className="flex flex-col pb-4">
@@ -1050,6 +1165,14 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
               </CardDescription>
             </div>
             <div className="flex items-center space-x-2">
+              <Button variant="outline" size="sm" onClick={() => exportData('csv')}>
+                <Download className="h-4 w-4 mr-2" />
+                Export CSV
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => exportData('json')}>
+                <Download className="h-4 w-4 mr-2" />
+                Export JSON
+              </Button>
               <Button variant="outline" size="sm" onClick={() => exportPlot('png')}>
                 <Download className="h-4 w-4 mr-2" />
                 Export PNG

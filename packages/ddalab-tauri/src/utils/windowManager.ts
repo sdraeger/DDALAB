@@ -210,6 +210,9 @@ class WindowManager {
     console.log(`[WINDOW_MANAGER] Sending data to window ${windowId}:`, {
       eventName: `data-update-${windowId}`,
       dataKeys: data ? Object.keys(data) : 'null',
+      hasAnnotations: !!data?.annotations,
+      heatmapAnnotationCount: data?.annotations?.heatmap?.length || 0,
+      lineplotAnnotationCount: data?.annotations?.lineplot?.length || 0,
       timestamp: Date.now()
     })
 

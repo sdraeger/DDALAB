@@ -88,6 +88,9 @@ fn main() {
             preview_import_annotations,
             import_annotations,
             import_selected_annotations,
+            // DDA export commands
+            save_dda_export_file,
+            save_plot_export_file,
             // Migration commands
             migrate_file_hashes,
             get_hash_migration_status,
