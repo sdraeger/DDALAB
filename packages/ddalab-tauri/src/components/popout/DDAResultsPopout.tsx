@@ -91,14 +91,30 @@ function DDAResultsPopoutContent({ data, isLocked }: DDAResultsPopoutContentProp
     }
   }, [data])
 
-  // Initialize selected channels from variant data (fallback)
+  // Update selected channels when variant changes
   useEffect(() => {
     const currentVariant = getCurrentVariant()
-    if (currentVariant?.dda_matrix && selectedChannels.length === 0 && !data?.uiState) {
+    if (currentVariant?.dda_matrix) {
       const channels = Object.keys(currentVariant.dda_matrix)
-      setSelectedChannels(channels)
+      setSelectedChannels(prev => {
+        const prevSet = new Set(prev)
+        const newSet = new Set(channels)
+        const same = prev.length === channels.length && prev.every(ch => newSet.has(ch))
+
+        if (same) {
+          return prev
+        }
+
+        console.log('[POPOUT] Variant changed, updating selectedChannels:', {
+          variantIndex: selectedVariant,
+          variantId: currentVariant.variant_id,
+          prevChannels: prev,
+          newChannels: channels
+        })
+        return channels
+      })
     }
-  }, [result, selectedVariant, data?.uiState])
+  }, [selectedVariant, result?.id])
 
   // Color schemes
   const colorSchemes: Record<ColorScheme, (t: number) => string> = {
