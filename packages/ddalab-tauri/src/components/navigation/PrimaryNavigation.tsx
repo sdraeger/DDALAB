@@ -4,6 +4,7 @@ import { useAppStore } from '@/store/appStore'
 import { navigationConfig, PrimaryNavTab } from '@/types/navigation'
 import { Home, BarChart3, Brain, Settings, Bell } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { ThemeToggle } from '@/components/ThemeToggle'
 
 const iconMap = {
   Home,
@@ -23,7 +24,7 @@ export function PrimaryNavigation() {
 
   return (
     <div className="border-b bg-background">
-      <div className="flex items-center px-4 py-2">
+      <div className="flex items-center justify-between px-4 py-2">
         <div className="flex items-center space-x-1">
           {Object.values(navigationConfig).map((nav) => {
             const Icon = iconMap[nav.icon as keyof typeof iconMap]
@@ -46,6 +47,7 @@ export function PrimaryNavigation() {
             )
           })}
         </div>
+        <ThemeToggle />
       </div>
     </div>
   )
