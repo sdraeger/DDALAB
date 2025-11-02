@@ -4,6 +4,7 @@ import './globals.css'
 import { QueryProvider } from '@/providers/QueryProvider'
 import { ZoomWrapper } from '@/components/ZoomWrapper'
 import { ZoomKeyboardShortcuts } from '@/components/ZoomKeyboardShortcuts'
+import { ThemeProvider } from '@/components/theme-provider'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -18,16 +19,23 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-        <QueryProvider>
-          <ZoomKeyboardShortcuts />
-          <ZoomWrapper>
-            <div className="min-h-screen bg-background text-foreground">
-              {children}
-            </div>
-          </ZoomWrapper>
-        </QueryProvider>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="light"
+          enableSystem={false}
+          disableTransitionOnChange
+        >
+          <QueryProvider>
+            <ZoomKeyboardShortcuts />
+            <ZoomWrapper>
+              <div className="min-h-screen bg-background text-foreground">
+                {children}
+              </div>
+            </ZoomWrapper>
+          </QueryProvider>
+        </ThemeProvider>
       </body>
     </html>
   )
