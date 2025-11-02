@@ -932,6 +932,48 @@ export class TauriService {
     }
   }
 
+  static async saveDDAExportFile(
+    content: string,
+    format: 'csv' | 'json',
+    defaultFilename: string
+  ): Promise<string | null> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) {
+        throw new Error('Not running in Tauri environment')
+      }
+      return await api.invoke('save_dda_export_file', {
+        content,
+        format,
+        defaultFilename,
+      })
+    } catch (error) {
+      console.error('[DDA] Failed to save DDA export:', error)
+      throw error
+    }
+  }
+
+  static async savePlotExportFile(
+    imageData: Uint8Array,
+    format: 'png' | 'svg',
+    defaultFilename: string
+  ): Promise<string | null> {
+    try {
+      const api = await getTauriAPI()
+      if (!api) {
+        throw new Error('Not running in Tauri environment')
+      }
+      return await api.invoke('save_plot_export_file', {
+        imageData: Array.from(imageData),
+        format,
+        defaultFilename,
+      })
+    } catch (error) {
+      console.error('[DDA] Failed to save plot export:', error)
+      throw error
+    }
+  }
+
   static async deleteAnnotation(annotationId: string): Promise<void> {
     try {
       const api = await getTauriAPI()
