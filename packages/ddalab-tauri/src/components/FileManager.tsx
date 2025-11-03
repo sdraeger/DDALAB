@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 import { EDFFileInfo } from "@/types/api";
@@ -89,6 +89,7 @@ interface FileTreeRendererProps {
   onContextMenu: (e: React.MouseEvent, file: EDFFileInfo) => void;
   onUploadClick: (dir: DirectoryEntry) => void;
   apiService: ApiService;
+  searchQuery: string;
 }
 
 function FileTreeRenderer({
@@ -103,14 +104,22 @@ function FileTreeRenderer({
   onContextMenu,
   onUploadClick,
   apiService,
+  searchQuery,
 }: FileTreeRendererProps) {
   const [loadedDirs, setLoadedDirs] = useState<Map<string, { dirs: DirectoryEntry[], files: EDFFileInfo[] }>>(new Map());
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
+  const [isLoadingForSearch, setIsLoadingForSearch] = useState(false);
+  const loadingAbortControllerRef = useRef<AbortController | null>(null);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Helper function to load directory contents
-  const loadDirectoryContents = async (dirPath: string) => {
-    if (loadedDirs.has(dirPath) || loadingDirs.has(dirPath)) {
-      return; // Already loaded or loading
+  const loadDirectoryContents = async (dirPath: string): Promise<{ dirs: DirectoryEntry[], files: EDFFileInfo[] } | null> => {
+    if (loadedDirs.has(dirPath)) {
+      return loadedDirs.get(dirPath) || null;
+    }
+
+    if (loadingDirs.has(dirPath)) {
+      return null;
     }
 
     setLoadingDirs(prev => new Set(prev).add(dirPath));
@@ -143,9 +152,12 @@ function FileTreeRenderer({
           annotations_count: 0,
         }));
 
-      setLoadedDirs(prev => new Map(prev).set(dirPath, { dirs: subdirs, files: subfiles }));
+      const contents = { dirs: subdirs, files: subfiles };
+      setLoadedDirs(prev => new Map(prev).set(dirPath, contents));
+      return contents;
     } catch (error) {
-      console.error(`Failed to load directory ${dirPath}:`, error);
+      console.error('[SEARCH] Failed to load directory:', dirPath, error);
+      return null;
     } finally {
       setLoadingDirs(prev => {
         const next = new Set(prev);
@@ -183,6 +195,119 @@ function FileTreeRenderer({
     }
     return "bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700";
   };
+
+  // Helper function to check if a string matches the search query - memoized to prevent infinite loops
+  const matchesSearch = useCallback((text: string, query: string): boolean => {
+    if (!query) return true;
+    return text.toLowerCase().includes(query.toLowerCase());
+  }, []);
+
+  // Helper function to check if a node or any of its descendants match the search
+  const nodeOrDescendantsMatch = useCallback((
+    node: FileTreeNode,
+    query: string
+  ): boolean => {
+    if (!query) return true;
+
+    // Check if this node matches
+    const nodeMatches = matchesSearch(node.label, query);
+    if (nodeMatches) return true;
+
+    // Check if any children match (recursively)
+    if (node.children) {
+      return node.children.some((child) => nodeOrDescendantsMatch(child, query));
+    }
+
+    return false;
+  }, [matchesSearch]);
+
+  // Recursive directory loading for search
+  useEffect(() => {
+    // Clear any pending timeout from previous search
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+      searchTimeoutRef.current = null;
+    }
+
+    // Cancel any ongoing loading
+    if (loadingAbortControllerRef.current) {
+      loadingAbortControllerRef.current.abort();
+      loadingAbortControllerRef.current = null;
+    }
+
+    // If no search query, clear state and return
+    if (!searchQuery) {
+      setIsLoadingForSearch(false);
+      return;
+    }
+
+    // Capture current values for closure
+    const currentQuery = searchQuery;
+    const currentDirs = directories;
+
+    // Create new abort controller for this search
+    const abortController = new AbortController();
+    loadingAbortControllerRef.current = abortController;
+
+    const loadRecursively = async () => {
+      setIsLoadingForSearch(true);
+
+      try {
+        // Breadth-first loading with max depth of 3
+        const queue: Array<{path: string, depth: number}> = currentDirs.map(d => ({path: d.path, depth: 0}));
+        const loaded = new Set<string>();
+        const maxDepth = 3;
+
+        while (queue.length > 0 && !abortController.signal.aborted) {
+          const {path, depth} = queue.shift()!;
+
+          // Skip if already loaded or max depth reached
+          if (depth >= maxDepth || loaded.has(path)) {
+            continue;
+          }
+
+          loaded.add(path);
+
+          const contents = await loadDirectoryContents(path);
+
+          if (contents && !abortController.signal.aborted) {
+            // Add subdirectories to queue for next level
+            for (const subdir of contents.dirs) {
+              if (!loaded.has(subdir.path)) {
+                queue.push({path: subdir.path, depth: depth + 1});
+              }
+            }
+          }
+        }
+
+        if (!abortController.signal.aborted) {
+          setIsLoadingForSearch(false);
+        }
+      } catch (error) {
+        if (!abortController.signal.aborted) {
+          console.error('[SEARCH] Error during recursive load:', error);
+          setIsLoadingForSearch(false);
+        }
+      }
+    };
+
+    // Debounce the loading by 300ms
+    searchTimeoutRef.current = setTimeout(() => {
+      loadRecursively();
+    }, 300);
+
+    // Cleanup function
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+        searchTimeoutRef.current = null;
+      }
+      if (loadingAbortControllerRef.current) {
+        loadingAbortControllerRef.current.abort();
+        loadingAbortControllerRef.current = null;
+      }
+    };
+  }, [searchQuery]); // Only depend on searchQuery to prevent re-triggering during directory loads
 
   // Transform directories and files to tree nodes
   const treeData: FileTreeNode[] = useMemo(() => {
@@ -323,11 +448,45 @@ function FileTreeRenderer({
       };
     };
 
-    return [
+    // Create all nodes
+    const allNodes = [
       ...directories.map(createDirectoryNode),
       ...files.map(createFileNode)
     ];
-  }, [directories, files, loadedDirs, selectedFile, isOpenNeuroAuthenticated, pendingFileSelection, loadFileInfoMutationPending, onContextMenu, onUploadClick, getFileFormat, getModalityBadgeClass]);
+
+    // Filter nodes based on search query
+    if (searchQuery) {
+      const filterNodes = (nodes: FileTreeNode[]): FileTreeNode[] => {
+        return nodes
+          .map((node) => {
+            // If node has children, filter them recursively
+            if (node.children) {
+              const filteredChildren = filterNodes(node.children);
+
+              // Keep this node if it matches or has matching children
+              const nodeMatches = matchesSearch(node.label, searchQuery);
+
+              if (nodeMatches || filteredChildren.length > 0) {
+                return {
+                  ...node,
+                  children: filteredChildren.length > 0 ? filteredChildren : node.children,
+                };
+              }
+              return null;
+            }
+
+            // For leaf nodes, only keep if they match
+            const matches = matchesSearch(node.label, searchQuery);
+            return matches ? node : null;
+          })
+          .filter((node): node is FileTreeNode => node !== null);
+      };
+
+      return filterNodes(allNodes);
+    }
+
+    return allNodes;
+  }, [directories, files, loadedDirs, selectedFile, isOpenNeuroAuthenticated, pendingFileSelection, loadFileInfoMutationPending, onContextMenu, onUploadClick, getFileFormat, getModalityBadgeClass, searchQuery, matchesSearch, isLoadingForSearch]);
 
   const handleSelection = (selection: FileTreeSelection) => {
     if (!selection.node?.metadata) return;
@@ -340,21 +499,53 @@ function FileTreeRenderer({
       if (dir.isBIDS) {
         onDirectorySelect(dir);
       } else {
-        // Load directory contents when clicked
-        loadDirectoryContents(dir.path);
+        // Load directory contents when clicked - defer to avoid setState during render
+        setTimeout(() => {
+          loadDirectoryContents(dir.path);
+        }, 0);
       }
     } else if (type === "file") {
       onFileSelect(data as EDFFileInfo);
     }
   };
 
+  // Calculate which nodes should be initially expanded for search
+  const initialExpandedNodes = useMemo(() => {
+    if (!searchQuery) return [];
+
+    const expandedIds: string[] = [];
+
+    const collectExpandedNodes = (nodes: FileTreeNode[]) => {
+      nodes.forEach((node) => {
+        if (node.children && node.children.length > 0) {
+          // Expand any directory that has children (which means it has matches)
+          expandedIds.push(node.id);
+          collectExpandedNodes(node.children);
+        }
+      });
+    };
+
+    collectExpandedNodes(treeData);
+    return expandedIds;
+  }, [searchQuery, treeData]);
+
   return (
-    <FileTreeInput
-      data={treeData}
-      onChange={handleSelection}
-      size="md"
-      className="border-0 bg-transparent p-0"
-    />
+    <>
+      {isLoadingForSearch && searchQuery && (
+        <div className="flex items-center gap-2 mb-2 text-sm text-muted-foreground">
+          <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" />
+          <span>Loading directories for search...</span>
+        </div>
+      )}
+      <FileTreeInput
+        data={treeData}
+        onChange={handleSelection}
+        size="md"
+        className="border-0 bg-transparent p-0"
+        initialExpandedNodes={initialExpandedNodes}
+        key={searchQuery} // Re-mount when search changes to apply new expanded state
+      />
+    </>
   );
 }
 
@@ -1089,9 +1280,7 @@ export function FileManager({ apiService }: FileManagerProps) {
             <Input
               placeholder="Search files..."
               value={searchQuery}
-              onChange={(e) =>
-                updateFileManagerState({ searchQuery: e.target.value })
-              }
+              onChange={(e) => updateFileManagerState({ searchQuery: e.target.value })}
               className="pl-8"
             />
           </div>
@@ -1166,7 +1355,8 @@ export function FileManager({ apiService }: FileManagerProps) {
             </div>
           </div>
         ) : filteredAndSortedFiles.length === 0 &&
-          filteredDirectories.length === 0 ? (
+          filteredDirectories.length === 0 &&
+          !searchQuery ? (
           <div className="text-center py-8 text-muted-foreground">
             <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
             {!dataDirectoryPath ? (
@@ -1183,17 +1373,15 @@ export function FileManager({ apiService }: FileManagerProps) {
               <div className="space-y-2">
                 <p>No files found</p>
                 <p className="text-sm">
-                  {searchQuery
-                    ? "Try adjusting your search query"
-                    : "No EDF, CSV, or ASCII files in this directory"}
+                  No EDF, CSV, or ASCII files in this directory
                 </p>
               </div>
             )}
           </div>
         ) : (
           <FileTreeRenderer
-            directories={filteredDirectories}
-            files={filteredAndSortedFiles}
+            directories={searchQuery ? directoriesWithBIDS : filteredDirectories}
+            files={searchQuery ? files : filteredAndSortedFiles}
             selectedFile={selectedFile}
             isOpenNeuroAuthenticated={isOpenNeuroAuthenticated}
             pendingFileSelection={pendingFileSelection}
@@ -1206,6 +1394,7 @@ export function FileManager({ apiService }: FileManagerProps) {
               setShowUploadDialog(true);
             }}
             apiService={apiService}
+            searchQuery={searchQuery}
           />
         )}
       </CardContent>
