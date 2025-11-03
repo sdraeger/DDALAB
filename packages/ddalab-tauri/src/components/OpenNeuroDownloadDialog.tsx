@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Download, Folder, AlertCircle, CheckCircle, XCircle, Loader, Info, ChevronRight, ChevronDown, File, FolderOpen } from 'lucide-react';
 import { openNeuroService, type DownloadOptions, type DownloadProgress, type OpenNeuroDataset, type OpenNeuroFile } from '../services/openNeuroService';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -321,7 +321,7 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
   };
 
-  const renderFileTree = (node: FileTreeNode, level: number = 0): JSX.Element => {
+  const renderFileTree = (node: FileTreeNode, level: number = 0): React.JSX.Element => {
     const hasChildren = node.children && node.children.length > 0;
 
     return (
