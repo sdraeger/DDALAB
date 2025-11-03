@@ -40,6 +40,29 @@ rm -rf "${BUNDLE_DIR}"
 mkdir -p "${MACOS_DIR}"
 mkdir -p "${RESOURCES_DIR}"
 
+# Generate .icns file from PNG icons
+echo "🎨 Generating app icon..."
+ICONSET_DIR="target/debug/icon.iconset"
+rm -rf "${ICONSET_DIR}"
+mkdir -p "${ICONSET_DIR}"
+
+# Create iconset from PNG files (macOS needs specific sizes)
+sips -z 16 16     icons/32x32.png --out "${ICONSET_DIR}/icon_16x16.png" > /dev/null 2>&1
+sips -z 32 32     icons/32x32.png --out "${ICONSET_DIR}/icon_16x16@2x.png" > /dev/null 2>&1
+sips -z 32 32     icons/32x32.png --out "${ICONSET_DIR}/icon_32x32.png" > /dev/null 2>&1
+sips -z 64 64     icons/128x128.png --out "${ICONSET_DIR}/icon_32x32@2x.png" > /dev/null 2>&1
+sips -z 128 128   icons/128x128.png --out "${ICONSET_DIR}/icon_128x128.png" > /dev/null 2>&1
+sips -z 256 256   icons/128x128@2x.png --out "${ICONSET_DIR}/icon_128x128@2x.png" > /dev/null 2>&1
+sips -z 256 256   icons/128x128@2x.png --out "${ICONSET_DIR}/icon_256x256.png" > /dev/null 2>&1
+sips -z 512 512   icons/128x128@2x.png --out "${ICONSET_DIR}/icon_256x256@2x.png" > /dev/null 2>&1
+sips -z 512 512   icons/128x128@2x.png --out "${ICONSET_DIR}/icon_512x512.png" > /dev/null 2>&1
+# For 1024x1024, we'll just use the 512 upscaled as we don't have a larger source
+sips -z 1024 1024 icons/128x128@2x.png --out "${ICONSET_DIR}/icon_512x512@2x.png" > /dev/null 2>&1
+
+# Convert iconset to icns
+iconutil -c icns "${ICONSET_DIR}" -o "${RESOURCES_DIR}/${APP_NAME}.icns"
+rm -rf "${ICONSET_DIR}"
+
 # Copy binary
 cp "target/debug/ddalab-tauri" "${MACOS_DIR}/${APP_NAME}"
 
@@ -47,8 +70,13 @@ cp "target/debug/ddalab-tauri" "${MACOS_DIR}/${APP_NAME}"
 cp -r "../out" "${RESOURCES_DIR}/"
 
 # Copy resources (DDA binary, etc)
-cp "../../../bin/run_DDA_AsciiEdf" "${RESOURCES_DIR}/"
+mkdir -p "${RESOURCES_DIR}/bin"
+cp "../../../bin/run_DDA_AsciiEdf" "${RESOURCES_DIR}/bin/"
 cp "popout.html" "${RESOURCES_DIR}/"
+
+# Make binaries executable
+chmod +x "${MACOS_DIR}/${APP_NAME}"
+chmod +x "${RESOURCES_DIR}/bin/run_DDA_AsciiEdf"
 
 # Create Info.plist
 cat > "${CONTENTS_DIR}/Info.plist" << EOF
@@ -68,9 +96,23 @@ cat > "${CONTENTS_DIR}/Info.plist" << EOF
     <string>0.1.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string>${APP_NAME}.icns</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
 </dict>
 </plist>
 EOF
+
+# Code sign the app bundle (ad-hoc signing for development)
+echo "🔐 Code signing app bundle..."
+codesign --force --deep --sign - "${BUNDLE_DIR}"
+
+if [ $? -eq 0 ]; then
+    echo "✅ Code signing successful"
+else
+    echo "⚠️  Code signing failed, but app should still be usable"
+fi
 
 cd ..
 

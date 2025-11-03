@@ -31,6 +31,17 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
 
   const menuRef = useRef<HTMLDivElement>(null)
 
+  // Update state when existingAnnotation changes
+  useEffect(() => {
+    setLabel(existingAnnotation?.label || '')
+    setDescription(existingAnnotation?.description || '')
+    if (existingAnnotation?.visible_in_plots) {
+      setVisibleInPlots(new Set(existingAnnotation.visible_in_plots))
+    } else {
+      setVisibleInPlots(new Set(availablePlots.map(p => p.id)))
+    }
+  }, [existingAnnotation, availablePlots])
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {

@@ -731,19 +731,49 @@ fn get_dda_binary_path(state: &ApiState) -> Result<PathBuf, StatusCode> {
         "run_DDA_AsciiEdf"
     };
 
-    let possible_paths = vec![
+    let mut possible_paths = vec![
         repo_root.join("bin").join(binary_name),
         PathBuf::from("./bin").join(binary_name),
+    ];
+
+    // When running in a bundled app, resolve paths relative to the executable
+    // This handles cases where the app is launched from a different working directory
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            // On macOS: DDALAB.app/Contents/MacOS/DDALAB -> check ../Resources/
+            // On Linux/Windows: check relative to exe directory
+            possible_paths.push(
+                exe_dir
+                    .join("..")
+                    .join("Resources")
+                    .join("bin")
+                    .join(binary_name),
+            );
+            possible_paths.push(exe_dir.join("..").join("Resources").join(binary_name));
+            possible_paths.push(exe_dir.join("bin").join(binary_name));
+            possible_paths.push(exe_dir.join(binary_name));
+        }
+    }
+
+    // Add remaining fallback paths
+    possible_paths.extend(vec![
         PathBuf::from("../Resources/bin").join(binary_name),
         PathBuf::from("../Resources").join(binary_name),
         PathBuf::from(".").join(binary_name),
         PathBuf::from("./resources/bin").join(binary_name),
         PathBuf::from("./resources").join(binary_name),
         PathBuf::from("/app/bin").join(binary_name),
-    ];
+    ]);
 
     for path in &possible_paths {
-        if path.exists() {
+        // Canonicalize to resolve .. and . components, then check existence
+        if let Ok(canonical_path) = path.canonicalize() {
+            if canonical_path.exists() {
+                log::info!("Found DDA binary at: {:?}", canonical_path);
+                return Ok(canonical_path);
+            }
+        } else if path.exists() {
+            // Fallback if canonicalize fails (e.g., for relative paths)
             log::info!("Found DDA binary at: {:?}", path);
             return Ok(path.clone());
         }

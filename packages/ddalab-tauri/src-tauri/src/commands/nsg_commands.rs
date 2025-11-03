@@ -11,7 +11,7 @@ pub struct NSGCredentialsResponse {
     pub app_key: String,
 }
 
-/// Save NSG credentials to encrypted storage
+/// Save NSG credentials to encrypted storage and reinitialize NSG components
 #[tauri::command]
 pub async fn save_nsg_credentials(
     username: String,
@@ -22,7 +22,12 @@ pub async fn save_nsg_credentials(
     let secrets_db = state.get_secrets_db();
     secrets_db
         .save_nsg_credentials(&username, &password, &app_key)
-        .map_err(|e| format!("Failed to save NSG credentials: {}", e))
+        .map_err(|e| format!("Failed to save NSG credentials: {}", e))?;
+
+    // Reinitialize NSG components with the new credentials
+    state.reinitialize_nsg_components()?;
+
+    Ok(())
 }
 
 /// Get NSG credentials from encrypted storage

@@ -519,6 +519,18 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
             }
           },
           hooks: {
+            init: [
+              u => {
+                // Attach context menu handler to uPlot overlay
+                u.over.addEventListener('contextmenu', (e: MouseEvent) => {
+                  e.preventDefault()
+                  const rect = u.over.getBoundingClientRect()
+                  const x = e.clientX - rect.left
+                  const scaleValue = u.posToVal(x, 'x')
+                  heatmapAnnotations.openContextMenu(e.clientX, e.clientY, scaleValue)
+                })
+              }
+            ],
             setSelect: [
               u => {
                 const min = u.select.left
@@ -776,6 +788,18 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
           }
         },
         hooks: {
+          init: [
+            u => {
+              // Attach context menu handler to uPlot overlay
+              u.over.addEventListener('contextmenu', (e: MouseEvent) => {
+                e.preventDefault()
+                const rect = u.over.getBoundingClientRect()
+                const x = e.clientX - rect.left
+                const scaleValue = u.posToVal(x, 'x')
+                linePlotAnnotations.openContextMenu(e.clientX, e.clientY, scaleValue)
+              })
+            }
+          ],
           setSelect: [
             u => {
               const min = u.select.left
@@ -1565,15 +1589,6 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                 <div
                   className="w-full relative"
                   style={{ minHeight: Math.max(300, selectedChannels.length * 30 + 100) }}
-                  onContextMenu={(e) => {
-                    e.preventDefault()
-                    const rect = heatmapRef.current?.getBoundingClientRect()
-                    if (rect && uplotHeatmapRef.current) {
-                      const x = e.clientX - rect.left
-                      const scaleValue = uplotHeatmapRef.current.posToVal(x, 'x')
-                      heatmapAnnotations.openContextMenu(e.clientX, e.clientY, scaleValue)
-                    }
-                  }}
                 >
                   {(isProcessingData || isRenderingHeatmap) && (
                     <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
@@ -1673,15 +1688,6 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
               </CardHeader>
               <CardContent>
                 <div className="w-full h-[400px] relative"
-                  onContextMenu={(e) => {
-                    e.preventDefault()
-                    const rect = linePlotRef.current?.getBoundingClientRect()
-                    if (rect && uplotLinePlotRef.current) {
-                      const x = e.clientX - rect.left
-                      const scaleValue = uplotLinePlotRef.current.posToVal(x, 'x')
-                      linePlotAnnotations.openContextMenu(e.clientX, e.clientY, scaleValue)
-                    }
-                  }}
                 >
                   {(isProcessingData || isRenderingLinePlot) && (
                     <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
