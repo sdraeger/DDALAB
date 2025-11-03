@@ -177,20 +177,21 @@ impl NIfTIFileReader {
                 let num_voxels = shape[0] * shape[1] * shape[2];
                 let num_timepoints = shape[3];
 
-                let mut result = vec![vec![0.0; num_timepoints]; num_voxels];
+                // Parallelize voxel processing for better performance on large volumes
+                let result: Vec<Vec<f64>> = (0..num_voxels)
+                    .into_par_iter()
+                    .map(|voxel_idx| {
+                        // Calculate x, y, z from voxel_idx
+                        let x = voxel_idx % shape[0];
+                        let y = (voxel_idx / shape[0]) % shape[1];
+                        let z = voxel_idx / (shape[0] * shape[1]);
 
-                // Iterate through volume and fill result
-                for t in 0..num_timepoints {
-                    for z in 0..shape[2] {
-                        for y in 0..shape[1] {
-                            for x in 0..shape[0] {
-                                let voxel_idx = x + y * shape[0] + z * shape[0] * shape[1];
-                                let value = ndarray[[x, y, z, t]] as f64;
-                                result[voxel_idx][t] = value;
-                            }
-                        }
-                    }
-                }
+                        // Extract timeseries for this voxel
+                        (0..num_timepoints)
+                            .map(|t| ndarray[[x, y, z, t]] as f64)
+                            .collect()
+                    })
+                    .collect();
 
                 Ok(result)
             }
