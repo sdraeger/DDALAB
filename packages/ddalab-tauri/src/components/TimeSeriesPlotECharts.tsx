@@ -48,7 +48,7 @@ import * as echarts from "echarts";
 import { usePopoutWindows } from "@/hooks/usePopoutWindows";
 import { useTimeSeriesAnnotations } from "@/hooks/useAnnotations";
 import { AnnotationContextMenu } from "@/components/annotations/AnnotationContextMenu";
-import { PlotInfo } from "@/types/annotations";
+import { PlotInfo, PlotAnnotation } from "@/types/annotations";
 import { PreprocessingOptions } from "@/types/persistence";
 import {
   applyPreprocessing,
@@ -100,27 +100,17 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   }, []);
 
   // Subscribe to annotation changes directly from store for instant re-renders
-  // Use a stable selector that only changes when annotations actually change
   const filePath = selectedFile?.file_path;
-  const annotationsFromStore = useAppStore(
-    (state) => {
-      if (!filePath) return [];
-      const fileAnnotations = state.annotations.timeSeries[filePath];
-      return fileAnnotations?.globalAnnotations || [];
-    },
-    (a, b) => {
-      // Return true if equal (prevents re-render), false if different (triggers re-render)
-      if (a.length !== b.length) return false;
-      if (a.length === 0 && b.length === 0) return true;
-      return a.every(
-        (ann, i) =>
-          b[i] &&
-          ann.id === b[i].id &&
-          ann.position === b[i].position &&
-          ann.label === b[i].label
-      );
-    }
+
+  // Get file annotations object from store (stable reference)
+  const fileAnnotations = useAppStore(state =>
+    filePath ? state.annotations.timeSeries[filePath] : undefined
   );
+
+  // Memoize the annotations array to prevent infinite loops
+  const annotationsFromStore = useMemo(() => {
+    return fileAnnotations?.globalAnnotations || [];
+  }, [fileAnnotations]);
 
   // Debug log when annotations change
   useEffect(() => {

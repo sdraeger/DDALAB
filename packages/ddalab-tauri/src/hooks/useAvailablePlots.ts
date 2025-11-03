@@ -1,21 +1,22 @@
 import { useMemo, useRef } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { PlotInfo } from '@/types/annotations'
-import { shallow } from 'zustand/shallow'
+import { DDAResult } from '@/types/api'
 
 /**
  * Hook to get list of all available plots for annotation visibility control
  * Includes timeseries plot + all DDA result plots for the current file
  */
 export const useAvailablePlots = (): PlotInfo[] => {
-  // Use shallow equality to prevent re-renders when file object is recreated but content is same
+  // Get current file path
   const currentFilePath = useAppStore(
-    state => state.fileManager.selectedFile?.file_path,
-    (a, b) => a === b
+    state => state.fileManager.selectedFile?.file_path
   )
 
-  // Use shallow equality to prevent re-renders when history array is recreated but content is same
-  const analysisHistory = useAppStore(state => state.dda.analysisHistory, shallow)
+  // Get analysis history with proper typing
+  const analysisHistory = useAppStore(
+    (state): DDAResult[] => state.dda.analysisHistory
+  )
 
   // Keep a stable reference to previous plots to avoid recreating array if content is identical
   const previousPlotsRef = useRef<PlotInfo[]>([])
