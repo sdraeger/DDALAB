@@ -32,8 +32,7 @@ pub async fn save_dda_export_file(
             .ok_or_else(|| "Invalid file path".to_string())?;
         let path_str = path.to_string_lossy().to_string();
 
-        std::fs::write(path, content)
-            .map_err(|e| format!("Failed to write file: {}", e))?;
+        std::fs::write(path, content).map_err(|e| format!("Failed to write file: {}", e))?;
 
         log::info!("Successfully saved DDA export to: {}", path_str);
 
@@ -77,8 +76,7 @@ pub async fn save_plot_export_file(
             .ok_or_else(|| "Invalid file path".to_string())?;
         let path_str = path.to_string_lossy().to_string();
 
-        std::fs::write(path, image_data)
-            .map_err(|e| format!("Failed to write file: {}", e))?;
+        std::fs::write(path, image_data).map_err(|e| format!("Failed to write file: {}", e))?;
 
         log::info!("Successfully saved plot export to: {}", path_str);
 
