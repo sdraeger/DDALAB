@@ -707,7 +707,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   }, []);
 
   // Use ref to create stable loadChunk function that doesn't recreate on every dependency change
-  const loadChunkRef = useRef<(startTime: number) => Promise<void>>();
+  const loadChunkRef = useRef<((startTime: number) => Promise<void>) | null>(null);
 
   loadChunkRef.current = async (startTime: number) => {
     console.log("=== LOAD CHUNK CALLED ===", {

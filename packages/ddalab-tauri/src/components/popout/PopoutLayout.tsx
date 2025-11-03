@@ -228,10 +228,10 @@ export function PopoutLayout({
 
       {/* Content area */}
       <div className="flex-1 overflow-hidden">
-        {React.cloneElement(children as React.ReactElement, { 
-          data, 
-          isLocked, 
-          windowId: currentWindowId 
+        {React.cloneElement(children as React.ReactElement<any>, {
+          data,
+          isLocked,
+          windowId: currentWindowId
         })}
       </div>
 

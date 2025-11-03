@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { EDFFileInfo } from '@/types/api'
 import { useAppStore } from '@/store/appStore'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,9 +22,11 @@ interface FileInfoCardProps {
 }
 
 export function FileInfoCard({ fileInfo }: FileInfoCardProps) {
-  // Get current annotation count from state
-  const annotations = useAppStore(state => {
-    const fileAnnotations = state.annotations.timeSeries[fileInfo.file_path]
+  // Get file annotations object from state (stable reference)
+  const fileAnnotations = useAppStore(state => state.annotations.timeSeries[fileInfo.file_path])
+
+  // Memoize annotation counts to prevent infinite loops
+  const annotations = useMemo(() => {
     if (!fileAnnotations) return { globalCount: 0, channelCount: 0 }
 
     const globalCount = fileAnnotations.globalAnnotations?.length || 0
@@ -31,7 +34,7 @@ export function FileInfoCard({ fileInfo }: FileInfoCardProps) {
       .reduce((sum, anns) => sum + anns.length, 0)
 
     return { globalCount, channelCount }
-  })
+  }, [fileAnnotations])
 
   const totalAnnotationCount = annotations.globalCount + annotations.channelCount
   const formatFileSize = (bytes: number): string => {

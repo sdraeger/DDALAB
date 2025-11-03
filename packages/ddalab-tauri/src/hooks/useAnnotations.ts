@@ -4,7 +4,6 @@ import { PlotAnnotation } from '@/types/annotations'
 import { DDAResult } from '@/types/api'
 import { timeSeriesAnnotationToDDA } from '@/utils/annotationSync'
 import { useAvailablePlots } from './useAvailablePlots'
-import { shallow } from 'zustand/shallow'
 
 interface UseTimeSeriesAnnotationsOptions {
   filePath: string
@@ -25,15 +24,18 @@ export const useTimeSeriesAnnotations = ({ filePath, channel }: UseTimeSeriesAnn
   const deleteTimeSeriesAnnotation = useAppStore(state => state.deleteTimeSeriesAnnotation)
   const availablePlots = useAvailablePlots()
 
-  const annotations = useAppStore(state => {
-    const fileAnnotations = state.annotations.timeSeries[filePath]
+  // Get file annotations object from store
+  const fileAnnotations = useAppStore(state => state.annotations.timeSeries[filePath])
+
+  // Memoize combined and filtered annotations
+  const annotations = useMemo(() => {
     if (!fileAnnotations) return []
 
     let allAnnotations: PlotAnnotation[] = []
     if (channel && fileAnnotations.channelAnnotations?.[channel]) {
       allAnnotations = [...fileAnnotations.globalAnnotations, ...fileAnnotations.channelAnnotations[channel]]
     } else {
-      allAnnotations = fileAnnotations.globalAnnotations
+      allAnnotations = fileAnnotations.globalAnnotations || []
     }
 
     // Filter annotations based on plot visibility
@@ -43,7 +45,7 @@ export const useTimeSeriesAnnotations = ({ filePath, channel }: UseTimeSeriesAnn
       // Check if timeseries plot is in the visibility list
       return ann.visible_in_plots.includes('timeseries')
     })
-  })
+  }, [fileAnnotations, channel])
 
   const [contextMenu, setContextMenu] = useState<{
     x: number
@@ -126,23 +128,21 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
   const endTime = ddaResult.parameters.end_time || Infinity
   const filePath = ddaResult.file_path
 
-  // Get DDA-specific annotations with shallow equality to prevent re-renders
-  const ddaAnnotations = useAppStore(
-    state => {
-      const key = `${resultId}_${variantId}_${plotType}`
-      return state.annotations.ddaResults[key]?.annotations || []
-    },
-    shallow  // Only re-render if array contents actually changed
-  )
+  // Get DDA-specific annotation object from store (stable reference)
+  const key = `${resultId}_${variantId}_${plotType}`
+  const ddaAnnotationObj = useAppStore(state => state.annotations.ddaResults[key])
 
-  // Get timeseries annotations with shallow equality
-  const timeSeriesAnnotations = useAppStore(
-    state => {
-      const fileAnnotations = state.annotations.timeSeries[filePath]
-      return fileAnnotations?.globalAnnotations || []
-    },
-    shallow  // Only re-render if array contents actually changed
-  )
+  // Get file annotations object from store (stable reference)
+  const fileAnnotations = useAppStore(state => state.annotations.timeSeries[filePath])
+
+  // Memoize the raw annotation arrays
+  const ddaAnnotations = useMemo(() => {
+    return ddaAnnotationObj?.annotations || []
+  }, [ddaAnnotationObj])
+
+  const timeSeriesAnnotations = useMemo(() => {
+    return fileAnnotations?.globalAnnotations || []
+  }, [fileAnnotations])
 
   // Merge both annotation sets with coordinate transformation
   const annotations = useMemo(() => {
@@ -187,7 +187,8 @@ export const useDDAAnnotations = ({ resultId, variantId, plotType, ddaResult, sa
     resultId,  // Use resultId as proxy for ddaResult changes
     sampleRate,
     variantId,
-    plotType
+    plotType,
+    ddaResult
   ])
 
   const [contextMenu, setContextMenu] = useState<{

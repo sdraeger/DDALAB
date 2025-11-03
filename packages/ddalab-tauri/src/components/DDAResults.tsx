@@ -49,10 +49,8 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   const { createWindow, broadcastToType } = usePopoutWindows()
 
   // Only select sample_rate, not the entire fileManager object
-  // Use shallow equality to prevent re-renders when value hasn't changed
   const sampleRate = useAppStore(
-    state => state.fileManager.selectedFile?.sample_rate || 256,
-    (a, b) => a === b  // Only re-render if sample rate actually changed
+    state => state.fileManager.selectedFile?.sample_rate || 256
   )
   const heatmapRef = useRef<HTMLDivElement>(null)
   const linePlotRef = useRef<HTMLDivElement>(null)
