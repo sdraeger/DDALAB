@@ -225,7 +225,8 @@ impl ProgressiveOverviewGenerator {
 
                 // Downsample this segment using min-max bucketing
                 let segment_start_bucket = current_position / bucket_size;
-                let segment_end_bucket = (segment_end + bucket_size - 1) / bucket_size;
+                // Use saturating arithmetic to prevent overflow
+                let segment_end_bucket = segment_end.saturating_add(bucket_size).saturating_sub(1) / bucket_size;
 
                 let bucket_indices: Vec<usize> =
                     (segment_start_bucket..segment_end_bucket).collect();
@@ -240,7 +241,8 @@ impl ProgressiveOverviewGenerator {
                     .par_iter()
                     .filter_map(|&bucket_idx| {
                         let bucket_start = bucket_idx * bucket_size;
-                        let bucket_end = ((bucket_idx + 1) * bucket_size).min(total_samples);
+                        // Use saturating arithmetic to prevent overflow
+                        let bucket_end = bucket_idx.saturating_add(1).saturating_mul(bucket_size).min(total_samples);
 
                         let data_start = bucket_start.max(current_position);
                         let data_end = bucket_end.min(segment_end);
@@ -288,12 +290,14 @@ impl ProgressiveOverviewGenerator {
                 current_position = segment_end;
 
                 // Update progress in database after each segment
-                let samples_processed = channel_idx * total_samples + current_position;
+                // Use saturating arithmetic to prevent overflow
+                let samples_processed = channel_idx.saturating_mul(total_samples).saturating_add(current_position);
+                let total_work = channels_to_read.len().saturating_mul(total_samples);
                 self.cache_db
                     .update_progress(
                         cache_metadata.id,
                         samples_processed,
-                        channels_to_read.len() * total_samples,
+                        total_work,
                     )
                     .map_err(|e| format!("Failed to update progress: {}", e))?;
             }
