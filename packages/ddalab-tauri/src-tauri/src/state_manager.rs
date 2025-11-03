@@ -16,9 +16,10 @@ pub struct AppStateManager {
     file_state_db: Arc<FileStateDatabase>,
     secrets_db: Arc<SecretsDatabase>,
     notifications_db: Arc<NotificationsDatabase>,
-    nsg_manager: Option<Arc<NSGJobManager>>,
-    nsg_poller: Option<Arc<NSGJobPoller>>,
+    nsg_manager: Arc<RwLock<Option<Arc<NSGJobManager>>>>,
+    nsg_poller: Arc<RwLock<Option<Arc<NSGJobPoller>>>>,
     ui_state_path: PathBuf,
+    app_config_dir: PathBuf,
     auto_save_enabled: bool,
     analysis_preview_data: Arc<RwLock<HashMap<String, serde_json::Value>>>,
 }
@@ -82,7 +83,7 @@ impl AppStateManager {
         eprintln!("🚀 [STATE_MANAGER] NSG Jobs DB: {:?}", nsg_jobs_db_path);
         eprintln!("📁 [STATE_MANAGER] NSG Output Dir: {:?}", nsg_output_dir);
 
-        let (nsg_manager, nsg_poller) = match secrets_db.has_nsg_credentials() {
+        let (nsg_manager_opt, nsg_poller_opt) = match secrets_db.has_nsg_credentials() {
             Ok(true) => {
                 eprintln!(
                     "🔑 [STATE_MANAGER] NSG credentials found, initializing NSG components..."
@@ -109,6 +110,9 @@ impl AppStateManager {
             }
         };
 
+        let nsg_manager = Arc::new(RwLock::new(nsg_manager_opt));
+        let nsg_poller = Arc::new(RwLock::new(nsg_poller_opt));
+
         let manager = Self {
             ui_state: Arc::new(RwLock::new(ui_state)),
             analysis_db: Arc::new(analysis_db),
@@ -119,6 +123,7 @@ impl AppStateManager {
             nsg_manager,
             nsg_poller,
             ui_state_path,
+            app_config_dir: app_config_dir.clone(),
             auto_save_enabled: true,
             analysis_preview_data: Arc::new(RwLock::new(HashMap::new())),
         };
@@ -325,12 +330,37 @@ impl AppStateManager {
         preview_data.get(window_id).cloned()
     }
 
-    pub fn get_nsg_manager(&self) -> Option<&Arc<NSGJobManager>> {
-        self.nsg_manager.as_ref()
+    pub fn get_nsg_manager(&self) -> Option<Arc<NSGJobManager>> {
+        self.nsg_manager.read().clone()
     }
 
-    pub fn get_nsg_poller(&self) -> Option<&Arc<NSGJobPoller>> {
-        self.nsg_poller.as_ref()
+    pub fn get_nsg_poller(&self) -> Option<Arc<NSGJobPoller>> {
+        self.nsg_poller.read().clone()
+    }
+
+    pub fn reinitialize_nsg_components(&self) -> Result<(), String> {
+        eprintln!("🔄 [STATE_MANAGER] Reinitializing NSG components...");
+
+        let nsg_jobs_db_path = self.app_config_dir.join("nsg_jobs.db");
+        let nsg_output_dir = self.app_config_dir.join("nsg_output");
+
+        match Self::init_nsg_components(&self.secrets_db, &nsg_jobs_db_path, &nsg_output_dir) {
+            Ok((manager, poller)) => {
+                *self.nsg_manager.write() = Some(manager);
+                *self.nsg_poller.write() = Some(poller);
+                eprintln!("✅ [STATE_MANAGER] NSG components reinitialized successfully");
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!(
+                    "❌ [STATE_MANAGER] Failed to reinitialize NSG components: {}",
+                    e
+                );
+                *self.nsg_manager.write() = None;
+                *self.nsg_poller.write() = None;
+                Err(e)
+            }
+        }
     }
 
     fn init_nsg_components(
