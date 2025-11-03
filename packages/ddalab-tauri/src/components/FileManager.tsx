@@ -67,9 +67,295 @@ import {
   FileSegmentationDialog,
   type SegmentationParams,
 } from "@/components/FileSegmentationDialog";
+import {
+  FileTreeInput,
+  type FileTreeNode,
+  type FileTreeSelection,
+} from "@/components/ui/file-tree-input";
 
 interface FileManagerProps {
   apiService: ApiService;
+}
+
+interface FileTreeRendererProps {
+  directories: DirectoryEntry[];
+  files: EDFFileInfo[];
+  selectedFile: EDFFileInfo | null;
+  isOpenNeuroAuthenticated: boolean;
+  pendingFileSelection: EDFFileInfo | null;
+  loadFileInfoMutationPending: boolean;
+  onDirectorySelect: (dir: DirectoryEntry) => void;
+  onFileSelect: (file: EDFFileInfo) => void;
+  onContextMenu: (e: React.MouseEvent, file: EDFFileInfo) => void;
+  onUploadClick: (dir: DirectoryEntry) => void;
+  apiService: ApiService;
+}
+
+function FileTreeRenderer({
+  directories,
+  files,
+  selectedFile,
+  isOpenNeuroAuthenticated,
+  pendingFileSelection,
+  loadFileInfoMutationPending,
+  onDirectorySelect,
+  onFileSelect,
+  onContextMenu,
+  onUploadClick,
+  apiService,
+}: FileTreeRendererProps) {
+  const [loadedDirs, setLoadedDirs] = useState<Map<string, { dirs: DirectoryEntry[], files: EDFFileInfo[] }>>(new Map());
+  const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
+
+  // Helper function to load directory contents
+  const loadDirectoryContents = async (dirPath: string) => {
+    if (loadedDirs.has(dirPath) || loadingDirs.has(dirPath)) {
+      return; // Already loaded or loading
+    }
+
+    setLoadingDirs(prev => new Set(prev).add(dirPath));
+
+    try {
+      const response = await apiService.listDirectory(dirPath);
+
+      const subdirs = response.files
+        .filter((f: { is_directory: boolean }) => f.is_directory)
+        .map((d: { name: string; path: string }) => ({ name: d.name, path: d.path, isBIDS: false }));
+
+      const subfiles = response.files
+        .filter((f: { is_directory: boolean }) => !f.is_directory)
+        .filter((file: { name: string }) =>
+          file.name.toLowerCase().endsWith(".edf") ||
+          file.name.toLowerCase().endsWith(".csv") ||
+          file.name.toLowerCase().endsWith(".ascii") ||
+          file.name.toLowerCase().endsWith(".txt")
+        )
+        .map((file: { path: string; name: string; size?: number; last_modified?: string }) => ({
+          file_path: file.path,
+          file_name: file.name,
+          file_size: file.size || 0,
+          duration: 0,
+          sample_rate: 256,
+          channels: [],
+          total_samples: 0,
+          start_time: file.last_modified || new Date().toISOString(),
+          end_time: file.last_modified || new Date().toISOString(),
+          annotations_count: 0,
+        }));
+
+      setLoadedDirs(prev => new Map(prev).set(dirPath, { dirs: subdirs, files: subfiles }));
+    } catch (error) {
+      console.error(`Failed to load directory ${dirPath}:`, error);
+    } finally {
+      setLoadingDirs(prev => {
+        const next = new Set(prev);
+        next.delete(dirPath);
+        return next;
+      });
+    }
+  };
+
+  // Helper function to get file format badge
+  const getFileFormat = (fileName: string) => {
+    if (fileName.toLowerCase().endsWith(".edf")) return "EDF";
+    if (fileName.toLowerCase().endsWith(".csv")) return "CSV";
+    if (fileName.toLowerCase().endsWith(".ascii")) return "ASCII";
+    return "TXT";
+  };
+
+  // Helper function to get BIDS modality badge color
+  const getModalityBadgeClass = (modality: string) => {
+    const modalityLower = modality.toLowerCase();
+    if (modalityLower === "eeg") {
+      return "bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700";
+    } else if (modalityLower === "meg") {
+      return "bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700";
+    } else if (modalityLower === "ieeg") {
+      return "bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700";
+    } else if (modalityLower === "mri" || modalityLower === "anat") {
+      return "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700";
+    } else if (modalityLower === "fmri" || modalityLower === "func") {
+      return "bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-700";
+    } else if (modalityLower === "dwi") {
+      return "bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border-teal-300 dark:border-teal-700";
+    } else if (modalityLower === "pet") {
+      return "bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700";
+    }
+    return "bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700";
+  };
+
+  // Transform directories and files to tree nodes
+  const treeData: FileTreeNode[] = useMemo(() => {
+    // Create file node
+    const createFileNode = (file: EDFFileInfo): FileTreeNode => ({
+      id: file.file_path,
+      label: file.file_name,
+      icon: (
+        <div
+          className={`flex items-center gap-3 w-full p-2 rounded-md transition-all ${
+            pendingFileSelection || loadFileInfoMutationPending
+              ? "opacity-50 cursor-wait"
+              : "cursor-pointer hover:bg-accent/50"
+          } ${
+            selectedFile?.file_path === file.file_path
+              ? "bg-primary/10 ring-1 ring-primary/30"
+              : ""
+          }`}
+          onContextMenu={(e) => onContextMenu(e, file)}
+        >
+          <FileText className="h-5 w-5 text-green-600 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="font-medium truncate">{file.file_name}</div>
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <HardDrive className="h-3 w-3" />
+                {formatBytes(file.file_size)}
+              </span>
+              <span className="flex items-center gap-1">
+                <Calendar className="h-3 w-3" />
+                {formatDate(file.start_time)}
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            {selectedFile?.file_path === file.file_path && (
+              <div className="flex items-center gap-1 text-primary mb-1">
+                <Check className="h-4 w-4" />
+                <span className="text-xs font-medium">Selected</span>
+              </div>
+            )}
+            <Badge variant="secondary" className="text-xs">
+              {getFileFormat(file.file_name)}
+            </Badge>
+            {file.channels.length > 0 && (
+              <Badge variant="outline" className="text-xs">
+                {file.channels.length} channels
+              </Badge>
+            )}
+          </div>
+        </div>
+      ),
+      metadata: { type: "file", data: file },
+    });
+
+    // Create directory node (with recursive support)
+    const createDirectoryNode = (dir: DirectoryEntry): FileTreeNode => {
+      // Check if this directory has been loaded
+      const dirContents = loadedDirs.get(dir.path);
+      const children: FileTreeNode[] = dirContents
+        ? [
+            ...dirContents.dirs.map(createDirectoryNode),
+            ...dirContents.files.map(createFileNode)
+          ]
+        : [];
+
+      return {
+        id: dir.path,
+        label: dir.name,
+        children: children.length > 0 ? children : undefined,
+        icon: (
+          <div className="flex items-center gap-2 w-full">
+            <Folder
+              className={`h-5 w-5 flex-shrink-0 ${
+                dir.isBIDS ? "text-purple-600" : "text-blue-600"
+              }`}
+            />
+            <div className="flex-1 min-w-0 flex flex-col">
+              <div className="flex items-center gap-2">
+                <span className="font-medium truncate">{dir.name}</span>
+                {dir.isBIDS && (
+                  <Badge
+                    variant="secondary"
+                    className="bg-purple-100 text-purple-700 text-xs flex-shrink-0"
+                  >
+                    BIDS Dataset
+                  </Badge>
+                )}
+              </div>
+              {dir.isBIDS && dir.bidsInfo && (
+                <div className="flex items-center gap-2 mt-1 flex-wrap text-sm text-muted-foreground">
+                  {dir.bidsInfo.datasetName && (
+                    <span className="font-medium text-purple-700 truncate text-xs">
+                      {dir.bidsInfo.datasetName}
+                    </span>
+                  )}
+                  {dir.bidsInfo.subjectCount !== undefined && (
+                    <span className="flex-shrink-0 text-xs">
+                      {dir.bidsInfo.subjectCount} subject
+                      {dir.bidsInfo.subjectCount !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {dir.bidsInfo.modalities && dir.bidsInfo.modalities.length > 0 && (
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {dir.bidsInfo.modalities.map((modality) => (
+                        <Badge
+                          key={modality}
+                          variant="outline"
+                          className={`text-xs font-medium ${getModalityBadgeClass(
+                            modality
+                          )}`}
+                        >
+                          {modality.toUpperCase()}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            {dir.isBIDS && isOpenNeuroAuthenticated && (
+              <Button
+                size="icon"
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUploadClick(dir);
+                }}
+                className="ml-2 flex-shrink-0"
+                title="Upload to OpenNeuro"
+              >
+                <Upload className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        ),
+        metadata: { type: "directory", data: dir },
+      };
+    };
+
+    return [
+      ...directories.map(createDirectoryNode),
+      ...files.map(createFileNode)
+    ];
+  }, [directories, files, loadedDirs, selectedFile, isOpenNeuroAuthenticated, pendingFileSelection, loadFileInfoMutationPending, onContextMenu, onUploadClick, getFileFormat, getModalityBadgeClass]);
+
+  const handleSelection = (selection: FileTreeSelection) => {
+    if (!selection.node?.metadata) return;
+
+    const { type, data } = selection.node.metadata;
+
+    if (type === "directory") {
+      const dir = data as DirectoryEntry;
+      // For BIDS datasets, open the BIDS browser
+      if (dir.isBIDS) {
+        onDirectorySelect(dir);
+      } else {
+        // Load directory contents when clicked
+        loadDirectoryContents(dir.path);
+      }
+    } else if (type === "file") {
+      onFileSelect(data as EDFFileInfo);
+    }
+  };
+
+  return (
+    <FileTreeInput
+      data={treeData}
+      onChange={handleSelection}
+      size="md"
+      className="border-0 bg-transparent p-0"
+    />
+  );
 }
 
 export function FileManager({ apiService }: FileManagerProps) {
@@ -879,215 +1165,48 @@ export function FileManager({ apiService }: FileManagerProps) {
               )}
             </div>
           </div>
-        ) : (
-          <div className="space-y-2">
-            {/* Directories */}
-            {filteredDirectories.map((dir) => (
-              <div
-                key={dir.path}
-                className={`flex items-center gap-3 p-3 rounded-lg border hover:bg-accent transition-colors ${
-                  dir.isBIDS ? "border-purple-300 bg-purple-50/50" : ""
-                }`}
-              >
-                <div
-                  onClick={() => handleDirectorySelect(dir)}
-                  className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
-                >
-                  <Folder
-                    className={`h-5 w-5 flex-shrink-0 ${
-                      dir.isBIDS ? "text-purple-600" : "text-blue-600"
-                    }`}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium truncate">{dir.name}</span>
-                      {dir.isBIDS && (
-                        <Badge
-                          variant="secondary"
-                          className="bg-purple-100 text-purple-700 text-xs flex-shrink-0"
-                        >
-                          BIDS Dataset
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      {dir.isBIDS && dir.bidsInfo ? (
-                        <div className="flex items-center gap-2 mt-1 flex-wrap">
-                          {dir.bidsInfo.datasetName && (
-                            <span className="font-medium text-purple-700 truncate">
-                              {dir.bidsInfo.datasetName}
-                            </span>
-                          )}
-                          {dir.bidsInfo.subjectCount !== undefined && (
-                            <span className="flex-shrink-0 text-xs">
-                              {dir.bidsInfo.subjectCount} subject
-                              {dir.bidsInfo.subjectCount !== 1 ? "s" : ""}
-                            </span>
-                          )}
-                          {dir.bidsInfo.modalities &&
-                            dir.bidsInfo.modalities.length > 0 && (
-                              <div className="flex items-center gap-1 flex-wrap">
-                                {dir.bidsInfo.modalities.map((modality) => {
-                                  const modalityLower = modality.toLowerCase();
-                                  let badgeClass = "";
-
-                                  // Color scheme based on modality type
-                                  if (modalityLower === "eeg") {
-                                    badgeClass =
-                                      "bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700";
-                                  } else if (modalityLower === "meg") {
-                                    badgeClass =
-                                      "bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700";
-                                  } else if (modalityLower === "ieeg") {
-                                    badgeClass =
-                                      "bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700";
-                                  } else if (
-                                    modalityLower === "mri" ||
-                                    modalityLower === "anat"
-                                  ) {
-                                    badgeClass =
-                                      "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700";
-                                  } else if (
-                                    modalityLower === "fmri" ||
-                                    modalityLower === "func"
-                                  ) {
-                                    badgeClass =
-                                      "bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-700";
-                                  } else if (modalityLower === "dwi") {
-                                    badgeClass =
-                                      "bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border-teal-300 dark:border-teal-700";
-                                  } else if (modalityLower === "pet") {
-                                    badgeClass =
-                                      "bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700";
-                                  } else {
-                                    badgeClass =
-                                      "bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700";
-                                  }
-
-                                  return (
-                                    <Badge
-                                      key={modality}
-                                      variant="outline"
-                                      className={`text-xs font-medium ${badgeClass}`}
-                                    >
-                                      {modality.toUpperCase()}
-                                    </Badge>
-                                  );
-                                })}
-                              </div>
-                            )}
-                        </div>
-                      ) : (
-                        "Directory"
-                      )}
-                    </div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                </div>
-                {dir.isBIDS && isOpenNeuroAuthenticated && (
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setUploadDatasetPath(dir.path);
-                      setShowUploadDialog(true);
-                    }}
-                    className="ml-2 flex-shrink-0"
-                    title="Upload to OpenNeuro"
-                  >
-                    <Upload className="h-4 w-4" />
-                  </Button>
-                )}
+        ) : filteredAndSortedFiles.length === 0 &&
+          filteredDirectories.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            {!dataDirectoryPath ? (
+              <div className="space-y-3">
+                <p className="font-medium text-foreground">
+                  No Data Directory Selected
+                </p>
+                <p className="text-sm">
+                  Choose a data directory using the "Change Directory" button
+                  above to get started
+                </p>
               </div>
-            ))}
-
-            {/* Files */}
-            {filteredAndSortedFiles.map((file, index) => (
-              <div
-                key={`${file.file_path}-${index}`}
-                onClick={() => handleFileSelect(file)}
-                onContextMenu={(e) => handleContextMenu(e, file)}
-                className={`flex items-center gap-3 p-3 rounded-lg border transition-all
-                  ${
-                    pendingFileSelection || loadFileInfoMutation.isPending
-                      ? "opacity-50 cursor-wait pointer-events-none"
-                      : "cursor-pointer hover:bg-accent hover:shadow-sm"
-                  }
-                  ${
-                    selectedFile?.file_path === file.file_path
-                      ? "bg-primary/10 border-primary shadow-sm ring-2 ring-primary/20"
-                      : ""
-                  }`}
-              >
-                <FileText className="h-5 w-5 text-green-600" />
-
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{file.file_name}</div>
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <HardDrive className="h-3 w-3" />
-                      {formatBytes(file.file_size)}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
-                      {formatDate(file.start_time)}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex flex-col items-end gap-1">
-                  {selectedFile?.file_path === file.file_path && (
-                    <div className="flex items-center gap-1 text-primary mb-1">
-                      <Check className="h-4 w-4" />
-                      <span className="text-xs font-medium">Selected</span>
-                    </div>
-                  )}
-                  <Badge variant="secondary" className="text-xs">
-                    {file.file_name.toLowerCase().endsWith(".edf")
-                      ? "EDF"
-                      : file.file_name.toLowerCase().endsWith(".csv")
-                      ? "CSV"
-                      : file.file_name.toLowerCase().endsWith(".ascii")
-                      ? "ASCII"
-                      : "TXT"}
-                  </Badge>
-                  {file.channels.length > 0 && (
-                    <Badge variant="outline" className="text-xs">
-                      {file.channels.length} channels
-                    </Badge>
-                  )}
-                </div>
+            ) : (
+              <div className="space-y-2">
+                <p>No files found</p>
+                <p className="text-sm">
+                  {searchQuery
+                    ? "Try adjusting your search query"
+                    : "No EDF, CSV, or ASCII files in this directory"}
+                </p>
               </div>
-            ))}
-
-            {filteredAndSortedFiles.length === 0 &&
-              filteredDirectories.length === 0 && (
-                <div className="text-center py-8 text-muted-foreground">
-                  <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  {!dataDirectoryPath ? (
-                    <div className="space-y-3">
-                      <p className="font-medium text-foreground">
-                        No Data Directory Selected
-                      </p>
-                      <p className="text-sm">
-                        Choose a data directory using the "Change Directory"
-                        button above to get started
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <p>No files found</p>
-                      <p className="text-sm">
-                        {searchQuery
-                          ? "Try adjusting your search query"
-                          : "No EDF, CSV, or ASCII files in this directory"}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
+            )}
           </div>
+        ) : (
+          <FileTreeRenderer
+            directories={filteredDirectories}
+            files={filteredAndSortedFiles}
+            selectedFile={selectedFile}
+            isOpenNeuroAuthenticated={isOpenNeuroAuthenticated}
+            pendingFileSelection={pendingFileSelection}
+            loadFileInfoMutationPending={loadFileInfoMutation.isPending}
+            onDirectorySelect={handleDirectorySelect}
+            onFileSelect={handleFileSelect}
+            onContextMenu={handleContextMenu}
+            onUploadClick={(dir) => {
+              setUploadDatasetPath(dir.path);
+              setShowUploadDialog(true);
+            }}
+            apiService={apiService}
+          />
         )}
       </CardContent>
 
