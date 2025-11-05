@@ -167,10 +167,14 @@ jobs:
             |--------------|--------|------|--------------|
             | **x86_64** | AppImage | `ddalab_amd64.AppImage` | `chmod +x` then run |
             | **x86_64** | Debian | `ddalab_amd64.deb` | `sudo dpkg -i ddalab_amd64.deb` |
+            | **x86_64** | RPM | `ddalab_x86_64.rpm` | `sudo dnf install ddalab_x86_64.rpm` |
             | **ARM64/aarch64** | AppImage | `ddalab_arm64.AppImage` | `chmod +x` then run |
             | **ARM64/aarch64** | Debian | `ddalab_arm64.deb` | `sudo dpkg -i ddalab_arm64.deb` |
+            | **ARM64/aarch64** | RPM | `ddalab_aarch64.rpm` | `sudo dnf install ddalab_aarch64.rpm` |
 
-            **Requirements**: Ubuntu 20.04 or later (or equivalent)
+            **Requirements**: Ubuntu 20.04 or later (Debian/Ubuntu), Fedora 38+ (RPM)
+
+            **Note for RHEL/Rocky/AlmaLinux users**: If the RPM fails with webkit2gtk dependency errors, use the AppImage instead (it bundles all dependencies)
 
             ---
 
