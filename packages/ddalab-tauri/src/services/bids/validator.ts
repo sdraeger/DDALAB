@@ -9,7 +9,7 @@ export interface BIDSValidationError {
   code: string;
   message: string;
   path?: string;
-  severity: 'error' | 'warning';
+  severity: "error" | "warning";
 }
 
 export interface BIDSValidationResult {
@@ -21,7 +21,7 @@ export interface BIDSValidationResult {
 export interface BIDSDatasetDescription {
   Name: string;
   BIDSVersion: string;
-  DatasetType?: 'raw' | 'derivative';
+  DatasetType?: "raw" | "derivative";
   License?: string;
   Authors?: string[];
   Acknowledgements?: string;
@@ -35,7 +35,7 @@ export interface BIDSDatasetDescription {
 export interface BIDSParticipant {
   participant_id: string;
   age?: number;
-  sex?: 'M' | 'F' | 'O';
+  sex?: "M" | "F" | "O";
   [key: string]: any; // Allow additional columns
 }
 
@@ -43,7 +43,7 @@ export interface BIDSParticipant {
  * Validates if a directory is a valid BIDS dataset
  */
 export async function validateBIDSDataset(
-  rootPath: string
+  rootPath: string,
 ): Promise<BIDSValidationResult> {
   const errors: BIDSValidationError[] = [];
   const warnings: BIDSValidationError[] = [];
@@ -68,9 +68,9 @@ export async function validateBIDSDataset(
     };
   } catch (error) {
     errors.push({
-      code: 'VALIDATION_ERROR',
+      code: "VALIDATION_ERROR",
       message: `Failed to validate BIDS dataset: ${error}`,
-      severity: 'error',
+      severity: "error",
     });
     return {
       valid: false,
@@ -85,7 +85,7 @@ export async function validateBIDSDataset(
  */
 export async function isBIDSDataset(rootPath: string): Promise<boolean> {
   try {
-    const { readDir, exists } = await import('@tauri-apps/plugin-fs');
+    const { readDir, exists } = await import("@tauri-apps/plugin-fs");
 
     // Quick check: does dataset_description.json exist?
     const datasetDescPath = `${rootPath}/dataset_description.json`;
@@ -97,13 +97,13 @@ export async function isBIDSDataset(rootPath: string): Promise<boolean> {
 
     // Quick check: are there any sub-* directories?
     const entries = await readDir(rootPath);
-    const hasSubjects = entries.some(entry =>
-      entry.isDirectory && entry.name.startsWith('sub-')
+    const hasSubjects = entries.some(
+      (entry) => entry.isDirectory && entry.name.startsWith("sub-"),
     );
 
     return hasSubjects;
   } catch (error) {
-    console.error('Error checking BIDS dataset:', error);
+    console.error("Error checking BIDS dataset:", error);
     return false;
   }
 }
@@ -113,18 +113,18 @@ export async function isBIDSDataset(rootPath: string): Promise<boolean> {
  */
 async function validateRequiredFiles(
   rootPath: string,
-  errors: BIDSValidationError[]
+  errors: BIDSValidationError[],
 ): Promise<void> {
-  const { exists } = await import('@tauri-apps/plugin-fs');
+  const { exists } = await import("@tauri-apps/plugin-fs");
 
   // dataset_description.json is required
   const datasetDescPath = `${rootPath}/dataset_description.json`;
   if (!(await exists(datasetDescPath))) {
     errors.push({
-      code: 'MISSING_DATASET_DESCRIPTION',
-      message: 'Required file dataset_description.json is missing',
+      code: "MISSING_DATASET_DESCRIPTION",
+      message: "Required file dataset_description.json is missing",
       path: datasetDescPath,
-      severity: 'error',
+      severity: "error",
     });
   }
 
@@ -132,10 +132,10 @@ async function validateRequiredFiles(
   const readmePath = `${rootPath}/README`;
   if (!(await exists(readmePath))) {
     errors.push({
-      code: 'MISSING_README',
-      message: 'README file is recommended but missing',
+      code: "MISSING_README",
+      message: "README file is recommended but missing",
       path: readmePath,
-      severity: 'warning',
+      severity: "warning",
     });
   }
 }
@@ -146,10 +146,10 @@ async function validateRequiredFiles(
 async function validateDatasetDescription(
   rootPath: string,
   errors: BIDSValidationError[],
-  warnings: BIDSValidationError[]
+  warnings: BIDSValidationError[],
 ): Promise<void> {
   try {
-    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    const { readTextFile, exists } = await import("@tauri-apps/plugin-fs");
 
     const datasetDescPath = `${rootPath}/dataset_description.json`;
     if (!(await exists(datasetDescPath))) {
@@ -162,46 +162,46 @@ async function validateDatasetDescription(
     // Required fields
     if (!desc.Name) {
       errors.push({
-        code: 'MISSING_NAME',
+        code: "MISSING_NAME",
         message: 'dataset_description.json must include "Name" field',
         path: datasetDescPath,
-        severity: 'error',
+        severity: "error",
       });
     }
 
     if (!desc.BIDSVersion) {
       errors.push({
-        code: 'MISSING_BIDS_VERSION',
+        code: "MISSING_BIDS_VERSION",
         message: 'dataset_description.json must include "BIDSVersion" field',
         path: datasetDescPath,
-        severity: 'error',
+        severity: "error",
       });
     }
 
     // Recommended fields
     if (!desc.License) {
       warnings.push({
-        code: 'MISSING_LICENSE',
+        code: "MISSING_LICENSE",
         message: 'dataset_description.json should include "License" field',
         path: datasetDescPath,
-        severity: 'warning',
+        severity: "warning",
       });
     }
 
     if (!desc.Authors || desc.Authors.length === 0) {
       warnings.push({
-        code: 'MISSING_AUTHORS',
+        code: "MISSING_AUTHORS",
         message: 'dataset_description.json should include "Authors" field',
         path: datasetDescPath,
-        severity: 'warning',
+        severity: "warning",
       });
     }
   } catch (error) {
     errors.push({
-      code: 'INVALID_DATASET_DESCRIPTION',
+      code: "INVALID_DATASET_DESCRIPTION",
       message: `Failed to parse dataset_description.json: ${error}`,
       path: `${rootPath}/dataset_description.json`,
-      severity: 'error',
+      severity: "error",
     });
   }
 }
@@ -212,66 +212,67 @@ async function validateDatasetDescription(
 async function validateParticipantsTSV(
   rootPath: string,
   errors: BIDSValidationError[],
-  warnings: BIDSValidationError[]
+  warnings: BIDSValidationError[],
 ): Promise<void> {
   try {
-    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    const { readTextFile, exists } = await import("@tauri-apps/plugin-fs");
 
     const participantsPath = `${rootPath}/participants.tsv`;
     if (!(await exists(participantsPath))) {
       warnings.push({
-        code: 'MISSING_PARTICIPANTS',
-        message: 'participants.tsv is recommended but missing',
+        code: "MISSING_PARTICIPANTS",
+        message: "participants.tsv is recommended but missing",
         path: participantsPath,
-        severity: 'warning',
+        severity: "warning",
       });
       return;
     }
 
     const content = await readTextFile(participantsPath);
-    const lines = content.trim().split('\n');
+    const lines = content.trim().split("\n");
 
     if (lines.length < 2) {
       errors.push({
-        code: 'EMPTY_PARTICIPANTS',
-        message: 'participants.tsv must have at least a header and one participant',
+        code: "EMPTY_PARTICIPANTS",
+        message:
+          "participants.tsv must have at least a header and one participant",
         path: participantsPath,
-        severity: 'error',
+        severity: "error",
       });
       return;
     }
 
     // Check header
-    const header = lines[0].split('\t');
-    if (!header.includes('participant_id')) {
+    const header = lines[0].split("\t");
+    if (!header.includes("participant_id")) {
       errors.push({
-        code: 'MISSING_PARTICIPANT_ID_COLUMN',
+        code: "MISSING_PARTICIPANT_ID_COLUMN",
         message: 'participants.tsv must have a "participant_id" column',
         path: participantsPath,
-        severity: 'error',
+        severity: "error",
       });
     }
 
     // Validate each participant ID
     for (let i = 1; i < lines.length; i++) {
-      const columns = lines[i].split('\t');
-      const participantId = columns[header.indexOf('participant_id')];
+      const columns = lines[i].split("\t");
+      const participantId = columns[header.indexOf("participant_id")];
 
-      if (!participantId || !participantId.startsWith('sub-')) {
+      if (!participantId || !participantId.startsWith("sub-")) {
         errors.push({
-          code: 'INVALID_PARTICIPANT_ID',
+          code: "INVALID_PARTICIPANT_ID",
           message: `Line ${i + 1}: participant_id must start with "sub-"`,
           path: participantsPath,
-          severity: 'error',
+          severity: "error",
         });
       }
     }
   } catch (error) {
     errors.push({
-      code: 'INVALID_PARTICIPANTS',
+      code: "INVALID_PARTICIPANTS",
       message: `Failed to parse participants.tsv: ${error}`,
       path: `${rootPath}/participants.tsv`,
-      severity: 'error',
+      severity: "error",
     });
   }
 }
@@ -282,22 +283,22 @@ async function validateParticipantsTSV(
 async function validateSubjectDirectories(
   rootPath: string,
   errors: BIDSValidationError[],
-  warnings: BIDSValidationError[]
+  warnings: BIDSValidationError[],
 ): Promise<void> {
   try {
-    const { readDir } = await import('@tauri-apps/plugin-fs');
+    const { readDir } = await import("@tauri-apps/plugin-fs");
 
     const entries = await readDir(rootPath);
     const subjectDirs = entries.filter(
-      entry => entry.isDirectory && entry.name.startsWith('sub-')
+      (entry) => entry.isDirectory && entry.name.startsWith("sub-"),
     );
 
     if (subjectDirs.length === 0) {
       errors.push({
-        code: 'NO_SUBJECTS',
-        message: 'No subject directories (sub-*) found',
+        code: "NO_SUBJECTS",
+        message: "No subject directories (sub-*) found",
         path: rootPath,
-        severity: 'error',
+        severity: "error",
       });
       return;
     }
@@ -307,10 +308,10 @@ async function validateSubjectDirectories(
       const match = subDir.name.match(/^sub-([a-zA-Z0-9]+)$/);
       if (!match) {
         errors.push({
-          code: 'INVALID_SUBJECT_NAME',
+          code: "INVALID_SUBJECT_NAME",
           message: `Subject directory "${subDir.name}" has invalid format. Should be sub-<label>`,
           path: `${rootPath}/${subDir.name}`,
-          severity: 'error',
+          severity: "error",
         });
       }
 
@@ -320,10 +321,10 @@ async function validateSubjectDirectories(
     }
   } catch (error) {
     errors.push({
-      code: 'SUBJECT_VALIDATION_ERROR',
+      code: "SUBJECT_VALIDATION_ERROR",
       message: `Failed to validate subject directories: ${error}`,
       path: rootPath,
-      severity: 'error',
+      severity: "error",
     });
   }
 }
@@ -334,29 +335,31 @@ async function validateSubjectDirectories(
 async function validateSubjectDataDir(
   subjectPath: string,
   errors: BIDSValidationError[],
-  warnings: BIDSValidationError[]
+  warnings: BIDSValidationError[],
 ): Promise<void> {
   try {
-    const { readDir } = await import('@tauri-apps/plugin-fs');
+    const { readDir } = await import("@tauri-apps/plugin-fs");
 
     const entries = await readDir(subjectPath);
 
     // Check for session directories
     const sessionDirs = entries.filter(
-      entry => entry.isDirectory && entry.name.startsWith('ses-')
+      (entry) => entry.isDirectory && entry.name.startsWith("ses-"),
     );
 
     // Check for modality directories (eeg, ieeg, meg, etc.)
     const modalityDirs = entries.filter(
-      entry => entry.isDirectory && ['eeg', 'ieeg', 'meg', 'func', 'anat'].includes(entry.name)
+      (entry) =>
+        entry.isDirectory &&
+        ["eeg", "ieeg", "meg", "func", "anat"].includes(entry.name),
     );
 
     if (sessionDirs.length === 0 && modalityDirs.length === 0) {
       warnings.push({
-        code: 'NO_DATA_DIRECTORIES',
+        code: "NO_DATA_DIRECTORIES",
         message: `Subject has no session or modality directories`,
         path: subjectPath,
-        severity: 'warning',
+        severity: "warning",
       });
     }
 
@@ -365,10 +368,10 @@ async function validateSubjectDataDir(
       const match = sesDir.name.match(/^ses-([a-zA-Z0-9]+)$/);
       if (!match) {
         errors.push({
-          code: 'INVALID_SESSION_NAME',
+          code: "INVALID_SESSION_NAME",
           message: `Session directory "${sesDir.name}" has invalid format. Should be ses-<label>`,
           path: `${subjectPath}/${sesDir.name}`,
-          severity: 'error',
+          severity: "error",
         });
       }
     }
@@ -381,10 +384,10 @@ async function validateSubjectDataDir(
  * Parse dataset_description.json
  */
 export async function readDatasetDescription(
-  rootPath: string
+  rootPath: string,
 ): Promise<BIDSDatasetDescription | null> {
   try {
-    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    const { readTextFile, exists } = await import("@tauri-apps/plugin-fs");
 
     const datasetDescPath = `${rootPath}/dataset_description.json`;
     if (!(await exists(datasetDescPath))) {
@@ -394,7 +397,7 @@ export async function readDatasetDescription(
     const content = await readTextFile(datasetDescPath);
     return JSON.parse(content) as BIDSDatasetDescription;
   } catch (error) {
-    console.error('Failed to read dataset_description.json:', error);
+    console.error("Failed to read dataset_description.json:", error);
     return null;
   }
 }
@@ -403,10 +406,10 @@ export async function readDatasetDescription(
  * Parse participants.tsv
  */
 export async function readParticipants(
-  rootPath: string
+  rootPath: string,
 ): Promise<BIDSParticipant[]> {
   try {
-    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    const { readTextFile, exists } = await import("@tauri-apps/plugin-fs");
 
     const participantsPath = `${rootPath}/participants.tsv`;
     if (!(await exists(participantsPath))) {
@@ -414,17 +417,17 @@ export async function readParticipants(
     }
 
     const content = await readTextFile(participantsPath);
-    const lines = content.trim().split('\n');
+    const lines = content.trim().split("\n");
 
     if (lines.length < 2) {
       return [];
     }
 
-    const headers = lines[0].split('\t');
+    const headers = lines[0].split("\t");
     const participants: BIDSParticipant[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split('\t');
+      const values = lines[i].split("\t");
       const participant: any = {};
 
       headers.forEach((header, index) => {
@@ -442,7 +445,7 @@ export async function readParticipants(
 
     return participants;
   } catch (error) {
-    console.error('Failed to read participants.tsv:', error);
+    console.error("Failed to read participants.tsv:", error);
     return [];
   }
 }

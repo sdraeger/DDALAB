@@ -1,16 +1,34 @@
-import React, { useState, useEffect } from 'react';
-import { Download, Folder, AlertCircle, CheckCircle, XCircle, Loader, Info, ChevronRight, ChevronDown, File, FolderOpen } from 'lucide-react';
-import { openNeuroService, type DownloadOptions, type DownloadProgress, type OpenNeuroDataset, type OpenNeuroFile } from '../services/openNeuroService';
-import { open } from '@tauri-apps/plugin-dialog';
-import { listen } from '@tauri-apps/api/event';
+import React, { useState, useEffect } from "react";
+import {
+  Download,
+  Folder,
+  AlertCircle,
+  CheckCircle,
+  XCircle,
+  Loader,
+  Info,
+  ChevronRight,
+  ChevronDown,
+  File,
+  FolderOpen,
+} from "lucide-react";
+import {
+  openNeuroService,
+  type DownloadOptions,
+  type DownloadProgress,
+  type OpenNeuroDataset,
+  type OpenNeuroFile,
+} from "../services/openNeuroService";
+import { open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import {
   useDownloadDataset,
   useCancelDownload,
   useGitAvailable,
   useGitAnnexAvailable,
   useOpenNeuroDatasetSize,
-  useOpenNeuroDatasetFiles
-} from '../hooks/useOpenNeuro';
+  useOpenNeuroDatasetFiles,
+} from "../hooks/useOpenNeuro";
 
 interface OpenNeuroDownloadDialogProps {
   isOpen: boolean;
@@ -29,8 +47,12 @@ interface FileTreeNode {
   selected?: boolean;
 }
 
-export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroDownloadDialogProps) {
-  const [destinationPath, setDestinationPath] = useState('');
+export function OpenNeuroDownloadDialog({
+  isOpen,
+  onClose,
+  dataset,
+}: OpenNeuroDownloadDialogProps) {
+  const [destinationPath, setDestinationPath] = useState("");
   const [useGitHub, setUseGitHub] = useState(true);
   const [downloadAnnexed, setDownloadAnnexed] = useState(true);
   const [selectedSnapshot, setSelectedSnapshot] = useState<string | null>(null);
@@ -46,9 +68,9 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
   const { data: gitAnnexAvailable = false } = useGitAnnexAvailable();
 
   const { data: sizeInfo, isLoading: loadingSize } = useOpenNeuroDatasetSize(
-    dataset?.id || '',
+    dataset?.id || "",
     selectedSnapshot || undefined,
-    enableSizeQuery && !!dataset
+    enableSizeQuery && !!dataset,
   );
 
   // Use summary data if available (much faster than calculating from files)
@@ -57,17 +79,22 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
   const hasSummaryData = summarySize > 0 || summaryFileCount > 0;
 
   const { data: files, isLoading: loadingFiles } = useOpenNeuroDatasetFiles(
-    dataset?.id || '',
+    dataset?.id || "",
     selectedSnapshot || undefined,
-    enableFilesQuery && !!dataset
+    enableFilesQuery && !!dataset,
   );
 
   const downloadMutation = useDownloadDataset();
   const cancelMutation = useCancelDownload();
 
   const isDownloading = downloadMutation.isPending;
-  const error = localError || (downloadMutation.error ?
-    (downloadMutation.error instanceof Error ? downloadMutation.error.message : 'Download failed') : null);
+  const error =
+    localError ||
+    (downloadMutation.error
+      ? downloadMutation.error instanceof Error
+        ? downloadMutation.error.message
+        : "Download failed"
+      : null);
 
   useEffect(() => {
     if (isOpen) {
@@ -117,8 +144,8 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
 
   const buildFileTree = (files: OpenNeuroFile[]): FileTreeNode => {
     const root: FileTreeNode = {
-      name: dataset?.id || 'root',
-      path: '',
+      name: dataset?.id || "root",
+      path: "",
       isDirectory: true,
       size: 0,
       annexed: false,
@@ -127,28 +154,28 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
       selected: true,
     };
 
-    files.forEach(file => {
-      const parts = file.filename.split('/').filter(Boolean);
+    files.forEach((file) => {
+      const parts = file.filename.split("/").filter(Boolean);
       let current = root;
 
       parts.forEach((part, index) => {
         const isLast = index === parts.length - 1;
-        const path = parts.slice(0, index + 1).join('/');
+        const path = parts.slice(0, index + 1).join("/");
 
         if (!current.children) {
           current.children = [];
         }
 
-        let child = current.children.find(c => c.name === part);
+        let child = current.children.find((c) => c.name === part);
 
         if (!child) {
-          const isDir = !isLast || (file.directory || false);
+          const isDir = !isLast || file.directory || false;
           child = {
             name: part,
             path,
             isDirectory: isDir,
-            size: isLast && !file.directory ? (file.size || 0) : 0,
-            annexed: isLast ? (file.annexed || false) : false,
+            size: isLast && !file.directory ? file.size || 0 : 0,
+            annexed: isLast ? file.annexed || false : false,
             children: isDir ? [] : undefined,
             expanded: false,
             selected: true,
@@ -170,7 +197,7 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
         }
         return a.name.localeCompare(b.name);
       });
-      nodes.forEach(node => {
+      nodes.forEach((node) => {
         if (node.children) {
           sortNodes(node.children);
         }
@@ -204,11 +231,11 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
     if (!fileTree) return;
 
     const updateNode = (node: FileTreeNode): FileTreeNode => {
-      if (node.path === path || node.path.startsWith(path + '/')) {
+      if (node.path === path || node.path.startsWith(path + "/")) {
         return {
           ...node,
           selected,
-          children: node.children?.map(child => updateNode(child))
+          children: node.children?.map((child) => updateNode(child)),
         };
       }
       if (node.children) {
@@ -224,45 +251,49 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
   useEffect(() => {
     if (!isOpen) return;
 
-    const unlisten = listen<DownloadProgress>('openneuro-download-progress', (event) => {
-      console.log('[DOWNLOAD] Progress:', event.payload);
-      setProgress(event.payload);
+    const unlisten = listen<DownloadProgress>(
+      "openneuro-download-progress",
+      (event) => {
+        console.log("[DOWNLOAD] Progress:", event.payload);
+        setProgress(event.payload);
 
-      if (event.payload.phase === 'error') {
-        setLocalError(event.payload.message);
-      }
-    });
+        if (event.payload.phase === "error") {
+          setLocalError(event.payload.message);
+        }
+      },
+    );
 
     return () => {
-      unlisten.then(fn => fn());
+      unlisten.then((fn) => fn());
     };
   }, [isOpen]);
-
 
   const handleSelectDestination = async () => {
     try {
       const selected = await open({
         directory: true,
         multiple: false,
-        title: 'Select Download Destination',
+        title: "Select Download Destination",
       });
 
-      if (selected && typeof selected === 'string') {
+      if (selected && typeof selected === "string") {
         setDestinationPath(selected);
       }
     } catch (err) {
-      console.error('Failed to select directory:', err);
+      console.error("Failed to select directory:", err);
     }
   };
 
   const handleDownload = () => {
     if (!dataset || !destinationPath) {
-      setLocalError('Please select a destination folder');
+      setLocalError("Please select a destination folder");
       return;
     }
 
     if (!gitAvailable) {
-      setLocalError('Git is not installed. Please install git to download datasets.');
+      setLocalError(
+        "Git is not installed. Please install git to download datasets.",
+      );
       return;
     }
 
@@ -279,10 +310,10 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
 
     downloadMutation.mutate(options, {
       onSuccess: (resultPath) => {
-        console.log('[DOWNLOAD] Completed successfully:', resultPath);
+        console.log("[DOWNLOAD] Completed successfully:", resultPath);
       },
       onError: (err) => {
-        console.error('[DOWNLOAD] Failed:', err);
+        console.error("[DOWNLOAD] Failed:", err);
       },
     });
   };
@@ -290,14 +321,16 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
   const handleCancel = () => {
     if (!dataset) return;
 
-    if (window.confirm('Are you sure you want to cancel this download?')) {
+    if (window.confirm("Are you sure you want to cancel this download?")) {
       cancelMutation.mutate(dataset.id, {
         onSuccess: () => {
-          setLocalError('Download cancelled by user');
+          setLocalError("Download cancelled by user");
         },
         onError: (err) => {
-          console.error('[DOWNLOAD] Failed to cancel:', err);
-          setLocalError(err instanceof Error ? err.message : 'Failed to cancel download');
+          console.error("[DOWNLOAD] Failed to cancel:", err);
+          setLocalError(
+            err instanceof Error ? err.message : "Failed to cancel download",
+          );
         },
       });
     }
@@ -305,7 +338,11 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
 
   const handleClose = () => {
     if (isDownloading) {
-      if (window.confirm('Download is in progress. Are you sure you want to close this dialog? The download will continue in the background.')) {
+      if (
+        window.confirm(
+          "Download is in progress. Are you sure you want to close this dialog? The download will continue in the background.",
+        )
+      ) {
         onClose();
       }
     } else {
@@ -314,14 +351,17 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
   };
 
   const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
+    if (bytes === 0) return "0 B";
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
   };
 
-  const renderFileTree = (node: FileTreeNode, level: number = 0): React.JSX.Element => {
+  const renderFileTree = (
+    node: FileTreeNode,
+    level: number = 0,
+  ): React.JSX.Element => {
     const hasChildren = node.children && node.children.length > 0;
 
     return (
@@ -373,7 +413,9 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
           {/* Name and size */}
           <span className="text-sm flex-1">{node.name}</span>
           {!node.isDirectory && node.size > 0 && (
-            <span className="text-xs text-muted-foreground">{formatFileSize(node.size)}</span>
+            <span className="text-xs text-muted-foreground">
+              {formatFileSize(node.size)}
+            </span>
           )}
           {node.annexed && (
             <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">
@@ -385,7 +427,7 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
         {/* Children */}
         {node.expanded && hasChildren && (
           <div>
-            {node.children!.map(child => renderFileTree(child, level + 1))}
+            {node.children!.map((child) => renderFileTree(child, level + 1))}
           </div>
         )}
       </div>
@@ -395,7 +437,10 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
   if (!isOpen || !dataset) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={handleClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={handleClose}
+    >
       <div
         className="bg-background border rounded-lg shadow-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
@@ -423,7 +468,9 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-sm">
                   <span className="font-medium">Total Size:</span>
-                  <span className="font-mono">{formatFileSize(summarySize)}</span>
+                  <span className="font-mono">
+                    {formatFileSize(summarySize)}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>File count:</span>
@@ -431,22 +478,31 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
                   <Info className="h-3 w-3 flex-shrink-0" />
-                  <span>Actual download size may vary based on git compression and annexed files</span>
+                  <span>
+                    Actual download size may vary based on git compression and
+                    annexed files
+                  </span>
                 </div>
               </div>
             ) : sizeInfo ? (
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-sm">
                   <span className="font-medium">Total Size:</span>
-                  <span className="font-mono">{formatFileSize(sizeInfo.totalSize)}</span>
+                  <span className="font-mono">
+                    {formatFileSize(sizeInfo.totalSize)}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>Repository (metadata):</span>
-                  <span className="font-mono">{formatFileSize(sizeInfo.totalSize - sizeInfo.annexedSize)}</span>
+                  <span className="font-mono">
+                    {formatFileSize(sizeInfo.totalSize - sizeInfo.annexedSize)}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>Annexed files (data):</span>
-                  <span className="font-mono">{formatFileSize(sizeInfo.annexedSize)}</span>
+                  <span className="font-mono">
+                    {formatFileSize(sizeInfo.annexedSize)}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>File count:</span>
@@ -454,7 +510,8 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
                 </div>
                 {!downloadAnnexed && sizeInfo.annexedSize > 0 && (
                   <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-xs text-yellow-700 dark:text-yellow-300">
-                    Without annexed files: ~{formatFileSize(sizeInfo.totalSize - sizeInfo.annexedSize)}
+                    Without annexed files: ~
+                    {formatFileSize(sizeInfo.totalSize - sizeInfo.annexedSize)}
                   </div>
                 )}
               </div>
@@ -522,7 +579,7 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
             ) : (
               <XCircle className="h-4 w-4 text-red-500" />
             )}
-            <span>Git {gitAvailable ? 'installed' : 'not found'}</span>
+            <span>Git {gitAvailable ? "installed" : "not found"}</span>
           </div>
           <div className="flex items-center gap-2 text-sm">
             {gitAnnexAvailable ? (
@@ -530,12 +587,18 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
             ) : (
               <AlertCircle className="h-4 w-4 text-yellow-500" />
             )}
-            <span>git-annex {gitAnnexAvailable ? 'installed' : 'not found (optional)'}</span>
+            <span>
+              git-annex{" "}
+              {gitAnnexAvailable ? "installed" : "not found (optional)"}
+            </span>
           </div>
           {!gitAnnexAvailable && (
             <div className="flex items-start gap-2 text-xs text-muted-foreground ml-6">
               <Info className="h-3 w-3 mt-0.5 flex-shrink-0" />
-              <span>Without git-annex, you'll get the dataset structure but large files may be symbolic links.</span>
+              <span>
+                Without git-annex, you'll get the dataset structure but large
+                files may be symbolic links.
+              </span>
             </div>
           )}
 
@@ -543,7 +606,9 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
           <div className="flex items-start gap-2 text-xs text-muted-foreground mt-3 p-2 bg-accent/50 rounded">
             <Info className="h-3 w-3 mt-0.5 flex-shrink-0" />
             <span>
-              <strong>Smart Resume:</strong> If a download is interrupted, simply download again with the same destination folder. The download will automatically resume from where it left off.
+              <strong>Smart Resume:</strong> If a download is interrupted,
+              simply download again with the same destination folder. The
+              download will automatically resume from where it left off.
             </span>
           </div>
         </div>
@@ -581,14 +646,17 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
                 Snapshot Version
               </label>
               <select
-                value={selectedSnapshot || ''}
+                value={selectedSnapshot || ""}
                 onChange={(e) => setSelectedSnapshot(e.target.value)}
                 disabled={isDownloading}
                 className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
               >
                 {dataset.snapshots.map((snapshot) => (
                   <option key={snapshot.tag} value={snapshot.tag}>
-                    {snapshot.tag} {snapshot.created ? `(${new Date(snapshot.created).toLocaleDateString()})` : ''}
+                    {snapshot.tag}{" "}
+                    {snapshot.created
+                      ? `(${new Date(snapshot.created).toLocaleDateString()})`
+                      : ""}
                   </option>
                 ))}
               </select>
@@ -635,7 +703,9 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
                   disabled={isDownloading}
                   className="w-4 h-4"
                 />
-                <span className="text-sm">Download actual file data (may be large)</span>
+                <span className="text-sm">
+                  Download actual file data (may be large)
+                </span>
               </label>
             </div>
           )}
@@ -645,9 +715,9 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
         {progress && (
           <div className="mb-6 p-4 bg-accent rounded-lg">
             <div className="flex items-center gap-2 mb-2">
-              {progress.phase === 'completed' ? (
+              {progress.phase === "completed" ? (
                 <CheckCircle className="h-5 w-5 text-green-500" />
-              ) : progress.phase === 'error' ? (
+              ) : progress.phase === "error" ? (
                 <XCircle className="h-5 w-5 text-red-500" />
               ) : (
                 <Loader className="h-5 w-5 text-primary animate-spin" />
@@ -660,7 +730,9 @@ export function OpenNeuroDownloadDialog({ isOpen, onClose, dataset }: OpenNeuroD
                 style={{ width: `${progress.progress_percent}%` }}
               />
             </div>
-            <div className="text-sm text-muted-foreground">{progress.message}</div>
+            <div className="text-sm text-muted-foreground">
+              {progress.message}
+            </div>
             {progress.current_file && (
               <div className="text-xs text-muted-foreground mt-1">
                 Current: {progress.current_file}

@@ -24,7 +24,9 @@ src/api/
 ## Modules
 
 ### `models.rs`
+
 Contains all data structures used across the API:
+
 - `EDFFileInfo` - File metadata
 - `ChunkData` - Time series data chunks
 - `DDAParameters` - Analysis parameters
@@ -33,20 +35,26 @@ Contains all data structures used across the API:
 - Request/Response models for all endpoints
 
 ### `auth.rs`
+
 Authentication and security functionality:
+
 - `generate_session_token()` - Secure token generation
 - `constant_time_eq()` - Timing-attack resistant comparison
 - `auth_middleware()` - Axum middleware for protected routes
 
 ### `state.rs`
+
 API server state management:
+
 - `ApiState` - Main state struct with thread-safe collections
 - Session token management
 - Analysis database integration (SQLite)
 - File cache and result storage
 
 ### `utils.rs`
+
 Utility functions for file handling:
+
 - `FileType` - File format detection
 - `create_file_info()` - Async file metadata extraction
 - `read_file_metadata_with_reader()` - Modular file reader integration
@@ -54,7 +62,9 @@ Utility functions for file handling:
 - `read_edf_file_chunk()` - EDF-specific chunk reading
 
 ### `router.rs`
+
 Router configuration and setup:
+
 - `create_router()` - Main router factory function
 - Public routes (health check)
 - Protected routes (all other endpoints)
@@ -63,7 +73,9 @@ Router configuration and setup:
 - 404 fallback handler
 
 ### `handlers/` Directory
+
 All route handler functions organized by feature:
+
 - **health.rs** - `/api/health` endpoint
 - **files.rs** - `/api/files/*` endpoints (list, info, chunks)
 - **edf.rs** - `/api/edf/*` endpoints (info, data, overview)
@@ -73,18 +85,21 @@ All route handler functions organized by feature:
 ## Migration Status
 
 ### ✅ Phase 1 Completed (Core Infrastructure)
+
 - Core models extracted ([models.rs](models.rs:1))
 - Authentication system modularized ([auth.rs](auth.rs:1))
 - State management separated ([state.rs](state.rs:1))
 - Utility functions organized ([utils.rs](utils.rs:1))
 
 ### ✅ Phase 2 Completed (Route Handlers)
+
 - All route handlers extracted into `handlers/` directory
 - Router configuration modularized ([router.rs](router.rs:1))
 - Module compiles successfully with no errors
 - Full backward compatibility maintained
 
 ### 📝 Status Summary
+
 - **Original file**: `embedded_api.rs` (2693 lines) - remains functional
 - **New modular API**: Fully extracted and operational
 - **Total files created**: 11 new files
@@ -149,6 +164,7 @@ use crate::api::{
 ## Design Principles
 
 This refactoring follows SOLID principles:
+
 - **Single Responsibility** - Each module has one clear purpose
 - **Open/Closed** - Easy to extend without modifying existing code
 - **Dependency Inversion** - Modules depend on abstractions, not implementations

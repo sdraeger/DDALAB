@@ -1,17 +1,17 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState, useEffect } from 'react';
-import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { ApiService } from '@/services/apiService';
-import { DDAAnalysisRequest, DDAResult, DDAProgressEvent } from '@/types/api';
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { ApiService } from "@/services/apiService";
+import { DDAAnalysisRequest, DDAResult, DDAProgressEvent } from "@/types/api";
 
 /**
  * Query key factory for DDA analysis operations
  */
 export const ddaKeys = {
-  all: ['dda'] as const,
-  history: () => [...ddaKeys.all, 'history'] as const,
-  result: (resultId: string) => [...ddaKeys.all, 'result', resultId] as const,
-  status: (resultId: string) => [...ddaKeys.all, 'status', resultId] as const,
+  all: ["dda"] as const,
+  history: () => [...ddaKeys.all, "history"] as const,
+  result: (resultId: string) => [...ddaKeys.all, "result", resultId] as const,
+  status: (resultId: string) => [...ddaKeys.all, "status", resultId] as const,
 };
 
 /**
@@ -65,7 +65,7 @@ export function useSubmitDDAAnalysis(apiService: ApiService) {
 export function useDDAResult(
   apiService: ApiService,
   resultId: string,
-  enabled: boolean = true
+  enabled: boolean = true,
 ) {
   return useQuery({
     queryKey: ddaKeys.result(resultId),
@@ -87,10 +87,7 @@ export function useDDAResult(
  * @example
  * const { data: history, isLoading, refetch } = useDDAHistory(apiService);
  */
-export function useDDAHistory(
-  apiService: ApiService,
-  enabled: boolean = true
-) {
+export function useDDAHistory(apiService: ApiService, enabled: boolean = true) {
   return useQuery({
     queryKey: ddaKeys.history(),
     queryFn: () => apiService.getAnalysisHistory(),
@@ -116,10 +113,10 @@ export function useDDAHistory(
 export function useAnalysisFromHistory(
   apiService: ApiService,
   analysisId: string | null,
-  enabled: boolean = false
+  enabled: boolean = false,
 ) {
   return useQuery({
-    queryKey: [...ddaKeys.result(analysisId || ''), 'from-history'],
+    queryKey: [...ddaKeys.result(analysisId || ""), "from-history"],
     queryFn: () => apiService.getAnalysisFromHistory(analysisId!),
     enabled: enabled && !!analysisId,
     staleTime: Infinity, // Analysis data never changes once saved
@@ -204,7 +201,7 @@ export function useDeleteDDAFromHistory(apiService: ApiService) {
  */
 export function useDDAProgress(
   analysisId?: string,
-  enabled: boolean = true
+  enabled: boolean = true,
 ): DDAProgressEvent | null {
   const [progress, setProgress] = useState<DDAProgressEvent | null>(null);
 
@@ -215,10 +212,10 @@ export function useDDAProgress(
 
     // Set up event listener
     const setupListener = async () => {
-      unlisten = await listen<DDAProgressEvent>('dda-progress', (event) => {
+      unlisten = await listen<DDAProgressEvent>("dda-progress", (event) => {
         // If analysisId is provided, only update for matching analysis
         if (!analysisId || event.payload.analysis_id === analysisId) {
-          console.log('[DDA Progress]', event.payload);
+          console.log("[DDA Progress]", event.payload);
           setProgress(event.payload);
         }
       });
@@ -289,7 +286,8 @@ export function useDeleteAnalysis(apiService: ApiService) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (analysisId: string) => apiService.deleteAnalysisFromHistory(analysisId),
+    mutationFn: (analysisId: string) =>
+      apiService.deleteAnalysisFromHistory(analysisId),
 
     // Optimistic update: immediately remove from UI
     onMutate: async (analysisId: string) => {
@@ -297,13 +295,15 @@ export function useDeleteAnalysis(apiService: ApiService) {
       await queryClient.cancelQueries({ queryKey: ddaKeys.history() });
 
       // Snapshot previous value
-      const previousHistory = queryClient.getQueryData<DDAResult[]>(ddaKeys.history());
+      const previousHistory = queryClient.getQueryData<DDAResult[]>(
+        ddaKeys.history(),
+      );
 
       // Optimistically update to the new value
       if (previousHistory) {
         queryClient.setQueryData<DDAResult[]>(
           ddaKeys.history(),
-          previousHistory.filter(analysis => analysis.id !== analysisId)
+          previousHistory.filter((analysis) => analysis.id !== analysisId),
         );
       }
 
@@ -339,8 +339,13 @@ export function useRenameAnalysis(apiService: ApiService) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ analysisId, newName }: { analysisId: string; newName: string }) =>
-      apiService.renameAnalysisInHistory(analysisId, newName),
+    mutationFn: ({
+      analysisId,
+      newName,
+    }: {
+      analysisId: string;
+      newName: string;
+    }) => apiService.renameAnalysisInHistory(analysisId, newName),
 
     // Optimistic update: immediately update name in UI
     onMutate: async ({ analysisId, newName }) => {
@@ -348,17 +353,19 @@ export function useRenameAnalysis(apiService: ApiService) {
       await queryClient.cancelQueries({ queryKey: ddaKeys.history() });
 
       // Snapshot previous value
-      const previousHistory = queryClient.getQueryData<DDAResult[]>(ddaKeys.history());
+      const previousHistory = queryClient.getQueryData<DDAResult[]>(
+        ddaKeys.history(),
+      );
 
       // Optimistically update to the new value
       if (previousHistory) {
         queryClient.setQueryData<DDAResult[]>(
           ddaKeys.history(),
-          previousHistory.map(analysis =>
+          previousHistory.map((analysis) =>
             analysis.id === analysisId
               ? { ...analysis, name: newName }
-              : analysis
-          )
+              : analysis,
+          ),
         );
       }
 

@@ -1,15 +1,21 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { useAppStore } from '@/store/appStore'
-import { useWorkflow } from '@/hooks/useWorkflow'
-import { createLoadFileAction } from '@/types/workflow'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
+import { useState } from "react";
+import { useAppStore } from "@/store/appStore";
+import { useWorkflow } from "@/hooks/useWorkflow";
+import { createLoadFileAction } from "@/types/workflow";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import {
   Circle,
   Square,
@@ -18,8 +24,8 @@ import {
   FileCode,
   FileText,
   Clock,
-  Activity
-} from 'lucide-react'
+  Activity,
+} from "lucide-react";
 
 export function SessionRecorder() {
   const {
@@ -27,114 +33,128 @@ export function SessionRecorder() {
     startWorkflowRecording,
     stopWorkflowRecording,
     fileManager,
-    incrementActionCount
-  } = useAppStore()
+    incrementActionCount,
+  } = useAppStore();
   const {
     generatePython,
     generateJulia,
     clearWorkflow,
     isLoading,
     newWorkflow,
-    recordAction
-  } = useWorkflow()
-  const [sessionName, setSessionName] = useState('')
-  const [showExportDialog, setShowExportDialog] = useState(false)
+    recordAction,
+  } = useWorkflow();
+  const [sessionName, setSessionName] = useState("");
+  const [showExportDialog, setShowExportDialog] = useState(false);
 
   const handleStartRecording = async () => {
-    const name = sessionName.trim() || undefined
+    const name = sessionName.trim() || undefined;
 
     // Generate session name before starting
-    const actualSessionName = name || `session_${new Date().toISOString().split('T')[0]}_${Date.now()}`
+    const actualSessionName =
+      name || `session_${new Date().toISOString().split("T")[0]}_${Date.now()}`;
 
     // Start recording in store
-    startWorkflowRecording(actualSessionName)
+    startWorkflowRecording(actualSessionName);
 
     // Initialize workflow in backend
     try {
-      await newWorkflow(actualSessionName)
-      console.log('[WORKFLOW] Workflow initialized:', actualSessionName)
+      await newWorkflow(actualSessionName);
+      console.log("[WORKFLOW] Workflow initialized:", actualSessionName);
 
       // If a file is already selected, record it as the first action
       if (fileManager.selectedFile) {
-        console.log('[WORKFLOW] Recording currently selected file:', fileManager.selectedFile.file_path)
+        console.log(
+          "[WORKFLOW] Recording currently selected file:",
+          fileManager.selectedFile.file_path,
+        );
 
         // Determine file type from extension
-        const ext = fileManager.selectedFile.file_path.split('.').pop()?.toLowerCase()
-        let fileType: 'EDF' | 'ASCII' | 'CSV' = 'EDF'
-        if (ext === 'csv') fileType = 'CSV'
-        else if (ext === 'ascii' || ext === 'txt') fileType = 'ASCII'
+        const ext = fileManager.selectedFile.file_path
+          .split(".")
+          .pop()
+          ?.toLowerCase();
+        let fileType: "EDF" | "ASCII" | "CSV" = "EDF";
+        if (ext === "csv") fileType = "CSV";
+        else if (ext === "ascii" || ext === "txt") fileType = "ASCII";
 
-        const action = createLoadFileAction(fileManager.selectedFile.file_path, fileType)
-        await recordAction(action)
-        incrementActionCount()
-        console.log('[WORKFLOW] Recorded initial file load')
+        const action = createLoadFileAction(
+          fileManager.selectedFile.file_path,
+          fileType,
+        );
+        await recordAction(action);
+        incrementActionCount();
+        console.log("[WORKFLOW] Recorded initial file load");
       }
     } catch (error) {
-      console.error('Failed to initialize workflow:', error)
+      console.error("Failed to initialize workflow:", error);
     }
-  }
+  };
 
   const handleStopRecording = () => {
-    stopWorkflowRecording()
-  }
+    stopWorkflowRecording();
+  };
 
   const handleClearRecording = async () => {
-    if (confirm('Are you sure you want to clear the current recording? This cannot be undone.')) {
+    if (
+      confirm(
+        "Are you sure you want to clear the current recording? This cannot be undone.",
+      )
+    ) {
       try {
-        await clearWorkflow()
-        stopWorkflowRecording()
-        setSessionName('')
+        await clearWorkflow();
+        stopWorkflowRecording();
+        setSessionName("");
       } catch (error) {
-        console.error('Failed to clear recording:', error)
+        console.error("Failed to clear recording:", error);
       }
     }
-  }
+  };
 
   const handleExportPython = async () => {
     try {
-      const code = await generatePython()
-      const blob = new Blob([code], { type: 'text/plain' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${workflowRecording.currentSessionName || 'session'}.py`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      const code = await generatePython();
+      const blob = new Blob([code], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${workflowRecording.currentSessionName || "session"}.py`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (error) {
-      console.error('Failed to export Python script:', error)
-      alert('Failed to export Python script. See console for details.')
+      console.error("Failed to export Python script:", error);
+      alert("Failed to export Python script. See console for details.");
     }
-  }
+  };
 
   const handleExportJulia = async () => {
     try {
-      const code = await generateJulia()
-      const blob = new Blob([code], { type: 'text/plain' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${workflowRecording.currentSessionName || 'session'}.jl`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      const code = await generateJulia();
+      const blob = new Blob([code], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${workflowRecording.currentSessionName || "session"}.jl`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (error) {
-      console.error('Failed to export Julia script:', error)
-      alert('Failed to export Julia script. See console for details.')
+      console.error("Failed to export Julia script:", error);
+      alert("Failed to export Julia script. See console for details.");
     }
-  }
+  };
 
   const formatTimestamp = (timestamp: number | null) => {
-    if (!timestamp) return 'N/A'
-    const now = Date.now()
-    const diff = now - timestamp
-    if (diff < 60000) return 'Just now'
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`
-    return new Date(timestamp).toLocaleString()
-  }
+    if (!timestamp) return "N/A";
+    const now = Date.now();
+    const diff = now - timestamp;
+    if (diff < 60000) return "Just now";
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return new Date(timestamp).toLocaleString();
+  };
 
   return (
     <Card>
@@ -156,12 +176,13 @@ export function SessionRecorder() {
                 Recording
               </Badge>
             )}
-            {!workflowRecording.isRecording && workflowRecording.actionCount > 0 && (
-              <Badge variant="outline">
-                <Square className="h-3 w-3 mr-1" />
-                Stopped
-              </Badge>
-            )}
+            {!workflowRecording.isRecording &&
+              workflowRecording.actionCount > 0 && (
+                <Badge variant="outline">
+                  <Square className="h-3 w-3 mr-1" />
+                  Stopped
+                </Badge>
+              )}
           </div>
         </div>
       </CardHeader>
@@ -213,7 +234,7 @@ export function SessionRecorder() {
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Session:</span>
             <span className="font-medium">
-              {workflowRecording.currentSessionName || 'No active session'}
+              {workflowRecording.currentSessionName || "No active session"}
             </span>
           </div>
           <div className="flex items-center justify-between text-sm">
@@ -272,13 +293,15 @@ export function SessionRecorder() {
         )}
 
         {/* Info Text */}
-        {workflowRecording.actionCount === 0 && !workflowRecording.isRecording && (
-          <div className="text-center text-sm text-muted-foreground p-4 bg-muted/50 rounded-md">
-            Start recording to capture your analysis workflow. All file operations, parameter
-            changes, and analysis runs will be recorded and can be exported as executable scripts.
-          </div>
-        )}
+        {workflowRecording.actionCount === 0 &&
+          !workflowRecording.isRecording && (
+            <div className="text-center text-sm text-muted-foreground p-4 bg-muted/50 rounded-md">
+              Start recording to capture your analysis workflow. All file
+              operations, parameter changes, and analysis runs will be recorded
+              and can be exported as executable scripts.
+            </div>
+          )}
       </CardContent>
     </Card>
-  )
+  );
 }

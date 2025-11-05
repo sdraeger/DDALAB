@@ -1,13 +1,15 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ApiService } from '@/services/apiService';
-import type { EDFFileInfo } from '@/types/api';
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ApiService } from "@/services/apiService";
+import type { EDFFileInfo } from "@/types/api";
 
 export const fileManagementKeys = {
-  all: ['fileManagement'] as const,
-  files: () => [...fileManagementKeys.all, 'files'] as const,
-  fileInfo: (filePath: string) => [...fileManagementKeys.all, 'fileInfo', filePath] as const,
-  directory: (path: string) => [...fileManagementKeys.all, 'directory', path] as const,
-  availableFiles: () => [...fileManagementKeys.all, 'availableFiles'] as const,
+  all: ["fileManagement"] as const,
+  files: () => [...fileManagementKeys.all, "files"] as const,
+  fileInfo: (filePath: string) =>
+    [...fileManagementKeys.all, "fileInfo", filePath] as const,
+  directory: (path: string) =>
+    [...fileManagementKeys.all, "directory", path] as const,
+  availableFiles: () => [...fileManagementKeys.all, "availableFiles"] as const,
 };
 
 export function useAvailableFiles(apiService: ApiService) {
@@ -19,7 +21,11 @@ export function useAvailableFiles(apiService: ApiService) {
   });
 }
 
-export function useFileInfo(apiService: ApiService, filePath: string, enabled: boolean = true) {
+export function useFileInfo(
+  apiService: ApiService,
+  filePath: string,
+  enabled: boolean = true,
+) {
   return useQuery({
     queryKey: fileManagementKeys.fileInfo(filePath),
     queryFn: () => apiService.getFileInfo(filePath),
@@ -39,7 +45,11 @@ export interface DirectoryListingResult {
   }>;
 }
 
-export function useDirectoryListing(apiService: ApiService, path: string, enabled: boolean = true) {
+export function useDirectoryListing(
+  apiService: ApiService,
+  path: string,
+  enabled: boolean = true,
+) {
   return useQuery({
     queryKey: fileManagementKeys.directory(path),
     queryFn: () => apiService.listDirectory(path),
@@ -67,7 +77,9 @@ export function useRefreshDirectory(apiService: ApiService) {
     mutationFn: (path: string) => apiService.listDirectory(path),
     onSuccess: (data, path) => {
       queryClient.setQueryData(fileManagementKeys.directory(path), data);
-      queryClient.invalidateQueries({ queryKey: fileManagementKeys.directory(path) });
+      queryClient.invalidateQueries({
+        queryKey: fileManagementKeys.directory(path),
+      });
     },
   });
 }
@@ -80,10 +92,14 @@ export function useInvalidateFileCache() {
       queryClient.invalidateQueries({ queryKey: fileManagementKeys.files() });
     },
     invalidateFileInfo: (filePath: string) => {
-      queryClient.invalidateQueries({ queryKey: fileManagementKeys.fileInfo(filePath) });
+      queryClient.invalidateQueries({
+        queryKey: fileManagementKeys.fileInfo(filePath),
+      });
     },
     invalidateDirectory: (path: string) => {
-      queryClient.invalidateQueries({ queryKey: fileManagementKeys.directory(path) });
+      queryClient.invalidateQueries({
+        queryKey: fileManagementKeys.directory(path),
+      });
     },
     clearAllCache: () => {
       queryClient.invalidateQueries({ queryKey: fileManagementKeys.all });

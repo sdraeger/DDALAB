@@ -1,23 +1,23 @@
-import React, { useState, useMemo } from 'react'
-import { Badge } from './ui/badge'
-import { Button } from './ui/button'
-import { Input } from './ui/input'
-import { Label } from './ui/label'
-import { Card, CardContent } from './ui/card'
-import { Search, X, CheckSquare, Square } from 'lucide-react'
+import React, { useState, useMemo } from "react";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Card, CardContent } from "./ui/card";
+import { Search, X, CheckSquare, Square } from "lucide-react";
 
 export interface ChannelSelectorProps {
-  channels: string[]
-  selectedChannels: string[]
-  onSelectionChange: (channels: string[]) => void
-  disabled?: boolean
-  label?: string
-  description?: string
-  maxHeight?: string
-  showSelectAll?: boolean
-  showSearch?: boolean
-  placeholder?: string
-  variant?: 'default' | 'compact'
+  channels: string[];
+  selectedChannels: string[];
+  onSelectionChange: (channels: string[]) => void;
+  disabled?: boolean;
+  label?: string;
+  description?: string;
+  maxHeight?: string;
+  showSelectAll?: boolean;
+  showSearch?: boolean;
+  placeholder?: string;
+  variant?: "default" | "compact";
 }
 
 export function ChannelSelector({
@@ -25,57 +25,58 @@ export function ChannelSelector({
   selectedChannels,
   onSelectionChange,
   disabled = false,
-  label = 'Channels',
+  label = "Channels",
   description,
-  maxHeight = 'max-h-64',
+  maxHeight = "max-h-64",
   showSelectAll = true,
   showSearch = true,
-  placeholder = 'Search channels...',
-  variant = 'default',
+  placeholder = "Search channels...",
+  variant = "default",
 }: ChannelSelectorProps) {
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = useState("");
 
   const filteredChannels = useMemo(() => {
-    if (!searchQuery.trim()) return channels
+    if (!searchQuery.trim()) return channels;
 
-    const query = searchQuery.toLowerCase()
-    return channels.filter(channel =>
-      channel.toLowerCase().includes(query)
-    )
-  }, [channels, searchQuery])
+    const query = searchQuery.toLowerCase();
+    return channels.filter((channel) => channel.toLowerCase().includes(query));
+  }, [channels, searchQuery]);
 
   const handleToggle = (channel: string) => {
-    if (disabled) return
+    if (disabled) return;
 
     const newSelection = selectedChannels.includes(channel)
-      ? selectedChannels.filter(ch => ch !== channel)
-      : [...selectedChannels, channel]
+      ? selectedChannels.filter((ch) => ch !== channel)
+      : [...selectedChannels, channel];
 
-    onSelectionChange(newSelection)
-  }
+    onSelectionChange(newSelection);
+  };
 
   const handleSelectAll = () => {
-    if (disabled) return
-    onSelectionChange(filteredChannels)
-  }
+    if (disabled) return;
+    onSelectionChange(filteredChannels);
+  };
 
   const handleDeselectAll = () => {
-    if (disabled) return
+    if (disabled) return;
     const remainingChannels = selectedChannels.filter(
-      ch => !filteredChannels.includes(ch)
-    )
-    onSelectionChange(remainingChannels)
-  }
+      (ch) => !filteredChannels.includes(ch),
+    );
+    onSelectionChange(remainingChannels);
+  };
 
   const handleClearSearch = () => {
-    setSearchQuery('')
-  }
+    setSearchQuery("");
+  };
 
-  const allFilteredSelected = filteredChannels.length > 0 &&
-    filteredChannels.every(ch => selectedChannels.includes(ch))
-  const someFilteredSelected = filteredChannels.some(ch => selectedChannels.includes(ch))
+  const allFilteredSelected =
+    filteredChannels.length > 0 &&
+    filteredChannels.every((ch) => selectedChannels.includes(ch));
+  const someFilteredSelected = filteredChannels.some((ch) =>
+    selectedChannels.includes(ch),
+  );
 
-  if (variant === 'compact') {
+  if (variant === "compact") {
     return (
       <div className="space-y-2">
         {showSearch && (
@@ -133,13 +134,17 @@ export function ChannelSelector({
           )}
         </div>
 
-        <div className={`flex flex-wrap gap-2 ${maxHeight} overflow-y-auto p-2 border rounded-md ${disabled ? 'opacity-50' : ''}`}>
+        <div
+          className={`flex flex-wrap gap-2 ${maxHeight} overflow-y-auto p-2 border rounded-md ${disabled ? "opacity-50" : ""}`}
+        >
           {filteredChannels.length > 0 ? (
-            filteredChannels.map(channel => (
+            filteredChannels.map((channel) => (
               <Badge
                 key={channel}
-                variant={selectedChannels.includes(channel) ? 'default' : 'outline'}
-                className={`cursor-pointer transition-all ${disabled ? 'cursor-not-allowed' : 'hover:scale-105'}`}
+                variant={
+                  selectedChannels.includes(channel) ? "default" : "outline"
+                }
+                className={`cursor-pointer transition-all ${disabled ? "cursor-not-allowed" : "hover:scale-105"}`}
                 onClick={() => handleToggle(channel)}
               >
                 {channel}
@@ -147,12 +152,14 @@ export function ChannelSelector({
             ))
           ) : (
             <div className="w-full text-center text-sm text-muted-foreground py-4">
-              {searchQuery ? 'No channels match your search' : 'No channels available'}
+              {searchQuery
+                ? "No channels match your search"
+                : "No channels available"}
             </div>
           )}
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -167,7 +174,9 @@ export function ChannelSelector({
               </span>
             </Label>
             {description && (
-              <p className="text-sm text-muted-foreground mt-1">{description}</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {description}
+              </p>
             )}
           </div>
           {showSelectAll && (
@@ -226,13 +235,17 @@ export function ChannelSelector({
           </div>
         )}
 
-        <div className={`flex flex-wrap gap-2 ${maxHeight} overflow-y-auto p-3 border rounded-md bg-muted/30 ${disabled ? 'opacity-50' : ''}`}>
+        <div
+          className={`flex flex-wrap gap-2 ${maxHeight} overflow-y-auto p-3 border rounded-md bg-muted/30 ${disabled ? "opacity-50" : ""}`}
+        >
           {filteredChannels.length > 0 ? (
-            filteredChannels.map(channel => (
+            filteredChannels.map((channel) => (
               <Badge
                 key={channel}
-                variant={selectedChannels.includes(channel) ? 'default' : 'outline'}
-                className={`cursor-pointer transition-all ${disabled ? 'cursor-not-allowed' : 'hover:scale-105 hover:shadow-sm'}`}
+                variant={
+                  selectedChannels.includes(channel) ? "default" : "outline"
+                }
+                className={`cursor-pointer transition-all ${disabled ? "cursor-not-allowed" : "hover:scale-105 hover:shadow-sm"}`}
                 onClick={() => handleToggle(channel)}
               >
                 {channel}
@@ -242,17 +255,18 @@ export function ChannelSelector({
             <div className="w-full text-center text-sm text-muted-foreground py-8">
               {searchQuery ? (
                 <>
-                  No channels match <span className="font-medium">&quot;{searchQuery}&quot;</span>
+                  No channels match{" "}
+                  <span className="font-medium">&quot;{searchQuery}&quot;</span>
                 </>
               ) : (
-                'No channels available'
+                "No channels available"
               )}
             </div>
           )}
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }
 
-export default ChannelSelector
+export default ChannelSelector;

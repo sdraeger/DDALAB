@@ -6,8 +6,8 @@
  * is loaded automatically. This provides a cohesive, file-based workflow.
  */
 
-import { PreprocessingOptions } from './persistence'
-import { PlotAnnotation } from './annotations'
+import { PreprocessingOptions } from "./persistence";
+import { PlotAnnotation } from "./annotations";
 
 /**
  * State module interface - implement this to create a new state module
@@ -15,22 +15,22 @@ import { PlotAnnotation } from './annotations'
  */
 export interface FileStateModule<T = any> {
   /** Unique identifier for this module (e.g., 'plot', 'dda', 'annotations') */
-  readonly moduleId: string
+  readonly moduleId: string;
 
   /** Load state for a specific file */
-  loadState(filePath: string): Promise<T | null>
+  loadState(filePath: string): Promise<T | null>;
 
   /** Save state for a specific file */
-  saveState(filePath: string, state: T): Promise<void>
+  saveState(filePath: string, state: T): Promise<void>;
 
   /** Clear state for a specific file */
-  clearState(filePath: string): Promise<void>
+  clearState(filePath: string): Promise<void>;
 
   /** Get default state when no saved state exists */
-  getDefaultState(): T
+  getDefaultState(): T;
 
   /** Optional: Validate loaded state */
-  validateState?(state: any): state is T
+  validateState?(state: any): state is T;
 }
 
 /**
@@ -38,34 +38,34 @@ export interface FileStateModule<T = any> {
  */
 export interface FilePlotState {
   /** Current chunk position (in seconds) */
-  chunkStart: number
+  chunkStart: number;
 
   /** Chunk size (in samples) */
-  chunkSize: number
+  chunkSize: number;
 
   /** Selected channels for visualization */
-  selectedChannels: string[]
+  selectedChannels: string[];
 
   /** Amplitude scale factor */
-  amplitude: number
+  amplitude: number;
 
   /** Whether annotations are visible */
-  showAnnotations: boolean
+  showAnnotations: boolean;
 
   /** Preprocessing options applied to this file */
-  preprocessing?: PreprocessingOptions
+  preprocessing?: PreprocessingOptions;
 
   /** Custom channel colors */
-  channelColors?: Record<string, string>
+  channelColors?: Record<string, string>;
 
   /** Time window range */
   timeWindow?: {
-    start: number
-    end: number
-  }
+    start: number;
+    end: number;
+  };
 
   /** Last update timestamp */
-  lastUpdated: string
+  lastUpdated: string;
 }
 
 /**
@@ -73,26 +73,26 @@ export interface FilePlotState {
  */
 export interface FileDDAState {
   /** Current active analysis result */
-  currentAnalysisId: string | null
+  currentAnalysisId: string | null;
 
   /** All analysis results for this file */
-  analysisHistory: string[]  // Array of analysis IDs
+  analysisHistory: string[]; // Array of analysis IDs
 
   /** Analysis parameters last used for this file */
   lastParameters: {
-    variants: string[]
-    windowLength: number
-    windowStep: number
-    scaleMin: number
-    scaleMax: number
-    scaleNum: number
-  }
+    variants: string[];
+    windowLength: number;
+    windowStep: number;
+    scaleMin: number;
+    scaleMax: number;
+    scaleNum: number;
+  };
 
   /** Selected variants for visualization */
-  selectedVariants: string[]
+  selectedVariants: string[];
 
   /** Last update timestamp */
-  lastUpdated: string
+  lastUpdated: string;
 }
 
 /**
@@ -101,15 +101,15 @@ export interface FileDDAState {
 export interface FileAnnotationState {
   /** Time series annotations (global and per-channel) */
   timeSeries: {
-    global: PlotAnnotation[]
-    channels: Record<string, PlotAnnotation[]>
-  }
+    global: PlotAnnotation[];
+    channels: Record<string, PlotAnnotation[]>;
+  };
 
   /** DDA result annotations, keyed by resultId_variantId_plotType */
-  ddaResults: Record<string, PlotAnnotation[]>
+  ddaResults: Record<string, PlotAnnotation[]>;
 
   /** Last update timestamp */
-  lastUpdated: string
+  lastUpdated: string;
 }
 
 /**
@@ -118,34 +118,34 @@ export interface FileAnnotationState {
  */
 export interface FileSpecificState {
   /** File path (identifier) */
-  filePath: string
+  filePath: string;
 
   /** Plot visualization state */
-  plot?: FilePlotState
+  plot?: FilePlotState;
 
   /** DDA analysis state */
-  dda?: FileDDAState
+  dda?: FileDDAState;
 
   /** Annotations state */
-  annotations?: FileAnnotationState
+  annotations?: FileAnnotationState;
 
   /** Extensible - allows future modules to add their state */
-  [moduleId: string]: any
+  [moduleId: string]: any;
 
   /** Metadata */
   metadata: {
     /** First time this file was opened */
-    firstOpened: string
+    firstOpened: string;
 
     /** Last time this file was accessed */
-    lastAccessed: string
+    lastAccessed: string;
 
     /** Number of times this file has been opened */
-    accessCount: number
+    accessCount: number;
 
     /** Version of the state format */
-    version: string
-  }
+    version: string;
+  };
 }
 
 /**
@@ -154,19 +154,19 @@ export interface FileSpecificState {
  */
 export interface FileStateRegistry {
   /** All file states, keyed by file path */
-  files: Record<string, FileSpecificState>
+  files: Record<string, FileSpecificState>;
 
   /** Currently active file */
-  activeFilePath: string | null
+  activeFilePath: string | null;
 
   /** Last active file (for quick restoration) */
-  lastActiveFilePath: string | null
+  lastActiveFilePath: string | null;
 
   /** Registry metadata */
   metadata: {
-    version: string
-    lastUpdated: string
-  }
+    version: string;
+    lastUpdated: string;
+  };
 }
 
 /**
@@ -174,42 +174,42 @@ export interface FileStateRegistry {
  */
 export interface FileStateManagerOptions {
   /** Auto-save state when changes occur */
-  autoSave: boolean
+  autoSave: boolean;
 
   /** Interval for auto-save (ms) */
-  saveInterval: number
+  saveInterval: number;
 
   /** Max number of file states to keep in memory */
-  maxCachedFiles: number
+  maxCachedFiles: number;
 
   /** Whether to persist to backend */
-  persistToBackend: boolean
+  persistToBackend: boolean;
 }
 
 /**
  * Module registration descriptor
  */
 export interface ModuleDescriptor<T = any> {
-  module: FileStateModule<T>
-  priority?: number  // Load order priority (lower = first)
+  module: FileStateModule<T>;
+  priority?: number; // Load order priority (lower = first)
 }
 
 /**
  * File state change event
  */
 export interface FileStateChangeEvent {
-  filePath: string
-  moduleId: string
-  oldState: any
-  newState: any
-  timestamp: string
+  filePath: string;
+  moduleId: string;
+  oldState: any;
+  newState: any;
+  timestamp: string;
 }
 
 /**
  * State migration interface for version upgrades
  */
 export interface FileStateMigration {
-  fromVersion: string
-  toVersion: string
-  migrate: (oldState: any) => FileSpecificState
+  fromVersion: string;
+  toVersion: string;
+  migrate: (oldState: any) => FileSpecificState;
 }

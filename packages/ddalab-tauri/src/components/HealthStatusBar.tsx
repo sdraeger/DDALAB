@@ -1,12 +1,12 @@
-'use client'
+"use client";
 
-import { useEffect } from 'react'
-import { useAppStore } from '@/store/appStore'
-import { ApiService } from '@/services/apiService'
-import { useSync } from '@/hooks/useSync'
-import { useHealthCheck } from '@/hooks/useHealthCheck'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { useEffect } from "react";
+import { useAppStore } from "@/store/appStore";
+import { ApiService } from "@/services/apiService";
+import { useSync } from "@/hooks/useSync";
+import { useHealthCheck } from "@/hooks/useHealthCheck";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Wifi,
   WifiOff,
@@ -17,17 +17,17 @@ import {
   RefreshCw,
   Server,
   Cloud,
-  CloudOff
-} from 'lucide-react'
-import { formatDateTime } from '@/lib/utils'
+  CloudOff,
+} from "lucide-react";
+import { formatDateTime } from "@/lib/utils";
 
 interface HealthStatusBarProps {
-  apiService: ApiService
+  apiService: ApiService;
 }
 
 export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
-  const { ui, updateHealthStatus } = useAppStore()
-  const { isConnected: syncConnected, isLoading: syncLoading } = useSync()
+  const { ui, updateHealthStatus } = useAppStore();
+  const { isConnected: syncConnected, isLoading: syncLoading } = useSync();
 
   // Use TanStack Query for health checks with automatic polling
   const {
@@ -37,68 +37,68 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
   } = useHealthCheck(apiService, {
     enabled: ui.isServerReady,
     refetchInterval: 120 * 1000, // Poll every 2 minutes
-  })
+  });
 
   // Sync health check results to Zustand store for backward compatibility
   useEffect(() => {
-    if (!healthData) return
+    if (!healthData) return;
 
     if (healthData.isHealthy) {
       updateHealthStatus({
-        apiStatus: 'healthy',
+        apiStatus: "healthy",
         lastCheck: healthData.timestamp,
         responseTime: healthData.responseTime,
         errors: [],
-      })
+      });
     } else {
       updateHealthStatus((currentHealth) => ({
-        apiStatus: 'unhealthy',
+        apiStatus: "unhealthy",
         lastCheck: healthData.timestamp,
         responseTime: healthData.responseTime,
         errors: healthData.error
           ? [healthData.error, ...currentHealth.errors.slice(0, 4)]
           : currentHealth.errors,
-      }))
+      }));
     }
-  }, [healthData, updateHealthStatus])
+  }, [healthData, updateHealthStatus]);
 
   // Get health status from store (synced from query)
-  const { health } = useAppStore()
+  const { health } = useAppStore();
 
   const getStatusColor = () => {
-    if (isCheckingHealth) return 'text-yellow-600'
+    if (isCheckingHealth) return "text-yellow-600";
     switch (health.apiStatus) {
-      case 'healthy':
-        return 'text-green-600'
-      case 'unhealthy':
-        return 'text-red-600'
-      case 'checking':
-        return 'text-yellow-600'
+      case "healthy":
+        return "text-green-600";
+      case "unhealthy":
+        return "text-red-600";
+      case "checking":
+        return "text-yellow-600";
       default:
-        return 'text-gray-600'
+        return "text-gray-600";
     }
-  }
+  };
 
   const getStatusIcon = () => {
-    if (isCheckingHealth) return <RefreshCw className="h-4 w-4 animate-spin" />
+    if (isCheckingHealth) return <RefreshCw className="h-4 w-4 animate-spin" />;
     switch (health.apiStatus) {
-      case 'healthy':
-        return <CheckCircle className="h-4 w-4" />
-      case 'unhealthy':
-        return <AlertCircle className="h-4 w-4" />
-      case 'checking':
-        return <RefreshCw className="h-4 w-4 animate-spin" />
+      case "healthy":
+        return <CheckCircle className="h-4 w-4" />;
+      case "unhealthy":
+        return <AlertCircle className="h-4 w-4" />;
+      case "checking":
+        return <RefreshCw className="h-4 w-4 animate-spin" />;
       default:
-        return <Server className="h-4 w-4" />
+        return <Server className="h-4 w-4" />;
     }
-  }
+  };
 
   const formatResponseTime = (time: number) => {
     if (time < 1000) {
-      return `${time}ms`
+      return `${time}ms`;
     }
-    return `${(time / 1000).toFixed(1)}s`
-  }
+    return `${(time / 1000).toFixed(1)}s`;
+  };
 
   return (
     <div className="border-t bg-background p-2">
@@ -108,9 +108,7 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
           <div className="flex items-center space-x-2">
             <div className={`flex items-center space-x-1 ${getStatusColor()}`}>
               {getStatusIcon()}
-              <span className="font-medium">
-                API: {health.apiStatus}
-              </span>
+              <span className="font-medium">API: {health.apiStatus}</span>
             </div>
 
             {health.responseTime > 0 && (
@@ -129,8 +127,17 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
             ) : (
               <CloudOff className="h-4 w-4 text-gray-400" />
             )}
-            <span className={syncConnected ? 'text-green-600' : 'text-muted-foreground'}>
-              Sync: {syncLoading ? 'connecting...' : syncConnected ? 'connected' : 'offline'}
+            <span
+              className={
+                syncConnected ? "text-green-600" : "text-muted-foreground"
+              }
+            >
+              Sync:{" "}
+              {syncLoading
+                ? "connecting..."
+                : syncConnected
+                  ? "connected"
+                  : "offline"}
             </span>
           </div>
 
@@ -147,7 +154,7 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
           {/* Error Count */}
           {health.errors.length > 0 && (
             <Badge variant="destructive" className="text-xs">
-              {health.errors.length} error{health.errors.length > 1 ? 's' : ''}
+              {health.errors.length} error{health.errors.length > 1 ? "s" : ""}
             </Badge>
           )}
 
@@ -159,7 +166,9 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
             disabled={isCheckingHealth}
             className="h-6 px-2"
           >
-            <RefreshCw className={`h-3 w-3 ${isCheckingHealth ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`h-3 w-3 ${isCheckingHealth ? "animate-spin" : ""}`}
+            />
           </Button>
 
           {/* Activity Indicator */}
@@ -167,15 +176,21 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
             <Activity className="h-4 w-4 text-muted-foreground" />
             <div className="flex space-x-1">
               {/* API Status Dot */}
-              <div className={`w-2 h-2 rounded-full ${
-                health.apiStatus === 'healthy' ? 'bg-green-500 animate-pulse' :
-                health.apiStatus === 'checking' ? 'bg-yellow-500 animate-pulse' :
-                'bg-red-500'
-              }`} />
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  health.apiStatus === "healthy"
+                    ? "bg-green-500 animate-pulse"
+                    : health.apiStatus === "checking"
+                      ? "bg-yellow-500 animate-pulse"
+                      : "bg-red-500"
+                }`}
+              />
               {/* Sync Broker Status Dot */}
-              <div className={`w-2 h-2 rounded-full ${
-                syncConnected ? 'bg-blue-500 animate-pulse' : 'bg-gray-300'
-              }`} />
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  syncConnected ? "bg-blue-500 animate-pulse" : "bg-gray-300"
+                }`}
+              />
             </div>
           </div>
         </div>
@@ -191,5 +206,5 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
         </div>
       )}
     </div>
-  )
+  );
 }

@@ -876,11 +876,14 @@ fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
         },
         ct_channel_pairs: api_req.ct_channel_pairs.clone(),
         cd_channel_pairs: api_req.cd_channel_pairs.clone(),
-        model_parameters: api_req.model_parameters.as_ref().map(|mp| dda_rs::ModelParameters {
-            dm: mp.dm,
-            order: mp.order,
-            nr_tau: mp.nr_tau,
-        }),
+        model_parameters: api_req
+            .model_parameters
+            .as_ref()
+            .map(|mp| dda_rs::ModelParameters {
+                dm: mp.dm,
+                order: mp.order,
+                nr_tau: mp.nr_tau,
+            }),
     };
 
     dda_request

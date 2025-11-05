@@ -1,7 +1,11 @@
-'use client'
+"use client";
 
-import { useAppStore } from '@/store/appStore'
-import { navigationConfig, secondaryTabConfig, SecondaryNavTab } from '@/types/navigation'
+import { useAppStore } from "@/store/appStore";
+import {
+  navigationConfig,
+  secondaryTabConfig,
+  SecondaryNavTab,
+} from "@/types/navigation";
 import {
   Activity,
   MessageSquare,
@@ -15,9 +19,9 @@ import {
   Database,
   Cloud,
   Bell,
-} from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 
 const iconMap = {
   Activity,
@@ -32,18 +36,18 @@ const iconMap = {
   Database,
   Cloud,
   Bell,
-}
+};
 
 export function SecondaryNavigation() {
-  const primaryNav = useAppStore(state => state.ui.primaryNav)
-  const secondaryNav = useAppStore(state => state.ui.secondaryNav)
-  const setSecondaryNav = useAppStore(state => state.setSecondaryNav)
+  const primaryNav = useAppStore((state) => state.ui.primaryNav);
+  const secondaryNav = useAppStore((state) => state.ui.secondaryNav);
+  const setSecondaryNav = useAppStore((state) => state.setSecondaryNav);
 
-  const currentCategory = navigationConfig[primaryNav]
-  const secondaryTabs = currentCategory.secondaryTabs
+  const currentCategory = navigationConfig[primaryNav];
+  const secondaryTabs = currentCategory.secondaryTabs;
 
   if (!secondaryTabs || secondaryTabs.length === 0) {
-    return null
+    return null;
   }
 
   return (
@@ -51,10 +55,12 @@ export function SecondaryNavigation() {
       <div className="flex items-center px-6 py-1.5 overflow-x-auto">
         <div className="flex items-center gap-1">
           {secondaryTabs.map((tabId) => {
-            const config = secondaryTabConfig[tabId]
-            const Icon = config.icon ? iconMap[config.icon as keyof typeof iconMap] : null
-            const isActive = secondaryNav === tabId
-            const isEnabled = config.enabled !== false
+            const config = secondaryTabConfig[tabId];
+            const Icon = config.icon
+              ? iconMap[config.icon as keyof typeof iconMap]
+              : null;
+            const isActive = secondaryNav === tabId;
+            const isEnabled = config.enabled !== false;
 
             return (
               <button
@@ -62,10 +68,10 @@ export function SecondaryNavigation() {
                 onClick={() => isEnabled && setSecondaryNav(tabId)}
                 disabled={!isEnabled}
                 className={cn(
-                  'flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors whitespace-nowrap',
-                  'disabled:opacity-50 disabled:cursor-not-allowed',
-                  isEnabled && 'hover:bg-accent/50',
-                  isActive && isEnabled && 'bg-background shadow-sm border'
+                  "flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors whitespace-nowrap",
+                  "disabled:opacity-50 disabled:cursor-not-allowed",
+                  isEnabled && "hover:bg-accent/50",
+                  isActive && isEnabled && "bg-background shadow-sm border",
                 )}
                 title={config.description}
               >
@@ -77,10 +83,10 @@ export function SecondaryNavigation() {
                   </Badge>
                 )}
               </button>
-            )
+            );
           })}
         </div>
       </div>
     </div>
-  )
+  );
 }

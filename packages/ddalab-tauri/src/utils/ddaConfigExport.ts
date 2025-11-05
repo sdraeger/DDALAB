@@ -1,4 +1,8 @@
-import { DDALabFileFormat, DDAConfigValidation, DDAConfigImportResult } from "@/types/ddaConfig";
+import {
+  DDALabFileFormat,
+  DDAConfigValidation,
+  DDAConfigImportResult,
+} from "@/types/ddaConfig";
 import type { EDFFileInfo } from "@/types/api";
 
 const DDALAB_FORMAT_VERSION = "1.0.0";
@@ -32,12 +36,15 @@ export function exportDDAConfig(
     analysisId?: string;
     executionTimeMs?: number;
     resultsSummary?: any;
-  }
+  },
 ): DDALabFileFormat {
   const config: DDALabFileFormat = {
     version: DDALAB_FORMAT_VERSION,
     created_at: new Date().toISOString(),
-    application_version: typeof window !== 'undefined' && (window as any).__TAURI_METADATA__?.version || "unknown",
+    application_version:
+      (typeof window !== "undefined" &&
+        (window as any).__TAURI_METADATA__?.version) ||
+      "unknown",
 
     analysis_name: metadata.analysisName,
     description: metadata.description,
@@ -107,7 +114,9 @@ export function parseDDAConfig(fileContent: string): DDALabFileFormat {
 
     return config;
   } catch (error) {
-    throw new Error(`Failed to parse .ddalab file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    throw new Error(
+      `Failed to parse .ddalab file: ${error instanceof Error ? error.message : "Unknown error"}`,
+    );
   }
 }
 
@@ -116,7 +125,7 @@ export function parseDDAConfig(fileContent: string): DDALabFileFormat {
  */
 export function validateConfigAgainstFile(
   config: DDALabFileFormat,
-  currentFile: EDFFileInfo | null
+  currentFile: EDFFileInfo | null,
 ): DDAConfigValidation {
   const warnings: string[] = [];
   const errors: string[] = [];
@@ -143,20 +152,21 @@ export function validateConfigAgainstFile(
     file_match: currentFile.file_name === config.source_file.file_name,
     duration_compatible: true,
     channels_compatible: true,
-    sample_rate_match: currentFile.sample_rate === config.source_file.sample_rate,
+    sample_rate_match:
+      currentFile.sample_rate === config.source_file.sample_rate,
   };
 
   // Check file name match (not strict - just informational)
   if (!compatibility.file_match) {
     warnings.push(
-      `Configuration was created for "${config.source_file.file_name}" but you're applying it to "${currentFile.file_name}". Ensure the files have compatible structure.`
+      `Configuration was created for "${config.source_file.file_name}" but you're applying it to "${currentFile.file_name}". Ensure the files have compatible structure.`,
     );
   }
 
   // Check sample rate
   if (!compatibility.sample_rate_match) {
     warnings.push(
-      `Sample rate mismatch: Original ${config.source_file.sample_rate} Hz, Current ${currentFile.sample_rate} Hz. Time-based parameters will be adjusted.`
+      `Sample rate mismatch: Original ${config.source_file.sample_rate} Hz, Current ${currentFile.sample_rate} Hz. Time-based parameters will be adjusted.`,
     );
   }
 
@@ -166,7 +176,7 @@ export function validateConfigAgainstFile(
 
   if (configMaxWindow > currentMaxSamples) {
     errors.push(
-      `Window length (${configMaxWindow} samples) exceeds current file duration (${currentMaxSamples} samples)`
+      `Window length (${configMaxWindow} samples) exceeds current file duration (${currentMaxSamples} samples)`,
     );
     compatibility.duration_compatible = false;
     valid = false;
@@ -177,14 +187,14 @@ export function validateConfigAgainstFile(
 
   // Add ST channels
   if (config.parameters.st_channels) {
-    config.parameters.st_channels.forEach(channel => {
+    config.parameters.st_channels.forEach((channel) => {
       requiredChannels.add(channel);
     });
   }
 
   // Add CT channel pairs
   if (config.parameters.ct_channel_pairs) {
-    config.parameters.ct_channel_pairs.forEach(pair => {
+    config.parameters.ct_channel_pairs.forEach((pair) => {
       requiredChannels.add(pair.source);
       requiredChannels.add(pair.target);
     });
@@ -192,7 +202,7 @@ export function validateConfigAgainstFile(
 
   // Add CD channel pairs
   if (config.parameters.cd_channel_pairs) {
-    config.parameters.cd_channel_pairs.forEach(pair => {
+    config.parameters.cd_channel_pairs.forEach((pair) => {
       requiredChannels.add(pair.source);
       requiredChannels.add(pair.target);
     });
@@ -201,16 +211,14 @@ export function validateConfigAgainstFile(
   const currentChannels = new Set(currentFile.channels);
   const missingChannels: string[] = [];
 
-  requiredChannels.forEach(channel => {
+  requiredChannels.forEach((channel) => {
     if (!currentChannels.has(channel)) {
       missingChannels.push(channel);
     }
   });
 
   if (missingChannels.length > 0) {
-    errors.push(
-      `Missing required channels: ${missingChannels.join(", ")}`
-    );
+    errors.push(`Missing required channels: ${missingChannels.join(", ")}`);
     compatibility.channels_compatible = false;
     valid = false;
   }
@@ -220,7 +228,7 @@ export function validateConfigAgainstFile(
     const maxDelay = config.parameters.delay_config.max || 0;
     if (maxDelay > currentMaxSamples) {
       errors.push(
-        `Maximum delay (${maxDelay} samples) exceeds current file duration`
+        `Maximum delay (${maxDelay} samples) exceeds current file duration`,
       );
       valid = false;
     }
@@ -228,7 +236,7 @@ export function validateConfigAgainstFile(
     const maxDelay = Math.max(...config.parameters.delay_config.list);
     if (maxDelay > currentMaxSamples) {
       warnings.push(
-        `Some delay values exceed current file duration and will be adjusted`
+        `Some delay values exceed current file duration and will be adjusted`,
       );
     }
   }
@@ -246,7 +254,7 @@ export function validateConfigAgainstFile(
  */
 export function importDDAConfig(
   fileContent: string,
-  currentFile: EDFFileInfo | null
+  currentFile: EDFFileInfo | null,
 ): DDAConfigImportResult {
   const config = parseDDAConfig(fileContent);
   const validation = validateConfigAgainstFile(config, currentFile);
@@ -276,7 +284,10 @@ export function configToLocalParameters(config: DDALabFileFormat) {
     }
     delayConfig = { mode: "list", list };
   } else {
-    delayConfig = config.parameters.delay_config as { mode: "list"; list?: number[] };
+    delayConfig = config.parameters.delay_config as {
+      mode: "list";
+      list?: number[];
+    };
   }
 
   return {
@@ -286,8 +297,14 @@ export function configToLocalParameters(config: DDALabFileFormat) {
     delayConfig,
     // Variant-specific channels
     selectedChannels: config.parameters.st_channels || [],
-    ctChannelPairs: config.parameters.ct_channel_pairs?.map(pair => [pair.source, pair.target] as [string, string]) || [],
-    cdChannelPairs: config.parameters.cd_channel_pairs?.map(pair => [pair.source, pair.target] as [string, string]) || [],
+    ctChannelPairs:
+      config.parameters.ct_channel_pairs?.map(
+        (pair) => [pair.source, pair.target] as [string, string],
+      ) || [],
+    cdChannelPairs:
+      config.parameters.cd_channel_pairs?.map(
+        (pair) => [pair.source, pair.target] as [string, string],
+      ) || [],
     // Legacy compatibility
     scaleMin: delayConfig.list?.[0] || 1,
     scaleMax: delayConfig.list?.[delayConfig.list.length - 1] || 20,
@@ -305,10 +322,16 @@ export function configToLocalParameters(config: DDALabFileFormat) {
 /**
  * Generate a default filename for export
  */
-export function generateExportFilename(analysisName: string, fileName: string): string {
-  const timestamp = new Date().toISOString().split('T')[0];
-  const safeName = analysisName.replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
-  const safeFileName = fileName.replace(/\.[^/.]+$/, "").replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+export function generateExportFilename(
+  analysisName: string,
+  fileName: string,
+): string {
+  const timestamp = new Date().toISOString().split("T")[0];
+  const safeName = analysisName.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
+  const safeFileName = fileName
+    .replace(/\.[^/.]+$/, "")
+    .replace(/[^a-z0-9_-]/gi, "_")
+    .toLowerCase();
 
   return `${safeFileName}_${safeName}_${timestamp}.ddalab`;
 }

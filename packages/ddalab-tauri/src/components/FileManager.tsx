@@ -106,14 +106,18 @@ function FileTreeRenderer({
   apiService,
   searchQuery,
 }: FileTreeRendererProps) {
-  const [loadedDirs, setLoadedDirs] = useState<Map<string, { dirs: DirectoryEntry[], files: EDFFileInfo[] }>>(new Map());
+  const [loadedDirs, setLoadedDirs] = useState<
+    Map<string, { dirs: DirectoryEntry[]; files: EDFFileInfo[] }>
+  >(new Map());
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
   const [isLoadingForSearch, setIsLoadingForSearch] = useState(false);
   const loadingAbortControllerRef = useRef<AbortController | null>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Helper function to load BIDS dataset contents
-  const loadBIDSContents = async (bidsPath: string): Promise<{ dirs: DirectoryEntry[], files: EDFFileInfo[] } | null> => {
+  const loadBIDSContents = async (
+    bidsPath: string,
+  ): Promise<{ dirs: DirectoryEntry[]; files: EDFFileInfo[] } | null> => {
     if (loadedDirs.has(bidsPath)) {
       return loadedDirs.get(bidsPath) || null;
     }
@@ -122,7 +126,7 @@ function FileTreeRenderer({
       return null;
     }
 
-    setLoadingDirs(prev => new Set(prev).add(bidsPath));
+    setLoadingDirs((prev) => new Set(prev).add(bidsPath));
 
     try {
       // Import BIDS reader functions dynamically
@@ -130,11 +134,14 @@ function FileTreeRenderer({
       const subjects = await discoverSubjects(bidsPath);
 
       // Convert BIDS subjects to virtual directories with metadata
-      const subjectDirs: DirectoryEntry[] = subjects.map(subject => {
+      const subjectDirs: DirectoryEntry[] = subjects.map((subject) => {
         // Count total runs across all sessions
-        const totalRuns = subject.sessions.reduce((sum: number, session: any) => {
-          return sum + (session.runs?.length || 0);
-        }, 0);
+        const totalRuns = subject.sessions.reduce(
+          (sum: number, session: any) => {
+            return sum + (session.runs?.length || 0);
+          },
+          0,
+        );
 
         // Extract unique modalities
         const modalities = new Set<string>();
@@ -154,9 +161,9 @@ function FileTreeRenderer({
           isBIDS: false,
           bidsInfo: {
             subjectCount: subject.sessions.length, // Use session count for subjects
-            datasetName: `${totalRuns} run${totalRuns !== 1 ? 's' : ''}`,
+            datasetName: `${totalRuns} run${totalRuns !== 1 ? "s" : ""}`,
             modalities: Array.from(modalities),
-          }
+          },
         };
       });
 
@@ -166,13 +173,13 @@ function FileTreeRenderer({
       (window as any).__bids_cache[bidsPath] = subjects;
 
       const contents = { dirs: subjectDirs, files: [] }; // No files at dataset level
-      setLoadedDirs(prev => new Map(prev).set(bidsPath, contents));
+      setLoadedDirs((prev) => new Map(prev).set(bidsPath, contents));
       return contents;
     } catch (error) {
-      console.error('[BIDS] Failed to load BIDS dataset:', bidsPath, error);
+      console.error("[BIDS] Failed to load BIDS dataset:", bidsPath, error);
       return null;
     } finally {
-      setLoadingDirs(prev => {
+      setLoadingDirs((prev) => {
         const next = new Set(prev);
         next.delete(bidsPath);
         return next;
@@ -181,7 +188,9 @@ function FileTreeRenderer({
   };
 
   // Helper function to load directory contents
-  const loadDirectoryContents = async (dirPath: string): Promise<{ dirs: DirectoryEntry[], files: EDFFileInfo[] } | null> => {
+  const loadDirectoryContents = async (
+    dirPath: string,
+  ): Promise<{ dirs: DirectoryEntry[]; files: EDFFileInfo[] } | null> => {
     if (loadedDirs.has(dirPath)) {
       return loadedDirs.get(dirPath) || null;
     }
@@ -194,11 +203,13 @@ function FileTreeRenderer({
     const cache = (window as any).__bids_cache || {};
     for (const [bidsRoot, subjects] of Object.entries(cache)) {
       // Check if this is a subject directory
-      const subjectId = dirPath.split('/').pop();
-      const subject = (subjects as any[]).find((s: any) => s.id === subjectId && dirPath.startsWith(bidsRoot));
+      const subjectId = dirPath.split("/").pop();
+      const subject = (subjects as any[]).find(
+        (s: any) => s.id === subjectId && dirPath.startsWith(bidsRoot),
+      );
 
       if (subject && subject.sessions && Array.isArray(subject.sessions)) {
-        setLoadingDirs(prev => new Set(prev).add(dirPath));
+        setLoadingDirs((prev) => new Set(prev).add(dirPath));
         try {
           // This is a BIDS subject - show sessions or runs
           if (subject.sessions.length === 1 && !subject.sessions[0].id) {
@@ -207,13 +218,15 @@ function FileTreeRenderer({
             if (!firstSession.runs || !Array.isArray(firstSession.runs)) {
               // No runs found - return empty
               const contents = { dirs: [], files: [] };
-              setLoadedDirs(prev => new Map(prev).set(dirPath, contents));
+              setLoadedDirs((prev) => new Map(prev).set(dirPath, contents));
               return contents;
             }
 
             const files: EDFFileInfo[] = firstSession.runs.map((run: any) => ({
               file_path: run.dataFile,
-              file_name: run.dataFile.split('/').pop() || `task-${run.task}_run-${run.run}`,
+              file_name:
+                run.dataFile.split("/").pop() ||
+                `task-${run.task}_run-${run.run}`,
               file_size: 0,
               duration: 0,
               sample_rate: 256,
@@ -226,29 +239,31 @@ function FileTreeRenderer({
                 task: run.task,
                 run: run.run,
                 modality: run.modality,
-              }
+              },
             }));
 
             const contents = { dirs: [], files };
-            setLoadedDirs(prev => new Map(prev).set(dirPath, contents));
+            setLoadedDirs((prev) => new Map(prev).set(dirPath, contents));
             return contents;
           } else {
             // Show sessions as directories
-            const sessionDirs: DirectoryEntry[] = subject.sessions.map((session: any) => ({
-              name: session.id || 'no-session',
-              path: `${dirPath}/${session.id || 'no-session'}`,
-              isBIDS: false,
-            }));
+            const sessionDirs: DirectoryEntry[] = subject.sessions.map(
+              (session: any) => ({
+                name: session.id || "no-session",
+                path: `${dirPath}/${session.id || "no-session"}`,
+                isBIDS: false,
+              }),
+            );
 
             // Store sessions for later
             (window as any).__bids_cache[dirPath] = subject.sessions;
 
             const contents = { dirs: sessionDirs, files: [] };
-            setLoadedDirs(prev => new Map(prev).set(dirPath, contents));
+            setLoadedDirs((prev) => new Map(prev).set(dirPath, contents));
             return contents;
           }
         } finally {
-          setLoadingDirs(prev => {
+          setLoadingDirs((prev) => {
             const next = new Set(prev);
             next.delete(dirPath);
             return next;
@@ -257,20 +272,24 @@ function FileTreeRenderer({
       }
 
       // Check if this is a session directory
-      const sessionId = dirPath.split('/').pop();
-      const parentPath = dirPath.substring(0, dirPath.lastIndexOf('/'));
+      const sessionId = dirPath.split("/").pop();
+      const parentPath = dirPath.substring(0, dirPath.lastIndexOf("/"));
       const sessions = cache[parentPath];
 
       if (sessions && Array.isArray(sessions)) {
-        const session = sessions.find((s: any) => (s.id || 'no-session') === sessionId);
+        const session = sessions.find(
+          (s: any) => (s.id || "no-session") === sessionId,
+        );
 
         if (session && session.runs && Array.isArray(session.runs)) {
-          setLoadingDirs(prev => new Set(prev).add(dirPath));
+          setLoadingDirs((prev) => new Set(prev).add(dirPath));
           try {
             // This is a BIDS session - show runs as files
             const files: EDFFileInfo[] = session.runs.map((run: any) => ({
               file_path: run.dataFile,
-              file_name: run.dataFile.split('/').pop() || `task-${run.task}_run-${run.run}`,
+              file_name:
+                run.dataFile.split("/").pop() ||
+                `task-${run.task}_run-${run.run}`,
               file_size: 0,
               duration: 0,
               sample_rate: 256,
@@ -283,14 +302,14 @@ function FileTreeRenderer({
                 task: run.task,
                 run: run.run,
                 modality: run.modality,
-              }
+              },
             }));
 
             const contents = { dirs: [], files };
-            setLoadedDirs(prev => new Map(prev).set(dirPath, contents));
+            setLoadedDirs((prev) => new Map(prev).set(dirPath, contents));
             return contents;
           } finally {
-            setLoadingDirs(prev => {
+            setLoadingDirs((prev) => {
               const next = new Set(prev);
               next.delete(dirPath);
               return next;
@@ -301,44 +320,56 @@ function FileTreeRenderer({
     }
 
     // Regular directory - use API
-    setLoadingDirs(prev => new Set(prev).add(dirPath));
+    setLoadingDirs((prev) => new Set(prev).add(dirPath));
 
     try {
       const response = await apiService.listDirectory(dirPath);
 
       const subdirs = response.files
         .filter((f: { is_directory: boolean }) => f.is_directory)
-        .map((d: { name: string; path: string }) => ({ name: d.name, path: d.path, isBIDS: false }));
+        .map((d: { name: string; path: string }) => ({
+          name: d.name,
+          path: d.path,
+          isBIDS: false,
+        }));
 
       const subfiles = response.files
         .filter((f: { is_directory: boolean }) => !f.is_directory)
-        .filter((file: { name: string }) =>
-          file.name.toLowerCase().endsWith(".edf") ||
-          file.name.toLowerCase().endsWith(".csv") ||
-          file.name.toLowerCase().endsWith(".ascii") ||
-          file.name.toLowerCase().endsWith(".txt")
+        .filter(
+          (file: { name: string }) =>
+            file.name.toLowerCase().endsWith(".edf") ||
+            file.name.toLowerCase().endsWith(".csv") ||
+            file.name.toLowerCase().endsWith(".ascii") ||
+            file.name.toLowerCase().endsWith(".txt"),
         )
-        .map((file: { path: string; name: string; size?: number; last_modified?: string }) => ({
-          file_path: file.path,
-          file_name: file.name,
-          file_size: file.size || 0,
-          duration: 0,
-          sample_rate: 256,
-          channels: [],
-          total_samples: 0,
-          start_time: file.last_modified || new Date().toISOString(),
-          end_time: file.last_modified || new Date().toISOString(),
-          annotations_count: 0,
-        }));
+        .map(
+          (file: {
+            path: string;
+            name: string;
+            size?: number;
+            last_modified?: string;
+          }) => ({
+            file_path: file.path,
+            file_name: file.name,
+            file_size: file.size || 0,
+            duration: 0,
+            sample_rate: 256,
+            channels: [],
+            total_samples: 0,
+            start_time: file.last_modified || new Date().toISOString(),
+            end_time: file.last_modified || new Date().toISOString(),
+            annotations_count: 0,
+          }),
+        );
 
       const contents = { dirs: subdirs, files: subfiles };
-      setLoadedDirs(prev => new Map(prev).set(dirPath, contents));
+      setLoadedDirs((prev) => new Map(prev).set(dirPath, contents));
       return contents;
     } catch (error) {
-      console.error('[SEARCH] Failed to load directory:', dirPath, error);
+      console.error("[SEARCH] Failed to load directory:", dirPath, error);
       return null;
     } finally {
-      setLoadingDirs(prev => {
+      setLoadingDirs((prev) => {
         const next = new Set(prev);
         next.delete(dirPath);
         return next;
@@ -388,23 +419,25 @@ function FileTreeRenderer({
   }, []);
 
   // Helper function to check if a node or any of its descendants match the search
-  const nodeOrDescendantsMatch = useCallback((
-    node: FileTreeNode,
-    query: string
-  ): boolean => {
-    if (!query) return true;
+  const nodeOrDescendantsMatch = useCallback(
+    (node: FileTreeNode, query: string): boolean => {
+      if (!query) return true;
 
-    // Check if this node matches
-    const nodeMatches = matchesSearch(node.label, query);
-    if (nodeMatches) return true;
+      // Check if this node matches
+      const nodeMatches = matchesSearch(node.label, query);
+      if (nodeMatches) return true;
 
-    // Check if any children match (recursively)
-    if (node.children) {
-      return node.children.some((child) => nodeOrDescendantsMatch(child, query));
-    }
+      // Check if any children match (recursively)
+      if (node.children) {
+        return node.children.some((child) =>
+          nodeOrDescendantsMatch(child, query),
+        );
+      }
 
-    return false;
-  }, [matchesSearch]);
+      return false;
+    },
+    [matchesSearch],
+  );
 
   // Recursive directory loading for search
   useEffect(() => {
@@ -439,12 +472,14 @@ function FileTreeRenderer({
 
       try {
         // Breadth-first loading with max depth of 3
-        const queue: Array<{path: string, depth: number}> = currentDirs.map(d => ({path: d.path, depth: 0}));
+        const queue: Array<{ path: string; depth: number }> = currentDirs.map(
+          (d) => ({ path: d.path, depth: 0 }),
+        );
         const loaded = new Set<string>();
         const maxDepth = 3;
 
         while (queue.length > 0 && !abortController.signal.aborted) {
-          const {path, depth} = queue.shift()!;
+          const { path, depth } = queue.shift()!;
 
           // Skip if already loaded or max depth reached
           if (depth >= maxDepth || loaded.has(path)) {
@@ -459,7 +494,7 @@ function FileTreeRenderer({
             // Add subdirectories to queue for next level
             for (const subdir of contents.dirs) {
               if (!loaded.has(subdir.path)) {
-                queue.push({path: subdir.path, depth: depth + 1});
+                queue.push({ path: subdir.path, depth: depth + 1 });
               }
             }
           }
@@ -470,7 +505,7 @@ function FileTreeRenderer({
         }
       } catch (error) {
         if (!abortController.signal.aborted) {
-          console.error('[SEARCH] Error during recursive load:', error);
+          console.error("[SEARCH] Error during recursive load:", error);
           setIsLoadingForSearch(false);
         }
       }
@@ -502,7 +537,7 @@ function FileTreeRenderer({
       label: file.file_name,
       icon: (
         <div
-          className={`flex items-center gap-3 w-full p-2 rounded-md transition-all ${
+          className={`flex items-start gap-3 w-full p-2 rounded-md transition-all ${
             pendingFileSelection || loadFileInfoMutationPending
               ? "opacity-50 cursor-wait"
               : "cursor-pointer hover:bg-accent/50"
@@ -513,20 +548,29 @@ function FileTreeRenderer({
           }`}
           onContextMenu={(e) => onContextMenu(e, file)}
         >
-          <FileText className="h-5 w-5 text-green-600 flex-shrink-0" />
+          <FileText className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <div className="font-medium truncate">{file.file_name}</div>
             <div className="flex items-center gap-2 flex-wrap text-sm text-muted-foreground">
               {(file as any).bidsMetadata ? (
                 // BIDS file - show task, run, modality
                 <>
-                  <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800">
+                  <Badge
+                    variant="outline"
+                    className="text-xs bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800"
+                  >
                     task-{(file as any).bidsMetadata.task}
                   </Badge>
-                  <Badge variant="outline" className="text-xs bg-green-50 dark:bg-green-950/50 border-green-200 dark:border-green-800">
+                  <Badge
+                    variant="outline"
+                    className="text-xs bg-green-50 dark:bg-green-950/50 border-green-200 dark:border-green-800"
+                  >
                     run-{(file as any).bidsMetadata.run}
                   </Badge>
-                  <Badge variant="outline" className={`text-xs ${getModalityBadgeClass((file as any).bidsMetadata.modality)}`}>
+                  <Badge
+                    variant="outline"
+                    className={`text-xs ${getModalityBadgeClass((file as any).bidsMetadata.modality)}`}
+                  >
                     {(file as any).bidsMetadata.modality.toUpperCase()}
                   </Badge>
                 </>
@@ -573,7 +617,7 @@ function FileTreeRenderer({
       const children: FileTreeNode[] = dirContents
         ? [
             ...dirContents.dirs.map(createDirectoryNode),
-            ...dirContents.files.map(createFileNode)
+            ...dirContents.files.map(createFileNode),
           ]
         : [];
 
@@ -584,18 +628,18 @@ function FileTreeRenderer({
         children: children,
         icon: (
           <div
-            className="flex items-center gap-2 w-full"
+            className="flex items-start gap-2 w-full"
             onContextMenu={(e) => {
               if (dir.isBIDS) {
                 e.preventDefault();
                 e.stopPropagation();
                 // TODO: Show BIDS context menu
-                console.log('[BIDS] Right-click on BIDS dataset:', dir);
+                console.log("[BIDS] Right-click on BIDS dataset:", dir);
               }
             }}
           >
             <Folder
-              className={`h-5 w-5 flex-shrink-0 ${
+              className={`h-5 w-5 flex-shrink-0 mt-0.5 ${
                 dir.isBIDS ? "text-purple-600" : "text-blue-600"
               }`}
             />
@@ -614,35 +658,39 @@ function FileTreeRenderer({
               {dir.bidsInfo && (
                 <div className="flex items-center gap-2 mt-1 flex-wrap text-sm text-muted-foreground">
                   {dir.bidsInfo.datasetName && (
-                    <span className={`font-medium truncate text-xs ${
-                      dir.isBIDS
-                        ? "text-purple-700 dark:text-purple-400"
-                        : "text-blue-700 dark:text-blue-400"
-                    }`}>
+                    <span
+                      className={`font-medium truncate text-xs ${
+                        dir.isBIDS
+                          ? "text-purple-700 dark:text-purple-400"
+                          : "text-blue-700 dark:text-blue-400"
+                      }`}
+                    >
                       {dir.bidsInfo.datasetName}
                     </span>
                   )}
                   {dir.bidsInfo.subjectCount !== undefined && (
                     <span className="flex-shrink-0 text-xs">
-                      {dir.bidsInfo.subjectCount} {dir.isBIDS ? "subject" : "session"}
+                      {dir.bidsInfo.subjectCount}{" "}
+                      {dir.isBIDS ? "subject" : "session"}
                       {dir.bidsInfo.subjectCount !== 1 ? "s" : ""}
                     </span>
                   )}
-                  {dir.bidsInfo.modalities && dir.bidsInfo.modalities.length > 0 && (
-                    <div className="flex items-center gap-1 flex-wrap">
-                      {dir.bidsInfo.modalities.map((modality) => (
-                        <Badge
-                          key={modality}
-                          variant="outline"
-                          className={`text-xs font-medium ${getModalityBadgeClass(
-                            modality
-                          )}`}
-                        >
-                          {modality.toUpperCase()}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
+                  {dir.bidsInfo.modalities &&
+                    dir.bidsInfo.modalities.length > 0 && (
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {dir.bidsInfo.modalities.map((modality) => (
+                          <Badge
+                            key={modality}
+                            variant="outline"
+                            className={`text-xs font-medium ${getModalityBadgeClass(
+                              modality,
+                            )}`}
+                          >
+                            {modality.toUpperCase()}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                 </div>
               )}
             </div>
@@ -669,7 +717,7 @@ function FileTreeRenderer({
     // Create all nodes
     const allNodes = [
       ...directories.map(createDirectoryNode),
-      ...files.map(createFileNode)
+      ...files.map(createFileNode),
     ];
 
     // Filter nodes based on search query
@@ -687,7 +735,10 @@ function FileTreeRenderer({
               if (nodeMatches || filteredChildren.length > 0) {
                 return {
                   ...node,
-                  children: filteredChildren.length > 0 ? filteredChildren : node.children,
+                  children:
+                    filteredChildren.length > 0
+                      ? filteredChildren
+                      : node.children,
                 };
               }
               return null;
@@ -704,7 +755,22 @@ function FileTreeRenderer({
     }
 
     return allNodes;
-  }, [directories, files, loadedDirs, selectedFile, isOpenNeuroAuthenticated, pendingFileSelection, loadFileInfoMutationPending, onContextMenu, onUploadClick, getFileFormat, getModalityBadgeClass, searchQuery, matchesSearch, isLoadingForSearch]);
+  }, [
+    directories,
+    files,
+    loadedDirs,
+    selectedFile,
+    isOpenNeuroAuthenticated,
+    pendingFileSelection,
+    loadFileInfoMutationPending,
+    onContextMenu,
+    onUploadClick,
+    getFileFormat,
+    getModalityBadgeClass,
+    searchQuery,
+    matchesSearch,
+    isLoadingForSearch,
+  ]);
 
   const handleSelection = async (selection: FileTreeSelection) => {
     if (!selection.node?.metadata) return;
@@ -772,15 +838,15 @@ function FileTreeRenderer({
 
 export function FileManager({ apiService }: FileManagerProps) {
   const dataDirectoryPath = useAppStore(
-    (state) => state.fileManager.dataDirectoryPath
+    (state) => state.fileManager.dataDirectoryPath,
   );
   const currentPath = useAppStore((state) => state.fileManager.currentPath);
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
   const selectedChannels = useAppStore(
-    (state) => state.fileManager.selectedChannels
+    (state) => state.fileManager.selectedChannels,
   );
   const pendingFileSelectionPath = useAppStore(
-    (state) => state.fileManager.pendingFileSelection
+    (state) => state.fileManager.pendingFileSelection,
   );
   const searchQuery = useAppStore((state) => state.fileManager.searchQuery);
   const showHidden = useAppStore((state) => state.fileManager.showHidden);
@@ -788,30 +854,30 @@ export function FileManager({ apiService }: FileManagerProps) {
   const sortOrder = useAppStore((state) => state.fileManager.sortOrder);
   const isServerReady = useAppStore((state) => state.ui.isServerReady);
   const isRecording = useAppStore(
-    (state) => state.workflowRecording.isRecording
+    (state) => state.workflowRecording.isRecording,
   );
   const isPersistenceRestored = useAppStore(
-    (state) => state.isPersistenceRestored
+    (state) => state.isPersistenceRestored,
   );
 
   // Action functions
   const setSelectedFile = useAppStore((state) => state.setSelectedFile);
   const updateFileManagerState = useAppStore(
-    (state) => state.updateFileManagerState
+    (state) => state.updateFileManagerState,
   );
   const setSelectedChannels = useAppStore((state) => state.setSelectedChannels);
   const setCurrentPath = useAppStore((state) => state.setCurrentPath);
   const setDataDirectoryPath = useAppStore(
-    (state) => state.setDataDirectoryPath
+    (state) => state.setDataDirectoryPath,
   );
   const resetCurrentPathSync = useAppStore(
-    (state) => state.resetCurrentPathSync
+    (state) => state.resetCurrentPathSync,
   );
   const clearPendingFileSelection = useAppStore(
-    (state) => state.clearPendingFileSelection
+    (state) => state.clearPendingFileSelection,
   );
   const incrementActionCount = useAppStore(
-    (state) => state.incrementActionCount
+    (state) => state.incrementActionCount,
   );
 
   const { recordAction } = useWorkflow();
@@ -835,7 +901,7 @@ export function FileManager({ apiService }: FileManagerProps) {
     !!absolutePath &&
       !!dataDirectoryPath &&
       isServerReady &&
-      !!apiService.getSessionToken()
+      !!apiService.getSessionToken(),
   );
 
   // Use mutation for loading file info
@@ -848,7 +914,7 @@ export function FileManager({ apiService }: FileManagerProps) {
   const [showBidsBrowser, setShowBidsBrowser] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [uploadDatasetPath, setUploadDatasetPath] = useState<string | null>(
-    null
+    null,
   );
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isOpenNeuroAuthenticated, setIsOpenNeuroAuthenticated] =
@@ -878,7 +944,7 @@ export function FileManager({ apiService }: FileManagerProps) {
           file.name.toLowerCase().endsWith(".edf") ||
           file.name.toLowerCase().endsWith(".csv") ||
           file.name.toLowerCase().endsWith(".ascii") ||
-          file.name.toLowerCase().endsWith(".txt")
+          file.name.toLowerCase().endsWith(".txt"),
       )
       .map((file) => ({
         file_path: file.path,
@@ -918,7 +984,7 @@ export function FileManager({ apiService }: FileManagerProps) {
         } catch (error) {
           console.error(
             "[FILEMANAGER] Failed to load data directory path:",
-            error
+            error,
           );
         }
       }
@@ -943,7 +1009,7 @@ export function FileManager({ apiService }: FileManagerProps) {
       const customEvent = event as CustomEvent<{ authenticated: boolean }>;
       console.log(
         "[FILEMANAGER] OpenNeuro auth changed:",
-        customEvent.detail.authenticated
+        customEvent.detail.authenticated,
       );
       setIsOpenNeuroAuthenticated(customEvent.detail.authenticated);
     };
@@ -981,7 +1047,7 @@ export function FileManager({ apiService }: FileManagerProps) {
       "| Server ready:",
       isServerReady,
       "| Persistence restored:",
-      isPersistenceRestored
+      isPersistenceRestored,
     );
 
     if (pendingFileSelectionPath && isServerReady && isPersistenceRestored) {
@@ -994,7 +1060,7 @@ export function FileManager({ apiService }: FileManagerProps) {
         onSuccess: (fileInfo) => {
           console.log(
             "[FILEMANAGER] ✓ File restored successfully:",
-            fileInfo.file_name
+            fileInfo.file_name,
           );
           setSelectedFile(fileInfo);
           clearPendingFileSelection();
@@ -1003,13 +1069,13 @@ export function FileManager({ apiService }: FileManagerProps) {
           if (isRecording) {
             const action = createLoadFileAction(
               fileInfo.file_path,
-              fileInfo.file_path.endsWith(".edf") ? "EDF" : "ASCII"
+              fileInfo.file_path.endsWith(".edf") ? "EDF" : "ASCII",
             );
             recordAction(action)
               .then(() => {
                 console.log(
                   "[WORKFLOW] Recorded restored file load:",
-                  fileInfo.file_path
+                  fileInfo.file_path,
                 );
               })
               .catch((err) => {
@@ -1047,7 +1113,7 @@ export function FileManager({ apiService }: FileManagerProps) {
         (dir) =>
           dir.name.toLowerCase().includes(query) ||
           (dir.isBIDS &&
-            dir.bidsInfo?.datasetName?.toLowerCase().includes(query))
+            dir.bidsInfo?.datasetName?.toLowerCase().includes(query)),
       );
     }
 
@@ -1067,7 +1133,7 @@ export function FileManager({ apiService }: FileManagerProps) {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter((file) =>
-        file.file_name.toLowerCase().includes(query)
+        file.file_name.toLowerCase().includes(query),
       );
     }
 
@@ -1107,7 +1173,7 @@ export function FileManager({ apiService }: FileManagerProps) {
     if (pendingFileSelection) {
       console.log(
         "[FILEMANAGER] Ignoring file click - pending restoration:",
-        pendingFileSelection
+        pendingFileSelection,
       );
       return;
     }
@@ -1156,7 +1222,7 @@ export function FileManager({ apiService }: FileManagerProps) {
 
         // Auto-select first few channels if none selected OR if selected channels don't exist in this file
         const validSelectedChannels = selectedChannels.filter((ch) =>
-          fileInfo.channels.includes(ch)
+          fileInfo.channels.includes(ch),
         );
 
         if (
@@ -1165,17 +1231,17 @@ export function FileManager({ apiService }: FileManagerProps) {
         ) {
           const defaultChannels = fileInfo.channels.slice(
             0,
-            Math.min(10, fileInfo.channels.length)
+            Math.min(10, fileInfo.channels.length),
           );
           console.log(
             "[FILEMANAGER] Auto-selecting default channels:",
-            defaultChannels
+            defaultChannels,
           );
           setSelectedChannels(defaultChannels);
         } else if (validSelectedChannels.length !== selectedChannels.length) {
           console.log(
             "[FILEMANAGER] Updating to valid channels only:",
-            validSelectedChannels
+            validSelectedChannels,
           );
           setSelectedChannels(validSelectedChannels);
         }
@@ -1273,7 +1339,7 @@ export function FileManager({ apiService }: FileManagerProps) {
 
     if (extension && !supportedFormats.includes(extension)) {
       console.error(
-        `File format .${extension} is not yet supported. Currently supported formats: EDF, FIFF (.fif), CSV, ASCII/TXT, BrainVision (.vhdr), EEGLAB (.set).`
+        `File format .${extension} is not yet supported. Currently supported formats: EDF, FIFF (.fif), CSV, ASCII/TXT, BrainVision (.vhdr), EEGLAB (.set).`,
       );
       return;
     }
@@ -1347,7 +1413,7 @@ export function FileManager({ apiService }: FileManagerProps) {
       console.log("[FILEMANAGER] Type of selected:", typeof selected);
       console.log(
         "[FILEMANAGER] Current dataDirectoryPath:",
-        dataDirectoryPath
+        dataDirectoryPath,
       );
       console.log("[FILEMANAGER] Current path array:", currentPath);
 
@@ -1358,7 +1424,7 @@ export function FileManager({ apiService }: FileManagerProps) {
 
       // Save to backend (persists to OS config directory)
       console.log(
-        "[FILEMANAGER] Saving to backend with TauriService.setDataDirectory..."
+        "[FILEMANAGER] Saving to backend with TauriService.setDataDirectory...",
       );
       await TauriService.setDataDirectory(selected);
       console.log("[FILEMANAGER] Backend save complete");
@@ -1484,7 +1550,9 @@ export function FileManager({ apiService }: FileManagerProps) {
             <Input
               placeholder="Search files..."
               value={searchQuery}
-              onChange={(e) => updateFileManagerState({ searchQuery: e.target.value })}
+              onChange={(e) =>
+                updateFileManagerState({ searchQuery: e.target.value })
+              }
               className="pl-8"
             />
           </div>
@@ -1536,19 +1604,19 @@ export function FileManager({ apiService }: FileManagerProps) {
                 {loadFileInfoMutation.isPending
                   ? "Loading file metadata..."
                   : !isPersistenceRestored
-                  ? "Restoring previous session..."
-                  : "Loading directory..."}
+                    ? "Restoring previous session..."
+                    : "Loading directory..."}
               </p>
               <p className="text-sm text-muted-foreground">
                 {loadFileInfoMutation.isPending
                   ? "Reading file information from backend"
                   : !isPersistenceRestored
-                  ? "Loading saved state, plots, and analysis results"
-                  : `Scanning ${
-                      currentPath.length > 0
-                        ? currentPath.join("/")
-                        : "root directory"
-                    }`}
+                    ? "Loading saved state, plots, and analysis results"
+                    : `Scanning ${
+                        currentPath.length > 0
+                          ? currentPath.join("/")
+                          : "root directory"
+                      }`}
               </p>
               {checkingBIDS && (
                 <div className="flex items-center justify-center gap-2 mt-2 text-purple-600">
@@ -1584,7 +1652,9 @@ export function FileManager({ apiService }: FileManagerProps) {
           </div>
         ) : (
           <FileTreeRenderer
-            directories={searchQuery ? directoriesWithBIDS : filteredDirectories}
+            directories={
+              searchQuery ? directoriesWithBIDS : filteredDirectories
+            }
             files={searchQuery ? files : filteredAndSortedFiles}
             selectedFile={selectedFile}
             isOpenNeuroAuthenticated={isOpenNeuroAuthenticated}

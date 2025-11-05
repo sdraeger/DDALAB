@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from "react";
 
 interface ResizeHandleProps {
   onResize: (width: number) => void;
@@ -11,7 +11,7 @@ export function ResizeHandle({
   onResize,
   initialWidth,
   minWidth = 200,
-  maxWidth = 600
+  maxWidth = 600,
 }: ResizeHandleProps) {
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -33,18 +33,18 @@ export function ResizeHandle({
       setIsDragging(false);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
 
     // Change cursor for entire document while dragging
-    document.body.style.cursor = 'ew-resize';
-    document.body.style.userSelect = 'none';
+    document.body.style.cursor = "ew-resize";
+    document.body.style.userSelect = "none";
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
     };
   }, [isDragging, onResize, minWidth, maxWidth]);
 
@@ -59,7 +59,7 @@ export function ResizeHandle({
         cursor-ew-resize
         relative
         flex-shrink-0
-        ${isDragging ? 'bg-primary' : ''}
+        ${isDragging ? "bg-primary" : ""}
       `}
       onMouseDown={() => setIsDragging(true)}
       title="Drag to resize file manager"

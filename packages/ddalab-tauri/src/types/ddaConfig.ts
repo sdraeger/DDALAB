@@ -43,11 +43,13 @@ export interface DDALabFileFormat {
 
     // Channel configuration by variant type
     st_channels?: string[]; // For single_timeseries variant
-    ct_channel_pairs?: Array<{ // For cross_timeseries variant
+    ct_channel_pairs?: Array<{
+      // For cross_timeseries variant
       source: string;
       target: string;
     }>;
-    cd_channel_pairs?: Array<{ // For cross_dynamical variant
+    cd_channel_pairs?: Array<{
+      // For cross_dynamical variant
       source: string;
       target: string;
     }>;

@@ -1,412 +1,467 @@
-'use client'
+"use client";
 
-import { useEffect, useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
-import { AlertTriangle, Play, Square, RefreshCw, Download, Cloud, Link2, Activity, Search, Lock, Shield, FileText, FolderOpen, Bug } from 'lucide-react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Input } from '@/components/ui/input'
-import { TauriService } from '@/services/tauriService'
-import { useSync } from '@/hooks/useSync'
-import { SessionRecorder } from '@/components/SessionRecorder'
-import type { DiscoveredBroker } from '@/types/sync'
+import { useEffect, useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import {
+  AlertTriangle,
+  Play,
+  Square,
+  RefreshCw,
+  Download,
+  Cloud,
+  Link2,
+  Activity,
+  Search,
+  Lock,
+  Shield,
+  FileText,
+  FolderOpen,
+  Bug,
+} from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { TauriService } from "@/services/tauriService";
+import { useSync } from "@/hooks/useSync";
+import { SessionRecorder } from "@/components/SessionRecorder";
+import type { DiscoveredBroker } from "@/types/sync";
 
 export function SettingsPanel() {
-  const { isConnected, isLoading: syncLoading, error: syncError, connect, disconnect, discoverBrokers, verifyPassword } = useSync()
+  const {
+    isConnected,
+    isLoading: syncLoading,
+    error: syncError,
+    connect,
+    disconnect,
+    discoverBrokers,
+    verifyPassword,
+  } = useSync();
 
   // Sync configuration state
   const [syncConfig, setSyncConfig] = useState({
-    brokerUrl: '',
-    userId: '',
-    localEndpoint: 'http://localhost:8765',
-    password: ''
-  })
-  const [showSyncConfig, setShowSyncConfig] = useState(false)
+    brokerUrl: "",
+    userId: "",
+    localEndpoint: "http://localhost:8765",
+    password: "",
+  });
+  const [showSyncConfig, setShowSyncConfig] = useState(false);
 
   // Discovery state
-  const [discoveredBrokers, setDiscoveredBrokers] = useState<DiscoveredBroker[]>([])
-  const [isDiscovering, setIsDiscovering] = useState(false)
-  const [selectedBroker, setSelectedBroker] = useState<DiscoveredBroker | null>(null)
+  const [discoveredBrokers, setDiscoveredBrokers] = useState<
+    DiscoveredBroker[]
+  >([]);
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [selectedBroker, setSelectedBroker] = useState<DiscoveredBroker | null>(
+    null,
+  );
 
   const [embeddedApiStatus, setEmbeddedApiStatus] = useState<{
-    running: boolean
-    port: number
-    url?: string
-  }>({ running: false, port: 8765 })
+    running: boolean;
+    port: number;
+    url?: string;
+  }>({ running: false, port: 8765 });
   const [embeddedApiHealth, setEmbeddedApiHealth] = useState<{
-    status: string
-    healthy: boolean
-    health?: any
-    error?: string
-  }>({ status: 'unknown', healthy: false })
-  const [isLoading, setIsLoading] = useState(false)
-  const [appVersion, setAppVersion] = useState<string>('0.1.0')
+    status: string;
+    healthy: boolean;
+    health?: any;
+    error?: string;
+  }>({ status: "unknown", healthy: false });
+  const [isLoading, setIsLoading] = useState(false);
+  const [appVersion, setAppVersion] = useState<string>("0.1.0");
   const [updateInfo, setUpdateInfo] = useState<{
-    available: boolean
-    current_version: string
-    latest_version?: string
-    release_notes?: string
-    release_date?: string
-    download_url?: string
-  } | null>(null)
-  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
-  const [updateError, setUpdateError] = useState<string | null>(null)
-  const [isDownloading, setIsDownloading] = useState(false)
-  const [logsPath, setLogsPath] = useState<string>('')
+    available: boolean;
+    current_version: string;
+    latest_version?: string;
+    release_notes?: string;
+    release_date?: string;
+    download_url?: string;
+  } | null>(null);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [logsPath, setLogsPath] = useState<string>("");
 
   // NSG (Neuroscience Gateway) state
   const [nsgCredentials, setNsgCredentials] = useState({
-    username: '',
-    password: '',
-    appKey: ''
-  })
-  const [hasNsgCredentials, setHasNsgCredentials] = useState(false)
-  const [nsgConnectionStatus, setNsgConnectionStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
-  const [nsgError, setNsgError] = useState<string | null>(null)
-  const [showNsgPassword, setShowNsgPassword] = useState(false)
+    username: "",
+    password: "",
+    appKey: "",
+  });
+  const [hasNsgCredentials, setHasNsgCredentials] = useState(false);
+  const [nsgConnectionStatus, setNsgConnectionStatus] = useState<
+    "idle" | "testing" | "success" | "error"
+  >("idle");
+  const [nsgError, setNsgError] = useState<string | null>(null);
+  const [showNsgPassword, setShowNsgPassword] = useState(false);
 
   // Fetch app version and logs path on mount
   useEffect(() => {
     const fetchVersion = async () => {
-      if (!TauriService.isTauri()) return
+      if (!TauriService.isTauri()) return;
       try {
-        const version = await TauriService.getAppVersion()
-        setAppVersion(version)
+        const version = await TauriService.getAppVersion();
+        setAppVersion(version);
       } catch (error) {
-        console.error('Failed to fetch app version:', error)
+        console.error("Failed to fetch app version:", error);
       }
-    }
+    };
 
     const fetchLogsPath = async () => {
-      if (!TauriService.isTauri()) return
+      if (!TauriService.isTauri()) return;
       try {
-        const path = await TauriService.getLogsPath()
-        setLogsPath(path)
+        const path = await TauriService.getLogsPath();
+        setLogsPath(path);
       } catch (error) {
-        console.error('Failed to fetch logs path:', error)
+        console.error("Failed to fetch logs path:", error);
       }
-    }
+    };
 
-    fetchVersion()
-    fetchLogsPath()
-  }, [])
+    fetchVersion();
+    fetchLogsPath();
+  }, []);
 
   // Load NSG credentials on mount
   useEffect(() => {
     const loadNsgCredentials = async () => {
-      if (!TauriService.isTauri()) return
+      if (!TauriService.isTauri()) return;
       try {
-        const hasCredentials = await TauriService.hasNSGCredentials()
-        setHasNsgCredentials(hasCredentials)
+        const hasCredentials = await TauriService.hasNSGCredentials();
+        setHasNsgCredentials(hasCredentials);
 
         if (hasCredentials) {
-          const creds = await TauriService.getNSGCredentials()
+          const creds = await TauriService.getNSGCredentials();
           if (creds) {
             setNsgCredentials({
               username: creds.username,
               password: creds.password,
-              appKey: creds.app_key
-            })
+              appKey: creds.app_key,
+            });
           }
         }
       } catch (error) {
-        console.error('Failed to load NSG credentials:', error)
+        console.error("Failed to load NSG credentials:", error);
       }
-    }
+    };
 
-    loadNsgCredentials()
-  }, [])
+    loadNsgCredentials();
+  }, []);
 
   const checkForUpdates = async () => {
-    if (!TauriService.isTauri()) return
+    if (!TauriService.isTauri()) return;
 
-    console.log('[UPDATE] ========================================')
-    console.log('[UPDATE] Starting update check...')
-    console.log('[UPDATE] ========================================')
+    console.log("[UPDATE] ========================================");
+    console.log("[UPDATE] Starting update check...");
+    console.log("[UPDATE] ========================================");
 
-    setIsCheckingUpdate(true)
-    setUpdateError(null)
+    setIsCheckingUpdate(true);
+    setUpdateError(null);
 
     try {
-      console.log('[UPDATE] About to call TauriService.checkNativeUpdate()...')
-      const result = await TauriService.checkNativeUpdate()
-      console.log('[UPDATE] ========================================')
-      console.log('[UPDATE] Successfully received result from checkNativeUpdate')
-      console.log('[UPDATE] Raw result from checkNativeUpdate:', result)
-      console.log('[UPDATE] Current version:', result.current_version)
-      console.log('[UPDATE] Latest version:', result.latest_version)
-      console.log('[UPDATE] Update available:', result.available)
-      console.log('[UPDATE] ========================================')
-      setUpdateInfo(result)
+      console.log("[UPDATE] About to call TauriService.checkNativeUpdate()...");
+      const result = await TauriService.checkNativeUpdate();
+      console.log("[UPDATE] ========================================");
+      console.log(
+        "[UPDATE] Successfully received result from checkNativeUpdate",
+      );
+      console.log("[UPDATE] Raw result from checkNativeUpdate:", result);
+      console.log("[UPDATE] Current version:", result.current_version);
+      console.log("[UPDATE] Latest version:", result.latest_version);
+      console.log("[UPDATE] Update available:", result.available);
+      console.log("[UPDATE] ========================================");
+      setUpdateInfo(result);
     } catch (error) {
-      console.log('[UPDATE] ========================================')
-      console.error('[UPDATE] CAUGHT ERROR in checkForUpdates')
-      console.error('[UPDATE] Error object:', error)
-      console.error('[UPDATE] Error message:', error instanceof Error ? error.message : 'Unknown error')
-      console.error('[UPDATE] Error stack:', error instanceof Error ? error.stack : 'No stack')
-      console.log('[UPDATE] ========================================')
-      setUpdateError(error instanceof Error ? error.message : 'Failed to check for updates')
+      console.log("[UPDATE] ========================================");
+      console.error("[UPDATE] CAUGHT ERROR in checkForUpdates");
+      console.error("[UPDATE] Error object:", error);
+      console.error(
+        "[UPDATE] Error message:",
+        error instanceof Error ? error.message : "Unknown error",
+      );
+      console.error(
+        "[UPDATE] Error stack:",
+        error instanceof Error ? error.stack : "No stack",
+      );
+      console.log("[UPDATE] ========================================");
+      setUpdateError(
+        error instanceof Error ? error.message : "Failed to check for updates",
+      );
     } finally {
-      setIsCheckingUpdate(false)
+      setIsCheckingUpdate(false);
     }
-  }
+  };
 
   const handleDownloadUpdate = async () => {
-    if (!TauriService.isTauri()) return
+    if (!TauriService.isTauri()) return;
 
-    setIsDownloading(true)
-    setUpdateError(null)
+    setIsDownloading(true);
+    setUpdateError(null);
 
     try {
-      await TauriService.downloadAndInstallUpdate()
+      await TauriService.downloadAndInstallUpdate();
       // Update installed successfully - prompt to restart
-      alert('Update downloaded and installed successfully! Please restart the application to apply the update.')
+      alert(
+        "Update downloaded and installed successfully! Please restart the application to apply the update.",
+      );
     } catch (error) {
-      console.error('Failed to download update:', error)
-      setUpdateError(error instanceof Error ? error.message : 'Failed to download update')
+      console.error("Failed to download update:", error);
+      setUpdateError(
+        error instanceof Error ? error.message : "Failed to download update",
+      );
     } finally {
-      setIsDownloading(false)
+      setIsDownloading(false);
     }
-  }
+  };
 
   const handleOpenLogs = async () => {
-    if (!TauriService.isTauri()) return
+    if (!TauriService.isTauri()) return;
 
     try {
-      await TauriService.openLogsFolder()
+      await TauriService.openLogsFolder();
     } catch (error) {
-      console.error('Failed to open logs folder:', error)
+      console.error("Failed to open logs folder:", error);
     }
-  }
+  };
 
   const handleReportIssue = async () => {
-    console.log('[REPORT_ISSUE] Button clicked')
+    console.log("[REPORT_ISSUE] Button clicked");
 
     if (!TauriService.isTauri()) {
-      console.log('[REPORT_ISSUE] Not running in Tauri, exiting')
-      return
+      console.log("[REPORT_ISSUE] Not running in Tauri, exiting");
+      return;
     }
 
     try {
-      console.log('[REPORT_ISSUE] Reading log content...')
-      const logsContent = await TauriService.readLogsContent()
-      console.log('[REPORT_ISSUE] Log content length:', logsContent.length)
+      console.log("[REPORT_ISSUE] Reading log content...");
+      const logsContent = await TauriService.readLogsContent();
+      console.log("[REPORT_ISSUE] Log content length:", logsContent.length);
 
       // Truncate logs if too long (GitHub URL limit is ~8KB)
-      const maxLogLength = 5000
-      const truncatedLogs = logsContent.length > maxLogLength
-        ? logsContent.slice(-maxLogLength) + '\n\n[Note: Log truncated to last 5000 characters]'
-        : logsContent
+      const maxLogLength = 5000;
+      const truncatedLogs =
+        logsContent.length > maxLogLength
+          ? logsContent.slice(-maxLogLength) +
+            "\n\n[Note: Log truncated to last 5000 characters]"
+          : logsContent;
 
-      const issueTitle = encodeURIComponent('Bug Report')
+      const issueTitle = encodeURIComponent("Bug Report");
       const issueBody = encodeURIComponent(
         `## Description\n` +
-        `<!-- Please describe the issue you encountered -->\n\n` +
-        `## Steps to Reproduce\n` +
-        `1. \n` +
-        `2. \n` +
-        `3. \n\n` +
-        `## Expected Behavior\n` +
-        `<!-- What did you expect to happen? -->\n\n` +
-        `## Actual Behavior\n` +
-        `<!-- What actually happened? -->\n\n` +
-        `## System Information\n` +
-        `- OS: ${navigator.platform}\n` +
-        `- Version: ${appVersion || 'Unknown'}\n\n` +
-        `## Application Logs\n` +
-        `<details>\n` +
-        `<summary>Click to expand logs</summary>\n\n` +
-        `\`\`\`\n` +
-        `${truncatedLogs}\n` +
-        `\`\`\`\n` +
-        `</details>`
-      )
+          `<!-- Please describe the issue you encountered -->\n\n` +
+          `## Steps to Reproduce\n` +
+          `1. \n` +
+          `2. \n` +
+          `3. \n\n` +
+          `## Expected Behavior\n` +
+          `<!-- What did you expect to happen? -->\n\n` +
+          `## Actual Behavior\n` +
+          `<!-- What actually happened? -->\n\n` +
+          `## System Information\n` +
+          `- OS: ${navigator.platform}\n` +
+          `- Version: ${appVersion || "Unknown"}\n\n` +
+          `## Application Logs\n` +
+          `<details>\n` +
+          `<summary>Click to expand logs</summary>\n\n` +
+          `\`\`\`\n` +
+          `${truncatedLogs}\n` +
+          `\`\`\`\n` +
+          `</details>`,
+      );
 
-      const githubUrl = `https://github.com/sdraeger/DDALAB/issues/new?title=${issueTitle}&body=${issueBody}`
-      console.log('[REPORT_ISSUE] GitHub URL length:', githubUrl.length)
-      console.log('[REPORT_ISSUE] Opening GitHub issue...')
+      const githubUrl = `https://github.com/sdraeger/DDALAB/issues/new?title=${issueTitle}&body=${issueBody}`;
+      console.log("[REPORT_ISSUE] GitHub URL length:", githubUrl.length);
+      console.log("[REPORT_ISSUE] Opening GitHub issue...");
 
       // Use Tauri shell plugin to open URL in browser
-      const { open } = await import('@tauri-apps/plugin-shell')
-      await open(githubUrl)
-      console.log('[REPORT_ISSUE] URL opened successfully via Tauri shell')
+      const { open } = await import("@tauri-apps/plugin-shell");
+      await open(githubUrl);
+      console.log("[REPORT_ISSUE] URL opened successfully via Tauri shell");
     } catch (error) {
-      console.error('[REPORT_ISSUE] Failed to create GitHub issue:', error)
+      console.error("[REPORT_ISSUE] Failed to create GitHub issue:", error);
     }
-  }
+  };
 
   const refreshEmbeddedApiStatus = async () => {
-    if (!TauriService.isTauri()) return
+    if (!TauriService.isTauri()) return;
 
     try {
-      const apiStatus = await TauriService.getApiStatus()
-      const apiUrl = apiStatus?.url || 'http://localhost:8765'
-      const connected = await TauriService.checkApiConnection(apiUrl)
+      const apiStatus = await TauriService.getApiStatus();
+      const apiUrl = apiStatus?.url || "http://localhost:8765";
+      const connected = await TauriService.checkApiConnection(apiUrl);
 
-      const results = [apiStatus, connected] as const
+      const results = [apiStatus, connected] as const;
 
       // Map the API status to the component state format
       if (apiStatus) {
         setEmbeddedApiStatus({
           running: apiStatus.is_local_server_running || false,
           port: apiStatus.port || 8765,
-          url: apiStatus.url
-        })
+          url: apiStatus.url,
+        });
       } else {
-        setEmbeddedApiStatus({ running: false, port: 8765 })
+        setEmbeddedApiStatus({ running: false, port: 8765 });
       }
 
       // Update health based on connection status
       if (connected) {
         setEmbeddedApiHealth({
-          status: 'healthy',
+          status: "healthy",
           healthy: true,
-          error: undefined
-        })
+          error: undefined,
+        });
       } else {
         setEmbeddedApiHealth({
-          status: 'error',
+          status: "error",
           healthy: false,
-          error: 'API not reachable'
-        })
+          error: "API not reachable",
+        });
       }
     } catch (error) {
-      console.error('Failed to refresh embedded API status:', error)
+      console.error("Failed to refresh embedded API status:", error);
       // Set error state if the refresh itself fails
       setEmbeddedApiHealth({
-        status: 'error',
+        status: "error",
         healthy: false,
-        error: error instanceof Error ? error.message : 'Failed to check health'
-      })
+        error:
+          error instanceof Error ? error.message : "Failed to check health",
+      });
     }
-  }
+  };
 
   // Auto-discovery effect
   useEffect(() => {
-    if (!TauriService.isTauri()) return
+    if (!TauriService.isTauri()) return;
 
     // Don't run auto-discovery if already connected
-    if (isConnected) return
+    if (isConnected) return;
 
     // Initial discovery
     const performAutoDiscovery = async () => {
       try {
-        const brokers = await discoverBrokers(3)
+        const brokers = await discoverBrokers(3);
         if (brokers.length > 0) {
-          setDiscoveredBrokers(brokers)
+          setDiscoveredBrokers(brokers);
         }
       } catch (error) {
-        console.error('Auto-discovery failed:', error)
+        console.error("Auto-discovery failed:", error);
       }
-    }
+    };
 
-    performAutoDiscovery()
+    performAutoDiscovery();
 
     // Periodic auto-discovery every 60 seconds (reduced frequency)
-    const discoveryInterval = setInterval(performAutoDiscovery, 60000)
+    const discoveryInterval = setInterval(performAutoDiscovery, 60000);
 
-    return () => clearInterval(discoveryInterval)
-  }, [discoverBrokers, isConnected])
+    return () => clearInterval(discoveryInterval);
+  }, [discoverBrokers, isConnected]);
 
   useEffect(() => {
     // Initial status check
-    refreshEmbeddedApiStatus()
+    refreshEmbeddedApiStatus();
 
     // Auto-start embedded API on component mount if not running
     const autoStartEmbedded = async () => {
       // Re-check status to get latest state
       try {
-        const status = await TauriService.getApiStatus()
+        const status = await TauriService.getApiStatus();
         if (!status && TauriService.isTauri()) {
-          await TauriService.startLocalApiServer()
-          await new Promise(resolve => setTimeout(resolve, 1000))
-          await refreshEmbeddedApiStatus()
+          await TauriService.startLocalApiServer();
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          await refreshEmbeddedApiStatus();
         }
       } catch (error) {
-        console.error('Failed to auto-start embedded API:', error)
+        console.error("Failed to auto-start embedded API:", error);
       }
-    }
+    };
 
     // Delay auto-start to ensure state is properly initialized
-    setTimeout(autoStartEmbedded, 500)
+    setTimeout(autoStartEmbedded, 500);
 
     // Periodic health check every 10 seconds to keep status fresh
-    const healthCheckInterval = setInterval(refreshEmbeddedApiStatus, 10000)
+    const healthCheckInterval = setInterval(refreshEmbeddedApiStatus, 10000);
 
     return () => {
-      clearInterval(healthCheckInterval)
-    }
-  }, []) // Run only once on mount
+      clearInterval(healthCheckInterval);
+    };
+  }, []); // Run only once on mount
 
   const handleStartEmbeddedApi = async () => {
-    if (!TauriService.isTauri()) return
+    if (!TauriService.isTauri()) return;
 
     try {
-      setIsLoading(true)
-      await TauriService.startLocalApiServer()
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      await refreshEmbeddedApiStatus()
+      setIsLoading(true);
+      await TauriService.startLocalApiServer();
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await refreshEmbeddedApiStatus();
     } catch (error) {
-      console.error('Failed to start local API:', error)
+      console.error("Failed to start local API:", error);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   const handleStopEmbeddedApi = async () => {
-    if (!TauriService.isTauri()) return
+    if (!TauriService.isTauri()) return;
 
     try {
-      setIsLoading(true)
-      await TauriService.stopLocalApiServer()
-      await refreshEmbeddedApiStatus()
+      setIsLoading(true);
+      await TauriService.stopLocalApiServer();
+      await refreshEmbeddedApiStatus();
     } catch (error) {
-      console.error('Failed to stop local API:', error)
+      console.error("Failed to stop local API:", error);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   const handleDiscoverBrokers = async () => {
-    setIsDiscovering(true)
+    setIsDiscovering(true);
     try {
       // Reduced timeout - discovery now returns early when brokers found
-      const brokers = await discoverBrokers(3) // 3 second max, usually ~500ms
-      setDiscoveredBrokers(brokers)
+      const brokers = await discoverBrokers(3); // 3 second max, usually ~500ms
+      setDiscoveredBrokers(brokers);
       if (brokers.length > 0) {
-        setShowSyncConfig(true)
+        setShowSyncConfig(true);
       }
     } catch (error) {
-      console.error('Failed to discover brokers:', error)
+      console.error("Failed to discover brokers:", error);
     } finally {
-      setIsDiscovering(false)
+      setIsDiscovering(false);
     }
-  }
+  };
 
   const handleSelectBroker = (broker: DiscoveredBroker) => {
-    console.log('Selected broker:', broker)
-    console.log('Auth required:', broker.auth_required)
-    setSelectedBroker(broker)
+    console.log("Selected broker:", broker);
+    console.log("Auth required:", broker.auth_required);
+    setSelectedBroker(broker);
     setSyncConfig({
       ...syncConfig,
-      brokerUrl: broker.url
-    })
+      brokerUrl: broker.url,
+    });
     // Show the sync config form so password field appears
-    setShowSyncConfig(true)
-  }
+    setShowSyncConfig(true);
+  };
 
   const handleSyncConnect = async () => {
     if (!syncConfig.brokerUrl || !syncConfig.userId) {
-      return
+      return;
     }
 
     // If broker requires auth, verify password first
     if (selectedBroker?.auth_required && syncConfig.password) {
-      const isValid = await verifyPassword(syncConfig.password, selectedBroker.auth_hash)
+      const isValid = await verifyPassword(
+        syncConfig.password,
+        selectedBroker.auth_hash,
+      );
       if (!isValid) {
-        console.error('Invalid password for broker')
-        return
+        console.error("Invalid password for broker");
+        return;
       }
     }
 
@@ -415,102 +470,114 @@ export function SettingsPanel() {
         broker_url: syncConfig.brokerUrl,
         user_id: syncConfig.userId,
         local_endpoint: syncConfig.localEndpoint,
-        password: syncConfig.password
-      })
-      setShowSyncConfig(false)
-      setDiscoveredBrokers([])
-      setSelectedBroker(null)
+        password: syncConfig.password,
+      });
+      setShowSyncConfig(false);
+      setDiscoveredBrokers([]);
+      setSelectedBroker(null);
     } catch (error) {
-      console.error('Failed to connect to sync broker:', error)
+      console.error("Failed to connect to sync broker:", error);
     }
-  }
+  };
 
   const handleSyncDisconnect = async () => {
     try {
-      await disconnect()
+      await disconnect();
     } catch (error) {
-      console.error('Failed to disconnect from sync broker:', error)
+      console.error("Failed to disconnect from sync broker:", error);
     }
-  }
+  };
 
   // NSG handlers
   const handleSaveNsgCredentials = async () => {
-    if (!TauriService.isTauri()) return
+    if (!TauriService.isTauri()) return;
 
-    if (!nsgCredentials.username || !nsgCredentials.password || !nsgCredentials.appKey) {
-      setNsgError('All fields are required')
-      return
+    if (
+      !nsgCredentials.username ||
+      !nsgCredentials.password ||
+      !nsgCredentials.appKey
+    ) {
+      setNsgError("All fields are required");
+      return;
     }
 
     try {
-      setNsgConnectionStatus('testing')
-      setNsgError(null)
+      setNsgConnectionStatus("testing");
+      setNsgError(null);
 
       await TauriService.saveNSGCredentials(
         nsgCredentials.username,
         nsgCredentials.password,
-        nsgCredentials.appKey
-      )
+        nsgCredentials.appKey,
+      );
 
-      setHasNsgCredentials(true)
-      setNsgConnectionStatus('success')
+      setHasNsgCredentials(true);
+      setNsgConnectionStatus("success");
 
       setTimeout(() => {
-        setNsgConnectionStatus('idle')
-      }, 2000)
+        setNsgConnectionStatus("idle");
+      }, 2000);
     } catch (error) {
-      setNsgConnectionStatus('error')
-      setNsgError(error instanceof Error ? error.message : 'Failed to save credentials')
+      setNsgConnectionStatus("error");
+      setNsgError(
+        error instanceof Error ? error.message : "Failed to save credentials",
+      );
     }
-  }
+  };
 
   const handleTestNsgConnection = async () => {
-    if (!TauriService.isTauri()) return
+    if (!TauriService.isTauri()) return;
 
     try {
-      setNsgConnectionStatus('testing')
-      setNsgError(null)
+      setNsgConnectionStatus("testing");
+      setNsgError(null);
 
-      const success = await TauriService.testNSGConnection()
+      const success = await TauriService.testNSGConnection();
 
       if (success) {
-        setNsgConnectionStatus('success')
+        setNsgConnectionStatus("success");
         setTimeout(() => {
-          setNsgConnectionStatus('idle')
-        }, 2000)
+          setNsgConnectionStatus("idle");
+        }, 2000);
       } else {
-        setNsgConnectionStatus('error')
-        setNsgError('Connection test failed')
+        setNsgConnectionStatus("error");
+        setNsgError("Connection test failed");
       }
     } catch (error) {
-      setNsgConnectionStatus('error')
-      setNsgError(error instanceof Error ? error.message : 'Connection test failed')
+      setNsgConnectionStatus("error");
+      setNsgError(
+        error instanceof Error ? error.message : "Connection test failed",
+      );
     }
-  }
+  };
 
   const handleDeleteNsgCredentials = async () => {
-    if (!TauriService.isTauri()) return
+    if (!TauriService.isTauri()) return;
 
     try {
-      await TauriService.deleteNSGCredentials()
-      setHasNsgCredentials(false)
+      await TauriService.deleteNSGCredentials();
+      setHasNsgCredentials(false);
       setNsgCredentials({
-        username: '',
-        password: '',
-        appKey: ''
-      })
-      setNsgConnectionStatus('idle')
-      setNsgError(null)
+        username: "",
+        password: "",
+        appKey: "",
+      });
+      setNsgConnectionStatus("idle");
+      setNsgError(null);
     } catch (error) {
-      setNsgError(error instanceof Error ? error.message : 'Failed to delete credentials')
+      setNsgError(
+        error instanceof Error ? error.message : "Failed to delete credentials",
+      );
     }
-  }
+  };
 
   return (
     <div className="h-full overflow-y-auto p-6 space-y-6">
       <div>
         <h2 className="text-2xl font-bold mb-4">Settings</h2>
-        <p className="text-muted-foreground">Configure DDALAB application preferences</p>
+        <p className="text-muted-foreground">
+          Configure DDALAB application preferences
+        </p>
       </div>
 
       <Card>
@@ -533,24 +600,28 @@ export function SettingsPanel() {
                 onClick={refreshEmbeddedApiStatus}
                 disabled={isLoading}
               >
-                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+                <RefreshCw
+                  className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`}
+                />
               </Button>
             </div>
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span>API Endpoint:</span>
                 <span className="font-mono text-xs">
-                  {embeddedApiStatus.url || 'http://localhost:8765'}
+                  {embeddedApiStatus.url || "http://localhost:8765"}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span>Status:</span>
                 <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${
-                    embeddedApiHealth.healthy ? 'bg-green-500' : 'bg-red-500'
-                  }`} />
+                  <div
+                    className={`w-2 h-2 rounded-full ${
+                      embeddedApiHealth.healthy ? "bg-green-500" : "bg-red-500"
+                    }`}
+                  />
                   <span className="text-xs">
-                    {embeddedApiStatus.running ? 'Running' : 'Stopped'}
+                    {embeddedApiStatus.running ? "Running" : "Stopped"}
                   </span>
                 </div>
               </div>
@@ -606,18 +677,21 @@ export function SettingsPanel() {
               Institutional Sync
             </CardTitle>
             <CardDescription>
-              Connect to an institutional broker to share analysis results with collaborators
+              Connect to an institutional broker to share analysis results with
+              collaborators
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${
-                    isConnected ? 'bg-green-500' : 'bg-gray-300'
-                  }`} />
+                  <div
+                    className={`w-2 h-2 rounded-full ${
+                      isConnected ? "bg-green-500" : "bg-gray-300"
+                    }`}
+                  />
                   <span className="text-sm font-medium">
-                    {isConnected ? 'Connected' : 'Not Connected'}
+                    {isConnected ? "Connected" : "Not Connected"}
                   </span>
                 </div>
                 {!isConnected ? (
@@ -629,7 +703,7 @@ export function SettingsPanel() {
                       disabled={isDiscovering}
                     >
                       <Search className="mr-2 h-4 w-4" />
-                      {isDiscovering ? 'Searching...' : 'Discover'}
+                      {isDiscovering ? "Searching..." : "Discover"}
                     </Button>
                     <Button
                       onClick={() => setShowSyncConfig(!showSyncConfig)}
@@ -655,21 +729,25 @@ export function SettingsPanel() {
               {/* Discovered Brokers List */}
               {discoveredBrokers.length > 0 && !isConnected && (
                 <div className="space-y-2 pt-2 border-t">
-                  <h4 className="text-sm font-medium">Discovered Brokers ({discoveredBrokers.length})</h4>
+                  <h4 className="text-sm font-medium">
+                    Discovered Brokers ({discoveredBrokers.length})
+                  </h4>
                   {discoveredBrokers.map((broker) => (
                     <div
                       key={broker.url}
                       className={`p-3 border rounded-lg cursor-pointer transition-colors ${
                         selectedBroker?.url === broker.url
-                          ? 'border-primary bg-primary/5'
-                          : 'hover:bg-muted'
+                          ? "border-primary bg-primary/5"
+                          : "hover:bg-muted"
                       }`}
                       onClick={() => handleSelectBroker(broker)}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="font-medium">{broker.institution}</span>
+                            <span className="font-medium">
+                              {broker.institution}
+                            </span>
                             {broker.uses_tls && (
                               <span title="Secure (TLS)">
                                 <Shield className="h-3 w-3 text-green-600" />
@@ -702,7 +780,12 @@ export function SettingsPanel() {
                       id="broker-url"
                       placeholder="wss://broker.institution.edu"
                       value={syncConfig.brokerUrl}
-                      onChange={(e) => setSyncConfig({ ...syncConfig, brokerUrl: e.target.value })}
+                      onChange={(e) =>
+                        setSyncConfig({
+                          ...syncConfig,
+                          brokerUrl: e.target.value,
+                        })
+                      }
                     />
                   </div>
                   <div className="space-y-2">
@@ -711,12 +794,17 @@ export function SettingsPanel() {
                       id="user-id"
                       placeholder="your.email@institution.edu"
                       value={syncConfig.userId}
-                      onChange={(e) => setSyncConfig({ ...syncConfig, userId: e.target.value })}
+                      onChange={(e) =>
+                        setSyncConfig({ ...syncConfig, userId: e.target.value })
+                      }
                     />
                   </div>
                   {selectedBroker?.auth_required && (
                     <div className="space-y-2">
-                      <Label htmlFor="broker-password" className="flex items-center gap-2">
+                      <Label
+                        htmlFor="broker-password"
+                        className="flex items-center gap-2"
+                      >
                         <Lock className="h-3 w-3" />
                         Broker Password
                       </Label>
@@ -725,7 +813,12 @@ export function SettingsPanel() {
                         type="password"
                         placeholder="Enter broker password"
                         value={syncConfig.password}
-                        onChange={(e) => setSyncConfig({ ...syncConfig, password: e.target.value })}
+                        onChange={(e) =>
+                          setSyncConfig({
+                            ...syncConfig,
+                            password: e.target.value,
+                          })
+                        }
                       />
                       <p className="text-xs text-muted-foreground">
                         This broker requires authentication
@@ -738,7 +831,12 @@ export function SettingsPanel() {
                       id="local-endpoint"
                       placeholder="http://localhost:8765"
                       value={syncConfig.localEndpoint}
-                      onChange={(e) => setSyncConfig({ ...syncConfig, localEndpoint: e.target.value })}
+                      onChange={(e) =>
+                        setSyncConfig({
+                          ...syncConfig,
+                          localEndpoint: e.target.value,
+                        })
+                      }
                     />
                     <p className="text-xs text-muted-foreground">
                       Your local API endpoint for peer-to-peer transfers
@@ -747,9 +845,13 @@ export function SettingsPanel() {
                   <div className="flex gap-2 pt-2">
                     <Button
                       onClick={handleSyncConnect}
-                      disabled={syncLoading || !syncConfig.brokerUrl || !syncConfig.userId}
+                      disabled={
+                        syncLoading ||
+                        !syncConfig.brokerUrl ||
+                        !syncConfig.userId
+                      }
                     >
-                      {syncLoading ? 'Connecting...' : 'Connect'}
+                      {syncLoading ? "Connecting..." : "Connect"}
                     </Button>
                     <Button
                       variant="ghost"
@@ -778,7 +880,8 @@ export function SettingsPanel() {
                       </span>
                     </div>
                     <p className="text-xs mt-2 text-muted-foreground">
-                      You can now share and access analysis results with your collaborators
+                      You can now share and access analysis results with your
+                      collaborators
                     </p>
                   </AlertDescription>
                 </Alert>
@@ -803,9 +906,7 @@ export function SettingsPanel() {
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Current Version</p>
-                  <p className="text-sm text-muted-foreground">
-                    {appVersion}
-                  </p>
+                  <p className="text-sm text-muted-foreground">{appVersion}</p>
                 </div>
                 <Button
                   onClick={checkForUpdates}
@@ -836,7 +937,8 @@ export function SettingsPanel() {
               {updateInfo && !updateInfo.available && (
                 <Alert>
                   <AlertDescription>
-                    <strong>You're up to date!</strong> You have the latest version of DDALAB.
+                    <strong>You're up to date!</strong> You have the latest
+                    version of DDALAB.
                   </AlertDescription>
                 </Alert>
               )}
@@ -846,11 +948,15 @@ export function SettingsPanel() {
                   <AlertDescription>
                     <div className="space-y-2">
                       <p className="font-medium">
-                        <strong>Update Available:</strong> Version {updateInfo.latest_version}
+                        <strong>Update Available:</strong> Version{" "}
+                        {updateInfo.latest_version}
                       </p>
                       {updateInfo.release_date && (
                         <p className="text-sm">
-                          Released: {new Date(updateInfo.release_date).toLocaleDateString()}
+                          Released:{" "}
+                          {new Date(
+                            updateInfo.release_date,
+                          ).toLocaleDateString()}
                         </p>
                       )}
                       {updateInfo.release_notes && (
@@ -859,7 +965,7 @@ export function SettingsPanel() {
                           <div className="mt-1 max-h-32 overflow-y-auto rounded bg-muted p-2">
                             <pre className="whitespace-pre-wrap text-xs">
                               {updateInfo.release_notes.slice(0, 300)}
-                              {updateInfo.release_notes.length > 300 && '...'}
+                              {updateInfo.release_notes.length > 300 && "..."}
                             </pre>
                           </div>
                         </div>
@@ -870,7 +976,9 @@ export function SettingsPanel() {
                         className="mt-2"
                       >
                         <Download className="mr-2 h-4 w-4" />
-                        {isDownloading ? 'Downloading...' : 'Download and Install Update'}
+                        {isDownloading
+                          ? "Downloading..."
+                          : "Download and Install Update"}
                       </Button>
                     </div>
                   </AlertDescription>
@@ -890,7 +998,8 @@ export function SettingsPanel() {
               Neuroscience Gateway (NSG)
             </CardTitle>
             <CardDescription>
-              Configure credentials for submitting DDA jobs to HPC clusters via NSG
+              Configure credentials for submitting DDA jobs to HPC clusters via
+              NSG
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -902,7 +1011,12 @@ export function SettingsPanel() {
                   type="text"
                   placeholder="your.email@institution.edu"
                   value={nsgCredentials.username}
-                  onChange={(e) => setNsgCredentials({ ...nsgCredentials, username: e.target.value })}
+                  onChange={(e) =>
+                    setNsgCredentials({
+                      ...nsgCredentials,
+                      username: e.target.value,
+                    })
+                  }
                   disabled={hasNsgCredentials}
                 />
               </div>
@@ -912,10 +1026,15 @@ export function SettingsPanel() {
                 <div className="relative">
                   <Input
                     id="nsg-password"
-                    type={showNsgPassword ? 'text' : 'password'}
+                    type={showNsgPassword ? "text" : "password"}
                     placeholder="Enter your NSG password"
                     value={nsgCredentials.password}
-                    onChange={(e) => setNsgCredentials({ ...nsgCredentials, password: e.target.value })}
+                    onChange={(e) =>
+                      setNsgCredentials({
+                        ...nsgCredentials,
+                        password: e.target.value,
+                      })
+                    }
                     disabled={hasNsgCredentials}
                   />
                   <Button
@@ -942,7 +1061,12 @@ export function SettingsPanel() {
                   type="text"
                   placeholder="Enter your NSG app key"
                   value={nsgCredentials.appKey}
-                  onChange={(e) => setNsgCredentials({ ...nsgCredentials, appKey: e.target.value })}
+                  onChange={(e) =>
+                    setNsgCredentials({
+                      ...nsgCredentials,
+                      appKey: e.target.value,
+                    })
+                  }
                   disabled={hasNsgCredentials}
                 />
               </div>
@@ -954,10 +1078,12 @@ export function SettingsPanel() {
                 </Alert>
               )}
 
-              {nsgConnectionStatus === 'success' && (
+              {nsgConnectionStatus === "success" && (
                 <Alert className="bg-green-50 border-green-200">
                   <AlertDescription className="text-green-800">
-                    {hasNsgCredentials ? 'Connection successful!' : 'Credentials saved successfully!'}
+                    {hasNsgCredentials
+                      ? "Connection successful!"
+                      : "Credentials saved successfully!"}
                   </AlertDescription>
                 </Alert>
               )}
@@ -966,15 +1092,20 @@ export function SettingsPanel() {
                 {!hasNsgCredentials ? (
                   <Button
                     onClick={handleSaveNsgCredentials}
-                    disabled={nsgConnectionStatus === 'testing' || !nsgCredentials.username || !nsgCredentials.password || !nsgCredentials.appKey}
+                    disabled={
+                      nsgConnectionStatus === "testing" ||
+                      !nsgCredentials.username ||
+                      !nsgCredentials.password ||
+                      !nsgCredentials.appKey
+                    }
                   >
-                    {nsgConnectionStatus === 'testing' ? (
+                    {nsgConnectionStatus === "testing" ? (
                       <>
                         <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
                         Saving...
                       </>
                     ) : (
-                      'Save Credentials'
+                      "Save Credentials"
                     )}
                   </Button>
                 ) : (
@@ -982,9 +1113,9 @@ export function SettingsPanel() {
                     <Button
                       onClick={handleTestNsgConnection}
                       variant="outline"
-                      disabled={nsgConnectionStatus === 'testing'}
+                      disabled={nsgConnectionStatus === "testing"}
                     >
-                      {nsgConnectionStatus === 'testing' ? (
+                      {nsgConnectionStatus === "testing" ? (
                         <>
                           <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
                           Testing...
@@ -999,7 +1130,7 @@ export function SettingsPanel() {
                     <Button
                       onClick={handleDeleteNsgCredentials}
                       variant="destructive"
-                      disabled={nsgConnectionStatus === 'testing'}
+                      disabled={nsgConnectionStatus === "testing"}
                     >
                       Delete Credentials
                     </Button>
@@ -1009,10 +1140,11 @@ export function SettingsPanel() {
 
               <div className="text-xs text-muted-foreground space-y-1">
                 <p>
-                  NSG credentials are encrypted and stored securely in your system keyring.
+                  NSG credentials are encrypted and stored securely in your
+                  system keyring.
                 </p>
                 <p>
-                  To get NSG credentials, visit{' '}
+                  To get NSG credentials, visit{" "}
                   <a
                     href="https://www.nsgportal.org/"
                     target="_blank"
@@ -1045,21 +1177,17 @@ export function SettingsPanel() {
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Logs Location</Label>
                 <div className="p-3 bg-muted rounded-lg">
-                  <code className="text-xs break-all">{logsPath || 'Loading...'}</code>
+                  <code className="text-xs break-all">
+                    {logsPath || "Loading..."}
+                  </code>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <Button
-                  onClick={handleOpenLogs}
-                  variant="outline"
-                >
+                <Button onClick={handleOpenLogs} variant="outline">
                   <FolderOpen className="mr-2 h-4 w-4" />
                   View Logs
                 </Button>
-                <Button
-                  onClick={handleReportIssue}
-                  variant="outline"
-                >
+                <Button onClick={handleReportIssue} variant="outline">
                   <Bug className="mr-2 h-4 w-4" />
                   Report Issue
                 </Button>
@@ -1069,5 +1197,5 @@ export function SettingsPanel() {
         </Card>
       )}
     </div>
-  )
+  );
 }

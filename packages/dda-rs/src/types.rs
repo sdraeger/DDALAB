@@ -53,9 +53,9 @@ pub struct ScaleParameters {
 /// MODEL parameters for DDA analysis (expert mode)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelParameters {
-    pub dm: u32,        // Embedding dimension (default: 4)
-    pub order: u32,     // Polynomial order (default: 4)
-    pub nr_tau: u32,    // Number of tau values (default: 2)
+    pub dm: u32,     // Embedding dimension (default: 4)
+    pub order: u32,  // Polynomial order (default: 4)
+    pub nr_tau: u32, // Number of tau values (default: 2)
 }
 
 /// Complete DDA request configuration

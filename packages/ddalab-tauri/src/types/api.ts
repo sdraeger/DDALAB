@@ -1,109 +1,109 @@
 // Types for DDALAB API responses and requests
 
 export interface EDFFileInfo {
-  file_path: string
-  file_name: string
-  file_size: number
-  duration: number
-  sample_rate: number
-  channels: string[]
-  total_samples: number
-  start_time: string
-  end_time: string
-  annotations_count?: number
+  file_path: string;
+  file_name: string;
+  file_size: number;
+  duration: number;
+  sample_rate: number;
+  channels: string[];
+  total_samples: number;
+  start_time: string;
+  end_time: string;
+  annotations_count?: number;
 }
 
 export interface ChunkData {
-  data: number[][]
-  channels: string[]
-  timestamps: number[]
-  sample_rate: number
-  chunk_start: number
-  chunk_size: number
-  file_path: string
+  data: number[][];
+  channels: string[];
+  timestamps: number[];
+  sample_rate: number;
+  chunk_start: number;
+  chunk_size: number;
+  file_path: string;
 }
 
 export interface Annotation {
-  id?: string
-  file_path: string
-  channel?: string
-  start_time: number
-  end_time?: number
-  label: string
-  description?: string
-  annotation_type: 'seizure' | 'artifact' | 'marker' | 'clinical' | 'custom'
-  created_at?: string
-  created_by?: string
+  id?: string;
+  file_path: string;
+  channel?: string;
+  start_time: number;
+  end_time?: number;
+  label: string;
+  description?: string;
+  annotation_type: "seizure" | "artifact" | "marker" | "clinical" | "custom";
+  created_at?: string;
+  created_by?: string;
 }
 
 export interface DDAAnalysisRequest {
-  file_path: string
-  channels: string[]
-  start_time: number
-  end_time: number
-  variants: string[]
-  window_length?: number
-  window_step?: number
-  scale_min?: number
-  scale_max?: number
-  scale_num?: number
+  file_path: string;
+  channels: string[];
+  start_time: number;
+  end_time: number;
+  variants: string[];
+  window_length?: number;
+  window_step?: number;
+  scale_min?: number;
+  scale_max?: number;
+  scale_num?: number;
   // CT-specific parameters
-  ct_window_length?: number
-  ct_window_step?: number
-  ct_channel_pairs?: [number, number][]  // Array of channel index pairs
+  ct_window_length?: number;
+  ct_window_step?: number;
+  ct_channel_pairs?: [number, number][]; // Array of channel index pairs
   // CD-specific parameters
-  cd_channel_pairs?: [number, number][]  // Array of directed channel pairs (from -> to)
+  cd_channel_pairs?: [number, number][]; // Array of directed channel pairs (from -> to)
 }
 
 export interface DDAVariantResult {
-  variant_id: string
-  variant_name: string
-  dda_matrix: Record<string, number[]>
-  exponents: Record<string, number>
-  quality_metrics: Record<string, number>
+  variant_id: string;
+  variant_name: string;
+  dda_matrix: Record<string, number[]>;
+  exponents: Record<string, number>;
+  quality_metrics: Record<string, number>;
 }
 
 export interface DDAResult {
-  id: string
-  name?: string
-  file_path: string
-  channels: string[]
-  parameters: DDAAnalysisRequest
+  id: string;
+  name?: string;
+  file_path: string;
+  channels: string[];
+  parameters: DDAAnalysisRequest;
   results: {
-    scales: number[]
-    variants: DDAVariantResult[]
+    scales: number[];
+    variants: DDAVariantResult[];
     // Legacy fields for backward compatibility
-    dda_matrix?: Record<string, number[]>
-    exponents?: Record<string, number>
-    quality_metrics?: Record<string, number>
-  }
-  status: 'pending' | 'running' | 'completed' | 'failed'
-  created_at: string
-  completed_at?: string
-  error_message?: string
-  source?: 'local' | 'nsg'  // Source of the analysis results
+    dda_matrix?: Record<string, number[]>;
+    exponents?: Record<string, number>;
+    quality_metrics?: Record<string, number>;
+  };
+  status: "pending" | "running" | "completed" | "failed";
+  created_at: string;
+  completed_at?: string;
+  error_message?: string;
+  source?: "local" | "nsg"; // Source of the analysis results
 }
 
 export interface HealthResponse {
-  status: string
-  version: string
-  timestamp: string
+  status: string;
+  version: string;
+  timestamp: string;
 }
 
 // DDA Progress Event Types
 export type DDAProgressPhase =
-  | 'initializing'
-  | 'loading_data'
-  | 'preprocessing'
-  | 'computing'
-  | 'completed'
-  | 'error'
+  | "initializing"
+  | "loading_data"
+  | "preprocessing"
+  | "computing"
+  | "completed"
+  | "error";
 
 export interface DDAProgressEvent {
-  analysis_id: string
-  phase: DDAProgressPhase
-  progress_percent: number
-  current_step?: string
-  estimated_time_remaining_seconds?: number
-  error_message?: string
+  analysis_id: string;
+  phase: DDAProgressPhase;
+  progress_percent: number;
+  current_step?: string;
+  estimated_time_remaining_seconds?: number;
+  error_message?: string;
 }

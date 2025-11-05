@@ -1,13 +1,13 @@
-import React from 'react'
-import { PlotAnnotation } from '@/types/annotations'
+import React from "react";
+import { PlotAnnotation } from "@/types/annotations";
 
 interface AnnotationMarkerProps {
-  annotation: PlotAnnotation
-  plotHeight: number
-  xPosition: number
-  yOffset?: number
-  onRightClick: (event: React.MouseEvent, annotation: PlotAnnotation) => void
-  onClick?: (annotation: PlotAnnotation) => void
+  annotation: PlotAnnotation;
+  plotHeight: number;
+  xPosition: number;
+  yOffset?: number;
+  onRightClick: (event: React.MouseEvent, annotation: PlotAnnotation) => void;
+  onClick?: (annotation: PlotAnnotation) => void;
 }
 
 export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
@@ -16,23 +16,23 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
   xPosition,
   yOffset = 0,
   onRightClick,
-  onClick
+  onClick,
 }) => {
-  const color = annotation.color || '#ef4444' // Default red color
+  const color = annotation.color || "#ef4444"; // Default red color
 
   return (
     <g
       className="annotation-marker cursor-pointer"
-      style={{ pointerEvents: 'auto' }}
+      style={{ pointerEvents: "auto" }}
       onContextMenu={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        onRightClick(e, annotation)
+        e.preventDefault();
+        e.stopPropagation();
+        onRightClick(e, annotation);
       }}
       onClick={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        onClick?.(annotation)
+        e.preventDefault();
+        e.stopPropagation();
+        onClick?.(annotation);
       }}
     >
       {/* Vertical line - uses full plot height from bbox */}
@@ -45,7 +45,7 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
         strokeWidth={2}
         strokeDasharray="5,5"
         opacity={0.7}
-        style={{ pointerEvents: 'none' }}
+        style={{ pointerEvents: "none" }}
       />
 
       {/* Label background */}
@@ -56,7 +56,7 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
         ry={3}
         fill={color}
         opacity={0.9}
-        style={{ pointerEvents: 'none' }}
+        style={{ pointerEvents: "none" }}
         width={annotation.label.length * 7 + 10}
         height={20}
       />
@@ -68,7 +68,7 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
         fill="white"
         fontSize="12"
         fontWeight="500"
-        style={{ pointerEvents: 'none' }}
+        style={{ pointerEvents: "none" }}
         className="select-none"
       >
         {annotation.label}
@@ -81,8 +81,8 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
         width={Math.max(10, annotation.label.length * 7 + 20)}
         height={plotHeight}
         fill="transparent"
-        style={{ pointerEvents: 'auto' }}
+        style={{ pointerEvents: "auto" }}
       />
     </g>
-  )
-}
+  );
+};

@@ -5,6 +5,7 @@
 ### Windows
 
 **Option 1: Run from Command Line (PowerShell)**
+
 ```powershell
 # Navigate to where DDALAB.exe is installed
 cd "C:\Program Files\DDALAB"
@@ -14,6 +15,7 @@ cd "C:\Program Files\DDALAB"
 ```
 
 **Option 2: Run from Command Prompt (CMD)**
+
 ```cmd
 cd "C:\Program Files\DDALAB"
 DDALAB.exe
@@ -22,6 +24,7 @@ DDALAB.exe
 The console logs will appear in the terminal window. Leave it open while using the app.
 
 **Option 3: Use Developer Tools (Recommended)**
+
 1. Open DDALAB
 2. **Right-click anywhere in the window** and select "Inspect Element"
    - OR press `F12`
@@ -34,6 +37,7 @@ This is the easiest method and works even if the app is already installed.
 ### macOS
 
 **Option 1: Run from Terminal**
+
 ```bash
 # If installed in Applications
 /Applications/DDALAB.app/Contents/MacOS/DDALAB
@@ -43,12 +47,14 @@ This is the easiest method and works even if the app is already installed.
 ```
 
 **Option 2: View Console App**
+
 1. Open Console.app (Applications > Utilities > Console)
 2. Select your Mac in the left sidebar
 3. Search for "DDALAB"
 4. Launch DDALAB and watch logs appear
 
 **Option 3: Use Developer Tools (Recommended)**
+
 1. Open DDALAB
 2. **Right-click anywhere in the window** and select "Inspect Element"
    - OR press `Cmd+Option+I`
@@ -59,6 +65,7 @@ This is the easiest method and works even if the app is already installed.
 ### Linux
 
 **Run from Terminal**
+
 ```bash
 # If installed system-wide
 ddalab
@@ -92,16 +99,19 @@ And:
 ## Common Issues
 
 ### Seeing "Getting Started" 3-step card
+
 - **Log to check**: `isTauri: false` when it should be `true`
 - **Cause**: Tauri detection failing
 - **Check**: Look for `window.__TAURI__` in the logs
 
 ### Stuck on loading screen
+
 - **Log to check**: `isApiConnected: null` that never changes
 - **Cause**: Embedded API not starting or connection check failing
 - **Check**: Look for "Starting embedded API server..." messages
 
 ### API connection errors
+
 - **Log to check**: "Failed to start embedded API:" messages
 - **Cause**: Port 8765 already in use or Rust backend crash
 - **Fix**: Check if another app is using port 8765
@@ -113,20 +123,25 @@ The Rust backend automatically logs to a file for debugging purposes.
 ### Log File Location
 
 **Windows:**
+
 ```
 C:\Users\<YourUsername>\AppData\Local\Temp\ddalab.log
 ```
+
 You can open this quickly by:
+
 1. Press `Win+R`
 2. Type `%TEMP%\ddalab.log`
 3. Press Enter
 
 **macOS:**
+
 ```
 /tmp/ddalab.log
 ```
 
 **Linux:**
+
 ```
 /tmp/ddalab.log
 ```
@@ -134,16 +149,19 @@ You can open this quickly by:
 ### Viewing Logs
 
 **Windows (Notepad):**
+
 ```powershell
 notepad %TEMP%\ddalab.log
 ```
 
 **Windows (PowerShell - tail mode):**
+
 ```powershell
 Get-Content $env:TEMP\ddalab.log -Wait -Tail 50
 ```
 
 **macOS/Linux:**
+
 ```bash
 tail -f /tmp/ddalab.log
 ```
@@ -151,6 +169,7 @@ tail -f /tmp/ddalab.log
 ### What to Look For
 
 When DDA analysis fails, look for:
+
 ```
 ❌ ========== DDA BINARY FAILURE ==========
 Status: <exit code>

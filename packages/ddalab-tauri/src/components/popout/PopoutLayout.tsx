@@ -1,135 +1,141 @@
-import React, { useState, useEffect } from 'react'
-import { emit } from '@tauri-apps/api/event'
-import { usePopoutListener } from '@/hooks/usePopoutWindows'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
-import { 
-  Lock, 
-  Unlock, 
-  RefreshCw, 
-  Maximize2, 
-  Minimize2, 
+import React, { useState, useEffect } from "react";
+import { emit } from "@tauri-apps/api/event";
+import { usePopoutListener } from "@/hooks/usePopoutWindows";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import {
+  Lock,
+  Unlock,
+  RefreshCw,
+  Maximize2,
+  Minimize2,
   X,
-  Info
-} from 'lucide-react'
+  Info,
+} from "lucide-react";
 
 interface PopoutLayoutProps {
-  title: string
-  children: React.ReactNode
-  windowId?: string
-  onRefresh?: () => void
-  showRefresh?: boolean
+  title: string;
+  children: React.ReactNode;
+  windowId?: string;
+  onRefresh?: () => void;
+  showRefresh?: boolean;
 }
 
-export function PopoutLayout({ 
-  title, 
-  children, 
-  windowId, 
+export function PopoutLayout({
+  title,
+  children,
+  windowId,
   onRefresh,
-  showRefresh = true 
+  showRefresh = true,
 }: PopoutLayoutProps) {
-  const { data, isLocked, windowId: detectedWindowId } = usePopoutListener(windowId)
-  const [isMaximized, setIsMaximized] = useState(false)
-  const [isClient, setIsClient] = useState(false)
-  const [lastUpdateTime, setLastUpdateTime] = useState<string>('')
-  
-  const currentWindowId = windowId || detectedWindowId
+  const {
+    data,
+    isLocked,
+    windowId: detectedWindowId,
+  } = usePopoutListener(windowId);
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+  const [lastUpdateTime, setLastUpdateTime] = useState<string>("");
+
+  const currentWindowId = windowId || detectedWindowId;
 
   useEffect(() => {
-    setIsClient(true)
-  }, [])
+    setIsClient(true);
+  }, []);
 
   useEffect(() => {
     if (data && isClient) {
-      setLastUpdateTime(new Date().toLocaleTimeString())
+      setLastUpdateTime(new Date().toLocaleTimeString());
     }
-  }, [data, isClient])
+  }, [data, isClient]);
 
   const handleLockToggle = async () => {
     if (currentWindowId) {
-      const eventName = isLocked ? `unlock-window-${currentWindowId}` : `lock-window-${currentWindowId}`
-      await emit(eventName)
+      const eventName = isLocked
+        ? `unlock-window-${currentWindowId}`
+        : `lock-window-${currentWindowId}`;
+      await emit(eventName);
     }
-  }
+  };
 
   const handleRefresh = () => {
     if (onRefresh) {
-      onRefresh()
+      onRefresh();
     }
-  }
+  };
 
   const handleClose = async () => {
-    if (!isClient) return
+    if (!isClient) return;
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window')
-      const currentWindow = getCurrentWindow()
-      await currentWindow.close()
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const currentWindow = getCurrentWindow();
+      await currentWindow.close();
     } catch (error) {
-      console.error('Failed to close window:', error)
+      console.error("Failed to close window:", error);
     }
-  }
+  };
 
   const handleMinimize = async () => {
-    if (!isClient) return
+    if (!isClient) return;
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window')
-      const currentWindow = getCurrentWindow()
-      await currentWindow.minimize()
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const currentWindow = getCurrentWindow();
+      await currentWindow.minimize();
     } catch (error) {
-      console.error('Failed to minimize window:', error)
+      console.error("Failed to minimize window:", error);
     }
-  }
+  };
 
   const handleMaximizeToggle = async () => {
-    if (!isClient) return
+    if (!isClient) return;
     try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window')
-      const currentWindow = getCurrentWindow()
-      
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const currentWindow = getCurrentWindow();
+
       if (isMaximized) {
-        await currentWindow.unmaximize()
+        await currentWindow.unmaximize();
       } else {
-        await currentWindow.maximize()
+        await currentWindow.maximize();
       }
-      setIsMaximized(!isMaximized)
+      setIsMaximized(!isMaximized);
     } catch (error) {
-      console.error('Failed to toggle maximize:', error)
+      console.error("Failed to toggle maximize:", error);
     }
-  }
+  };
 
   // Monitor window maximize state
   useEffect(() => {
-    if (!isClient) return
+    if (!isClient) return;
 
-    let unlisten: (() => void) | undefined
+    let unlisten: (() => void) | undefined;
 
     const setupWindowListeners = async () => {
       try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window')
-        const currentWindow = getCurrentWindow()
-        
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const currentWindow = getCurrentWindow();
+
         unlisten = await currentWindow.onResized(() => {
           // Could check if window is maximized here, but it's complex
           // For now, we'll rely on the toggle state
-        })
+        });
       } catch (error) {
-        console.error('Failed to setup window listeners:', error)
+        console.error("Failed to setup window listeners:", error);
       }
-    }
+    };
 
-    setupWindowListeners()
+    setupWindowListeners();
 
     return () => {
-      if (unlisten) unlisten()
-    }
-  }, [isClient])
+      if (unlisten) unlisten();
+    };
+  }, [isClient]);
 
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* Custom title bar */}
-      <div 
+      <div
         className="h-10 bg-muted/30 border-b flex items-center justify-between px-3 select-none"
         data-tauri-drag-region
       >
@@ -137,11 +143,11 @@ export function PopoutLayout({
           <div className="text-sm font-medium text-foreground/80">{title}</div>
           {currentWindowId && (
             <Badge variant="outline" className="text-xs">
-              {currentWindowId.split('-')[0]}
+              {currentWindowId.split("-")[0]}
             </Badge>
           )}
         </div>
-        
+
         <div className="flex items-center space-x-1">
           {/* Lock/Unlock button */}
           <Button
@@ -149,7 +155,11 @@ export function PopoutLayout({
             size="sm"
             onClick={handleLockToggle}
             className="h-7 w-7 p-0"
-            title={isLocked ? "Unlock window (stop ignoring main UI changes)" : "Lock window (ignore main UI changes)"}
+            title={
+              isLocked
+                ? "Unlock window (stop ignoring main UI changes)"
+                : "Lock window (ignore main UI changes)"
+            }
           >
             {isLocked ? (
               <Lock className="h-3.5 w-3.5 text-yellow-600" />
@@ -231,15 +241,15 @@ export function PopoutLayout({
         {React.cloneElement(children as React.ReactElement<any>, {
           data,
           isLocked,
-          windowId: currentWindowId
+          windowId: currentWindowId,
         })}
       </div>
 
       {/* Status bar */}
       <div className="h-6 bg-muted/20 border-t flex items-center justify-between px-3 text-xs text-muted-foreground">
         <div className="flex items-center space-x-4">
-          <span>Window ID: {currentWindowId || 'Unknown'}</span>
-          <span>Status: {isLocked ? 'Locked' : 'Live'}</span>
+          <span>Window ID: {currentWindowId || "Unknown"}</span>
+          <span>Status: {isLocked ? "Locked" : "Live"}</span>
         </div>
         <div className="flex items-center space-x-2">
           {data && isClient && lastUpdateTime && (
@@ -248,5 +258,5 @@ export function PopoutLayout({
         </div>
       </div>
     </div>
-  )
+  );
 }

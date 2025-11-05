@@ -25,7 +25,7 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
   // Select ONLY a primitive boolean, not the entire selectedFile object
   // This prevents re-renders when the selectedFile object reference changes
   const hasSelectedFile = useAppStore(
-    (state) => !!state.fileManager.selectedFile
+    (state) => !!state.fileManager.selectedFile,
   );
 
   // Overview
@@ -141,11 +141,11 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
 function OverviewDashboard() {
   // Select ONLY the specific properties we need
   const selectedFileName = useAppStore(
-    (state) => state.fileManager.selectedFile?.file_name
+    (state) => state.fileManager.selectedFile?.file_name,
   );
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
   const hasCurrentAnalysis = useAppStore(
-    (state) => !!state.dda.currentAnalysis
+    (state) => !!state.dda.currentAnalysis,
   );
   const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
   const setSecondaryNav = useAppStore((state) => state.setSecondaryNav);

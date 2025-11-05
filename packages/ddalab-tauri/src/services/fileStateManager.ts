@@ -9,7 +9,7 @@
  * their state for that file. This ensures a cohesive, file-based workflow.
  */
 
-import { invoke } from '@tauri-apps/api/core'
+import { invoke } from "@tauri-apps/api/core";
 import {
   FileSpecificState,
   FileStateRegistry,
@@ -17,53 +17,55 @@ import {
   ModuleDescriptor,
   FileStateManagerOptions,
   FileStateChangeEvent,
-} from '@/types/fileCentricState'
+} from "@/types/fileCentricState";
 
 /**
  * Singleton service for managing file-centric state
  */
 export class FileStateManager {
-  private static instance: FileStateManager | null = null
+  private static instance: FileStateManager | null = null;
 
   private registry: FileStateRegistry = {
     files: {},
     activeFilePath: null,
     lastActiveFilePath: null,
     metadata: {
-      version: '1.0.0',
+      version: "1.0.0",
       lastUpdated: new Date().toISOString(),
     },
-  }
+  };
 
-  private modules: Map<string, FileStateModule> = new Map()
-  private moduleLoadOrder: string[] = []
-  private saveTimer: NodeJS.Timeout | null = null
-  private pendingSaves: Set<string> = new Set()
+  private modules: Map<string, FileStateModule> = new Map();
+  private moduleLoadOrder: string[] = [];
+  private saveTimer: NodeJS.Timeout | null = null;
+  private pendingSaves: Set<string> = new Set();
 
   private options: FileStateManagerOptions = {
     autoSave: true,
     saveInterval: 2000, // Save every 2 seconds
     maxCachedFiles: 10,
     persistToBackend: true,
-  }
+  };
 
-  private initialized: boolean = false
-  private eventListeners: ((event: FileStateChangeEvent) => void)[] = []
+  private initialized: boolean = false;
+  private eventListeners: ((event: FileStateChangeEvent) => void)[] = [];
 
   private constructor(options?: Partial<FileStateManagerOptions>) {
     if (options) {
-      this.options = { ...this.options, ...options }
+      this.options = { ...this.options, ...options };
     }
   }
 
   /**
    * Get singleton instance
    */
-  static getInstance(options?: Partial<FileStateManagerOptions>): FileStateManager {
+  static getInstance(
+    options?: Partial<FileStateManagerOptions>,
+  ): FileStateManager {
     if (!FileStateManager.instance) {
-      FileStateManager.instance = new FileStateManager(options)
+      FileStateManager.instance = new FileStateManager(options);
     }
-    return FileStateManager.instance
+    return FileStateManager.instance;
   }
 
   /**
@@ -72,28 +74,37 @@ export class FileStateManager {
    */
   async initialize(): Promise<void> {
     if (this.initialized) {
-      console.log('[FileStateManager] Already initialized')
-      return
+      console.log("[FileStateManager] Already initialized");
+      return;
     }
 
-    console.log('[FileStateManager] Initializing...')
+    console.log("[FileStateManager] Initializing...");
 
     try {
       // Load registry from backend
-      const savedRegistry = await invoke<FileStateRegistry>('get_file_state_registry')
-      this.registry = savedRegistry
-      console.log('[FileStateManager] Loaded registry with', Object.keys(savedRegistry.files).length, 'files')
+      const savedRegistry = await invoke<FileStateRegistry>(
+        "get_file_state_registry",
+      );
+      this.registry = savedRegistry;
+      console.log(
+        "[FileStateManager] Loaded registry with",
+        Object.keys(savedRegistry.files).length,
+        "files",
+      );
     } catch (error) {
-      console.warn('[FileStateManager] No saved registry found, starting fresh:', error)
+      console.warn(
+        "[FileStateManager] No saved registry found, starting fresh:",
+        error,
+      );
     }
 
     // Start auto-save if enabled
     if (this.options.autoSave) {
-      this.startAutoSave()
+      this.startAutoSave();
     }
 
-    this.initialized = true
-    console.log('[FileStateManager] Initialized successfully')
+    this.initialized = true;
+    console.log("[FileStateManager] Initialized successfully");
   }
 
   /**
@@ -102,23 +113,31 @@ export class FileStateManager {
    */
   registerModule(module: FileStateModule, priority: number = 100): void {
     if (this.modules.has(module.moduleId)) {
-      console.warn('[FileStateManager] Module already registered:', module.moduleId)
-      return
+      console.warn(
+        "[FileStateManager] Module already registered:",
+        module.moduleId,
+      );
+      return;
     }
 
-    console.log('[FileStateManager] Registering module:', module.moduleId, 'with priority', priority)
-    this.modules.set(module.moduleId, module)
+    console.log(
+      "[FileStateManager] Registering module:",
+      module.moduleId,
+      "with priority",
+      priority,
+    );
+    this.modules.set(module.moduleId, module);
 
     // Insert in priority order
     const index = this.moduleLoadOrder.findIndex((id) => {
-      const existing = this.modules.get(id)
-      return priority < (existing as any).priority || 100
-    })
+      const existing = this.modules.get(id);
+      return priority < (existing as any).priority || 100;
+    });
 
     if (index === -1) {
-      this.moduleLoadOrder.push(module.moduleId)
+      this.moduleLoadOrder.push(module.moduleId);
     } else {
-      this.moduleLoadOrder.splice(index, 0, module.moduleId)
+      this.moduleLoadOrder.splice(index, 0, module.moduleId);
     }
   }
 
@@ -126,9 +145,9 @@ export class FileStateManager {
    * Unregister a state module
    */
   unregisterModule(moduleId: string): void {
-    this.modules.delete(moduleId)
-    this.moduleLoadOrder = this.moduleLoadOrder.filter((id) => id !== moduleId)
-    console.log('[FileStateManager] Unregistered module:', moduleId)
+    this.modules.delete(moduleId);
+    this.moduleLoadOrder = this.moduleLoadOrder.filter((id) => id !== moduleId);
+    console.log("[FileStateManager] Unregistered module:", moduleId);
   }
 
   /**
@@ -136,97 +155,113 @@ export class FileStateManager {
    * This is called when a file is selected
    */
   async loadFileState(filePath: string): Promise<FileSpecificState> {
-    console.log('[FileStateManager] Loading state for file:', filePath)
+    console.log("[FileStateManager] Loading state for file:", filePath);
 
     // Check if we have cached state
-    let fileState = this.registry.files[filePath]
+    let fileState = this.registry.files[filePath];
 
     if (!fileState) {
       // Create new file state
-      fileState = this.createNewFileState(filePath)
-      this.registry.files[filePath] = fileState
+      fileState = this.createNewFileState(filePath);
+      this.registry.files[filePath] = fileState;
     }
 
     // Update access metadata
-    fileState.metadata.lastAccessed = new Date().toISOString()
-    fileState.metadata.accessCount++
+    fileState.metadata.lastAccessed = new Date().toISOString();
+    fileState.metadata.accessCount++;
 
     // Load state from all registered modules
     for (const moduleId of this.moduleLoadOrder) {
-      const module = this.modules.get(moduleId)
-      if (!module) continue
+      const module = this.modules.get(moduleId);
+      if (!module) continue;
 
       try {
-        console.log('[FileStateManager] Loading module state:', moduleId, 'for file:', filePath)
-        const moduleState = await module.loadState(filePath)
+        console.log(
+          "[FileStateManager] Loading module state:",
+          moduleId,
+          "for file:",
+          filePath,
+        );
+        const moduleState = await module.loadState(filePath);
 
         if (moduleState) {
-          fileState[moduleId] = moduleState
+          fileState[moduleId] = moduleState;
         } else {
           // Use default state if no saved state exists
-          fileState[moduleId] = module.getDefaultState()
+          fileState[moduleId] = module.getDefaultState();
         }
       } catch (error) {
-        console.error('[FileStateManager] Failed to load module state:', moduleId, error)
+        console.error(
+          "[FileStateManager] Failed to load module state:",
+          moduleId,
+          error,
+        );
         // Use default state on error
-        fileState[moduleId] = module.getDefaultState()
+        fileState[moduleId] = module.getDefaultState();
       }
     }
 
     // Update active file
-    this.registry.lastActiveFilePath = this.registry.activeFilePath
-    this.registry.activeFilePath = filePath
+    this.registry.lastActiveFilePath = this.registry.activeFilePath;
+    this.registry.activeFilePath = filePath;
 
     // Save registry (debounced)
-    this.scheduleSave(filePath)
+    this.scheduleSave(filePath);
 
-    return fileState
+    return fileState;
   }
 
   /**
    * Save all state for a file
    */
   async saveFileState(filePath: string): Promise<void> {
-    const fileState = this.registry.files[filePath]
+    const fileState = this.registry.files[filePath];
     if (!fileState) {
-      console.warn('[FileStateManager] No state to save for file:', filePath)
-      return
+      console.warn("[FileStateManager] No state to save for file:", filePath);
+      return;
     }
 
-    console.log('[FileStateManager] Saving state for file:', filePath)
+    console.log("[FileStateManager] Saving state for file:", filePath);
 
     // Save state for all registered modules
     const savePromises = this.moduleLoadOrder.map(async (moduleId) => {
-      const module = this.modules.get(moduleId)
-      if (!module) return
+      const module = this.modules.get(moduleId);
+      if (!module) return;
 
-      const moduleState = fileState[moduleId]
-      if (!moduleState) return
+      const moduleState = fileState[moduleId];
+      if (!moduleState) return;
 
       try {
-        await module.saveState(filePath, moduleState)
-        console.log('[FileStateManager] Saved module state:', moduleId)
+        await module.saveState(filePath, moduleState);
+        console.log("[FileStateManager] Saved module state:", moduleId);
       } catch (error) {
-        console.error('[FileStateManager] Failed to save module state:', moduleId, error)
+        console.error(
+          "[FileStateManager] Failed to save module state:",
+          moduleId,
+          error,
+        );
       }
-    })
+    });
 
-    await Promise.all(savePromises)
+    await Promise.all(savePromises);
 
     // Update registry metadata
-    this.registry.metadata.lastUpdated = new Date().toISOString()
+    this.registry.metadata.lastUpdated = new Date().toISOString();
 
     // Save registry to backend
     if (this.options.persistToBackend) {
       try {
-        await invoke('save_file_state_registry', { registry: this.registry })
-        console.log('[FileStateManager] Registry saved to backend')
+        await invoke("save_file_state_registry", { registry: this.registry });
+        console.log("[FileStateManager] Registry saved to backend");
       } catch (error) {
-        console.error('[FileStateManager] Failed to save registry to backend:', error)
+        console.error(
+          "[FileStateManager] Failed to save registry to backend:",
+          error,
+        );
       }
     }
 
-    this.pendingSaves.delete(filePath)
+    this.pendingSaves.delete(filePath);
   }
 
   /**
@@ -235,16 +270,16 @@ export class FileStateManager {
   async updateModuleState(
     filePath: string,
     moduleId: string,
-    state: any
+    state: any,
   ): Promise<void> {
-    const fileState = this.registry.files[filePath]
+    const fileState = this.registry.files[filePath];
     if (!fileState) {
-      console.warn('[FileStateManager] File state not loaded:', filePath)
-      return
+      console.warn("[FileStateManager] File state not loaded:", filePath);
+      return;
     }
 
-    const oldState = fileState[moduleId]
-    fileState[moduleId] = state
+    const oldState = fileState[moduleId];
+    fileState[moduleId] = state;
 
     // Emit change event
     this.emitChangeEvent({
@@ -253,22 +288,22 @@ export class FileStateManager {
       oldState,
       newState: state,
       timestamp: new Date().toISOString(),
-    })
+    });
 
     // Schedule save
-    this.scheduleSave(filePath)
+    this.scheduleSave(filePath);
   }
 
   /**
    * Get state for a specific module and file
    */
   getModuleState<T = any>(filePath: string, moduleId: string): T | null {
-    const fileState = this.registry.files[filePath]
+    const fileState = this.registry.files[filePath];
     if (!fileState) {
-      return null
+      return null;
     }
 
-    return fileState[moduleId] || null
+    return fileState[moduleId] || null;
   }
 
   /**
@@ -276,38 +311,42 @@ export class FileStateManager {
    */
   getActiveFileState(): FileSpecificState | null {
     if (!this.registry.activeFilePath) {
-      return null
+      return null;
     }
 
-    return this.registry.files[this.registry.activeFilePath] || null
+    return this.registry.files[this.registry.activeFilePath] || null;
   }
 
   /**
    * Clear all state for a file
    */
   async clearFileState(filePath: string): Promise<void> {
-    console.log('[FileStateManager] Clearing state for file:', filePath)
+    console.log("[FileStateManager] Clearing state for file:", filePath);
 
     // Clear state in all modules
     const clearPromises = this.moduleLoadOrder.map(async (moduleId) => {
-      const module = this.modules.get(moduleId)
-      if (!module) return
+      const module = this.modules.get(moduleId);
+      if (!module) return;
 
       try {
-        await module.clearState(filePath)
+        await module.clearState(filePath);
       } catch (error) {
-        console.error('[FileStateManager] Failed to clear module state:', moduleId, error)
+        console.error(
+          "[FileStateManager] Failed to clear module state:",
+          moduleId,
+          error,
+        );
       }
-    })
+    });
 
-    await Promise.all(clearPromises)
+    await Promise.all(clearPromises);
 
     // Remove from registry
-    delete this.registry.files[filePath]
+    delete this.registry.files[filePath];
 
     // Save registry
     if (this.options.persistToBackend) {
-      await invoke('save_file_state_registry', { registry: this.registry })
+      await invoke("save_file_state_registry", { registry: this.registry });
     }
   }
 
@@ -315,51 +354,51 @@ export class FileStateManager {
    * Get all file paths that have state
    */
   getTrackedFiles(): string[] {
-    return Object.keys(this.registry.files)
+    return Object.keys(this.registry.files);
   }
 
   /**
    * Subscribe to state change events
    */
   onStateChange(listener: (event: FileStateChangeEvent) => void): () => void {
-    this.eventListeners.push(listener)
+    this.eventListeners.push(listener);
 
     // Return unsubscribe function
     return () => {
-      this.eventListeners = this.eventListeners.filter((l) => l !== listener)
-    }
+      this.eventListeners = this.eventListeners.filter((l) => l !== listener);
+    };
   }
 
   /**
    * Force save all pending states
    */
   async forceSave(): Promise<void> {
-    console.log('[FileStateManager] Force saving all pending states')
+    console.log("[FileStateManager] Force saving all pending states");
 
     const savePromises = Array.from(this.pendingSaves).map((filePath) =>
-      this.saveFileState(filePath)
-    )
+      this.saveFileState(filePath),
+    );
 
-    await Promise.all(savePromises)
+    await Promise.all(savePromises);
   }
 
   /**
    * Shutdown the file state manager
    */
   async shutdown(): Promise<void> {
-    console.log('[FileStateManager] Shutting down...')
+    console.log("[FileStateManager] Shutting down...");
 
     // Stop auto-save
     if (this.saveTimer) {
-      clearInterval(this.saveTimer)
-      this.saveTimer = null
+      clearInterval(this.saveTimer);
+      this.saveTimer = null;
     }
 
     // Force save all pending states
-    await this.forceSave()
+    await this.forceSave();
 
-    this.initialized = false
-    console.log('[FileStateManager] Shutdown complete')
+    this.initialized = false;
+    console.log("[FileStateManager] Shutdown complete");
   }
 
   // Private methods
@@ -371,43 +410,47 @@ export class FileStateManager {
         firstOpened: new Date().toISOString(),
         lastAccessed: new Date().toISOString(),
         accessCount: 0,
-        version: '1.0.0',
+        version: "1.0.0",
       },
-    }
+    };
   }
 
   private scheduleSave(filePath: string): void {
-    this.pendingSaves.add(filePath)
+    this.pendingSaves.add(filePath);
   }
 
   private startAutoSave(): void {
     if (this.saveTimer) {
-      return
+      return;
     }
 
     this.saveTimer = setInterval(() => {
       if (this.pendingSaves.size === 0) {
-        return
+        return;
       }
 
       // Save all pending files
-      const filesToSave = Array.from(this.pendingSaves)
+      const filesToSave = Array.from(this.pendingSaves);
       filesToSave.forEach((filePath) => {
         this.saveFileState(filePath).catch((error) => {
-          console.error('[FileStateManager] Auto-save failed for file:', filePath, error)
-        })
-      })
-    }, this.options.saveInterval)
+          console.error(
+            "[FileStateManager] Auto-save failed for file:",
+            filePath,
+            error,
+          );
+        });
+      });
+    }, this.options.saveInterval);
   }
 
   private emitChangeEvent(event: FileStateChangeEvent): void {
     this.eventListeners.forEach((listener) => {
       try {
-        listener(event)
+        listener(event);
       } catch (error) {
-        console.error('[FileStateManager] Error in change listener:', error)
+        console.error("[FileStateManager] Error in change listener:", error);
       }
-    })
+    });
   }
 }
 
@@ -415,7 +458,7 @@ export class FileStateManager {
  * Convenience function to get the file state manager instance
  */
 export function getFileStateManager(
-  options?: Partial<FileStateManagerOptions>
+  options?: Partial<FileStateManagerOptions>,
 ): FileStateManager {
-  return FileStateManager.getInstance(options)
+  return FileStateManager.getInstance(options);
 }

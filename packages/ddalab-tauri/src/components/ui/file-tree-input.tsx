@@ -40,7 +40,7 @@ interface TreeNodeProps {
     type: "toggle" | "select",
     id: string,
     path?: string,
-    node?: FileTreeNode
+    node?: FileTreeNode,
   ) => void;
   iconOnOpen?: React.ReactNode;
   iconOnClose?: React.ReactNode;
@@ -79,7 +79,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
   return (
     <li>
       <div
-        className={`flex items-center hover:*:translate-x-1 *:transition-all m-0.5 select-none gap-2 ${
+        className={`flex items-start hover:*:translate-x-1 *:transition-all m-0.5 select-none gap-2 ${
           sizeClasses.padding
         } rounded-md cursor-pointer hover:bg-gradient-to-r from-secondary to-secondary/10 group border hover:border-secondary ${
           isSelected ? "bg-secondary border-secondary" : "border-border/60"
@@ -99,7 +99,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         {hasChildren ? (
           <>
             <span
-              className={`flex-shrink-0 transition-colors ${sizeClasses.icon}`}
+              className={`flex-shrink-0 transition-colors ${sizeClasses.icon} mt-0.5`}
             >
               {isExpanded ? iconOnOpen : iconOnClose}
             </span>
@@ -127,15 +127,9 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         )}
       </div>
 
-      {hasChildren && (
-        <div
-          className={`ml-4 border-l group-hover:border-l-secondary transition-all duration-300 ${
-            isExpanded
-              ? "max-h-[1000px] opacity-100"
-              : "max-h-0 overflow-hidden opacity-0"
-          }`}
-        >
-          <ul>
+      {hasChildren && isExpanded && (
+        <div className="ml-4 border-l group-hover:border-l-secondary">
+          <ul className="space-y-1">
             {node.children?.map((child) => (
               <TreeNode
                 key={child.id}
@@ -176,7 +170,7 @@ export const FileTreeInput: React.FC<FileTreeInputProps> = ({
     type: "toggle" | "select",
     id: string,
     path?: string,
-    node?: FileTreeNode
+    node?: FileTreeNode,
   ) => {
     setState((prev) => {
       const newState =

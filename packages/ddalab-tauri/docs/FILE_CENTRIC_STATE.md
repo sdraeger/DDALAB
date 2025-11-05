@@ -138,7 +138,7 @@ updatePlotState: (updates) => {
     await fileStateManager.updateModuleState(
       fileManager.selectedFile.file_path,
       "plot",
-      filePlotState
+      filePlotState,
     );
   }
 };

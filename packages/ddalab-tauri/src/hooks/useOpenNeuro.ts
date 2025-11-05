@@ -1,16 +1,23 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { openNeuroService, DownloadOptions, OpenNeuroDataset } from '@/services/openNeuroService';
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  openNeuroService,
+  DownloadOptions,
+  OpenNeuroDataset,
+} from "@/services/openNeuroService";
 
 export const openNeuroKeys = {
-  all: ['openNeuro'] as const,
-  datasets: () => [...openNeuroKeys.all, 'datasets'] as const,
-  datasetsBatch: (after?: string) => [...openNeuroKeys.datasets(), 'batch', after] as const,
-  dataset: (id: string) => [...openNeuroKeys.all, 'dataset', id] as const,
-  datasetFiles: (id: string, snapshot?: string) => [...openNeuroKeys.dataset(id), 'files', snapshot] as const,
-  datasetSize: (id: string, snapshot?: string) => [...openNeuroKeys.dataset(id), 'size', snapshot] as const,
-  apiKey: () => [...openNeuroKeys.all, 'apiKey'] as const,
-  gitAvailable: () => [...openNeuroKeys.all, 'git'] as const,
-  gitAnnexAvailable: () => [...openNeuroKeys.all, 'gitAnnex'] as const,
+  all: ["openNeuro"] as const,
+  datasets: () => [...openNeuroKeys.all, "datasets"] as const,
+  datasetsBatch: (after?: string) =>
+    [...openNeuroKeys.datasets(), "batch", after] as const,
+  dataset: (id: string) => [...openNeuroKeys.all, "dataset", id] as const,
+  datasetFiles: (id: string, snapshot?: string) =>
+    [...openNeuroKeys.dataset(id), "files", snapshot] as const,
+  datasetSize: (id: string, snapshot?: string) =>
+    [...openNeuroKeys.dataset(id), "size", snapshot] as const,
+  apiKey: () => [...openNeuroKeys.all, "apiKey"] as const,
+  gitAvailable: () => [...openNeuroKeys.all, "git"] as const,
+  gitAnnexAvailable: () => [...openNeuroKeys.all, "gitAnnex"] as const,
 };
 
 export function useOpenNeuroDatasets(query?: string) {
@@ -31,7 +38,10 @@ export function useOpenNeuroDatasetsBatch(limit: number = 50, after?: string) {
   });
 }
 
-export function useOpenNeuroDataset(datasetId: string, enabled: boolean = true) {
+export function useOpenNeuroDataset(
+  datasetId: string,
+  enabled: boolean = true,
+) {
   return useQuery({
     queryKey: openNeuroKeys.dataset(datasetId),
     queryFn: () => openNeuroService.getDataset(datasetId),
@@ -40,7 +50,11 @@ export function useOpenNeuroDataset(datasetId: string, enabled: boolean = true) 
   });
 }
 
-export function useOpenNeuroDatasetFiles(datasetId: string, snapshotTag?: string, enabled: boolean = true) {
+export function useOpenNeuroDatasetFiles(
+  datasetId: string,
+  snapshotTag?: string,
+  enabled: boolean = true,
+) {
   return useQuery({
     queryKey: openNeuroKeys.datasetFiles(datasetId, snapshotTag),
     queryFn: () => openNeuroService.getDatasetFiles(datasetId, snapshotTag),
@@ -49,7 +63,11 @@ export function useOpenNeuroDatasetFiles(datasetId: string, snapshotTag?: string
   });
 }
 
-export function useOpenNeuroDatasetSize(datasetId: string, snapshotTag?: string, enabled: boolean = true) {
+export function useOpenNeuroDatasetSize(
+  datasetId: string,
+  snapshotTag?: string,
+  enabled: boolean = true,
+) {
   return useQuery({
     queryKey: openNeuroKeys.datasetSize(datasetId, snapshotTag),
     queryFn: () => openNeuroService.getDatasetSize(datasetId, snapshotTag),
@@ -108,15 +126,19 @@ export function useDownloadDataset() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (options: DownloadOptions) => openNeuroService.downloadDataset(options),
+    mutationFn: (options: DownloadOptions) =>
+      openNeuroService.downloadDataset(options),
     onSuccess: (downloadPath, variables) => {
-      queryClient.invalidateQueries({ queryKey: openNeuroKeys.dataset(variables.dataset_id) });
+      queryClient.invalidateQueries({
+        queryKey: openNeuroKeys.dataset(variables.dataset_id),
+      });
     },
   });
 }
 
 export function useCancelDownload() {
   return useMutation({
-    mutationFn: (datasetId: string) => openNeuroService.cancelDownload(datasetId),
+    mutationFn: (datasetId: string) =>
+      openNeuroService.cancelDownload(datasetId),
   });
 }

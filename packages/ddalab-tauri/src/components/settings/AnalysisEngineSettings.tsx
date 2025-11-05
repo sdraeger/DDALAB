@@ -1,25 +1,31 @@
-'use client'
+"use client";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Activity, Play, Square, RefreshCw } from 'lucide-react'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Activity, Play, Square, RefreshCw } from "lucide-react";
 import {
   useApiStatus,
   useStartLocalApiServer,
   useStopLocalApiServer,
-} from '@/hooks/useApiStatus'
+} from "@/hooks/useApiStatus";
 
 interface ApiStatus {
-  running: boolean
-  port: number
-  url?: string
+  running: boolean;
+  port: number;
+  url?: string;
 }
 
 interface ApiHealth {
-  status: string
-  healthy: boolean
-  health?: any
-  error?: string
+  status: string;
+  healthy: boolean;
+  health?: any;
+  error?: string;
 }
 
 export function AnalysisEngineSettings() {
@@ -30,34 +36,35 @@ export function AnalysisEngineSettings() {
     refetch: refreshStatus,
   } = useApiStatus({
     refetchInterval: 10 * 1000, // Poll every 10 seconds
-  })
+  });
 
-  const startServerMutation = useStartLocalApiServer()
-  const stopServerMutation = useStopLocalApiServer()
+  const startServerMutation = useStartLocalApiServer();
+  const stopServerMutation = useStopLocalApiServer();
 
-  const isLoading = startServerMutation.isPending || stopServerMutation.isPending
+  const isLoading =
+    startServerMutation.isPending || stopServerMutation.isPending;
 
   // Derived state for health
   const embeddedApiHealth = {
-    status: embeddedApiStatus?.running ? 'running' : 'stopped',
+    status: embeddedApiStatus?.running ? "running" : "stopped",
     healthy: embeddedApiStatus?.running || false,
-  }
+  };
 
   const handleStartEmbeddedApi = async () => {
     try {
-      await startServerMutation.mutateAsync()
+      await startServerMutation.mutateAsync();
     } catch (error) {
-      console.error('Failed to start local API:', error)
+      console.error("Failed to start local API:", error);
     }
-  }
+  };
 
   const handleStopEmbeddedApi = async () => {
     try {
-      await stopServerMutation.mutateAsync()
+      await stopServerMutation.mutateAsync();
     } catch (error) {
-      console.error('Failed to stop local API:', error)
+      console.error("Failed to stop local API:", error);
     }
-  }
+  };
 
   return (
     <div className="space-y-6">
@@ -89,7 +96,7 @@ export function AnalysisEngineSettings() {
                 disabled={isLoading || isLoadingStatus}
               >
                 <RefreshCw
-                  className={`h-4 w-4 ${isLoading || isLoadingStatus ? 'animate-spin' : ''}`}
+                  className={`h-4 w-4 ${isLoading || isLoadingStatus ? "animate-spin" : ""}`}
                 />
               </Button>
             </div>
@@ -97,7 +104,7 @@ export function AnalysisEngineSettings() {
               <div className="flex justify-between">
                 <span>API Endpoint:</span>
                 <span className="font-mono text-xs">
-                  {embeddedApiStatus?.url || 'http://localhost:8765'}
+                  {embeddedApiStatus?.url || "http://localhost:8765"}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -105,7 +112,7 @@ export function AnalysisEngineSettings() {
                 <div className="flex items-center gap-2">
                   <div
                     className={`w-2 h-2 rounded-full ${
-                      embeddedApiHealth.healthy ? 'bg-green-500' : 'bg-red-500'
+                      embeddedApiHealth.healthy ? "bg-green-500" : "bg-red-500"
                     }`}
                   />
                   <span className="capitalize">{embeddedApiHealth.status}</span>
@@ -138,5 +145,5 @@ export function AnalysisEngineSettings() {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

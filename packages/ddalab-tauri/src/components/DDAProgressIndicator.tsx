@@ -1,26 +1,28 @@
-'use client'
+"use client";
 
-import { useAppStore } from '@/store/appStore'
-import { useDDAProgress } from '@/hooks/useDDAAnalysis'
-import { Brain, Loader2 } from 'lucide-react'
-import { Progress } from '@/components/ui/progress'
-import { Badge } from '@/components/ui/badge'
+import { useAppStore } from "@/store/appStore";
+import { useDDAProgress } from "@/hooks/useDDAAnalysis";
+import { Brain, Loader2 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 
 export function DDAProgressIndicator() {
-  const isRunning = useAppStore((state) => state.dda.isRunning)
+  const isRunning = useAppStore((state) => state.dda.isRunning);
   // OPTIMIZED: Only select the ID, not the entire currentAnalysis object
-  const currentAnalysisId = useAppStore((state) => state.dda.currentAnalysis?.id)
+  const currentAnalysisId = useAppStore(
+    (state) => state.dda.currentAnalysis?.id,
+  );
 
   // Get progress from the hook (it listens to Tauri events)
-  const progressEvent = useDDAProgress(currentAnalysisId, isRunning)
+  const progressEvent = useDDAProgress(currentAnalysisId, isRunning);
 
   if (!isRunning) {
-    return null
+    return null;
   }
 
-  const progress = progressEvent?.progress_percent || 0
-  const currentStep = progressEvent?.current_step || 'Initializing analysis...'
-  const phase = progressEvent?.phase || 'preprocessing'
+  const progress = progressEvent?.progress_percent || 0;
+  const currentStep = progressEvent?.current_step || "Initializing analysis...";
+  const phase = progressEvent?.phase || "preprocessing";
 
   return (
     <div className="fixed bottom-4 right-4 bg-background border border-border rounded-lg shadow-lg p-4 w-96 z-50">
@@ -49,5 +51,5 @@ export function DDAProgressIndicator() {
         </div>
       </div>
     </div>
-  )
+  );
 }

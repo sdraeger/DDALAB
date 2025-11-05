@@ -63,7 +63,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
   // Only select sample_rate, not the entire fileManager object
   const sampleRate = useAppStore(
-    (state) => state.fileManager.selectedFile?.sample_rate || 256
+    (state) => state.fileManager.selectedFile?.sample_rate || 256,
   );
   const heatmapRef = useRef<HTMLDivElement>(null);
   const linePlotRef = useRef<HTMLDivElement>(null);
@@ -92,7 +92,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       } catch {
         return 500;
       }
-    })()
+    })(),
   );
   const linePlotHeightRef = useRef<number>(
     (() => {
@@ -102,7 +102,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       } catch {
         return 400;
       }
-    })()
+    })(),
   );
 
   const [viewMode, setViewMode] = useState<ViewMode>("both");
@@ -124,7 +124,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     }
   });
   const [isResizing, setIsResizing] = useState<"heatmap" | "lineplot" | null>(
-    null
+    null,
   );
 
   // Persist plot heights to localStorage and keep refs in sync
@@ -239,15 +239,15 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     jet: (t: number) => {
       const r = Math.max(
         0,
-        Math.min(255, Math.round(255 * (1.5 - 4 * Math.abs(t - 0.75))))
+        Math.min(255, Math.round(255 * (1.5 - 4 * Math.abs(t - 0.75)))),
       );
       const g = Math.max(
         0,
-        Math.min(255, Math.round(255 * (1.5 - 4 * Math.abs(t - 0.5))))
+        Math.min(255, Math.round(255 * (1.5 - 4 * Math.abs(t - 0.5)))),
       );
       const b = Math.max(
         0,
-        Math.min(255, Math.round(255 * (1.5 - 4 * Math.abs(t - 0.25))))
+        Math.min(255, Math.round(255 * (1.5 - 4 * Math.abs(t - 0.25)))),
       );
       return `rgb(${r},${g},${b})`;
     },
@@ -356,7 +356,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
             variantId: currentVariantData.variant_id,
             prevChannels: prev,
             newChannels: channels,
-          }
+          },
         );
         // DON'T update ref here - it will be updated when creating new plot
         return channels;
@@ -417,7 +417,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       console.log(
         "[PERF] Starting heatmap data processing for",
         selectedChannels.length,
-        "channels"
+        "channels",
       );
 
       if (!currentVariantData || !currentVariantData.dda_matrix) {
@@ -460,7 +460,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
       const elapsedTransform = performance.now() - startTime;
       console.log(
-        `[PERF] Data transform completed in ${elapsedTransform.toFixed(2)}ms`
+        `[PERF] Data transform completed in ${elapsedTransform.toFixed(2)}ms`,
       );
 
       // Optimized statistics: single-pass mean and std (no sorting needed)
@@ -478,15 +478,15 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
         const elapsedStats = performance.now() - startTime;
         console.log(
-          `[PERF] Statistics calculated in ${elapsedStats.toFixed(2)}ms total`
+          `[PERF] Statistics calculated in ${elapsedStats.toFixed(2)}ms total`,
         );
       }
 
       const totalElapsed = performance.now() - startTime;
       console.log(
         `[PERF] Heatmap data processing completed in ${totalElapsed.toFixed(
-          2
-        )}ms`
+          2,
+        )}ms`,
       );
 
       return {
@@ -561,7 +561,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     // Clean up previous ResizeObserver first
     if (heatmapCleanupRef.current) {
       console.log(
-        "[HEATMAP] Cleaning up previous plot before rendering new one"
+        "[HEATMAP] Cleaning up previous plot before rendering new one",
       );
       heatmapCleanupRef.current();
       heatmapCleanupRef.current = null;
@@ -581,7 +581,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     // NOW update the ref for the NEW plot - after old observer is disconnected
     currentChannelCountRef.current = selectedChannels.length;
     console.log(
-      `[HEATMAP] Updated currentChannelCountRef to ${selectedChannels.length}`
+      `[HEATMAP] Updated currentChannelCountRef to ${selectedChannels.length}`,
     );
 
     // CRITICAL: Defer heavy rendering to NEXT frame so browser can paint loading state first
@@ -596,7 +596,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         const width = heatmapRef.current.clientWidth || 800;
         const height = heatmapHeight;
         console.log(
-          `[HEATMAP] Creating new plot for ${selectedChannels.length} channels, height: ${height}`
+          `[HEATMAP] Creating new plot for ${selectedChannels.length} channels, height: ${height}`,
         );
 
         // Prepare data for uPlot
@@ -636,7 +636,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                 scaleMin,
                 scaleMax,
                 foundIncr,
-                foundSpace
+                foundSpace,
               ) => {
                 // Generate splits at integer positions (0, 1, 2, ..., n-1) for channel centers
                 const splits = [];
@@ -683,7 +683,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                   heatmapAnnotations.openContextMenu(
                     e.clientX,
                     e.clientY,
-                    scaleValue
+                    scaleValue,
                   );
                 });
               },
@@ -748,7 +748,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                       left + x * cellWidth,
                       yPos,
                       cellWidth + 1,
-                      cellHeight + 1
+                      cellHeight + 1,
                     );
                   }
                 }
@@ -756,8 +756,8 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                 const renderElapsed = performance.now() - renderStartTime;
                 console.log(
                   `[PERF] Heatmap render completed in ${renderElapsed.toFixed(
-                    2
-                  )}ms`
+                    2,
+                  )}ms`,
                 );
 
                 ctx.restore();
@@ -775,7 +775,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
             const newWidth = heatmapRef.current.clientWidth || 800;
             const currentHeight = heatmapHeightRef.current;
             console.log(
-              `[HEATMAP RESIZE] Resizing to width=${newWidth}, height=${currentHeight}`
+              `[HEATMAP RESIZE] Resizing to width=${newWidth}, height=${currentHeight}`,
             );
             uplotHeatmapRef.current.setSize({
               width: newWidth,
@@ -792,7 +792,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         // Store cleanup function so it can be called when switching variants
         heatmapCleanupRef.current = () => {
           console.log(
-            "[HEATMAP CLEANUP] Disconnecting ResizeObserver and destroying plot"
+            "[HEATMAP CLEANUP] Disconnecting ResizeObserver and destroying plot",
           );
           resizeObserver.disconnect();
           if (uplotHeatmapRef.current) {
@@ -877,7 +877,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         if (!scales || !Array.isArray(scales) || scales.length === 0) {
           console.error(
             "[LINE PLOT] Invalid scales data for line plot:",
-            scales
+            scales,
           );
           console.error("[LINE PLOT] Result structure:", {
             hasResults: !!result.results,
@@ -908,8 +908,8 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         const prepElapsed = performance.now() - startPrepTime;
         console.log(
           `[PERF] Line plot data preparation completed in ${prepElapsed.toFixed(
-            2
-          )}ms`
+            2,
+          )}ms`,
         );
 
         // Check we have at least one data series besides x-axis
@@ -989,7 +989,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                   linePlotAnnotations.openContextMenu(
                     e.clientX,
                     e.clientY,
-                    scaleValue
+                    scaleValue,
                   );
                 });
               },
@@ -1026,13 +1026,13 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
         console.log(
           `[PERF] Line plot uPlot creation completed in ${renderElapsed.toFixed(
-            2
-          )}ms`
+            2,
+          )}ms`,
         );
 
         const totalElapsed = performance.now() - startPrepTime;
         console.log(
-          `[PERF] Line plot total render time: ${totalElapsed.toFixed(2)}ms`
+          `[PERF] Line plot total render time: ${totalElapsed.toFixed(2)}ms`,
         );
 
         // Handle resize
@@ -1105,7 +1105,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     setSelectedChannels((prev) =>
       prev.includes(channel)
         ? prev.filter((ch) => ch !== channel)
-        : [...prev, channel]
+        : [...prev, channel],
     );
   };
 
@@ -1130,7 +1130,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       const windowId = await createWindow(
         "dda-results",
         result.id,
-        ddaResultsData
+        ddaResultsData,
       );
       console.log("Created DDA results popout window:", windowId);
     } catch (error) {
@@ -1194,7 +1194,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
     },
-    [heatmapHeight, linePlotHeight]
+    [heatmapHeight, linePlotHeight],
   );
 
   const exportPlot = useCallback(
@@ -1217,7 +1217,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
             const combinedCanvas = document.createElement("canvas");
             combinedCanvas.width = Math.max(
               heatmapCanvas.width,
-              linePlotCanvas.width
+              linePlotCanvas.width,
             );
             combinedCanvas.height =
               heatmapCanvas.height + linePlotCanvas.height + 20;
@@ -1249,7 +1249,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
           resultName,
           variantId,
           plotTypeForFilename,
-          format
+          format,
         );
 
         let imageData: Uint8Array;
@@ -1262,7 +1262,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         const savedPath = await TauriService.savePlotExportFile(
           imageData,
           format,
-          filename
+          filename,
         );
         if (savedPath) {
           console.log(`Plot exported successfully to: ${savedPath}`);
@@ -1271,7 +1271,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         console.error(`Failed to export plot as ${format}:`, error);
       }
     },
-    [viewMode, selectedVariant, result, availableVariants]
+    [viewMode, selectedVariant, result, availableVariants],
   );
 
   const exportData = useCallback(
@@ -1298,7 +1298,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         const savedPath = await TauriService.saveDDAExportFile(
           content,
           format,
-          filename
+          filename,
         );
 
         if (savedPath) {
@@ -1308,7 +1308,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         console.error(`Failed to export data as ${format}:`, error);
       }
     },
-    [result, selectedVariant, selectedChannels, availableVariants]
+    [result, selectedVariant, selectedChannels, availableVariants],
   );
 
   // Re-render plots when dependencies change - using IntersectionObserver to detect visibility
@@ -1325,7 +1325,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       // If not, the data hasn't finished processing yet
       if (heatmapData.length !== selectedChannels.length) {
         console.log(
-          `[HEATMAP] Data not in sync yet: heatmapData=${heatmapData.length}, selectedChannels=${selectedChannels.length}`
+          `[HEATMAP] Data not in sync yet: heatmapData=${heatmapData.length}, selectedChannels=${selectedChannels.length}`,
         );
 
         // Clear the old plot so user doesn't see stale labels
@@ -1379,7 +1379,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
             }
           });
         },
-        { threshold: 0.1 } // Trigger when at least 10% is visible
+        { threshold: 0.1 }, // Trigger when at least 10% is visible
       );
 
       observer.observe(heatmapRef.current);
@@ -1406,7 +1406,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
   useEffect(() => {
     const renderKey = `${result.id}_${selectedVariant}_${selectedChannels.join(
-      ","
+      ",",
     )}`;
 
     // Skip if we've already rendered this exact result+variant+channels combination
@@ -1510,7 +1510,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
     // Fire and forget - don't block on broadcast
     broadcastToType("dda-results", "data-update", ddaResultsData).catch(
-      console.error
+      console.error,
     );
   }, [
     result.id,
@@ -1785,7 +1785,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                           style={{
                             minHeight: Math.max(
                               300,
-                              selectedChannels.length * 30 + 100
+                              selectedChannels.length * 30 + 100,
                             ),
                           }}
                         >
@@ -1807,7 +1807,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                             style={{
                               minHeight: Math.max(
                                 300,
-                                selectedChannels.length * 30 + 100
+                                selectedChannels.length * 30 + 100,
                               ),
                             }}
                           />
@@ -1836,7 +1836,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                                     const canvasX =
                                       uplotHeatmapRef.current.valToPos(
                                         annotation.position,
-                                        "x"
+                                        "x",
                                       );
                                     if (
                                       canvasX === null ||
@@ -1861,7 +1861,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                                             e.clientX,
                                             e.clientY,
                                             ann.position,
-                                            ann
+                                            ann,
                                           );
                                         }}
                                         onClick={(ann) => {
@@ -1871,13 +1871,13 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                                             heatmapAnnotations.handleAnnotationClick(
                                               ann,
                                               rect.left + xPosition,
-                                              rect.top + 50
+                                              rect.top + 50,
                                             );
                                           }
                                         }}
                                       />
                                     );
-                                  }
+                                  },
                                 )}
                               </svg>
                             )}
@@ -1980,7 +1980,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                                     const canvasX =
                                       uplotLinePlotRef.current.valToPos(
                                         annotation.position,
-                                        "x"
+                                        "x",
                                       );
                                     if (
                                       canvasX === null ||
@@ -2005,7 +2005,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                                             e.clientX,
                                             e.clientY,
                                             ann.position,
-                                            ann
+                                            ann,
                                           );
                                         }}
                                         onClick={(ann) => {
@@ -2015,13 +2015,13 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                                             linePlotAnnotations.handleAnnotationClick(
                                               ann,
                                               rect.left + xPosition,
-                                              rect.top + 50
+                                              rect.top + 50,
                                             );
                                           }
                                         }}
                                       />
                                     );
-                                  }
+                                  },
                                 )}
                               </svg>
                             )}
@@ -2097,7 +2097,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                   style={{
                     minHeight: Math.max(
                       300,
-                      selectedChannels.length * 30 + 100
+                      selectedChannels.length * 30 + 100,
                     ),
                   }}
                 >
@@ -2119,7 +2119,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                     style={{
                       minHeight: Math.max(
                         300,
-                        selectedChannels.length * 30 + 100
+                        selectedChannels.length * 30 + 100,
                       ),
                     }}
                   />
@@ -2145,7 +2145,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
                           const canvasX = uplotHeatmapRef.current.valToPos(
                             annotation.position,
-                            "x"
+                            "x",
                           );
                           if (canvasX === null || canvasX === undefined)
                             return null;
@@ -2167,7 +2167,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                                   e.clientX,
                                   e.clientY,
                                   ann.position,
-                                  ann
+                                  ann,
                                 );
                               }}
                               onClick={(ann) => {
@@ -2177,7 +2177,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                                   heatmapAnnotations.handleAnnotationClick(
                                     ann,
                                     rect.left + xPosition,
-                                    rect.top + 50
+                                    rect.top + 50,
                                   );
                                 }
                               }}
@@ -2280,7 +2280,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                           // Use uPlot's valToPos to convert scale value to pixel position (relative to canvas)
                           const canvasX = uplotLinePlotRef.current.valToPos(
                             annotation.position,
-                            "x"
+                            "x",
                           );
                           if (canvasX === null || canvasX === undefined)
                             return null;
@@ -2303,7 +2303,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                                   e.clientX,
                                   e.clientY,
                                   ann.position,
-                                  ann
+                                  ann,
                                 );
                               }}
                               onClick={(ann) => {
@@ -2313,7 +2313,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                                   linePlotAnnotations.handleAnnotationClick(
                                     ann,
                                     rect.left + xPosition,
-                                    rect.top + 50
+                                    rect.top + 50,
                                   );
                                 }
                               }}

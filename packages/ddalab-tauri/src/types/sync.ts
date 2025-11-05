@@ -2,7 +2,7 @@
  * Sync types for institutional broker integration
  */
 
-export type AccessPolicyType = 'public' | 'team' | 'users';
+export type AccessPolicyType = "public" | "team" | "users";
 
 export interface AccessPolicy {
   type: AccessPolicyType;

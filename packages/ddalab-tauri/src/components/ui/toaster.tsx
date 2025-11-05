@@ -1,8 +1,8 @@
-'use client'
+"use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 
-export type ToastType = 'success' | 'error' | 'info' | 'warning';
+export type ToastType = "success" | "error" | "info" | "warning";
 
 export interface Toast {
   id: string;
@@ -19,7 +19,7 @@ export function toast(
   type: ToastType,
   title: string,
   description?: string,
-  duration: number = 5000
+  duration: number = 5000,
 ) {
   const id = `toast-${++toastIdCounter}`;
   const newToast: Toast = { id, type, title, description, duration };
@@ -29,13 +29,13 @@ export function toast(
 
 // Convenience methods
 toast.success = (title: string, description?: string, duration?: number) =>
-  toast('success', title, description, duration);
+  toast("success", title, description, duration);
 toast.error = (title: string, description?: string, duration?: number) =>
-  toast('error', title, description, duration);
+  toast("error", title, description, duration);
 toast.info = (title: string, description?: string, duration?: number) =>
-  toast('info', title, description, duration);
+  toast("info", title, description, duration);
 toast.warning = (title: string, description?: string, duration?: number) =>
-  toast('warning', title, description, duration);
+  toast("warning", title, description, duration);
 
 export function Toaster() {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -60,16 +60,16 @@ export function Toaster() {
 
   const getToastStyles = (type: ToastType) => {
     const baseStyles =
-      'rounded-lg shadow-lg p-4 mb-3 min-w-[300px] max-w-[500px] animate-in slide-in-from-top-5';
+      "rounded-lg shadow-lg p-4 mb-3 min-w-[300px] max-w-[500px] animate-in slide-in-from-top-5";
 
     switch (type) {
-      case 'success':
+      case "success":
         return `${baseStyles} bg-green-500/90 text-white border border-green-600`;
-      case 'error':
+      case "error":
         return `${baseStyles} bg-red-500/90 text-white border border-red-600`;
-      case 'warning':
+      case "warning":
         return `${baseStyles} bg-yellow-500/90 text-white border border-yellow-600`;
-      case 'info':
+      case "info":
       default:
         return `${baseStyles} bg-blue-500/90 text-white border border-blue-600`;
     }
@@ -80,7 +80,7 @@ export function Toaster() {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className={getToastStyles(t.type) + ' pointer-events-auto'}
+          className={getToastStyles(t.type) + " pointer-events-auto"}
         >
           <div className="flex items-start gap-3">
             <div className="flex-1">
@@ -90,7 +90,9 @@ export function Toaster() {
               )}
             </div>
             <button
-              onClick={() => setToasts((prev) => prev.filter((toast) => toast.id !== t.id))}
+              onClick={() =>
+                setToasts((prev) => prev.filter((toast) => toast.id !== t.id))
+              }
               className="text-white/80 hover:text-white transition-colors"
             >
               ×

@@ -1,7 +1,7 @@
-import { GraphQLClient, gql } from 'graphql-request';
-import { invoke } from '@tauri-apps/api/core';
+import { GraphQLClient, gql } from "graphql-request";
+import { invoke } from "@tauri-apps/api/core";
 
-const OPENNEURO_GRAPHQL_ENDPOINT = 'https://openneuro.org/crn/graphql';
+const OPENNEURO_GRAPHQL_ENDPOINT = "https://openneuro.org/crn/graphql";
 
 // Types for OpenNeuro data structures
 export interface ApiKeyStatus {
@@ -11,7 +11,7 @@ export interface ApiKeyStatus {
 
 export interface DownloadProgress {
   dataset_id: string;
-  phase: 'cloning' | 'fetching' | 'completed' | 'error';
+  phase: "cloning" | "fetching" | "completed" | "error";
   progress_percent: number;
   message: string;
   current_file?: string;
@@ -34,7 +34,13 @@ export interface UploadOptions {
 
 export interface UploadProgress {
   dataset_id?: string;
-  phase: 'validating' | 'creating_dataset' | 'uploading_files' | 'committing' | 'completed' | 'error';
+  phase:
+    | "validating"
+    | "creating_dataset"
+    | "uploading_files"
+    | "committing"
+    | "completed"
+    | "error";
   progress_percent: number;
   message: string;
   current_file?: string;
@@ -113,50 +119,62 @@ class OpenNeuroService {
   constructor() {
     this.client = new GraphQLClient(OPENNEURO_GRAPHQL_ENDPOINT, {
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
     });
 
     // Track if we're in SSR
-    this.isSSR = typeof window === 'undefined';
+    this.isSSR = typeof window === "undefined";
 
     // Only load API key in browser environment (not during SSR)
     if (!this.isSSR) {
-      console.log('[OPENNEURO] Constructor called in browser - starting key load');
+      console.log(
+        "[OPENNEURO] Constructor called in browser - starting key load",
+      );
       this.initPromise = this.loadApiKey();
     } else {
-      console.log('[OPENNEURO] Constructor called in SSR - skipping key load');
+      console.log("[OPENNEURO] Constructor called in SSR - skipping key load");
     }
   }
 
   private async loadApiKey(): Promise<void> {
     // Check if we're in a browser environment (not SSR)
-    if (typeof window === 'undefined') {
-      console.log('[OPENNEURO] Skipping API key load - not in browser environment');
+    if (typeof window === "undefined") {
+      console.log(
+        "[OPENNEURO] Skipping API key load - not in browser environment",
+      );
       this.apiKey = null;
       this.isInitialized = true;
       return;
     }
 
     try {
-      const key = await invoke<string>('get_openneuro_api_key');
+      const key = await invoke<string>("get_openneuro_api_key");
       this.apiKey = key;
       this.updateClientHeaders();
-      console.log('[OPENNEURO] API key loaded from keyring:', key ? `${key.substring(0, 8)}...` : 'NULL');
+      console.log(
+        "[OPENNEURO] API key loaded from keyring:",
+        key ? `${key.substring(0, 8)}...` : "NULL",
+      );
     } catch (error) {
-      console.log('[OPENNEURO] No API key found in keyring:', error);
+      console.log("[OPENNEURO] No API key found in keyring:", error);
       this.apiKey = null;
     } finally {
       this.isInitialized = true;
-      console.log('[OPENNEURO] Initialization complete. apiKey set:', this.apiKey !== null);
+      console.log(
+        "[OPENNEURO] Initialization complete. apiKey set:",
+        this.apiKey !== null,
+      );
     }
   }
 
   // Ensure initialization is complete before checking authentication
   private async ensureInitialized(): Promise<void> {
     // If instance was created during SSR but we're now in browser, initialize now
-    if (this.isSSR && typeof window !== 'undefined') {
-      console.log('[OPENNEURO] ensureInitialized: Instance was created in SSR, now in browser - loading key');
+    if (this.isSSR && typeof window !== "undefined") {
+      console.log(
+        "[OPENNEURO] ensureInitialized: Instance was created in SSR, now in browser - loading key",
+      );
       this.isSSR = false;
       this.initPromise = this.loadApiKey();
       await this.initPromise;
@@ -165,7 +183,9 @@ class OpenNeuroService {
 
     // If we're in the browser and haven't initialized yet, load now
     if (!this.isSSR && !this.isInitialized && !this.initPromise) {
-      console.log('[OPENNEURO] ensureInitialized: Loading key in browser (first call)');
+      console.log(
+        "[OPENNEURO] ensureInitialized: Loading key in browser (first call)",
+      );
       this.initPromise = this.loadApiKey();
     }
 
@@ -177,29 +197,33 @@ class OpenNeuroService {
 
   private updateClientHeaders(): void {
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     };
 
     if (this.apiKey) {
-      headers['Authorization'] = `Bearer ${this.apiKey}`;
+      headers["Authorization"] = `Bearer ${this.apiKey}`;
     }
 
     this.client = new GraphQLClient(OPENNEURO_GRAPHQL_ENDPOINT, { headers });
   }
 
   async saveApiKey(apiKey: string): Promise<void> {
-    await invoke('save_openneuro_api_key', { apiKey });
+    await invoke("save_openneuro_api_key", { apiKey });
     this.apiKey = apiKey;
     this.updateClientHeaders();
 
     // Dispatch event so components can update their UI
-    window.dispatchEvent(new CustomEvent('openneuro-auth-changed', { detail: { authenticated: true } }));
+    window.dispatchEvent(
+      new CustomEvent("openneuro-auth-changed", {
+        detail: { authenticated: true },
+      }),
+    );
   }
 
   async getApiKey(): Promise<string | null> {
     await this.ensureInitialized();
     try {
-      return await invoke<string>('get_openneuro_api_key');
+      return await invoke<string>("get_openneuro_api_key");
     } catch (error) {
       return null;
     }
@@ -208,52 +232,61 @@ class OpenNeuroService {
   async checkApiKey(): Promise<ApiKeyStatus> {
     await this.ensureInitialized();
     try {
-      return await invoke<ApiKeyStatus>('check_openneuro_api_key');
+      return await invoke<ApiKeyStatus>("check_openneuro_api_key");
     } catch (error) {
       return { has_key: false };
     }
   }
 
   async deleteApiKey(): Promise<void> {
-    await invoke('delete_openneuro_api_key');
+    await invoke("delete_openneuro_api_key");
     this.apiKey = null;
     this.updateClientHeaders();
 
     // Dispatch event so components can update their UI
-    window.dispatchEvent(new CustomEvent('openneuro-auth-changed', { detail: { authenticated: false } }));
+    window.dispatchEvent(
+      new CustomEvent("openneuro-auth-changed", {
+        detail: { authenticated: false },
+      }),
+    );
   }
 
   async isAuthenticated(): Promise<boolean> {
     await this.ensureInitialized();
     const isAuth = this.apiKey !== null;
-    console.log('[OPENNEURO] isAuthenticated check:', isAuth, 'apiKey:', this.apiKey ? `${this.apiKey.substring(0, 8)}...` : 'NULL');
+    console.log(
+      "[OPENNEURO] isAuthenticated check:",
+      isAuth,
+      "apiKey:",
+      this.apiKey ? `${this.apiKey.substring(0, 8)}...` : "NULL",
+    );
     return isAuth;
   }
 
   async checkGitAvailable(): Promise<boolean> {
     try {
-      return await invoke<boolean>('check_git_available');
+      return await invoke<boolean>("check_git_available");
     } catch (error) {
-      console.error('Failed to check git availability:', error);
+      console.error("Failed to check git availability:", error);
       return false;
     }
   }
 
   async checkGitAnnexAvailable(): Promise<boolean> {
     try {
-      return await invoke<boolean>('check_git_annex_available');
+      return await invoke<boolean>("check_git_annex_available");
     } catch (error) {
-      console.error('Failed to check git-annex availability:', error);
+      console.error("Failed to check git-annex availability:", error);
       return false;
     }
   }
 
   async downloadDataset(options: DownloadOptions): Promise<string> {
-    return await invoke<string>('download_openneuro_dataset', { options });
+    return await invoke<string>("download_openneuro_dataset", { options });
   }
 
   async cancelDownload(datasetId: string): Promise<void> {
-    await invoke('cancel_openneuro_download', { datasetId });
+    await invoke("cancel_openneuro_download", { datasetId });
   }
 
   // Search datasets (no authentication required)
@@ -298,10 +331,15 @@ class OpenNeuroService {
 
       let data: any;
       try {
-        data = await this.client.request<any>(searchQuery, { after: afterCursor });
+        data = await this.client.request<any>(searchQuery, {
+          after: afterCursor,
+        });
       } catch (error: any) {
         if (error.response?.data?.datasets) {
-          console.warn('[OPENNEURO] Partial error in batch, continuing:', error.response.errors?.[0]?.message);
+          console.warn(
+            "[OPENNEURO] Partial error in batch, continuing:",
+            error.response.errors?.[0]?.message,
+          );
           data = error.response.data;
         } else {
           throw error;
@@ -309,69 +347,86 @@ class OpenNeuroService {
       }
 
       const batch: OpenNeuroDataset[] = data.datasets.edges
-        .filter((edge: any) => edge !== null && edge.node && edge.node.latestSnapshot)
+        .filter(
+          (edge: any) => edge !== null && edge.node && edge.node.latestSnapshot,
+        )
         .map((edge: any) => ({
           id: edge.node.id,
           name: edge.node.latestSnapshot?.description?.Name || edge.node.id,
-          description: '',
+          description: "",
           created: edge.node.latestSnapshot?.created,
           public: true,
-          snapshots: [{
-            id: edge.node.latestSnapshot.tag,
-            tag: edge.node.latestSnapshot.tag,
-            created: edge.node.latestSnapshot.created,
-          }],
-          summary: edge.node.latestSnapshot?.summary ? {
-            modalities: edge.node.latestSnapshot.summary.modalities || [],
-            subjects: edge.node.latestSnapshot.summary.subjects,
-            tasks: edge.node.latestSnapshot.summary.tasks || [],
-            size: edge.node.latestSnapshot.summary.size,
-            totalFiles: edge.node.latestSnapshot.summary.totalFiles,
-          } : undefined,
+          snapshots: [
+            {
+              id: edge.node.latestSnapshot.tag,
+              tag: edge.node.latestSnapshot.tag,
+              created: edge.node.latestSnapshot.created,
+            },
+          ],
+          summary: edge.node.latestSnapshot?.summary
+            ? {
+                modalities: edge.node.latestSnapshot.summary.modalities || [],
+                subjects: edge.node.latestSnapshot.summary.subjects,
+                tasks: edge.node.latestSnapshot.summary.tasks || [],
+                size: edge.node.latestSnapshot.summary.size,
+                totalFiles: edge.node.latestSnapshot.summary.totalFiles,
+              }
+            : undefined,
         }));
 
       allDatasets.push(...batch);
       hasNextPage = data.datasets.pageInfo.hasNextPage;
       afterCursor = data.datasets.pageInfo.endCursor;
 
-      console.log(`[OPENNEURO] Loaded ${batch.length} datasets (total: ${allDatasets.length})`);
+      console.log(
+        `[OPENNEURO] Loaded ${batch.length} datasets (total: ${allDatasets.length})`,
+      );
 
       if (allDatasets.length > 10000) {
-        console.warn('[OPENNEURO] Hit safety limit of 10000 datasets');
+        console.warn("[OPENNEURO] Hit safety limit of 10000 datasets");
         break;
       }
     }
 
-    console.log(`[OPENNEURO] Finished loading all datasets: ${allDatasets.length}`);
+    console.log(
+      `[OPENNEURO] Finished loading all datasets: ${allDatasets.length}`,
+    );
     return allDatasets;
   }
 
   // Search datasets filtered by modality (EEG, MEG, iEEG - NEMAR subset)
   async searchNEMARDatasets(query?: string): Promise<OpenNeuroDataset[]> {
     try {
-      console.log('[OPENNEURO] Searching NEMAR datasets (EEG/MEG/iEEG only)...');
+      console.log(
+        "[OPENNEURO] Searching NEMAR datasets (EEG/MEG/iEEG only)...",
+      );
       const allDatasets = await this.searchDatasets(query);
 
       // Filter to only datasets with EEG, MEG, or iEEG modalities
-      const nemarDatasets = allDatasets.filter(dataset => {
+      const nemarDatasets = allDatasets.filter((dataset) => {
         const modalities = dataset.summary?.modalities || [];
-        return modalities.some(m =>
-          ['eeg', 'meg', 'ieeg'].includes(m.toLowerCase())
+        return modalities.some((m) =>
+          ["eeg", "meg", "ieeg"].includes(m.toLowerCase()),
         );
       });
 
-      console.log(`[OPENNEURO] Found ${nemarDatasets.length} NEMAR datasets out of ${allDatasets.length} total`);
+      console.log(
+        `[OPENNEURO] Found ${nemarDatasets.length} NEMAR datasets out of ${allDatasets.length} total`,
+      );
       return nemarDatasets;
     } catch (error) {
-      console.error('Failed to search NEMAR datasets:', error);
+      console.error("Failed to search NEMAR datasets:", error);
       throw error;
     }
   }
 
   // Search datasets by specific modalities
-  async searchDatasetsByModality(modalities: string[], query?: string): Promise<OpenNeuroDataset[]> {
+  async searchDatasetsByModality(
+    modalities: string[],
+    query?: string,
+  ): Promise<OpenNeuroDataset[]> {
     try {
-      console.log('[OPENNEURO] Searching datasets by modality:', modalities);
+      console.log("[OPENNEURO] Searching datasets by modality:", modalities);
       const allDatasets = await this.searchDatasets(query);
 
       if (modalities.length === 0) {
@@ -379,23 +434,30 @@ class OpenNeuroService {
       }
 
       // Filter to only datasets with specified modalities
-      const filteredDatasets = allDatasets.filter(dataset => {
+      const filteredDatasets = allDatasets.filter((dataset) => {
         const datasetModalities = dataset.summary?.modalities || [];
-        return datasetModalities.some(m =>
-          modalities.some(filterMod => filterMod.toLowerCase() === m.toLowerCase())
+        return datasetModalities.some((m) =>
+          modalities.some(
+            (filterMod) => filterMod.toLowerCase() === m.toLowerCase(),
+          ),
         );
       });
 
-      console.log(`[OPENNEURO] Found ${filteredDatasets.length} datasets with modalities ${modalities.join(', ')}`);
+      console.log(
+        `[OPENNEURO] Found ${filteredDatasets.length} datasets with modalities ${modalities.join(", ")}`,
+      );
       return filteredDatasets;
     } catch (error) {
-      console.error('Failed to search datasets by modality:', error);
+      console.error("Failed to search datasets by modality:", error);
       throw error;
     }
   }
 
   // Fetch datasets in a single batch (for incremental loading)
-  async fetchDatasetsBatch(limit: number = 50, after?: string): Promise<{
+  async fetchDatasetsBatch(
+    limit: number = 50,
+    after?: string,
+  ): Promise<{
     datasets: OpenNeuroDataset[];
     hasNextPage: boolean;
     endCursor: string | null;
@@ -434,11 +496,17 @@ class OpenNeuroService {
     try {
       let data: any;
       try {
-        data = await this.client.request<any>(searchQuery, { after: after || null, first: limit });
+        data = await this.client.request<any>(searchQuery, {
+          after: after || null,
+          first: limit,
+        });
       } catch (error: any) {
         // Handle partial errors
         if (error.response?.data?.datasets) {
-          console.warn('[OPENNEURO] Partial error in batch:', error.response.errors?.[0]?.message);
+          console.warn(
+            "[OPENNEURO] Partial error in batch:",
+            error.response.errors?.[0]?.message,
+          );
           data = error.response.data;
         } else {
           throw error;
@@ -446,25 +514,31 @@ class OpenNeuroService {
       }
 
       const datasets: OpenNeuroDataset[] = data.datasets.edges
-        .filter((edge: any) => edge !== null && edge.node && edge.node.latestSnapshot)
+        .filter(
+          (edge: any) => edge !== null && edge.node && edge.node.latestSnapshot,
+        )
         .map((edge: any) => ({
           id: edge.node.id,
           name: edge.node.latestSnapshot?.description?.Name || edge.node.id,
-          description: '',
+          description: "",
           created: edge.node.latestSnapshot?.created,
           public: true,
-          snapshots: [{
-            id: edge.node.latestSnapshot.tag,
-            tag: edge.node.latestSnapshot.tag,
-            created: edge.node.latestSnapshot.created,
-          }],
-          summary: edge.node.latestSnapshot?.summary ? {
-            modalities: edge.node.latestSnapshot.summary.modalities || [],
-            subjects: edge.node.latestSnapshot.summary.subjects,
-            tasks: edge.node.latestSnapshot.summary.tasks || [],
-            size: edge.node.latestSnapshot.summary.size,
-            totalFiles: edge.node.latestSnapshot.summary.totalFiles,
-          } : undefined,
+          snapshots: [
+            {
+              id: edge.node.latestSnapshot.tag,
+              tag: edge.node.latestSnapshot.tag,
+              created: edge.node.latestSnapshot.created,
+            },
+          ],
+          summary: edge.node.latestSnapshot?.summary
+            ? {
+                modalities: edge.node.latestSnapshot.summary.modalities || [],
+                subjects: edge.node.latestSnapshot.summary.subjects,
+                tasks: edge.node.latestSnapshot.summary.tasks || [],
+                size: edge.node.latestSnapshot.summary.size,
+                totalFiles: edge.node.latestSnapshot.summary.totalFiles,
+              }
+            : undefined,
         }));
 
       return {
@@ -473,7 +547,7 @@ class OpenNeuroService {
         endCursor: data.datasets.pageInfo.endCursor,
       };
     } catch (error) {
-      console.error('Failed to fetch datasets batch:', error);
+      console.error("Failed to fetch datasets batch:", error);
       throw error;
     }
   }
@@ -510,22 +584,26 @@ class OpenNeuroService {
     `;
 
     try {
-      const data = await this.client.request<any>(datasetQuery, { id: datasetId });
+      const data = await this.client.request<any>(datasetQuery, {
+        id: datasetId,
+      });
       const node = data.dataset;
 
       return {
         id: node.id,
         name: node.latestSnapshot?.description?.Name || node.id,
-        description: node.latestSnapshot?.description?.BIDSVersion ?
-          `BIDS ${node.latestSnapshot.description.BIDSVersion}` : '',
+        description: node.latestSnapshot?.description?.BIDSVersion
+          ? `BIDS ${node.latestSnapshot.description.BIDSVersion}`
+          : "",
         created: node.latestSnapshot?.created,
         modified: node.draft?.modified,
         public: true,
-        snapshots: node.snapshots?.edges?.map((edge: any) => ({
-          id: edge.node.id,
-          tag: edge.node.tag,
-          created: edge.node.created,
-        })) || [],
+        snapshots:
+          node.snapshots?.edges?.map((edge: any) => ({
+            id: edge.node.id,
+            tag: edge.node.tag,
+            created: edge.node.created,
+          })) || [],
       };
     } catch (error) {
       console.error(`Failed to get dataset ${datasetId}:`, error);
@@ -534,7 +612,10 @@ class OpenNeuroService {
   }
 
   // Calculate total size of dataset
-  async getDatasetSize(datasetId: string, snapshotTag?: string): Promise<{ totalSize: number; fileCount: number; annexedSize: number }> {
+  async getDatasetSize(
+    datasetId: string,
+    snapshotTag?: string,
+  ): Promise<{ totalSize: number; fileCount: number; annexedSize: number }> {
     try {
       const files = await this.getDatasetFiles(datasetId, snapshotTag);
 
@@ -559,7 +640,10 @@ class OpenNeuroService {
         annexedSize,
       };
     } catch (error) {
-      console.error(`Failed to calculate size for dataset ${datasetId}:`, error);
+      console.error(
+        `Failed to calculate size for dataset ${datasetId}:`,
+        error,
+      );
       return {
         totalSize: 0,
         fileCount: 0,
@@ -569,7 +653,10 @@ class OpenNeuroService {
   }
 
   // Get file tree for a dataset snapshot
-  async getDatasetFiles(datasetId: string, snapshotTag?: string): Promise<OpenNeuroFile[]> {
+  async getDatasetFiles(
+    datasetId: string,
+    snapshotTag?: string,
+  ): Promise<OpenNeuroFile[]> {
     const filesQuery = snapshotTag
       ? gql`
           query GetSnapshotFiles($id: ID!, $tag: String!) {
@@ -603,7 +690,7 @@ class OpenNeuroService {
     try {
       const data = await this.client.request<GetDatasetFilesResult>(
         filesQuery,
-        snapshotTag ? { id: datasetId, tag: snapshotTag } : { id: datasetId }
+        snapshotTag ? { id: datasetId, tag: snapshotTag } : { id: datasetId },
       );
 
       if (snapshotTag) {
@@ -630,14 +717,26 @@ class OpenNeuroService {
   // ========== UPLOAD FUNCTIONALITY ==========
 
   // Create a new dataset
-  async createDataset(label: string, affirmedDefaced: boolean, affirmedConsent: boolean): Promise<string> {
+  async createDataset(
+    label: string,
+    affirmedDefaced: boolean,
+    affirmedConsent: boolean,
+  ): Promise<string> {
     if (!(await this.isAuthenticated())) {
-      throw new Error('Authentication required to create datasets');
+      throw new Error("Authentication required to create datasets");
     }
 
     const createDatasetMutation = gql`
-      mutation CreateDataset($label: String!, $affirmedDefaced: Boolean!, $affirmedConsent: Boolean!) {
-        createDataset(label: $label, affirmedDefaced: $affirmedDefaced, affirmedConsent: $affirmedConsent) {
+      mutation CreateDataset(
+        $label: String!
+        $affirmedDefaced: Boolean!
+        $affirmedConsent: Boolean!
+      ) {
+        createDataset(
+          label: $label
+          affirmedDefaced: $affirmedDefaced
+          affirmedConsent: $affirmedConsent
+        ) {
           id
         }
       }
@@ -652,15 +751,18 @@ class OpenNeuroService {
 
       return data.createDataset.id;
     } catch (error) {
-      console.error('Failed to create dataset:', error);
+      console.error("Failed to create dataset:", error);
       throw error;
     }
   }
 
   // Update files in a dataset (used during upload)
-  async updateFiles(datasetId: string, files: Array<{ filename: string; size: number }>): Promise<void> {
+  async updateFiles(
+    datasetId: string,
+    files: Array<{ filename: string; size: number }>,
+  ): Promise<void> {
     if (!(await this.isAuthenticated())) {
-      throw new Error('Authentication required to update files');
+      throw new Error("Authentication required to update files");
     }
 
     const updateFilesMutation = gql`
@@ -675,7 +777,7 @@ class OpenNeuroService {
         files,
       });
     } catch (error) {
-      console.error('Failed to update files:', error);
+      console.error("Failed to update files:", error);
       throw error;
     }
   }
@@ -683,7 +785,7 @@ class OpenNeuroService {
   // Complete upload and commit changes
   async finishUpload(datasetId: string): Promise<void> {
     if (!(await this.isAuthenticated())) {
-      throw new Error('Authentication required to finish upload');
+      throw new Error("Authentication required to finish upload");
     }
 
     const finishUploadMutation = gql`
@@ -697,7 +799,7 @@ class OpenNeuroService {
         datasetId,
       });
     } catch (error) {
-      console.error('Failed to finish upload:', error);
+      console.error("Failed to finish upload:", error);
       throw error;
     }
   }
@@ -705,25 +807,35 @@ class OpenNeuroService {
   // Upload a BIDS dataset (delegates to Tauri backend for file handling)
   async uploadDataset(options: UploadOptions): Promise<string> {
     if (!(await this.isAuthenticated())) {
-      throw new Error('Authentication required to upload datasets. Please configure your OpenNeuro API key.');
+      throw new Error(
+        "Authentication required to upload datasets. Please configure your OpenNeuro API key.",
+      );
     }
 
-    return await invoke<string>('upload_bids_dataset', { options });
+    return await invoke<string>("upload_bids_dataset", { options });
   }
 
   // Cancel an ongoing upload
   async cancelUpload(datasetId: string): Promise<void> {
-    await invoke('cancel_bids_upload', { datasetId });
+    await invoke("cancel_bids_upload", { datasetId });
   }
 
   // Create a snapshot of the uploaded dataset
-  async createSnapshot(datasetId: string, tag: string, changes: string[]): Promise<void> {
+  async createSnapshot(
+    datasetId: string,
+    tag: string,
+    changes: string[],
+  ): Promise<void> {
     if (!(await this.isAuthenticated())) {
-      throw new Error('Authentication required to create snapshots');
+      throw new Error("Authentication required to create snapshots");
     }
 
     const createSnapshotMutation = gql`
-      mutation CreateSnapshot($datasetId: String!, $tag: String!, $changes: [String!]!) {
+      mutation CreateSnapshot(
+        $datasetId: String!
+        $tag: String!
+        $changes: [String!]!
+      ) {
         createSnapshot(datasetId: $datasetId, tag: $tag, changes: $changes) {
           id
           tag
@@ -738,7 +850,7 @@ class OpenNeuroService {
         changes,
       });
     } catch (error) {
-      console.error('Failed to create snapshot:', error);
+      console.error("Failed to create snapshot:", error);
       throw error;
     }
   }

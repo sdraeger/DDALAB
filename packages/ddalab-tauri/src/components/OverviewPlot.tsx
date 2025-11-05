@@ -50,7 +50,13 @@ function OverviewPlotComponent({
 
   // Render overview plot
   useEffect(() => {
-    if (!plotRef.current || !overviewData || !overviewData.data || overviewData.data.length === 0 || duration <= 0) {
+    if (
+      !plotRef.current ||
+      !overviewData ||
+      !overviewData.data ||
+      overviewData.data.length === 0 ||
+      duration <= 0
+    ) {
       return;
     }
 
@@ -58,11 +64,18 @@ function OverviewPlotComponent({
 
     // Check if duration changed significantly (indicates file switch)
     // If so, destroy the existing plot to force recreation with correct scale
-    const durationChanged = lastDurationRef.current !== null &&
+    const durationChanged =
+      lastDurationRef.current !== null &&
       Math.abs(lastDurationRef.current - duration) > 0.1;
 
     if (durationChanged && uplotRef.current) {
-      console.log('[OverviewPlot] Duration changed from', lastDurationRef.current, 'to', duration, '- destroying plot');
+      console.log(
+        "[OverviewPlot] Duration changed from",
+        lastDurationRef.current,
+        "to",
+        duration,
+        "- destroying plot",
+      );
       uplotRef.current.destroy();
       uplotRef.current = null;
     }
@@ -71,7 +84,10 @@ function OverviewPlotComponent({
 
     // Calculate time array for overview (spans entire file duration)
     const numPoints = overviewData.data[0]?.length || 0;
-    const timeData = Array.from({ length: numPoints }, (_, i) => (i / numPoints) * duration);
+    const timeData = Array.from(
+      { length: numPoints },
+      (_, i) => (i / numPoints) * duration,
+    );
 
     // Stack channels with small offset for visibility
     const channelOffset = 10; // Small offset since this is just overview
@@ -144,7 +160,7 @@ function OverviewPlotComponent({
                 // Seek to clicked position (center the view around clicked time)
                 const seekTime = Math.max(
                   0,
-                  Math.min(timeValue - timeWindow / 2, duration - timeWindow)
+                  Math.min(timeValue - timeWindow / 2, duration - timeWindow),
                 );
 
                 onSeekRef.current(seekTime);
@@ -167,7 +183,11 @@ function OverviewPlotComponent({
 
                 // Draw current chunk position as a highlighted region
                 const startPixel = u.valToPos(currentTimeValue, "x", true);
-                const endPixel = u.valToPos(currentTimeValue + timeWindowValue, "x", true);
+                const endPixel = u.valToPos(
+                  currentTimeValue + timeWindowValue,
+                  "x",
+                  true,
+                );
 
                 if (startPixel !== null && endPixel !== null) {
                   ctx.save();
@@ -176,7 +196,7 @@ function OverviewPlotComponent({
                     startPixel,
                     u.bbox.top,
                     endPixel - startPixel,
-                    u.bbox.height
+                    u.bbox.height,
                   );
 
                   // Draw border around current chunk
@@ -186,7 +206,7 @@ function OverviewPlotComponent({
                     startPixel,
                     u.bbox.top,
                     endPixel - startPixel,
-                    u.bbox.height
+                    u.bbox.height,
                   );
 
                   ctx.restore();
@@ -215,7 +235,7 @@ function OverviewPlotComponent({
 
                   if (pixelX !== null) {
                     // Use the annotation's color or default to red
-                    const color = annotation.color || '#ef4444';
+                    const color = annotation.color || "#ef4444";
 
                     // Draw vertical bar
                     ctx.strokeStyle = color;
@@ -256,7 +276,7 @@ function OverviewPlotComponent({
         resizeObserverRef.current.observe(container);
       }
     } catch (error) {
-      console.error('[OverviewPlot] Error:', error);
+      console.error("[OverviewPlot] Error:", error);
     }
 
     return () => {
@@ -305,21 +325,22 @@ function OverviewPlotComponent({
   // Show progress even if cache doesn't exist yet (it's being created during generation)
   const showProgress = loading;
   const progressPercentage = progress?.completion_percentage || 0;
-  const isResuming = progress?.has_cache && progressPercentage > 0 && progressPercentage < 100;
+  const isResuming =
+    progress?.has_cache && progressPercentage > 0 && progressPercentage < 100;
 
   // Debug logging for progress tracking
   useEffect(() => {
     if (loading) {
-      console.log('[OverviewPlot] Loading state, progress data:', progress);
+      console.log("[OverviewPlot] Loading state, progress data:", progress);
     }
   }, [loading, progress]);
 
   // Determine status message
   const getStatusMessage = () => {
-    if (!progress) return 'Initializing...';
+    if (!progress) return "Initializing...";
     if (isResuming) return `Resuming from ${progressPercentage.toFixed(1)}%...`;
-    if (progressPercentage > 0) return 'Generating overview...';
-    return 'Starting generation...';
+    if (progressPercentage > 0) return "Generating overview...";
+    return "Starting generation...";
   };
 
   return (
@@ -354,7 +375,9 @@ function OverviewPlotComponent({
       )}
       {!overviewData && !loading && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-xs text-muted-foreground">Overview will load when file is selected...</div>
+          <div className="text-xs text-muted-foreground">
+            Overview will load when file is selected...
+          </div>
         </div>
       )}
       <div ref={plotRef} className="w-full h-full" />
@@ -366,19 +389,22 @@ function OverviewPlotComponent({
 }
 
 // Memoize to prevent unnecessary re-renders (but allow currentTime and timeWindow to update)
-export const OverviewPlot = memo(OverviewPlotComponent, (prevProps, nextProps) => {
-  // Return TRUE to skip re-render, FALSE to allow re-render
-  // We want to re-render when currentTime, timeWindow, or annotations change
-  // But skip re-render if only unrelated props changed
-  const shouldSkip = (
-    prevProps.overviewData === nextProps.overviewData &&
-    prevProps.duration === nextProps.duration &&
-    prevProps.loading === nextProps.loading &&
-    prevProps.currentTime === nextProps.currentTime &&
-    prevProps.timeWindow === nextProps.timeWindow &&
-    prevProps.progress?.completion_percentage === nextProps.progress?.completion_percentage &&
-    prevProps.annotations === nextProps.annotations
-  );
+export const OverviewPlot = memo(
+  OverviewPlotComponent,
+  (prevProps, nextProps) => {
+    // Return TRUE to skip re-render, FALSE to allow re-render
+    // We want to re-render when currentTime, timeWindow, or annotations change
+    // But skip re-render if only unrelated props changed
+    const shouldSkip =
+      prevProps.overviewData === nextProps.overviewData &&
+      prevProps.duration === nextProps.duration &&
+      prevProps.loading === nextProps.loading &&
+      prevProps.currentTime === nextProps.currentTime &&
+      prevProps.timeWindow === nextProps.timeWindow &&
+      prevProps.progress?.completion_percentage ===
+        nextProps.progress?.completion_percentage &&
+      prevProps.annotations === nextProps.annotations;
 
-  return shouldSkip;
-});
+    return shouldSkip;
+  },
+);

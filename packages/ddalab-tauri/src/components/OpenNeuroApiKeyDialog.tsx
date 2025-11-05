@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Key, Eye, EyeOff, ExternalLink, Check, X } from 'lucide-react';
-import { openNeuroService } from '../services/openNeuroService';
-import { open } from '@tauri-apps/plugin-shell';
+import { useState, useEffect } from "react";
+import { Key, Eye, EyeOff, ExternalLink, Check, X } from "lucide-react";
+import { openNeuroService } from "../services/openNeuroService";
+import { open } from "@tauri-apps/plugin-shell";
 
 interface OpenNeuroApiKeyDialogProps {
   isOpen: boolean;
@@ -9,8 +9,12 @@ interface OpenNeuroApiKeyDialogProps {
   onApiKeyUpdated?: () => void;
 }
 
-export function OpenNeuroApiKeyDialog({ isOpen, onClose, onApiKeyUpdated }: OpenNeuroApiKeyDialogProps) {
-  const [apiKey, setApiKey] = useState('');
+export function OpenNeuroApiKeyDialog({
+  isOpen,
+  onClose,
+  onApiKeyUpdated,
+}: OpenNeuroApiKeyDialogProps) {
+  const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [hasExistingKey, setHasExistingKey] = useState(false);
   const [keyPreview, setKeyPreview] = useState<string | undefined>(undefined);
@@ -30,13 +34,13 @@ export function OpenNeuroApiKeyDialog({ isOpen, onClose, onApiKeyUpdated }: Open
       setHasExistingKey(status.has_key);
       setKeyPreview(status.key_preview);
     } catch (err) {
-      console.error('Failed to check API key:', err);
+      console.error("Failed to check API key:", err);
     }
   };
 
   const handleSave = async () => {
     if (!apiKey.trim()) {
-      setError('Please enter an API key');
+      setError("Please enter an API key");
       return;
     }
 
@@ -48,21 +52,23 @@ export function OpenNeuroApiKeyDialog({ isOpen, onClose, onApiKeyUpdated }: Open
       await openNeuroService.saveApiKey(apiKey.trim());
       setSuccess(true);
       setHasExistingKey(true);
-      setApiKey('');
+      setApiKey("");
       onApiKeyUpdated?.();
 
       setTimeout(() => {
         onClose();
       }, 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save API key');
+      setError(err instanceof Error ? err.message : "Failed to save API key");
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async () => {
-    if (!window.confirm('Are you sure you want to delete your OpenNeuro API key?')) {
+    if (
+      !window.confirm("Are you sure you want to delete your OpenNeuro API key?")
+    ) {
       return;
     }
 
@@ -73,10 +79,10 @@ export function OpenNeuroApiKeyDialog({ isOpen, onClose, onApiKeyUpdated }: Open
       await openNeuroService.deleteApiKey();
       setHasExistingKey(false);
       setKeyPreview(undefined);
-      setApiKey('');
+      setApiKey("");
       onApiKeyUpdated?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete API key');
+      setError(err instanceof Error ? err.message : "Failed to delete API key");
     } finally {
       setLoading(false);
     }
@@ -84,17 +90,20 @@ export function OpenNeuroApiKeyDialog({ isOpen, onClose, onApiKeyUpdated }: Open
 
   const handleOpenKeyGen = async () => {
     try {
-      await open('https://openneuro.org/keygen');
+      await open("https://openneuro.org/keygen");
     } catch (error) {
-      console.error('Failed to open URL:', error);
-      window.open('https://openneuro.org/keygen', '_blank');
+      console.error("Failed to open URL:", error);
+      window.open("https://openneuro.org/keygen", "_blank");
     }
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={onClose}
+    >
       <div
         className="bg-background border rounded-lg shadow-lg p-6 max-w-md w-full mx-4"
         onClick={(e) => e.stopPropagation()}
@@ -143,12 +152,10 @@ export function OpenNeuroApiKeyDialog({ isOpen, onClose, onApiKeyUpdated }: Open
 
           {/* API key input */}
           <div>
-            <label className="block text-sm font-medium mb-2">
-              API Key
-            </label>
+            <label className="block text-sm font-medium mb-2">API Key</label>
             <div className="relative">
               <input
-                type={showApiKey ? 'text' : 'password'}
+                type={showApiKey ? "text" : "password"}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="Enter your OpenNeuro API key..."
@@ -202,7 +209,11 @@ export function OpenNeuroApiKeyDialog({ isOpen, onClose, onApiKeyUpdated }: Open
               disabled={loading || !apiKey.trim()}
               className="flex-1 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50 text-sm font-medium"
             >
-              {loading ? 'Saving...' : hasExistingKey ? 'Update Key' : 'Save Key'}
+              {loading
+                ? "Saving..."
+                : hasExistingKey
+                  ? "Update Key"
+                  : "Save Key"}
             </button>
             <button
               onClick={onClose}

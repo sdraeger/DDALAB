@@ -125,22 +125,22 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   // Select only the specific properties we need, not entire objects
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
   const storedAnalysisParameters = useAppStore(
-    (state) => state.dda.analysisParameters
+    (state) => state.dda.analysisParameters,
   );
   const currentAnalysis = useAppStore((state) => state.dda.currentAnalysis);
   const isWorkflowRecording = useAppStore(
-    (state) => state.workflowRecording.isRecording
+    (state) => state.workflowRecording.isRecording,
   );
   const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis);
   const addAnalysisToHistory = useAppStore(
-    (state) => state.addAnalysisToHistory
+    (state) => state.addAnalysisToHistory,
   );
   const updateAnalysisParameters = useAppStore(
-    (state) => state.updateAnalysisParameters
+    (state) => state.updateAnalysisParameters,
   );
   const setDDARunning = useAppStore((state) => state.setDDARunning);
   const incrementActionCount = useAppStore(
-    (state) => state.incrementActionCount
+    (state) => state.incrementActionCount,
   );
   const isServerReady = useAppStore((state) => state.ui.isServerReady);
 
@@ -158,7 +158,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     refetch: refetchHistory,
   } = useDDAHistory(
     apiService,
-    isServerReady && !!apiService.getSessionToken()
+    isServerReady && !!apiService.getSessionToken(),
   );
 
   // TanStack Query: Delete and rename mutations with optimistic updates
@@ -171,7 +171,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   // Track progress from Tauri events for the current analysis
   const progressEvent = useDDAProgress(
     submitAnalysisMutation.data?.id,
-    submitAnalysisMutation.isPending
+    submitAnalysisMutation.isPending,
   );
 
   // Store ALL parameters locally for instant UI updates - only sync to store when running analysis
@@ -224,8 +224,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     (submitAnalysisMutation.isPending
       ? "Running DDA analysis..."
       : submitAnalysisMutation.isSuccess
-      ? "Analysis completed successfully!"
-      : "");
+        ? "Analysis completed successfully!"
+        : "");
   const error = submitAnalysisMutation.error
     ? (submitAnalysisMutation.error as Error).message
     : null;
@@ -238,7 +238,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const [autoLoadingResults, setAutoLoadingResults] = useState(false);
   const [resultsFromPersistence, setResultsFromPersistence] = useState(false);
   const [renamingAnalysisId, setRenamingAnalysisId] = useState<string | null>(
-    null
+    null,
   );
   const [newAnalysisName, setNewAnalysisName] = useState("");
 
@@ -299,7 +299,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
         // Get full analysis data from history (in case the list only has metadata)
         const fullAnalysis = await apiService.getAnalysisFromHistory(
-          analysis.id
+          analysis.id,
         );
         if (fullAnalysis) {
           // Import TauriService dynamically to avoid SSR issues
@@ -318,7 +318,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         console.error("Failed to load analysis preview:", error);
       }
     },
-    [apiService]
+    [apiService],
   );
 
   // Delete analysis from history with optimistic update
@@ -334,7 +334,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           {
             title: "Delete Analysis",
             kind: "warning",
-          }
+          },
         );
 
         if (!confirmed) {
@@ -356,7 +356,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               {
                 title: "Delete Failed",
                 kind: "error",
-              }
+              },
             );
           },
         });
@@ -364,7 +364,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         console.error("[DDAAnalysis] Error in delete handler:", error);
       }
     },
-    [deleteAnalysisMutation, previewingAnalysis]
+    [deleteAnalysisMutation, previewingAnalysis],
   );
 
   // Start renaming an analysis
@@ -374,7 +374,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       setRenamingAnalysisId(analysis.id);
       setNewAnalysisName(analysis.name || "");
     },
-    []
+    [],
   );
 
   // Submit rename with optimistic update
@@ -430,13 +430,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               {
                 title: "Rename Failed",
                 kind: "error",
-              }
+              },
             );
           },
-        }
+        },
       );
     },
-    [renameAnalysisMutation, newAnalysisName]
+    [renameAnalysisMutation, newAnalysisName],
   );
 
   // Cancel rename
@@ -498,7 +498,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       if (resultsData) {
         setCurrentAnalysis(resultsData);
         console.log(
-          "[DDAAnalysis] NSG results loaded to global store (main Results tab only)"
+          "[DDAAnalysis] NSG results loaded to global store (main Results tab only)",
         );
       }
     };
@@ -542,7 +542,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       if (fileDuration && fileDuration > 0) {
         const defaultChannels = selectedFile.channels.slice(
           0,
-          Math.min(8, selectedFile.channels.length)
+          Math.min(8, selectedFile.channels.length),
         );
         // Calculate default window length as 1/4 second (0.25 * sampling_rate)
         const defaultWindowLength = Math.round(0.25 * selectedFile.sample_rate);
@@ -550,7 +550,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         console.log(
           "[DDAAnalysis] Updating time range - file duration:",
           fileDuration,
-          "seconds"
+          "seconds",
         );
 
         setLocalParameters((prev) => ({
@@ -568,7 +568,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       } else {
         console.warn(
           "[DDAAnalysis] File loaded but duration not available yet:",
-          selectedFile.file_path
+          selectedFile.file_path,
         );
       }
     }
@@ -635,7 +635,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
     // Convert channel names to indices for comparison
     const channelIndices = parameters.selectedChannels.map((ch) =>
-      typeof ch === "string" ? selectedFile!.channels.indexOf(ch) : ch
+      typeof ch === "string" ? selectedFile!.channels.indexOf(ch) : ch,
     );
 
     console.log("📋 [LOCAL] DDA Analysis Parameters:");
@@ -644,26 +644,26 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     console.log(`   Channels (names): [${request.channels.join(", ")}]`);
     console.log(`   Channels (indices): [${channelIndices.join(", ")}]`);
     console.log(
-      `   Time range: ${request.start_time} - ${request.end_time} seconds`
+      `   Time range: ${request.start_time} - ${request.end_time} seconds`,
     );
     console.log(
-      `   Window: length=${request.window_length}, step=${request.window_step}`
+      `   Window: length=${request.window_length}, step=${request.window_step}`,
     );
     console.log(
-      `   Scale: min=${request.scale_min}, max=${request.scale_max}, num=${request.scale_num}`
+      `   Scale: min=${request.scale_min}, max=${request.scale_max}, num=${request.scale_num}`,
     );
     if (ctChannelPairs && ctChannelPairs.length > 0) {
       console.log(
         `   CT channel pairs: ${ctChannelPairs
           .map(([a, b]) => `[${a}, ${b}]`)
-          .join(", ")}`
+          .join(", ")}`,
       );
     }
     if (cdChannelPairs && cdChannelPairs.length > 0) {
       console.log(
         `   CD channel pairs (directed): ${cdChannelPairs
           .map(([from, to]) => `[${from} → ${to}]`)
-          .join(", ")}`
+          .join(", ")}`,
       );
     }
 
@@ -674,7 +674,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           parameters.scaleMin, // lag (using scaleMin as proxy)
           4, // dimension (default)
           parameters.windowLength,
-          parameters.windowStep
+          parameters.windowStep,
         );
         await recordAction(paramAction);
         incrementActionCount();
@@ -712,11 +712,11 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
           console.log(
             "[WORKFLOW] Recording DDA analysis with channel indices:",
-            channelIndices
+            channelIndices,
           );
           const analysisAction = createRunDDAAnalysisAction(
             result.id,
-            channelIndices
+            channelIndices,
           );
           recordAction(analysisAction)
             .then(() => {
@@ -764,7 +764,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const submitToNSG = async () => {
     if (!TauriService.isTauri()) {
       setNsgError(
-        "NSG submission is only available in the Tauri desktop application"
+        "NSG submission is only available in the Tauri desktop application",
       );
       return;
     }
@@ -838,24 +838,24 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       // Map channel indices back to names for display
       const channelNames =
         request.channels?.map(
-          (idx) => selectedFile.channels[idx] || `Unknown(${idx})`
+          (idx) => selectedFile.channels[idx] || `Unknown(${idx})`,
         ) || [];
 
       console.log("📋 [NSG] DDA Analysis Parameters:");
       console.log(`   File: ${selectedFile.file_path}`);
       console.log(`   Sample rate: ${selectedFile.sample_rate} Hz`);
       console.log(
-        `   Channels (indices): [${request.channels?.join(", ") || ""}]`
+        `   Channels (indices): [${request.channels?.join(", ") || ""}]`,
       );
       console.log(`   Channels (names): [${channelNames.join(", ")}]`);
       console.log(
-        `   Time range: ${request.time_range.start} - ${request.time_range.end} seconds`
+        `   Time range: ${request.time_range.start} - ${request.time_range.end} seconds`,
       );
       console.log(
-        `   Window: length=${request.window_parameters.window_length}, step=${request.window_parameters.window_step}`
+        `   Window: length=${request.window_parameters.window_length}, step=${request.window_parameters.window_step}`,
       );
       console.log(
-        `   Scale: min=${request.scale_parameters.scale_min}, max=${request.scale_parameters.scale_max}, num=${request.scale_parameters.scale_num}`
+        `   Scale: min=${request.scale_parameters.scale_min}, max=${request.scale_parameters.scale_max}, num=${request.scale_parameters.scale_num}`,
       );
 
       setNsgSubmissionPhase("Creating job in database...");
@@ -864,13 +864,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       const jobId = await TauriService.createNSGJob(
         "PY_EXPANSE",
         request,
-        selectedFile.file_path
+        selectedFile.file_path,
       );
 
       console.log("[NSG] Job created with ID:", jobId);
 
       setNsgSubmissionPhase(
-        "Uploading file to NSG (this may take a few minutes for large files)..."
+        "Uploading file to NSG (this may take a few minutes for large files)...",
       );
 
       // Submit the job to NSG
@@ -886,11 +886,11 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         "NSG Job Submitted",
         `Job successfully submitted to Neuroscience Gateway. Job ID: ${jobId.substring(
           0,
-          8
+          8,
         )}...`,
         NotificationType.Success,
         "navigate_nsg_manager",
-        { jobId }
+        { jobId },
       );
     } catch (error) {
       console.error("[NSG] Submission error:", error);
@@ -900,7 +900,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         error,
       });
       setNsgError(
-        error instanceof Error ? error.message : "Failed to submit job to NSG"
+        error instanceof Error ? error.message : "Failed to submit job to NSG",
       );
       setNsgSubmissionPhase("");
       setIsSubmittingToNsg(false);
@@ -1004,7 +1004,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           analysisName: analysisName || "DDA Analysis",
           description: `DDA configuration for ${selectedFile.file_name}`,
           analysisId: results?.id,
-        }
+        },
       );
 
       // Set the computed hash
@@ -1013,7 +1013,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       const jsonContent = serializeDDAConfig(config);
       const filename = generateExportFilename(
         analysisName || "analysis",
-        selectedFile.file_name
+        selectedFile.file_name,
       );
 
       if (TauriService.isTauri()) {
@@ -1041,7 +1041,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           await TauriService.createNotification(
             "Configuration Exported",
             `Saved to ${filePath}`,
-            NotificationType.Success
+            NotificationType.Success,
           );
         }
       } else {
@@ -1060,7 +1060,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         await TauriService.createNotification(
           "Export Failed",
           error instanceof Error ? error.message : "Unknown error",
-          NotificationType.Error
+          NotificationType.Error,
         );
       }
     }
@@ -1287,8 +1287,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                         {localIsRunning
                           ? analysisStatus
                           : autoLoadingResults
-                          ? "Loading previous analysis results..."
-                          : analysisStatus}
+                            ? "Loading previous analysis results..."
+                            : analysisStatus}
                       </span>
                     </div>
                     {localIsRunning && (
@@ -1388,7 +1388,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                         ...prev,
                         timeEnd: Math.min(
                           maxDuration,
-                          Math.max(prev.timeStart + 0.1, inputValue)
+                          Math.max(prev.timeStart + 0.1, inputValue),
                         ),
                       }));
                     }}
@@ -1630,7 +1630,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                               setLocalParameters((prev) => ({
                                 ...prev,
                                 ctChannelPairs: prev.ctChannelPairs.filter(
-                                  (_, i) => i !== idx
+                                  (_, i) => i !== idx,
                                 ),
                               }));
                             }}
@@ -1694,7 +1694,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                                 setLocalParameters((prev) => ({
                                   ...prev,
                                   cdChannelPairs: prev.cdChannelPairs.filter(
-                                    (_, i) => i !== idx
+                                    (_, i) => i !== idx,
                                   ),
                                 }));
                               }

@@ -119,7 +119,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   // Preprocessing controls - initialize from plot state or defaults
   const [showPreprocessing, setShowPreprocessing] = useState(false);
   const [preprocessing, setPreprocessing] = useState<PreprocessingOptions>(
-    plot.preprocessing || getDefaultPreprocessing()
+    plot.preprocessing || getDefaultPreprocessing(),
   );
 
   // Sync local preprocessing state with plot state on mount
@@ -127,7 +127,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     if (plot.preprocessing) {
       console.log(
         "Loading preprocessing from saved state:",
-        plot.preprocessing
+        plot.preprocessing,
       );
       setPreprocessing(plot.preprocessing);
     }
@@ -147,7 +147,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     fileManager.selectedFile?.file_path || "",
     selectedChannels,
     2000, // max points
-    !!fileManager.selectedFile && selectedChannels.length > 0
+    !!fileManager.selectedFile && selectedChannels.length > 0,
   );
 
   const { data: overviewProgress } = useOverviewProgress(
@@ -155,7 +155,9 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     fileManager.selectedFile?.file_path || "",
     selectedChannels,
     2000, // max points
-    overviewLoading && !!fileManager.selectedFile && selectedChannels.length > 0
+    overviewLoading &&
+      !!fileManager.selectedFile &&
+      selectedChannels.length > 0,
   );
 
   // Extract file path to use as stable dependency for effects
@@ -196,7 +198,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       // Validate that persisted channels exist in the current file
       const availableChannels = fileManager.selectedFile.channels;
       const validPersistedChannels = fileManager.selectedChannels.filter((ch) =>
-        availableChannels.includes(ch)
+        availableChannels.includes(ch),
       );
 
       // Mark this as initial channel set (will trigger data load in the next effect)
@@ -206,19 +208,19 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         // No valid persisted channels, auto-select first 4-8 channels for better default view
         // Skip common time columns (Time, Timestamp, etc.) from auto-selection
         const dataChannels = availableChannels.filter(
-          (ch) => !ch.toLowerCase().match(/^(time|timestamp|t|sample)$/i)
+          (ch) => !ch.toLowerCase().match(/^(time|timestamp|t|sample)$/i),
         );
         const channelsToSelect =
           dataChannels.length > 0 ? dataChannels : availableChannels;
         const defaultChannels = channelsToSelect.slice(
           0,
-          Math.min(8, channelsToSelect.length) // Show up to 8 channels by default
+          Math.min(8, channelsToSelect.length), // Show up to 8 channels by default
         );
         console.log(
           "Auto-selecting channels (no valid persisted):",
           defaultChannels,
           "from total:",
-          availableChannels.length
+          availableChannels.length,
         );
         channelsToDisplayRef.current = defaultChannels; // Update ref synchronously
         persistSelectedChannels(defaultChannels);
@@ -231,7 +233,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           validPersistedChannels,
           "(filtered from",
           fileManager.selectedChannels,
-          ")"
+          ")",
         );
         channelsToDisplayRef.current = validPersistedChannels; // Update ref synchronously
         persistSelectedChannels(validPersistedChannels);
@@ -270,7 +272,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       // Generate absolute time data starting from current position in file
       const timeData = Array.from(
         { length: dataLength },
-        (_, i) => startTime + i / chunkData.sample_rate
+        (_, i) => startTime + i / chunkData.sample_rate,
       );
 
       // Removed verbose logging
@@ -281,7 +283,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       if (autoOffset === null && chunkData.data.length > 1) {
         const channelRanges = chunkData.data.map((channelData) => {
           const validData = channelData.filter(
-            (v) => typeof v === "number" && !isNaN(v)
+            (v) => typeof v === "number" && !isNaN(v),
           );
           if (validData.length === 0) return 0;
           const min = Math.min(...validData);
@@ -294,7 +296,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         const offsetMultiplier = 3.5 * (channelOffsetRef.current / 50);
         autoOffset = Math.max(
           maxRange * offsetMultiplier,
-          channelOffsetRef.current
+          channelOffsetRef.current,
         );
         // Store for consistent use across all chunks
         stableOffsetRef.current = autoOffset;
@@ -334,7 +336,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         totalChannels: chunkData.channels.length,
         selectedChannelsCount: selectedChannelData.length,
         selectedChannels: selectedChannelData.map(
-          (c) => `${c.name} (idx ${c.originalIndex})`
+          (c) => `${c.name} (idx ${c.originalIndex})`,
         ),
       });
 
@@ -347,7 +349,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
             console.error(
               `Channel ${channelInfo.name} data is not an array:`,
               typeof channelData,
-              channelData
+              channelData,
             );
             return Array(dataLength).fill(0);
           }
@@ -389,11 +391,11 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                   processed: processed.slice(0, 5),
                 },
                 hasNaN: processed.some((v) => isNaN(v)),
-              }
+              },
             );
           }
           return processed;
-        }
+        },
       );
 
       const data: uPlot.AlignedData = [timeData, ...processedData];
@@ -427,19 +429,19 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
 
       // Validate data integrity
       const hasValidData = data.every(
-        (series) => Array.isArray(series) && series.length > 0
+        (series) => Array.isArray(series) && series.length > 0,
       );
       const hasNumericData = data
         .slice(1)
         .every((series: any) =>
-          series.every((val: any) => typeof val === "number" && !isNaN(val))
+          series.every((val: any) => typeof val === "number" && !isNaN(val)),
         );
 
       console.log("Data validation:", {
         hasValidData,
         hasNumericData,
         allLengthsEqual: data.every(
-          (series) => series.length === data[0].length
+          (series) => series.length === data[0].length,
         ),
       });
 
@@ -689,7 +691,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         return;
       }
     },
-    []
+    [],
   );
 
   // Clean up plot and observer on unmount
@@ -707,7 +709,9 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   }, []);
 
   // Use ref to create stable loadChunk function that doesn't recreate on every dependency change
-  const loadChunkRef = useRef<((startTime: number) => Promise<void>) | null>(null);
+  const loadChunkRef = useRef<((startTime: number) => Promise<void>) | null>(
+    null,
+  );
 
   loadChunkRef.current = async (startTime: number) => {
     console.log("=== LOAD CHUNK CALLED ===", {
@@ -753,10 +757,10 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       });
 
       const chunkSize = Math.floor(
-        timeWindow * fileManager.selectedFile.sample_rate
+        timeWindow * fileManager.selectedFile.sample_rate,
       );
       const chunkStart = Math.floor(
-        startTime * fileManager.selectedFile.sample_rate
+        startTime * fileManager.selectedFile.sample_rate,
       );
 
       console.log("Calculated chunk params:", {
@@ -774,7 +778,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         chunkStart,
         chunkSize,
         selectedChannels, // Load only selected channels
-        signal // Pass abort signal
+        signal, // Pass abort signal
       );
 
       console.log("Received chunk data:", {
@@ -796,8 +800,8 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
         applyPreprocessing(
           channelData,
           fileManager.selectedFile!.sample_rate,
-          preprocessing
-        )
+          preprocessing,
+        ),
       );
 
       console.log("Applied preprocessing:", {
@@ -877,7 +881,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
 
       setLoadChunkTimeout(timeoutId);
     },
-    [loadChunk, loadChunkTimeout]
+    [loadChunk, loadChunkTimeout],
   );
 
   const handleChannelToggle = (channel: string, checked: boolean) => {
@@ -909,7 +913,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
 
     console.log(
       `Channel toggled: ${channel} -> ${checked}. New selection:`,
-      newChannels
+      newChannels,
     );
   };
 
@@ -981,7 +985,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       isInitialChannelSetRef.current = false; // Mark as no longer initial
     } else if (!isNewFile && !isInitialChannelSet && hasChannelsSelected) {
       console.log(
-        "Same file, channels changed - reloading chunk with new channel selection"
+        "Same file, channels changed - reloading chunk with new channel selection",
       );
       // Debounce the reload to avoid rapid API calls when toggling multiple channels
       if (loadChunkTimeout) {
@@ -1017,12 +1021,12 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       // Validate that selected channels exist in the file before loading
       const availableChannels = fileManager.selectedFile.channels;
       const allChannelsValid = selectedChannels.every((ch) =>
-        availableChannels.includes(ch)
+        availableChannels.includes(ch),
       );
 
       if (!allChannelsValid) {
         console.log(
-          "Skipping time window chunk load - selected channels not yet validated for this file"
+          "Skipping time window chunk load - selected channels not yet validated for this file",
         );
         return;
       }
@@ -1034,7 +1038,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
           timeWindow,
           fileName: fileManager.selectedFile?.file_name,
           selectedChannelsCount: selectedChannels.length,
-        }
+        },
       );
       // Don't reload on every currentTime change as this would reset zoom constantly
       // Only reload when timeWindow itself changes
@@ -1071,7 +1075,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                 type: "BandpassFilter",
                 low_freq: preprocessing.highpass || 0.1,
                 high_freq: preprocessing.lowpass || 100,
-              }
+              },
             );
             await recordAction(action);
             incrementActionCount();
@@ -1091,19 +1095,19 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       // Validate that selected channels exist in the file before loading
       const availableChannels = fileManager.selectedFile.channels;
       const allChannelsValid = selectedChannels.every((ch) =>
-        availableChannels.includes(ch)
+        availableChannels.includes(ch),
       );
 
       if (!allChannelsValid) {
         console.log(
-          "Skipping preprocessing chunk load - selected channels not yet validated for this file"
+          "Skipping preprocessing chunk load - selected channels not yet validated for this file",
         );
         return;
       }
 
       console.log(
         "Preprocessing changed, reloading chunk at current time:",
-        currentTime
+        currentTime,
       );
       loadChunk(currentTime);
     }
@@ -1124,7 +1128,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       };
 
       broadcastToType("timeseries", "data-update", timeSeriesData).catch(
-        console.error
+        console.error,
       );
     }
   }, [
@@ -1210,7 +1214,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                 size="sm"
                 onClick={() =>
                   handleSeek(
-                    Math.min(duration - timeWindow, currentTime + timeWindow)
+                    Math.min(duration - timeWindow, currentTime + timeWindow),
                   )
                 }
                 disabled={loading || currentTime >= duration - timeWindow}
@@ -1465,7 +1469,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                       <Select
                         value={preprocessing.smoothing.method}
                         onValueChange={(
-                          value: "moving_average" | "savitzky_golay"
+                          value: "moving_average" | "savitzky_golay",
                         ) =>
                           setPreprocessing((prev) => ({
                             ...prev,
@@ -1541,7 +1545,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                       <Select
                         value={preprocessing.outlierRemoval.method}
                         onValueChange={(
-                          value: "clip" | "remove" | "interpolate"
+                          value: "clip" | "remove" | "interpolate",
                         ) =>
                           setPreprocessing((prev) => ({
                             ...prev,
@@ -1749,7 +1753,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                   hasPlot: !!uplotRef.current,
                   hasChunk: !!plot.currentChunk,
                   currentTime,
-                }
+                },
               );
 
               e.preventDefault();
@@ -1769,12 +1773,12 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
 
               console.log(
                 "[ANNOTATION] Opening time series context menu at time:",
-                timeValue
+                timeValue,
               );
               timeSeriesAnnotations.openContextMenu(
                 e.clientX,
                 e.clientY,
-                timeValue
+                timeValue,
               );
             }}
           >
@@ -1822,7 +1826,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                             e.clientX,
                             e.clientY,
                             ann.position,
-                            ann
+                            ann,
                           );
                         }}
                         onClick={(ann) => {
@@ -1831,7 +1835,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
                             timeSeriesAnnotations.handleAnnotationClick(
                               ann,
                               rect.left + xPosition,
-                              rect.top + 50
+                              rect.top + 50,
                             );
                           }
                         }}
