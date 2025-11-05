@@ -109,10 +109,15 @@ async function discoverSessions(subjectPath: string): Promise<BIDSSession[]> {
   try {
     const { readDir } = await import('@tauri-apps/plugin-fs');
 
+    console.log(`[BIDS] Reading subject path: ${subjectPath}`);
     const entries = await readDir(subjectPath);
+    console.log(`[BIDS] Found ${entries.length} entries in ${subjectPath}:`, entries.map(e => `${e.name} (dir: ${e.isDirectory})`));
+
     const sessionDirs = entries.filter(
       entry => entry.isDirectory && entry.name.startsWith('ses-')
     );
+
+    console.log(`[BIDS] Found ${sessionDirs.length} session directories`);
 
     // If no session directories, check for modality directories directly
     if (sessionDirs.length === 0) {
@@ -148,7 +153,11 @@ async function discoverSessions(subjectPath: string): Promise<BIDSSession[]> {
     const sessions = await Promise.all(sessionPromises);
     return sessions.filter((s): s is BIDSSession => s !== null);
   } catch (error) {
-    console.error('Failed to discover sessions:', error);
+    console.error(`[BIDS] Failed to discover sessions in ${subjectPath}:`, error);
+    if (error instanceof Error) {
+      console.error(`[BIDS] Error message: ${error.message}`);
+      console.error(`[BIDS] Error stack: ${error.stack}`);
+    }
     return [];
   }
 }
@@ -381,6 +390,8 @@ export interface BIDSDatasetSummary {
   runCount: number;
   modalities: Set<string>;
   tasks: Set<string>;
+  hasFMRI: boolean;
+  hasElectrophysiology: boolean;
 }
 
 export async function getDatasetSummary(
@@ -392,9 +403,48 @@ export async function getDatasetSummary(
   let runCount = 0;
   const modalities = new Set<string>();
   const tasks = new Set<string>();
+  let hasFMRI = false;
+  let hasElectrophysiology = false;
+
+  // Check for fMRI modalities by scanning subject directories
+  const { readDir } = await import('@tauri-apps/plugin-fs');
 
   for (const subject of subjects) {
     sessionCount += subject.sessions.length;
+
+    // Check for fMRI directories (anat, func, dwi)
+    try {
+      const subjectPath = `${rootPath}/${subject.id}`;
+      const entries = await readDir(subjectPath);
+      const fmriDirs = entries.filter(
+        entry => entry.isDirectory && ['anat', 'func', 'dwi'].includes(entry.name)
+      );
+
+      if (fmriDirs.length > 0) {
+        hasFMRI = true;
+        fmriDirs.forEach(dir => modalities.add(dir.name));
+      }
+
+      // Also check session directories for fMRI data
+      const sessionDirs = entries.filter(
+        entry => entry.isDirectory && entry.name.startsWith('ses-')
+      );
+
+      for (const sessionDir of sessionDirs) {
+        const sessionPath = `${subjectPath}/${sessionDir.name}`;
+        const sessionEntries = await readDir(sessionPath);
+        const sessionFmriDirs = sessionEntries.filter(
+          entry => entry.isDirectory && ['anat', 'func', 'dwi'].includes(entry.name)
+        );
+
+        if (sessionFmriDirs.length > 0) {
+          hasFMRI = true;
+          sessionFmriDirs.forEach(dir => modalities.add(dir.name));
+        }
+      }
+    } catch (error) {
+      console.warn(`[BIDS] Could not check for fMRI data in ${subject.id}:`, error);
+    }
 
     for (const session of subject.sessions) {
       runCount += session.runs.length;
@@ -402,6 +452,7 @@ export async function getDatasetSummary(
       for (const run of session.runs) {
         modalities.add(run.modality);
         tasks.add(run.task);
+        hasElectrophysiology = true;
       }
     }
   }
@@ -412,5 +463,7 @@ export async function getDatasetSummary(
     runCount,
     modalities,
     tasks,
+    hasFMRI,
+    hasElectrophysiology,
   };
 }
