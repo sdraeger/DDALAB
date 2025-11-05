@@ -171,9 +171,7 @@ export class ApiService {
     }
   }
 
-  async listDirectory(
-    path: string = "",
-  ): Promise<{
+  async listDirectory(path: string = ""): Promise<{
     files: Array<{
       name: string;
       path: string;
