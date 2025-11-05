@@ -1,164 +1,206 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { listen, UnlistenFn } from '@tauri-apps/api/event'
-import { windowManager, WindowType } from '@/utils/windowManager'
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { windowManager, WindowType } from "@/utils/windowManager";
 
 interface UsePopoutWindowsResult {
-  openedWindows: string[]
-  createWindow: (type: WindowType, id: string, data: any) => Promise<string>
-  closeWindow: (windowId: string) => Promise<void>
-  updateWindowData: (windowId: string, data: any) => Promise<void>
-  toggleWindowLock: (windowId: string) => void
-  isWindowLocked: (windowId: string) => boolean
-  broadcastToType: (type: WindowType, eventName: string, data: any) => Promise<void>
+  openedWindows: string[];
+  createWindow: (type: WindowType, id: string, data: any) => Promise<string>;
+  closeWindow: (windowId: string) => Promise<void>;
+  updateWindowData: (windowId: string, data: any) => Promise<void>;
+  toggleWindowLock: (windowId: string) => void;
+  isWindowLocked: (windowId: string) => boolean;
+  broadcastToType: (
+    type: WindowType,
+    eventName: string,
+    data: any,
+  ) => Promise<void>;
 }
 
 export function usePopoutWindows(): UsePopoutWindowsResult {
-  const [openedWindows, setOpenedWindows] = useState<string[]>([])
+  const [openedWindows, setOpenedWindows] = useState<string[]>([]);
 
   useEffect(() => {
     // Sync with window manager state
     const updateOpenedWindows = () => {
-      const windows = windowManager.getAllWindows()
+      const windows = windowManager.getAllWindows();
       // Only update state if the array contents actually changed
-      setOpenedWindows(prev => {
-        if (prev.length !== windows.length) return windows
+      setOpenedWindows((prev) => {
+        if (prev.length !== windows.length) return windows;
         // Check if all window IDs are the same
-        const hasChanged = prev.some((id, index) => id !== windows[index])
-        return hasChanged ? windows : prev
-      })
-    }
+        const hasChanged = prev.some((id, index) => id !== windows[index]);
+        return hasChanged ? windows : prev;
+      });
+    };
 
     // Initial sync
-    updateOpenedWindows()
+    updateOpenedWindows();
 
     // Set up interval to sync periodically (windows might be closed externally)
-    const interval = setInterval(updateOpenedWindows, 1000)
+    const interval = setInterval(updateOpenedWindows, 1000);
 
     return () => {
-      clearInterval(interval)
-    }
-  }, [])
+      clearInterval(interval);
+    };
+  }, []);
 
-  const createWindow = useCallback(async (type: WindowType, id: string, data: any): Promise<string> => {
-    try {
-      const windowId = await windowManager.createPopoutWindow(type, id, data)
-      setOpenedWindows(prev => [...prev, windowId])
-      return windowId
-    } catch (error) {
-      console.error('Failed to create window:', error)
-      throw error
-    }
-  }, [])
+  const createWindow = useCallback(
+    async (type: WindowType, id: string, data: any): Promise<string> => {
+      try {
+        const windowId = await windowManager.createPopoutWindow(type, id, data);
+        setOpenedWindows((prev) => [...prev, windowId]);
+        return windowId;
+      } catch (error) {
+        console.error("Failed to create window:", error);
+        throw error;
+      }
+    },
+    [],
+  );
 
   const closeWindow = useCallback(async (windowId: string): Promise<void> => {
     try {
-      await windowManager.closePopoutWindow(windowId)
-      setOpenedWindows(prev => prev.filter(id => id !== windowId))
+      await windowManager.closePopoutWindow(windowId);
+      setOpenedWindows((prev) => prev.filter((id) => id !== windowId));
     } catch (error) {
-      console.error('Failed to close window:', error)
-      throw error
+      console.error("Failed to close window:", error);
+      throw error;
     }
-  }, [])
+  }, []);
 
-  const updateWindowData = useCallback(async (windowId: string, data: any): Promise<void> => {
-    await windowManager.sendDataToWindow(windowId, data)
-  }, [])
+  const updateWindowData = useCallback(
+    async (windowId: string, data: any): Promise<void> => {
+      await windowManager.sendDataToWindow(windowId, data);
+    },
+    [],
+  );
 
   const toggleWindowLock = useCallback((windowId: string): void => {
-    const state = windowManager.getWindowState(windowId)
+    const state = windowManager.getWindowState(windowId);
     if (state) {
-      windowManager.setWindowLock(windowId, !state.isLocked)
+      windowManager.setWindowLock(windowId, !state.isLocked);
     }
-  }, [])
+  }, []);
 
   const isWindowLocked = useCallback((windowId: string): boolean => {
-    const state = windowManager.getWindowState(windowId)
-    return state?.isLocked ?? false
-  }, [])
+    const state = windowManager.getWindowState(windowId);
+    return state?.isLocked ?? false;
+  }, []);
 
-  const broadcastToType = useCallback(async (type: WindowType, eventName: string, data: any): Promise<void> => {
-    await windowManager.broadcastToType(type, eventName, data)
-  }, [])
+  const broadcastToType = useCallback(
+    async (type: WindowType, eventName: string, data: any): Promise<void> => {
+      await windowManager.broadcastToType(type, eventName, data);
+    },
+    [],
+  );
 
   // Memoize the return object to prevent creating new references on every render
-  return useMemo(() => ({
-    openedWindows,
-    createWindow,
-    closeWindow,
-    updateWindowData,
-    toggleWindowLock,
-    isWindowLocked,
-    broadcastToType
-  }), [openedWindows, createWindow, closeWindow, updateWindowData, toggleWindowLock, isWindowLocked, broadcastToType])
+  return useMemo(
+    () => ({
+      openedWindows,
+      createWindow,
+      closeWindow,
+      updateWindowData,
+      toggleWindowLock,
+      isWindowLocked,
+      broadcastToType,
+    }),
+    [
+      openedWindows,
+      createWindow,
+      closeWindow,
+      updateWindowData,
+      toggleWindowLock,
+      isWindowLocked,
+      broadcastToType,
+    ],
+  );
 }
 
 interface UsePopoutListenerResult {
-  data: any
-  isLocked: boolean
-  windowId: string | null
+  data: any;
+  isLocked: boolean;
+  windowId: string | null;
 }
 
-export function usePopoutListener(expectedWindowId?: string): UsePopoutListenerResult {
-  const [data, setData] = useState<any>(null)
-  const [isLocked, setIsLocked] = useState(false)
-  const [windowId, setWindowId] = useState<string | null>(null)
+export function usePopoutListener(
+  expectedWindowId?: string,
+): UsePopoutListenerResult {
+  const [data, setData] = useState<any>(null);
+  const [isLocked, setIsLocked] = useState(false);
+  const [windowId, setWindowId] = useState<string | null>(null);
 
   useEffect(() => {
     // Get window ID from URL params if not provided
-    let currentWindowId = expectedWindowId
-    if (!currentWindowId && typeof window !== 'undefined') {
-      const urlParams = new URLSearchParams(window.location.search)
-      currentWindowId = urlParams.get('id') || undefined
+    let currentWindowId = expectedWindowId;
+    if (!currentWindowId && typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      currentWindowId = urlParams.get("id") || undefined;
     }
 
-    if (!currentWindowId) return
+    if (!currentWindowId) return;
 
-    setWindowId(currentWindowId)
+    setWindowId(currentWindowId);
 
-    const listeners: UnlistenFn[] = []
+    const listeners: UnlistenFn[] = [];
 
     // Listen for data updates
     const setupDataListener = async () => {
-      console.log(`Setting up data listener for window: ${currentWindowId}`)
-      const unlisten = await listen(`data-update-${currentWindowId}`, (event: any) => {
-        console.log(`Received data update for window: ${currentWindowId}`, event.payload)
-        if (!isLocked) {
-          setData(event.payload.data)
-          console.log(`Updated data for window: ${currentWindowId}`)
-        } else {
-          console.log(`Window ${currentWindowId} is locked, ignoring data update`)
-        }
-      })
-      listeners.push(unlisten)
-    }
+      console.log(`Setting up data listener for window: ${currentWindowId}`);
+      const unlisten = await listen(
+        `data-update-${currentWindowId}`,
+        (event: any) => {
+          console.log(
+            `Received data update for window: ${currentWindowId}`,
+            event.payload,
+          );
+          if (!isLocked) {
+            setData(event.payload.data);
+            console.log(`Updated data for window: ${currentWindowId}`);
+          } else {
+            console.log(
+              `Window ${currentWindowId} is locked, ignoring data update`,
+            );
+          }
+        },
+      );
+      listeners.push(unlisten);
+    };
 
     // Listen for lock state changes
     const setupLockListener = async () => {
-      const unlisten = await listen(`lock-state-${currentWindowId}`, (event: any) => {
-        setIsLocked(event.payload.locked)
-      })
-      listeners.push(unlisten)
-    }
+      const unlisten = await listen(
+        `lock-state-${currentWindowId}`,
+        (event: any) => {
+          setIsLocked(event.payload.locked);
+        },
+      );
+      listeners.push(unlisten);
+    };
 
     // Emit ready event to request initial data
     const emitReadyEvent = async () => {
-      const { emit } = await import('@tauri-apps/api/event')
-      console.log(`[POPOUT] Emitting popout-ready-${currentWindowId} event to request initial data`)
-      await emit(`popout-ready-${currentWindowId}`, { windowId: currentWindowId, timestamp: Date.now() })
-    }
+      const { emit } = await import("@tauri-apps/api/event");
+      console.log(
+        `[POPOUT] Emitting popout-ready-${currentWindowId} event to request initial data`,
+      );
+      await emit(`popout-ready-${currentWindowId}`, {
+        windowId: currentWindowId,
+        timestamp: Date.now(),
+      });
+    };
 
-    setupDataListener()
-    setupLockListener()
-    emitReadyEvent()
+    setupDataListener();
+    setupLockListener();
+    emitReadyEvent();
 
     return () => {
-      listeners.forEach(unlisten => unlisten())
-    }
-  }, [expectedWindowId, isLocked])
+      listeners.forEach((unlisten) => unlisten());
+    };
+  }, [expectedWindowId, isLocked]);
 
   return {
     data,
     isLocked,
-    windowId
-  }
+    windowId,
+  };
 }

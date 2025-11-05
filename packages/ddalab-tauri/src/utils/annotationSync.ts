@@ -1,5 +1,5 @@
-import { PlotAnnotation } from '@/types/annotations';
-import { DDAResult } from '@/types/api';
+import { PlotAnnotation } from "@/types/annotations";
+import { DDAResult } from "@/types/api";
 
 /**
  * Convert time-based position (seconds) to DDA window index
@@ -8,7 +8,7 @@ import { DDAResult } from '@/types/api';
 export function timeToWindowIndex(
   timeSeconds: number,
   windowStep: number,
-  sampleRate: number
+  sampleRate: number,
 ): number {
   const sampleIndex = timeSeconds * sampleRate;
   const windowIndex = Math.floor(sampleIndex / windowStep);
@@ -22,7 +22,7 @@ export function timeToWindowIndex(
 export function windowIndexToTime(
   windowIndex: number,
   windowStep: number,
-  sampleRate: number
+  sampleRate: number,
 ): number {
   const sampleIndex = windowIndex * windowStep;
   const timeSeconds = sampleIndex / sampleRate;
@@ -36,10 +36,14 @@ export function windowIndexToTime(
 export function timeSeriesAnnotationToDDA(
   annotation: PlotAnnotation,
   ddaResult: DDAResult,
-  sampleRate: number
+  sampleRate: number,
 ): PlotAnnotation {
   const windowStep = ddaResult.parameters.window_step || 1;
-  const windowIndex = timeToWindowIndex(annotation.position, windowStep, sampleRate);
+  const windowIndex = timeToWindowIndex(
+    annotation.position,
+    windowStep,
+    sampleRate,
+  );
 
   // Get the scale value at this window index
   const scales = ddaResult.results.scales || [];
@@ -68,7 +72,7 @@ export function timeSeriesAnnotationToDDA(
 export function ddaAnnotationToTimeSeries(
   annotation: PlotAnnotation,
   ddaResult: DDAResult,
-  sampleRate: number
+  sampleRate: number,
 ): PlotAnnotation {
   const windowStep = ddaResult.parameters.window_step || 1;
 
@@ -79,7 +83,7 @@ export function ddaAnnotationToTimeSeries(
     return {
       ...annotation,
       position: -1,
-      id: annotation.id.replace('_dda', ''),
+      id: annotation.id.replace("_dda", ""),
     };
   }
 
@@ -100,7 +104,7 @@ export function ddaAnnotationToTimeSeries(
   return {
     ...annotation,
     position: timeSeconds,
-    id: annotation.id.replace('_dda', ''), // Remove suffix if present
+    id: annotation.id.replace("_dda", ""), // Remove suffix if present
   };
 }
 
@@ -109,7 +113,7 @@ export function ddaAnnotationToTimeSeries(
  */
 export function isAnnotationInDDARange(
   annotation: PlotAnnotation,
-  ddaResult: DDAResult
+  ddaResult: DDAResult,
 ): boolean {
   const startTime = ddaResult.parameters.start_time || 0;
   const endTime = ddaResult.parameters.end_time || Infinity;
@@ -122,11 +126,13 @@ export function isAnnotationInDDARange(
  */
 export function isDDAAnnotationValid(
   annotation: PlotAnnotation,
-  ddaResult: DDAResult
+  ddaResult: DDAResult,
 ): boolean {
   // Check if this scale value exists in the scales array
   const scales = ddaResult.results.scales || [];
-  const scaleIndex = scales.findIndex(s => Math.abs(s - annotation.position) < 0.01);
+  const scaleIndex = scales.findIndex(
+    (s) => Math.abs(s - annotation.position) < 0.01,
+  );
   return scaleIndex !== -1;
 }
 
@@ -135,7 +141,7 @@ export function isDDAAnnotationValid(
  */
 export function findOverlappingDDAResults(
   timePosition: number,
-  allResults: DDAResult[]
+  allResults: DDAResult[],
 ): DDAResult[] {
   return allResults.filter((result) => {
     const startTime = result.parameters.start_time || 0;
@@ -151,15 +157,26 @@ export function findOverlappingDDAResults(
 export function syncTimeSeriesAnnotationToDDA(
   annotation: PlotAnnotation,
   allResults: DDAResult[],
-  sampleRate: number
+  sampleRate: number,
 ): Array<{ resultId: string; variantId: string; annotation: PlotAnnotation }> {
-  const overlappingResults = findOverlappingDDAResults(annotation.position, allResults);
-  const synced: Array<{ resultId: string; variantId: string; annotation: PlotAnnotation }> = [];
+  const overlappingResults = findOverlappingDDAResults(
+    annotation.position,
+    allResults,
+  );
+  const synced: Array<{
+    resultId: string;
+    variantId: string;
+    annotation: PlotAnnotation;
+  }> = [];
 
   for (const result of overlappingResults) {
     if (!isAnnotationInDDARange(annotation, result)) continue;
 
-    const ddaAnnotation = timeSeriesAnnotationToDDA(annotation, result, sampleRate);
+    const ddaAnnotation = timeSeriesAnnotationToDDA(
+      annotation,
+      result,
+      sampleRate,
+    );
 
     if (!isDDAAnnotationValid(ddaAnnotation, result)) continue;
 
@@ -183,7 +200,7 @@ export function syncTimeSeriesAnnotationToDDA(
 export function syncDDAAnnotationToTimeSeries(
   annotation: PlotAnnotation,
   ddaResult: DDAResult,
-  sampleRate: number
+  sampleRate: number,
 ): PlotAnnotation | null {
   if (!isDDAAnnotationValid(annotation, ddaResult)) {
     return null;

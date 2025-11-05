@@ -3,7 +3,7 @@
  * All functions operate on chunk-level data to avoid memory issues
  */
 
-import { PreprocessingOptions } from '@/types/persistence'
+import { PreprocessingOptions } from "@/types/persistence";
 
 /**
  * Apply all enabled preprocessing steps to a chunk of data
@@ -15,27 +15,27 @@ import { PreprocessingOptions } from '@/types/persistence'
 export function applyPreprocessing(
   data: number[],
   sampleRate: number,
-  options: PreprocessingOptions
+  options: PreprocessingOptions,
 ): number[] {
-  let processed = [...data] // Copy to avoid mutation
+  let processed = [...data]; // Copy to avoid mutation
 
   // 1. Baseline correction (before filtering)
-  if (options.baselineCorrection && options.baselineCorrection !== 'none') {
-    processed = applyBaselineCorrection(processed, options.baselineCorrection)
+  if (options.baselineCorrection && options.baselineCorrection !== "none") {
+    processed = applyBaselineCorrection(processed, options.baselineCorrection);
   }
 
   // 3. Filters (order: highpass -> lowpass -> notch)
   if (options.highpass) {
-    processed = applyHighpassFilter(processed, sampleRate, options.highpass)
+    processed = applyHighpassFilter(processed, sampleRate, options.highpass);
   }
 
   if (options.lowpass) {
-    processed = applyLowpassFilter(processed, sampleRate, options.lowpass)
+    processed = applyLowpassFilter(processed, sampleRate, options.lowpass);
   }
 
   if (options.notch && options.notch.length > 0) {
     for (const freq of options.notch) {
-      processed = applyNotchFilter(processed, sampleRate, freq)
+      processed = applyNotchFilter(processed, sampleRate, freq);
     }
   }
 
@@ -44,8 +44,8 @@ export function applyPreprocessing(
     processed = removeSpikesSafe(
       processed,
       options.spikeRemoval.threshold,
-      options.spikeRemoval.windowSize
-    )
+      options.spikeRemoval.windowSize,
+    );
   }
 
   // 5. Outlier removal
@@ -53,139 +53,161 @@ export function applyPreprocessing(
     processed = removeOutliersSafe(
       processed,
       options.outlierRemoval.method,
-      options.outlierRemoval.threshold
-    )
+      options.outlierRemoval.threshold,
+    );
   }
 
   // 6. Smoothing
   if (options.smoothing?.enabled) {
-    if (options.smoothing.method === 'moving_average') {
-      processed = applyMovingAverage(processed, options.smoothing.windowSize)
-    } else if (options.smoothing.method === 'savitzky_golay') {
+    if (options.smoothing.method === "moving_average") {
+      processed = applyMovingAverage(processed, options.smoothing.windowSize);
+    } else if (options.smoothing.method === "savitzky_golay") {
       processed = applySavitzkyGolay(
         processed,
         options.smoothing.windowSize,
-        options.smoothing.polynomialOrder || 2
-      )
+        options.smoothing.polynomialOrder || 2,
+      );
     }
   }
 
   // 7. Normalization (last step)
-  if (options.normalization && options.normalization !== 'none') {
-    processed = applyNormalization(processed, options.normalization, options.normalizationRange)
+  if (options.normalization && options.normalization !== "none") {
+    processed = applyNormalization(
+      processed,
+      options.normalization,
+      options.normalizationRange,
+    );
   }
 
-  return processed
+  return processed;
 }
 
 /**
  * Remove DC offset by subtracting mean or median
  */
-function applyBaselineCorrection(data: number[], method: 'mean' | 'median'): number[] {
-  if (method === 'mean') {
-    const mean = data.reduce((sum, val) => sum + val, 0) / data.length
-    return data.map(val => val - mean)
+function applyBaselineCorrection(
+  data: number[],
+  method: "mean" | "median",
+): number[] {
+  if (method === "mean") {
+    const mean = data.reduce((sum, val) => sum + val, 0) / data.length;
+    return data.map((val) => val - mean);
   } else {
-    const sorted = [...data].sort((a, b) => a - b)
-    const median = sorted[Math.floor(sorted.length / 2)]
-    return data.map(val => val - median)
+    const sorted = [...data].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    return data.map((val) => val - median);
   }
 }
 
 /**
  * Simple first-order highpass filter (removes low frequencies)
  */
-function applyHighpassFilter(data: number[], sampleRate: number, cutoff: number): number[] {
-  const rc = 1 / (2 * Math.PI * cutoff)
-  const dt = 1 / sampleRate
-  const alpha = rc / (rc + dt)
+function applyHighpassFilter(
+  data: number[],
+  sampleRate: number,
+  cutoff: number,
+): number[] {
+  const rc = 1 / (2 * Math.PI * cutoff);
+  const dt = 1 / sampleRate;
+  const alpha = rc / (rc + dt);
 
-  const filtered = new Array(data.length)
-  filtered[0] = data[0]
+  const filtered = new Array(data.length);
+  filtered[0] = data[0];
 
   for (let i = 1; i < data.length; i++) {
-    filtered[i] = alpha * (filtered[i - 1] + data[i] - data[i - 1])
+    filtered[i] = alpha * (filtered[i - 1] + data[i] - data[i - 1]);
   }
 
-  return filtered
+  return filtered;
 }
 
 /**
  * Simple first-order lowpass filter (removes high frequencies)
  */
-function applyLowpassFilter(data: number[], sampleRate: number, cutoff: number): number[] {
-  const rc = 1 / (2 * Math.PI * cutoff)
-  const dt = 1 / sampleRate
-  const alpha = dt / (rc + dt)
+function applyLowpassFilter(
+  data: number[],
+  sampleRate: number,
+  cutoff: number,
+): number[] {
+  const rc = 1 / (2 * Math.PI * cutoff);
+  const dt = 1 / sampleRate;
+  const alpha = dt / (rc + dt);
 
-  const filtered = new Array(data.length)
-  filtered[0] = data[0]
+  const filtered = new Array(data.length);
+  filtered[0] = data[0];
 
   for (let i = 1; i < data.length; i++) {
-    filtered[i] = filtered[i - 1] + alpha * (data[i] - filtered[i - 1])
+    filtered[i] = filtered[i - 1] + alpha * (data[i] - filtered[i - 1]);
   }
 
-  return filtered
+  return filtered;
 }
 
 /**
  * Simple notch filter (removes specific frequency)
  */
-function applyNotchFilter(data: number[], sampleRate: number, frequency: number): number[] {
+function applyNotchFilter(
+  data: number[],
+  sampleRate: number,
+  frequency: number,
+): number[] {
   // Simplified notch filter using comb filter approach
-  const period = Math.round(sampleRate / frequency)
-  const filtered = new Array(data.length)
+  const period = Math.round(sampleRate / frequency);
+  const filtered = new Array(data.length);
 
   for (let i = 0; i < data.length; i++) {
     if (i < period) {
-      filtered[i] = data[i]
+      filtered[i] = data[i];
     } else {
       // Subtract the signal from one period ago
-      filtered[i] = data[i] - 0.5 * data[i - period]
+      filtered[i] = data[i] - 0.5 * data[i - period];
     }
   }
 
-  return filtered
+  return filtered;
 }
 
 /**
  * Moving average smoothing
  */
 function applyMovingAverage(data: number[], windowSize: number): number[] {
-  const halfWindow = Math.floor(windowSize / 2)
-  const smoothed = new Array(data.length)
+  const halfWindow = Math.floor(windowSize / 2);
+  const smoothed = new Array(data.length);
 
   for (let i = 0; i < data.length; i++) {
-    const start = Math.max(0, i - halfWindow)
-    const end = Math.min(data.length, i + halfWindow + 1)
-    const window = data.slice(start, end)
-    smoothed[i] = window.reduce((sum, val) => sum + val, 0) / window.length
+    const start = Math.max(0, i - halfWindow);
+    const end = Math.min(data.length, i + halfWindow + 1);
+    const window = data.slice(start, end);
+    smoothed[i] = window.reduce((sum, val) => sum + val, 0) / window.length;
   }
 
-  return smoothed
+  return smoothed;
 }
 
 /**
  * Get Savitzky-Golay filter coefficients
  * Pre-computed for common window sizes and polynomial orders
  */
-function getSavitzkyGolayCoefficients(windowSize: number, polynomialOrder: number): number[] {
+function getSavitzkyGolayCoefficients(
+  windowSize: number,
+  polynomialOrder: number,
+): number[] {
   // Pre-computed coefficients for common configurations
   // Format: [windowSize][polynomialOrder]
   const coefficients: Record<string, Record<number, number[]>> = {
-    '5': {
+    "5": {
       2: [-3, 12, 17, 12, -3], // Window=5, Order=2 (quadratic)
       3: [-2, 3, 6, 7, 6, 3, -2], // Extend to 7 for cubic
     },
-    '7': {
+    "7": {
       2: [-2, 3, 6, 7, 6, 3, -2],
       3: [-3, 12, 17, 12, -3], // Remap from 5-point
     },
-    '9': {
+    "9": {
       2: [-21, 14, 39, 54, 59, 54, 39, 14, -21],
       4: [15, -55, 30, 135, 179, 135, 30, -55, 15],
     },
-    '11': {
+    "11": {
       2: [-36, 9, 44, 69, 84, 89, 84, 69, 44, 9, -36],
       4: [18, -45, -10, 60, 120, 143, 120, 60, -10, -45, 18],
     },
@@ -196,7 +218,7 @@ function getSavitzkyGolayCoefficients(windowSize: number, polynomialOrder: numbe
     const coefs = coefficients[key][polynomialOrder];
     // Normalize coefficients
     const sum = coefs.reduce((a, b) => a + b, 0);
-    return coefs.map(c => c / sum);
+    return coefs.map((c) => c / sum);
   }
 
   // Fallback: return uniform weights (moving average)
@@ -207,7 +229,11 @@ function getSavitzkyGolayCoefficients(windowSize: number, polynomialOrder: numbe
  * Savitzky-Golay filter (polynomial smoothing)
  * Polynomial smoothing that preserves features better than moving average
  */
-function applySavitzkyGolay(data: number[], windowSize: number, polynomialOrder: number): number[] {
+function applySavitzkyGolay(
+  data: number[],
+  windowSize: number,
+  polynomialOrder: number,
+): number[] {
   // Ensure window size is odd
   if (windowSize % 2 === 0) windowSize++;
 
@@ -217,7 +243,10 @@ function applySavitzkyGolay(data: number[], windowSize: number, polynomialOrder:
   }
 
   const halfWindow = Math.floor(windowSize / 2);
-  const coefficients = getSavitzkyGolayCoefficients(windowSize, polynomialOrder);
+  const coefficients = getSavitzkyGolayCoefficients(
+    windowSize,
+    polynomialOrder,
+  );
   const result: number[] = [];
 
   for (let i = 0; i < data.length; i++) {
@@ -246,68 +275,84 @@ function applySavitzkyGolay(data: number[], windowSize: number, polynomialOrder:
  */
 function removeOutliersSafe(
   data: number[],
-  method: 'clip' | 'remove' | 'interpolate',
-  threshold: number
+  method: "clip" | "remove" | "interpolate",
+  threshold: number,
 ): number[] {
-  const mean = data.reduce((sum, val) => sum + val, 0) / data.length
-  const variance = data.reduce((sum, val) => sum + (val - mean) ** 2, 0) / data.length
-  const stdDev = Math.sqrt(variance)
+  const mean = data.reduce((sum, val) => sum + val, 0) / data.length;
+  const variance =
+    data.reduce((sum, val) => sum + (val - mean) ** 2, 0) / data.length;
+  const stdDev = Math.sqrt(variance);
 
-  const lowerBound = mean - threshold * stdDev
-  const upperBound = mean + threshold * stdDev
+  const lowerBound = mean - threshold * stdDev;
+  const upperBound = mean + threshold * stdDev;
 
-  if (method === 'clip') {
-    return data.map(val => Math.max(lowerBound, Math.min(upperBound, val)))
-  } else if (method === 'remove') {
+  if (method === "clip") {
+    return data.map((val) => Math.max(lowerBound, Math.min(upperBound, val)));
+  } else if (method === "remove") {
     // Replace outliers with NaN (visualization should handle this)
-    return data.map(val => (val < lowerBound || val > upperBound) ? NaN : val)
+    return data.map((val) =>
+      val < lowerBound || val > upperBound ? NaN : val,
+    );
   } else {
     // Interpolate outliers
-    const result = [...data]
+    const result = [...data];
     for (let i = 0; i < result.length; i++) {
       if (result[i] < lowerBound || result[i] > upperBound) {
         // Linear interpolation between neighboring valid points
-        let prev = i - 1
-        while (prev >= 0 && (result[prev] < lowerBound || result[prev] > upperBound)) prev--
-        let next = i + 1
-        while (next < result.length && (result[next] < lowerBound || result[next] > upperBound)) next++
+        let prev = i - 1;
+        while (
+          prev >= 0 &&
+          (result[prev] < lowerBound || result[prev] > upperBound)
+        )
+          prev--;
+        let next = i + 1;
+        while (
+          next < result.length &&
+          (result[next] < lowerBound || result[next] > upperBound)
+        )
+          next++;
 
         if (prev >= 0 && next < result.length) {
-          const alpha = (i - prev) / (next - prev)
-          result[i] = result[prev] + alpha * (result[next] - result[prev])
+          const alpha = (i - prev) / (next - prev);
+          result[i] = result[prev] + alpha * (result[next] - result[prev]);
         } else if (prev >= 0) {
-          result[i] = result[prev]
+          result[i] = result[prev];
         } else if (next < result.length) {
-          result[i] = result[next]
+          result[i] = result[next];
         }
       }
     }
-    return result
+    return result;
   }
 }
 
 /**
  * Detect and remove spikes (sharp transients)
  */
-function removeSpikesSafe(data: number[], threshold: number, windowSize: number): number[] {
-  const result = [...data]
-  const halfWindow = Math.floor(windowSize / 2)
+function removeSpikesSafe(
+  data: number[],
+  threshold: number,
+  windowSize: number,
+): number[] {
+  const result = [...data];
+  const halfWindow = Math.floor(windowSize / 2);
 
   for (let i = halfWindow; i < data.length - halfWindow; i++) {
     // Calculate local statistics
-    const window = data.slice(i - halfWindow, i + halfWindow + 1)
-    const mean = window.reduce((sum, val) => sum + val, 0) / window.length
-    const variance = window.reduce((sum, val) => sum + (val - mean) ** 2, 0) / window.length
-    const stdDev = Math.sqrt(variance)
+    const window = data.slice(i - halfWindow, i + halfWindow + 1);
+    const mean = window.reduce((sum, val) => sum + val, 0) / window.length;
+    const variance =
+      window.reduce((sum, val) => sum + (val - mean) ** 2, 0) / window.length;
+    const stdDev = Math.sqrt(variance);
 
     // Check if center point is a spike
     if (Math.abs(data[i] - mean) > threshold * stdDev) {
       // Replace with interpolation
-      result[i] = (data[i - 1] + data[i + 1]) / 2
+      result[i] = (data[i - 1] + data[i + 1]) / 2;
     }
   }
 
-  return result
+  return result;
 }
 
 /**
@@ -315,27 +360,28 @@ function removeSpikesSafe(data: number[], threshold: number, windowSize: number)
  */
 function applyNormalization(
   data: number[],
-  method: 'zscore' | 'minmax',
-  range?: [number, number]
+  method: "zscore" | "minmax",
+  range?: [number, number],
 ): number[] {
-  if (method === 'zscore') {
-    const mean = data.reduce((sum, val) => sum + val, 0) / data.length
-    const variance = data.reduce((sum, val) => sum + (val - mean) ** 2, 0) / data.length
-    const stdDev = Math.sqrt(variance)
+  if (method === "zscore") {
+    const mean = data.reduce((sum, val) => sum + val, 0) / data.length;
+    const variance =
+      data.reduce((sum, val) => sum + (val - mean) ** 2, 0) / data.length;
+    const stdDev = Math.sqrt(variance);
 
-    if (stdDev === 0) return data
-    return data.map(val => (val - mean) / stdDev)
+    if (stdDev === 0) return data;
+    return data.map((val) => (val - mean) / stdDev);
   } else {
     // minmax
-    const min = Math.min(...data)
-    const max = Math.max(...data)
-    const [targetMin, targetMax] = range || [0, 1]
+    const min = Math.min(...data);
+    const max = Math.max(...data);
+    const [targetMin, targetMax] = range || [0, 1];
 
-    if (max === min) return data
-    return data.map(val => {
-      const normalized = (val - min) / (max - min)
-      return targetMin + normalized * (targetMax - targetMin)
-    })
+    if (max === min) return data;
+    return data.map((val) => {
+      const normalized = (val - min) / (max - min);
+      return targetMin + normalized * (targetMax - targetMin);
+    });
   }
 }
 
@@ -349,13 +395,13 @@ export function getDefaultPreprocessing(): PreprocessingOptions {
     notch: [],
     smoothing: {
       enabled: false,
-      method: 'moving_average',
+      method: "moving_average",
       windowSize: 5,
     },
-    baselineCorrection: 'none',
+    baselineCorrection: "none",
     outlierRemoval: {
       enabled: false,
-      method: 'clip',
+      method: "clip",
       threshold: 3,
     },
     spikeRemoval: {
@@ -363,7 +409,7 @@ export function getDefaultPreprocessing(): PreprocessingOptions {
       threshold: 4,
       windowSize: 10,
     },
-    normalization: 'none',
+    normalization: "none",
     normalizationRange: [-1, 1],
-  }
+  };
 }

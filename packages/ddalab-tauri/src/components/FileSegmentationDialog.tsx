@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -8,37 +8,43 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { EDFFileInfo } from '@/types/api'
-import { Folder, Loader2, Scissors } from 'lucide-react'
-import { TauriService } from '@/services/tauriService'
-import { formatBytes } from '@/lib/utils'
-import { ApiService } from '@/services/apiService'
-import { useLoadFileInfo } from '@/hooks/useFileManagement'
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { EDFFileInfo } from "@/types/api";
+import { Folder, Loader2, Scissors } from "lucide-react";
+import { TauriService } from "@/services/tauriService";
+import { formatBytes } from "@/lib/utils";
+import { ApiService } from "@/services/apiService";
+import { useLoadFileInfo } from "@/hooks/useFileManagement";
 
 interface FileSegmentationDialogProps {
-  open: boolean
-  onClose: () => void
-  file: EDFFileInfo | null
-  onSegment: (params: SegmentationParams) => Promise<void>
-  apiService: ApiService
+  open: boolean;
+  onClose: () => void;
+  file: EDFFileInfo | null;
+  onSegment: (params: SegmentationParams) => Promise<void>;
+  apiService: ApiService;
 }
 
 export interface SegmentationParams {
-  filePath: string
-  startTime: number
-  startUnit: 'seconds' | 'samples'
-  endTime: number
-  endUnit: 'seconds' | 'samples'
-  outputDirectory: string
-  outputFormat: 'same' | 'edf' | 'csv' | 'ascii'
-  outputFilename: string
-  selectedChannels: number[] | null
+  filePath: string;
+  startTime: number;
+  startUnit: "seconds" | "samples";
+  endTime: number;
+  endUnit: "seconds" | "samples";
+  outputDirectory: string;
+  outputFormat: "same" | "edf" | "csv" | "ascii";
+  outputFilename: string;
+  selectedChannels: number[] | null;
 }
 
 export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
@@ -48,120 +54,137 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
   onSegment,
   apiService,
 }) => {
-  const [startTime, setStartTime] = useState('0')
-  const [startUnit, setStartUnit] = useState<'seconds' | 'samples'>('seconds')
-  const [endTime, setEndTime] = useState('')
-  const [endUnit, setEndUnit] = useState<'seconds' | 'samples'>('seconds')
-  const [outputDirectory, setOutputDirectory] = useState('')
-  const [outputFormat, setOutputFormat] = useState<'same' | 'edf' | 'csv' | 'ascii'>('same')
-  const [outputFilename, setOutputFilename] = useState('')
-  const [selectedChannels, setSelectedChannels] = useState<Set<number>>(new Set())
-  const [selectAllChannels, setSelectAllChannels] = useState(true)
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [loadedFile, setLoadedFile] = useState<EDFFileInfo | null>(null)
+  const [startTime, setStartTime] = useState("0");
+  const [startUnit, setStartUnit] = useState<"seconds" | "samples">("seconds");
+  const [endTime, setEndTime] = useState("");
+  const [endUnit, setEndUnit] = useState<"seconds" | "samples">("seconds");
+  const [outputDirectory, setOutputDirectory] = useState("");
+  const [outputFormat, setOutputFormat] = useState<
+    "same" | "edf" | "csv" | "ascii"
+  >("same");
+  const [outputFilename, setOutputFilename] = useState("");
+  const [selectedChannels, setSelectedChannels] = useState<Set<number>>(
+    new Set(),
+  );
+  const [selectAllChannels, setSelectAllChannels] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [loadedFile, setLoadedFile] = useState<EDFFileInfo | null>(null);
 
-  const loadFileInfoMutation = useLoadFileInfo(apiService)
+  const loadFileInfoMutation = useLoadFileInfo(apiService);
 
   // Load full file info when dialog opens
   useEffect(() => {
     if (open && file) {
       // Reset form
-      setStartTime('0')
-      setStartUnit('seconds')
-      setEndTime('')
-      setEndUnit('seconds')
-      setOutputFormat('same')
-      setSelectAllChannels(true)
-      setSelectedChannels(new Set())
-      setLoadedFile(null)
+      setStartTime("0");
+      setStartUnit("seconds");
+      setEndTime("");
+      setEndUnit("seconds");
+      setOutputFormat("same");
+      setSelectAllChannels(true);
+      setSelectedChannels(new Set());
+      setLoadedFile(null);
 
       // Set default output directory to same directory as input file
-      const fileDir = file.file_path.substring(0, file.file_path.lastIndexOf('/'))
-      setOutputDirectory(fileDir)
+      const fileDir = file.file_path.substring(
+        0,
+        file.file_path.lastIndexOf("/"),
+      );
+      setOutputDirectory(fileDir);
 
       // Set default output filename
-      const baseName = file.file_name.substring(0, file.file_name.lastIndexOf('.'))
-      const extension = getFileExtension(file.file_name)
-      setOutputFilename(`${baseName}_cut.${extension}`)
+      const baseName = file.file_name.substring(
+        0,
+        file.file_name.lastIndexOf("."),
+      );
+      const extension = getFileExtension(file.file_name);
+      setOutputFilename(`${baseName}_cut.${extension}`);
 
       // Load full file info with channel information
       if (file.channels.length === 0) {
-        console.log('[SEGMENTATION] Loading full file info for channels:', file.file_path)
+        console.log(
+          "[SEGMENTATION] Loading full file info for channels:",
+          file.file_path,
+        );
         loadFileInfoMutation.mutate(file.file_path, {
           onSuccess: (fileInfo) => {
-            console.log('[SEGMENTATION] File info loaded with', fileInfo.channels.length, 'channels')
-            setLoadedFile(fileInfo)
+            console.log(
+              "[SEGMENTATION] File info loaded with",
+              fileInfo.channels.length,
+              "channels",
+            );
+            setLoadedFile(fileInfo);
           },
           onError: (error) => {
-            console.error('[SEGMENTATION] Failed to load file info:', error)
-          }
-        })
+            console.error("[SEGMENTATION] Failed to load file info:", error);
+          },
+        });
       } else {
         // File already has channels loaded
-        setLoadedFile(file)
+        setLoadedFile(file);
       }
     }
-  }, [open, file])
+  }, [open, file]);
 
   const handleSelectDirectory = async () => {
     try {
-      const selected = await TauriService.selectDirectory()
+      const selected = await TauriService.selectDirectory();
       if (selected) {
-        setOutputDirectory(selected)
+        setOutputDirectory(selected);
       }
     } catch (error) {
-      console.error('Failed to select directory:', error)
+      console.error("Failed to select directory:", error);
     }
-  }
+  };
 
   const toggleChannel = (channelIndex: number) => {
-    setSelectedChannels(prev => {
-      const newSet = new Set(prev)
+    setSelectedChannels((prev) => {
+      const newSet = new Set(prev);
       if (newSet.has(channelIndex)) {
-        newSet.delete(channelIndex)
+        newSet.delete(channelIndex);
       } else {
-        newSet.add(channelIndex)
+        newSet.add(channelIndex);
       }
-      return newSet
-    })
-    setSelectAllChannels(false)
-  }
+      return newSet;
+    });
+    setSelectAllChannels(false);
+  };
 
   const toggleAllChannels = () => {
     if (selectAllChannels) {
-      setSelectedChannels(new Set())
+      setSelectedChannels(new Set());
     } else {
       if (loadedFile) {
-        setSelectedChannels(new Set(loadedFile.channels.map((_, idx) => idx)))
+        setSelectedChannels(new Set(loadedFile.channels.map((_, idx) => idx)));
       }
     }
-    setSelectAllChannels(!selectAllChannels)
-  }
+    setSelectAllChannels(!selectAllChannels);
+  };
 
   const handleSegment = async () => {
-    if (!file || !outputDirectory || !outputFilename) return
+    if (!file || !outputDirectory || !outputFilename) return;
 
-    const start = parseFloat(startTime)
-    const end = parseFloat(endTime)
+    const start = parseFloat(startTime);
+    const end = parseFloat(endTime);
 
     if (isNaN(start) || start < 0) {
-      alert('Please enter a valid start time')
-      return
+      alert("Please enter a valid start time");
+      return;
     }
 
     if (isNaN(end) || end <= 0) {
-      alert('Please enter a valid end time')
-      return
+      alert("Please enter a valid end time");
+      return;
     }
 
     if (end <= start) {
-      alert('End time must be greater than start time')
-      return
+      alert("End time must be greater than start time");
+      return;
     }
 
     if (!selectAllChannels && selectedChannels.size === 0) {
-      alert('Please select at least one channel')
-      return
+      alert("Please select at least one channel");
+      return;
     }
 
     const params: SegmentationParams = {
@@ -174,69 +197,71 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
       outputFormat,
       outputFilename,
       selectedChannels: selectAllChannels ? null : Array.from(selectedChannels),
-    }
+    };
 
     try {
-      setIsProcessing(true)
-      await onSegment(params)
-      onClose()
+      setIsProcessing(true);
+      await onSegment(params);
+      onClose();
     } catch (error) {
-      console.error('Segmentation failed:', error)
-      alert(`Segmentation failed: ${error instanceof Error ? error.message : String(error)}`)
+      console.error("Segmentation failed:", error);
+      alert(
+        `Segmentation failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
-      setIsProcessing(false)
+      setIsProcessing(false);
     }
-  }
+  };
 
   const getFileExtension = (filename: string): string => {
-    const ext = filename.toLowerCase().split('.').pop()
-    return ext || ''
-  }
+    const ext = filename.toLowerCase().split(".").pop();
+    return ext || "";
+  };
 
   const getOutputFormatDisplay = () => {
-    if (!file) return ''
-    if (outputFormat === 'same') {
-      const ext = getFileExtension(file.file_name)
-      return ext.toUpperCase()
+    if (!file) return "";
+    if (outputFormat === "same") {
+      const ext = getFileExtension(file.file_name);
+      return ext.toUpperCase();
     }
-    return outputFormat.toUpperCase()
-  }
+    return outputFormat.toUpperCase();
+  };
 
   const formatDuration = (seconds: number): string => {
     if (seconds < 60) {
-      return `${seconds.toFixed(2)} sec`
+      return `${seconds.toFixed(2)} sec`;
     } else if (seconds < 3600) {
-      const minutes = Math.floor(seconds / 60)
-      const secs = (seconds % 60).toFixed(0)
-      return `${minutes} min ${secs} sec`
+      const minutes = Math.floor(seconds / 60);
+      const secs = (seconds % 60).toFixed(0);
+      return `${minutes} min ${secs} sec`;
     } else {
-      const hours = Math.floor(seconds / 3600)
-      const minutes = Math.floor((seconds % 3600) / 60)
-      return `${hours} hr ${minutes} min`
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      return `${hours} hr ${minutes} min`;
     }
-  }
+  };
 
   const calculateDuration = (): { valid: boolean; duration: string } => {
-    const start = parseFloat(startTime)
-    const end = parseFloat(endTime)
+    const start = parseFloat(startTime);
+    const end = parseFloat(endTime);
 
     if (isNaN(start) || isNaN(end) || end <= start) {
-      return { valid: false, duration: '-' }
+      return { valid: false, duration: "-" };
     }
 
-    const duration = end - start
-    if (startUnit === 'seconds' && endUnit === 'seconds') {
-      return { valid: true, duration: `${duration.toFixed(2)} seconds` }
-    } else if (startUnit === 'samples' && endUnit === 'samples') {
-      return { valid: true, duration: `${duration.toFixed(0)} samples` }
+    const duration = end - start;
+    if (startUnit === "seconds" && endUnit === "seconds") {
+      return { valid: true, duration: `${duration.toFixed(2)} seconds` };
+    } else if (startUnit === "samples" && endUnit === "samples") {
+      return { valid: true, duration: `${duration.toFixed(0)} samples` };
     } else {
-      return { valid: true, duration: 'Mixed units' }
+      return { valid: true, duration: "Mixed units" };
     }
-  }
+  };
 
-  if (!file) return null
+  if (!file) return null;
 
-  const durationInfo = calculateDuration()
+  const durationInfo = calculateDuration();
 
   return (
     <AlertDialog open={open} onOpenChange={onClose}>
@@ -272,18 +297,23 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
             <div className="text-sm font-medium">{file.file_name}</div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <div>
-                <span className="font-medium">Size:</span> {formatBytes(file.file_size)}
+                <span className="font-medium">Size:</span>{" "}
+                {formatBytes(file.file_size)}
               </div>
               <div>
-                <span className="font-medium">Duration:</span>{' '}
-                {loadedFile ? formatDuration(loadedFile.duration) : formatDuration(file.duration)}
+                <span className="font-medium">Duration:</span>{" "}
+                {loadedFile
+                  ? formatDuration(loadedFile.duration)
+                  : formatDuration(file.duration)}
               </div>
               <div>
-                <span className="font-medium">Sample Rate:</span>{' '}
-                {loadedFile ? `${loadedFile.sample_rate} Hz` : `${file.sample_rate} Hz`}
+                <span className="font-medium">Sample Rate:</span>{" "}
+                {loadedFile
+                  ? `${loadedFile.sample_rate} Hz`
+                  : `${file.sample_rate} Hz`}
               </div>
               <div>
-                <span className="font-medium">Channels:</span>{' '}
+                <span className="font-medium">Channels:</span>{" "}
                 {loadFileInfoMutation.isPending ? (
                   <span className="inline-flex items-center gap-1">
                     <Loader2 className="h-3 w-3 animate-spin" />
@@ -294,8 +324,12 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
                 )}
               </div>
               <div>
-                <span className="font-medium">Total Samples:</span>{' '}
-                {(loadedFile?.total_samples || file.total_samples || 0).toLocaleString()}
+                <span className="font-medium">Total Samples:</span>{" "}
+                {(
+                  loadedFile?.total_samples ||
+                  file.total_samples ||
+                  0
+                ).toLocaleString()}
               </div>
             </div>
           </div>
@@ -316,7 +350,12 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
             </div>
             <div className="space-y-2">
               <Label htmlFor="start-unit">Unit</Label>
-              <Select value={startUnit} onValueChange={(value) => setStartUnit(value as 'seconds' | 'samples')}>
+              <Select
+                value={startUnit}
+                onValueChange={(value) =>
+                  setStartUnit(value as "seconds" | "samples")
+                }
+              >
                 <SelectTrigger id="start-unit">
                   <SelectValue />
                 </SelectTrigger>
@@ -344,7 +383,12 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
             </div>
             <div className="space-y-2">
               <Label htmlFor="end-unit">Unit</Label>
-              <Select value={endUnit} onValueChange={(value) => setEndUnit(value as 'seconds' | 'samples')}>
+              <Select
+                value={endUnit}
+                onValueChange={(value) =>
+                  setEndUnit(value as "seconds" | "samples")
+                }
+              >
                 <SelectTrigger id="end-unit">
                   <SelectValue />
                 </SelectTrigger>
@@ -366,12 +410,18 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
           {/* Output Format */}
           <div className="space-y-2">
             <Label htmlFor="output-format">Output Format</Label>
-            <Select value={outputFormat} onValueChange={(value) => setOutputFormat(value as any)}>
+            <Select
+              value={outputFormat}
+              onValueChange={(value) => setOutputFormat(value as any)}
+            >
               <SelectTrigger id="output-format">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="same">Same as input ({getFileExtension(file.file_name).toUpperCase()})</SelectItem>
+                <SelectItem value="same">
+                  Same as input (
+                  {getFileExtension(file.file_name).toUpperCase()})
+                </SelectItem>
                 <SelectItem value="edf">EDF</SelectItem>
                 <SelectItem value="csv">CSV</SelectItem>
                 <SelectItem value="ascii">ASCII</SelectItem>
@@ -443,7 +493,10 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
                         checked={selectedChannels.has(idx)}
                         onCheckedChange={() => toggleChannel(idx)}
                       />
-                      <label htmlFor={`channel-${idx}`} className="text-sm cursor-pointer flex-1">
+                      <label
+                        htmlFor={`channel-${idx}`}
+                        className="text-sm cursor-pointer flex-1"
+                      >
                         {channel}
                       </label>
                     </div>
@@ -462,7 +515,12 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
             <div className="text-sm font-medium mb-1">Output Summary</div>
             <div className="text-xs text-muted-foreground space-y-1">
               <div>Format: {getOutputFormatDisplay()}</div>
-              <div>Channels: {selectAllChannels ? (loadedFile?.channels.length || 0) : selectedChannels.size}</div>
+              <div>
+                Channels:{" "}
+                {selectAllChannels
+                  ? loadedFile?.channels.length || 0
+                  : selectedChannels.size}
+              </div>
               <div>Filename: {outputFilename}</div>
             </div>
           </div>
@@ -472,7 +530,12 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
           <AlertDialogCancel disabled={isProcessing}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             onClick={handleSegment}
-            disabled={isProcessing || !outputDirectory || !outputFilename || !durationInfo.valid}
+            disabled={
+              isProcessing ||
+              !outputDirectory ||
+              !outputFilename ||
+              !durationInfo.valid
+            }
           >
             {isProcessing ? (
               <>
@@ -489,5 +552,5 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  )
-}
+  );
+};

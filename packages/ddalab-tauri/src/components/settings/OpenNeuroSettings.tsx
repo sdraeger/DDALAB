@@ -1,104 +1,120 @@
-'use client'
+"use client";
 
-import { useState, useEffect } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Key, Eye, EyeOff, ExternalLink, Check, X, Database } from 'lucide-react'
-import { openNeuroService } from '@/services/openNeuroService'
-import { TauriService } from '@/services/tauriService'
+import { useState, useEffect } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Key,
+  Eye,
+  EyeOff,
+  ExternalLink,
+  Check,
+  X,
+  Database,
+} from "lucide-react";
+import { openNeuroService } from "@/services/openNeuroService";
+import { TauriService } from "@/services/tauriService";
 
 export function OpenNeuroSettings() {
-  const [apiKey, setApiKey] = useState('')
-  const [showApiKey, setShowApiKey] = useState(false)
-  const [hasExistingKey, setHasExistingKey] = useState(false)
-  const [keyPreview, setKeyPreview] = useState<string | undefined>(undefined)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
+  const [apiKey, setApiKey] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [hasExistingKey, setHasExistingKey] = useState(false);
+  const [keyPreview, setKeyPreview] = useState<string | undefined>(undefined);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    checkExistingKey()
+    checkExistingKey();
     // Refresh status every 10 seconds
-    const interval = setInterval(checkExistingKey, 10000)
-    return () => clearInterval(interval)
-  }, [])
+    const interval = setInterval(checkExistingKey, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   const checkExistingKey = async () => {
     try {
-      const status = await openNeuroService.checkApiKey()
-      setHasExistingKey(status.has_key)
-      setKeyPreview(status.key_preview)
+      const status = await openNeuroService.checkApiKey();
+      setHasExistingKey(status.has_key);
+      setKeyPreview(status.key_preview);
     } catch (err) {
-      console.error('Failed to check API key:', err)
+      console.error("Failed to check API key:", err);
     }
-  }
+  };
 
   const handleSave = async () => {
     if (!apiKey.trim()) {
-      setError('Please enter an API key')
-      return
+      setError("Please enter an API key");
+      return;
     }
 
-    setLoading(true)
-    setError(null)
-    setSuccess(false)
+    setLoading(true);
+    setError(null);
+    setSuccess(false);
 
     try {
-      await openNeuroService.saveApiKey(apiKey.trim())
-      setSuccess(true)
-      setHasExistingKey(true)
-      setApiKey('')
+      await openNeuroService.saveApiKey(apiKey.trim());
+      setSuccess(true);
+      setHasExistingKey(true);
+      setApiKey("");
 
       // Clear success message after 3 seconds
       setTimeout(() => {
-        setSuccess(false)
-      }, 3000)
+        setSuccess(false);
+      }, 3000);
 
       // Refresh key status
-      await checkExistingKey()
+      await checkExistingKey();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save API key')
+      setError(err instanceof Error ? err.message : "Failed to save API key");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleDelete = async () => {
-    if (!window.confirm('Are you sure you want to delete your OpenNeuro API key?')) {
-      return
+    if (
+      !window.confirm("Are you sure you want to delete your OpenNeuro API key?")
+    ) {
+      return;
     }
 
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
 
     try {
-      await openNeuroService.deleteApiKey()
-      setHasExistingKey(false)
-      setKeyPreview(undefined)
-      setApiKey('')
-      setSuccess(false)
+      await openNeuroService.deleteApiKey();
+      setHasExistingKey(false);
+      setKeyPreview(undefined);
+      setApiKey("");
+      setSuccess(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete API key')
+      setError(err instanceof Error ? err.message : "Failed to delete API key");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleOpenKeyGen = async () => {
     if (TauriService.isTauri()) {
       try {
-        await TauriService.openUrl('https://openneuro.org/keygen')
+        await TauriService.openUrl("https://openneuro.org/keygen");
       } catch (error) {
-        console.error('Failed to open URL:', error)
-        window.open('https://openneuro.org/keygen', '_blank')
+        console.error("Failed to open URL:", error);
+        window.open("https://openneuro.org/keygen", "_blank");
       }
     } else {
-      window.open('https://openneuro.org/keygen', '_blank')
+      window.open("https://openneuro.org/keygen", "_blank");
     }
-  }
+  };
 
   return (
     <div className="space-y-6">
@@ -163,7 +179,7 @@ export function OpenNeuroSettings() {
             <div className="relative">
               <Input
                 id="openneuro-api-key"
-                type={showApiKey ? 'text' : 'password'}
+                type={showApiKey ? "text" : "password"}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="Enter your OpenNeuro API key..."
@@ -208,7 +224,11 @@ export function OpenNeuroSettings() {
               disabled={loading || !apiKey.trim()}
               className="flex-1"
             >
-              {loading ? 'Saving...' : hasExistingKey ? 'Update Key' : 'Save Key'}
+              {loading
+                ? "Saving..."
+                : hasExistingKey
+                  ? "Update Key"
+                  : "Save Key"}
             </Button>
             {hasExistingKey && (
               <Button
@@ -228,5 +248,5 @@ export function OpenNeuroSettings() {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

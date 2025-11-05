@@ -1,15 +1,23 @@
-import { useQuery, useQueries } from '@tanstack/react-query';
-import { isBIDSDataset, readDatasetDescription, getDatasetSummary } from '@/services/bids';
-import type { DirectoryEntry, BIDSInfo } from '@/types/bids';
+import { useQuery, useQueries } from "@tanstack/react-query";
+import {
+  isBIDSDataset,
+  readDatasetDescription,
+  getDatasetSummary,
+} from "@/services/bids";
+import type { DirectoryEntry, BIDSInfo } from "@/types/bids";
 
 export const bidsKeys = {
-  all: ['bids'] as const,
-  detection: (path: string) => [...bidsKeys.all, 'detection', path] as const,
-  description: (path: string) => [...bidsKeys.all, 'description', path] as const,
-  summary: (path: string) => [...bidsKeys.all, 'summary', path] as const,
+  all: ["bids"] as const,
+  detection: (path: string) => [...bidsKeys.all, "detection", path] as const,
+  description: (path: string) =>
+    [...bidsKeys.all, "description", path] as const,
+  summary: (path: string) => [...bidsKeys.all, "summary", path] as const,
 };
 
-export function useBIDSDetection(directoryPath: string, enabled: boolean = true) {
+export function useBIDSDetection(
+  directoryPath: string,
+  enabled: boolean = true,
+) {
   return useQuery({
     queryKey: bidsKeys.detection(directoryPath),
     queryFn: async (): Promise<{ isBIDS: boolean; bidsInfo?: BIDSInfo }> => {
@@ -45,7 +53,10 @@ export function useBIDSDetection(directoryPath: string, enabled: boolean = true)
   });
 }
 
-export function useBIDSDescription(directoryPath: string, enabled: boolean = true) {
+export function useBIDSDescription(
+  directoryPath: string,
+  enabled: boolean = true,
+) {
   return useQuery({
     queryKey: bidsKeys.description(directoryPath),
     queryFn: () => readDatasetDescription(directoryPath),
@@ -65,9 +76,11 @@ export function useBIDSSummary(directoryPath: string, enabled: boolean = true) {
   });
 }
 
-export function useBIDSMultipleDetections(directories: Array<{ name: string; path: string }>) {
+export function useBIDSMultipleDetections(
+  directories: Array<{ name: string; path: string }>,
+) {
   return useQueries({
-    queries: directories.map(dir => ({
+    queries: directories.map((dir) => ({
       queryKey: bidsKeys.detection(dir.path),
       queryFn: async (): Promise<DirectoryEntry> => {
         try {

@@ -1,34 +1,49 @@
-import React, { useState, useEffect } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { CheckCircle2, XCircle, Loader2, Play, Square, Zap } from 'lucide-react'
-import { TauriService } from '@/services/tauriService'
+import React, { useState, useEffect } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Play,
+  Square,
+  Zap,
+} from "lucide-react";
+import { TauriService } from "@/services/tauriService";
 import {
   useApiStatusWithHealth,
   useStartLocalApiServer,
   useStopLocalApiServer,
-} from '@/hooks/useApiStatus'
+} from "@/hooks/useApiStatus";
 
 interface EmbeddedApiManagerProps {
-  onApiReady?: (apiUrl: string) => void
+  onApiReady?: (apiUrl: string) => void;
 }
 
 interface EmbeddedApiStatus {
-  running: boolean
-  port: number
-  url?: string
+  running: boolean;
+  port: number;
+  url?: string;
 }
 
 interface EmbeddedApiHealth {
-  status: string
-  healthy: boolean
-  health?: any
-  error?: string
+  status: string;
+  healthy: boolean;
+  health?: any;
+  error?: string;
 }
 
-export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiReady }) => {
+export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({
+  onApiReady,
+}) => {
   // TanStack Query hooks
   const {
     status,
@@ -37,70 +52,91 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiRea
     refetchAll,
   } = useApiStatusWithHealth({
     refetchInterval: 10 * 1000, // Poll every 10 seconds
-  })
+  });
 
-  const startServerMutation = useStartLocalApiServer()
-  const stopServerMutation = useStopLocalApiServer()
+  const startServerMutation = useStartLocalApiServer();
+  const stopServerMutation = useStopLocalApiServer();
 
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null);
 
   // Auto-start server if not running (on mount)
   useEffect(() => {
     const autoStart = async () => {
       if (status && !status.running) {
-        console.log('Local API not running, auto-starting...')
+        console.log("Local API not running, auto-starting...");
         try {
-          await startServerMutation.mutateAsync()
+          await startServerMutation.mutateAsync();
         } catch (err) {
-          console.error('Failed to auto-start server:', err)
+          console.error("Failed to auto-start server:", err);
         }
       }
-    }
+    };
 
     // Small delay to ensure initial status check completes
-    const timer = setTimeout(autoStart, 500)
-    return () => clearTimeout(timer)
-  }, [status?.running])
+    const timer = setTimeout(autoStart, 500);
+    return () => clearTimeout(timer);
+  }, [status?.running]);
 
   // Notify parent when API becomes ready
   useEffect(() => {
     if (status?.running && health?.healthy && status.url && onApiReady) {
-      onApiReady(status.url)
+      onApiReady(status.url);
     }
-  }, [status, health, onApiReady])
+  }, [status, health, onApiReady]);
 
   const handleStartServer = async () => {
     try {
-      setError(null)
-      await startServerMutation.mutateAsync()
+      setError(null);
+      await startServerMutation.mutateAsync();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start local API server')
+      setError(
+        err instanceof Error ? err.message : "Failed to start local API server",
+      );
     }
-  }
+  };
 
   const handleStopServer = async () => {
     try {
-      setError(null)
-      await stopServerMutation.mutateAsync()
+      setError(null);
+      await stopServerMutation.mutateAsync();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to stop local API server')
+      setError(
+        err instanceof Error ? err.message : "Failed to stop local API server",
+      );
     }
-  }
+  };
 
-  const isLoading = startServerMutation.isPending || stopServerMutation.isPending
+  const isLoading =
+    startServerMutation.isPending || stopServerMutation.isPending;
 
   const getStatusBadge = () => {
     if (!status?.running) {
-      return <Badge variant="outline" className="bg-gray-100 text-gray-700">Stopped</Badge>
+      return (
+        <Badge variant="outline" className="bg-gray-100 text-gray-700">
+          Stopped
+        </Badge>
+      );
     }
     if (health?.healthy) {
-      return <Badge variant="outline" className="bg-green-100 text-green-700">Running</Badge>
+      return (
+        <Badge variant="outline" className="bg-green-100 text-green-700">
+          Running
+        </Badge>
+      );
     }
-    if (health?.status === 'running') {
-      return <Badge variant="outline" className="bg-yellow-100 text-yellow-700">Starting...</Badge>
+    if (health?.status === "running") {
+      return (
+        <Badge variant="outline" className="bg-yellow-100 text-yellow-700">
+          Starting...
+        </Badge>
+      );
     }
-    return <Badge variant="outline" className="bg-gray-100 text-gray-700">Unknown</Badge>
-  }
+    return (
+      <Badge variant="outline" className="bg-gray-100 text-gray-700">
+        Unknown
+      </Badge>
+    );
+  };
 
   return (
     <Card className="border-l-4 border-l-blue-500">
@@ -131,7 +167,10 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiRea
             <AlertDescription className="text-green-800 dark:text-green-200">
               <div className="font-medium">API server is running</div>
               <div className="text-sm mt-1">
-                Available at: <code className="bg-green-100 dark:bg-green-900 px-1 py-0.5 rounded">{status?.url || 'http://localhost:8765'}</code>
+                Available at:{" "}
+                <code className="bg-green-100 dark:bg-green-900 px-1 py-0.5 rounded">
+                  {status?.url || "http://localhost:8765"}
+                </code>
               </div>
             </AlertDescription>
           </Alert>
@@ -166,7 +205,11 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiRea
 
           <div className="flex gap-2 pt-2">
             {!status?.running ? (
-              <Button onClick={handleStartServer} disabled={isLoading} className="flex-1">
+              <Button
+                onClick={handleStartServer}
+                disabled={isLoading}
+                className="flex-1"
+              >
                 {isLoading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -203,5 +246,5 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({ onApiRea
         </div>
       </CardContent>
     </Card>
-  )
-}
+  );
+};

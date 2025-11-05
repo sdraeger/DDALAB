@@ -1,9 +1,13 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { Upload, CheckCircle, AlertCircle, Loader2, X } from 'lucide-react';
-import { openNeuroService, type UploadOptions, type UploadProgress } from '@/services/openNeuroService';
-import { listen } from '@tauri-apps/api/event';
+import { useState, useEffect } from "react";
+import { Upload, CheckCircle, AlertCircle, Loader2, X } from "lucide-react";
+import {
+  openNeuroService,
+  type UploadOptions,
+  type UploadProgress,
+} from "@/services/openNeuroService";
+import { listen } from "@tauri-apps/api/event";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,13 +17,13 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Progress } from '@/components/ui/progress';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface BIDSUploadDialogProps {
   isOpen: boolean;
@@ -34,11 +38,13 @@ export function BIDSUploadDialog({
   datasetPath,
   onUploadComplete,
 }: BIDSUploadDialogProps) {
-  const [datasetName, setDatasetName] = useState('');
-  const [datasetDescription, setDatasetDescription] = useState('');
+  const [datasetName, setDatasetName] = useState("");
+  const [datasetDescription, setDatasetDescription] = useState("");
   const [affirmDefaced, setAffirmDefaced] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [datasetId, setDatasetId] = useState<string | null>(null);
 
@@ -46,13 +52,13 @@ export function BIDSUploadDialog({
     let unlisten: (() => void) | null = null;
 
     if (isOpen) {
-      listen<UploadProgress>('openneuro-upload-progress', (event) => {
+      listen<UploadProgress>("openneuro-upload-progress", (event) => {
         setUploadProgress(event.payload);
 
-        if (event.payload.phase === 'completed' && event.payload.dataset_id) {
+        if (event.payload.phase === "completed" && event.payload.dataset_id) {
           setDatasetId(event.payload.dataset_id);
           setUploading(false);
-        } else if (event.payload.phase === 'error') {
+        } else if (event.payload.phase === "error") {
           setError(event.payload.message);
           setUploading(false);
         }
@@ -70,12 +76,14 @@ export function BIDSUploadDialog({
 
   const handleUpload = async () => {
     if (!affirmDefaced) {
-      setError('You must confirm that structural scans have been defaced or you have consent');
+      setError(
+        "You must confirm that structural scans have been defaced or you have consent",
+      );
       return;
     }
 
     if (!datasetName.trim()) {
-      setError('Dataset name is required');
+      setError("Dataset name is required");
       return;
     }
 
@@ -86,15 +94,15 @@ export function BIDSUploadDialog({
     try {
       // Check authentication
       if (!openNeuroService.isAuthenticated()) {
-        throw new Error('Please configure your OpenNeuro API key first');
+        throw new Error("Please configure your OpenNeuro API key first");
       }
 
       // Step 1: Create dataset on OpenNeuro
       setUploadProgress({
         dataset_id: undefined,
-        phase: 'creating_dataset',
+        phase: "creating_dataset",
         progress_percent: 10,
-        message: 'Creating dataset on OpenNeuro...',
+        message: "Creating dataset on OpenNeuro...",
         current_file: undefined,
         files_uploaded: undefined,
         total_files: undefined,
@@ -103,16 +111,16 @@ export function BIDSUploadDialog({
       const createdDatasetId = await openNeuroService.createDataset(
         datasetName.trim(),
         affirmDefaced,
-        affirmDefaced
+        affirmDefaced,
       );
 
       setDatasetId(createdDatasetId);
 
       setUploadProgress({
         dataset_id: createdDatasetId,
-        phase: 'uploading_files',
+        phase: "uploading_files",
         progress_percent: 30,
-        message: 'Dataset created. Preparing file upload...',
+        message: "Dataset created. Preparing file upload...",
         current_file: undefined,
         files_uploaded: undefined,
         total_files: undefined,
@@ -132,7 +140,7 @@ export function BIDSUploadDialog({
       // For now, we show success after validation
       setUploadProgress({
         dataset_id: createdDatasetId,
-        phase: 'completed',
+        phase: "completed",
         progress_percent: 100,
         message: `Dataset created successfully! Visit https://openneuro.org/datasets/${createdDatasetId}`,
         current_file: undefined,
@@ -145,18 +153,17 @@ export function BIDSUploadDialog({
       if (onUploadComplete) {
         onUploadComplete(createdDatasetId);
       }
-
     } catch (err) {
-      console.error('Upload failed:', err);
-      setError(err instanceof Error ? err.message : 'Upload failed');
+      console.error("Upload failed:", err);
+      setError(err instanceof Error ? err.message : "Upload failed");
       setUploading(false);
     }
   };
 
   const handleClose = () => {
     if (!uploading) {
-      setDatasetName('');
-      setDatasetDescription('');
+      setDatasetName("");
+      setDatasetDescription("");
       setAffirmDefaced(false);
       setError(null);
       setUploadProgress(null);
@@ -213,7 +220,9 @@ export function BIDSUploadDialog({
             <Checkbox
               id="affirm-defaced"
               checked={affirmDefaced}
-              onCheckedChange={(checked) => setAffirmDefaced(checked as boolean)}
+              onCheckedChange={(checked) =>
+                setAffirmDefaced(checked as boolean)
+              }
               disabled={uploading}
             />
             <div className="grid gap-1.5 leading-none">
@@ -224,8 +233,8 @@ export function BIDSUploadDialog({
                 I confirm that structural scans have been defaced *
               </label>
               <p className="text-sm text-muted-foreground">
-                Or I have explicit participant consent and ethical authorization to publish
-                identifiable data
+                Or I have explicit participant consent and ethical authorization
+                to publish identifiable data
               </p>
             </div>
           </div>
@@ -234,14 +243,16 @@ export function BIDSUploadDialog({
           {uploadProgress && (
             <div className="space-y-2">
               <div className="flex items-center space-x-2">
-                {uploadProgress.phase === 'completed' ? (
+                {uploadProgress.phase === "completed" ? (
                   <CheckCircle className="h-4 w-4 text-green-600" />
-                ) : uploadProgress.phase === 'error' ? (
+                ) : uploadProgress.phase === "error" ? (
                   <AlertCircle className="h-4 w-4 text-red-600" />
                 ) : (
                   <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
                 )}
-                <span className="text-sm font-medium">{uploadProgress.message}</span>
+                <span className="text-sm font-medium">
+                  {uploadProgress.message}
+                </span>
               </div>
               <Progress value={uploadProgress.progress_percent} />
               {uploadProgress.current_file && (
@@ -249,11 +260,13 @@ export function BIDSUploadDialog({
                   Uploading: {uploadProgress.current_file}
                 </p>
               )}
-              {uploadProgress.files_uploaded !== undefined && uploadProgress.total_files !== undefined && (
-                <p className="text-sm text-muted-foreground">
-                  {uploadProgress.files_uploaded} / {uploadProgress.total_files} files uploaded
-                </p>
-              )}
+              {uploadProgress.files_uploaded !== undefined &&
+                uploadProgress.total_files !== undefined && (
+                  <p className="text-sm text-muted-foreground">
+                    {uploadProgress.files_uploaded} /{" "}
+                    {uploadProgress.total_files} files uploaded
+                  </p>
+                )}
             </div>
           )}
 
@@ -266,11 +279,11 @@ export function BIDSUploadDialog({
           )}
 
           {/* Success Message with Link */}
-          {datasetId && uploadProgress?.phase === 'completed' && (
+          {datasetId && uploadProgress?.phase === "completed" && (
             <Alert>
               <CheckCircle className="h-4 w-4" />
               <AlertDescription>
-                Dataset uploaded successfully!{' '}
+                Dataset uploaded successfully!{" "}
                 <a
                   href={`https://openneuro.org/datasets/${datasetId}`}
                   target="_blank"
@@ -286,10 +299,13 @@ export function BIDSUploadDialog({
 
         <AlertDialogFooter>
           <AlertDialogCancel onClick={handleClose} disabled={uploading}>
-            {datasetId ? 'Close' : 'Cancel'}
+            {datasetId ? "Close" : "Cancel"}
           </AlertDialogCancel>
           {!datasetId && (
-            <AlertDialogAction onClick={handleUpload} disabled={uploading || !affirmDefaced || !datasetName.trim()}>
+            <AlertDialogAction
+              onClick={handleUpload}
+              disabled={uploading || !affirmDefaced || !datasetName.trim()}
+            >
               {uploading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

@@ -1,238 +1,345 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
+  <head>
     <title>DDALAB App Icon - Final Version</title>
     <style>
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; 
-            background: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%);
-            margin: 0;
-            padding: 40px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            min-height: 100vh;
-        }
-        
-        .header {
-            text-align: center;
-            margin-bottom: 40px;
-        }
-        
-        h1 { 
-            color: #1e40af; 
-            margin: 0 0 10px 0;
-            font-size: 2.5em;
-            font-weight: 300;
-        }
-        
-        .subtitle {
-            color: #64748b;
-            font-size: 1.1em;
-        }
-        
-        .icon-showcase {
-            background: white;
-            border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
-            display: flex;
-            align-items: center;
-            gap: 40px;
-        }
-        
-        .icon-container {
-            text-align: center;
-        }
-        
-        .icon-label {
-            color: #374151;
-            font-weight: 600;
-            margin-bottom: 15px;
-            font-size: 0.9em;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        
-        .icon {
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            transition: transform 0.2s ease;
-        }
-        
-        .icon:hover {
-            transform: scale(1.05);
-        }
-        
-        .icon-32 { width: 32px; height: 32px; }
-        .icon-64 { width: 64px; height: 64px; }
-        .icon-128 { width: 128px; height: 128px; }
-        .icon-256 { width: 256px; height: 256px; }
-        
-        .main-preview {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 24px;
-            padding: 60px;
-            margin-bottom: 40px;
-            box-shadow: 0 12px 40px rgba(0,0,0,0.2);
-        }
-        
-        .instructions {
-            background: white;
-            border-radius: 16px;
-            padding: 30px;
-            max-width: 600px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-            border-left: 4px solid #3b82f6;
-        }
-        
-        .instructions h3 {
-            margin-top: 0;
-            color: #1e40af;
-        }
-        
-        .step {
-            margin: 15px 0;
-            padding-left: 20px;
-            position: relative;
-        }
-        
-        .step:before {
-            content: "→";
-            position: absolute;
-            left: 0;
-            color: #3b82f6;
-            font-weight: bold;
-        }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+        background: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%);
+        margin: 0;
+        padding: 40px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-height: 100vh;
+      }
+
+      .header {
+        text-align: center;
+        margin-bottom: 40px;
+      }
+
+      h1 {
+        color: #1e40af;
+        margin: 0 0 10px 0;
+        font-size: 2.5em;
+        font-weight: 300;
+      }
+
+      .subtitle {
+        color: #64748b;
+        font-size: 1.1em;
+      }
+
+      .icon-showcase {
+        background: white;
+        border-radius: 20px;
+        padding: 40px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        margin-bottom: 30px;
+        display: flex;
+        align-items: center;
+        gap: 40px;
+      }
+
+      .icon-container {
+        text-align: center;
+      }
+
+      .icon-label {
+        color: #374151;
+        font-weight: 600;
+        margin-bottom: 15px;
+        font-size: 0.9em;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      .icon {
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        transition: transform 0.2s ease;
+      }
+
+      .icon:hover {
+        transform: scale(1.05);
+      }
+
+      .icon-32 {
+        width: 32px;
+        height: 32px;
+      }
+      .icon-64 {
+        width: 64px;
+        height: 64px;
+      }
+      .icon-128 {
+        width: 128px;
+        height: 128px;
+      }
+      .icon-256 {
+        width: 256px;
+        height: 256px;
+      }
+
+      .main-preview {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 24px;
+        padding: 60px;
+        margin-bottom: 40px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+      }
+
+      .instructions {
+        background: white;
+        border-radius: 16px;
+        padding: 30px;
+        max-width: 600px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        border-left: 4px solid #3b82f6;
+      }
+
+      .instructions h3 {
+        margin-top: 0;
+        color: #1e40af;
+      }
+
+      .step {
+        margin: 15px 0;
+        padding-left: 20px;
+        position: relative;
+      }
+
+      .step:before {
+        content: "→";
+        position: absolute;
+        left: 0;
+        color: #3b82f6;
+        font-weight: bold;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="header">
-        <h1>DDALAB App Icon</h1>
-        <div class="subtitle">Brain-themed icon with excellent contrast</div>
+      <h1>DDALAB App Icon</h1>
+      <div class="subtitle">Brain-themed icon with excellent contrast</div>
     </div>
-    
+
     <div class="main-preview">
-        <div class="icon-container">
-            <svg class="icon-256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                    <radialGradient id="bgGradient" cx="50%" cy="30%" r="70%">
-                        <stop offset="0%" style="stop-color:#3b82f6"/>
-                        <stop offset="100%" style="stop-color:#1e40af"/>
-                    </radialGradient>
-                    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-                        <feDropShadow dx="2" dy="4" stdDeviation="3" flood-color="rgba(0,0,0,0.3)"/>
-                    </filter>
-                </defs>
-                <circle cx="128" cy="128" r="120" fill="rgba(0,0,0,0.1)"/>
-                <circle cx="128" cy="128" r="116" fill="url(#bgGradient)" filter="url(#shadow)"/>
-                <circle cx="128" cy="128" r="116" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="2"/>
-                <g transform="translate(128,128) scale(4.5,4.5)" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
-                    <path d="M0 6V-7"/>
-                    <path d="M3 1a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/>
-                    <path d="M5.598-5.5A3 3 0 1 0 0-7a3 3 0 1 0-5.598 1.5"/>
-                    <path d="M5.997-6.875a4 4 0 0 1 2.526 5.77"/>
-                    <path d="M6 6a4 4 0 0 0 2-7.464"/>
-                    <path d="M7.967 5.483A4 4 0 1 1 0 6a4 4 0 1 1-7.967-.517"/>
-                    <path d="M-6 6a4 4 0 0 1-2-7.464"/>
-                    <path d="M-5.997-6.875a4 4 0 0 0-2.526 5.77"/>
-                </g>
-                <circle cx="128" cy="128" r="116" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
-            </svg>
-        </div>
+      <div class="icon-container">
+        <svg
+          class="icon-256"
+          viewBox="0 0 256 256"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <radialGradient id="bgGradient" cx="50%" cy="30%" r="70%">
+              <stop offset="0%" style="stop-color: #3b82f6" />
+              <stop offset="100%" style="stop-color: #1e40af" />
+            </radialGradient>
+            <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow
+                dx="2"
+                dy="4"
+                stdDeviation="3"
+                flood-color="rgba(0,0,0,0.3)"
+              />
+            </filter>
+          </defs>
+          <circle cx="128" cy="128" r="120" fill="rgba(0,0,0,0.1)" />
+          <circle
+            cx="128"
+            cy="128"
+            r="116"
+            fill="url(#bgGradient)"
+            filter="url(#shadow)"
+          />
+          <circle
+            cx="128"
+            cy="128"
+            r="116"
+            fill="none"
+            stroke="rgba(255,255,255,0.2)"
+            stroke-width="2"
+          />
+          <g
+            transform="translate(128,128) scale(4.5,4.5)"
+            stroke="white"
+            stroke-width="2.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            fill="none"
+          >
+            <path d="M0 6V-7" />
+            <path d="M3 1a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4" />
+            <path d="M5.598-5.5A3 3 0 1 0 0-7a3 3 0 1 0-5.598 1.5" />
+            <path d="M5.997-6.875a4 4 0 0 1 2.526 5.77" />
+            <path d="M6 6a4 4 0 0 0 2-7.464" />
+            <path d="M7.967 5.483A4 4 0 1 1 0 6a4 4 0 1 1-7.967-.517" />
+            <path d="M-6 6a4 4 0 0 1-2-7.464" />
+            <path d="M-5.997-6.875a4 4 0 0 0-2.526 5.77" />
+          </g>
+          <circle
+            cx="128"
+            cy="128"
+            r="116"
+            fill="none"
+            stroke="rgba(255,255,255,0.3)"
+            stroke-width="1"
+          />
+        </svg>
+      </div>
     </div>
-    
+
     <div class="icon-showcase">
-        <div class="icon-container">
-            <div class="icon-label">32×32 px</div>
-            <svg class="icon icon-32" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                    <radialGradient id="bg32" cx="50%" cy="30%" r="70%">
-                        <stop offset="0%" style="stop-color:#3b82f6"/>
-                        <stop offset="100%" style="stop-color:#1e40af"/>
-                    </radialGradient>
-                </defs>
-                <circle cx="128" cy="128" r="116" fill="url(#bg32)"/>
-                <g transform="translate(128,128) scale(4.5,4.5)" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
-                    <path d="M0 6V-7"/>
-                    <path d="M3 1a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/>
-                    <path d="M5.598-5.5A3 3 0 1 0 0-7a3 3 0 1 0-5.598 1.5"/>
-                    <path d="M5.997-6.875a4 4 0 0 1 2.526 5.77"/>
-                    <path d="M6 6a4 4 0 0 0 2-7.464"/>
-                    <path d="M7.967 5.483A4 4 0 1 1 0 6a4 4 0 1 1-7.967-.517"/>
-                    <path d="M-6 6a4 4 0 0 1-2-7.464"/>
-                    <path d="M-5.997-6.875a4 4 0 0 0-2.526 5.77"/>
-                </g>
-            </svg>
-        </div>
-        
-        <div class="icon-container">
-            <div class="icon-label">64×64 px</div>
-            <svg class="icon icon-64" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                    <radialGradient id="bg64" cx="50%" cy="30%" r="70%">
-                        <stop offset="0%" style="stop-color:#3b82f6"/>
-                        <stop offset="100%" style="stop-color:#1e40af"/>
-                    </radialGradient>
-                </defs>
-                <circle cx="128" cy="128" r="116" fill="url(#bg64)"/>
-                <g transform="translate(128,128) scale(4.5,4.5)" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
-                    <path d="M0 6V-7"/>
-                    <path d="M3 1a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/>
-                    <path d="M5.598-5.5A3 3 0 1 0 0-7a3 3 0 1 0-5.598 1.5"/>
-                    <path d="M5.997-6.875a4 4 0 0 1 2.526 5.77"/>
-                    <path d="M6 6a4 4 0 0 0 2-7.464"/>
-                    <path d="M7.967 5.483A4 4 0 1 1 0 6a4 4 0 1 1-7.967-.517"/>
-                    <path d="M-6 6a4 4 0 0 1-2-7.464"/>
-                    <path d="M-5.997-6.875a4 4 0 0 0-2.526 5.77"/>
-                </g>
-            </svg>
-        </div>
-        
-        <div class="icon-container">
-            <div class="icon-label">128×128 px</div>
-            <svg class="icon icon-128" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                    <radialGradient id="bg128" cx="50%" cy="30%" r="70%">
-                        <stop offset="0%" style="stop-color:#3b82f6"/>
-                        <stop offset="100%" style="stop-color:#1e40af"/>
-                    </radialGradient>
-                </defs>
-                <circle cx="128" cy="128" r="116" fill="url(#bg128)"/>
-                <circle cx="128" cy="128" r="116" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="2"/>
-                <g transform="translate(128,128) scale(4.5,4.5)" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
-                    <path d="M0 6V-7"/>
-                    <path d="M3 1a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/>
-                    <path d="M5.598-5.5A3 3 0 1 0 0-7a3 3 0 1 0-5.598 1.5"/>
-                    <path d="M5.997-6.875a4 4 0 0 1 2.526 5.77"/>
-                    <path d="M6 6a4 4 0 0 0 2-7.464"/>
-                    <path d="M7.967 5.483A4 4 0 1 1 0 6a4 4 0 1 1-7.967-.517"/>
-                    <path d="M-6 6a4 4 0 0 1-2-7.464"/>
-                    <path d="M-5.997-6.875a4 4 0 0 0-2.526 5.77"/>
-                </g>
-            </svg>
-        </div>
+      <div class="icon-container">
+        <div class="icon-label">32×32 px</div>
+        <svg
+          class="icon icon-32"
+          viewBox="0 0 256 256"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <radialGradient id="bg32" cx="50%" cy="30%" r="70%">
+              <stop offset="0%" style="stop-color: #3b82f6" />
+              <stop offset="100%" style="stop-color: #1e40af" />
+            </radialGradient>
+          </defs>
+          <circle cx="128" cy="128" r="116" fill="url(#bg32)" />
+          <g
+            transform="translate(128,128) scale(4.5,4.5)"
+            stroke="white"
+            stroke-width="2.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            fill="none"
+          >
+            <path d="M0 6V-7" />
+            <path d="M3 1a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4" />
+            <path d="M5.598-5.5A3 3 0 1 0 0-7a3 3 0 1 0-5.598 1.5" />
+            <path d="M5.997-6.875a4 4 0 0 1 2.526 5.77" />
+            <path d="M6 6a4 4 0 0 0 2-7.464" />
+            <path d="M7.967 5.483A4 4 0 1 1 0 6a4 4 0 1 1-7.967-.517" />
+            <path d="M-6 6a4 4 0 0 1-2-7.464" />
+            <path d="M-5.997-6.875a4 4 0 0 0-2.526 5.77" />
+          </g>
+        </svg>
+      </div>
+
+      <div class="icon-container">
+        <div class="icon-label">64×64 px</div>
+        <svg
+          class="icon icon-64"
+          viewBox="0 0 256 256"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <radialGradient id="bg64" cx="50%" cy="30%" r="70%">
+              <stop offset="0%" style="stop-color: #3b82f6" />
+              <stop offset="100%" style="stop-color: #1e40af" />
+            </radialGradient>
+          </defs>
+          <circle cx="128" cy="128" r="116" fill="url(#bg64)" />
+          <g
+            transform="translate(128,128) scale(4.5,4.5)"
+            stroke="white"
+            stroke-width="2.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            fill="none"
+          >
+            <path d="M0 6V-7" />
+            <path d="M3 1a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4" />
+            <path d="M5.598-5.5A3 3 0 1 0 0-7a3 3 0 1 0-5.598 1.5" />
+            <path d="M5.997-6.875a4 4 0 0 1 2.526 5.77" />
+            <path d="M6 6a4 4 0 0 0 2-7.464" />
+            <path d="M7.967 5.483A4 4 0 1 1 0 6a4 4 0 1 1-7.967-.517" />
+            <path d="M-6 6a4 4 0 0 1-2-7.464" />
+            <path d="M-5.997-6.875a4 4 0 0 0-2.526 5.77" />
+          </g>
+        </svg>
+      </div>
+
+      <div class="icon-container">
+        <div class="icon-label">128×128 px</div>
+        <svg
+          class="icon icon-128"
+          viewBox="0 0 256 256"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <radialGradient id="bg128" cx="50%" cy="30%" r="70%">
+              <stop offset="0%" style="stop-color: #3b82f6" />
+              <stop offset="100%" style="stop-color: #1e40af" />
+            </radialGradient>
+          </defs>
+          <circle cx="128" cy="128" r="116" fill="url(#bg128)" />
+          <circle
+            cx="128"
+            cy="128"
+            r="116"
+            fill="none"
+            stroke="rgba(255,255,255,0.2)"
+            stroke-width="2"
+          />
+          <g
+            transform="translate(128,128) scale(4.5,4.5)"
+            stroke="white"
+            stroke-width="2.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            fill="none"
+          >
+            <path d="M0 6V-7" />
+            <path d="M3 1a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4" />
+            <path d="M5.598-5.5A3 3 0 1 0 0-7a3 3 0 1 0-5.598 1.5" />
+            <path d="M5.997-6.875a4 4 0 0 1 2.526 5.77" />
+            <path d="M6 6a4 4 0 0 0 2-7.464" />
+            <path d="M7.967 5.483A4 4 0 1 1 0 6a4 4 0 1 1-7.967-.517" />
+            <path d="M-6 6a4 4 0 0 1-2-7.464" />
+            <path d="M-5.997-6.875a4 4 0 0 0-2.526 5.77" />
+          </g>
+        </svg>
+      </div>
     </div>
-    
+
     <div class="instructions">
-        <h3>📱 How to Generate PNG Files</h3>
-        
-        <div class="step">Open your browser's developer tools (F12)</div>
-        <div class="step">Right-click on each icon above and select "Save image as..."</div>
-        <div class="step">Save with these exact filenames:
-            <ul style="margin: 8px 0 0 20px;">
-                <li><code>32x32.png</code> (from the 32×32 icon)</li>
-                <li><code>128x128.png</code> (from the 128×128 icon)</li>
-                <li><code>128x128@2x.png</code> (from the large 256×256 icon above)</li>
-            </ul>
-        </div>
-        <div class="step">Replace the existing PNG files in the <code>src-tauri/icons/</code> directory</div>
-        <div class="step">Rebuild your Tauri app to see the new icon</div>
-        
-        <div style="margin-top: 20px; padding: 15px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
-            <strong>💡 Pro tip:</strong> The icon uses your app's exact brain.svg design with a beautiful blue gradient background and excellent contrast that will look great on any desktop!
-        </div>
+      <h3>📱 How to Generate PNG Files</h3>
+
+      <div class="step">Open your browser's developer tools (F12)</div>
+      <div class="step">
+        Right-click on each icon above and select "Save image as..."
+      </div>
+      <div class="step">
+        Save with these exact filenames:
+        <ul style="margin: 8px 0 0 20px">
+          <li><code>32x32.png</code> (from the 32×32 icon)</li>
+          <li><code>128x128.png</code> (from the 128×128 icon)</li>
+          <li>
+            <code>128x128@2x.png</code> (from the large 256×256 icon above)
+          </li>
+        </ul>
+      </div>
+      <div class="step">
+        Replace the existing PNG files in the
+        <code>src-tauri/icons/</code> directory
+      </div>
+      <div class="step">Rebuild your Tauri app to see the new icon</div>
+
+      <div
+        style="
+          margin-top: 20px;
+          padding: 15px;
+          background: #f8fafc;
+          border-radius: 8px;
+          border: 1px solid #e2e8f0;
+        "
+      >
+        <strong>💡 Pro tip:</strong> The icon uses your app's exact brain.svg
+        design with a beautiful blue gradient background and excellent contrast
+        that will look great on any desktop!
+      </div>
     </div>
-</body>
+  </body>
 </html>

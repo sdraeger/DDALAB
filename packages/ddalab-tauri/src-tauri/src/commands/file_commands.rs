@@ -325,9 +325,8 @@ fn export_segment(
 pub async fn compute_file_hash(file_path: String) -> Result<String, String> {
     log::debug!("[FILE_HASH] Computing BLAKE3 hash for: {}", file_path);
 
-    crate::utils::file_hash::compute_file_hash(&file_path)
-        .map_err(|e| {
-            log::error!("[FILE_HASH] Failed to compute hash: {}", e);
-            format!("Failed to compute file hash: {}", e)
-        })
+    crate::utils::file_hash::compute_file_hash(&file_path).map_err(|e| {
+        log::error!("[FILE_HASH] Failed to compute hash: {}", e);
+        format!("Failed to compute file hash: {}", e)
+    })
 }

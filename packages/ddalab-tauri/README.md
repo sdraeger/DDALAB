@@ -37,12 +37,14 @@ npm install
 ### Development Mode
 
 **Option 1: All-in-one (Recommended)**
+
 ```bash
 # Start API server and desktop app together
 npm run desktop:with-api
 ```
 
 **Option 2: Manual control**
+
 ```bash
 # Start API server first
 npm run api:start
@@ -58,12 +60,14 @@ npm run api:stop
 ```
 
 **Option 3: Desktop app only (API must be running elsewhere)**
+
 ```bash
 npm run dev          # Next.js only (web browser)
 npm run tauri:dev    # Tauri desktop app
 ```
 
 **Option 4: From project root (API only)**
+
 ```bash
 # Start just the API server and dependencies
 ./scripts/start-api-only.sh up
@@ -114,6 +118,7 @@ The app automatically attempts to connect to the Python API server at `http://lo
 ### File Access
 
 The app has permission to access:
+
 - Documents folder
 - Downloads folder
 - Desktop folder
@@ -166,6 +171,7 @@ npm run dev  # Starts all services including API
 ```
 
 The desktop app provides the same functionality as the web interface but with:
+
 - Native file system access
 - Offline preference storage
 - System-level integration

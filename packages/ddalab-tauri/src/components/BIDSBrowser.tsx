@@ -59,13 +59,13 @@ export function BIDSBrowser({
   const [datasetSummary, setDatasetSummary] =
     useState<BIDSDatasetSummary | null>(null);
   const [selectedSubject, setSelectedSubject] = useState<BIDSSubject | null>(
-    null
+    null,
   );
   const [selectedSession, setSelectedSession] = useState<BIDSSession | null>(
-    null
+    null,
   );
   const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(
-    new Set()
+    new Set(),
   );
 
   useEffect(() => {
@@ -124,7 +124,7 @@ export function BIDSBrowser({
 
     const extension = filePath.split(".").pop()?.toLowerCase();
     return ["edf", "fif", "csv", "txt", "ascii", "vhdr", "set", "nii"].includes(
-      extension || ""
+      extension || "",
     );
   };
 
@@ -372,7 +372,7 @@ export function BIDSBrowser({
                                     <Badge
                                       variant="secondary"
                                       className={`text-xs ${getModalityColor(
-                                        run.modality
+                                        run.modality,
                                       )}`}
                                     >
                                       {run.modality.toUpperCase()}

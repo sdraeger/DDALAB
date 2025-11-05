@@ -21,33 +21,33 @@ export interface FileManagerState {
 
 export interface PreprocessingOptions {
   // Filters
-  highpass?: number;           // Hz, e.g., 0.5 (removes DC drift)
-  lowpass?: number;            // Hz, e.g., 70 (anti-aliasing)
-  notch?: number[];            // Hz, e.g., [50, 60] (line noise)
+  highpass?: number; // Hz, e.g., 0.5 (removes DC drift)
+  lowpass?: number; // Hz, e.g., 70 (anti-aliasing)
+  notch?: number[]; // Hz, e.g., [50, 60] (line noise)
 
   // Signal enhancement
   smoothing?: {
     enabled: boolean;
-    method: 'moving_average' | 'savitzky_golay';
-    windowSize: number;        // samples
-    polynomialOrder?: number;  // for Savitzky-Golay
+    method: "moving_average" | "savitzky_golay";
+    windowSize: number; // samples
+    polynomialOrder?: number; // for Savitzky-Golay
   };
-  baselineCorrection?: 'none' | 'mean' | 'median';
+  baselineCorrection?: "none" | "mean" | "median";
 
   // Artifact removal
   outlierRemoval?: {
     enabled: boolean;
-    method: 'clip' | 'remove' | 'interpolate';
-    threshold: number;         // in standard deviations
+    method: "clip" | "remove" | "interpolate";
+    threshold: number; // in standard deviations
   };
   spikeRemoval?: {
     enabled: boolean;
-    threshold: number;         // in standard deviations
-    windowSize: number;        // samples for detection
+    threshold: number; // in standard deviations
+    windowSize: number; // samples for detection
   };
 
   // Normalization
-  normalization?: 'none' | 'zscore' | 'minmax';
+  normalization?: "none" | "zscore" | "minmax";
   normalizationRange?: [number, number]; // for minmax, e.g., [-1, 1]
 }
 

@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { AnnotationContextMenuProps } from '@/types/annotations'
-import { Label } from '@/components/ui/label'
-import { Checkbox } from '@/components/ui/checkbox'
+import React, { useState, useEffect, useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { AnnotationContextMenuProps } from "@/types/annotations";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
   x,
@@ -15,96 +15,98 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
   onEditAnnotation,
   onDeleteAnnotation,
   availablePlots,
-  currentPlotId
+  currentPlotId,
 }) => {
-  const [label, setLabel] = useState(existingAnnotation?.label || '')
-  const [description, setDescription] = useState(existingAnnotation?.description || '')
+  const [label, setLabel] = useState(existingAnnotation?.label || "");
+  const [description, setDescription] = useState(
+    existingAnnotation?.description || "",
+  );
 
   // Initialize visible plots - default to current plot if new annotation
   const [visibleInPlots, setVisibleInPlots] = useState<Set<string>>(() => {
     if (existingAnnotation?.visible_in_plots) {
-      return new Set(existingAnnotation.visible_in_plots)
+      return new Set(existingAnnotation.visible_in_plots);
     }
     // Default: show in all plots
-    return new Set(availablePlots.map(p => p.id))
-  })
+    return new Set(availablePlots.map((p) => p.id));
+  });
 
-  const menuRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null);
 
   // Update state when existingAnnotation changes
   useEffect(() => {
-    setLabel(existingAnnotation?.label || '')
-    setDescription(existingAnnotation?.description || '')
+    setLabel(existingAnnotation?.label || "");
+    setDescription(existingAnnotation?.description || "");
     if (existingAnnotation?.visible_in_plots) {
-      setVisibleInPlots(new Set(existingAnnotation.visible_in_plots))
+      setVisibleInPlots(new Set(existingAnnotation.visible_in_plots));
     } else {
-      setVisibleInPlots(new Set(availablePlots.map(p => p.id)))
+      setVisibleInPlots(new Set(availablePlots.map((p) => p.id)));
     }
-  }, [existingAnnotation, availablePlots])
+  }, [existingAnnotation, availablePlots]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        onClose()
+        onClose();
       }
-    }
+    };
 
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose()
+      if (event.key === "Escape") {
+        onClose();
       }
-    }
+    };
 
-    document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('keydown', handleEscape)
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleEscape)
-    }
-  }, [onClose])
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [onClose]);
 
   const togglePlot = (plotId: string) => {
-    setVisibleInPlots(prev => {
-      const newSet = new Set(prev)
+    setVisibleInPlots((prev) => {
+      const newSet = new Set(prev);
       if (newSet.has(plotId)) {
-        newSet.delete(plotId)
+        newSet.delete(plotId);
       } else {
-        newSet.add(plotId)
+        newSet.add(plotId);
       }
-      return newSet
-    })
-  }
+      return newSet;
+    });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!label.trim()) return
+    e.preventDefault();
+    if (!label.trim()) return;
 
-    const plotsArray = Array.from(visibleInPlots)
+    const plotsArray = Array.from(visibleInPlots);
 
     // If no plots selected, delete the annotation
     if (plotsArray.length === 0) {
       if (existingAnnotation && onDeleteAnnotation) {
-        onDeleteAnnotation(existingAnnotation.id)
+        onDeleteAnnotation(existingAnnotation.id);
       }
-      onClose()
-      return
+      onClose();
+      return;
     }
 
     if (existingAnnotation && onEditAnnotation) {
-      onEditAnnotation(existingAnnotation.id, label, description, plotsArray)
+      onEditAnnotation(existingAnnotation.id, label, description, plotsArray);
     } else {
-      onCreateAnnotation(plotPosition, label, description, plotsArray)
+      onCreateAnnotation(plotPosition, label, description, plotsArray);
     }
-    onClose()
-  }
+    onClose();
+  };
 
   const handleDelete = () => {
     if (existingAnnotation && onDeleteAnnotation) {
-      onDeleteAnnotation(existingAnnotation.id)
+      onDeleteAnnotation(existingAnnotation.id);
     }
-    onClose()
-  }
+    onClose();
+  };
 
   return (
     <div
@@ -112,13 +114,13 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
       className="fixed bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg p-4 z-50 min-w-[300px] max-w-[400px]"
       style={{
         left: `${x}px`,
-        top: `${y}px`
+        top: `${y}px`,
       }}
     >
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-            {existingAnnotation ? 'Edit Annotation' : 'Add Annotation'}
+            {existingAnnotation ? "Edit Annotation" : "Add Annotation"}
           </label>
           <Input
             type="text"
@@ -133,7 +135,9 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
           <textarea
             placeholder="Description (optional)"
             value={description}
-            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDescription(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+              setDescription(e.target.value)
+            }
             className="w-full resize-none border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             rows={3}
           />
@@ -144,7 +148,7 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
             Visible in Plots
           </Label>
           <div className="space-y-1.5 max-h-48 overflow-y-auto">
-            {availablePlots.map(plot => (
+            {availablePlots.map((plot) => (
               <div key={plot.id} className="flex items-center space-x-2">
                 <Checkbox
                   id={`plot-${plot.id}`}
@@ -172,7 +176,7 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
         </div>
         <div className="flex gap-2">
           <Button type="submit" size="sm" disabled={!label.trim()}>
-            {existingAnnotation ? 'Update' : 'Add'}
+            {existingAnnotation ? "Update" : "Add"}
           </Button>
           {existingAnnotation && onDeleteAnnotation && (
             <Button
@@ -190,5 +194,5 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
         </div>
       </form>
     </div>
-  )
-}
+  );
+};

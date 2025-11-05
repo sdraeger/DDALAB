@@ -1,151 +1,166 @@
-import React, { useState, useEffect } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Separator } from '@/components/ui/separator'
+import React, { useState, useEffect } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Separator } from "@/components/ui/separator";
 import {
   DockerStackService,
   DockerStackStatus,
   DockerRequirements,
   ServiceStatus,
-  HealthStatus
-} from '@/services/dockerStackService'
+  HealthStatus,
+} from "@/services/dockerStackService";
 
 interface DockerStackManagerProps {
-  onApiReady?: (apiUrl: string) => void
+  onApiReady?: (apiUrl: string) => void;
 }
 
-export const DockerStackManager: React.FC<DockerStackManagerProps> = ({ onApiReady }) => {
-  const [stackStatus, setStackStatus] = useState<DockerStackStatus | null>(null)
-  const [requirements, setRequirements] = useState<DockerRequirements | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [isInitialized, setIsInitialized] = useState(false)
+export const DockerStackManager: React.FC<DockerStackManagerProps> = ({
+  onApiReady,
+}) => {
+  const [stackStatus, setStackStatus] = useState<DockerStackStatus | null>(
+    null,
+  );
+  const [requirements, setRequirements] = useState<DockerRequirements | null>(
+    null,
+  );
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   // Load initial status
   useEffect(() => {
-    checkRequirementsAndStatus()
-  }, [])
+    checkRequirementsAndStatus();
+  }, []);
 
   // Auto-refresh status every 30 seconds when running
   useEffect(() => {
     if (stackStatus?.is_running) {
-      const interval = setInterval(refreshStatus, 30000)
-      return () => clearInterval(interval)
+      const interval = setInterval(refreshStatus, 30000);
+      return () => clearInterval(interval);
     }
-  }, [stackStatus?.is_running])
+  }, [stackStatus?.is_running]);
 
   // Notify parent when API becomes ready
   useEffect(() => {
     if (stackStatus?.is_running && onApiReady) {
-      const apiService = stackStatus.services.find(s => s.name === 'ddalab-api-tauri')
+      const apiService = stackStatus.services.find(
+        (s) => s.name === "ddalab-api-tauri",
+      );
       if (apiService && apiService.status === ServiceStatus.Running) {
-        onApiReady('http://localhost:8000')
+        onApiReady("http://localhost:8000");
       }
     }
-  }, [stackStatus, onApiReady])
+  }, [stackStatus, onApiReady]);
 
   const checkRequirementsAndStatus = async () => {
     try {
-      setLoading(true)
-      setError(null)
+      setLoading(true);
+      setError(null);
 
       // Check Docker requirements
-      const reqs = await DockerStackService.checkDockerRequirements()
-      setRequirements(reqs)
+      const reqs = await DockerStackService.checkDockerRequirements();
+      setRequirements(reqs);
 
       // Get current status
-      const status = await DockerStackService.getDockerStackStatus()
-      setStackStatus(status)
-      setIsInitialized(status.setup_directory !== null)
-
+      const status = await DockerStackService.getDockerStackStatus();
+      setStackStatus(status);
+      setIsInitialized(status.setup_directory !== null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error occurred')
+      setError(err instanceof Error ? err.message : "Unknown error occurred");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const refreshStatus = async () => {
     try {
-      const status = await DockerStackService.getDockerStackStatus()
-      setStackStatus(status)
+      const status = await DockerStackService.getDockerStackStatus();
+      setStackStatus(status);
     } catch (err) {
-      console.warn('Failed to refresh status:', err)
+      console.warn("Failed to refresh status:", err);
     }
-  }
+  };
 
   const setupStack = async () => {
     try {
-      setLoading(true)
-      setError(null)
+      setLoading(true);
+      setError(null);
 
-      const status = await DockerStackService.setupDockerStack()
-      setStackStatus(status)
-      setIsInitialized(true)
-
+      const status = await DockerStackService.setupDockerStack();
+      setStackStatus(status);
+      setIsInitialized(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Setup failed')
+      setError(err instanceof Error ? err.message : "Setup failed");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const startStack = async () => {
     try {
-      setLoading(true)
-      setError(null)
+      setLoading(true);
+      setError(null);
 
-      const status = await DockerStackService.startDockerStack()
-      setStackStatus(status)
-
+      const status = await DockerStackService.startDockerStack();
+      setStackStatus(status);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Start failed')
+      setError(err instanceof Error ? err.message : "Start failed");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const stopStack = async () => {
     try {
-      setLoading(true)
-      setError(null)
+      setLoading(true);
+      setError(null);
 
-      const status = await DockerStackService.stopDockerStack()
-      setStackStatus(status)
-
+      const status = await DockerStackService.stopDockerStack();
+      setStackStatus(status);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Stop failed')
+      setError(err instanceof Error ? err.message : "Stop failed");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const getOverallStatus = () => {
-    if (!stackStatus) return 'Unknown'
-    if (stackStatus.is_running) return 'Running'
-    if (stackStatus.services.length > 0) return 'Stopped'
-    return 'Not Setup'
-  }
+    if (!stackStatus) return "Unknown";
+    if (stackStatus.is_running) return "Running";
+    if (stackStatus.services.length > 0) return "Stopped";
+    return "Not Setup";
+  };
 
   const getOverallStatusColor = () => {
-    const status = getOverallStatus()
+    const status = getOverallStatus();
     switch (status) {
-      case 'Running':
-        return 'bg-green-100 text-green-800'
-      case 'Stopped':
-        return 'bg-yellow-100 text-yellow-800'
-      case 'Not Setup':
-        return 'bg-gray-100 text-gray-800'
+      case "Running":
+        return "bg-green-100 text-green-800";
+      case "Stopped":
+        return "bg-yellow-100 text-yellow-800";
+      case "Not Setup":
+        return "bg-gray-100 text-gray-800";
       default:
-        return 'bg-gray-100 text-gray-800'
+        return "bg-gray-100 text-gray-800";
     }
-  }
+  };
 
-  const canStart = requirements?.docker && requirements?.docker_compose && isInitialized && !stackStatus?.is_running
-  const canStop = stackStatus?.is_running
-  const needsSetup = !isInitialized && requirements?.docker && requirements?.docker_compose
+  const canStart =
+    requirements?.docker &&
+    requirements?.docker_compose &&
+    isInitialized &&
+    !stackStatus?.is_running;
+  const canStop = stackStatus?.is_running;
+  const needsSetup =
+    !isInitialized && requirements?.docker && requirements?.docker_compose;
 
   return (
     <Card className="w-full">
@@ -172,20 +187,12 @@ export const DockerStackManager: React.FC<DockerStackManagerProps> = ({ onApiRea
               Refresh
             </Button>
             {needsSetup && (
-              <Button
-                onClick={setupStack}
-                variant="default"
-                disabled={loading}
-              >
+              <Button onClick={setupStack} variant="default" disabled={loading}>
                 Setup
               </Button>
             )}
             {canStart && (
-              <Button
-                onClick={startStack}
-                variant="default"
-                disabled={loading}
-              >
+              <Button onClick={startStack} variant="default" disabled={loading}>
                 Start
               </Button>
             )}
@@ -215,12 +222,18 @@ export const DockerStackManager: React.FC<DockerStackManagerProps> = ({ onApiRea
             <h4 className="text-sm font-medium">Requirements</h4>
             <div className="flex gap-4">
               <div className="flex items-center gap-2">
-                <Badge variant={requirements.docker ? "default" : "destructive"}>
+                <Badge
+                  variant={requirements.docker ? "default" : "destructive"}
+                >
                   Docker {requirements.docker ? "✓" : "✗"}
                 </Badge>
               </div>
               <div className="flex items-center gap-2">
-                <Badge variant={requirements.docker_compose ? "default" : "destructive"}>
+                <Badge
+                  variant={
+                    requirements.docker_compose ? "default" : "destructive"
+                  }
+                >
                   Docker Compose {requirements.docker_compose ? "✓" : "✗"}
                 </Badge>
               </div>
@@ -229,10 +242,17 @@ export const DockerStackManager: React.FC<DockerStackManagerProps> = ({ onApiRea
             {(!requirements.docker || !requirements.docker_compose) && (
               <Alert>
                 <AlertDescription>
-                  Please install Docker and Docker Compose to use the DDALAB backend services.
-                  Visit <a href="https://docs.docker.com/get-docker/" className="underline" target="_blank" rel="noopener noreferrer">
+                  Please install Docker and Docker Compose to use the DDALAB
+                  backend services. Visit{" "}
+                  <a
+                    href="https://docs.docker.com/get-docker/"
+                    className="underline"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
                     Docker's website
-                  </a> for installation instructions.
+                  </a>{" "}
+                  for installation instructions.
                 </AlertDescription>
               </Alert>
             )}
@@ -247,13 +267,16 @@ export const DockerStackManager: React.FC<DockerStackManagerProps> = ({ onApiRea
               <h4 className="text-sm font-medium">Services</h4>
               <div className="space-y-2">
                 {stackStatus.services.map((service, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div
+                    key={index}
+                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                  >
                     <div className="flex items-center gap-3">
                       <div>
                         <h5 className="font-medium">{service.name}</h5>
                         {service.ports.length > 0 && (
                           <p className="text-sm text-gray-500">
-                            Ports: {service.ports.join(', ')}
+                            Ports: {service.ports.join(", ")}
                           </p>
                         )}
                       </div>
@@ -261,16 +284,24 @@ export const DockerStackManager: React.FC<DockerStackManagerProps> = ({ onApiRea
                     <div className="flex items-center gap-2">
                       <Badge
                         variant="outline"
-                        className={DockerStackService.getStatusColor(service.status)}
+                        className={DockerStackService.getStatusColor(
+                          service.status,
+                        )}
                       >
-                        {DockerStackService.getServiceStatusText(service.status)}
+                        {DockerStackService.getServiceStatusText(
+                          service.status,
+                        )}
                       </Badge>
                       {service.health !== HealthStatus.Unknown && (
                         <Badge
                           variant="outline"
-                          className={DockerStackService.getHealthColor(service.health)}
+                          className={DockerStackService.getHealthColor(
+                            service.health,
+                          )}
                         >
-                          {DockerStackService.getHealthStatusText(service.health)}
+                          {DockerStackService.getHealthStatusText(
+                            service.health,
+                          )}
                         </Badge>
                       )}
                     </div>
@@ -287,8 +318,9 @@ export const DockerStackManager: React.FC<DockerStackManagerProps> = ({ onApiRea
             <Separator />
             <Alert>
               <AlertDescription>
-                Click "Setup" to clone the DDALAB setup repository and configure the backend services.
-                This will create a local Docker environment for the DDALAB API.
+                Click "Setup" to clone the DDALAB setup repository and configure
+                the backend services. This will create a local Docker
+                environment for the DDALAB API.
               </AlertDescription>
             </Alert>
           </div>
@@ -300,10 +332,13 @@ export const DockerStackManager: React.FC<DockerStackManagerProps> = ({ onApiRea
             {stackStatus.setup_directory && (
               <p>Setup Directory: {stackStatus.setup_directory}</p>
             )}
-            <p>Last Checked: {new Date(stackStatus.last_checked).toLocaleString()}</p>
+            <p>
+              Last Checked:{" "}
+              {new Date(stackStatus.last_checked).toLocaleString()}
+            </p>
           </div>
         )}
       </CardContent>
     </Card>
-  )
-}
+  );
+};

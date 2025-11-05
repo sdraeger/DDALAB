@@ -1,15 +1,15 @@
-import React, { useEffect, useRef } from 'react'
-import { EDFFileInfo } from '@/types/api'
-import { Scissors, ExternalLink, Info } from 'lucide-react'
+import React, { useEffect, useRef } from "react";
+import { EDFFileInfo } from "@/types/api";
+import { Scissors, ExternalLink, Info } from "lucide-react";
 
 interface FileContextMenuProps {
-  x: number
-  y: number
-  file: EDFFileInfo
-  onClose: () => void
-  onSegmentFile: (file: EDFFileInfo) => void
-  onOpenInSystemViewer?: (file: EDFFileInfo) => void
-  onShowFileInfo?: (file: EDFFileInfo) => void
+  x: number;
+  y: number;
+  file: EDFFileInfo;
+  onClose: () => void;
+  onSegmentFile: (file: EDFFileInfo) => void;
+  onOpenInSystemViewer?: (file: EDFFileInfo) => void;
+  onShowFileInfo?: (file: EDFFileInfo) => void;
 }
 
 export const FileContextMenu: React.FC<FileContextMenuProps> = ({
@@ -21,34 +21,34 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
   onOpenInSystemViewer,
   onShowFileInfo,
 }) => {
-  const menuRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        onClose()
+        onClose();
       }
-    }
+    };
 
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose()
+      if (event.key === "Escape") {
+        onClose();
       }
-    }
+    };
 
-    document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('keydown', handleEscape)
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleEscape)
-    }
-  }, [onClose])
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [onClose]);
 
   const handleMenuItemClick = (action: () => void) => {
-    action()
-    onClose()
-  }
+    action();
+    onClose();
+  };
 
   return (
     <div
@@ -93,5 +93,5 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
         </button>
       )}
     </div>
-  )
-}
+  );
+};
