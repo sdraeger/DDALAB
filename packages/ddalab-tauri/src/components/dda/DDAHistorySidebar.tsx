@@ -1,10 +1,10 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { DDAResult } from '@/types/api'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
+import { useState } from "react";
+import { DDAResult } from "@/types/api";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   RefreshCw,
   Pencil,
@@ -13,20 +13,20 @@ import {
   ChevronRight,
   Star,
   Save,
-} from 'lucide-react'
-import { cn } from '@/lib/utils'
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface DDAHistorySidebarProps {
-  history: DDAResult[]
-  currentAnalysisId: string | null
-  selectedAnalysisId: string | null
-  isLoading: boolean
-  isCollapsed: boolean
-  onToggleCollapse: () => void
-  onSelectAnalysis: (analysis: DDAResult) => void
-  onDeleteAnalysis: (id: string, e: React.MouseEvent) => void
-  onRenameAnalysis: (id: string, name: string) => void
-  onRefresh: () => void
+  history: DDAResult[];
+  currentAnalysisId: string | null;
+  selectedAnalysisId: string | null;
+  isLoading: boolean;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
+  onSelectAnalysis: (analysis: DDAResult) => void;
+  onDeleteAnalysis: (id: string, e: React.MouseEvent) => void;
+  onRenameAnalysis: (id: string, name: string) => void;
+  onRefresh: () => void;
 }
 
 export function DDAHistorySidebar({
@@ -41,27 +41,27 @@ export function DDAHistorySidebar({
   onRenameAnalysis,
   onRefresh,
 }: DDAHistorySidebarProps) {
-  const [renamingId, setRenamingId] = useState<string | null>(null)
-  const [newName, setNewName] = useState('')
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [newName, setNewName] = useState("");
 
   const handleStartRename = (analysis: DDAResult, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setRenamingId(analysis.id)
-    setNewName(analysis.name || '')
-  }
+    e.stopPropagation();
+    setRenamingId(analysis.id);
+    setNewName(analysis.name || "");
+  };
 
   const handleSubmitRename = (id: string) => {
     if (newName.trim()) {
-      onRenameAnalysis(id, newName.trim())
+      onRenameAnalysis(id, newName.trim());
     }
-    setRenamingId(null)
-    setNewName('')
-  }
+    setRenamingId(null);
+    setNewName("");
+  };
 
   const handleCancelRename = () => {
-    setRenamingId(null)
-    setNewName('')
-  }
+    setRenamingId(null);
+    setNewName("");
+  };
 
   if (isCollapsed) {
     return (
@@ -79,7 +79,7 @@ export function DDAHistorySidebar({
           History ({history.length})
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -101,7 +101,9 @@ export function DDAHistorySidebar({
             className="h-7 w-7"
             title="Refresh history"
           >
-            <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
+            <RefreshCw
+              className={cn("h-3.5 w-3.5", isLoading && "animate-spin")}
+            />
           </Button>
           <Button
             variant="ghost"
@@ -126,29 +128,33 @@ export function DDAHistorySidebar({
             </div>
           ) : (
             history.map((analysis) => {
-              const isRenaming = renamingId === analysis.id
-              const isCurrent = currentAnalysisId === analysis.id
-              const isSelected = selectedAnalysisId === analysis.id
+              const isRenaming = renamingId === analysis.id;
+              const isCurrent = currentAnalysisId === analysis.id;
+              const isSelected = selectedAnalysisId === analysis.id;
 
               return (
                 <div
                   key={analysis.id}
                   onClick={() => !isRenaming && onSelectAnalysis(analysis)}
                   className={cn(
-                    'p-3 rounded-md border transition-colors',
-                    !isRenaming && 'cursor-pointer hover:bg-accent/50',
-                    isSelected && 'bg-accent border-accent-foreground/20',
-                    isCurrent && 'border-primary/50'
+                    "p-3 rounded-md border transition-colors",
+                    !isRenaming && "cursor-pointer hover:bg-accent/50",
+                    isSelected && "bg-accent border-accent-foreground/20",
+                    isCurrent && "border-primary/50"
                   )}
                 >
                   {isRenaming ? (
-                    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                    <div
+                      className="space-y-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <Input
                         value={newName}
                         onChange={(e) => setNewName(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleSubmitRename(analysis.id)
-                          if (e.key === 'Escape') handleCancelRename()
+                          if (e.key === "Enter")
+                            handleSubmitRename(analysis.id);
+                          if (e.key === "Escape") handleCancelRename();
                         }}
                         className="text-xs h-7"
                         placeholder="Analysis name"
@@ -181,16 +187,20 @@ export function DDAHistorySidebar({
                               <Star className="h-3 w-3 fill-primary text-primary flex-shrink-0" />
                             )}
                             <p className="font-medium text-xs truncate">
-                              {analysis.name || `Analysis ${analysis.id.slice(0, 8)}`}
+                              {analysis.name ||
+                                `Analysis ${analysis.id.slice(0, 8)}`}
                             </p>
                           </div>
                           <p className="text-xs text-muted-foreground truncate">
-                            {new Date(analysis.created_at).toLocaleString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
+                            {new Date(analysis.created_at).toLocaleString(
+                              "en-US",
+                              {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              }
+                            )}
                           </p>
                         </div>
                       </div>
@@ -199,12 +209,17 @@ export function DDAHistorySidebar({
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
                           <span>{analysis.channels?.length || 0} ch</span>
                           <span>•</span>
-                          <span>{analysis.parameters?.variants?.length || 0} var</span>
+                          <span>
+                            {analysis.parameters?.variants?.length || 0} var
+                          </span>
                         </div>
 
                         <div className="flex items-center gap-1">
                           {isCurrent && (
-                            <Badge variant="default" className="text-xs h-5 px-1.5">
+                            <Badge
+                              variant="default"
+                              className="text-xs h-5 px-1.5"
+                            >
                               Current
                             </Badge>
                           )}
@@ -231,11 +246,11 @@ export function DDAHistorySidebar({
                     </>
                   )}
                 </div>
-              )
+              );
             })
           )}
         </div>
       </div>
     </div>
-  )
+  );
 }

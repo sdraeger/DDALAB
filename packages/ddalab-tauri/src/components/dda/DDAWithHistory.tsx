@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, startTransition } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { ApiService } from '@/services/apiService'
 import { DDAResult } from '@/types/api'
@@ -146,9 +146,14 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
     }
 
     console.log('[DDA] Selecting analysis:', analysis.id)
-    setSelectedAnalysisId(analysis.id)
-    // Switch to Results tab when selecting from history
-    setActiveTab('results')
+
+    // Use startTransition to mark this update as non-urgent
+    // This keeps the UI responsive during analysis switching
+    startTransition(() => {
+      setSelectedAnalysisId(analysis.id)
+      // Switch to Results tab when selecting from history
+      setActiveTab('results')
+    })
   }
 
   const handleDeleteAnalysis = async (id: string, e: React.MouseEvent) => {
@@ -240,7 +245,7 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
       {/* History Sidebar */}
       <DDAHistorySidebar
         history={fileHistory}
-        currentAnalysisId={selectedAnalysisId}
+        currentAnalysisId={currentAnalysisId || null}
         selectedAnalysisId={selectedAnalysisId}
         isLoading={historyLoading || isLoadingAnalysis || isFetchingAnalysis}
         isCollapsed={isHistoryCollapsed}
@@ -282,8 +287,8 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
               </div>
             ) : displayAnalysis ? (
               // Show results when analysis data is loaded
-              // Key forces re-mount when switching between analyses
-              <div key={displayAnalysis.id} className="p-4 space-y-4">
+              // DDAResults is memoized and will efficiently update when result.id changes
+              <div className="p-4 space-y-4">
                 {/* NSG Results Indicator Banner */}
                 {displayAnalysis.source === 'nsg' && hasPreviousAnalysis && (
                   <Alert className="border-blue-200 bg-blue-50">

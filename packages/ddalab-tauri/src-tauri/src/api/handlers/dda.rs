@@ -48,6 +48,15 @@ pub struct ScaleParameters {
     pub scale_min: i32,
     pub scale_max: i32,
     pub scale_num: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delay_list: Option<Vec<i32>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ModelParameters {
+    pub dm: u32,
+    pub order: u32,
+    pub nr_tau: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -64,6 +73,8 @@ pub struct DDARequest {
     pub ct_channel_pairs: Option<Vec<[usize; 2]>>,
     #[serde(default)]
     pub cd_channel_pairs: Option<Vec<[usize; 2]>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_parameters: Option<ModelParameters>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -188,12 +199,11 @@ pub async fn run_dda_analysis(
         request.window_parameters.window_length,
         request.window_parameters.window_step
     );
-    log::info!(
-        "   Scale: min={}, max={}, num={}",
-        request.scale_parameters.scale_min,
-        request.scale_parameters.scale_max,
-        request.scale_parameters.scale_num
-    );
+    if let Some(ref delay_list) = request.scale_parameters.delay_list {
+        log::info!("   Delays (τ): {:?}", delay_list);
+    } else {
+        log::info!("   Delays (τ): Using defaults [7, 10]");
+    }
 
     let edf_channel_names: Option<Vec<String>> = {
         let file_cache = state.files.read();
@@ -862,9 +872,15 @@ fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
             scale_min: api_req.scale_parameters.scale_min as f64,
             scale_max: api_req.scale_parameters.scale_max as f64,
             scale_num: api_req.scale_parameters.scale_num as u32,
+            delay_list: api_req.scale_parameters.delay_list.clone(),
         },
         ct_channel_pairs: api_req.ct_channel_pairs.clone(),
         cd_channel_pairs: api_req.cd_channel_pairs.clone(),
+        model_parameters: api_req.model_parameters.as_ref().map(|mp| dda_rs::ModelParameters {
+            dm: mp.dm,
+            order: mp.order,
+            nr_tau: mp.nr_tau,
+        }),
     };
 
     dda_request

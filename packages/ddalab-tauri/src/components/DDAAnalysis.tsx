@@ -52,6 +52,25 @@ import {
   X,
 } from "lucide-react";
 import { TauriService, NotificationType } from "@/services/tauriService";
+import { ParameterInput } from "@/components/dda/ParameterInput";
+import { DelayPresetManager } from "@/components/dda/DelayPresetManager";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
+import {
+  exportDDAConfig,
+  serializeDDAConfig,
+  importDDAConfig,
+  configToLocalParameters,
+  generateExportFilename,
+} from "@/utils/ddaConfigExport";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Download, Upload } from "lucide-react";
 
 interface DDAAnalysisProps {
   apiService: ApiService;
@@ -61,6 +80,12 @@ interface DDAParameters {
   variants: string[];
   windowLength: number;
   windowStep: number;
+  // Delay configuration - list mode only
+  delayConfig: {
+    mode: "list";
+    list?: number[];
+  };
+  // Legacy parameters for backward compatibility
   scaleMin: number;
   scaleMax: number;
   scaleNum: number;
@@ -85,6 +110,13 @@ interface DDAParameters {
     runtimeHours?: number; // Max runtime in hours
     cores?: number; // Number of CPU cores
     nodes?: number; // Number of compute nodes
+  };
+  // Expert mode parameters
+  expertMode: boolean;
+  modelParameters?: {
+    dm: number; // Embedding dimension (default: 4)
+    order: number; // Polynomial order (default: 4)
+    nr_tau: number; // Number of tau values (default: 2)
   };
 }
 
@@ -147,9 +179,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     variants: storedAnalysisParameters.variants,
     windowLength: storedAnalysisParameters.windowLength,
     windowStep: storedAnalysisParameters.windowStep,
-    scaleMin: storedAnalysisParameters.scaleMin,
-    scaleMax: storedAnalysisParameters.scaleMax,
-    scaleNum: storedAnalysisParameters.scaleNum,
+    delayConfig: {
+      mode: "list",
+      list: [7, 10], // Default delays
+    },
+    scaleMin: 1,
+    scaleMax: 20,
+    scaleNum: 2,
     timeStart: 0,
     timeEnd: selectedFile?.duration || 30,
     selectedChannels: [],
@@ -168,6 +204,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       cores: 4, // Default to 4 cores for NSG
       nodes: 1,
     },
+    expertMode: false, // Default to simple mode
+    modelParameters: undefined,
   });
 
   // Use local parameters directly - no need to merge with store
@@ -209,6 +247,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const [isSubmittingToNsg, setIsSubmittingToNsg] = useState(false);
   const [nsgError, setNsgError] = useState<string | null>(null);
   const [nsgSubmissionPhase, setNsgSubmissionPhase] = useState<string>("");
+
+  // Import/Export state
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importValidation, setImportValidation] = useState<{
+    warnings: string[];
+    errors: string[];
+  } | null>(null);
 
   // Derive history state from TanStack Query
   const historyError = historyErrorObj
@@ -608,10 +653,18 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       `   Scale: min=${request.scale_min}, max=${request.scale_max}, num=${request.scale_num}`
     );
     if (ctChannelPairs && ctChannelPairs.length > 0) {
-      console.log(`   CT channel pairs: ${ctChannelPairs.map(([a, b]) => `[${a}, ${b}]`).join(", ")}`);
+      console.log(
+        `   CT channel pairs: ${ctChannelPairs
+          .map(([a, b]) => `[${a}, ${b}]`)
+          .join(", ")}`
+      );
     }
     if (cdChannelPairs && cdChannelPairs.length > 0) {
-      console.log(`   CD channel pairs (directed): ${cdChannelPairs.map(([from, to]) => `[${from} → ${to}]`).join(", ")}`);
+      console.log(
+        `   CD channel pairs (directed): ${cdChannelPairs
+          .map(([from, to]) => `[${from} → ${to}]`)
+          .join(", ")}`
+      );
     }
 
     // Record DDA parameters if recording is active
@@ -764,7 +817,12 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           scale_min: parameters.scaleMin,
           scale_max: parameters.scaleMax,
           scale_num: parameters.scaleNum,
+          delay_list: parameters.delayConfig.list,
         },
+        model_parameters:
+          parameters.expertMode && parameters.modelParameters
+            ? parameters.modelParameters
+            : undefined,
         ct_channel_pairs:
           parameters.ctChannelPairs?.length > 0
             ? parameters.ctChannelPairs.map((pair) => {
@@ -859,9 +917,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       variants: ["single_timeseries"],
       windowLength: defaultWindowLength,
       windowStep: 10,
+      delayConfig: {
+        mode: "list",
+        list: [7, 10], // Default delays
+      },
       scaleMin: 1,
       scaleMax: 20,
-      scaleNum: 20,
+      scaleNum: 2,
       timeStart: 0,
       timeEnd: selectedFile?.duration || 30,
       selectedChannels: selectedFile?.channels.slice(0, 8) || [],
@@ -880,6 +942,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         cores: 4,
         nodes: 1,
       },
+      expertMode: false,
+      modelParameters: undefined,
     });
   };
 
@@ -890,6 +954,194 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         ? [...prev.selectedChannels, channel]
         : prev.selectedChannels.filter((ch) => ch !== channel),
     }));
+  };
+
+  const handleExportConfig = async () => {
+    if (!selectedFile) return;
+
+    try {
+      // Compute file hash for verification
+      let fileHash = "";
+      if (TauriService.isTauri()) {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          fileHash = await invoke<string>("compute_file_hash", {
+            filePath: selectedFile.file_path,
+          });
+        } catch (error) {
+          console.warn("[Export] Failed to compute file hash:", error);
+          // Continue with empty hash
+        }
+      }
+
+      const config = exportDDAConfig(
+        {
+          variants: parameters.variants,
+          windowLength: parameters.windowLength,
+          windowStep: parameters.windowStep,
+          delayConfig: parameters.delayConfig,
+          // Only export channels for selected variants
+          stChannels: parameters.variants.includes("single_timeseries")
+            ? parameters.selectedChannels
+            : undefined,
+          ctChannelPairs: parameters.variants.includes("cross_timeseries")
+            ? parameters.ctChannelPairs.map(([source, target]) => ({
+                source,
+                target,
+              }))
+            : undefined,
+          cdChannelPairs: parameters.variants.includes("cross_dynamical")
+            ? parameters.cdChannelPairs.map(([source, target]) => ({
+                source,
+                target,
+              }))
+            : undefined,
+          ctDelayMin: parameters.ctWindowLength,
+          ctDelayMax: parameters.ctWindowStep,
+        },
+        selectedFile,
+        {
+          analysisName: analysisName || "DDA Analysis",
+          description: `DDA configuration for ${selectedFile.file_name}`,
+          analysisId: results?.id,
+        }
+      );
+
+      // Set the computed hash
+      config.source_file.file_hash = fileHash;
+
+      const jsonContent = serializeDDAConfig(config);
+      const filename = generateExportFilename(
+        analysisName || "analysis",
+        selectedFile.file_name
+      );
+
+      if (TauriService.isTauri()) {
+        // Use Tauri dialog plugin directly for .ddalab files
+        const { save } = await import("@tauri-apps/plugin-dialog");
+        const filePath = await save({
+          defaultPath: filename,
+          filters: [
+            {
+              name: "DDALAB Config",
+              extensions: ["ddalab"],
+            },
+            {
+              name: "JSON",
+              extensions: ["json"],
+            },
+          ],
+        });
+
+        if (filePath) {
+          // Write the file
+          const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+          await writeTextFile(filePath, jsonContent);
+
+          await TauriService.createNotification(
+            "Configuration Exported",
+            `Saved to ${filePath}`,
+            NotificationType.Success
+          );
+        }
+      } else {
+        // Browser fallback - download file
+        const blob = new Blob([jsonContent], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      console.error("[Export] Failed to export configuration:", error);
+      if (TauriService.isTauri()) {
+        await TauriService.createNotification(
+          "Export Failed",
+          error instanceof Error ? error.message : "Unknown error",
+          NotificationType.Error
+        );
+      }
+    }
+  };
+
+  const handleImportConfig = async () => {
+    try {
+      let fileContent: string;
+
+      if (TauriService.isTauri()) {
+        // Use Tauri dialog plugin
+        const { open } = await import("@tauri-apps/plugin-dialog");
+        const selected = await open({
+          multiple: false,
+          title: "Import DDA Configuration",
+          filters: [
+            {
+              name: "DDALAB Config",
+              extensions: ["ddalab", "json"],
+            },
+          ],
+        });
+
+        if (!selected || typeof selected !== "string") {
+          return; // User cancelled
+        }
+
+        // Read file content
+        const { readTextFile } = await import("@tauri-apps/plugin-fs");
+        fileContent = await readTextFile(selected);
+      } else {
+        // Browser fallback - file input
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = ".ddalab,.json";
+
+        const file = await new Promise<File | null>((resolve) => {
+          input.onchange = (e) => {
+            const files = (e.target as HTMLInputElement).files;
+            resolve(files?.[0] || null);
+          };
+          input.click();
+        });
+
+        if (!file) return;
+
+        fileContent = await file.text();
+      }
+
+      const { config, validation } = importDDAConfig(fileContent, selectedFile);
+
+      setImportValidation({
+        warnings: validation.warnings,
+        errors: validation.errors,
+      });
+
+      if (validation.valid) {
+        // Apply configuration
+        const importedParams = configToLocalParameters(config);
+        setLocalParameters((prev) => ({
+          ...prev,
+          ...importedParams,
+          timeEnd: selectedFile?.duration || prev.timeEnd,
+        }));
+
+        setAnalysisName(config.analysis_name);
+        setShowImportDialog(true);
+      } else {
+        // Show errors
+        setShowImportDialog(true);
+      }
+    } catch (error) {
+      console.error("[Import] Failed to import configuration:", error);
+      setImportValidation({
+        warnings: [],
+        errors: [
+          error instanceof Error ? error.message : "Failed to parse file",
+        ],
+      });
+      setShowImportDialog(true);
+    }
   };
 
   if (!selectedFile) {
@@ -918,8 +1170,6 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         <div className="flex items-center justify-between flex-shrink-0 pb-4">
           <TabsList>
             <TabsTrigger value="parameters">Parameters</TabsTrigger>
-            <TabsTrigger value="results">Results</TabsTrigger>
-            <TabsTrigger value="history">History</TabsTrigger>
           </TabsList>
 
           <div className="flex items-center space-x-2">
@@ -930,6 +1180,24 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               disabled={localIsRunning}
               className="w-48"
             />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleImportConfig}
+              disabled={localIsRunning}
+            >
+              <Upload className="h-4 w-4 mr-1" />
+              Import
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportConfig}
+              disabled={localIsRunning}
+            >
+              <Download className="h-4 w-4 mr-1" />
+              Export
+            </Button>
             <Button variant="outline" size="sm" onClick={resetParameters}>
               Reset
             </Button>
@@ -1142,47 +1410,60 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             {/* Window Parameters */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Window Parameters</CardTitle>
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-base">Window Parameters</CardTitle>
+                  <InfoTooltip
+                    content={
+                      <div className="space-y-1">
+                        <p className="font-semibold">Window Parameters</p>
+                        <p>
+                          <strong>Window Length:</strong> Number of data points
+                          in each analysis window
+                        </p>
+                        <p>
+                          <strong>Window Step:</strong> Number of points to
+                          shift between consecutive windows
+                        </p>
+                        <p className="text-xs mt-2">
+                          Smaller steps = higher temporal resolution but longer
+                          computation time
+                        </p>
+                      </div>
+                    }
+                  />
+                </div>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div>
-                  <Label className="text-sm">
-                    Window Length: {parameters.windowLength}
-                  </Label>
-                  <Slider
-                    value={[parameters.windowLength]}
-                    onValueChange={([value]) =>
-                      setLocalParameters((prev) => ({
-                        ...prev,
-                        windowLength: value,
-                      }))
-                    }
-                    disabled={localIsRunning}
-                    min={50}
-                    max={500}
-                    step={10}
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label className="text-sm">
-                    Window Step: {parameters.windowStep}
-                  </Label>
-                  <Slider
-                    value={[parameters.windowStep]}
-                    onValueChange={([value]) =>
-                      setLocalParameters((prev) => ({
-                        ...prev,
-                        windowStep: value,
-                      }))
-                    }
-                    disabled={localIsRunning}
-                    min={1}
-                    max={50}
-                    step={1}
-                    className="mt-1"
-                  />
-                </div>
+              <CardContent className="space-y-4">
+                <ParameterInput
+                  label="Window Length"
+                  value={parameters.windowLength}
+                  onChange={(value) =>
+                    setLocalParameters((prev) => ({
+                      ...prev,
+                      windowLength: value,
+                    }))
+                  }
+                  sampleRate={selectedFile?.sample_rate || 256}
+                  disabled={localIsRunning}
+                  min={50}
+                  max={500}
+                  tooltip="Number of samples in each analysis window"
+                />
+                <ParameterInput
+                  label="Window Step"
+                  value={parameters.windowStep}
+                  onChange={(value) =>
+                    setLocalParameters((prev) => ({
+                      ...prev,
+                      windowStep: value,
+                    }))
+                  }
+                  sampleRate={selectedFile?.sample_rate || 256}
+                  disabled={localIsRunning}
+                  min={1}
+                  max={50}
+                  tooltip="Shift between consecutive windows (smaller = more overlap)"
+                />
               </CardContent>
             </Card>
 
@@ -1190,51 +1471,127 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             {parameters.variants.includes("cross_timeseries") && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">CT Parameters</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base">CT Parameters</CardTitle>
+                    <InfoTooltip
+                      content={
+                        <div className="space-y-1">
+                          <p className="font-semibold">
+                            Cross-Timeseries Parameters
+                          </p>
+                          <p>
+                            Optional custom window settings for information flow
+                            across time series. If not set, uses standard window
+                            parameters.
+                          </p>
+                        </div>
+                      }
+                    />
+                  </div>
                   <CardDescription>
-                    Cross-Timeseries specific settings
+                    Cross-Timeseries specific settings (optional)
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <Label className="text-sm">
+                    <Label className="text-sm mb-2 block">
                       CT Window Length (optional)
                     </Label>
-                    <Input
-                      type="number"
-                      value={parameters.ctWindowLength || ""}
-                      onChange={(e) =>
-                        setLocalParameters((prev) => ({
-                          ...prev,
-                          ctWindowLength: e.target.value
-                            ? parseInt(e.target.value)
-                            : undefined,
-                        }))
-                      }
-                      disabled={localIsRunning}
-                      placeholder="Uses standard window length if empty"
-                      min="10"
-                      max="1000"
-                    />
+                    {parameters.ctWindowLength === undefined ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setLocalParameters((prev) => ({
+                            ...prev,
+                            ctWindowLength: prev.windowLength,
+                          }))
+                        }
+                        disabled={localIsRunning}
+                      >
+                        Set Custom CT Window Length
+                      </Button>
+                    ) : (
+                      <div className="space-y-2">
+                        <ParameterInput
+                          label=""
+                          value={parameters.ctWindowLength}
+                          onChange={(value) =>
+                            setLocalParameters((prev) => ({
+                              ...prev,
+                              ctWindowLength: value,
+                            }))
+                          }
+                          sampleRate={selectedFile?.sample_rate || 256}
+                          disabled={localIsRunning}
+                          min={10}
+                          max={1000}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setLocalParameters((prev) => ({
+                              ...prev,
+                              ctWindowLength: undefined,
+                            }))
+                          }
+                          disabled={localIsRunning}
+                        >
+                          Use Standard Window Length
+                        </Button>
+                      </div>
+                    )}
                   </div>
                   <div>
-                    <Label className="text-sm">CT Window Step (optional)</Label>
-                    <Input
-                      type="number"
-                      value={parameters.ctWindowStep || ""}
-                      onChange={(e) =>
-                        setLocalParameters((prev) => ({
-                          ...prev,
-                          ctWindowStep: e.target.value
-                            ? parseInt(e.target.value)
-                            : undefined,
-                        }))
-                      }
-                      disabled={localIsRunning}
-                      placeholder="Uses standard window step if empty"
-                      min="1"
-                      max="100"
-                    />
+                    <Label className="text-sm mb-2 block">
+                      CT Window Step (optional)
+                    </Label>
+                    {parameters.ctWindowStep === undefined ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setLocalParameters((prev) => ({
+                            ...prev,
+                            ctWindowStep: prev.windowStep,
+                          }))
+                        }
+                        disabled={localIsRunning}
+                      >
+                        Set Custom CT Window Step
+                      </Button>
+                    ) : (
+                      <div className="space-y-2">
+                        <ParameterInput
+                          label=""
+                          value={parameters.ctWindowStep}
+                          onChange={(value) =>
+                            setLocalParameters((prev) => ({
+                              ...prev,
+                              ctWindowStep: value,
+                            }))
+                          }
+                          sampleRate={selectedFile?.sample_rate || 256}
+                          disabled={localIsRunning}
+                          min={1}
+                          max={100}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setLocalParameters((prev) => ({
+                              ...prev,
+                              ctWindowStep: undefined,
+                            }))
+                          }
+                          disabled={localIsRunning}
+                        >
+                          Use Standard Window Step
+                        </Button>
+                      </div>
+                    )}
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-2">
@@ -1320,7 +1677,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                       Channel Pairs (Directed)
                     </Label>
                     <p className="text-xs text-muted-foreground mb-2">
-                      Select directed channel pairs for Cross-Dynamical analysis (From → To)
+                      Select directed channel pairs for Cross-Dynamical analysis
+                      (From → To)
                     </p>
 
                     {/* Display current pairs */}
@@ -1351,7 +1709,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
                     {parameters.cdChannelPairs.length === 0 && (
                       <p className="text-sm text-amber-600 mb-2">
-                        No directed pairs selected. Please add at least one pair.
+                        No directed pairs selected. Please add at least one
+                        pair.
                       </p>
                     )}
 
@@ -1376,73 +1735,147 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               </Card>
             )}
 
-            {/* Delay Parameters */}
+            {/* Expert Mode Toggle */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Delay Parameters</CardTitle>
-                <CardDescription>
-                  Time delay range (τ) for DDA analysis
-                </CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base">
+                      Configuration Mode
+                    </CardTitle>
+                    <CardDescription>
+                      {parameters.expertMode
+                        ? "Advanced settings for delays and MODEL parameters"
+                        : "Simple mode uses default settings (delays: [7, 10], MODEL: 1 2 10)"}
+                    </CardDescription>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <span className="text-sm font-medium">Expert Mode</span>
+                    <input
+                      type="checkbox"
+                      checked={parameters.expertMode}
+                      onChange={(e) => {
+                        const expertMode = e.target.checked;
+                        setLocalParameters((prev) => ({
+                          ...prev,
+                          expertMode,
+                          modelParameters: expertMode
+                            ? { dm: 4, order: 4, nr_tau: 2 }
+                            : undefined,
+                        }));
+                      }}
+                      disabled={localIsRunning}
+                      className="w-4 h-4"
+                    />
+                  </label>
+                </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label className="text-sm">Min Delay (τ)</Label>
-                    <Input
-                      type="number"
-                      value={parameters.scaleMin}
-                      onChange={(e) =>
-                        setLocalParameters((prev) => ({
-                          ...prev,
-                          scaleMin: Math.max(1, parseInt(e.target.value) || 1),
-                        }))
-                      }
-                      disabled={localIsRunning}
-                      min="1"
-                      max={parameters.scaleMax - 1}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-sm">Max Delay (τ)</Label>
-                    <Input
-                      type="number"
-                      value={parameters.scaleMax}
-                      onChange={(e) =>
-                        setLocalParameters((prev) => ({
-                          ...prev,
-                          scaleMax: Math.max(
-                            parameters.scaleMin + 1,
-                            parseInt(e.target.value) || 20
-                          ),
-                        }))
-                      }
-                      disabled={localIsRunning}
-                      min={parameters.scaleMin + 1}
-                      max="100"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-sm">
-                    Number of Delays: {parameters.scaleNum}
-                  </Label>
-                  <Slider
-                    value={[parameters.scaleNum]}
-                    onValueChange={([value]) =>
-                      setLocalParameters((prev) => ({
-                        ...prev,
-                        scaleNum: value,
-                      }))
-                    }
-                    disabled={localIsRunning}
-                    min={5}
-                    max={50}
-                    step={1}
-                    className="mt-2"
-                  />
-                </div>
-              </CardContent>
             </Card>
+
+            {/* Delay Parameters - Only in Expert Mode */}
+            {parameters.expertMode && (
+              <DelayPresetManager
+                value={parameters.delayConfig}
+                onChange={(config) => {
+                  setLocalParameters((prev) => ({
+                    ...prev,
+                    delayConfig: config,
+                    // Sync legacy params for backward compatibility
+                    scaleMin: config.list?.[0] || 1,
+                    scaleMax: config.list?.[config.list.length - 1] || 20,
+                    scaleNum: config.list?.length || 0,
+                  }));
+                }}
+                disabled={localIsRunning}
+                sampleRate={selectedFile?.sample_rate || 256}
+              />
+            )}
+
+            {/* MODEL Parameters - Only in Expert Mode */}
+            {parameters.expertMode && parameters.modelParameters && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">MODEL Parameters</CardTitle>
+                  <CardDescription>
+                    Advanced DDA algorithm parameters (defaults: dm=4, order=4,
+                    nr_tau=2)
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <Label htmlFor="dm" className="text-sm">
+                        Embedding Dimension (dm)
+                      </Label>
+                      <Input
+                        id="dm"
+                        type="number"
+                        min="1"
+                        max="10"
+                        value={parameters.modelParameters.dm}
+                        onChange={(e) => {
+                          const dm = parseInt(e.target.value) || 4;
+                          setLocalParameters((prev) => ({
+                            ...prev,
+                            modelParameters: {
+                              ...prev.modelParameters!,
+                              dm,
+                            },
+                          }));
+                        }}
+                        disabled={localIsRunning}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="order" className="text-sm">
+                        Polynomial Order
+                      </Label>
+                      <Input
+                        id="order"
+                        type="number"
+                        min="1"
+                        max="10"
+                        value={parameters.modelParameters.order}
+                        onChange={(e) => {
+                          const order = parseInt(e.target.value) || 4;
+                          setLocalParameters((prev) => ({
+                            ...prev,
+                            modelParameters: {
+                              ...prev.modelParameters!,
+                              order,
+                            },
+                          }));
+                        }}
+                        disabled={localIsRunning}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="nr_tau" className="text-sm">
+                        Number of Tau (nr_tau)
+                      </Label>
+                      <Input
+                        id="nr_tau"
+                        type="number"
+                        min="1"
+                        max="10"
+                        value={parameters.modelParameters.nr_tau}
+                        onChange={(e) => {
+                          const nr_tau = parseInt(e.target.value) || 2;
+                          setLocalParameters((prev) => ({
+                            ...prev,
+                            modelParameters: {
+                              ...prev.modelParameters!,
+                              nr_tau,
+                            },
+                          }));
+                        }}
+                        disabled={localIsRunning}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           {/* Channel Selection */}
@@ -1492,237 +1925,75 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             </CardContent>
           </Card>
         </TabsContent>
-
-        <TabsContent value="results" className="flex-1 min-h-0 overflow-y-auto">
-          {results || currentAnalysis ? (
-            <DDAResults result={results || currentAnalysis!} />
-          ) : (
-            <Card className="h-full flex items-center justify-center">
-              <CardContent>
-                <div className="text-center">
-                  <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-lg font-medium mb-2">
-                    No Analysis Results
-                  </h3>
-                  <p className="text-muted-foreground">
-                    Run a DDA analysis to see results here
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        <TabsContent value="history" className="flex-1 min-h-0 overflow-y-auto">
-          <Card>
-            <CardHeader className="flex-row items-center justify-between">
-              <div>
-                <CardTitle className="text-base">Analysis History</CardTitle>
-                <CardDescription>
-                  {historyLoading
-                    ? "Loading..."
-                    : `${analysisHistoryFromQuery.length} analyses stored`}
-                </CardDescription>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => refetchHistory()}
-                disabled={historyLoading}
-                className="shrink-0"
-              >
-                <RefreshCw
-                  className={`h-4 w-4 mr-2 ${
-                    historyLoading ? "animate-spin" : ""
-                  }`}
-                />
-                Refresh
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {historyError && (
-                <div className="p-4 mb-4 text-sm text-red-800 bg-red-100 rounded-lg">
-                  {historyError}
-                </div>
-              )}
-
-              {saveStatus.message && (
-                <div
-                  className={`p-4 mb-4 text-sm rounded-lg ${
-                    saveStatus.type === "success"
-                      ? "text-green-800 bg-green-100 border border-green-200"
-                      : saveStatus.type === "error"
-                      ? "text-red-800 bg-red-100 border border-red-200"
-                      : "text-blue-800 bg-blue-100 border border-blue-200"
-                  }`}
-                >
-                  <div className="flex items-center">
-                    {saveStatus.type === "success" && (
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                    )}
-                    {saveStatus.type === "error" && (
-                      <AlertCircle className="h-4 w-4 mr-2" />
-                    )}
-                    {!saveStatus.type && (
-                      <Clock className="h-4 w-4 mr-2 animate-spin" />
-                    )}
-                    {saveStatus.message}
-                  </div>
-                </div>
-              )}
-
-              {previewingAnalysis && (
-                <div className="p-3 mb-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-blue-900">
-                        Previewing Analysis
-                      </p>
-                      <p className="text-xs text-blue-700">
-                        {previewingAnalysis.file_path
-                          ? previewingAnalysis.file_path.split("/").pop()
-                          : `Analysis ${previewingAnalysis.id}`}
-                      </p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setPreviewingAnalysis(null)}
-                      className="text-blue-700 hover:text-blue-900"
-                    >
-                      ×
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {analysisHistoryFromQuery.length > 0 ? (
-                <div className="space-y-2">
-                  {analysisHistoryFromQuery.map((analysis) => {
-                    const isRenaming = renamingAnalysisId === analysis.id;
-
-                    return (
-                      <div
-                        key={analysis.id}
-                        className={`flex items-center justify-between p-3 border rounded-lg ${
-                          !isRenaming ? "cursor-pointer hover:bg-accent" : ""
-                        } transition-colors ${
-                          previewingAnalysis?.id === analysis.id
-                            ? "bg-blue-50 border-blue-200"
-                            : ""
-                        }`}
-                        onClick={
-                          !isRenaming
-                            ? () => previewAnalysis(analysis)
-                            : undefined
-                        }
-                      >
-                        <div className="flex-1 min-w-0 mr-2">
-                          {isRenaming ? (
-                            <div
-                              className="flex items-center gap-2"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <Input
-                                value={newAnalysisName}
-                                onChange={(e) =>
-                                  setNewAnalysisName(e.target.value)
-                                }
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter")
-                                    handleSubmitRename(analysis.id);
-                                  if (e.key === "Escape")
-                                    handleCancelRename(e as any);
-                                }}
-                                className="text-sm h-8"
-                                placeholder="Analysis name"
-                                autoFocus
-                              />
-                              <Button
-                                size="sm"
-                                onClick={() => handleSubmitRename(analysis.id)}
-                                className="h-8"
-                              >
-                                Save
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={handleCancelRename}
-                                className="h-8"
-                              >
-                                Cancel
-                              </Button>
-                            </div>
-                          ) : (
-                            <>
-                              <p className="font-medium text-sm">
-                                {analysis.name ||
-                                  (analysis.file_path
-                                    ? analysis.file_path.split("/").pop()
-                                    : `Analysis ${analysis.id}`)}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {analysis.name &&
-                                  analysis.file_path &&
-                                  `${analysis.file_path.split("/").pop()} • `}
-                                {analysis.channels?.length || 0} channels •{" "}
-                                {new Date(analysis.created_at).toLocaleString()}
-                              </p>
-                            </>
-                          )}
-                        </div>
-                        <div className="flex items-center space-x-2 flex-shrink-0">
-                          {!isRenaming && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={(e) => handleStartRename(analysis, e)}
-                                className="h-8 w-8 p-0"
-                                title="Rename analysis"
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={(e) =>
-                                  handleDeleteAnalysis(analysis.id, e)
-                                }
-                                className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                title="Delete analysis"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </>
-                          )}
-                          <Badge variant="outline" className="text-xs">
-                            Stored
-                          </Badge>
-                          {previewingAnalysis?.id === analysis.id && (
-                            <Badge variant="default" className="text-xs">
-                              Previewing
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : !historyLoading ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Brain className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No analyses in history</p>
-                  <p className="text-xs mt-2">
-                    Completed analyses are automatically saved to history
-                  </p>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
+
+      {/* Import Validation Dialog */}
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {importValidation?.errors.length
+                ? "Import Failed"
+                : "Configuration Imported"}
+            </DialogTitle>
+            <DialogDescription>
+              {importValidation?.errors.length
+                ? "The configuration could not be applied due to validation errors"
+                : "Configuration has been successfully loaded"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {importValidation?.errors && importValidation.errors.length > 0 && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  <div className="font-semibold mb-2">Errors:</div>
+                  <ul className="list-disc pl-4 space-y-1">
+                    {importValidation.errors.map((error, idx) => (
+                      <li key={idx} className="text-sm">
+                        {error}
+                      </li>
+                    ))}
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {importValidation?.warnings &&
+              importValidation.warnings.length > 0 && (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    <div className="font-semibold mb-2">Warnings:</div>
+                    <ul className="list-disc pl-4 space-y-1">
+                      {importValidation.warnings.map((warning, idx) => (
+                        <li key={idx} className="text-sm">
+                          {warning}
+                        </li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+            {importValidation &&
+              !importValidation.errors.length &&
+              !importValidation.warnings.length && (
+                <Alert>
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                  <AlertDescription>
+                    Configuration imported successfully with no issues.
+                  </AlertDescription>
+                </Alert>
+              )}
+          </div>
+
+          <DialogFooter>
+            <Button onClick={() => setShowImportDialog(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

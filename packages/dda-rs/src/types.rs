@@ -44,6 +44,18 @@ pub struct ScaleParameters {
     pub scale_min: f64,
     pub scale_max: f64,
     pub scale_num: u32,
+    /// Optional list of specific delay values to use
+    /// If provided, this overrides scale_min/max/num
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delay_list: Option<Vec<i32>>,
+}
+
+/// MODEL parameters for DDA analysis (expert mode)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelParameters {
+    pub dm: u32,        // Embedding dimension (default: 4)
+    pub order: u32,     // Polynomial order (default: 4)
+    pub nr_tau: u32,    // Number of tau values (default: 2)
 }
 
 /// Complete DDA request configuration
@@ -66,6 +78,10 @@ pub struct DDARequest {
     /// Format: [(1, 2), (1, 3), (1, 4)] → CH_list: 1 2 1 3 1 4
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cd_channel_pairs: Option<Vec<[usize; 2]>>,
+    /// MODEL parameters (expert mode)
+    /// If not provided, defaults to dm=4, order=4, nr_tau=2
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_parameters: Option<ModelParameters>,
 }
 
 /// Variant-specific DDA result

@@ -175,8 +175,9 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   const overviewMaxPoints = useMemo(() => {
     if (!selectedFile) return 500;
 
-    const totalSamples = selectedFile.total_samples;
     const duration = selectedFile.duration;
+    const sampleRate = selectedFile.sample_rate || 500;
+    const totalSamples = selectedFile.total_samples || Math.floor(duration * sampleRate);
 
     let maxPoints: number;
     let strategy: string;

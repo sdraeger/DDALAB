@@ -18,49 +18,29 @@
     "dialog:allow-confirm",
     {
       "identifier": "fs:allow-read-file",
-      "allow": [
-        { "path": "$HOME/**" },
-        { "path": "$DESKTOP/**" },
-        { "path": "$DOCUMENT/**" },
-        { "path": "$DOWNLOAD/**" }
-      ]
+      "allow": [{ "path": "**" }]
     },
     {
       "identifier": "fs:allow-read-dir",
-      "allow": [
-        { "path": "$HOME/**" },
-        { "path": "$DESKTOP/**" },
-        { "path": "$DOCUMENT/**" },
-        { "path": "$DOWNLOAD/**" }
-      ]
+      "allow": [{ "path": "**" }]
     },
     {
       "identifier": "fs:allow-exists",
-      "allow": [
-        { "path": "$HOME/**" },
-        { "path": "$DESKTOP/**" },
-        { "path": "$DOCUMENT/**" },
-        { "path": "$DOWNLOAD/**" }
-      ]
+      "allow": [{ "path": "**" }]
     },
     {
       "identifier": "fs:allow-stat",
-      "allow": [
-        { "path": "$HOME/**" },
-        { "path": "$DESKTOP/**" },
-        { "path": "$DOCUMENT/**" },
-        { "path": "$DOWNLOAD/**" }
-      ]
+      "allow": [{ "path": "**" }]
     },
     {
       "identifier": "fs:allow-read-text-file",
-      "allow": [
-        { "path": "$HOME/**" },
-        { "path": "$DESKTOP/**" },
-        { "path": "$DOCUMENT/**" },
-        { "path": "$DOWNLOAD/**" }
-      ]
+      "allow": [{ "path": "**" }]
     },
+    {
+      "identifier": "fs:allow-write-text-file",
+      "allow": [{ "path": "**" }]
+    },
+    "dialog:allow-save",
     "process:allow-restart",
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",

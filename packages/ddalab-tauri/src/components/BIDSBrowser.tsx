@@ -14,7 +14,6 @@ import { Separator } from "@/components/ui/separator";
 import {
   ArrowLeft,
   Folder,
-  FileText,
   Activity,
   User,
   Calendar,
@@ -26,9 +25,11 @@ import {
 import {
   discoverSubjects,
   loadBIDSRun,
+  getDatasetSummary,
   type BIDSSubject,
   type BIDSSession,
   type BIDSRun,
+  type BIDSDatasetSummary,
 } from "@/services/bids/reader";
 import {
   validateBIDSDataset,
@@ -55,6 +56,8 @@ export function BIDSBrowser({
     useState<BIDSDatasetDescription | null>(null);
   const [validationResult, setValidationResult] =
     useState<BIDSValidationResult | null>(null);
+  const [datasetSummary, setDatasetSummary] =
+    useState<BIDSDatasetSummary | null>(null);
   const [selectedSubject, setSelectedSubject] = useState<BIDSSubject | null>(
     null
   );
@@ -72,15 +75,17 @@ export function BIDSBrowser({
   const loadDataset = async () => {
     setLoading(true);
     try {
-      const [description, subjects, validation] = await Promise.all([
+      const [description, subjects, validation, summary] = await Promise.all([
         readDatasetDescription(datasetPath),
         discoverSubjects(datasetPath),
         validateBIDSDataset(datasetPath),
+        getDatasetSummary(datasetPath),
       ]);
 
       setDatasetDescription(description);
       setSubjects(subjects);
       setValidationResult(validation);
+      setDatasetSummary(summary);
 
       if (subjects.length > 0 && !selectedSubject) {
         const firstSubject = subjects[0];
@@ -113,8 +118,14 @@ export function BIDSBrowser({
   };
 
   const isFileSupported = (filePath: string): boolean => {
+    const lowerPath = filePath.toLowerCase();
+    // Check for .nii.gz first (compound extension)
+    if (lowerPath.endsWith(".nii.gz")) return true;
+
     const extension = filePath.split(".").pop()?.toLowerCase();
-    return ["edf", "fif", "csv", "txt", "ascii", "vhdr", "set"].includes(extension || "");
+    return ["edf", "fif", "csv", "txt", "ascii", "vhdr", "set", "nii"].includes(
+      extension || ""
+    );
   };
 
   const getModalityColor = (modality: string) => {
@@ -168,13 +179,38 @@ export function BIDSBrowser({
             <CardTitle className="flex items-center gap-2">
               <Folder className="h-5 w-5 text-purple-600" />
               {datasetDescription?.Name || "BIDS Dataset"}
-              <Badge variant="secondary" className="bg-purple-100 text-purple-700">
+              <Badge
+                variant="secondary"
+                className="bg-purple-100 text-purple-700"
+              >
                 BIDS {datasetDescription?.BIDSVersion || ""}
               </Badge>
+              {datasetSummary?.hasFMRI && (
+                <Badge
+                  variant="secondary"
+                  className="bg-blue-100 text-blue-700"
+                >
+                  fMRI
+                </Badge>
+              )}
+              {datasetSummary?.hasElectrophysiology && (
+                <Badge
+                  variant="secondary"
+                  className="bg-green-100 text-green-700"
+                >
+                  EEG/MEG
+                </Badge>
+              )}
             </CardTitle>
             <CardDescription>
               {subjects.length} subject{subjects.length !== 1 ? "s" : ""} •{" "}
               {datasetDescription?.DatasetType || "raw"} dataset
+              {datasetSummary && datasetSummary.modalities.size > 0 && (
+                <span className="ml-1">
+                  • Modalities:{" "}
+                  {Array.from(datasetSummary.modalities).join(", ")}
+                </span>
+              )}
             </CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={onClose}>
@@ -189,10 +225,7 @@ export function BIDSBrowser({
       <CardContent className="flex-1 p-4 overflow-hidden">
         {/* Validation Status */}
         {validationResult && !validationResult.valid && (
-          <Alert
-            variant="destructive"
-            className="mb-4"
-          >
+          <Alert variant="destructive" className="mb-4">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
               <div className="font-medium mb-1">
@@ -285,10 +318,7 @@ export function BIDSBrowser({
                   {expandedSubjects.has(subject.id) && (
                     <div className="border-t bg-muted/30">
                       {subject.sessions.map((session, sessionIdx) => (
-                        <div
-                          key={sessionIdx}
-                          className="p-3 space-y-2"
-                        >
+                        <div key={sessionIdx} className="p-3 space-y-2">
                           {/* Session Header (if exists) */}
                           {session.id && (
                             <div className="flex items-center gap-2 mb-2">
@@ -316,11 +346,13 @@ export function BIDSBrowser({
                                         ? "hover:bg-background border-transparent hover:border-border cursor-pointer"
                                         : "opacity-50 border-dashed cursor-not-allowed"
                                     }`}
-                                    onClick={() => supported && handleRunSelect(run)}
+                                    onClick={() =>
+                                      supported && handleRunSelect(run)
+                                    }
                                     title={
                                       supported
                                         ? "Click to load this file"
-                                        : "File format not yet supported (supported: .edf, .fif, .set, .vhdr, .txt, .csv, .ascii)"
+                                        : "File format not yet supported (supported: .edf, .fif, .set, .vhdr, .nii, .nii.gz, .txt, .csv, .ascii)"
                                     }
                                   >
                                     <Activity className="h-4 w-4 text-muted-foreground" />

@@ -65,12 +65,15 @@ function TimeSeriesPopoutContent({ data, isLocked, windowId }: TimeSeriesPopoutC
       console.log('[POPOUT-TIMESERIES] Syncing file to store:', data.filePath || data.file_path)
 
       // Create a minimal file info object for the store
+      const duration = data.timeWindow || data.duration || 0
+      const sampleRate = data.sampleRate || data.sample_rate || 500
       const fileInfo = {
         file_path: data.filePath || data.file_path,
         file_name: data.fileName || data.file_name || 'Unknown',
         channels: data.channels || [],
-        duration: data.timeWindow || data.duration || 0,
-        sample_rate: data.sampleRate || data.sample_rate || 500,
+        duration: duration,
+        sample_rate: sampleRate,
+        total_samples: data.totalSamples || data.total_samples || Math.floor(duration * sampleRate),
         selected_channels: data.selectedChannels || data.channels || []
       }
 

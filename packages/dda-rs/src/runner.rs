@@ -269,14 +269,19 @@ impl DDARunner {
             );
         }
 
-        // Add base parameters (matching dda-py BASE_PARAMS)
+        // Add base parameters (matching dda-py BASE_PARAMS or using expert mode values)
+        let model_params = request.model_parameters.as_ref();
+        let dm = model_params.map(|m| m.dm).unwrap_or(4);
+        let order = model_params.map(|m| m.order).unwrap_or(4);
+        let nr_tau = model_params.map(|m| m.nr_tau).unwrap_or(2);
+
         command
             .arg("-dm")
-            .arg("4")
+            .arg(dm.to_string())
             .arg("-order")
-            .arg("4")
+            .arg(order.to_string())
             .arg("-nr_tau")
-            .arg("2")
+            .arg(nr_tau.to_string())
             .arg("-WL")
             .arg(request.window_parameters.window_length.to_string())
             .arg("-WS")
@@ -298,12 +303,16 @@ impl DDARunner {
             command.arg("-WS_CT").arg(ct_ws.to_string());
         }
 
-        // Generate delay values from scale parameters
-        let delay_min = request.scale_parameters.scale_min as i32;
-        let delay_max = request.scale_parameters.scale_max as i32;
+        // Add delay values - use delay_list if provided, otherwise use default [7, 10]
         command.arg("-TAU");
-        for delay in delay_min..=delay_max {
-            command.arg(delay.to_string());
+        if let Some(ref delay_list) = request.scale_parameters.delay_list {
+            log::info!("Using explicit delay list: {:?}", delay_list);
+            for delay in delay_list {
+                command.arg(delay.to_string());
+            }
+        } else {
+            log::info!("No delay list provided, using default delays: [7, 10]");
+            command.arg("7").arg("10");
         }
 
         // Add time bounds (sample indices) only if provided
@@ -505,11 +514,11 @@ impl DDARunner {
                     .arg((pair[0] + 1).to_string())
                     .arg((pair[1] + 1).to_string())
                     .arg("-dm")
-                    .arg("4")
+                    .arg(dm.to_string())
                     .arg("-order")
-                    .arg("4")
+                    .arg(order.to_string())
                     .arg("-nr_tau")
-                    .arg("2")
+                    .arg(nr_tau.to_string())
                     .arg("-WL")
                     .arg(request.window_parameters.window_length.to_string())
                     .arg("-WS")
@@ -533,12 +542,14 @@ impl DDARunner {
                     pair_command.arg("-WS_CT").arg(ct_ws.to_string());
                 }
 
-                // Add delay values
-                let delay_min = request.scale_parameters.scale_min as i32;
-                let delay_max = request.scale_parameters.scale_max as i32;
+                // Add delay values - use delay_list if provided, otherwise use default [7, 10]
                 pair_command.arg("-TAU");
-                for delay in delay_min..=delay_max {
-                    pair_command.arg(delay.to_string());
+                if let Some(ref delay_list) = request.scale_parameters.delay_list {
+                    for delay in delay_list {
+                        pair_command.arg(delay.to_string());
+                    }
+                } else {
+                    pair_command.arg("7").arg("10");
                 }
 
                 // Add time bounds only if provided
@@ -669,11 +680,11 @@ impl DDARunner {
 
             cd_command
                 .arg("-dm")
-                .arg("4")
+                .arg(dm.to_string())
                 .arg("-order")
-                .arg("4")
+                .arg(order.to_string())
                 .arg("-nr_tau")
-                .arg("2")
+                .arg(nr_tau.to_string())
                 .arg("-WL")
                 .arg(request.window_parameters.window_length.to_string())
                 .arg("-WS")
@@ -695,12 +706,14 @@ impl DDARunner {
             cd_command.arg("-WL_CT").arg(ct_wl.to_string());
             cd_command.arg("-WS_CT").arg(ct_ws.to_string());
 
-            // Add delay values
-            let delay_min = request.scale_parameters.scale_min as i32;
-            let delay_max = request.scale_parameters.scale_max as i32;
+            // Add delay values - use delay_list if provided, otherwise use default [7, 10]
             cd_command.arg("-TAU");
-            for delay in delay_min..=delay_max {
-                cd_command.arg(delay.to_string());
+            if let Some(ref delay_list) = request.scale_parameters.delay_list {
+                for delay in delay_list {
+                    cd_command.arg(delay.to_string());
+                }
+            } else {
+                cd_command.arg("7").arg("10");
             }
 
             // Add time bounds only if provided

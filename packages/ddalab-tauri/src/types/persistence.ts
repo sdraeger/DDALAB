@@ -72,6 +72,14 @@ export interface AnalysisResult {
   plot_data?: any;
 }
 
+export interface DelayPreset {
+  id: string;
+  name: string;
+  description: string;
+  delays: number[];
+  isBuiltIn: boolean;
+}
+
 export interface DDAState {
   selected_variants: string[];
   parameters: Record<string, any>;
@@ -80,6 +88,7 @@ export interface DDAState {
   analysis_history: AnalysisResult[];
   analysis_parameters: Record<string, any>;
   running: boolean;
+  custom_delay_presets?: DelayPreset[];
 }
 
 export interface WindowState {

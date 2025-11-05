@@ -43,6 +43,14 @@ export interface PlotState {
   preprocessing?: PreprocessingOptions
 }
 
+export interface DelayPreset {
+  id: string
+  name: string
+  description: string
+  delays: number[]
+  isBuiltIn: boolean
+}
+
 export interface DDAState {
   currentAnalysis: DDAResult | null
   previousAnalysis: DDAResult | null  // Stores previous analysis before NSG results are loaded
@@ -55,6 +63,7 @@ export interface DDAState {
     scaleMax: number
     scaleNum: number
   }
+  customDelayPresets: DelayPreset[]
   isRunning: boolean
 }
 
@@ -136,6 +145,9 @@ export interface AppState {
   updateAnalysisParameters: (parameters: Partial<DDAState['analysisParameters']>) => void
   setDDARunning: (running: boolean) => void
   saveAnalysisResult: (analysis: DDAResult) => Promise<void>
+  addDelayPreset: (preset: Omit<DelayPreset, 'id' | 'isBuiltIn'>) => void
+  updateDelayPreset: (id: string, updates: Partial<DelayPreset>) => void
+  deleteDelayPreset: (id: string) => void
 
   // Health monitoring
   health: HealthState
@@ -224,6 +236,7 @@ const defaultDDAState: DDAState = {
     scaleMax: 20,
     scaleNum: 20
   },
+  customDelayPresets: [],
   isRunning: false
 }
 
@@ -393,69 +406,56 @@ export const useAppStore = create<AppState>()(
             '| Selected channels:', persistedState.file_manager?.selected_channels?.length || 0
           )
 
-          return {
-            ...state,
-            isPersistenceRestored: true,
-            persistenceService: service,
-            fileManager: {
-              ...state.fileManager,
-              dataDirectoryPath,  // Use backend value as primary source
-              currentPath: persistedState.file_manager?.current_path || [],
-              selectedFile,
-              selectedChannels: persistedState.file_manager?.selected_channels || [],
-              searchQuery: persistedState.file_manager?.search_query || '',
-              sortBy: (persistedState.file_manager?.sort_by as 'name' | 'size' | 'date') || 'name',
-              sortOrder: (persistedState.file_manager?.sort_order as 'asc' | 'desc') || 'asc',
-              showHidden: persistedState.file_manager?.show_hidden || false,
-              // Try both file_manager.selected_file and last_selected_file (for new state structure)
-              pendingFileSelection: persistedState.file_manager?.selected_file || (persistedState as any).last_selected_file
-            },
-            plot: (() => {
-              // IMPORTANT: Always reset chunkStart to 0 during initialization
-              // The correct position will be loaded and validated when the file is selected
-              // This prevents loading invalid cached positions that exceed file bounds
-              console.log('[STORE] Restoring plot state (chunkStart reset to 0 - will be restored per-file):', {
-                persistedChunkStart: persistedState.plot?.filters?.chunkStart,
-                persistedChunkSize: persistedState.plot?.filters?.chunkSize
-              });
+          // OPTIMIZED: Using Immer direct mutations instead of spread operators
+          state.isPersistenceRestored = true
+          state.persistenceService = service
 
-              return {
-                ...state.plot,
-                chunkSize: persistedState.plot?.filters?.chunkSize || state.plot.chunkSize,
-                chunkStart: 0, // Always start at 0 - actual position loaded when file selected
-                amplitude: persistedState.plot?.filters?.amplitude || state.plot.amplitude,
-                showAnnotations: Boolean(persistedState.plot?.filters?.showAnnotations ?? state.plot.showAnnotations),
-                preprocessing: persistedState.plot?.preprocessing
-              };
-            })(),
-            dda: {
-              ...state.dda,
-              analysisParameters: {
-                ...state.dda.analysisParameters,
-                variants: persistedState.dda?.selected_variants || state.dda.analysisParameters.variants,
-                windowLength: persistedState.dda?.parameters?.windowLength || persistedState.dda?.analysis_parameters?.windowLength || state.dda.analysisParameters.windowLength,
-                windowStep: persistedState.dda?.parameters?.windowStep || persistedState.dda?.analysis_parameters?.windowStep || state.dda.analysisParameters.windowStep,
-                scaleMin: persistedState.dda?.parameters?.scaleMin || persistedState.dda?.analysis_parameters?.scaleMin || state.dda.analysisParameters.scaleMin,
-                scaleMax: persistedState.dda?.parameters?.scaleMax || persistedState.dda?.analysis_parameters?.scaleMax || state.dda.analysisParameters.scaleMax,
-                scaleNum: persistedState.dda?.parameters?.scaleNum || persistedState.dda?.analysis_parameters?.scaleNum || state.dda.analysisParameters.scaleNum
-              },
-              currentAnalysis,
-              analysisHistory
-            },
-            annotations: restoredAnnotations,
-            ui: {
-              ...state.ui,
-              activeTab: persistedState.active_tab,
-              sidebarOpen: !persistedState.sidebar_collapsed,
-              sidebarWidth: persistedState.ui?.sidebarWidth || 320,  // Load persisted width or use default
-              zoom: persistedState.ui?.zoom || 1.0,  // Load persisted zoom or use default
-              panelSizes: [
-                persistedState.panel_sizes.sidebar * 100,
-                persistedState.panel_sizes.main * 100 - persistedState.panel_sizes.sidebar * 100,
-                25
-              ]
-            }
-          };
+          // File manager state
+          state.fileManager.dataDirectoryPath = dataDirectoryPath
+          state.fileManager.currentPath = persistedState.file_manager?.current_path || []
+          state.fileManager.selectedFile = selectedFile
+          state.fileManager.selectedChannels = persistedState.file_manager?.selected_channels || []
+          state.fileManager.searchQuery = persistedState.file_manager?.search_query || ''
+          state.fileManager.sortBy = (persistedState.file_manager?.sort_by as 'name' | 'size' | 'date') || 'name'
+          state.fileManager.sortOrder = (persistedState.file_manager?.sort_order as 'asc' | 'desc') || 'asc'
+          state.fileManager.showHidden = persistedState.file_manager?.show_hidden || false
+          state.fileManager.pendingFileSelection = persistedState.file_manager?.selected_file || (persistedState as any).last_selected_file
+
+          // Plot state
+          console.log('[STORE] Restoring plot state (chunkStart reset to 0 - will be restored per-file):', {
+            persistedChunkStart: persistedState.plot?.filters?.chunkStart,
+            persistedChunkSize: persistedState.plot?.filters?.chunkSize
+          });
+          state.plot.chunkSize = persistedState.plot?.filters?.chunkSize || state.plot.chunkSize
+          state.plot.chunkStart = 0  // Always start at 0 - actual position loaded when file selected
+          state.plot.amplitude = persistedState.plot?.filters?.amplitude || state.plot.amplitude
+          state.plot.showAnnotations = Boolean(persistedState.plot?.filters?.showAnnotations ?? state.plot.showAnnotations)
+          state.plot.preprocessing = persistedState.plot?.preprocessing
+
+          // DDA state
+          state.dda.analysisParameters.variants = persistedState.dda?.selected_variants || state.dda.analysisParameters.variants
+          state.dda.analysisParameters.windowLength = persistedState.dda?.parameters?.windowLength || persistedState.dda?.analysis_parameters?.windowLength || state.dda.analysisParameters.windowLength
+          state.dda.analysisParameters.windowStep = persistedState.dda?.parameters?.windowStep || persistedState.dda?.analysis_parameters?.windowStep || state.dda.analysisParameters.windowStep
+          state.dda.analysisParameters.scaleMin = persistedState.dda?.parameters?.scaleMin || persistedState.dda?.analysis_parameters?.scaleMin || state.dda.analysisParameters.scaleMin
+          state.dda.analysisParameters.scaleMax = persistedState.dda?.parameters?.scaleMax || persistedState.dda?.analysis_parameters?.scaleMax || state.dda.analysisParameters.scaleMax
+          state.dda.analysisParameters.scaleNum = persistedState.dda?.parameters?.scaleNum || persistedState.dda?.analysis_parameters?.scaleNum || state.dda.analysisParameters.scaleNum
+          state.dda.customDelayPresets = persistedState.dda?.custom_delay_presets || state.dda.customDelayPresets
+          state.dda.currentAnalysis = currentAnalysis
+          state.dda.analysisHistory = analysisHistory
+
+          // Annotations
+          state.annotations = restoredAnnotations
+
+          // UI state
+          state.ui.activeTab = persistedState.active_tab
+          state.ui.sidebarOpen = !persistedState.sidebar_collapsed
+          state.ui.sidebarWidth = persistedState.ui?.sidebarWidth || 320
+          state.ui.zoom = persistedState.ui?.zoom || 1.0
+          state.ui.panelSizes = [
+            persistedState.panel_sizes.sidebar * 100,
+            persistedState.panel_sizes.main * 100 - persistedState.panel_sizes.sidebar * 100,
+            25
+          ]
         });
 
         // Mark as successfully initialized at module level
@@ -666,9 +666,9 @@ export const useAppStore = create<AppState>()(
             // Update DDA parameters from saved state
             // OPTIMIZED: Using Immer - direct mutation syntax
             set((state) => {
-              state.dda.analysisParameters = {
-                ...state.dda.analysisParameters,
-                ...ddaState.lastParameters
+              // Directly assign individual properties instead of using spread
+              if (ddaState.lastParameters) {
+                Object.assign(state.dda.analysisParameters, ddaState.lastParameters)
               }
               // Clear current analysis - components will load by ID if needed
               state.dda.currentAnalysis = null
@@ -1267,6 +1267,101 @@ export const useAppStore = create<AppState>()(
     set((state) => {
       state.dda.isRunning = running
     })
+  },
+
+  addDelayPreset: (preset) => {
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      const newPreset: DelayPreset = {
+        ...preset,
+        id: `custom-${Date.now()}`,
+        isBuiltIn: false
+      }
+      state.dda.customDelayPresets.push(newPreset)
+    })
+
+    // Persist to backend
+    if (TauriService.isTauri()) {
+      const { dda } = get()
+      const ddaState: PersistedDDAState = {
+        selected_variants: dda.analysisParameters.variants,
+        parameters: {
+          windowLength: dda.analysisParameters.windowLength,
+          windowStep: dda.analysisParameters.windowStep,
+          scaleMin: dda.analysisParameters.scaleMin,
+          scaleMax: dda.analysisParameters.scaleMax,
+          scaleNum: dda.analysisParameters.scaleNum
+        },
+        last_analysis_id: dda.currentAnalysis?.id || null,
+        current_analysis: dda.currentAnalysis,
+        analysis_history: dda.analysisHistory,
+        analysis_parameters: dda.analysisParameters,
+        running: dda.isRunning,
+        custom_delay_presets: dda.customDelayPresets
+      }
+      TauriService.updateDDAState(ddaState).catch(console.error)
+    }
+  },
+
+  updateDelayPreset: (id, updates) => {
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      const preset = state.dda.customDelayPresets.find(p => p.id === id)
+      if (preset) {
+        Object.assign(preset, updates)
+      }
+    })
+
+    // Persist to backend
+    if (TauriService.isTauri()) {
+      const { dda } = get()
+      const ddaState: PersistedDDAState = {
+        selected_variants: dda.analysisParameters.variants,
+        parameters: {
+          windowLength: dda.analysisParameters.windowLength,
+          windowStep: dda.analysisParameters.windowStep,
+          scaleMin: dda.analysisParameters.scaleMin,
+          scaleMax: dda.analysisParameters.scaleMax,
+          scaleNum: dda.analysisParameters.scaleNum
+        },
+        last_analysis_id: dda.currentAnalysis?.id || null,
+        current_analysis: dda.currentAnalysis,
+        analysis_history: dda.analysisHistory,
+        analysis_parameters: dda.analysisParameters,
+        running: dda.isRunning,
+        custom_delay_presets: dda.customDelayPresets
+      }
+      TauriService.updateDDAState(ddaState).catch(console.error)
+    }
+  },
+
+  deleteDelayPreset: (id) => {
+    // OPTIMIZED: Using Immer - direct mutation syntax
+    set((state) => {
+      state.dda.customDelayPresets = state.dda.customDelayPresets.filter(p => p.id !== id)
+    })
+
+    // Persist to backend
+    if (TauriService.isTauri()) {
+      const { dda } = get()
+      const ddaState: PersistedDDAState = {
+        selected_variants: dda.analysisParameters.variants,
+        parameters: {
+          windowLength: dda.analysisParameters.windowLength,
+          windowStep: dda.analysisParameters.windowStep,
+          scaleMin: dda.analysisParameters.scaleMin,
+          scaleMax: dda.analysisParameters.scaleMax,
+          scaleNum: dda.analysisParameters.scaleNum
+        },
+        last_analysis_id: dda.currentAnalysis?.id || null,
+        current_analysis: dda.currentAnalysis,
+        analysis_history: dda.analysisHistory,
+        analysis_parameters: dda.analysisParameters,
+        running: dda.isRunning,
+        custom_delay_presets: dda.customDelayPresets
+      }
+      TauriService.updateDDAState(ddaState).catch(console.error)
+    }
   },
 
   // Health monitoring
