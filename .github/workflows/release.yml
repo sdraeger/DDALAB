@@ -53,7 +53,7 @@ jobs:
       matrix:
         include:
           - platform: 'macos-latest'
-            args: '--target aarch64-apple-darwin --bundles app'
+            args: '--target aarch64-apple-darwin'
             target: 'aarch64-apple-darwin'
             arch: 'aarch64'
           - platform: 'macos-latest'
@@ -155,8 +155,8 @@ jobs:
             ### 🍎 macOS
             | Architecture | File | Installation |
             |--------------|------|--------------|
-            | **Apple Silicon** (M1/M2/M3) | `DDALAB_aarch64.dmg` | Download, open, drag to Applications |
-            | **Intel x86_64** | `DDALAB_x64.dmg` | Download, open, drag to Applications |
+            | **Apple Silicon** (M1/M2/M3) | `DDALAB_${{ needs.check-version.outputs.version }}_aarch64_darwin.dmg` | Download, open, drag to Applications |
+            | **Intel x86_64** | `DDALAB_${{ needs.check-version.outputs.version }}_x64_darwin.dmg` | Download, open, drag to Applications |
 
             **Requirements**: macOS 10.15 or later
 
@@ -165,23 +165,23 @@ jobs:
             ### 🐧 Linux
             | Architecture | Format | File | Installation |
             |--------------|--------|------|--------------|
-            | **x86_64** | AppImage | `ddalab_amd64.AppImage` | `chmod +x` then run |
-            | **x86_64** | Debian | `ddalab_amd64.deb` | `sudo dpkg -i ddalab_amd64.deb` |
-            | **x86_64** | RPM | `ddalab_x86_64.rpm` | `sudo dnf install ddalab_x86_64.rpm` |
-            | **ARM64/aarch64** | AppImage | `ddalab_arm64.AppImage` | `chmod +x` then run |
-            | **ARM64/aarch64** | Debian | `ddalab_arm64.deb` | `sudo dpkg -i ddalab_arm64.deb` |
-            | **ARM64/aarch64** | RPM | `ddalab_aarch64.rpm` | `sudo dnf install ddalab_aarch64.rpm` |
+            | **x86_64** | AppImage | `DDALAB_${{ needs.check-version.outputs.version }}_amd64_linux.AppImage` | `chmod +x` then run |
+            | **x86_64** | Debian | `DDALAB_${{ needs.check-version.outputs.version }}_amd64_linux.deb` | `sudo dpkg -i` |
+            | **x86_64** | RPM | `DDALAB-${{ needs.check-version.outputs.version }}-1.x86_64_linux.rpm` | `sudo dnf install` |
+            | **ARM64/aarch64** | AppImage | `DDALAB_${{ needs.check-version.outputs.version }}_aarch64_linux.AppImage` | `chmod +x` then run |
+            | **ARM64/aarch64** | Debian | `DDALAB_${{ needs.check-version.outputs.version }}_arm64_linux.deb` | `sudo dpkg -i` |
+            | **ARM64/aarch64** | RPM | `DDALAB-${{ needs.check-version.outputs.version }}-1.aarch64_linux.rpm` | `sudo dnf install` |
 
             **Requirements**: Ubuntu 20.04 or later (Debian/Ubuntu), Fedora 38+ (RPM)
 
-            **Note for RHEL/Rocky/AlmaLinux users**: If the RPM fails with webkit2gtk dependency errors, use the AppImage instead (it bundles all dependencies)
+            **⚠️ Note for RHEL/Rocky/AlmaLinux users**: If the RPM fails with `webkit2gtk-4.1` dependency errors, use the **AppImage** instead (it bundles all dependencies and works on all distributions).
 
             ---
 
             ### 🪟 Windows
             | Architecture | File | Installation |
             |--------------|------|--------------|
-            | **x64** | `DDALAB_x64_en-US.msi` | Download and run installer |
+            | **x64** | `DDALAB_${{ needs.check-version.outputs.version }}_x64_en-US_windows.msi` | Download and run installer |
 
             **Requirements**: Windows 10 or later
 
