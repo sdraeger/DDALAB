@@ -26,7 +26,10 @@ interface DashboardLayoutProps {
   sessionToken?: string;
 }
 
-export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) {
+export function DashboardLayout({
+  apiUrl,
+  sessionToken,
+}: DashboardLayoutProps) {
   const [apiService, setApiService] = useState(() => {
     return new ApiService(apiUrl, sessionToken);
   });
@@ -41,11 +44,21 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
   const activeTab = useAppStore((state) => state.ui.activeTab);
   const primaryNav = useAppStore((state) => state.ui.primaryNav);
   const secondaryNav = useAppStore((state) => state.ui.secondaryNav);
-  const currentFilePath = useAppStore((state) => state.fileManager.selectedFile?.file_path);
-  const selectedFileName = useAppStore((state) => state.fileManager.selectedFile?.file_name);
-  const hasCurrentAnalysis = useAppStore((state) => !!state.dda.currentAnalysis);
-  const currentAnalysisId = useAppStore((state) => state.dda.currentAnalysis?.id);
-  const isPersistenceRestored = useAppStore((state) => state.isPersistenceRestored);
+  const currentFilePath = useAppStore(
+    (state) => state.fileManager.selectedFile?.file_path,
+  );
+  const selectedFileName = useAppStore(
+    (state) => state.fileManager.selectedFile?.file_name,
+  );
+  const hasCurrentAnalysis = useAppStore(
+    (state) => !!state.dda.currentAnalysis,
+  );
+  const currentAnalysisId = useAppStore(
+    (state) => state.dda.currentAnalysis?.id,
+  );
+  const isPersistenceRestored = useAppStore(
+    (state) => state.isPersistenceRestored,
+  );
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
   const setSidebarWidth = useAppStore((state) => state.setSidebarWidth);
   const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
@@ -59,16 +72,23 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
   const {
     data: historyData,
     isLoading: isLoadingHistory,
-    error: historyError
+    error: historyError,
   } = useDDAHistory(apiService, isServerReady && isAuthReady);
 
   // Sync history data to Zustand store when it changes
   useEffect(() => {
     if (historyData) {
-      console.log("[DASHBOARD] Loaded analysis history:", historyData.length, "items");
+      console.log(
+        "[DASHBOARD] Loaded analysis history:",
+        historyData.length,
+        "items",
+      );
       setAnalysisHistory(historyData);
     } else if (historyError) {
-      console.error("[DASHBOARD] Failed to load analysis history:", historyError);
+      console.error(
+        "[DASHBOARD] Failed to load analysis history:",
+        historyError,
+      );
       setAnalysisHistory([]);
     }
   }, [historyData, historyError, setAnalysisHistory]);
@@ -76,15 +96,19 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
   // Determine which analysis to auto-load (if any)
   // Only enable auto-load if: no current analysis, persistence restored, and history loaded
   // IMPORTANT: Filter history by current file to prevent loading results from different files
-  const fileSpecificHistory = historyData?.filter(item => item.file_path === currentFilePath) || [];
-  const shouldAutoLoad = !hasCurrentAnalysis && isPersistenceRestored && fileSpecificHistory.length > 0 && !isLoadingHistory && !!currentFilePath;
+  const fileSpecificHistory =
+    historyData?.filter((item) => item.file_path === currentFilePath) || [];
+  const shouldAutoLoad =
+    !hasCurrentAnalysis &&
+    isPersistenceRestored &&
+    fileSpecificHistory.length > 0 &&
+    !isLoadingHistory &&
+    !!currentFilePath;
   const analysisIdToLoad = shouldAutoLoad ? fileSpecificHistory[0].id : null;
 
   // Use Tanstack Query to load the most recent analysis (async, non-blocking)
-  const {
-    data: autoLoadedAnalysis,
-    isLoading: isAutoLoading
-  } = useAnalysisFromHistory(apiService, analysisIdToLoad, !!analysisIdToLoad);
+  const { data: autoLoadedAnalysis, isLoading: isAutoLoading } =
+    useAnalysisFromHistory(apiService, analysisIdToLoad, !!analysisIdToLoad);
 
   // Set the auto-loaded analysis once it's fetched
   // DISABLED: Auto-loading is now handled by DDAWithHistory component
@@ -99,10 +123,14 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
     const currentToken = apiService.getSessionToken();
 
     // If only token changed, update the existing instance to avoid recreating
-    if (apiService.baseURL === newApiUrl && sessionToken && currentToken !== sessionToken) {
+    if (
+      apiService.baseURL === newApiUrl &&
+      sessionToken &&
+      currentToken !== sessionToken
+    ) {
       apiService.setSessionToken(sessionToken);
       setIsAuthReady(true);
-      window.dispatchEvent(new CustomEvent('api-service-auth-ready'));
+      window.dispatchEvent(new CustomEvent("api-service-auth-ready"));
     }
     // If URL changed, we need a new instance
     else if (apiService.baseURL !== newApiUrl) {
@@ -112,27 +140,33 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
 
       // Dispatch event to signal that auth is ready
       if (sessionToken) {
-        window.dispatchEvent(new CustomEvent('api-service-auth-ready'));
+        window.dispatchEvent(new CustomEvent("api-service-auth-ready"));
       }
     }
     // Mark as ready if token already matches
     else if (sessionToken && currentToken === sessionToken) {
       setIsAuthReady(true);
-      window.dispatchEvent(new CustomEvent('api-service-auth-ready'));
+      window.dispatchEvent(new CustomEvent("api-service-auth-ready"));
     }
   }, [apiUrl, sessionToken, apiService.baseURL]);
 
   // Listen for navigation events from NSG Job Manager
   useEffect(() => {
     const handleNavigateToMainResults = () => {
-      setPrimaryNav('analyze');
-      setSecondaryNav('dda');
+      setPrimaryNav("analyze");
+      setSecondaryNav("dda");
     };
 
-    window.addEventListener('navigate-to-main-results', handleNavigateToMainResults);
+    window.addEventListener(
+      "navigate-to-main-results",
+      handleNavigateToMainResults,
+    );
 
     return () => {
-      window.removeEventListener('navigate-to-main-results', handleNavigateToMainResults);
+      window.removeEventListener(
+        "navigate-to-main-results",
+        handleNavigateToMainResults,
+      );
     };
   }, [setPrimaryNav, setSecondaryNav]);
 
@@ -145,7 +179,10 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
         const count = await TauriService.getUnreadCount();
         setUnreadNotificationCount(count);
       } catch (error) {
-        console.error('[DASHBOARD] Failed to fetch unread notification count:', error);
+        console.error(
+          "[DASHBOARD] Failed to fetch unread notification count:",
+          error,
+        );
       }
     };
 
@@ -162,14 +199,14 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
   useEffect(() => {
     if (!TauriService.isTauri()) return;
 
-    if (activeTab === 'notifications') {
+    if (activeTab === "notifications") {
       // Refresh after a short delay to allow notifications to be marked as read
       const timeout = setTimeout(async () => {
         try {
           const count = await TauriService.getUnreadCount();
           setUnreadNotificationCount(count);
         } catch (error) {
-          console.error('[DASHBOARD] Failed to refresh unread count:', error);
+          console.error("[DASHBOARD] Failed to refresh unread count:", error);
         }
       }, 1000);
 
@@ -179,28 +216,31 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
 
   // Handle notification navigation
   const handleNotificationNavigate = (actionType: string, actionData: any) => {
-    console.log('[DASHBOARD] Notification clicked:', actionType, actionData);
+    console.log("[DASHBOARD] Notification clicked:", actionType, actionData);
 
     switch (actionType) {
-      case 'navigate_nsg_manager':
-        setPrimaryNav('manage');
-        setSecondaryNav('jobs');
+      case "navigate_nsg_manager":
+        setPrimaryNav("manage");
+        setSecondaryNav("jobs");
         break;
-      case 'navigate_results':
-      case 'navigate_analysis':
-        setPrimaryNav('analyze');
-        setSecondaryNav('dda');
+      case "navigate_results":
+      case "navigate_analysis":
+        setPrimaryNav("analyze");
+        setSecondaryNav("dda");
         break;
-      case 'navigate_openneuro':
-        setPrimaryNav('manage');
-        setSecondaryNav('data-sources');
+      case "navigate_openneuro":
+        setPrimaryNav("manage");
+        setSecondaryNav("data-sources");
         break;
-      case 'navigate_settings':
-        setPrimaryNav('manage');
-        setSecondaryNav('settings');
+      case "navigate_settings":
+        setPrimaryNav("manage");
+        setSecondaryNav("settings");
         break;
       default:
-        console.warn('[DASHBOARD] Unknown notification action type:', actionType);
+        console.warn(
+          "[DASHBOARD] Unknown notification action type:",
+          actionType,
+        );
     }
   };
 
@@ -311,7 +351,6 @@ export function DashboardLayout({ apiUrl, sessionToken }: DashboardLayoutProps) 
             <PanelLeftOpen className="h-5 w-5 text-muted-foreground" />
           </div>
         )}
-
 
         {/* Content Area */}
         <div className="flex-1 flex flex-col overflow-hidden">

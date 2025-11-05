@@ -1,28 +1,31 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
-import {
-  Settings as SettingsIcon,
-} from 'lucide-react'
+import { useState } from "react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Settings as SettingsIcon } from "lucide-react";
 
 export interface SettingsSection {
-  id: string
-  label: string
-  icon: React.ReactNode
-  component: React.ReactNode
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  component: React.ReactNode;
 }
 
 interface SettingsLayoutProps {
-  sections: SettingsSection[]
-  defaultSection?: string
+  sections: SettingsSection[];
+  defaultSection?: string;
 }
 
-export function SettingsLayout({ sections, defaultSection }: SettingsLayoutProps) {
-  const [activeSection, setActiveSection] = useState(defaultSection || sections[0]?.id || '')
+export function SettingsLayout({
+  sections,
+  defaultSection,
+}: SettingsLayoutProps) {
+  const [activeSection, setActiveSection] = useState(
+    defaultSection || sections[0]?.id || "",
+  );
 
-  const currentSection = sections.find(s => s.id === activeSection)
+  const currentSection = sections.find((s) => s.id === activeSection);
 
   return (
     <div className="flex h-full">
@@ -39,10 +42,10 @@ export function SettingsLayout({ sections, defaultSection }: SettingsLayoutProps
             {sections.map((section) => (
               <Button
                 key={section.id}
-                variant={activeSection === section.id ? 'secondary' : 'ghost'}
+                variant={activeSection === section.id ? "secondary" : "ghost"}
                 className={cn(
-                  'w-full justify-start gap-3',
-                  activeSection === section.id && 'bg-secondary'
+                  "w-full justify-start gap-3",
+                  activeSection === section.id && "bg-secondary",
                 )}
                 onClick={() => setActiveSection(section.id)}
               >
@@ -57,9 +60,7 @@ export function SettingsLayout({ sections, defaultSection }: SettingsLayoutProps
       {/* Content Area */}
       <div className="flex-1 overflow-y-auto">
         {currentSection ? (
-          <div className="p-6">
-            {currentSection.component}
-          </div>
+          <div className="p-6">{currentSection.component}</div>
         ) : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center text-muted-foreground">
@@ -70,5 +71,5 @@ export function SettingsLayout({ sections, defaultSection }: SettingsLayoutProps
         )}
       </div>
     </div>
-  )
+  );
 }

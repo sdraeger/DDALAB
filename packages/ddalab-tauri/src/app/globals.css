@@ -1,5 +1,5 @@
 /* Import uPlot styles for chart rendering - must be first */
-@import 'uplot/dist/uPlot.min.css';
+@import "uplot/dist/uPlot.min.css";
 
 @tailwind base;
 @tailwind components;

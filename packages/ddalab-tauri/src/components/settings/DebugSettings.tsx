@@ -1,32 +1,40 @@
-'use client'
+"use client";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
-import { TauriService } from '@/services/tauriService'
-import { FileText, FolderOpen, Bug } from 'lucide-react'
-import { useLogsPath } from '@/hooks/useAppInfo'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { TauriService } from "@/services/tauriService";
+import { FileText, FolderOpen, Bug } from "lucide-react";
+import { useLogsPath } from "@/hooks/useAppInfo";
 
 export function DebugSettings() {
   // TanStack Query hook
-  const { data: logsPath = '' } = useLogsPath()
+  const { data: logsPath = "" } = useLogsPath();
 
   const handleOpenLogs = async () => {
-    if (!TauriService.isTauri()) return
+    if (!TauriService.isTauri()) return;
     try {
-      await TauriService.openLogsFolder()
+      await TauriService.openLogsFolder();
     } catch (error) {
-      console.error('Failed to open logs folder:', error)
+      console.error("Failed to open logs folder:", error);
     }
-  }
+  };
 
   const handleReportIssue = async () => {
     try {
-      await TauriService.openUrl('https://github.com/sdraeger/DDALAB/issues/new')
+      await TauriService.openUrl(
+        "https://github.com/sdraeger/DDALAB/issues/new",
+      );
     } catch (error) {
-      console.error('Failed to open issue tracker:', error)
+      console.error("Failed to open issue tracker:", error);
     }
-  }
+  };
 
   if (!TauriService.isTauri()) {
     return (
@@ -38,7 +46,7 @@ export function DebugSettings() {
           </p>
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -65,7 +73,9 @@ export function DebugSettings() {
             <div className="space-y-2">
               <Label className="text-sm font-medium">Logs Location</Label>
               <div className="p-3 bg-muted rounded-lg">
-                <code className="text-xs break-all">{logsPath || 'Loading...'}</code>
+                <code className="text-xs break-all">
+                  {logsPath || "Loading..."}
+                </code>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -82,5 +92,5 @@ export function DebugSettings() {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

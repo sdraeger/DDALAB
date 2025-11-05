@@ -140,7 +140,7 @@ export function DDAHistorySidebar({
                     "p-3 rounded-md border transition-colors",
                     !isRenaming && "cursor-pointer hover:bg-accent/50",
                     isSelected && "bg-accent border-accent-foreground/20",
-                    isCurrent && "border-primary/50"
+                    isCurrent && "border-primary/50",
                   )}
                 >
                   {isRenaming ? (
@@ -199,7 +199,7 @@ export function DDAHistorySidebar({
                                 day: "numeric",
                                 hour: "2-digit",
                                 minute: "2-digit",
-                              }
+                              },
                             )}
                           </p>
                         </div>

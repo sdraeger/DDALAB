@@ -49,26 +49,26 @@ if share_info.owner_online {
 ### From TypeScript (Tauri Commands)
 
 ```typescript
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from "@tauri-apps/api/core";
 
 // Connect to broker
-await invoke('sync_connect', {
-  brokerUrl: 'wss://ddalab-sync.university.edu/ws',
-  userId: 'alice@university.edu',
-  localEndpoint: 'http://localhost:3001'
+await invoke("sync_connect", {
+  brokerUrl: "wss://ddalab-sync.university.edu/ws",
+  userId: "alice@university.edu",
+  localEndpoint: "http://localhost:3001",
 });
 
 // Share a result
-const shareLink = await invoke('sync_share_result', {
-  resultId: 'result-123',
-  title: 'My Analysis',
+const shareLink = await invoke("sync_share_result", {
+  resultId: "result-123",
+  title: "My Analysis",
   description: null,
-  accessPolicy: { type: 'public' }
+  accessPolicy: { type: "public" },
 });
 
 // Access a share
-const shareInfo = await invoke('sync_access_share', {
-  token: 'abc123xyz'
+const shareInfo = await invoke("sync_access_share", {
+  token: "abc123xyz",
 });
 
 if (shareInfo.owner_online) {

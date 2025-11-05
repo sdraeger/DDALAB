@@ -293,7 +293,7 @@ export function DelayPresetManager({
               <div className="mt-2 p-2 bg-muted/50 rounded-md">
                 {(() => {
                   const preset = allPresets.find(
-                    (p) => p.id === selectedPresetId
+                    (p) => p.id === selectedPresetId,
                   );
                   return preset ? (
                     <div className="flex items-start justify-between gap-2">

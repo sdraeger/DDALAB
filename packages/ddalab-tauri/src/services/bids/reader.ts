@@ -22,7 +22,7 @@ export interface BIDSRun {
   id: string; // Full path to data file
   task: string; // Task label (from filename)
   run: string; // Run number (from filename)
-  modality: 'eeg' | 'ieeg' | 'meg';
+  modality: "eeg" | "ieeg" | "meg";
   dataFile: string; // Path to .edf, .vhdr, .set file
   jsonFile?: string; // Path to sidecar JSON
   channelsFile?: string; // Path to _channels.tsv
@@ -68,13 +68,15 @@ export interface BIDSEvent {
 /**
  * Discover all subjects in a BIDS dataset (optimized with parallel operations)
  */
-export async function discoverSubjects(rootPath: string): Promise<BIDSSubject[]> {
+export async function discoverSubjects(
+  rootPath: string,
+): Promise<BIDSSubject[]> {
   try {
-    const { readDir } = await import('@tauri-apps/plugin-fs');
+    const { readDir } = await import("@tauri-apps/plugin-fs");
 
     const entries = await readDir(rootPath);
     const subjectDirs = entries.filter(
-      entry => entry.isDirectory && entry.name.startsWith('sub-')
+      (entry) => entry.isDirectory && entry.name.startsWith("sub-"),
     );
 
     // Process all subjects in parallel for better performance
@@ -97,7 +99,7 @@ export async function discoverSubjects(rootPath: string): Promise<BIDSSubject[]>
     const subjects = await Promise.all(subjectPromises);
     return subjects.filter((s): s is BIDSSubject => s !== null);
   } catch (error) {
-    console.error('Failed to discover subjects:', error);
+    console.error("Failed to discover subjects:", error);
     return [];
   }
 }
@@ -107,26 +109,29 @@ export async function discoverSubjects(rootPath: string): Promise<BIDSSubject[]>
  */
 async function discoverSessions(subjectPath: string): Promise<BIDSSession[]> {
   try {
-    const { readDir } = await import('@tauri-apps/plugin-fs');
+    const { readDir } = await import("@tauri-apps/plugin-fs");
 
     console.log(`[BIDS] Reading subject path: ${subjectPath}`);
     const entries = await readDir(subjectPath);
-    console.log(`[BIDS] Found ${entries.length} entries in ${subjectPath}:`, entries.map(e => `${e.name} (dir: ${e.isDirectory})`));
+    console.log(
+      `[BIDS] Found ${entries.length} entries in ${subjectPath}:`,
+      entries.map((e) => `${e.name} (dir: ${e.isDirectory})`),
+    );
 
     const sessionDirs = entries.filter(
-      entry => entry.isDirectory && entry.name.startsWith('ses-')
+      (entry) => entry.isDirectory && entry.name.startsWith("ses-"),
     );
 
     console.log(`[BIDS] Found ${sessionDirs.length} session directories`);
 
     // If no session directories, check for modality directories directly
     if (sessionDirs.length === 0) {
-      const runs = await discoverRuns(subjectPath, '');
+      const runs = await discoverRuns(subjectPath, "");
       if (runs.length > 0) {
         return [
           {
-            id: '',
-            label: '',
+            id: "",
+            label: "",
             runs,
           },
         ];
@@ -153,7 +158,10 @@ async function discoverSessions(subjectPath: string): Promise<BIDSSession[]> {
     const sessions = await Promise.all(sessionPromises);
     return sessions.filter((s): s is BIDSSession => s !== null);
   } catch (error) {
-    console.error(`[BIDS] Failed to discover sessions in ${subjectPath}:`, error);
+    console.error(
+      `[BIDS] Failed to discover sessions in ${subjectPath}:`,
+      error,
+    );
     if (error instanceof Error) {
       console.error(`[BIDS] Error message: ${error.message}`);
       console.error(`[BIDS] Error stack: ${error.stack}`);
@@ -167,48 +175,53 @@ async function discoverSessions(subjectPath: string): Promise<BIDSSession[]> {
  */
 async function discoverRuns(
   path: string,
-  sessionId: string
+  sessionId: string,
 ): Promise<BIDSRun[]> {
   try {
-    const { readDir } = await import('@tauri-apps/plugin-fs');
+    const { readDir } = await import("@tauri-apps/plugin-fs");
 
     const entries = await readDir(path);
 
     // Look for modality directories
     const modalityDirs = entries.filter(
-      entry => entry.isDirectory && ['eeg', 'ieeg', 'meg'].includes(entry.name)
+      (entry) =>
+        entry.isDirectory && ["eeg", "ieeg", "meg"].includes(entry.name),
     );
 
     // Process all modality directories in parallel
     const modalityPromises = modalityDirs.map(async (modalityDir) => {
-      const modality = modalityDir.name as 'eeg' | 'ieeg' | 'meg';
+      const modality = modalityDir.name as "eeg" | "ieeg" | "meg";
       const modalityPath = `${path}/${modalityDir.name}`;
 
       const modalityEntries = await readDir(modalityPath);
 
       // Find data files - EDF, BrainVision, EEGLAB, and MEG formats
       // MEG formats: .fif (Neuromag/Elekta), .ds (CTF), .sqd/.meg4/.con (KIT/Yokogawa)
-      const dataFiles = modalityEntries.filter(entry =>
-        !entry.isDirectory &&
-        (entry.name.endsWith('.edf') ||
-          entry.name.endsWith('.vhdr') ||
-          entry.name.endsWith('.set') ||
-          entry.name.endsWith('.fif') ||
-          entry.name.endsWith('.ds') ||
-          entry.name.endsWith('.sqd') ||
-          entry.name.endsWith('.meg4') ||
-          entry.name.endsWith('.con') ||
-          entry.name.endsWith('.kit'))
+      const dataFiles = modalityEntries.filter(
+        (entry) =>
+          !entry.isDirectory &&
+          (entry.name.endsWith(".edf") ||
+            entry.name.endsWith(".vhdr") ||
+            entry.name.endsWith(".set") ||
+            entry.name.endsWith(".fif") ||
+            entry.name.endsWith(".ds") ||
+            entry.name.endsWith(".sqd") ||
+            entry.name.endsWith(".meg4") ||
+            entry.name.endsWith(".con") ||
+            entry.name.endsWith(".kit")),
       );
 
       const runs: BIDSRun[] = [];
 
       for (const dataFile of dataFiles) {
-        const baseName = dataFile.name.replace(/\.(edf|vhdr|set|fif|ds|sqd|meg4|con|kit)$/, '');
+        const baseName = dataFile.name.replace(
+          /\.(edf|vhdr|set|fif|ds|sqd|meg4|con|kit)$/,
+          "",
+        );
 
         // Parse BIDS filename: sub-<label>[_ses-<label>]_task-<label>[_run-<label>]_<modality>
         const filenameMatch = baseName.match(
-          /sub-[a-zA-Z0-9]+(?:_ses-[a-zA-Z0-9]+)?_task-([a-zA-Z0-9]+)(?:_run-([a-zA-Z0-9]+))?_(?:eeg|ieeg|meg)/
+          /sub-[a-zA-Z0-9]+(?:_ses-[a-zA-Z0-9]+)?_task-([a-zA-Z0-9]+)(?:_run-([a-zA-Z0-9]+))?_(?:eeg|ieeg|meg)/,
         );
 
         if (!filenameMatch) {
@@ -216,8 +229,8 @@ async function discoverRuns(
           continue;
         }
 
-        const task = filenameMatch[1] || 'unknown';
-        const run = filenameMatch[2] || '01';
+        const task = filenameMatch[1] || "unknown";
+        const run = filenameMatch[2] || "01";
 
         const dataFilePath = `${modalityPath}/${dataFile.name}`;
         const jsonFilePath = `${modalityPath}/${baseName}.json`;
@@ -242,7 +255,7 @@ async function discoverRuns(
     const modalityRuns = await Promise.all(modalityPromises);
     return modalityRuns.flat();
   } catch (error) {
-    console.error('Failed to discover runs:', error);
+    console.error("Failed to discover runs:", error);
     return [];
   }
 }
@@ -252,7 +265,7 @@ async function discoverRuns(
  */
 export async function readMetadata(jsonPath: string): Promise<BIDSMetadata> {
   try {
-    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    const { readTextFile, exists } = await import("@tauri-apps/plugin-fs");
 
     if (!(await exists(jsonPath))) {
       return {};
@@ -269,26 +282,28 @@ export async function readMetadata(jsonPath: string): Promise<BIDSMetadata> {
 /**
  * Read channels TSV file
  */
-export async function readChannels(channelsPath: string): Promise<BIDSChannel[]> {
+export async function readChannels(
+  channelsPath: string,
+): Promise<BIDSChannel[]> {
   try {
-    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    const { readTextFile, exists } = await import("@tauri-apps/plugin-fs");
 
     if (!(await exists(channelsPath))) {
       return [];
     }
 
     const content = await readTextFile(channelsPath);
-    const lines = content.trim().split('\n');
+    const lines = content.trim().split("\n");
 
     if (lines.length < 2) {
       return [];
     }
 
-    const headers = lines[0].split('\t');
+    const headers = lines[0].split("\t");
     const channels: BIDSChannel[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split('\t');
+      const values = lines[i].split("\t");
       const channel: any = {};
 
       headers.forEach((header, index) => {
@@ -316,24 +331,24 @@ export async function readChannels(channelsPath: string): Promise<BIDSChannel[]>
  */
 export async function readEvents(eventsPath: string): Promise<BIDSEvent[]> {
   try {
-    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    const { readTextFile, exists } = await import("@tauri-apps/plugin-fs");
 
     if (!(await exists(eventsPath))) {
       return [];
     }
 
     const content = await readTextFile(eventsPath);
-    const lines = content.trim().split('\n');
+    const lines = content.trim().split("\n");
 
     if (lines.length < 2) {
       return [];
     }
 
-    const headers = lines[0].split('\t');
+    const headers = lines[0].split("\t");
     const events: BIDSEvent[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split('\t');
+      const values = lines[i].split("\t");
       const event: any = {};
 
       headers.forEach((header, index) => {
@@ -369,7 +384,7 @@ export async function readEvents(eventsPath: string): Promise<BIDSEvent[]> {
  * Load a complete BIDS run with all metadata
  */
 export async function loadBIDSRun(run: BIDSRun): Promise<BIDSRun> {
-  const { exists } = await import('@tauri-apps/plugin-fs');
+  const { exists } = await import("@tauri-apps/plugin-fs");
 
   const enrichedRun = { ...run };
 
@@ -395,7 +410,7 @@ export interface BIDSDatasetSummary {
 }
 
 export async function getDatasetSummary(
-  rootPath: string
+  rootPath: string,
 ): Promise<BIDSDatasetSummary> {
   const subjects = await discoverSubjects(rootPath);
 
@@ -407,7 +422,7 @@ export async function getDatasetSummary(
   let hasElectrophysiology = false;
 
   // Check for fMRI modalities by scanning subject directories
-  const { readDir } = await import('@tauri-apps/plugin-fs');
+  const { readDir } = await import("@tauri-apps/plugin-fs");
 
   for (const subject of subjects) {
     sessionCount += subject.sessions.length;
@@ -417,33 +432,38 @@ export async function getDatasetSummary(
       const subjectPath = `${rootPath}/${subject.id}`;
       const entries = await readDir(subjectPath);
       const fmriDirs = entries.filter(
-        entry => entry.isDirectory && ['anat', 'func', 'dwi'].includes(entry.name)
+        (entry) =>
+          entry.isDirectory && ["anat", "func", "dwi"].includes(entry.name),
       );
 
       if (fmriDirs.length > 0) {
         hasFMRI = true;
-        fmriDirs.forEach(dir => modalities.add(dir.name));
+        fmriDirs.forEach((dir) => modalities.add(dir.name));
       }
 
       // Also check session directories for fMRI data
       const sessionDirs = entries.filter(
-        entry => entry.isDirectory && entry.name.startsWith('ses-')
+        (entry) => entry.isDirectory && entry.name.startsWith("ses-"),
       );
 
       for (const sessionDir of sessionDirs) {
         const sessionPath = `${subjectPath}/${sessionDir.name}`;
         const sessionEntries = await readDir(sessionPath);
         const sessionFmriDirs = sessionEntries.filter(
-          entry => entry.isDirectory && ['anat', 'func', 'dwi'].includes(entry.name)
+          (entry) =>
+            entry.isDirectory && ["anat", "func", "dwi"].includes(entry.name),
         );
 
         if (sessionFmriDirs.length > 0) {
           hasFMRI = true;
-          sessionFmriDirs.forEach(dir => modalities.add(dir.name));
+          sessionFmriDirs.forEach((dir) => modalities.add(dir.name));
         }
       }
     } catch (error) {
-      console.warn(`[BIDS] Could not check for fMRI data in ${subject.id}:`, error);
+      console.warn(
+        `[BIDS] Could not check for fMRI data in ${subject.id}:`,
+        error,
+      );
     }
 
     for (const session of subject.sessions) {

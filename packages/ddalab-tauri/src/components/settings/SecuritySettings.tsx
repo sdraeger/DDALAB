@@ -1,10 +1,15 @@
-'use client'
+"use client";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Shield } from 'lucide-react'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Shield } from "lucide-react";
 
 export function SecuritySettings() {
-
   return (
     <div className="space-y-6">
       <div>
@@ -21,9 +26,7 @@ export function SecuritySettings() {
             <Shield className="h-5 w-5" />
             Server Configuration
           </CardTitle>
-          <CardDescription>
-            Active API server settings
-          </CardDescription>
+          <CardDescription>Active API server settings</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex justify-between text-sm">
@@ -40,11 +43,13 @@ export function SecuritySettings() {
           </div>
           <div className="pt-2 border-t">
             <p className="text-xs text-muted-foreground">
-              The API server uses HTTP for local connections. Since the server only accepts connections from localhost (127.0.0.1), this is secure for local development and analysis.
+              The API server uses HTTP for local connections. Since the server
+              only accepts connections from localhost (127.0.0.1), this is
+              secure for local development and analysis.
             </p>
           </div>
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

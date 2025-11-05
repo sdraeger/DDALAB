@@ -1,9 +1,15 @@
-'use client'
+"use client";
 
-import { useEffect, useState, useCallback } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { useEffect, useState, useCallback } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Bell,
   BellOff,
@@ -15,131 +21,139 @@ import {
   Info,
   AlertTriangle,
   ExternalLink,
-} from 'lucide-react'
-import { TauriService, Notification, NotificationType } from '@/services/tauriService'
-import { formatDistanceToNow } from 'date-fns'
+} from "lucide-react";
+import {
+  TauriService,
+  Notification,
+  NotificationType,
+} from "@/services/tauriService";
+import { formatDistanceToNow } from "date-fns";
 
 interface NotificationHistoryProps {
-  onNavigate?: (actionType: string, actionData: any) => void
+  onNavigate?: (actionType: string, actionData: any) => void;
 }
 
 export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
-  const [notifications, setNotifications] = useState<Notification[]>([])
-  const [unreadCount, setUnreadCount] = useState(0)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const loadNotifications = useCallback(async () => {
     try {
-      setError(null)
+      setError(null);
       const [notifs, count] = await Promise.all([
         TauriService.listNotifications(50),
         TauriService.getUnreadCount(),
-      ])
-      setNotifications(notifs)
-      setUnreadCount(count)
+      ]);
+      setNotifications(notifs);
+      setUnreadCount(count);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load notifications')
-      console.error('[NOTIFICATIONS] Failed to load:', err)
+      setError(
+        err instanceof Error ? err.message : "Failed to load notifications",
+      );
+      console.error("[NOTIFICATIONS] Failed to load:", err);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    if (!TauriService.isTauri()) return
+    if (!TauriService.isTauri()) return;
 
-    loadNotifications()
+    loadNotifications();
 
     // Poll for new notifications every 5 seconds
-    const interval = setInterval(loadNotifications, 5000)
+    const interval = setInterval(loadNotifications, 5000);
 
-    return () => clearInterval(interval)
-  }, [loadNotifications])
+    return () => clearInterval(interval);
+  }, [loadNotifications]);
 
   const handleNotificationClick = async (notification: Notification) => {
     try {
       // Mark as read
       if (!notification.read) {
-        await TauriService.markNotificationRead(notification.id)
-        await loadNotifications()
+        await TauriService.markNotificationRead(notification.id);
+        await loadNotifications();
       }
 
       // Handle navigation if action type is present
       if (notification.action_type && onNavigate) {
-        onNavigate(notification.action_type, notification.action_data)
+        onNavigate(notification.action_type, notification.action_data);
       }
     } catch (err) {
-      console.error('[NOTIFICATIONS] Failed to handle click:', err)
+      console.error("[NOTIFICATIONS] Failed to handle click:", err);
     }
-  }
+  };
 
   const handleMarkAllRead = async () => {
     try {
-      await TauriService.markAllNotificationsRead()
-      await loadNotifications()
+      await TauriService.markAllNotificationsRead();
+      await loadNotifications();
     } catch (err) {
-      console.error('[NOTIFICATIONS] Failed to mark all read:', err)
+      console.error("[NOTIFICATIONS] Failed to mark all read:", err);
     }
-  }
+  };
 
   const handleDeleteNotification = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation() // Prevent notification click
+    e.stopPropagation(); // Prevent notification click
     try {
-      await TauriService.deleteNotification(id)
-      await loadNotifications()
+      await TauriService.deleteNotification(id);
+      await loadNotifications();
     } catch (err) {
-      console.error('[NOTIFICATIONS] Failed to delete:', err)
+      console.error("[NOTIFICATIONS] Failed to delete:", err);
     }
-  }
+  };
 
   const handleCleanupOld = async () => {
     try {
-      const deleted = await TauriService.deleteOldNotifications(30) // Delete older than 30 days
-      console.log(`[NOTIFICATIONS] Deleted ${deleted} old notifications`)
-      await loadNotifications()
+      const deleted = await TauriService.deleteOldNotifications(30); // Delete older than 30 days
+      console.log(`[NOTIFICATIONS] Deleted ${deleted} old notifications`);
+      await loadNotifications();
     } catch (err) {
-      console.error('[NOTIFICATIONS] Failed to cleanup:', err)
+      console.error("[NOTIFICATIONS] Failed to cleanup:", err);
     }
-  }
+  };
 
   const getNotificationIcon = (type: NotificationType) => {
     switch (type) {
       case NotificationType.Success:
-        return <CheckCircle className="h-5 w-5 text-green-500" />
+        return <CheckCircle className="h-5 w-5 text-green-500" />;
       case NotificationType.Error:
-        return <AlertCircle className="h-5 w-5 text-red-500" />
+        return <AlertCircle className="h-5 w-5 text-red-500" />;
       case NotificationType.Warning:
-        return <AlertTriangle className="h-5 w-5 text-yellow-500" />
+        return <AlertTriangle className="h-5 w-5 text-yellow-500" />;
       case NotificationType.Info:
       default:
-        return <Info className="h-5 w-5 text-blue-500" />
+        return <Info className="h-5 w-5 text-blue-500" />;
     }
-  }
+  };
 
   const getNotificationBadgeColor = (type: NotificationType) => {
     switch (type) {
       case NotificationType.Success:
-        return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
+        return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300";
       case NotificationType.Error:
-        return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
+        return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300";
       case NotificationType.Warning:
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'
+        return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300";
       case NotificationType.Info:
       default:
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
+        return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300";
     }
-  }
+  };
 
   if (!TauriService.isTauri()) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>Notifications</CardTitle>
-          <CardDescription>Notifications are only available in the Tauri app</CardDescription>
+          <CardDescription>
+            Notifications are only available in the Tauri app
+          </CardDescription>
         </CardHeader>
       </Card>
-    )
+    );
   }
 
   return (
@@ -162,20 +176,12 @@ export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
           </div>
           <div className="flex gap-2">
             {unreadCount > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleMarkAllRead}
-              >
+              <Button variant="outline" size="sm" onClick={handleMarkAllRead}>
                 <CheckCheck className="h-4 w-4 mr-2" />
                 Mark all read
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCleanupOld}
-            >
+            <Button variant="outline" size="sm" onClick={handleCleanupOld}>
               <Trash2 className="h-4 w-4 mr-2" />
               Clean up old
             </Button>
@@ -206,9 +212,10 @@ export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
                   key={notification.id}
                   className={`
                     p-4 rounded-lg border transition-all cursor-pointer
-                    ${notification.read
-                      ? 'bg-muted/20 border-muted'
-                      : 'bg-background border-primary/20 shadow-sm'
+                    ${
+                      notification.read
+                        ? "bg-muted/20 border-muted"
+                        : "bg-background border-primary/20 shadow-sm"
                     }
                     hover:border-primary/50 hover:shadow-md
                   `}
@@ -238,7 +245,10 @@ export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
                       </p>
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
+                          {formatDistanceToNow(
+                            new Date(notification.created_at),
+                            { addSuffix: true },
+                          )}
                         </span>
                         <div className="flex items-center gap-2">
                           {notification.action_type && (
@@ -251,7 +261,9 @@ export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
                             variant="ghost"
                             size="sm"
                             className="h-7 w-7 p-0"
-                            onClick={(e) => handleDeleteNotification(notification.id, e)}
+                            onClick={(e) =>
+                              handleDeleteNotification(notification.id, e)
+                            }
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
@@ -266,5 +278,5 @@ export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
         )}
       </CardContent>
     </Card>
-  )
+  );
 }

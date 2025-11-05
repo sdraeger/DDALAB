@@ -1,14 +1,20 @@
-import { useQuery, useQueries, useMutation, useQueryClient, UseQueryResult } from '@tanstack/react-query';
-import { ApiService } from '@/services/apiService';
-import { ChunkData } from '@/types/api';
+import {
+  useQuery,
+  useQueries,
+  useMutation,
+  useQueryClient,
+  UseQueryResult,
+} from "@tanstack/react-query";
+import { ApiService } from "@/services/apiService";
+import { ChunkData } from "@/types/api";
 
 /**
  * Query key factory for time series data
  * Provides consistent cache keys for chunk and overview data
  */
 export const timeSeriesKeys = {
-  all: ['timeSeries'] as const,
-  chunks: () => [...timeSeriesKeys.all, 'chunks'] as const,
+  all: ["timeSeries"] as const,
+  chunks: () => [...timeSeriesKeys.all, "chunks"] as const,
   chunk: (
     filePath: string,
     chunkStart: number,
@@ -18,16 +24,17 @@ export const timeSeriesKeys = {
       highpass?: number;
       lowpass?: number;
       notch?: number[];
-    }
-  ) => [
-    ...timeSeriesKeys.chunks(),
-    filePath,
-    chunkStart,
-    chunkSize,
-    channels,
-    preprocessing,
-  ] as const,
-  overviews: () => [...timeSeriesKeys.all, 'overviews'] as const,
+    },
+  ) =>
+    [
+      ...timeSeriesKeys.chunks(),
+      filePath,
+      chunkStart,
+      chunkSize,
+      channels,
+      preprocessing,
+    ] as const,
+  overviews: () => [...timeSeriesKeys.all, "overviews"] as const,
   overview: (filePath: string, channels?: string[], maxPoints?: number) =>
     [...timeSeriesKeys.overviews(), filePath, channels, maxPoints] as const,
 };
@@ -67,7 +74,7 @@ export function useChunkData(
     lowpass?: number;
     notch?: number[];
   },
-  enabled: boolean = true
+  enabled: boolean = true,
 ) {
   return useQuery({
     queryKey: timeSeriesKeys.chunk(
@@ -75,7 +82,7 @@ export function useChunkData(
       chunkStart,
       chunkSize,
       requestedChannels,
-      preprocessing
+      preprocessing,
     ),
     queryFn: async ({ signal }) => {
       return apiService.getChunkData(
@@ -84,7 +91,7 @@ export function useChunkData(
         chunkSize,
         requestedChannels,
         signal,
-        preprocessing
+        preprocessing,
       );
     },
     enabled: enabled && !!filePath && chunkSize > 0,
@@ -120,7 +127,7 @@ export function useOverviewData(
   filePath: string,
   requestedChannels?: string[],
   maxPoints: number = 2000,
-  enabled: boolean = true
+  enabled: boolean = true,
 ) {
   return useQuery({
     queryKey: timeSeriesKeys.overview(filePath, requestedChannels, maxPoints),
@@ -129,7 +136,7 @@ export function useOverviewData(
         filePath,
         requestedChannels,
         maxPoints,
-        signal
+        signal,
       );
     },
     enabled: enabled && !!filePath,
@@ -146,16 +153,19 @@ export function useOverviewProgress(
   filePath: string,
   requestedChannels?: string[],
   maxPoints: number = 2000,
-  enabled: boolean = true
+  enabled: boolean = true,
 ) {
   return useQuery({
-    queryKey: [...timeSeriesKeys.overview(filePath, requestedChannels, maxPoints), 'progress'],
+    queryKey: [
+      ...timeSeriesKeys.overview(filePath, requestedChannels, maxPoints),
+      "progress",
+    ],
     queryFn: async ({ signal }) => {
       return apiService.getOverviewProgress(
         filePath,
         requestedChannels,
         maxPoints,
-        signal
+        signal,
       );
     },
     enabled: enabled && !!filePath,
@@ -207,13 +217,18 @@ export function useMultipleOverviews(
   filePath: string,
   channelLists: string[][],
   maxPoints: number = 2000,
-  enabled: boolean = true
+  enabled: boolean = true,
 ): UseQueryResult<ChunkData, Error>[] {
   return useQueries({
     queries: channelLists.map((channels) => ({
       queryKey: timeSeriesKeys.overview(filePath, channels, maxPoints),
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
-        return apiService.getOverviewData(filePath, channels, maxPoints, signal);
+        return apiService.getOverviewData(
+          filePath,
+          channels,
+          maxPoints,
+          signal,
+        );
       },
       enabled: enabled && !!filePath,
       staleTime: 30 * 60 * 1000,
@@ -259,7 +274,7 @@ export function useMultipleChunks(
       notch?: number[];
     };
   }>,
-  enabled: boolean = true
+  enabled: boolean = true,
 ): UseQueryResult<ChunkData, Error>[] {
   return useQueries({
     queries: chunkRequests.map((request) => ({
@@ -268,7 +283,7 @@ export function useMultipleChunks(
         request.start,
         request.size,
         request.channels,
-        request.preprocessing
+        request.preprocessing,
       ),
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
         return apiService.getChunkData(
@@ -277,7 +292,7 @@ export function useMultipleChunks(
           request.size,
           request.channels,
           signal,
-          request.preprocessing
+          request.preprocessing,
         );
       },
       enabled: enabled && !!filePath && request.size > 0,
@@ -317,7 +332,7 @@ export function useInvalidateTimeSeriesCache() {
           const key = query.queryKey;
           return (
             Array.isArray(key) &&
-            key[0] === 'timeSeries' &&
+            key[0] === "timeSeries" &&
             key.includes(filePath)
           );
         },
@@ -381,7 +396,7 @@ export function usePrefetchChunkData(apiService: ApiService) {
       highpass?: number;
       lowpass?: number;
       notch?: number[];
-    }
+    },
   ) => {
     queryClient.prefetchQuery({
       queryKey: timeSeriesKeys.chunk(
@@ -389,7 +404,7 @@ export function usePrefetchChunkData(apiService: ApiService) {
         chunkStart,
         chunkSize,
         requestedChannels,
-        preprocessing
+        preprocessing,
       ),
       queryFn: async ({ signal }) => {
         return apiService.getChunkData(
@@ -398,7 +413,7 @@ export function usePrefetchChunkData(apiService: ApiService) {
           chunkSize,
           requestedChannels,
           signal,
-          preprocessing
+          preprocessing,
         );
       },
       staleTime: 30 * 60 * 1000,
