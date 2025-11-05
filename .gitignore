@@ -100,6 +100,9 @@ packages/web30/.next/
 
 dda_history/
 
+# Tauri generated files
+packages/ddalab-tauri/src-tauri/gen/
+
 presentation/
 CLAUDE.md
 
