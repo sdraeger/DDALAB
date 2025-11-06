@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, memo } from "react";
+import { useEffect, useRef, memo, useState } from "react";
 import { ChunkData } from "@/types/api";
 import { PlotAnnotation } from "@/types/annotations";
 import uPlot from "uplot";
@@ -39,6 +39,8 @@ function OverviewPlotComponent({
   const timeWindowRef = useRef(timeWindow);
   const annotationsRef = useRef<PlotAnnotation[]>(annotations);
   const lastDurationRef = useRef<number | null>(null);
+  const retryCountRef = useRef(0);
+  const [retryTrigger, setRetryTrigger] = useState(0);
 
   // Keep refs up to date
   useEffect(() => {
@@ -47,6 +49,11 @@ function OverviewPlotComponent({
     timeWindowRef.current = timeWindow;
     annotationsRef.current = annotations;
   }, [onSeek, currentTime, timeWindow, annotations]);
+
+  // Reset retry counter when data changes (new file loaded)
+  useEffect(() => {
+    retryCountRef.current = 0;
+  }, [overviewData, duration]);
 
   // Render overview plot
   useEffect(() => {
@@ -61,6 +68,28 @@ function OverviewPlotComponent({
     }
 
     const container = plotRef.current;
+
+    // Ensure container has been laid out with valid dimensions
+    if (container.clientWidth <= 0 || container.clientHeight <= 0) {
+      console.warn(
+        "[OverviewPlot] Container not ready, dimensions:",
+        container.clientWidth,
+        container.clientHeight,
+      );
+
+      // Retry after a short delay (up to 5 times)
+      if (retryCountRef.current < 5) {
+        retryCountRef.current++;
+        const timeoutId = setTimeout(() => {
+          setRetryTrigger((prev) => prev + 1);
+        }, 100);
+        return () => clearTimeout(timeoutId);
+      }
+      return;
+    }
+
+    // Reset retry count on successful render
+    retryCountRef.current = 0;
 
     // Check if duration changed significantly (indicates file switch)
     // If so, destroy the existing plot to force recreation with correct scale
@@ -262,6 +291,12 @@ function OverviewPlotComponent({
         uplotRef.current.setData(data);
         uplotRef.current.redraw();
       } else {
+        console.log(
+          "[OverviewPlot] Creating plot with dimensions:",
+          container.clientWidth,
+          "x",
+          container.clientHeight,
+        );
         uplotRef.current = new uPlot(opts, data, container);
 
         // Setup resize observer
@@ -285,7 +320,7 @@ function OverviewPlotComponent({
         resizeObserverRef.current = null;
       }
     };
-  }, [overviewData, duration]); // Don't include onSeek, currentTime, or timeWindow - they trigger too many re-renders
+  }, [overviewData, duration, retryTrigger]); // Include retryTrigger to handle container layout delays
 
   // Cleanup on unmount
   useEffect(() => {
