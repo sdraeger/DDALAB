@@ -340,8 +340,13 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
     const channels = Object.keys(currentVariantData.dda_matrix);
 
-    // Reset the prevHeatmapDataRef range when variant changes to force color range recalculation
+    // Reset the prevHeatmapDataRef when variant changes to force recalculation
     prevHeatmapDataRef.current.range = [0, 1];
+    prevHeatmapDataRef.current.variantId = null; // Force data update detection
+
+    // NOTE: We don't reset colorRange state here anymore. The ref reset above
+    // ensures rangeChanged will be true, triggering proper color range update.
+    // Resetting the state caused flat-color rendering during the transition.
 
     // Check if channels have actually changed (compare arrays)
     setSelectedChannels((prev) => {
@@ -365,7 +370,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       // No change - return previous reference to avoid re-render
       return prev;
     });
-  }, [currentVariantData?.variant_id, result.id]);
+  }, [currentVariantData?.variant_id, result.id, autoScale]);
 
   // CRITICAL: Clean up ResizeObservers immediately when channels change
   // This prevents old observers from firing with the wrong channel count
@@ -499,20 +504,25 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   const prevHeatmapDataRef = useRef<{
     data: number[][];
     range: [number, number];
+    variantId: string | null;
   }>({
     data: [],
     range: [0, 1],
+    variantId: null,
   });
 
   // Update state when memoized data changes
   // Use RAF to defer updates and prevent blocking the main thread
   useEffect(() => {
+    const currentVariantId = currentVariantData?.variant_id || null;
+
     // Check if data actually changed (prevent re-render loop)
     const dataChanged =
       processedHeatmapData.length !== prevHeatmapDataRef.current.data.length ||
       processedHeatmapData.length === 0 ||
       processedHeatmapData[0]?.length !==
-        prevHeatmapDataRef.current.data[0]?.length;
+        prevHeatmapDataRef.current.data[0]?.length ||
+      currentVariantId !== prevHeatmapDataRef.current.variantId;
 
     const rangeChanged =
       computedColorRange[0] !== prevHeatmapDataRef.current.range[0] ||
@@ -522,13 +532,22 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       return; // No actual changes, skip update
     }
 
-    // Use requestAnimationFrame to batch updates and avoid blocking UI
+    // CRITICAL: Update ref tracking IMMEDIATELY (synchronous) so render effect sees correct values
+    // Ref updates are cheap and don't block, so no need to defer them
+    if (dataChanged) {
+      prevHeatmapDataRef.current.data = processedHeatmapData;
+      prevHeatmapDataRef.current.variantId = currentVariantId;
+    }
+    if (rangeChanged) {
+      prevHeatmapDataRef.current.range = computedColorRange;
+    }
+
+    // Use requestAnimationFrame to batch STATE updates and avoid blocking UI
     const rafId = requestAnimationFrame(() => {
       setIsProcessingData(false);
 
       if (dataChanged) {
         setHeatmapData(processedHeatmapData);
-        prevHeatmapDataRef.current.data = processedHeatmapData;
       }
 
       if (
@@ -537,21 +556,15 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         computedColorRange[0] !== computedColorRange[1]
       ) {
         setColorRange(computedColorRange);
-        prevHeatmapDataRef.current.range = computedColorRange;
       }
     });
 
     return () => cancelAnimationFrame(rafId);
-  }, [processedHeatmapData, computedColorRange, autoScale]);
+  }, [processedHeatmapData, computedColorRange, autoScale, currentVariantData?.variant_id]);
 
   const renderHeatmap = useCallback(() => {
     if (!heatmapRef.current || heatmapData.length === 0) {
       setIsRenderingHeatmap(false);
-      return;
-    }
-
-    // Don't render if still using default colorRange [0, 1] - wait for data processing
-    if (autoScale && colorRange[0] === 0 && colorRange[1] === 1) {
       return;
     }
 
@@ -1085,6 +1098,17 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     linePlotHeight,
   ]);
 
+  // Variant color mapping (matches DDAAnalysis.tsx variant colors)
+  const getVariantColor = (variantId: string): string => {
+    const colorMap: Record<string, string> = {
+      single_timeseries: "#3b82f6", // Blue
+      cross_timeseries: "#8b5cf6", // Purple
+      cross_dynamical: "#f97316", // Orange
+      dynamical_ergodicity: "#10b981", // Green
+    };
+    return colorMap[variantId] || "#64748b"; // Default to slate if unknown
+  };
+
   const getChannelColor = (index: number): string => {
     const colors = [
       "#3b82f6",
@@ -1338,8 +1362,22 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         return;
       }
 
-      // Skip if using default colorRange and autoScale is on (wait for data processing)
-      if (autoScale && colorRange[0] === 0 && colorRange[1] === 1) {
+      // CRITICAL: Also verify the data is for the current variant
+      // When switching between variants with same channel count, length check passes
+      // but data might still be from previous variant
+      const currentVariantId = currentVariantData?.variant_id || null;
+      if (prevHeatmapDataRef.current.variantId !== currentVariantId) {
+        console.log(
+          `[HEATMAP] Waiting for data to be reprocessed for variant ${currentVariantId} (current data is for ${prevHeatmapDataRef.current.variantId})`,
+        );
+
+        // Clear the old plot so user doesn't see wrong variant's data
+        if (heatmapCleanupRef.current) {
+          console.log("[HEATMAP] Clearing stale plot while waiting for variant data");
+          heatmapCleanupRef.current();
+          heatmapCleanupRef.current = null;
+        }
+
         return;
       }
 
@@ -1749,11 +1787,25 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
           className="mt-4 flex-1 flex flex-col gap-0"
         >
           <TabsList className="mb-0" style={{ marginBottom: 0 }}>
-            {availableVariants.map((variant, index) => (
-              <TabsTrigger key={variant.variant_id} value={index.toString()}>
-                {variant.variant_name}
-              </TabsTrigger>
-            ))}
+            {availableVariants.map((variant, index) => {
+              const color = getVariantColor(variant.variant_id);
+              const isActive = selectedVariant === index;
+              return (
+                <TabsTrigger
+                  key={variant.variant_id}
+                  value={index.toString()}
+                  className="relative"
+                  style={{
+                    borderLeft: `4px solid ${color}`,
+                    backgroundColor: isActive
+                      ? `${color}20`
+                      : "transparent",
+                  }}
+                >
+                  {variant.variant_name}
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
 
           {/* Render all TabsContent (required for Tabs), but conditionally render expensive components inside */}

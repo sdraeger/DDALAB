@@ -36,6 +36,9 @@ pub struct AnnotationEntry {
     pub id: String,
     /// Position in seconds (time-based coordinate)
     pub position: f64,
+    /// Position in samples (calculated from position * sample_rate)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position_samples: Option<i64>,
     /// Label text
     pub label: String,
     /// Optional description
@@ -155,6 +158,7 @@ impl AnnotationFile {
             file_hash: String,
             channel: String,
             position: f64,
+            position_samples: String,
             label: String,
             description: String,
             color: String,
@@ -167,11 +171,20 @@ impl AnnotationFile {
 
         // Add global annotations
         for ann in &self.global_annotations {
+            let position_samples = if let Some(samples) = ann.position_samples {
+                samples.to_string()
+            } else if let Some(sr) = self.sample_rate {
+                format!("{:.0}", ann.position * sr)
+            } else {
+                "N/A".to_string()
+            };
+
             flat_annotations.push(FlatAnnotation {
                 file_path: self.file_path.clone(),
                 file_hash: self.file_hash.clone().unwrap_or_default(),
                 channel: "global".to_string(),
                 position: ann.position,
+                position_samples,
                 label: ann.label.clone(),
                 description: ann.description.clone().unwrap_or_default(),
                 color: ann.color.clone().unwrap_or_default(),
@@ -184,11 +197,20 @@ impl AnnotationFile {
         // Add channel-specific annotations
         for (channel, anns) in &self.channel_annotations {
             for ann in anns {
+                let position_samples = if let Some(samples) = ann.position_samples {
+                    samples.to_string()
+                } else if let Some(sr) = self.sample_rate {
+                    format!("{:.0}", ann.position * sr)
+                } else {
+                    "N/A".to_string()
+                };
+
                 flat_annotations.push(FlatAnnotation {
                     file_path: self.file_path.clone(),
                     file_hash: self.file_hash.clone().unwrap_or_default(),
                     channel: channel.clone(),
                     position: ann.position,
+                    position_samples,
                     label: ann.label.clone(),
                     description: ann.description.clone().unwrap_or_default(),
                     color: ann.color.clone().unwrap_or_default(),
@@ -304,6 +326,7 @@ mod tests {
         ann_file.global_annotations.push(AnnotationEntry {
             id: "ann1".to_string(),
             position: 5.0,
+            position_samples: Some(1280), // 5.0 seconds * 256 Hz
             label: "Event A".to_string(),
             description: Some("Important event".to_string()),
             color: Some("#FF0000".to_string()),

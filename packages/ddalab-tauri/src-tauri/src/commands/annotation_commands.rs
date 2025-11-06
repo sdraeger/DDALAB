@@ -20,6 +20,7 @@ pub struct ImportResult {
 pub struct AnnotationPreview {
     pub id: String,
     pub position: f64,
+    pub position_samples: Option<i64>,
     pub label: String,
     pub description: Option<String>,
     pub color: Option<String>,
@@ -195,14 +196,18 @@ pub async fn export_annotations(
                     .time_series
                     .global
                     .into_iter()
-                    .map(|ann| AnnotationEntry {
-                        id: ann.id,
-                        position: ann.position,
-                        label: ann.label,
-                        description: ann.description,
-                        color: ann.color,
-                        created_at: ann.created_at,
-                        updated_at: ann.updated_at,
+                    .map(|ann| {
+                        let position_samples = sample_rate.map(|sr| (ann.position * sr) as i64);
+                        AnnotationEntry {
+                            id: ann.id,
+                            position: ann.position,
+                            position_samples,
+                            label: ann.label,
+                            description: ann.description,
+                            color: ann.color,
+                            created_at: ann.created_at,
+                            updated_at: ann.updated_at,
+                        }
                     })
                     .collect();
 
@@ -215,14 +220,18 @@ pub async fn export_annotations(
                         (
                             channel,
                             anns.into_iter()
-                                .map(|ann| AnnotationEntry {
-                                    id: ann.id,
-                                    position: ann.position,
-                                    label: ann.label,
-                                    description: ann.description,
-                                    color: ann.color,
-                                    created_at: ann.created_at,
-                                    updated_at: ann.updated_at,
+                                .map(|ann| {
+                                    let position_samples = sample_rate.map(|sr| (ann.position * sr) as i64);
+                                    AnnotationEntry {
+                                        id: ann.id,
+                                        position: ann.position,
+                                        position_samples,
+                                        label: ann.label,
+                                        description: ann.description,
+                                        color: ann.color,
+                                        created_at: ann.created_at,
+                                        updated_at: ann.updated_at,
+                                    }
                                 })
                                 .collect(),
                         )
@@ -610,6 +619,7 @@ pub async fn preview_import_annotations(
                     preview_annotations.push(AnnotationPreview {
                         id: ann_entry.id.clone(),
                         position: ann_entry.position,
+                        position_samples: ann_entry.position_samples,
                         label: ann_entry.label.clone(),
                         description: ann_entry.description.clone(),
                         color: ann_entry.color.clone(),
@@ -646,6 +656,7 @@ pub async fn preview_import_annotations(
                         preview_annotations.push(AnnotationPreview {
                             id: ann_entry.id.clone(),
                             position: ann_entry.position,
+                            position_samples: ann_entry.position_samples,
                             label: ann_entry.label.clone(),
                             description: ann_entry.description.clone(),
                             color: ann_entry.color.clone(),
@@ -713,6 +724,7 @@ pub async fn preview_import_annotations(
                         preview_annotations.push(AnnotationPreview {
                             id: ann_entry.id.clone(),
                             position: ann_entry.position,
+                            position_samples: ann_entry.position_samples,
                             label: ann_entry.label.clone(),
                             description: ann_entry.description.clone(),
                             color: ann_entry.color.clone(),
@@ -745,6 +757,7 @@ pub async fn preview_import_annotations(
                             preview_annotations.push(AnnotationPreview {
                                 id: ann_entry.id.clone(),
                                 position: ann_entry.position,
+                                position_samples: ann_entry.position_samples,
                                 label: ann_entry.label.clone(),
                                 description: ann_entry.description.clone(),
                                 color: ann_entry.color.clone(),
@@ -1336,14 +1349,18 @@ pub async fn export_all_annotations(
                         .time_series
                         .global
                         .into_iter()
-                        .map(|ann| AnnotationEntry {
-                            id: ann.id,
-                            position: ann.position,
-                            label: ann.label,
-                            description: ann.description,
-                            color: ann.color,
-                            created_at: ann.created_at,
-                            updated_at: ann.updated_at,
+                        .map(|ann| {
+                            let position_samples = sample_rate.map(|sr| (ann.position * sr) as i64);
+                            AnnotationEntry {
+                                id: ann.id,
+                                position: ann.position,
+                                position_samples,
+                                label: ann.label,
+                                description: ann.description,
+                                color: ann.color,
+                                created_at: ann.created_at,
+                                updated_at: ann.updated_at,
+                            }
                         })
                         .collect();
 
@@ -1356,14 +1373,18 @@ pub async fn export_all_annotations(
                             (
                                 channel,
                                 anns.into_iter()
-                                    .map(|ann| AnnotationEntry {
-                                        id: ann.id,
-                                        position: ann.position,
-                                        label: ann.label,
-                                        description: ann.description,
-                                        color: ann.color,
-                                        created_at: ann.created_at,
-                                        updated_at: ann.updated_at,
+                                    .map(|ann| {
+                                        let position_samples = sample_rate.map(|sr| (ann.position * sr) as i64);
+                                        AnnotationEntry {
+                                            id: ann.id,
+                                            position: ann.position,
+                                            position_samples,
+                                            label: ann.label,
+                                            description: ann.description,
+                                            color: ann.color,
+                                            created_at: ann.created_at,
+                                            updated_at: ann.updated_at,
+                                        }
                                     })
                                     .collect(),
                             )
@@ -1438,6 +1459,7 @@ pub async fn export_all_annotations(
                     file_hash: String,
                     channel: String,
                     position: f64,
+                    position_samples: String,
                     label: String,
                     description: String,
                     color: String,
@@ -1452,11 +1474,20 @@ pub async fn export_all_annotations(
                 for (file_path, ann_file) in &export.files {
                     // Add global annotations
                     for ann in &ann_file.global_annotations {
+                        let position_samples = if let Some(samples) = ann.position_samples {
+                            samples.to_string()
+                        } else if let Some(sr) = ann_file.sample_rate {
+                            format!("{:.0}", ann.position * sr)
+                        } else {
+                            "N/A".to_string()
+                        };
+
                         flat_annotations.push(FlatAnnotation {
                             file_path: file_path.clone(),
                             file_hash: ann_file.file_hash.clone().unwrap_or_default(),
                             channel: "global".to_string(),
                             position: ann.position,
+                            position_samples,
                             label: ann.label.clone(),
                             description: ann.description.clone().unwrap_or_default(),
                             color: ann.color.clone().unwrap_or_default(),
@@ -1469,11 +1500,20 @@ pub async fn export_all_annotations(
                     // Add channel-specific annotations
                     for (channel, anns) in &ann_file.channel_annotations {
                         for ann in anns {
+                            let position_samples = if let Some(samples) = ann.position_samples {
+                                samples.to_string()
+                            } else if let Some(sr) = ann_file.sample_rate {
+                                format!("{:.0}", ann.position * sr)
+                            } else {
+                                "N/A".to_string()
+                            };
+
                             flat_annotations.push(FlatAnnotation {
                                 file_path: file_path.clone(),
                                 file_hash: ann_file.file_hash.clone().unwrap_or_default(),
                                 channel: channel.clone(),
                                 position: ann.position,
+                                position_samples,
                                 label: ann.label.clone(),
                                 description: ann.description.clone().unwrap_or_default(),
                                 color: ann.color.clone().unwrap_or_default(),
@@ -1537,6 +1577,7 @@ fn convert_annotation(ann: Annotation) -> AnnotationEntry {
     AnnotationEntry {
         id: ann.id,
         position: ann.position,
+        position_samples: None, // Database doesn't store sample rate, so we can't calculate this
         label: ann.label,
         description: ann.description,
         color: ann.color,
