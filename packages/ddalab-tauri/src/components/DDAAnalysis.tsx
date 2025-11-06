@@ -35,7 +35,6 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ChannelSelector } from "@/components/ChannelSelector";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import {
   Play,
@@ -164,9 +163,6 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   // TanStack Query: Delete and rename mutations with optimistic updates
   const deleteAnalysisMutation = useDeleteAnalysis(apiService);
   const renameAnalysisMutation = useRenameAnalysis(apiService);
-
-  // Tab state for navigation
-  const [activeTab, setActiveTab] = useState("parameters");
 
   // Track progress from Tauri events for the current analysis
   const progressEvent = useDDAProgress(
@@ -516,36 +512,40 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       name: "Single Timeseries",
       abbreviation: "ST",
       description: "Standard temporal dynamics analysis",
-      color: "#3b82f6", // Blue
-      bgColor: "bg-blue-500/10",
-      borderColor: "border-l-blue-500",
+      color: "#00B0F0", // RGB(0, 176, 240) - Bright Blue
+      rgb: "0, 176, 240",
+      bgColor: "bg-[#00B0F0]/10",
+      borderColor: "border-l-[#00B0F0]",
     },
     {
       id: "cross_timeseries",
       name: "Cross Timeseries",
       abbreviation: "CT",
       description: "Inter-channel relationship analysis",
-      color: "#8b5cf6", // Purple
-      bgColor: "bg-purple-500/10",
-      borderColor: "border-l-purple-500",
+      color: "#33CC33", // RGB(51, 204, 51) - Bright Green
+      rgb: "51, 204, 51",
+      bgColor: "bg-[#33CC33]/10",
+      borderColor: "border-l-[#33CC33]",
     },
     {
       id: "cross_dynamical",
       name: "Cross Dynamical",
       abbreviation: "CD",
       description: "Dynamic coupling pattern analysis",
-      color: "#f97316", // Orange
-      bgColor: "bg-orange-500/10",
-      borderColor: "border-l-orange-500",
+      color: "#ED2790", // RGB(237, 39, 144) - Magenta Pink
+      rgb: "237, 39, 144",
+      bgColor: "bg-[#ED2790]/10",
+      borderColor: "border-l-[#ED2790]",
     },
     {
       id: "dynamical_ergodicity",
       name: "Dynamical Ergodicity",
       abbreviation: "DE",
       description: "Temporal stationarity assessment",
-      color: "#10b981", // Green
-      bgColor: "bg-green-500/10",
-      borderColor: "border-l-green-500",
+      color: "#9900CC", // RGB(153, 0, 204) - Purple
+      rgb: "153, 0, 204",
+      bgColor: "bg-[#9900CC]/10",
+      borderColor: "border-l-[#9900CC]",
     },
   ];
 
@@ -1178,16 +1178,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      <Tabs
-        value={activeTab}
-        onValueChange={setActiveTab}
-        className="flex-1 flex flex-col min-h-0"
-      >
-        <div className="flex items-center justify-between flex-shrink-0 pb-4">
-          <TabsList>
-            <TabsTrigger value="parameters">Parameters</TabsTrigger>
-          </TabsList>
-
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex items-center justify-end flex-shrink-0 pb-4">
           <div className="flex items-center space-x-2">
             <Input
               placeholder="Analysis name (optional)"
@@ -1277,10 +1269,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           </Alert>
         )}
 
-        <TabsContent
-          value="parameters"
-          className="flex-1 min-h-0 space-y-4 overflow-y-auto"
-        >
+        <div className="flex-1 min-h-0 space-y-4 overflow-y-auto">
           {/* Analysis Status - only show for active/recent analysis, not restored from persistence */}
           {(localIsRunning ||
             autoLoadingResults ||
@@ -1340,45 +1329,57 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                {availableVariants.map((variant) => (
-                  <div
-                    key={variant.id}
-                    className={`flex items-start space-x-3 p-3 rounded-md border-l-4 ${variant.borderColor} ${parameters.variants.includes(variant.id) ? variant.bgColor : ""} transition-colors`}
-                  >
-                    <Checkbox
-                      checked={parameters.variants.includes(variant.id)}
-                      onCheckedChange={(checked) => {
-                        const newVariants = checked
-                          ? [...parameters.variants, variant.id]
-                          : parameters.variants.filter((v) => v !== variant.id);
-                        setLocalParameters((prev) => ({
-                          ...prev,
-                          variants: newVariants,
-                        }));
+                {availableVariants.map((variant) => {
+                  const isSelected = parameters.variants.includes(variant.id);
+                  return (
+                    <div
+                      key={variant.id}
+                      className="flex items-start space-x-3 p-4 rounded-lg border-l-[6px] transition-all duration-200 hover:shadow-sm"
+                      style={{
+                        borderLeftColor: variant.color,
+                        backgroundColor: isSelected
+                          ? `rgba(${variant.rgb}, 0.25)`
+                          : `rgba(${variant.rgb}, 0.15)`,
+                        boxShadow: isSelected
+                          ? `0 0 0 1px rgba(${variant.rgb}, 0.4)`
+                          : "none",
                       }}
-                      disabled={localIsRunning}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <Label className="text-sm font-medium">
-                          {variant.name}
-                        </Label>
-                        <span
-                          className="text-xs font-bold px-2 py-0.5 rounded"
-                          style={{
-                            backgroundColor: variant.color + "20",
-                            color: variant.color,
-                          }}
-                        >
-                          {variant.abbreviation}
-                        </span>
+                    >
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={(checked) => {
+                          const newVariants = checked
+                            ? [...parameters.variants, variant.id]
+                            : parameters.variants.filter((v) => v !== variant.id);
+                          setLocalParameters((prev) => ({
+                            ...prev,
+                            variants: newVariants,
+                          }));
+                        }}
+                        disabled={localIsRunning}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Label className="text-sm font-semibold">
+                            {variant.name}
+                          </Label>
+                          <span
+                            className="text-xs font-bold px-2.5 py-1 rounded-md shadow-sm"
+                            style={{
+                              backgroundColor: variant.color,
+                              color: "white",
+                            }}
+                          >
+                            {variant.abbreviation}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {variant.description}
+                        </p>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {variant.description}
-                      </p>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
 
@@ -1954,8 +1955,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
-      </Tabs>
+        </div>
+      </div>
 
       {/* Import Validation Dialog */}
       <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
