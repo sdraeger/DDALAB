@@ -560,7 +560,12 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     });
 
     return () => cancelAnimationFrame(rafId);
-  }, [processedHeatmapData, computedColorRange, autoScale, currentVariantData?.variant_id]);
+  }, [
+    processedHeatmapData,
+    computedColorRange,
+    autoScale,
+    currentVariantData?.variant_id,
+  ]);
 
   const renderHeatmap = useCallback(() => {
     if (!heatmapRef.current || heatmapData.length === 0) {
@@ -1373,7 +1378,9 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
         // Clear the old plot so user doesn't see wrong variant's data
         if (heatmapCleanupRef.current) {
-          console.log("[HEATMAP] Clearing stale plot while waiting for variant data");
+          console.log(
+            "[HEATMAP] Clearing stale plot while waiting for variant data",
+          );
           heatmapCleanupRef.current();
           heatmapCleanupRef.current = null;
         }
@@ -1797,9 +1804,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                   className="relative"
                   style={{
                     borderLeft: `4px solid ${color}`,
-                    backgroundColor: isActive
-                      ? `${color}20`
-                      : "transparent",
+                    backgroundColor: isActive ? `${color}20` : "transparent",
                   }}
                 >
                   {variant.variant_name}
