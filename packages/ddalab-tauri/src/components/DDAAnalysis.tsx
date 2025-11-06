@@ -513,23 +513,39 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const availableVariants = [
     {
       id: "single_timeseries",
-      name: "Single Timeseries (ST)",
+      name: "Single Timeseries",
+      abbreviation: "ST",
       description: "Standard temporal dynamics analysis",
+      color: "#3b82f6", // Blue
+      bgColor: "bg-blue-500/10",
+      borderColor: "border-l-blue-500",
     },
     {
       id: "cross_timeseries",
-      name: "Cross Timeseries (CT)",
+      name: "Cross Timeseries",
+      abbreviation: "CT",
       description: "Inter-channel relationship analysis",
+      color: "#8b5cf6", // Purple
+      bgColor: "bg-purple-500/10",
+      borderColor: "border-l-purple-500",
     },
     {
       id: "cross_dynamical",
-      name: "Cross Dynamical (CD)",
+      name: "Cross Dynamical",
+      abbreviation: "CD",
       description: "Dynamic coupling pattern analysis",
+      color: "#f97316", // Orange
+      bgColor: "bg-orange-500/10",
+      borderColor: "border-l-orange-500",
     },
     {
       id: "dynamical_ergodicity",
-      name: "Dynamical Ergodicity (DE)",
+      name: "Dynamical Ergodicity",
+      abbreviation: "DE",
       description: "Temporal stationarity assessment",
+      color: "#10b981", // Green
+      bgColor: "bg-green-500/10",
+      borderColor: "border-l-green-500",
     },
   ];
 
@@ -1325,7 +1341,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               </CardHeader>
               <CardContent className="space-y-3">
                 {availableVariants.map((variant) => (
-                  <div key={variant.id} className="flex items-start space-x-3">
+                  <div
+                    key={variant.id}
+                    className={`flex items-start space-x-3 p-3 rounded-md border-l-4 ${variant.borderColor} ${parameters.variants.includes(variant.id) ? variant.bgColor : ""} transition-colors`}
+                  >
                     <Checkbox
                       checked={parameters.variants.includes(variant.id)}
                       onCheckedChange={(checked) => {
@@ -1340,9 +1359,20 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                       disabled={localIsRunning}
                     />
                     <div className="flex-1 min-w-0">
-                      <Label className="text-sm font-medium">
-                        {variant.name}
-                      </Label>
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm font-medium">
+                          {variant.name}
+                        </Label>
+                        <span
+                          className="text-xs font-bold px-2 py-0.5 rounded"
+                          style={{
+                            backgroundColor: variant.color + "20",
+                            color: variant.color,
+                          }}
+                        >
+                          {variant.abbreviation}
+                        </span>
+                      </div>
                       <p className="text-xs text-muted-foreground mt-1">
                         {variant.description}
                       </p>

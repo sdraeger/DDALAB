@@ -15,6 +15,7 @@ import { AlertCircle, CheckCircle2, AlertTriangle, Info } from "lucide-react";
 type AnnotationPreview = {
   id: string;
   position: number;
+  position_samples?: number;
   label: string;
   description?: string;
   color?: string;
@@ -303,7 +304,12 @@ export function ImportPreviewDialog({
                 {previewData.is_multi_file_export && (
                   <th className="w-48 p-2">Source File</th>
                 )}
-                <th className="w-32 p-2">Time</th>
+                <th
+                  className="w-40 p-2 cursor-help"
+                  title="Format: mm:ss.ms (sample number)"
+                >
+                  Time
+                </th>
                 <th className="p-2">Label</th>
                 <th className="w-24 p-2">Channel</th>
                 <th className="p-2">Similarity Info</th>
@@ -340,7 +346,14 @@ export function ImportPreviewDialog({
                     </td>
                   )}
                   <td className="p-2 font-mono text-sm">
-                    {formatTime(ann.position)}
+                    <div>
+                      {formatTime(ann.position)}
+                      {ann.position_samples !== undefined && (
+                        <span className="text-muted-foreground ml-1">
+                          ({ann.position_samples.toLocaleString()})
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="p-2">
                     <div className="flex items-center gap-2">
