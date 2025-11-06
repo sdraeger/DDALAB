@@ -1101,10 +1101,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   // Variant color mapping (matches DDAAnalysis.tsx variant colors)
   const getVariantColor = (variantId: string): string => {
     const colorMap: Record<string, string> = {
-      single_timeseries: "#3b82f6", // Blue
-      cross_timeseries: "#8b5cf6", // Purple
-      cross_dynamical: "#f97316", // Orange
-      dynamical_ergodicity: "#10b981", // Green
+      single_timeseries: "#00B0F0", // RGB(0, 176, 240) - Bright Blue
+      cross_timeseries: "#33CC33", // RGB(51, 204, 51) - Bright Green
+      cross_dynamical: "#ED2790", // RGB(237, 39, 144) - Magenta Pink
+      dynamical_ergodicity: "#9900CC", // RGB(153, 0, 204) - Purple
     };
     return colorMap[variantId] || "#64748b"; // Default to slate if unknown
   };
