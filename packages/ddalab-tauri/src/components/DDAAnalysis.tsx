@@ -1350,7 +1350,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                         onCheckedChange={(checked) => {
                           const newVariants = checked
                             ? [...parameters.variants, variant.id]
-                            : parameters.variants.filter((v) => v !== variant.id);
+                            : parameters.variants.filter(
+                                (v) => v !== variant.id,
+                              );
                           setLocalParameters((prev) => ({
                             ...prev,
                             variants: newVariants,

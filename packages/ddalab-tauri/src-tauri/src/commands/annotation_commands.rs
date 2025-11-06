@@ -221,7 +221,8 @@ pub async fn export_annotations(
                             channel,
                             anns.into_iter()
                                 .map(|ann| {
-                                    let position_samples = sample_rate.map(|sr| (ann.position * sr) as i64);
+                                    let position_samples =
+                                        sample_rate.map(|sr| (ann.position * sr) as i64);
                                     AnnotationEntry {
                                         id: ann.id,
                                         position: ann.position,
@@ -1374,7 +1375,8 @@ pub async fn export_all_annotations(
                                 channel,
                                 anns.into_iter()
                                     .map(|ann| {
-                                        let position_samples = sample_rate.map(|sr| (ann.position * sr) as i64);
+                                        let position_samples =
+                                            sample_rate.map(|sr| (ann.position * sr) as i64);
                                         AnnotationEntry {
                                             id: ann.id,
                                             position: ann.position,
