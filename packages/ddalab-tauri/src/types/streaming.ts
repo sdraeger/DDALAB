@@ -9,12 +9,7 @@
 // Stream Sources
 // ====================================================================
 
-export type StreamSourceType =
-  | "websocket"
-  | "tcp"
-  | "udp"
-  | "serial"
-  | "file";
+export type StreamSourceType = "websocket" | "tcp" | "udp" | "serial" | "file";
 
 export interface WebSocketSourceConfig {
   type: "websocket";
@@ -68,8 +63,8 @@ export type StreamState =
       data: {
         started_at: number;
         chunks_received: number;
-        results_generated: number
-      }
+        results_generated: number;
+      };
     }
   | { type: "Paused"; data: { paused_at: number } }
   | { type: "Error"; data: { message: string } }
@@ -119,7 +114,7 @@ export interface StreamingDDAConfig {
 // ====================================================================
 
 export interface DataChunk {
-  samples: number[][];  // [channels][samples]
+  samples: number[][]; // [channels][samples]
   timestamp: number;
   sample_rate: number;
   channel_names: string[];

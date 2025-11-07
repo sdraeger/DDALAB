@@ -155,19 +155,21 @@ impl StreamingDDAProcessor {
         channel_names: Vec<String>,
         sample_rate: f32,
     ) -> StreamResult<Self> {
-        let dda_runner = DDARunner::new(&dda_binary_path)
-            .map_err(|e| StreamError::DDAProcessing(format!("Failed to create DDA runner: {}", e)))?;
+        let dda_runner = DDARunner::new(&dda_binary_path).map_err(|e| {
+            StreamError::DDAProcessing(format!("Failed to create DDA runner: {}", e))
+        })?;
 
         // Create thread pool for parallel processing
         let thread_pool = rayon::ThreadPoolBuilder::new()
             .num_threads(num_cpus::get())
             .thread_name(|i| format!("dda-stream-worker-{}", i))
             .build()
-            .map_err(|e| StreamError::DDAProcessing(format!("Failed to create thread pool: {}", e)))?;
+            .map_err(|e| {
+                StreamError::DDAProcessing(format!("Failed to create thread pool: {}", e))
+            })?;
 
         let temp_dir = std::env::temp_dir().join("ddalab_streaming");
-        std::fs::create_dir_all(&temp_dir)
-            .map_err(|e| StreamError::Io(e))?;
+        std::fs::create_dir_all(&temp_dir).map_err(|e| StreamError::Io(e))?;
 
         Ok(Self {
             config,
@@ -219,13 +221,11 @@ impl StreamingDDAProcessor {
         let results: Vec<StreamingDDAResult> = self.thread_pool.install(|| {
             windows
                 .par_iter()
-                .filter_map(|window| {
-                    match self.process_window(window) {
-                        Ok(result) => Some(result),
-                        Err(e) => {
-                            log::error!("Failed to process window: {}", e);
-                            None
-                        }
+                .filter_map(|window| match self.process_window(window) {
+                    Ok(result) => Some(result),
+                    Err(e) => {
+                        log::error!("Failed to process window: {}", e);
+                        None
                     }
                 })
                 .collect()
@@ -242,7 +242,8 @@ impl StreamingDDAProcessor {
 
             // Update offset
             let samples_processed = total_samples - samples_to_keep;
-            self.current_offset.fetch_add(samples_processed as u64, Ordering::Relaxed);
+            self.current_offset
+                .fetch_add(samples_processed as u64, Ordering::Relaxed);
         }
 
         Ok(results)
@@ -280,9 +281,7 @@ impl StreamingDDAProcessor {
             // Extract window samples
             let window_samples: Vec<Vec<f32>> = buffer
                 .iter()
-                .map(|channel| {
-                    channel[start..start + self.config.window_size].to_vec()
-                })
+                .map(|channel| channel[start..start + self.config.window_size].to_vec())
                 .collect();
 
             windows.push(WindowData {
@@ -302,7 +301,9 @@ impl StreamingDDAProcessor {
         let start_time = std::time::Instant::now();
 
         // Write window data to temporary file
-        let temp_file = self.temp_dir.join(format!("stream_window_{}.ascii", window.start_idx));
+        let temp_file = self
+            .temp_dir
+            .join(format!("stream_window_{}.ascii", window.start_idx));
         self.write_window_to_file(window, &temp_file)?;
 
         // Build DDA request
@@ -338,16 +339,14 @@ impl StreamingDDAProcessor {
             })
             .or_else(|| {
                 // Fallback if no tokio runtime (create a temporary one)
-                tokio::runtime::Runtime::new()
-                    .ok()
-                    .and_then(|rt| {
-                        rt.block_on(async {
-                            self.dda_runner
-                                .run(&request, None, None, Some(&self.channel_names))
-                                .await
-                                .ok()
-                        })
+                tokio::runtime::Runtime::new().ok().and_then(|rt| {
+                    rt.block_on(async {
+                        self.dda_runner
+                            .run(&request, None, None, Some(&self.channel_names))
+                            .await
+                            .ok()
                     })
+                })
             })
             .ok_or_else(|| StreamError::DDAProcessing("DDA execution failed".to_string()))?;
 
@@ -391,20 +390,19 @@ impl StreamingDDAProcessor {
     fn write_window_to_file(&self, window: &WindowData, path: &PathBuf) -> StreamResult<()> {
         use std::io::Write;
 
-        let mut file = std::fs::File::create(path)
-            .map_err(|e| StreamError::Io(e))?;
+        let mut file = std::fs::File::create(path).map_err(|e| StreamError::Io(e))?;
 
         // Write samples in column format (each row is a time point, each column is a channel)
         let num_samples = window.samples[0].len();
 
         for sample_idx in 0..num_samples {
-            let values: Vec<String> = window.samples
+            let values: Vec<String> = window
+                .samples
                 .iter()
                 .map(|channel| channel[sample_idx].to_string())
                 .collect();
 
-            writeln!(file, "{}", values.join("\t"))
-                .map_err(|e| StreamError::Io(e))?;
+            writeln!(file, "{}", values.join("\t")).map_err(|e| StreamError::Io(e))?;
         }
 
         Ok(())
@@ -471,11 +469,8 @@ fn compute_variant_summary(variant: &dda_rs::VariantResult) -> VariantSummary {
     all_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     let mean = all_values.iter().sum::<f64>() / all_values.len() as f64;
-    let variance = all_values
-        .iter()
-        .map(|v| (v - mean).powi(2))
-        .sum::<f64>()
-        / all_values.len() as f64;
+    let variance =
+        all_values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / all_values.len() as f64;
     let std_dev = variance.sqrt();
 
     VariantSummary {

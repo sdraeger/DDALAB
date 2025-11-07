@@ -2,7 +2,13 @@
 
 import { useAppStore } from "@/store/appStore";
 import { useStreamingData, useActiveStreams } from "@/hooks/useStreamingData";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -23,7 +29,10 @@ interface StreamControlPanelProps {
   showDetails?: boolean;
 }
 
-export function StreamControlPanel({ streamId, showDetails = true }: StreamControlPanelProps) {
+export function StreamControlPanel({
+  streamId,
+  showDetails = true,
+}: StreamControlPanelProps) {
   const {
     session,
     stats,
@@ -86,7 +95,11 @@ export function StreamControlPanel({ streamId, showDetails = true }: StreamContr
       return <Badge variant="secondary">Connecting...</Badge>;
     }
     if (isRunning) {
-      return <Badge variant="default" className="bg-green-500">Running</Badge>;
+      return (
+        <Badge variant="default" className="bg-green-500">
+          Running
+        </Badge>
+      );
     }
     if (isPaused) {
       return <Badge variant="secondary">Paused</Badge>;
@@ -198,7 +211,9 @@ export function StreamControlPanel({ streamId, showDetails = true }: StreamContr
                   <Activity className="h-3 w-3 mr-1" />
                   Chunks Received
                 </div>
-                <div className="font-medium">{(stats.chunks_received ?? 0).toLocaleString()}</div>
+                <div className="font-medium">
+                  {(stats.chunks_received ?? 0).toLocaleString()}
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -206,7 +221,9 @@ export function StreamControlPanel({ streamId, showDetails = true }: StreamContr
                   <TrendingUp className="h-3 w-3 mr-1" />
                   Results Generated
                 </div>
-                <div className="font-medium">{(stats.results_generated ?? 0).toLocaleString()}</div>
+                <div className="font-medium">
+                  {(stats.results_generated ?? 0).toLocaleString()}
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -214,7 +231,9 @@ export function StreamControlPanel({ streamId, showDetails = true }: StreamContr
                   <Database className="h-3 w-3 mr-1" />
                   Total Samples
                 </div>
-                <div className="font-medium">{(stats.total_samples_received ?? 0).toLocaleString()}</div>
+                <div className="font-medium">
+                  {(stats.total_samples_received ?? 0).toLocaleString()}
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -223,13 +242,15 @@ export function StreamControlPanel({ streamId, showDetails = true }: StreamContr
                   Uptime
                 </div>
                 <div className="font-medium">
-                  {Math.floor((stats.uptime_seconds ?? 0) / 60)}m {Math.floor((stats.uptime_seconds ?? 0) % 60)}s
+                  {Math.floor((stats.uptime_seconds ?? 0) / 60)}m{" "}
+                  {Math.floor((stats.uptime_seconds ?? 0) % 60)}s
                 </div>
               </div>
             </div>
 
             <div className="text-xs text-muted-foreground">
-              Avg processing: {(stats.avg_processing_time_ms ?? 0).toFixed(1)}ms per window
+              Avg processing: {(stats.avg_processing_time_ms ?? 0).toFixed(1)}ms
+              per window
             </div>
           </>
         )}
@@ -247,7 +268,10 @@ export function StreamControlPanel({ streamId, showDetails = true }: StreamContr
         {/* Timestamps */}
         {showDetails && (
           <div className="text-xs text-muted-foreground">
-            Created {formatDistanceToNow(new Date(session.created_at * 1000), { addSuffix: true })}
+            Created{" "}
+            {formatDistanceToNow(new Date(session.created_at * 1000), {
+              addSuffix: true,
+            })}
           </div>
         )}
       </CardContent>
@@ -267,7 +291,9 @@ export function StreamControlList() {
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12 text-center">
           <Activity className="h-12 w-12 text-muted-foreground mb-4" />
-          <p className="text-muted-foreground mb-4">No active streaming sessions</p>
+          <p className="text-muted-foreground mb-4">
+            No active streaming sessions
+          </p>
           <Button onClick={() => updateStreamUI({ isConfigDialogOpen: true })}>
             <Play className="h-4 w-4 mr-2" />
             Create Stream

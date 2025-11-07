@@ -188,9 +188,7 @@ impl FileReaderFactory {
 
     /// Get list of supported extensions for reading/analysis
     pub fn supported_extensions() -> Vec<&'static str> {
-        vec![
-            "edf", "csv", "txt", "ascii", "vhdr", "set", "nii", "gz",
-        ]
+        vec!["edf", "csv", "txt", "ascii", "vhdr", "set", "nii", "gz"]
     }
 
     /// Get list of recognized but unsupported MEG extensions

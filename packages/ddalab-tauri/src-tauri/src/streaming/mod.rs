@@ -15,12 +15,12 @@ pub mod buffer;
 pub mod controller;
 pub mod processor;
 pub mod source;
-pub mod types;
 pub mod time_window_buffer;
+pub mod types;
 
 pub use buffer::{CircularDataBuffer, OverflowStrategy};
 pub use controller::StreamController;
 pub use processor::StreamingDDAProcessor;
 pub use source::{DataChunk, SourceMetadata, StreamSource, StreamSourceConfig};
-pub use types::{StreamError, StreamResult, StreamState};
 pub use time_window_buffer::{TimeWindowBuffer, TimeWindowConfig, TimeWindowStats};
+pub use types::{StreamError, StreamResult, StreamState};

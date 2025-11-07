@@ -25,12 +25,7 @@ pub struct SerialStreamSource {
 }
 
 impl SerialStreamSource {
-    pub fn new(
-        port: String,
-        baud_rate: u32,
-        data_bits: Option<u8>,
-        stop_bits: Option<u8>,
-    ) -> Self {
+    pub fn new(port: String, baud_rate: u32, data_bits: Option<u8>, stop_bits: Option<u8>) -> Self {
         Self {
             port,
             baud_rate,

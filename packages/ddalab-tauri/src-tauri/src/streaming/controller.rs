@@ -12,8 +12,8 @@ use crate::streaming::{
     buffer::{CircularBuffer, CircularDataBuffer, OverflowStrategy},
     processor::{StreamingDDAConfig, StreamingDDAProcessor, StreamingDDAResult},
     source::{create_source, DataChunk, StreamSource, StreamSourceConfig},
-    types::{StreamError, StreamResult, StreamState, StreamStats},
     time_window_buffer::{TimeWindowBuffer, TimeWindowConfig},
+    types::{StreamError, StreamResult, StreamState, StreamStats},
 };
 use parking_lot::RwLock;
 use std::path::PathBuf;
@@ -360,10 +360,9 @@ impl StreamController {
 
                 // Process with DDA (in blocking task to avoid blocking async executor)
                 let processor_clone = processor.clone();
-                let process_result = tokio::task::spawn_blocking(move || {
-                    processor_clone.process_chunks(&chunks)
-                })
-                .await;
+                let process_result =
+                    tokio::task::spawn_blocking(move || processor_clone.process_chunks(&chunks))
+                        .await;
 
                 match process_result {
                     Ok(Ok(results)) => {

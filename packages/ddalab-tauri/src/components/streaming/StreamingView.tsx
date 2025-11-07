@@ -4,13 +4,25 @@ import { useEffect, useState } from "react";
 import { useAppStore } from "@/store/appStore";
 import { useInitializeStreaming } from "@/services/streamingService";
 import { useActiveStreams } from "@/hooks/useStreamingData";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Play, Activity, TrendingUp, Settings, AlertCircle } from "lucide-react";
+import {
+  Play,
+  Activity,
+  TrendingUp,
+  Settings,
+  AlertCircle,
+} from "lucide-react";
 import { StreamConfigDialog } from "./StreamConfigDialog";
 import { StreamControlList, StreamControlPanel } from "./StreamControlPanel";
 import { StreamingPlot } from "./StreamingPlot";
@@ -20,7 +32,9 @@ export function StreamingView() {
   const { isInitialized, error } = useInitializeStreaming();
   const { allSessions, runningCount, activeCount } = useActiveStreams();
   const updateStreamUI = useAppStore((state) => state.updateStreamUI);
-  const selectedStreamId = useAppStore((state) => state.streaming.ui.selectedStreamId);
+  const selectedStreamId = useAppStore(
+    (state) => state.streaming.ui.selectedStreamId,
+  );
   const showHeatmap = useAppStore((state) => state.streaming.ui.showHeatmap);
 
   // Auto-select first running stream
@@ -38,7 +52,9 @@ export function StreamingView() {
       <Card>
         <CardContent className="flex items-center justify-center py-12">
           <Activity className="h-8 w-8 animate-pulse text-muted-foreground mr-2" />
-          <span className="text-muted-foreground">Initializing streaming service...</span>
+          <span className="text-muted-foreground">
+            Initializing streaming service...
+          </span>
         </CardContent>
       </Card>
     );
@@ -60,7 +76,9 @@ export function StreamingView() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Real-Time Streaming</h2>
+          <h2 className="text-3xl font-bold tracking-tight">
+            Real-Time Streaming
+          </h2>
           <p className="text-muted-foreground">
             Stream data from various sources and run continuous DDA analysis
           </p>
@@ -69,7 +87,8 @@ export function StreamingView() {
         <div className="flex items-center gap-4">
           <div className="flex gap-2">
             <Badge variant="outline">
-              {allSessions.length} {allSessions.length === 1 ? "session" : "sessions"}
+              {allSessions.length}{" "}
+              {allSessions.length === 1 ? "session" : "sessions"}
             </Badge>
             {runningCount > 0 && (
               <Badge variant="default" className="bg-green-500">
@@ -155,8 +174,8 @@ export function StreamingView() {
               <div className="space-y-2">
                 <h4 className="font-semibold">1. Choose a Data Source</h4>
                 <p className="text-sm text-muted-foreground">
-                  Connect to a live data stream via WebSocket, TCP, UDP, Serial port, or
-                  use file playback for testing.
+                  Connect to a live data stream via WebSocket, TCP, UDP, Serial
+                  port, or use file playback for testing.
                 </p>
               </div>
 
@@ -171,16 +190,17 @@ export function StreamingView() {
               <div className="space-y-2">
                 <h4 className="font-semibold">3. Monitor in Real-Time</h4>
                 <p className="text-sm text-muted-foreground">
-                  View live time series plots and DDA heatmaps updating as data streams
-                  in, with auto-scroll and customizable display windows.
+                  View live time series plots and DDA heatmaps updating as data
+                  streams in, with auto-scroll and customizable display windows.
                 </p>
               </div>
 
               <div className="space-y-2">
                 <h4 className="font-semibold">4. Manage Sessions</h4>
                 <p className="text-sm text-muted-foreground">
-                  Pause, resume, or stop streams at any time. Multiple concurrent
-                  sessions are supported with independent configurations.
+                  Pause, resume, or stop streams at any time. Multiple
+                  concurrent sessions are supported with independent
+                  configurations.
                 </p>
               </div>
             </div>
@@ -208,7 +228,9 @@ export function StreamingView() {
  */
 export function StreamingViewCompact() {
   const { allSessions } = useActiveStreams();
-  const selectedStreamId = useAppStore((state) => state.streaming.ui.selectedStreamId);
+  const selectedStreamId = useAppStore(
+    (state) => state.streaming.ui.selectedStreamId,
+  );
   const updateStreamUI = useAppStore((state) => state.updateStreamUI);
 
   if (allSessions.length === 0) {
@@ -216,7 +238,9 @@ export function StreamingViewCompact() {
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-8 text-center">
           <Activity className="h-10 w-10 text-muted-foreground mb-2" />
-          <p className="text-sm text-muted-foreground mb-4">No active streams</p>
+          <p className="text-sm text-muted-foreground mb-4">
+            No active streams
+          </p>
           <Button
             size="sm"
             variant="outline"
@@ -249,7 +273,9 @@ export function StreamingViewCompact() {
               <Button
                 key={session.id}
                 size="sm"
-                variant={session.id === activeSession.id ? "default" : "outline"}
+                variant={
+                  session.id === activeSession.id ? "default" : "outline"
+                }
                 onClick={() => updateStreamUI({ selectedStreamId: session.id })}
               >
                 {session.id.slice(0, 8)}...

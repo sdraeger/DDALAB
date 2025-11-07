@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useAppStore } from "@/store/appStore";
 import { useStreamingData } from "@/hooks/useStreamingData";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -25,8 +31,12 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
 
   const { latestChunks, session, isRunning } = useStreamingData(streamId);
   const autoScroll = useAppStore((state) => state.streaming.ui.autoScroll);
-  const visibleChannels = useAppStore((state) => state.streaming.ui.visibleChannels);
-  const displayWindowSeconds = useAppStore((state) => state.streaming.ui.displayWindowSeconds);
+  const visibleChannels = useAppStore(
+    (state) => state.streaming.ui.visibleChannels,
+  );
+  const displayWindowSeconds = useAppStore(
+    (state) => state.streaming.ui.displayWindowSeconds,
+  );
   const updateStreamUI = useAppStore((state) => state.updateStreamUI);
 
   // Process data for plotting
@@ -56,7 +66,8 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
 
     let currentTime = 0;
     for (const chunk of latestChunks) {
-      const chunkSamples = chunk.samples.length > 0 ? chunk.samples[0].length : 0;
+      const chunkSamples =
+        chunk.samples.length > 0 ? chunk.samples[0].length : 0;
 
       for (let i = 0; i < chunkSamples; i++) {
         timePoints.push(currentTime);
@@ -87,7 +98,13 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
       channelNames: activeChannels,
       sampleRate,
     };
-  }, [latestChunks, session, visibleChannels, displayWindowSeconds, autoScroll]);
+  }, [
+    latestChunks,
+    session,
+    visibleChannels,
+    displayWindowSeconds,
+    autoScroll,
+  ]);
 
   // Initialize and update plot
   useEffect(() => {

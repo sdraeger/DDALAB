@@ -37,7 +37,7 @@ class StreamingService {
         "stream-event",
         (event) => {
           this.handleStreamEvent(event.payload);
-        }
+        },
       );
 
       this.isInitialized = true;
@@ -60,7 +60,9 @@ class StreamingService {
     // Stop all polling intervals
     for (const [streamId, interval] of this.pollingIntervals.entries()) {
       clearInterval(interval);
-      console.log(`[STREAMING SERVICE] Stopped polling for stream: ${streamId}`);
+      console.log(
+        `[STREAMING SERVICE] Stopped polling for stream: ${streamId}`,
+      );
     }
     this.pollingIntervals.clear();
 
@@ -86,32 +88,49 @@ class StreamingService {
     // Handle specific event types
     switch (event.type) {
       case "state_changed":
-        console.log(`[STREAMING SERVICE] State changed for ${event.stream_id}:`, event.state);
+        console.log(
+          `[STREAMING SERVICE] State changed for ${event.stream_id}:`,
+          event.state,
+        );
 
         // Start/stop polling based on state (note: backend uses capital letters)
         if (event.state.type === "Running") {
-          console.log(`[STREAMING SERVICE] Starting polling for ${event.stream_id}`);
+          console.log(
+            `[STREAMING SERVICE] Starting polling for ${event.stream_id}`,
+          );
           this.startPolling(event.stream_id);
-        } else if (event.state.type === "Stopped" || event.state.type === "Error") {
-          console.log(`[STREAMING SERVICE] Stopping polling for ${event.stream_id}`);
+        } else if (
+          event.state.type === "Stopped" ||
+          event.state.type === "Error"
+        ) {
+          console.log(
+            `[STREAMING SERVICE] Stopping polling for ${event.stream_id}`,
+          );
           this.stopPolling(event.stream_id);
         }
         break;
 
       case "data_received":
-        console.log(`[STREAMING SERVICE] Data received for ${event.stream_id}: ${event.chunks_count} chunks`);
+        console.log(
+          `[STREAMING SERVICE] Data received for ${event.stream_id}: ${event.chunks_count} chunks`,
+        );
         // Fetch new data chunks
         this.fetchStreamData(event.stream_id);
         break;
 
       case "results_ready":
-        console.log(`[STREAMING SERVICE] Results ready for ${event.stream_id}: ${event.results_count} results`);
+        console.log(
+          `[STREAMING SERVICE] Results ready for ${event.stream_id}: ${event.results_count} results`,
+        );
         // Fetch new DDA results
         this.fetchStreamResults(event.stream_id);
         break;
 
       case "error":
-        console.error(`[STREAMING SERVICE] Stream error for ${event.stream_id}:`, event.error);
+        console.error(
+          `[STREAMING SERVICE] Stream error for ${event.stream_id}:`,
+          event.error,
+        );
         break;
 
       case "stats_update":
@@ -125,7 +144,9 @@ class StreamingService {
    */
   private startPolling(streamId: string): void {
     if (this.pollingIntervals.has(streamId)) {
-      console.warn(`[STREAMING SERVICE] Already polling for stream: ${streamId}`);
+      console.warn(
+        `[STREAMING SERVICE] Already polling for stream: ${streamId}`,
+      );
       return;
     }
 
@@ -138,7 +159,10 @@ class StreamingService {
           this.fetchStreamStats(streamId),
         ]);
       } catch (error) {
-        console.error(`[STREAMING SERVICE] Polling error for ${streamId}:`, error);
+        console.error(
+          `[STREAMING SERVICE] Polling error for ${streamId}:`,
+          error,
+        );
       }
     }, 500);
 
@@ -154,14 +178,19 @@ class StreamingService {
     if (interval) {
       clearInterval(interval);
       this.pollingIntervals.delete(streamId);
-      console.log(`[STREAMING SERVICE] Stopped polling for stream: ${streamId}`);
+      console.log(
+        `[STREAMING SERVICE] Stopped polling for stream: ${streamId}`,
+      );
     }
   }
 
   /**
    * Fetch latest data chunks from a stream
    */
-  private async fetchStreamData(streamId: string, count: number = 10): Promise<void> {
+  private async fetchStreamData(
+    streamId: string,
+    count: number = 10,
+  ): Promise<void> {
     try {
       const chunks = await invoke<DataChunk[]>("get_stream_data", {
         streamId,
@@ -175,14 +204,20 @@ class StreamingService {
         });
       }
     } catch (error) {
-      console.error(`[STREAMING SERVICE] Failed to fetch data for ${streamId}:`, error);
+      console.error(
+        `[STREAMING SERVICE] Failed to fetch data for ${streamId}:`,
+        error,
+      );
     }
   }
 
   /**
    * Fetch latest DDA results from a stream
    */
-  private async fetchStreamResults(streamId: string, count: number = 10): Promise<void> {
+  private async fetchStreamResults(
+    streamId: string,
+    count: number = 10,
+  ): Promise<void> {
     try {
       const results = await invoke<StreamingDDAResult[]>("get_stream_results", {
         streamId,
@@ -196,7 +231,10 @@ class StreamingService {
         });
       }
     } catch (error) {
-      console.error(`[STREAMING SERVICE] Failed to fetch results for ${streamId}:`, error);
+      console.error(
+        `[STREAMING SERVICE] Failed to fetch results for ${streamId}:`,
+        error,
+      );
     }
   }
 
@@ -213,15 +251,23 @@ class StreamingService {
       console.log(`[STREAMING SERVICE] Got stats for ${streamId}:`, stats);
 
       // Only update if stats are valid
-      if (stats && typeof stats === 'object') {
+      if (stats && typeof stats === "object") {
         const store = useAppStore.getState();
         store.updateStreamSession(streamId, { stats });
-        console.log(`[STREAMING SERVICE] Updated session with stats for ${streamId}`);
+        console.log(
+          `[STREAMING SERVICE] Updated session with stats for ${streamId}`,
+        );
       } else {
-        console.warn(`[STREAMING SERVICE] Invalid stats received for ${streamId}:`, stats);
+        console.warn(
+          `[STREAMING SERVICE] Invalid stats received for ${streamId}:`,
+          stats,
+        );
       }
     } catch (error) {
-      console.error(`[STREAMING SERVICE] Failed to fetch stats for ${streamId}:`, error);
+      console.error(
+        `[STREAMING SERVICE] Failed to fetch stats for ${streamId}:`,
+        error,
+      );
     }
   }
 
@@ -235,7 +281,10 @@ class StreamingService {
       });
       return state;
     } catch (error) {
-      console.error(`[STREAMING SERVICE] Failed to fetch state for ${streamId}:`, error);
+      console.error(
+        `[STREAMING SERVICE] Failed to fetch state for ${streamId}:`,
+        error,
+      );
       return null;
     }
   }
@@ -250,9 +299,14 @@ class StreamingService {
       const store = useAppStore.getState();
       store.clearStreamPlotData(streamId);
 
-      console.log(`[STREAMING SERVICE] Cleared buffers for stream: ${streamId}`);
+      console.log(
+        `[STREAMING SERVICE] Cleared buffers for stream: ${streamId}`,
+      );
     } catch (error) {
-      console.error(`[STREAMING SERVICE] Failed to clear buffers for ${streamId}:`, error);
+      console.error(
+        `[STREAMING SERVICE] Failed to clear buffers for ${streamId}:`,
+        error,
+      );
       throw error;
     }
   }

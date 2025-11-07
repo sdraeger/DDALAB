@@ -3,14 +3,14 @@
 // Maintains a fixed time window of data with automatic expiration and downsampling
 // to ensure scalable real-time performance regardless of sampling rate.
 
-use crate::streaming::source::DataChunk;
 use crate::streaming::processor::StreamingDDAResult;
+use crate::streaming::source::DataChunk;
+use parking_lot::RwLock;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
-use parking_lot::RwLock;
 use std::time::{SystemTime, UNIX_EPOCH};
-use rayon::prelude::*;
 
 /// Configuration for time-based windowing
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,9 +28,9 @@ pub struct TimeWindowConfig {
 impl Default for TimeWindowConfig {
     fn default() -> Self {
         Self {
-            window_seconds: 30.0,        // Keep last 30 seconds
-            max_display_points: 2000,     // Max 2000 points for plotting
-            min_sample_interval: 0.001,   // 1ms minimum interval
+            window_seconds: 30.0,       // Keep last 30 seconds
+            max_display_points: 2000,   // Max 2000 points for plotting
+            min_sample_interval: 0.001, // 1ms minimum interval
         }
     }
 }
@@ -169,12 +169,8 @@ impl TimeWindowBuffer {
         let results = self.results.read();
 
         let now = Self::now();
-        let oldest_data_age = data.front()
-            .map(|tc| now - tc.timestamp)
-            .unwrap_or(0.0);
-        let newest_data_age = data.back()
-            .map(|tc| now - tc.timestamp)
-            .unwrap_or(0.0);
+        let oldest_data_age = data.front().map(|tc| now - tc.timestamp).unwrap_or(0.0);
+        let newest_data_age = data.back().map(|tc| now - tc.timestamp).unwrap_or(0.0);
 
         TimeWindowStats {
             data_chunks_stored: data.len(),
