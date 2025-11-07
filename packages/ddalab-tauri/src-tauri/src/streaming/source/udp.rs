@@ -78,9 +78,12 @@ impl StreamSource for UdpStreamSource {
                                     channels: chunk.channel_names.clone(),
                                     sample_rate: chunk.sample_rate,
                                     data_format: DataFormat::Float32,
-                                    properties: [("bind_address".to_string(), self.bind_addr.clone())]
-                                        .into_iter()
-                                        .collect(),
+                                    properties: [(
+                                        "bind_address".to_string(),
+                                        self.bind_addr.clone(),
+                                    )]
+                                    .into_iter()
+                                    .collect(),
                                 });
                             }
 

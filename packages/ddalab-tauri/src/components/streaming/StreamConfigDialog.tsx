@@ -24,7 +24,13 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { AlertCircle, Play, Settings2, FolderOpen } from "lucide-react";
@@ -201,7 +207,9 @@ export function StreamConfigDialog() {
               <Label htmlFor="source-type">Source Type</Label>
               <Select
                 value={sourceType}
-                onValueChange={(value) => setSourceType(value as StreamSourceType)}
+                onValueChange={(value) =>
+                  setSourceType(value as StreamSourceType)
+                }
               >
                 <SelectTrigger id="source-type">
                   <SelectValue />
@@ -224,7 +232,9 @@ export function StreamConfigDialog() {
             {sourceType === "file" && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">File Playback Settings</CardTitle>
+                  <CardTitle className="text-base">
+                    File Playback Settings
+                  </CardTitle>
                   <CardDescription>
                     Stream data from an EDF file at a controlled rate
                   </CardDescription>
@@ -310,7 +320,9 @@ export function StreamConfigDialog() {
             {sourceType === "websocket" && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">WebSocket Settings</CardTitle>
+                  <CardTitle className="text-base">
+                    WebSocket Settings
+                  </CardTitle>
                   <CardDescription>
                     Connect to a WebSocket server streaming JSON data
                   </CardDescription>
@@ -323,7 +335,10 @@ export function StreamConfigDialog() {
                       placeholder="ws://localhost:8080"
                       value={websocketConfig.url}
                       onChange={(e) =>
-                        setWebsocketConfig({ ...websocketConfig, url: e.target.value })
+                        setWebsocketConfig({
+                          ...websocketConfig,
+                          url: e.target.value,
+                        })
                       }
                     />
                   </div>
@@ -351,7 +366,9 @@ export function StreamConfigDialog() {
             {sourceType === "tcp" && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">TCP Socket Settings</CardTitle>
+                  <CardTitle className="text-base">
+                    TCP Socket Settings
+                  </CardTitle>
                   <CardDescription>
                     Connect to a TCP server with newline-delimited JSON
                   </CardDescription>
@@ -376,7 +393,10 @@ export function StreamConfigDialog() {
                         type="number"
                         value={tcpConfig.port}
                         onChange={(e) =>
-                          setTcpConfig({ ...tcpConfig, port: parseInt(e.target.value) })
+                          setTcpConfig({
+                            ...tcpConfig,
+                            port: parseInt(e.target.value),
+                          })
                         }
                       />
                     </div>
@@ -389,7 +409,9 @@ export function StreamConfigDialog() {
             {sourceType === "udp" && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">UDP Socket Settings</CardTitle>
+                  <CardTitle className="text-base">
+                    UDP Socket Settings
+                  </CardTitle>
                   <CardDescription>
                     Receive UDP datagrams with JSON data
                   </CardDescription>
@@ -403,7 +425,10 @@ export function StreamConfigDialog() {
                         placeholder="0.0.0.0"
                         value={udpConfig.bind_address}
                         onChange={(e) =>
-                          setUdpConfig({ ...udpConfig, bind_address: e.target.value })
+                          setUdpConfig({
+                            ...udpConfig,
+                            bind_address: e.target.value,
+                          })
                         }
                       />
                     </div>
@@ -414,7 +439,10 @@ export function StreamConfigDialog() {
                         type="number"
                         value={udpConfig.port}
                         onChange={(e) =>
-                          setUdpConfig({ ...udpConfig, port: parseInt(e.target.value) })
+                          setUdpConfig({
+                            ...udpConfig,
+                            port: parseInt(e.target.value),
+                          })
                         }
                       />
                     </div>
@@ -427,7 +455,9 @@ export function StreamConfigDialog() {
             {sourceType === "serial" && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Serial Port Settings</CardTitle>
+                  <CardTitle className="text-base">
+                    Serial Port Settings
+                  </CardTitle>
                   <CardDescription>
                     Read from a serial port (Unix systems only)
                   </CardDescription>
@@ -440,7 +470,10 @@ export function StreamConfigDialog() {
                       placeholder="/dev/ttyUSB0"
                       value={serialConfig.port}
                       onChange={(e) =>
-                        setSerialConfig({ ...serialConfig, port: e.target.value })
+                        setSerialConfig({
+                          ...serialConfig,
+                          port: e.target.value,
+                        })
                       }
                     />
                   </div>
@@ -476,7 +509,9 @@ export function StreamConfigDialog() {
           <TabsContent value="dda" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Window Configuration</CardTitle>
+                <CardTitle className="text-base">
+                  Window Configuration
+                </CardTitle>
                 <CardDescription>
                   Configure sliding window for continuous DDA analysis
                 </CardDescription>
@@ -500,7 +535,8 @@ export function StreamConfigDialog() {
 
                 <div className="space-y-2">
                   <Label htmlFor="window-overlap">
-                    Window Overlap: {(ddaConfig.window_overlap * 100).toFixed(0)}%
+                    Window Overlap:{" "}
+                    {(ddaConfig.window_overlap * 100).toFixed(0)}%
                   </Label>
                   <Slider
                     id="window-overlap"

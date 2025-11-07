@@ -248,7 +248,9 @@ pub fn create_source(config: StreamSourceConfig) -> StreamResult<Box<dyn StreamS
             url,
             headers,
             reconnect,
-        } => Ok(Box::new(WebSocketStreamSource::new(url, headers, reconnect))),
+        } => Ok(Box::new(WebSocketStreamSource::new(
+            url, headers, reconnect,
+        ))),
 
         StreamSourceConfig::TcpSocket {
             host,
