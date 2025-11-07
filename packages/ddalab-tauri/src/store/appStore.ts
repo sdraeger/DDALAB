@@ -28,6 +28,16 @@ import {
   FileAnnotationState,
 } from "@/types/fileCentricState";
 import { PrimaryNavTab, SecondaryNavTab } from "@/types/navigation";
+import {
+  StreamSession,
+  StreamPlotData,
+  StreamUIState,
+  StreamSourceConfig,
+  StreamingDDAConfig,
+  DataChunk,
+  StreamingDDAResult,
+  StreamEvent,
+} from "@/types/streaming";
 
 // Module-level flag to prevent re-initialization during Hot Module Reload
 // This persists across Fast Refresh unlike Zustand store state
@@ -129,6 +139,17 @@ export interface WorkflowRecordingState {
   currentSessionName: string | null;
   actionCount: number;
   lastActionTimestamp: number | null;
+}
+
+export interface StreamingState {
+  // Active stream sessions
+  sessions: Record<string, StreamSession>;
+
+  // Plot data for active streams (ring buffers)
+  plotData: Record<string, StreamPlotData>;
+
+  // UI state
+  ui: StreamUIState;
 }
 
 export interface AppState {
@@ -254,6 +275,23 @@ export interface AppState {
   incrementActionCount: () => void;
   getRecordingStatus: () => WorkflowRecordingState;
 
+  // Streaming
+  streaming: StreamingState;
+  createStreamSession: (
+    sourceConfig: StreamSourceConfig,
+    ddaConfig: StreamingDDAConfig
+  ) => Promise<string>;
+  stopStreamSession: (streamId: string) => Promise<void>;
+  pauseStreamSession: (streamId: string) => Promise<void>;
+  resumeStreamSession: (streamId: string) => Promise<void>;
+  updateStreamSession: (streamId: string, updates: Partial<StreamSession>) => void;
+  removeStreamSession: (streamId: string) => void;
+  addStreamData: (streamId: string, chunk: DataChunk) => void;
+  addStreamResult: (streamId: string, result: StreamingDDAResult) => void;
+  clearStreamPlotData: (streamId: string) => void;
+  updateStreamUI: (updates: Partial<StreamUIState>) => void;
+  handleStreamEvent: (event: StreamEvent) => void;
+
   // State persistence
   saveCurrentState: () => Promise<void>;
   forceSave: () => Promise<void>;
@@ -347,6 +385,19 @@ const defaultWorkflowRecordingState: WorkflowRecordingState = {
   currentSessionName: null,
   actionCount: 0,
   lastActionTimestamp: null,
+};
+
+const defaultStreamingState: StreamingState = {
+  sessions: {},
+  plotData: {},
+  ui: {
+    isConfigDialogOpen: false,
+    selectedStreamId: null,
+    autoScroll: true,
+    showHeatmap: true,
+    visibleChannels: null,
+    displayWindowSeconds: 30,
+  },
 };
 
 export const useAppStore = create<AppState>()(
@@ -2469,6 +2520,263 @@ export const useAppStore = create<AppState>()(
 
     getRecordingStatus: () => {
       return get().workflowRecording;
+    },
+
+    // Streaming
+    streaming: defaultStreamingState,
+
+    createStreamSession: async (sourceConfig, ddaConfig) => {
+      const { invoke } = await import("@tauri-apps/api/core");
+
+      try {
+        // Pre-create the session object BEFORE calling backend
+        // This ensures it exists when events start arriving
+        const now = Date.now() / 1000;
+        let streamId: string | null = null;
+
+        // Call backend to start stream
+        const response = await invoke<{ stream_id: string }>("start_stream", {
+          request: {
+            source_config: sourceConfig,
+            dda_config: ddaConfig,
+          },
+        });
+
+        streamId = response.stream_id;
+
+        // Create or update session with real config
+        // (Session might have been created by events arriving during invoke)
+        set((state) => {
+          if (state.streaming.sessions[streamId]) {
+            // Session already created by event handler, just update config
+            console.log("[STREAMING] Updating existing session with real config:", streamId);
+            state.streaming.sessions[streamId].source_config = sourceConfig;
+            state.streaming.sessions[streamId].dda_config = ddaConfig;
+            state.streaming.sessions[streamId].updated_at = Date.now() / 1000;
+          } else {
+            // Create new session
+            console.log("[STREAMING] Creating new session:", streamId);
+            state.streaming.sessions[streamId] = {
+              id: streamId,
+              source_config: sourceConfig,
+              dda_config: ddaConfig,
+              state: { type: "Connecting" },
+              stats: {
+                chunks_received: 0,
+                chunks_processed: 0,
+                results_generated: 0,
+                data_buffer_size: 0,
+                result_buffer_size: 0,
+                total_samples_received: 0,
+                avg_processing_time_ms: 0,
+                uptime_seconds: 0,
+              },
+              created_at: now,
+              updated_at: now,
+            };
+            state.streaming.plotData[streamId] = {
+              dataChunks: [],
+              ddaResults: [],
+              maxBufferSize: 100,
+            };
+          }
+        });
+
+        console.log("[STREAMING] Session ready:", streamId);
+        return streamId;
+      } catch (error) {
+        console.error("[STREAMING] Failed to create session:", error);
+        throw error;
+      }
+    },
+
+    stopStreamSession: async (streamId) => {
+      const { invoke } = await import("@tauri-apps/api/core");
+
+      try {
+        await invoke("stop_stream", { streamId });
+
+        set((state) => {
+          if (state.streaming.sessions[streamId]) {
+            state.streaming.sessions[streamId].state = { type: "Stopped" };
+          }
+        });
+
+        console.log("[STREAMING] Session stopped:", streamId);
+      } catch (error) {
+        console.error("[STREAMING] Failed to stop session:", error);
+        throw error;
+      }
+    },
+
+    pauseStreamSession: async (streamId) => {
+      const { invoke } = await import("@tauri-apps/api/core");
+
+      try {
+        await invoke("pause_stream", { streamId });
+        console.log("[STREAMING] Session paused:", streamId);
+      } catch (error) {
+        console.error("[STREAMING] Failed to pause session:", error);
+        throw error;
+      }
+    },
+
+    resumeStreamSession: async (streamId) => {
+      const { invoke } = await import("@tauri-apps/api/core");
+
+      try {
+        await invoke("resume_stream", { streamId });
+        console.log("[STREAMING] Session resumed:", streamId);
+      } catch (error) {
+        console.error("[STREAMING] Failed to resume session:", error);
+        throw error;
+      }
+    },
+
+    updateStreamSession: (streamId, updates) => {
+      console.log(`[STORE] updateStreamSession called for ${streamId}:`, updates);
+      set((state) => {
+        if (state.streaming.sessions[streamId]) {
+          console.log(`[STORE] Current session state before update:`, state.streaming.sessions[streamId].state);
+          console.log(`[STORE] Current session stats before update:`, state.streaming.sessions[streamId].stats);
+          Object.assign(state.streaming.sessions[streamId], updates);
+          state.streaming.sessions[streamId].updated_at = Date.now() / 1000;
+          console.log(`[STORE] Session updated. New state:`, state.streaming.sessions[streamId].state);
+          console.log(`[STORE] Session updated. New stats:`, state.streaming.sessions[streamId].stats);
+        } else {
+          console.warn(`[STORE] Session ${streamId} not found for update`);
+        }
+      });
+    },
+
+    removeStreamSession: (streamId) => {
+      set((state) => {
+        delete state.streaming.sessions[streamId];
+        delete state.streaming.plotData[streamId];
+      });
+      console.log("[STREAMING] Session removed:", streamId);
+    },
+
+    addStreamData: (streamId, chunk) => {
+      set((state) => {
+        const plotData = state.streaming.plotData[streamId];
+        if (plotData) {
+          plotData.dataChunks.push(chunk);
+          // Keep only last N chunks (ring buffer)
+          if (plotData.dataChunks.length > plotData.maxBufferSize) {
+            plotData.dataChunks.shift();
+          }
+        }
+      });
+    },
+
+    addStreamResult: (streamId, result) => {
+      set((state) => {
+        const plotData = state.streaming.plotData[streamId];
+        if (plotData) {
+          plotData.ddaResults.push(result);
+          // Keep only last N results (ring buffer)
+          if (plotData.ddaResults.length > plotData.maxBufferSize) {
+            plotData.ddaResults.shift();
+          }
+        }
+      });
+    },
+
+    clearStreamPlotData: (streamId) => {
+      set((state) => {
+        const plotData = state.streaming.plotData[streamId];
+        if (plotData) {
+          plotData.dataChunks = [];
+          plotData.ddaResults = [];
+        }
+      });
+    },
+
+    updateStreamUI: (updates) => {
+      set((state) => {
+        Object.assign(state.streaming.ui, updates);
+      });
+    },
+
+    handleStreamEvent: (event) => {
+      console.log(`[STORE] handleStreamEvent called:`, event);
+      switch (event.type) {
+        case "state_changed":
+          console.log(`[STORE] Processing state_changed event for ${event.stream_id}. New state:`, event.state);
+          set((state) => {
+            // Create session on-the-fly if it doesn't exist (handles race condition)
+            if (!state.streaming.sessions[event.stream_id]) {
+              console.warn(`[STORE] Session ${event.stream_id} not found, creating placeholder`);
+              const now = Date.now() / 1000;
+              state.streaming.sessions[event.stream_id] = {
+                id: event.stream_id,
+                source_config: { type: "file", path: "", chunk_size: 0, loop_playback: false }, // Placeholder
+                dda_config: {
+                  window_size: 0,
+                  window_overlap: 0,
+                  window_parameters: { window_length: 0, window_step: 0 },
+                  scale_parameters: { scale_min: 0, scale_max: 0, scale_num: 0 },
+                  algorithm_selection: { enabled_variants: [] },
+                  include_q_matrices: false,
+                }, // Placeholder
+                state: event.state,
+                stats: {
+                  chunks_received: 0,
+                  chunks_processed: 0,
+                  results_generated: 0,
+                  data_buffer_size: 0,
+                  result_buffer_size: 0,
+                  total_samples_received: 0,
+                  avg_processing_time_ms: 0,
+                  uptime_seconds: 0,
+                },
+                created_at: now,
+                updated_at: now,
+              };
+              state.streaming.plotData[event.stream_id] = {
+                dataChunks: [],
+                ddaResults: [],
+                maxBufferSize: 100,
+              };
+            } else {
+              console.log(`[STORE] Old state:`, state.streaming.sessions[event.stream_id].state);
+              state.streaming.sessions[event.stream_id].state = event.state;
+              state.streaming.sessions[event.stream_id].updated_at = Date.now() / 1000;
+              console.log(`[STORE] State updated to:`, state.streaming.sessions[event.stream_id].state);
+            }
+          });
+          break;
+
+        case "stats_update":
+          console.log(`[STORE] Processing stats_update event for ${event.stream_id}. New stats:`, event.stats);
+          set((state) => {
+            if (state.streaming.sessions[event.stream_id]) {
+              state.streaming.sessions[event.stream_id].stats = event.stats;
+              state.streaming.sessions[event.stream_id].updated_at = Date.now() / 1000;
+            } else {
+              console.warn(`[STORE] Session ${event.stream_id} not found for stats_update event`);
+            }
+          });
+          break;
+
+        case "error":
+          set((state) => {
+            if (state.streaming.sessions[event.stream_id]) {
+              state.streaming.sessions[event.stream_id].state = {
+                type: "Error",
+                data: { message: event.error },
+              };
+            }
+          });
+          console.error("[STREAMING] Stream error:", event.error);
+          break;
+
+        case "data_received":
+        case "results_ready":
+          // These events are just notifications, data is fetched separately
+          break;
+      }
     },
 
     // Additional persistence methods that weren't in the original implementation
