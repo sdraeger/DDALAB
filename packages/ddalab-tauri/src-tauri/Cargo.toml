@@ -28,6 +28,7 @@ parking_lot = "0.12.5"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 anyhow = "1.0"
+thiserror = "2.0"
 log = "0.4"
 env_logger = "0.11"
 simple-logging = "2.0"
@@ -55,7 +56,7 @@ rand = "0.9.2"
 base64 = "0.22"
 tracing = "0.1"
 # Discovery
-mdns-sd = "0.16.0"
+mdns-sd = "0.17.0"
 # Security
 sha2 = "0.10"
 blake3 = "1.8.2"      # Fast cryptographic hash for file identification
@@ -82,11 +83,16 @@ flatten-json-object = "0.6.1"                                             # Requ
 csv = "1.4.0"                                                             # CSV writer for json-objects-to-csv
 # NSG Client
 nsg-cli = "0.1.3"
+# Streaming infrastructure
+crossbeam = "0.8"    # Lock-free data structures
+async-trait = "0.1"  # Async trait support
+tokio-serial = "5.4" # Serial port support for streaming
+num_cpus = "1.16"    # CPU core detection for thread pools
 
 [dev-dependencies]
-hyper = "1.0"
+hyper = "1.7.0"
 http-body-util = "0.1"
-tempfile = "3.8"
+tempfile = "3.23.0"
 urlencoding = "2.1"
 
 [lib]

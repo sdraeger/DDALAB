@@ -6,6 +6,7 @@ import { ApiService } from "@/services/apiService";
 // Import existing components
 import { TimeSeriesPlotECharts } from "@/components/TimeSeriesPlotECharts";
 import { AnnotationsTab } from "@/components/AnnotationsTab";
+import { StreamingView } from "@/components/streaming";
 import { DDAWithHistory } from "@/components/dda/DDAWithHistory";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { OpenNeuroBrowser } from "@/components/OpenNeuroBrowser";
@@ -59,6 +60,14 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
       return (
         <div className="p-4 h-full">
           <AnnotationsTab />
+        </div>
+      );
+    }
+
+    if (secondaryNav === "streaming") {
+      return (
+        <div className="p-4 h-full">
+          <StreamingView />
         </div>
       );
     }

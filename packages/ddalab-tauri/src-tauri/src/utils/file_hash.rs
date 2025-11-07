@@ -29,9 +29,14 @@ const BLOCK_SIZE: usize = 65_536; // 64 KB
 /// * A 64-character hex string (BLAKE3 hash)
 ///
 /// # Example
-/// ```
+/// ```no_run
+/// use ddalab_tauri::utils::file_hash::compute_file_hash;
+///
+/// # fn main() -> anyhow::Result<()> {
 /// let hash = compute_file_hash("/path/to/file.edf")?;
 /// println!("File hash: {}", hash);
+/// # Ok(())
+/// # }
 /// ```
 pub fn compute_file_hash<P: AsRef<Path>>(file_path: P) -> Result<String> {
     let path = file_path.as_ref();

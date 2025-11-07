@@ -9,6 +9,7 @@ export type SecondaryNavTab =
   // Explore tabs
   | "timeseries"
   | "annotations"
+  | "streaming"
   | "spectrograms"
   | "power-spectrum"
   // Analyze tabs
@@ -50,7 +51,7 @@ export const navigationConfig: Record<PrimaryNavTab, NavigationCategory> = {
     label: "Explore",
     icon: "BarChart3",
     description: "Data visualization and inspection",
-    secondaryTabs: ["timeseries", "annotations"],
+    secondaryTabs: ["timeseries", "annotations", "streaming"],
   },
   analyze: {
     id: "analyze",
@@ -88,6 +89,12 @@ export const secondaryTabConfig: Record<SecondaryNavTab, SecondaryTabConfig> = {
     label: "Annotations",
     icon: "MessageSquare",
     description: "Manage annotations",
+  },
+  streaming: {
+    id: "streaming",
+    label: "Streaming",
+    icon: "Radio",
+    description: "Real-time data streaming and DDA analysis",
   },
   spectrograms: {
     id: "spectrograms",

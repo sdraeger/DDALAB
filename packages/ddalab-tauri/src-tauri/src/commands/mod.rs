@@ -11,6 +11,7 @@ pub mod nsg_commands;
 pub mod openneuro_commands;
 pub mod preference_commands;
 pub mod state_commands;
+pub mod streaming_commands; // Real-time data streaming and DDA
 pub mod update_commands;
 pub mod window_commands;
 
@@ -27,5 +28,6 @@ pub use nsg_commands::*;
 pub use openneuro_commands::*;
 pub use preference_commands::*;
 pub use state_commands::*;
+pub use streaming_commands::*;
 pub use update_commands::*;
 pub use window_commands::*;
