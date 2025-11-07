@@ -15,6 +15,7 @@ mod intermediate_format;
 mod models;
 mod recording;
 mod state_manager;
+mod streaming;
 mod sync;
 mod text_reader;
 mod utils;
@@ -220,7 +221,18 @@ fn main() {
             mark_notification_read,
             mark_all_notifications_read,
             delete_notification,
-            delete_old_notifications
+            delete_old_notifications,
+            // Streaming commands
+            start_stream,
+            stop_stream,
+            pause_stream,
+            resume_stream,
+            get_stream_data,
+            get_stream_results,
+            get_stream_state,
+            get_stream_stats,
+            list_streams,
+            clear_stream_buffers
         ])
         .manage(ApiServerState::default())
         .manage(AppSyncState::new())
@@ -232,6 +244,9 @@ fn main() {
         )))
         .manage(commands::openneuro_commands::DownloadState::default())
         .manage(commands::openneuro_commands::UploadState::default())
+        .manage(std::sync::Arc::new(
+            commands::streaming_commands::StreamingState::new(get_dda_binary_path_for_streaming()),
+        ))
         .setup(|app| {
             setup_app(app).map_err(|e| e.to_string())?;
 
@@ -291,4 +306,69 @@ fn main() {
                 *is_running = false;
             }
         });
+}
+
+/// Get the path to the DDA binary for streaming
+fn get_dda_binary_path_for_streaming() -> std::path::PathBuf {
+    use std::path::PathBuf;
+
+    let binary_name = if cfg!(target_os = "windows") {
+        "run_DDA_AsciiEdf.exe"
+    } else {
+        "run_DDA_AsciiEdf"
+    };
+
+    let mut possible_paths = vec![
+        PathBuf::from("./bin").join(binary_name),
+    ];
+
+    // When running in a bundled app, resolve paths relative to the executable
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            // On macOS: DDALAB.app/Contents/MacOS/DDALAB -> check ../Resources/
+            // On Linux/Windows: check relative to exe directory
+            possible_paths.push(
+                exe_dir
+                    .join("..")
+                    .join("Resources")
+                    .join("bin")
+                    .join(binary_name),
+            );
+            possible_paths.push(exe_dir.join("..").join("Resources").join(binary_name));
+            possible_paths.push(exe_dir.join("bin").join(binary_name));
+            possible_paths.push(exe_dir.join(binary_name));
+        }
+    }
+
+    // Add remaining fallback paths
+    possible_paths.extend(vec![
+        PathBuf::from("../Resources/bin").join(binary_name),
+        PathBuf::from("../Resources").join(binary_name),
+        PathBuf::from(".").join(binary_name),
+        PathBuf::from("./resources/bin").join(binary_name),
+        PathBuf::from("./resources").join(binary_name),
+        PathBuf::from("/app/bin").join(binary_name),
+    ]);
+
+    for path in &possible_paths {
+        // Canonicalize to resolve .. and . components, then check existence
+        if let Ok(canonical_path) = path.canonicalize() {
+            if canonical_path.exists() {
+                log::info!("Found DDA binary for streaming at: {:?}", canonical_path);
+                return canonical_path;
+            }
+        }
+
+        // Also check non-canonicalized path
+        if path.exists() {
+            log::info!("Found DDA binary for streaming at: {:?}", path);
+            return path.clone();
+        }
+    }
+
+    log::warn!(
+        "DDA binary not found in any expected location, using default: {}",
+        binary_name
+    );
+    PathBuf::from(binary_name)
 }
