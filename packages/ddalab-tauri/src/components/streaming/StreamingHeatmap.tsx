@@ -3,7 +3,13 @@
 import { useEffect, useRef, useMemo, useState } from "react";
 import { useAppStore } from "@/store/appStore";
 import { useStreamingData } from "@/hooks/useStreamingData";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -23,7 +29,10 @@ interface StreamingHeatmapProps {
   height?: number;
 }
 
-export function StreamingHeatmap({ streamId, height = 400 }: StreamingHeatmapProps) {
+export function StreamingHeatmap({
+  streamId,
+  height = 400,
+}: StreamingHeatmapProps) {
   const plotRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -39,7 +48,9 @@ export function StreamingHeatmap({ streamId, height = 400 }: StreamingHeatmapPro
 
     const variants = new Set<string>();
     latestResults.forEach((result) => {
-      Object.keys(result.variant_summaries).forEach((variantId) => variants.add(variantId));
+      Object.keys(result.variant_summaries).forEach((variantId) =>
+        variants.add(variantId),
+      );
     });
 
     return Array.from(variants);
@@ -72,9 +83,7 @@ export function StreamingHeatmap({ streamId, height = 400 }: StreamingHeatmapPro
         // Create a placeholder matrix using summary stats
         const placeholderMatrix = Array(summary.num_channels)
           .fill(0)
-          .map(() =>
-            Array(summary.num_timepoints).fill(summary.mean)
-          );
+          .map(() => Array(summary.num_timepoints).fill(summary.mean));
         qMatrices.push(placeholderMatrix);
         timestamps.push(result.timestamp);
       }
@@ -95,7 +104,9 @@ export function StreamingHeatmap({ streamId, height = 400 }: StreamingHeatmapPro
       timestamps,
       numChannels,
       numTimepoints,
-      variantName: latestResults[0].variant_summaries[selectedVariant]?.variant_name || selectedVariant,
+      variantName:
+        latestResults[0].variant_summaries[selectedVariant]?.variant_name ||
+        selectedVariant,
     };
   }, [latestResults, selectedVariant]);
 
@@ -154,7 +165,8 @@ export function StreamingHeatmap({ streamId, height = 400 }: StreamingHeatmapPro
 
       // For each channel, average across timepoints to get single color
       matrix.forEach((channelData, chIdx) => {
-        const avgQ = channelData.reduce((sum, val) => sum + val, 0) / channelData.length;
+        const avgQ =
+          channelData.reduce((sum, val) => sum + val, 0) / channelData.length;
 
         // Normalize to [0, 1]
         const normalized = (avgQ - minQ) / (maxQ - minQ || 1);
@@ -197,7 +209,12 @@ export function StreamingHeatmap({ streamId, height = 400 }: StreamingHeatmapPro
     const legendY = 10;
 
     // Draw gradient
-    const gradient = ctx.createLinearGradient(legendX, 0, legendX + legendWidth, 0);
+    const gradient = ctx.createLinearGradient(
+      legendX,
+      0,
+      legendX + legendWidth,
+      0,
+    );
     gradient.addColorStop(0, "hsl(240, 70%, 50%)"); // Blue (low)
     gradient.addColorStop(0.5, "hsl(120, 70%, 50%)"); // Green
     gradient.addColorStop(1, "hsl(0, 70%, 50%)"); // Red (high)
@@ -215,8 +232,11 @@ export function StreamingHeatmap({ streamId, height = 400 }: StreamingHeatmapPro
     ctx.font = "12px sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(minQ.toFixed(2), legendX, legendY + legendHeight + 15);
-    ctx.fillText(maxQ.toFixed(2), legendX + legendWidth, legendY + legendHeight + 15);
-
+    ctx.fillText(
+      maxQ.toFixed(2),
+      legendX + legendWidth,
+      legendY + legendHeight + 15,
+    );
   }, [heatmapData, height, isFullscreen, autoScroll]);
 
   // Handle window resize
@@ -306,7 +326,8 @@ export function StreamingHeatmap({ streamId, height = 400 }: StreamingHeatmapPro
 
             {selectedVariant && heatmapData && (
               <Badge variant="outline">
-                {heatmapData.numChannels} channels × {latestResults.length} windows
+                {heatmapData.numChannels} channels × {latestResults.length}{" "}
+                windows
               </Badge>
             )}
           </div>
@@ -331,7 +352,9 @@ export function StreamingHeatmap({ streamId, height = 400 }: StreamingHeatmapPro
         {/* Summary Statistics */}
         {selectedVariant && latestResults.length > 0 && (
           <div className="grid grid-cols-4 gap-4 text-sm">
-            {latestResults[latestResults.length - 1].variant_summaries[selectedVariant] && (
+            {latestResults[latestResults.length - 1].variant_summaries[
+              selectedVariant
+            ] && (
               <>
                 <div className="space-y-1">
                   <div className="text-muted-foreground">Mean Q</div>

@@ -318,9 +318,7 @@ fn get_dda_binary_path_for_streaming() -> std::path::PathBuf {
         "run_DDA_AsciiEdf"
     };
 
-    let mut possible_paths = vec![
-        PathBuf::from("./bin").join(binary_name),
-    ];
+    let mut possible_paths = vec![PathBuf::from("./bin").join(binary_name)];
 
     // When running in a bundled app, resolve paths relative to the executable
     if let Ok(exe_path) = std::env::current_exe() {

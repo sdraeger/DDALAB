@@ -64,7 +64,7 @@ export function useStreamLifecycle(
   streamId: string | null,
   options?: {
     autoCleanup?: boolean;
-  }
+  },
 ) {
   const { autoCleanup = true } = options || {};
   const stopStream = useAppStore((state) => state.stopStreamSession);
@@ -94,7 +94,7 @@ export function useActiveStreams() {
 
   const activeSessions = useMemo(() => {
     return Object.values(sessions).filter(
-      (s) => s.state.type === "Running" || s.state.type === "Paused"
+      (s) => s.state.type === "Running" || s.state.type === "Paused",
     );
   }, [sessions]);
 

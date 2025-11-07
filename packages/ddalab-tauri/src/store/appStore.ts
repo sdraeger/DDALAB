@@ -279,12 +279,15 @@ export interface AppState {
   streaming: StreamingState;
   createStreamSession: (
     sourceConfig: StreamSourceConfig,
-    ddaConfig: StreamingDDAConfig
+    ddaConfig: StreamingDDAConfig,
   ) => Promise<string>;
   stopStreamSession: (streamId: string) => Promise<void>;
   pauseStreamSession: (streamId: string) => Promise<void>;
   resumeStreamSession: (streamId: string) => Promise<void>;
-  updateStreamSession: (streamId: string, updates: Partial<StreamSession>) => void;
+  updateStreamSession: (
+    streamId: string,
+    updates: Partial<StreamSession>,
+  ) => void;
   removeStreamSession: (streamId: string) => void;
   addStreamData: (streamId: string, chunk: DataChunk) => void;
   addStreamResult: (streamId: string, result: StreamingDDAResult) => void;
@@ -2549,7 +2552,10 @@ export const useAppStore = create<AppState>()(
         set((state) => {
           if (state.streaming.sessions[streamId]) {
             // Session already created by event handler, just update config
-            console.log("[STREAMING] Updating existing session with real config:", streamId);
+            console.log(
+              "[STREAMING] Updating existing session with real config:",
+              streamId,
+            );
             state.streaming.sessions[streamId].source_config = sourceConfig;
             state.streaming.sessions[streamId].dda_config = ddaConfig;
             state.streaming.sessions[streamId].updated_at = Date.now() / 1000;
@@ -2634,15 +2640,30 @@ export const useAppStore = create<AppState>()(
     },
 
     updateStreamSession: (streamId, updates) => {
-      console.log(`[STORE] updateStreamSession called for ${streamId}:`, updates);
+      console.log(
+        `[STORE] updateStreamSession called for ${streamId}:`,
+        updates,
+      );
       set((state) => {
         if (state.streaming.sessions[streamId]) {
-          console.log(`[STORE] Current session state before update:`, state.streaming.sessions[streamId].state);
-          console.log(`[STORE] Current session stats before update:`, state.streaming.sessions[streamId].stats);
+          console.log(
+            `[STORE] Current session state before update:`,
+            state.streaming.sessions[streamId].state,
+          );
+          console.log(
+            `[STORE] Current session stats before update:`,
+            state.streaming.sessions[streamId].stats,
+          );
           Object.assign(state.streaming.sessions[streamId], updates);
           state.streaming.sessions[streamId].updated_at = Date.now() / 1000;
-          console.log(`[STORE] Session updated. New state:`, state.streaming.sessions[streamId].state);
-          console.log(`[STORE] Session updated. New stats:`, state.streaming.sessions[streamId].stats);
+          console.log(
+            `[STORE] Session updated. New state:`,
+            state.streaming.sessions[streamId].state,
+          );
+          console.log(
+            `[STORE] Session updated. New stats:`,
+            state.streaming.sessions[streamId].stats,
+          );
         } else {
           console.warn(`[STORE] Session ${streamId} not found for update`);
         }
@@ -2703,20 +2724,34 @@ export const useAppStore = create<AppState>()(
       console.log(`[STORE] handleStreamEvent called:`, event);
       switch (event.type) {
         case "state_changed":
-          console.log(`[STORE] Processing state_changed event for ${event.stream_id}. New state:`, event.state);
+          console.log(
+            `[STORE] Processing state_changed event for ${event.stream_id}. New state:`,
+            event.state,
+          );
           set((state) => {
             // Create session on-the-fly if it doesn't exist (handles race condition)
             if (!state.streaming.sessions[event.stream_id]) {
-              console.warn(`[STORE] Session ${event.stream_id} not found, creating placeholder`);
+              console.warn(
+                `[STORE] Session ${event.stream_id} not found, creating placeholder`,
+              );
               const now = Date.now() / 1000;
               state.streaming.sessions[event.stream_id] = {
                 id: event.stream_id,
-                source_config: { type: "file", path: "", chunk_size: 0, loop_playback: false }, // Placeholder
+                source_config: {
+                  type: "file",
+                  path: "",
+                  chunk_size: 0,
+                  loop_playback: false,
+                }, // Placeholder
                 dda_config: {
                   window_size: 0,
                   window_overlap: 0,
                   window_parameters: { window_length: 0, window_step: 0 },
-                  scale_parameters: { scale_min: 0, scale_max: 0, scale_num: 0 },
+                  scale_parameters: {
+                    scale_min: 0,
+                    scale_max: 0,
+                    scale_num: 0,
+                  },
                   algorithm_selection: { enabled_variants: [] },
                   include_q_matrices: false,
                 }, // Placeholder
@@ -2740,22 +2775,35 @@ export const useAppStore = create<AppState>()(
                 maxBufferSize: 100,
               };
             } else {
-              console.log(`[STORE] Old state:`, state.streaming.sessions[event.stream_id].state);
+              console.log(
+                `[STORE] Old state:`,
+                state.streaming.sessions[event.stream_id].state,
+              );
               state.streaming.sessions[event.stream_id].state = event.state;
-              state.streaming.sessions[event.stream_id].updated_at = Date.now() / 1000;
-              console.log(`[STORE] State updated to:`, state.streaming.sessions[event.stream_id].state);
+              state.streaming.sessions[event.stream_id].updated_at =
+                Date.now() / 1000;
+              console.log(
+                `[STORE] State updated to:`,
+                state.streaming.sessions[event.stream_id].state,
+              );
             }
           });
           break;
 
         case "stats_update":
-          console.log(`[STORE] Processing stats_update event for ${event.stream_id}. New stats:`, event.stats);
+          console.log(
+            `[STORE] Processing stats_update event for ${event.stream_id}. New stats:`,
+            event.stats,
+          );
           set((state) => {
             if (state.streaming.sessions[event.stream_id]) {
               state.streaming.sessions[event.stream_id].stats = event.stats;
-              state.streaming.sessions[event.stream_id].updated_at = Date.now() / 1000;
+              state.streaming.sessions[event.stream_id].updated_at =
+                Date.now() / 1000;
             } else {
-              console.warn(`[STORE] Session ${event.stream_id} not found for stats_update event`);
+              console.warn(
+                `[STORE] Session ${event.stream_id} not found for stats_update event`,
+              );
             }
           });
           break;

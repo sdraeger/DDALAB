@@ -34,7 +34,10 @@ impl StreamingState {
     }
 
     pub async fn add_controller(&self, id: String, controller: StreamController) {
-        self.controllers.lock().await.insert(id, Arc::new(Mutex::new(controller)));
+        self.controllers
+            .lock()
+            .await
+            .insert(id, Arc::new(Mutex::new(controller)));
     }
 
     pub async fn get_controller(&self, id: &str) -> Option<Arc<Mutex<StreamController>>> {
@@ -121,14 +124,20 @@ pub async fn start_stream(
                     "state": state,
                 })
             }
-            StreamEvent::DataReceived { stream_id, chunks_count } => {
+            StreamEvent::DataReceived {
+                stream_id,
+                chunks_count,
+            } => {
                 serde_json::json!({
                     "type": "data_received",
                     "stream_id": stream_id,
                     "chunks_count": chunks_count,
                 })
             }
-            StreamEvent::ResultsReady { stream_id, results_count } => {
+            StreamEvent::ResultsReady {
+                stream_id,
+                results_count,
+            } => {
                 serde_json::json!({
                     "type": "results_ready",
                     "stream_id": stream_id,
@@ -301,9 +310,7 @@ pub async fn get_stream_stats(
 
 /// List all active streams
 #[tauri::command]
-pub async fn list_streams(
-    state: State<'_, Arc<StreamingState>>,
-) -> Result<Vec<String>, String> {
+pub async fn list_streams(state: State<'_, Arc<StreamingState>>) -> Result<Vec<String>, String> {
     Ok(state.list_controllers().await)
 }
 
