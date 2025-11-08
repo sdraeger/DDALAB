@@ -90,13 +90,14 @@ export function StreamConfigDialog() {
       scale_min: 1.0,
       scale_max: 100.0,
       scale_num: 50,
-      delay_list: [7, 10],
+      delay_list: [7, 10], // Default delays
     },
     algorithm_selection: {
       enabled_variants: ["ST"],
       select_mask: "1 0 0 0",
     },
-    include_q_matrices: false,
+    include_q_matrices: true,
+    selected_channels: undefined, // Process all channels
   });
 
   const handleClose = () => {
@@ -596,66 +597,37 @@ export function StreamConfigDialog() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Scale Parameters</CardTitle>
+                <CardTitle className="text-base">Delay Configuration</CardTitle>
                 <CardDescription>
-                  Configure scale range for DDA computation
+                  Configure delay values for DDA computation
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="scale-min">Min Scale</Label>
-                    <Input
-                      id="scale-min"
-                      type="number"
-                      step="0.1"
-                      value={ddaConfig.scale_parameters.scale_min}
-                      onChange={(e) =>
-                        setDdaConfig({
-                          ...ddaConfig,
-                          scale_parameters: {
-                            ...ddaConfig.scale_parameters,
-                            scale_min: parseFloat(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="scale-max">Max Scale</Label>
-                    <Input
-                      id="scale-max"
-                      type="number"
-                      step="0.1"
-                      value={ddaConfig.scale_parameters.scale_max}
-                      onChange={(e) =>
-                        setDdaConfig({
-                          ...ddaConfig,
-                          scale_parameters: {
-                            ...ddaConfig.scale_parameters,
-                            scale_max: parseFloat(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="scale-num">Number of Scales</Label>
-                    <Input
-                      id="scale-num"
-                      type="number"
-                      value={ddaConfig.scale_parameters.scale_num}
-                      onChange={(e) =>
-                        setDdaConfig({
-                          ...ddaConfig,
-                          scale_parameters: {
-                            ...ddaConfig.scale_parameters,
-                            scale_num: parseInt(e.target.value),
-                          },
-                        })
-                      }
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="delay-list">
+                    Delay List (comma-separated integers)
+                  </Label>
+                  <Input
+                    id="delay-list"
+                    placeholder="7, 10"
+                    value={ddaConfig.scale_parameters.delay_list.join(", ")}
+                    onChange={(e) => {
+                      const delays = e.target.value
+                        .split(",")
+                        .map((s) => parseInt(s.trim()))
+                        .filter((n) => !isNaN(n));
+                      setDdaConfig({
+                        ...ddaConfig,
+                        scale_parameters: {
+                          ...ddaConfig.scale_parameters,
+                          delay_list: delays.length > 0 ? delays : [7, 10],
+                        },
+                      });
+                    }}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Example: 7, 10 or 5, 7, 10, 15
+                  </p>
                 </div>
               </CardContent>
             </Card>

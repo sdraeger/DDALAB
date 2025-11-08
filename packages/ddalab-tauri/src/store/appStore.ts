@@ -2603,12 +2603,11 @@ export const useAppStore = create<AppState>()(
         await invoke("stop_stream", { streamId });
 
         set((state) => {
-          if (state.streaming.sessions[streamId]) {
-            state.streaming.sessions[streamId].state = { type: "Stopped" };
+          const session = state.streaming.sessions[streamId];
+          if (session) {
+            session.state = { type: "Stopped" };
           }
         });
-
-        console.log("[STREAMING] Session stopped:", streamId);
       } catch (error) {
         console.error("[STREAMING] Failed to stop session:", error);
         throw error;
@@ -2620,7 +2619,6 @@ export const useAppStore = create<AppState>()(
 
       try {
         await invoke("pause_stream", { streamId });
-        console.log("[STREAMING] Session paused:", streamId);
       } catch (error) {
         console.error("[STREAMING] Failed to pause session:", error);
         throw error;
@@ -2632,7 +2630,6 @@ export const useAppStore = create<AppState>()(
 
       try {
         await invoke("resume_stream", { streamId });
-        console.log("[STREAMING] Session resumed:", streamId);
       } catch (error) {
         console.error("[STREAMING] Failed to resume session:", error);
         throw error;
@@ -2640,32 +2637,15 @@ export const useAppStore = create<AppState>()(
     },
 
     updateStreamSession: (streamId, updates) => {
-      console.log(
-        `[STORE] updateStreamSession called for ${streamId}:`,
-        updates,
-      );
       set((state) => {
-        if (state.streaming.sessions[streamId]) {
-          console.log(
-            `[STORE] Current session state before update:`,
-            state.streaming.sessions[streamId].state,
-          );
-          console.log(
-            `[STORE] Current session stats before update:`,
-            state.streaming.sessions[streamId].stats,
-          );
-          Object.assign(state.streaming.sessions[streamId], updates);
-          state.streaming.sessions[streamId].updated_at = Date.now() / 1000;
-          console.log(
-            `[STORE] Session updated. New state:`,
-            state.streaming.sessions[streamId].state,
-          );
-          console.log(
-            `[STORE] Session updated. New stats:`,
-            state.streaming.sessions[streamId].stats,
-          );
-        } else {
-          console.warn(`[STORE] Session ${streamId} not found for update`);
+        const session = state.streaming.sessions[streamId];
+        if (session) {
+          // Immer allows direct mutation
+          if (updates.state) session.state = updates.state;
+          if (updates.stats) session.stats = updates.stats;
+          if (updates.source_config) session.source_config = updates.source_config;
+          if (updates.dda_config) session.dda_config = updates.dda_config;
+          session.updated_at = Date.now() / 1000;
         }
       });
     },
@@ -2675,18 +2655,22 @@ export const useAppStore = create<AppState>()(
         delete state.streaming.sessions[streamId];
         delete state.streaming.plotData[streamId];
       });
-      console.log("[STREAMING] Session removed:", streamId);
     },
 
     addStreamData: (streamId, chunk) => {
       set((state) => {
         const plotData = state.streaming.plotData[streamId];
         if (plotData) {
-          plotData.dataChunks.push(chunk);
-          // Keep only last N chunks (ring buffer)
-          if (plotData.dataChunks.length > plotData.maxBufferSize) {
-            plotData.dataChunks.shift();
+          const { dataChunks, maxBufferSize } = plotData;
+
+          // Efficient circular buffer: just truncate from beginning if needed
+          if (dataChunks.length >= maxBufferSize) {
+            // Remove first 20% to avoid frequent truncations
+            const removeCount = Math.floor(maxBufferSize * 0.2);
+            dataChunks.splice(0, removeCount);
           }
+
+          dataChunks.push(chunk);
         }
       });
     },
@@ -2695,11 +2679,16 @@ export const useAppStore = create<AppState>()(
       set((state) => {
         const plotData = state.streaming.plotData[streamId];
         if (plotData) {
-          plotData.ddaResults.push(result);
-          // Keep only last N results (ring buffer)
-          if (plotData.ddaResults.length > plotData.maxBufferSize) {
-            plotData.ddaResults.shift();
+          const { ddaResults, maxBufferSize } = plotData;
+
+          // Efficient circular buffer: just truncate from beginning if needed
+          if (ddaResults.length >= maxBufferSize) {
+            // Remove first 20% to avoid frequent truncations
+            const removeCount = Math.floor(maxBufferSize * 0.2);
+            ddaResults.splice(0, removeCount);
           }
+
+          ddaResults.push(result);
         }
       });
     },
@@ -2721,19 +2710,13 @@ export const useAppStore = create<AppState>()(
     },
 
     handleStreamEvent: (event) => {
-      console.log(`[STORE] handleStreamEvent called:`, event);
       switch (event.type) {
         case "state_changed":
-          console.log(
-            `[STORE] Processing state_changed event for ${event.stream_id}. New state:`,
-            event.state,
-          );
           set((state) => {
-            // Create session on-the-fly if it doesn't exist (handles race condition)
-            if (!state.streaming.sessions[event.stream_id]) {
-              console.warn(
-                `[STORE] Session ${event.stream_id} not found, creating placeholder`,
-              );
+            const session = state.streaming.sessions[event.stream_id];
+
+            if (!session) {
+              // Create session on-the-fly if it doesn't exist (handles race condition)
               const now = Date.now() / 1000;
               state.streaming.sessions[event.stream_id] = {
                 id: event.stream_id,
@@ -2742,7 +2725,7 @@ export const useAppStore = create<AppState>()(
                   path: "",
                   chunk_size: 0,
                   loop_playback: false,
-                }, // Placeholder
+                },
                 dda_config: {
                   window_size: 0,
                   window_overlap: 0,
@@ -2754,7 +2737,7 @@ export const useAppStore = create<AppState>()(
                   },
                   algorithm_selection: { enabled_variants: [] },
                   include_q_matrices: false,
-                }, // Placeholder
+                },
                 state: event.state,
                 stats: {
                   chunks_received: 0,
@@ -2775,43 +2758,27 @@ export const useAppStore = create<AppState>()(
                 maxBufferSize: 100,
               };
             } else {
-              console.log(
-                `[STORE] Old state:`,
-                state.streaming.sessions[event.stream_id].state,
-              );
-              state.streaming.sessions[event.stream_id].state = event.state;
-              state.streaming.sessions[event.stream_id].updated_at =
-                Date.now() / 1000;
-              console.log(
-                `[STORE] State updated to:`,
-                state.streaming.sessions[event.stream_id].state,
-              );
+              session.state = event.state;
+              session.updated_at = Date.now() / 1000;
             }
           });
           break;
 
         case "stats_update":
-          console.log(
-            `[STORE] Processing stats_update event for ${event.stream_id}. New stats:`,
-            event.stats,
-          );
           set((state) => {
-            if (state.streaming.sessions[event.stream_id]) {
-              state.streaming.sessions[event.stream_id].stats = event.stats;
-              state.streaming.sessions[event.stream_id].updated_at =
-                Date.now() / 1000;
-            } else {
-              console.warn(
-                `[STORE] Session ${event.stream_id} not found for stats_update event`,
-              );
+            const session = state.streaming.sessions[event.stream_id];
+            if (session) {
+              session.stats = event.stats;
+              session.updated_at = Date.now() / 1000;
             }
           });
           break;
 
         case "error":
           set((state) => {
-            if (state.streaming.sessions[event.stream_id]) {
-              state.streaming.sessions[event.stream_id].state = {
+            const session = state.streaming.sessions[event.stream_id];
+            if (session) {
+              session.state = {
                 type: "Error",
                 data: { message: event.error },
               };

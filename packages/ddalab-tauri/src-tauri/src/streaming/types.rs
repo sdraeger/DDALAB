@@ -85,14 +85,20 @@ impl Default for StreamState {
 /// Statistics about a streaming session
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StreamStats {
+    #[serde(rename = "chunks_received")]
     pub total_chunks_received: u64,
     pub total_samples_received: u64,
+    #[serde(rename = "results_generated")]
     pub total_results_generated: u64,
+    #[serde(rename = "chunks_processed")]
     pub total_dropped_chunks: u64,
+    #[serde(rename = "data_buffer_size")]
     pub current_buffer_size: usize,
+    #[serde(rename = "result_buffer_size")]
     pub peak_buffer_size: usize,
     pub avg_processing_time_ms: f64,
-    pub data_rate_samples_per_sec: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uptime_seconds: Option<f64>,
 }
 
 /// Event emitted to frontend when stream data is updated
