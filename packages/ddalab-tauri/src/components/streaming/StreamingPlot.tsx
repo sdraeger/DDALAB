@@ -28,6 +28,7 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
   const plotRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
 
   const { latestChunks, session, isRunning } = useStreamingData(streamId);
   const autoScroll = useAppStore((state) => state.streaming.ui.autoScroll);
@@ -39,14 +40,78 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
   );
   const updateStreamUI = useAppStore((state) => state.updateStreamUI);
 
-  // Process data for plotting
+  // Detect visibility to pause processing when not visible
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsVisible(entry.isIntersecting);
+      },
+      { threshold: 0.1 }
+    );
+
+    if (plotRef.current) {
+      observer.observe(plotRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, []);
+
+  // Throttle data updates to prevent UI freeze
+  // CRITICAL: Initialize with only last 5 chunks to prevent freeze on mount
+  const [throttledChunks, setThrottledChunks] = useState(() => latestChunks.slice(-5));
+  const lastUpdateRef = useRef<number>(0);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    // Don't process if not visible
+    if (!isVisible) {
+      return;
+    }
+
+    const now = Date.now();
+    // Limit to last 5 chunks to prevent processing too much data
+    const limitedChunks = latestChunks.slice(-5);
+
+    // Only update plot every 500ms (increased from 200ms)
+    if (now - lastUpdateRef.current >= 500) {
+      // Use RAF to batch with browser rendering
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+
+      rafRef.current = requestAnimationFrame(() => {
+        setThrottledChunks(limitedChunks);
+        lastUpdateRef.current = Date.now();
+      });
+    } else {
+      // Schedule update for later
+      const timer = setTimeout(() => {
+        if (rafRef.current) {
+          cancelAnimationFrame(rafRef.current);
+        }
+
+        rafRef.current = requestAnimationFrame(() => {
+          setThrottledChunks(limitedChunks);
+          lastUpdateRef.current = Date.now();
+        });
+      }, 500 - (now - lastUpdateRef.current));
+      return () => {
+        clearTimeout(timer);
+        if (rafRef.current) {
+          cancelAnimationFrame(rafRef.current);
+        }
+      };
+    }
+  }, [latestChunks, isVisible]);
+
+  // Process data for plotting with aggressive downsampling
   const plotData = useMemo(() => {
-    if (latestChunks.length === 0 || !session) {
+    if (throttledChunks.length === 0 || !session) {
       return null;
     }
 
     // Get channel names from first chunk
-    const channelNames = latestChunks[0].channel_names;
+    const channelNames = throttledChunks[0].channel_names;
 
     // Filter channels if specified
     const activeChannels = visibleChannels
@@ -57,35 +122,65 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
       return null;
     }
 
-    // Combine all chunks into continuous time series
-    const sampleRate = latestChunks[0].sample_rate;
-    let allSamples: number[][] = Array(activeChannels.length)
-      .fill(0)
-      .map(() => []);
-    let timePoints: number[] = [];
+    // CRITICAL: Limit chunks to process - only use most recent 5
+    const maxChunksToRender = 5; // Further reduced to prevent freeze
+    const chunksToProcess = throttledChunks.slice(-maxChunksToRender);
 
+    // OPTIMIZED: Pre-compute channel indices to avoid repeated indexOf calls
+    const sampleRate = chunksToProcess[0].sample_rate;
+    const channelIndices = activeChannels.map(name => channelNames.indexOf(name));
+
+    // Pre-allocate arrays with estimated size for better performance
+    const estimatedSize = chunksToProcess.length * 1000; // estimate samples per chunk
+    let timePoints: number[] = new Array(estimatedSize);
+    let allSamples: number[][] = activeChannels.map(() => new Array(estimatedSize));
+
+    let pointIndex = 0;
     let currentTime = 0;
-    for (const chunk of latestChunks) {
-      const chunkSamples =
-        chunk.samples.length > 0 ? chunk.samples[0].length : 0;
+
+    // OPTIMIZED: Flatten data with pre-computed indices
+    for (const chunk of chunksToProcess) {
+      const chunkSamples = chunk.samples.length > 0 ? chunk.samples[0].length : 0;
 
       for (let i = 0; i < chunkSamples; i++) {
-        timePoints.push(currentTime);
+        timePoints[pointIndex] = currentTime;
         currentTime += 1.0 / sampleRate;
 
         for (let ch = 0; ch < activeChannels.length; ch++) {
-          const channelIndex = channelNames.indexOf(activeChannels[ch]);
-          if (channelIndex !== -1 && channelIndex < chunk.samples.length) {
-            allSamples[ch].push(chunk.samples[channelIndex][i]);
-          } else {
-            allSamples[ch].push(0);
-          }
+          const channelIndex = channelIndices[ch];
+          allSamples[ch][pointIndex] = (channelIndex !== -1 && channelIndex < chunk.samples.length)
+            ? chunk.samples[channelIndex][i]
+            : 0;
         }
+        pointIndex++;
       }
     }
 
+    // Trim arrays to actual size
+    timePoints = timePoints.slice(0, pointIndex);
+    allSamples = allSamples.map(ch => ch.slice(0, pointIndex));
+
+    // Aggressive downsampling: max 1000 points for rendering (reduced from 2000)
+    const MAX_RENDER_POINTS = 1000;
+
+    if (timePoints.length > MAX_RENDER_POINTS) {
+      const downsampleFactor = Math.ceil(timePoints.length / MAX_RENDER_POINTS);
+      const downsampled: number[] = [];
+      const downsampledSamples: number[][] = allSamples.map(() => []);
+
+      for (let i = 0; i < timePoints.length; i += downsampleFactor) {
+        downsampled.push(timePoints[i]);
+        for (let ch = 0; ch < allSamples.length; ch++) {
+          downsampledSamples[ch].push(allSamples[ch][i]);
+        }
+      }
+
+      timePoints = downsampled;
+      allSamples = downsampledSamples;
+    }
+
     // Limit to display window
-    const maxSamples = Math.floor(displayWindowSeconds * sampleRate);
+    const maxSamples = Math.floor(displayWindowSeconds * (timePoints.length / currentTime));
     if (timePoints.length > maxSamples && autoScroll) {
       const startIndex = timePoints.length - maxSamples;
       timePoints = timePoints.slice(startIndex);
@@ -99,7 +194,7 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
       sampleRate,
     };
   }, [
-    latestChunks,
+    throttledChunks,
     session,
     visibleChannels,
     displayWindowSeconds,
@@ -178,6 +273,9 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
       if (uplotRef.current) {
         uplotRef.current.destroy();
         uplotRef.current = null;
+      }
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
       }
     };
   }, []);

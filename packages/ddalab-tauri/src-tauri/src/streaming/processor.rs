@@ -306,10 +306,15 @@ impl StreamingDDAProcessor {
             .join(format!("stream_window_{}.ascii", window.start_idx));
         self.write_window_to_file(window, &temp_file)?;
 
+        // If selected_channels is None, explicitly create a list of all channel indices
+        let channels = self.config.selected_channels.clone().or_else(|| {
+            Some((0..window.samples.len()).collect())
+        });
+
         // Build DDA request
         let request = DDARequest {
             file_path: temp_file.to_str().unwrap().to_string(),
-            channels: self.config.selected_channels.clone(),
+            channels,
             time_range: TimeRange {
                 start: 0.0,
                 end: window.samples[0].len() as f64 / self.sample_rate as f64,

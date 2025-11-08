@@ -334,19 +334,56 @@ impl StreamController {
         let processor = self.processor.as_ref().unwrap().clone();
         let stop_signal = Arc::clone(&self.stop_signal);
         let results_generated = Arc::clone(&self.total_results_generated);
+        let chunks_received = Arc::clone(&self.total_chunks_received);
         let stream_id = self.id.clone();
         let event_callback = Arc::clone(&self.event_callback);
         let batch_size = self.config.processing_batch_size;
         let interval_ms = self.config.processing_interval_ms;
+        let start_time = Arc::clone(&self.start_time);
 
         tokio::spawn(async move {
             let mut tick = interval(Duration::from_millis(interval_ms));
+            let mut last_stats_emit = std::time::Instant::now();
 
             loop {
                 tick.tick().await;
 
                 if stop_signal.load(Ordering::Relaxed) {
                     break;
+                }
+
+                // Emit stats every 500ms
+                if last_stats_emit.elapsed().as_millis() >= 500 {
+                    if let Some(callback) = event_callback.read().as_ref() {
+                        let elapsed_secs = start_time
+                            .read()
+                            .as_ref()
+                            .map(|t| t.elapsed().as_secs_f64())
+                            .unwrap_or(0.0);
+
+                        let total_chunks = chunks_received.load(Ordering::Relaxed);
+                        let total_samples = total_chunks * 1000; // Rough estimate
+                        let data_rate = if elapsed_secs > 0.0 {
+                            total_samples as f64 / elapsed_secs
+                        } else {
+                            0.0
+                        };
+
+                        callback(StreamEvent::StatsUpdate {
+                            stream_id: stream_id.clone(),
+                            stats: StreamStats {
+                                total_chunks_received: total_chunks,
+                                total_samples_received: total_samples,
+                                total_results_generated: results_generated.load(Ordering::Relaxed),
+                                total_dropped_chunks: 0,
+                                current_buffer_size: data_buffer.len(),
+                                peak_buffer_size: 0,
+                                avg_processing_time_ms: 0.0,
+                                uptime_seconds: Some(elapsed_secs),
+                            },
+                        });
+                    }
+                    last_stats_emit = std::time::Instant::now();
                 }
 
                 // Drain chunks from buffer
@@ -453,7 +490,7 @@ impl StreamController {
             current_buffer_size: data_metrics.current_size,
             peak_buffer_size: data_metrics.peak_size,
             avg_processing_time_ms: 0.0, // TODO: Track this
-            data_rate_samples_per_sec: data_rate,
+            uptime_seconds: Some(elapsed_secs),
         }
     }
 
