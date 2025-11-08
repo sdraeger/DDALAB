@@ -27,6 +27,7 @@ import { StreamConfigDialog } from "./StreamConfigDialog";
 import { StreamControlList, StreamControlPanel } from "./StreamControlPanel";
 import { StreamingPlot } from "./StreamingPlot";
 import { StreamingHeatmap } from "./StreamingHeatmap";
+import { StreamingDDALinePlot } from "./StreamingDDALinePlot";
 
 export function StreamingView() {
   const { isInitialized, error } = useInitializeStreaming();
@@ -119,6 +120,10 @@ export function StreamingView() {
                 <Activity className="h-4 w-4 mr-2" />
                 Time Series
               </TabsTrigger>
+              <TabsTrigger value="dda-line">
+                <TrendingUp className="h-4 w-4 mr-2" />
+                DDA Line Plot
+              </TabsTrigger>
               <TabsTrigger value="heatmap">
                 <TrendingUp className="h-4 w-4 mr-2" />
                 DDA Heatmap
@@ -146,6 +151,13 @@ export function StreamingView() {
         {selectedStreamId && (
           <TabsContent value="plot" className="space-y-4">
             <StreamingPlot streamId={selectedStreamId} height={500} />
+          </TabsContent>
+        )}
+
+        {/* DDA Line Plot Tab */}
+        {selectedStreamId && (
+          <TabsContent value="dda-line" className="space-y-4">
+            <StreamingDDALinePlot streamId={selectedStreamId} height={500} />
           </TabsContent>
         )}
 
@@ -206,16 +218,6 @@ export function StreamingView() {
             </div>
 
             <Separator />
-
-            <div className="flex justify-center">
-              <Button
-                size="lg"
-                onClick={() => updateStreamUI({ isConfigDialogOpen: true })}
-              >
-                <Play className="h-5 w-5 mr-2" />
-                Create Your First Stream
-              </Button>
-            </div>
           </CardContent>
         </Card>
       )}
@@ -290,13 +292,18 @@ export function StreamingViewCompact() {
 
       {/* Plots */}
       <Tabs defaultValue="plot" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="plot">Time Series</TabsTrigger>
+          <TabsTrigger value="dda-line">DDA Line</TabsTrigger>
           <TabsTrigger value="heatmap">Heatmap</TabsTrigger>
         </TabsList>
 
         <TabsContent value="plot">
           <StreamingPlot streamId={activeSession.id} height={300} />
+        </TabsContent>
+
+        <TabsContent value="dda-line">
+          <StreamingDDALinePlot streamId={activeSession.id} height={300} />
         </TabsContent>
 
         <TabsContent value="heatmap">
