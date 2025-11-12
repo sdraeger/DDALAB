@@ -37,6 +37,7 @@ import {
   DataChunk,
   StreamingDDAResult,
   StreamEvent,
+  StreamSourceHistory,
 } from "@/types/streaming";
 
 // Module-level flag to prevent re-initialization during Hot Module Reload
@@ -294,6 +295,12 @@ export interface AppState {
   clearStreamPlotData: (streamId: string) => void;
   updateStreamUI: (updates: Partial<StreamUIState>) => void;
   handleStreamEvent: (event: StreamEvent) => void;
+  addToStreamHistory: (
+    sourceConfig: StreamSourceConfig,
+    ddaConfig: StreamingDDAConfig,
+  ) => void;
+  createStreamFromHistory: (historyId: string) => Promise<string>;
+  removeFromStreamHistory: (historyId: string) => void;
 
   // State persistence
   saveCurrentState: () => Promise<void>;
@@ -400,6 +407,7 @@ const defaultStreamingState: StreamingState = {
     showHeatmap: true,
     visibleChannels: null,
     displayWindowSeconds: 30,
+    recentSources: [],
   },
 };
 
@@ -2588,6 +2596,9 @@ export const useAppStore = create<AppState>()(
           }
         });
 
+        // Add to history
+        get().addToStreamHistory(sourceConfig, ddaConfig);
+
         console.log("[STREAMING] Session ready:", streamId);
         return streamId;
       } catch (error) {
@@ -2792,6 +2803,74 @@ export const useAppStore = create<AppState>()(
           // These events are just notifications, data is fetched separately
           break;
       }
+    },
+
+    // Streaming history management
+    addToStreamHistory: (sourceConfig, ddaConfig) => {
+      set((state) => {
+        // Generate display name based on source type
+        let displayName = "";
+        switch (sourceConfig.type) {
+          case "file":
+            const fileName = sourceConfig.path.split("/").pop() || "File";
+            displayName = `File: ${fileName}`;
+            break;
+          case "websocket":
+            displayName = `WebSocket: ${sourceConfig.url}`;
+            break;
+          case "tcp":
+            displayName = `TCP: ${sourceConfig.host}:${sourceConfig.port}`;
+            break;
+          case "udp":
+            displayName = `UDP: ${sourceConfig.bind_address}:${sourceConfig.port}`;
+            break;
+          case "serial":
+            displayName = `Serial: ${sourceConfig.port}`;
+            break;
+        }
+
+        // Create history entry
+        const historyEntry = {
+          id: `history-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          sourceConfig,
+          ddaConfig,
+          timestamp: Date.now(),
+          displayName,
+        };
+
+        // Add to beginning of array
+        state.streaming.ui.recentSources.unshift(historyEntry);
+
+        // Keep only last 10 entries
+        if (state.streaming.ui.recentSources.length > 10) {
+          state.streaming.ui.recentSources = state.streaming.ui.recentSources.slice(0, 10);
+        }
+      });
+    },
+
+    createStreamFromHistory: async (historyId) => {
+      const state = get();
+      const historyEntry = state.streaming.ui.recentSources.find(
+        (entry) => entry.id === historyId
+      );
+
+      if (!historyEntry) {
+        throw new Error("History entry not found");
+      }
+
+      // Create stream using the saved config
+      return state.createStreamSession(
+        historyEntry.sourceConfig,
+        historyEntry.ddaConfig
+      );
+    },
+
+    removeFromStreamHistory: (historyId) => {
+      set((state) => {
+        state.streaming.ui.recentSources = state.streaming.ui.recentSources.filter(
+          (entry) => entry.id !== historyId
+        );
+      });
     },
 
     // Additional persistence methods that weren't in the original implementation

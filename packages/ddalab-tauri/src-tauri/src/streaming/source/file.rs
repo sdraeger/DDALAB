@@ -175,16 +175,29 @@ impl StreamSource for FileStreamSource {
             // Read next chunk
             match self.read_next_chunk().await {
                 Ok(Some(chunk)) => {
+                    // Calculate real-time delay based on chunk duration
+                    // This ensures smooth, realistic streaming regardless of chunk size
+                    let chunk_duration_ms = if let Some(metadata) = &self.file_metadata {
+                        let samples_in_chunk = chunk.samples[0].len();
+                        let duration_secs = samples_in_chunk as f64 / metadata.sample_rate;
+                        (duration_secs * 1000.0) as u64
+                    } else {
+                        100
+                    };
+
                     // Send chunk
                     if sender.send(chunk).await.is_err() {
                         log::warn!("Stream receiver closed, stopping file stream");
                         return Ok(());
                     }
 
-                    // Rate limiting (simulate real-time)
-                    if let Some(delay_ms) = self.rate_limit_ms {
-                        sleep(Duration::from_millis(delay_ms)).await;
-                    }
+                    // Rate limiting (simulate real-time streaming)
+                    // If rate_limit_ms is None or 0, use auto-calculated duration
+                    let delay = match self.rate_limit_ms {
+                        Some(ms) if ms > 0 => ms,
+                        _ => chunk_duration_ms, // Auto-calculate based on sample rate
+                    };
+                    sleep(Duration::from_millis(delay)).await;
                 }
                 Ok(None) => {
                     // EOF reached and no looping

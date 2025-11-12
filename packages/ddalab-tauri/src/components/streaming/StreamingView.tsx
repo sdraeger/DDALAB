@@ -28,6 +28,7 @@ import { StreamControlList, StreamControlPanel } from "./StreamControlPanel";
 import { StreamingPlot } from "./StreamingPlot";
 import { StreamingHeatmap } from "./StreamingHeatmap";
 import { StreamingDDALinePlot } from "./StreamingDDALinePlot";
+import { StreamHistoryList } from "./StreamHistoryList";
 
 export function StreamingView() {
   const { isInitialized, error } = useInitializeStreaming();
@@ -134,6 +135,10 @@ export function StreamingView() {
 
         {/* Sessions Tab */}
         <TabsContent value="sessions" className="space-y-4">
+          {/* Recent Sources History */}
+          <StreamHistoryList />
+
+          {/* Active Sessions */}
           <Card>
             <CardHeader>
               <CardTitle>Active Streaming Sessions</CardTitle>

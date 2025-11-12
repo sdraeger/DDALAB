@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -41,10 +40,11 @@ export function StreamingDDALinePlot({
   const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
 
-  const { latestResults, latestChunks, session, isRunning } = useStreamingData(streamId);
+  const { latestResults, latestChunks, session, isRunning } =
+    useStreamingData(streamId);
   const autoScroll = useAppStore((state) => state.streaming.ui.autoScroll);
   const displayWindowSeconds = useAppStore(
-    (state) => state.streaming.ui.displayWindowSeconds,
+    (state) => state.streaming.ui.displayWindowSeconds
   );
 
   // Detect visibility to pause processing when not visible
@@ -70,7 +70,7 @@ export function StreamingDDALinePlot({
     const variants = new Set<string>();
     latestResults.forEach((result) => {
       Object.keys(result.variant_summaries).forEach((variantId) =>
-        variants.add(variantId),
+        variants.add(variantId)
       );
     });
 
@@ -91,10 +91,10 @@ export function StreamingDDALinePlot({
     }
   }, [availableVariants, selectedVariant]);
 
-  // Select only first 3 channels by default (to avoid overwhelming the plot)
+  // Select all channels by default for comprehensive view
   useEffect(() => {
     if (selectedChannels.length === 0 && availableChannels.length > 0) {
-      setSelectedChannels(availableChannels.slice(0, 3));
+      setSelectedChannels(availableChannels);
     }
   }, [availableChannels, selectedChannels]);
 
@@ -117,15 +117,6 @@ export function StreamingDDALinePlot({
     selectedChannels.forEach((channel) => {
       channelSeries.set(channel, []);
     });
-
-    // Debug logging
-    if (latestResults.length > 0) {
-      const firstResult = latestResults[0];
-      if (firstResult.q_matrices && firstResult.q_matrices[selectedVariant]) {
-        const qMatrix = firstResult.q_matrices[selectedVariant];
-        console.log(`[DDA LINE] First Q matrix shape: ${qMatrix.length} channels × ${qMatrix[0]?.length || 0} scales`);
-      }
-    }
 
     // Extract mean Q values for each channel over time
     const startTimestamp = latestResults[0].timestamp;
@@ -169,12 +160,7 @@ export function StreamingDDALinePlot({
         latestResults[0].variant_summaries[selectedVariant]?.variant_name ||
         selectedVariant,
     };
-  }, [
-    latestResults,
-    selectedVariant,
-    selectedChannels,
-    isVisible,
-  ]);
+  }, [latestResults, selectedVariant, selectedChannels, isVisible]);
 
   // Initialize and update plot
   useEffect(() => {
@@ -189,9 +175,12 @@ export function StreamingDDALinePlot({
     }
 
     // Build uPlot data format: [timestamps, ...channel_series]
-    const seriesData: number[][] = [
-      timestamps,
-      ...Array.from(channelSeries.values()),
+    // Convert to TypedArrays for uPlot compatibility
+    const seriesData = [
+      new Float64Array(timestamps),
+      ...Array.from(channelSeries.values()).map(
+        (series) => new Float64Array(series)
+      ),
     ];
 
     // Create or update plot
@@ -217,7 +206,7 @@ export function StreamingDDALinePlot({
             space: 80, // Increase space between x-axis labels
           },
           {
-            label: "Q Value",
+            label: "a1",
             labelSize: 20,
           },
         ],
@@ -281,7 +270,7 @@ export function StreamingDDALinePlot({
     setSelectedChannels((prev) =>
       prev.includes(channelName)
         ? prev.filter((ch) => ch !== channelName)
-        : [...prev, channelName],
+        : [...prev, channelName]
     );
   };
 

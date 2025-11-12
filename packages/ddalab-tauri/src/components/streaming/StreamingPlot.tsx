@@ -57,8 +57,8 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
   }, []);
 
   // Throttle data updates to prevent UI freeze
-  // CRITICAL: Initialize with only last 5 chunks to prevent freeze on mount
-  const [throttledChunks, setThrottledChunks] = useState(() => latestChunks.slice(-5));
+  // CRITICAL: Initialize with only last 10 chunks to prevent freeze on mount
+  const [throttledChunks, setThrottledChunks] = useState(() => latestChunks.slice(-10));
   const lastUpdateRef = useRef<number>(0);
   const rafRef = useRef<number | null>(null);
 
@@ -69,11 +69,11 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
     }
 
     const now = Date.now();
-    // Limit to last 5 chunks to prevent processing too much data
-    const limitedChunks = latestChunks.slice(-5);
+    // Limit to last 10 chunks for smoother streaming visualization
+    const limitedChunks = latestChunks.slice(-10);
 
-    // Only update plot every 500ms (increased from 200ms)
-    if (now - lastUpdateRef.current >= 500) {
+    // Update plot every 100ms for smooth, fluid streaming
+    if (now - lastUpdateRef.current >= 100) {
       // Use RAF to batch with browser rendering
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
@@ -94,7 +94,7 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
           setThrottledChunks(limitedChunks);
           lastUpdateRef.current = Date.now();
         });
-      }, 500 - (now - lastUpdateRef.current));
+      }, 100 - (now - lastUpdateRef.current));
       return () => {
         clearTimeout(timer);
         if (rafRef.current) {

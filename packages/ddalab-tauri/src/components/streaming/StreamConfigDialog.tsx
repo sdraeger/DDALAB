@@ -53,8 +53,8 @@ export function StreamConfigDialog() {
   // Source configuration state
   const [fileConfig, setFileConfig] = useState({
     path: "",
-    chunk_size: 1000,
-    rate_limit_ms: 100,
+    chunk_size: 200, // Smaller chunks for smoother updates
+    rate_limit_ms: 0, // 0 = auto-calculate based on sample rate
     loop_playback: true,
   });
 
@@ -142,6 +142,11 @@ export function StreamConfigDialog() {
           sourceConfig = {
             type: "file",
             ...fileConfig,
+            // Convert 0 to undefined for auto-calculation
+            rate_limit_ms:
+              fileConfig.rate_limit_ms === 0
+                ? undefined
+                : fileConfig.rate_limit_ms,
           };
           break;
         case "websocket":
@@ -281,11 +286,14 @@ export function StreamConfigDialog() {
 
                   <div className="space-y-2">
                     <Label htmlFor="rate-limit">
-                      Rate Limit (ms): {fileConfig.rate_limit_ms}
+                      Rate Limit (ms):{" "}
+                      {fileConfig.rate_limit_ms === 0
+                        ? "Auto"
+                        : fileConfig.rate_limit_ms}
                     </Label>
                     <Slider
                       id="rate-limit"
-                      min={10}
+                      min={0}
                       max={1000}
                       step={10}
                       value={[fileConfig.rate_limit_ms]}
@@ -294,7 +302,9 @@ export function StreamConfigDialog() {
                       }
                     />
                     <p className="text-sm text-muted-foreground">
-                      Delay between chunks to simulate real-time streaming
+                      {fileConfig.rate_limit_ms === 0
+                        ? "Auto-calculated based on chunk size and sample rate for realistic streaming"
+                        : "Fixed delay between chunks (overrides real-time calculation)"}
                     </p>
                   </div>
 
@@ -610,7 +620,7 @@ export function StreamConfigDialog() {
                   <Input
                     id="delay-list"
                     placeholder="7, 10"
-                    value={ddaConfig.scale_parameters.delay_list.join(", ")}
+                    value={(ddaConfig.scale_parameters.delay_list || [7, 10]).join(", ")}
                     onChange={(e) => {
                       const delays = e.target.value
                         .split(",")
