@@ -247,6 +247,17 @@ export interface StreamPlotData {
   maxBufferSize: number;
 }
 
+/**
+ * History entry for recent streaming sources
+ */
+export interface StreamSourceHistory {
+  id: string;
+  sourceConfig: StreamSourceConfig;
+  ddaConfig: StreamingDDAConfig;
+  timestamp: number;
+  displayName: string; // User-friendly name for the source
+}
+
 export interface StreamUIState {
   /**
    * Whether the stream configuration dialog is open
@@ -277,4 +288,9 @@ export interface StreamUIState {
    * Time window for display (seconds)
    */
   displayWindowSeconds: number;
+
+  /**
+   * History of recent streaming sources (max 10)
+   */
+  recentSources: StreamSourceHistory[];
 }
