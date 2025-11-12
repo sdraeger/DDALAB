@@ -93,10 +93,6 @@ export function StreamingHeatmap({
       return null;
     }
 
-    // Debug logging
-    console.log(`[HEATMAP] Processing ${qMatrices.length} Q matrices`);
-    console.log(`[HEATMAP] First Q matrix shape: ${qMatrices[0].length} channels × ${qMatrices[0][0]?.length || 0} scales`);
-
     // Flatten matrices into heatmap data [time][channel][scale]
     // For visualization, we'll show channel x time with color = Q value
 

@@ -141,17 +141,17 @@ class StreamingService {
       return;
     }
 
-    // Poll every 2 seconds as a fallback (events are primary)
+    // Poll every 100ms for smooth, fluid updates
     const interval = setInterval(async () => {
       try {
         await Promise.all([
-          this.fetchStreamData(streamId, 10),
-          this.fetchStreamResults(streamId, 10),
+          this.fetchStreamData(streamId, 20),
+          this.fetchStreamResults(streamId, 20),
         ]);
       } catch (error) {
         console.error(`[STREAMING] Polling error for ${streamId}:`, error);
       }
-    }, 2000);
+    }, 100);
 
     this.pollingIntervals.set(streamId, interval);
   }
