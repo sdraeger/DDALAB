@@ -22,9 +22,12 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
     existingAnnotation?.description || "",
   );
 
-  // Initialize visible plots - default to current plot if new annotation
+  // Initialize visible plots - default to all plots
   const [visibleInPlots, setVisibleInPlots] = useState<Set<string>>(() => {
-    if (existingAnnotation?.visible_in_plots) {
+    if (
+      existingAnnotation?.visible_in_plots &&
+      existingAnnotation.visible_in_plots.length > 0
+    ) {
       return new Set(existingAnnotation.visible_in_plots);
     }
     // Default: show in all plots
@@ -37,7 +40,10 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
   useEffect(() => {
     setLabel(existingAnnotation?.label || "");
     setDescription(existingAnnotation?.description || "");
-    if (existingAnnotation?.visible_in_plots) {
+    if (
+      existingAnnotation?.visible_in_plots &&
+      existingAnnotation.visible_in_plots.length > 0
+    ) {
       setVisibleInPlots(new Set(existingAnnotation.visible_in_plots));
     } else {
       setVisibleInPlots(new Set(availablePlots.map((p) => p.id)));

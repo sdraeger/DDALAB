@@ -88,6 +88,8 @@ crossbeam = "0.8"    # Lock-free data structures
 async-trait = "0.1"  # Async trait support
 tokio-serial = "5.4" # Serial port support for streaming
 num_cpus = "1.16"    # CPU core detection for thread pools
+lsl = { version = "0.1", optional = true }  # Lab Streaming Layer support (optional due to build issues on some platforms)
+zeromq = { version = "0.4", default-features = false, features = ["tokio-runtime", "tcp-transport", "ipc-transport"] }  # Pure Rust ZeroMQ (no C dependencies)
 
 [dev-dependencies]
 hyper = "1.7.0"
@@ -104,6 +106,7 @@ name = "ddalab-tauri"
 path = "src/main.rs"
 
 [features]
-default = ["custom-protocol", "devtools"]
+default = ["custom-protocol", "devtools"]  # LSL disabled for local dev with Xcode 26+
 custom-protocol = ["tauri/custom-protocol"]
 devtools = ["tauri/devtools"]
+lsl-support = ["lsl"]  # Enable Lab Streaming Layer support (requires Xcode 15.2 or earlier)

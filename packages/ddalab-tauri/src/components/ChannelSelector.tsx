@@ -144,7 +144,7 @@ export function ChannelSelector({
                 variant={
                   selectedChannels.includes(channel) ? "default" : "outline"
                 }
-                className={`cursor-pointer transition-all ${disabled ? "cursor-not-allowed" : "hover:scale-105"}`}
+                className={`cursor-pointer transition-all ${disabled ? "cursor-not-allowed" : "hover:brightness-90"}`}
                 onClick={() => handleToggle(channel)}
               >
                 {channel}
@@ -245,7 +245,7 @@ export function ChannelSelector({
                 variant={
                   selectedChannels.includes(channel) ? "default" : "outline"
                 }
-                className={`cursor-pointer transition-all ${disabled ? "cursor-not-allowed" : "hover:scale-105 hover:shadow-sm"}`}
+                className={`cursor-pointer transition-all ${disabled ? "cursor-not-allowed" : "hover:brightness-90 hover:shadow-sm"}`}
                 onClick={() => handleToggle(channel)}
               >
                 {channel}

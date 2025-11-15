@@ -9,7 +9,7 @@
 // Stream Sources
 // ====================================================================
 
-export type StreamSourceType = "websocket" | "tcp" | "udp" | "serial" | "file";
+export type StreamSourceType = "websocket" | "tcp" | "udp" | "serial" | "file" | "lsl" | "zmq";
 
 export interface WebSocketSourceConfig {
   type: "websocket";
@@ -44,12 +44,36 @@ export interface FileSourceConfig {
   loop_playback: boolean;
 }
 
+export interface LslSourceConfig {
+  type: "lsl";
+  stream_name?: string;
+  stream_type?: string;
+  source_id?: string;
+  resolve_timeout?: number;
+  chunk_size?: number;
+  use_lsl_timestamps?: boolean;
+}
+
+export type ZmqPattern = "sub" | "pull";
+
+export interface ZmqSourceConfig {
+  type: "zmq";
+  endpoint: string;
+  pattern: ZmqPattern;
+  topic?: string;
+  expected_channels: number;
+  expected_sample_rate: number;
+  hwm?: number;
+}
+
 export type StreamSourceConfig =
   | WebSocketSourceConfig
   | TcpSourceConfig
   | UdpSourceConfig
   | SerialSourceConfig
-  | FileSourceConfig;
+  | FileSourceConfig
+  | LslSourceConfig
+  | ZmqSourceConfig;
 
 // ====================================================================
 // Stream State
