@@ -40,6 +40,7 @@ import {
   StreamSourceConfig,
   StreamingDDAConfig,
 } from "@/types/streaming";
+import { LslStreamDiscovery, type LslStreamInfo } from "./LslStreamDiscovery";
 
 export function StreamConfigDialog() {
   const isOpen = useAppStore((state) => state.streaming.ui.isConfigDialogOpen);
@@ -76,6 +77,24 @@ export function StreamConfigDialog() {
   const [serialConfig, setSerialConfig] = useState({
     port: "/dev/ttyUSB0",
     baud_rate: 115200,
+  });
+
+  const [lslConfig, setLslConfig] = useState({
+    stream_name: "",
+    stream_type: "any",
+    source_id: "",
+    resolve_timeout: 5.0,
+    chunk_size: 1000,
+    use_lsl_timestamps: true,
+  });
+
+  const [zmqConfig, setZmqConfig] = useState({
+    endpoint: "tcp://127.0.0.1:5555",
+    pattern: "sub" as "sub" | "pull",
+    topic: "",
+    expected_channels: 8,
+    expected_sample_rate: 250,
+    hwm: 1000,
   });
 
   // DDA configuration state
@@ -173,6 +192,28 @@ export function StreamConfigDialog() {
             ...serialConfig,
           };
           break;
+        case "lsl":
+          sourceConfig = {
+            type: "lsl",
+            stream_name: lslConfig.stream_name || undefined,
+            stream_type: lslConfig.stream_type === "any" ? undefined : lslConfig.stream_type,
+            source_id: lslConfig.source_id || undefined,
+            resolve_timeout: lslConfig.resolve_timeout,
+            chunk_size: lslConfig.chunk_size,
+            use_lsl_timestamps: lslConfig.use_lsl_timestamps,
+          };
+          break;
+        case "zmq":
+          sourceConfig = {
+            type: "zmq",
+            endpoint: zmqConfig.endpoint,
+            pattern: zmqConfig.pattern,
+            topic: zmqConfig.topic || undefined,
+            expected_channels: zmqConfig.expected_channels,
+            expected_sample_rate: zmqConfig.expected_sample_rate,
+            hwm: zmqConfig.hwm,
+          };
+          break;
         default:
           throw new Error(`Unsupported source type: ${sourceType}`);
       }
@@ -223,6 +264,12 @@ export function StreamConfigDialog() {
                 <SelectContent>
                   <SelectItem value="file">
                     File Playback <Badge variant="secondary">Testing</Badge>
+                  </SelectItem>
+                  <SelectItem value="lsl">
+                    Lab Streaming Layer <Badge variant="secondary">LSL</Badge>
+                  </SelectItem>
+                  <SelectItem value="zmq">
+                    ZeroMQ <Badge variant="secondary">Pure Rust</Badge>
                   </SelectItem>
                   <SelectItem value="websocket">WebSocket</SelectItem>
                   <SelectItem value="tcp">TCP Socket</SelectItem>
@@ -323,6 +370,289 @@ export function StreamConfigDialog() {
                       Loop playback when file ends
                     </Label>
                   </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* LSL Source Config */}
+            {sourceType === "lsl" && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    Lab Streaming Layer Settings
+                  </CardTitle>
+                  <CardDescription>
+                    Connect to LSL streams on the network with sub-millisecond
+                    synchronization
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Stream Discovery */}
+                  <LslStreamDiscovery
+                    onSelectStream={(stream: LslStreamInfo) => {
+                      setLslConfig({
+                        ...lslConfig,
+                        stream_name: stream.name,
+                        stream_type: stream.stream_type === "any" ? "" : stream.stream_type,
+                        source_id: stream.source_id,
+                      });
+                    }}
+                    selectedStreamId={lslConfig.source_id}
+                    autoRefresh={true}
+                    refreshInterval={2000}
+                  />
+
+                  <Separator />
+
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      Select a stream above or manually configure below. Leave fields empty to match any stream.
+                    </AlertDescription>
+                  </Alert>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="lsl-stream-name">
+                      Stream Name (optional)
+                    </Label>
+                    <Input
+                      id="lsl-stream-name"
+                      placeholder="Leave empty to match any name"
+                      value={lslConfig.stream_name}
+                      onChange={(e) =>
+                        setLslConfig({ ...lslConfig, stream_name: e.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="lsl-stream-type">Stream Type</Label>
+                    <Select
+                      value={lslConfig.stream_type}
+                      onValueChange={(value) =>
+                        setLslConfig({ ...lslConfig, stream_type: value })
+                      }
+                    >
+                      <SelectTrigger id="lsl-stream-type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="any">Any Type</SelectItem>
+                        <SelectItem value="EEG">EEG</SelectItem>
+                        <SelectItem value="MEG">MEG</SelectItem>
+                        <SelectItem value="ECG">ECG</SelectItem>
+                        <SelectItem value="EMG">EMG</SelectItem>
+                        <SelectItem value="EOG">EOG</SelectItem>
+                        <SelectItem value="Gaze">Gaze</SelectItem>
+                        <SelectItem value="Markers">Markers</SelectItem>
+                        <SelectItem value="Audio">Audio</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-sm text-muted-foreground">
+                      Common stream types in neuroscience research
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="lsl-source-id">Source ID (optional)</Label>
+                    <Input
+                      id="lsl-source-id"
+                      placeholder="Unique identifier"
+                      value={lslConfig.source_id}
+                      onChange={(e) =>
+                        setLslConfig({ ...lslConfig, source_id: e.target.value })
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="lsl-timeout">
+                      Resolution Timeout: {lslConfig.resolve_timeout}s
+                    </Label>
+                    <Slider
+                      id="lsl-timeout"
+                      min={1}
+                      max={30}
+                      step={0.5}
+                      value={[lslConfig.resolve_timeout]}
+                      onValueChange={([value]) =>
+                        setLslConfig({ ...lslConfig, resolve_timeout: value })
+                      }
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      Maximum time to wait for stream discovery
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="lsl-chunk-size">
+                      Chunk Size: {lslConfig.chunk_size} samples
+                    </Label>
+                    <Slider
+                      id="lsl-chunk-size"
+                      min={100}
+                      max={5000}
+                      step={100}
+                      value={[lslConfig.chunk_size]}
+                      onValueChange={([value]) =>
+                        setLslConfig({ ...lslConfig, chunk_size: value })
+                      }
+                    />
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="lsl-timestamps"
+                      checked={lslConfig.use_lsl_timestamps}
+                      onCheckedChange={(checked) =>
+                        setLslConfig({
+                          ...lslConfig,
+                          use_lsl_timestamps: checked as boolean,
+                        })
+                      }
+                    />
+                    <Label htmlFor="lsl-timestamps" className="cursor-pointer">
+                      Use LSL synchronized timestamps
+                    </Label>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Recommended for accurate multi-device synchronization
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ZeroMQ Source Config */}
+            {sourceType === "zmq" && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    ZeroMQ Settings
+                  </CardTitle>
+                  <CardDescription>
+                    Connect to ZeroMQ publishers or pushers with high-throughput messaging (pure Rust, no dependencies)
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="zmq-endpoint">
+                      Endpoint
+                    </Label>
+                    <Input
+                      id="zmq-endpoint"
+                      placeholder="tcp://127.0.0.1:5555"
+                      value={zmqConfig.endpoint}
+                      onChange={(e) =>
+                        setZmqConfig({ ...zmqConfig, endpoint: e.target.value })
+                      }
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      Examples: tcp://localhost:5555, ipc:///tmp/data.ipc
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="zmq-pattern">Socket Pattern</Label>
+                    <Select
+                      value={zmqConfig.pattern}
+                      onValueChange={(value) =>
+                        setZmqConfig({ ...zmqConfig, pattern: value as "sub" | "pull" })
+                      }
+                    >
+                      <SelectTrigger id="zmq-pattern">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="sub">
+                          SUB (Subscribe) <Badge variant="secondary">Pub/Sub</Badge>
+                        </SelectItem>
+                        <SelectItem value="pull">
+                          PULL (Receive) <Badge variant="secondary">Pipeline</Badge>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-sm text-muted-foreground">
+                      SUB: Subscribe to published messages with topic filtering<br />
+                      PULL: Receive pushed messages in round-robin
+                    </p>
+                  </div>
+
+                  {zmqConfig.pattern === "sub" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="zmq-topic">
+                        Topic Filter (optional)
+                      </Label>
+                      <Input
+                        id="zmq-topic"
+                        placeholder="Leave empty to subscribe to all topics"
+                        value={zmqConfig.topic}
+                        onChange={(e) =>
+                          setZmqConfig({ ...zmqConfig, topic: e.target.value })
+                        }
+                      />
+                      <p className="text-sm text-muted-foreground">
+                        Subscribe only to messages with this prefix. Empty = all messages.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label htmlFor="zmq-channels">
+                      Expected Channels: {zmqConfig.expected_channels}
+                    </Label>
+                    <Slider
+                      id="zmq-channels"
+                      min={1}
+                      max={64}
+                      step={1}
+                      value={[zmqConfig.expected_channels]}
+                      onValueChange={([value]) =>
+                        setZmqConfig({ ...zmqConfig, expected_channels: value })
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="zmq-srate">
+                      Expected Sample Rate: {zmqConfig.expected_sample_rate} Hz
+                    </Label>
+                    <Slider
+                      id="zmq-srate"
+                      min={1}
+                      max={2000}
+                      step={1}
+                      value={[zmqConfig.expected_sample_rate]}
+                      onValueChange={([value]) =>
+                        setZmqConfig({ ...zmqConfig, expected_sample_rate: value })
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="zmq-hwm">
+                      High Water Mark: {zmqConfig.hwm} messages
+                    </Label>
+                    <Slider
+                      id="zmq-hwm"
+                      min={0}
+                      max={10000}
+                      step={100}
+                      value={[zmqConfig.hwm]}
+                      onValueChange={([value]) =>
+                        setZmqConfig({ ...zmqConfig, hwm: value })
+                      }
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      Max queued messages before blocking. 0 = unlimited.
+                    </p>
+                  </div>
+
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      Messages must be JSON with format: {`{"samples": [[...], [...]], "timestamp": 123.45, "sample_rate": 250, "channel_names": [...]}`}
+                    </AlertDescription>
+                  </Alert>
                 </CardContent>
               </Card>
             )}

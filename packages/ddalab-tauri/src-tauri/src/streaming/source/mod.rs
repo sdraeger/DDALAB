@@ -12,11 +12,15 @@
 // - UDP: UDP datagram streams
 // - Serial: Serial port connections (e.g., Arduino, embedded devices)
 // - File: File-based simulation of real-time streams
+// - LSL: Lab Streaming Layer for neuroscience data
 
 mod file;
+#[cfg(feature = "lsl-support")]
+mod lsl;
 mod tcp;
 mod udp;
 mod websocket;
+mod zmq;
 
 #[cfg(target_family = "unix")]
 mod serial;
@@ -28,9 +32,12 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 
 pub use file::FileStreamSource;
+#[cfg(feature = "lsl-support")]
+pub use lsl::LslStreamSource;
 pub use tcp::TcpStreamSource;
 pub use udp::UdpStreamSource;
 pub use websocket::WebSocketStreamSource;
+pub use zmq::{ZmqPattern, ZmqStreamSource};
 
 #[cfg(target_family = "unix")]
 pub use serial::SerialStreamSource;
@@ -91,6 +98,49 @@ pub enum StreamSourceConfig {
         /// Loop the file when EOF is reached
         #[serde(default)]
         loop_playback: bool,
+    },
+
+    /// Lab Streaming Layer (LSL) stream
+    #[cfg(feature = "lsl-support")]
+    #[serde(rename = "lsl")]
+    LslStream {
+        /// Stream name to resolve (None for any)
+        #[serde(default)]
+        stream_name: Option<String>,
+        /// Stream type (e.g., "EEG", "Markers", "Gaze")
+        #[serde(default)]
+        stream_type: Option<String>,
+        /// Source ID (unique identifier)
+        #[serde(default)]
+        source_id: Option<String>,
+        /// Resolution timeout in seconds
+        #[serde(default)]
+        resolve_timeout: Option<f64>,
+        /// Chunk size for pulling samples
+        #[serde(default)]
+        chunk_size: Option<usize>,
+        /// Use LSL timestamps vs local timestamps
+        #[serde(default)]
+        use_lsl_timestamps: Option<bool>,
+    },
+
+    /// ZeroMQ stream (bundled with static libzmq)
+    #[serde(rename = "zmq")]
+    ZeroMq {
+        /// ZMQ endpoint (e.g., "tcp://127.0.0.1:5555", "ipc:///tmp/data.ipc")
+        endpoint: String,
+        /// Socket pattern (sub or pull)
+        pattern: ZmqPattern,
+        /// Topic filter for SUB pattern (empty = all topics)
+        #[serde(default)]
+        topic: Option<String>,
+        /// Expected number of channels
+        expected_channels: usize,
+        /// Expected sample rate (Hz)
+        expected_sample_rate: f32,
+        /// High water mark (max queued messages, 0 = unlimited)
+        #[serde(default)]
+        hwm: Option<i32>,
     },
 }
 
@@ -286,6 +336,39 @@ pub fn create_source(config: StreamSourceConfig) -> StreamResult<Box<dyn StreamS
             chunk_size,
             rate_limit_ms,
             loop_playback,
+        ))),
+
+        #[cfg(feature = "lsl-support")]
+        StreamSourceConfig::LslStream {
+            stream_name,
+            stream_type,
+            source_id,
+            resolve_timeout,
+            chunk_size,
+            use_lsl_timestamps,
+        } => Ok(Box::new(LslStreamSource::new(
+            stream_name,
+            stream_type,
+            source_id,
+            resolve_timeout,
+            chunk_size,
+            use_lsl_timestamps,
+        ))),
+
+        StreamSourceConfig::ZeroMq {
+            endpoint,
+            pattern,
+            topic,
+            expected_channels,
+            expected_sample_rate,
+            hwm,
+        } => Ok(Box::new(ZmqStreamSource::new(
+            endpoint,
+            pattern,
+            topic,
+            expected_channels,
+            expected_sample_rate,
+            hwm,
         ))),
     }
 }

@@ -19,8 +19,14 @@ pub struct PreprocessingOptions {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AlgorithmSelection {
     pub enabled_variants: Vec<String>,
-    /// SELECT mask as 4-bit string (e.g., "1 0 1 0" for ST and CD)
-    /// Format: ST CT CD DE
+    /// SELECT mask as 6-bit string (e.g., "1 0 1 0 0 0" for ST and CD)
+    /// Format: ST CT CD RESERVED DE SY
+    /// - ST: Single Timeseries (output: _DDA_ST)
+    /// - CT: Cross-Timeseries (output: _DDA_CT)
+    /// - CD: Cross-Dynamical (output: _CD_DDA_ST)
+    /// - RESERVED: Internal development function (not for user use)
+    /// - DE: Delay Embedding (output: _DE)
+    /// - SY: Synchronization (output: _SY)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub select_mask: Option<String>,
 }

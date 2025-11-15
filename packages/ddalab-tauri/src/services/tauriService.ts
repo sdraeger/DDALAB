@@ -998,7 +998,7 @@ export class TauriService {
 
   static async savePlotExportFile(
     imageData: Uint8Array,
-    format: "png" | "svg",
+    format: "png" | "svg" | "pdf",
     defaultFilename: string,
   ): Promise<string | null> {
     try {

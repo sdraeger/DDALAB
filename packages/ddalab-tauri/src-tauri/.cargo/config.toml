@@ -1,0 +1,8 @@
+# Cargo configuration for DDALAB Tauri
+
+# Environment variables for building dependencies on macOS
+[env]
+# Fix LSL compilation on macOS with newer Xcode versions
+# Suppress warnings that are treated as errors in newer Xcode
+CXXFLAGS = { value = "-Wno-enum-constexpr-conversion -Wno-deprecated-declarations -Wno-deprecated-builtins", force = true }
+CFLAGS = { value = "-Wno-enum-constexpr-conversion -Wno-deprecated-declarations", force = true }

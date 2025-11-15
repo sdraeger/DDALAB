@@ -232,7 +232,10 @@ fn main() {
             get_stream_state,
             get_stream_stats,
             list_streams,
-            clear_stream_buffers
+            clear_stream_buffers,
+            // LSL discovery commands
+            discover_lsl_streams,
+            discover_lsl_streams_by_type
         ])
         .manage(ApiServerState::default())
         .manage(AppSyncState::new())
