@@ -102,13 +102,17 @@ impl DDARunner {
             .select_mask
             .as_ref()
             .map(|s| s.as_str())
-            .unwrap_or("1 0 0 0");
+            .unwrap_or("1 0 0 0 0 0");
 
         // Parse SELECT mask to check which variants are enabled
+        // Format: ST CT CD RESERVED DE SY
         let select_bits: Vec<&str> = select_mask.split_whitespace().collect();
         let st_enabled = select_bits.get(0).map(|&b| b == "1").unwrap_or(false);
         let ct_enabled = select_bits.get(1).map(|&b| b == "1").unwrap_or(false);
         let cd_enabled = select_bits.get(2).map(|&b| b == "1").unwrap_or(false);
+        let _reserved = select_bits.get(3).map(|&b| b == "1").unwrap_or(false);
+        let de_enabled = select_bits.get(4).map(|&b| b == "1").unwrap_or(false);
+        let _sy_enabled = select_bits.get(5).map(|&b| b == "1").unwrap_or(false);
         let has_ct_pairs = ct_enabled
             && request
                 .ct_channel_pairs
@@ -295,15 +299,29 @@ impl DDARunner {
 
         command.arg("-MODEL").arg("1").arg("2").arg("10");
 
-        // Add CT-specific window parameters if provided
-        if let Some(ct_wl) = request.window_parameters.ct_window_length {
+        // Add CT-specific window parameters if provided, or if DE is enabled (required for DE)
+        let needs_ct_params = ct_enabled || has_ct_pairs || cd_enabled || de_enabled;
+        if needs_ct_params {
+            let ct_wl = request
+                .window_parameters
+                .ct_window_length
+                .unwrap_or(2); // Default to 2 if not provided
+            let ct_ws = request.window_parameters.ct_window_step.unwrap_or(2); // Default to 2 if not provided
             command.arg("-WL_CT").arg(ct_wl.to_string());
-        }
-        if let Some(ct_ws) = request.window_parameters.ct_window_step {
             command.arg("-WS_CT").arg(ct_ws.to_string());
+        } else if request.window_parameters.ct_window_length.is_some()
+            || request.window_parameters.ct_window_step.is_some()
+        {
+            // If CT parameters are explicitly provided but CT not enabled, still use them
+            if let Some(ct_wl) = request.window_parameters.ct_window_length {
+                command.arg("-WL_CT").arg(ct_wl.to_string());
+            }
+            if let Some(ct_ws) = request.window_parameters.ct_window_step {
+                command.arg("-WS_CT").arg(ct_ws.to_string());
+            }
         }
 
-        // Add delay values - use delay_list if provided, otherwise use default [7, 10]
+        // Add delay values - use delay_list if provided, otherwise generate from scale parameters
         command.arg("-TAU");
         if let Some(ref delay_list) = request.scale_parameters.delay_list {
             log::info!("Using explicit delay list: {:?}", delay_list);
@@ -311,8 +329,25 @@ impl DDARunner {
                 command.arg(delay.to_string());
             }
         } else {
-            log::info!("No delay list provided, using default delays: [7, 10]");
-            command.arg("7").arg("10");
+            // Generate delay list from scale_min, scale_max, scale_num
+            let scale_min = request.scale_parameters.scale_min as i32;
+            let scale_max = request.scale_parameters.scale_max as i32;
+            let scale_num = request.scale_parameters.scale_num;
+
+            let generated_delays: Vec<i32> = if scale_num == 1 {
+                vec![scale_min]
+            } else {
+                (0..scale_num)
+                    .map(|i| {
+                        scale_min + ((scale_max - scale_min) * i as i32) / (scale_num as i32 - 1)
+                    })
+                    .collect()
+            };
+
+            log::info!("Generated delay list from scale parameters: {:?}", generated_delays);
+            for delay in &generated_delays {
+                command.arg(delay.to_string());
+            }
         }
 
         // Add time bounds (sample indices) only if provided
@@ -357,13 +392,27 @@ impl DDARunner {
         log::info!("DDA binary execution completed successfully");
 
         // Determine which variants are enabled from the ORIGINAL SELECT mask (not the modified first_select_mask)
+        // Format: ST CT CD RESERVED DE SY
         let select_bits: Vec<&str> = select_mask.split_whitespace().collect();
-        let variant_names = ["ST", "CT", "CD", "DE"];
-        let enabled_variants: Vec<&str> = variant_names
-            .iter()
-            .zip(select_bits.iter())
-            .filter_map(|(variant, &bit)| if bit == "1" { Some(*variant) } else { None })
-            .collect();
+        let mut enabled_variants: Vec<&str> = Vec::new();
+
+        // Map each bit to its variant (skip RESERVED at index 3)
+        if select_bits.get(0) == Some(&"1") {
+            enabled_variants.push("ST");
+        }
+        if select_bits.get(1) == Some(&"1") {
+            enabled_variants.push("CT");
+        }
+        if select_bits.get(2) == Some(&"1") {
+            enabled_variants.push("CD");
+        }
+        // Skip index 3 (RESERVED)
+        if select_bits.get(4) == Some(&"1") {
+            enabled_variants.push("DE");
+        }
+        if select_bits.get(5) == Some(&"1") {
+            enabled_variants.push("SY");
+        }
 
         if enabled_variants.is_empty() {
             return Err(DDAError::ExecutionFailed(
@@ -378,8 +427,28 @@ impl DDARunner {
 
         // Determine which variants were actually produced in this first execution
         let first_execution_variants: Vec<&str> = if run_st_separately {
-            // First run only produced ST (CT was disabled)
-            vec!["ST"]
+            // When running ST separately, the first execution includes ST + any non-CT/CD variants (DE, SY)
+            // Parse the first_select_mask to determine which variants were actually enabled
+            let first_bits: Vec<&str> = first_select_mask.split_whitespace().collect();
+            let mut variants_in_first_run = Vec::new();
+
+            if first_bits.get(0) == Some(&"1") {
+                variants_in_first_run.push("ST");
+            }
+            // Skip CT (position 1) and CD (position 2) as they're handled separately
+            // Skip RESERVED (position 3)
+            if first_bits.get(4) == Some(&"1") {
+                variants_in_first_run.push("DE");
+            }
+            if first_bits.get(5) == Some(&"1") {
+                variants_in_first_run.push("SY");
+            }
+
+            log::info!(
+                "First execution will process variants: {:?}",
+                variants_in_first_run
+            );
+            variants_in_first_run
         } else {
             enabled_variants.clone()
         };
@@ -397,46 +466,46 @@ impl DDARunner {
         let mut variant_matrices: Vec<(String, Vec<Vec<f64>>)> = Vec::new();
 
         for variant in &first_execution_variants {
-            let variant_file_path = output_dir.join(format!("{}_{}", output_file_stem, variant));
-            let variant_file_with_ext = output_file
+            // Each variant has a specific output file suffix:
+            // ST: _DDA_ST, CT: _DDA_CT, CD: _CD_DDA_ST, DE: _DE, SY: _SY
+            let suffix = match *variant {
+                "ST" => "_DDA_ST",
+                "CT" => "_DDA_CT",
+                "CD" => "_CD_DDA_ST",
+                "DE" => "_DE",
+                "SY" => "_SY",
+                _ => {
+                    log::warn!("Unknown variant: {}, skipping", variant);
+                    continue;
+                }
+            };
+
+            let variant_file_with_suffix = output_file
+                .to_str()
+                .map(|s| PathBuf::from(format!("{}{}", s, suffix)))
+                .ok_or_else(|| DDAError::ExecutionFailed("Invalid output path".to_string()))?;
+
+            // Also try legacy format for backward compatibility
+            let variant_file_legacy = output_file
                 .to_str()
                 .map(|s| PathBuf::from(format!("{}_{}", s, variant)))
                 .ok_or_else(|| DDAError::ExecutionFailed("Invalid output path".to_string()))?;
 
-            // CD-DDA creates files with _CD_DDA_ST suffix instead of just _CD
-            // Use full output path (including .txt) not just stem
-            let cd_special_path = if *variant == "CD" {
-                output_file
-                    .to_str()
-                    .map(|s| PathBuf::from(format!("{}_{}_DDA_ST", s, variant)))
-            } else {
-                None
-            };
-
-            let actual_output_file = if variant_file_path.exists() {
-                variant_file_path.clone()
-            } else if variant_file_with_ext.exists() {
-                variant_file_with_ext.clone()
-            } else if let Some(ref cd_path) = cd_special_path {
-                if cd_path.exists() {
-                    log::info!("Found CD output with special suffix: {:?}", cd_path);
-                    cd_path.clone()
-                } else {
-                    log::warn!(
-                        "Output file not found for variant {}. Tried: {:?}, {:?}, {:?}",
-                        variant,
-                        variant_file_path,
-                        variant_file_with_ext,
-                        cd_path
-                    );
-                    continue;
-                }
+            let actual_output_file = if variant_file_with_suffix.exists() {
+                variant_file_with_suffix.clone()
+            } else if variant_file_legacy.exists() {
+                log::info!(
+                    "Found variant {} with legacy suffix format: {:?}",
+                    variant,
+                    variant_file_legacy
+                );
+                variant_file_legacy.clone()
             } else {
                 log::warn!(
                     "Output file not found for variant {}. Tried: {:?}, {:?}",
                     variant,
-                    variant_file_path,
-                    variant_file_with_ext
+                    variant_file_with_suffix,
+                    variant_file_legacy
                 );
                 continue; // Skip missing variants
             };
@@ -459,8 +528,17 @@ impl DDARunner {
             );
 
             // Parse the output file to extract Q matrix [channels × timepoints]
-            // ST/CT use default stride=4
-            let q_matrix = parse_dda_output(&output_content, None)?;
+            // Stride values from DDA_SPEC.yaml:
+            // ST/CT: 4 (3 coefficients + 1 error)
+            // CD: 2 (1 coefficient + 1 error)
+            // DE/SY: 1 (single value per measure)
+            let stride = match *variant {
+                "CD" => Some(2),
+                "DE" => Some(1),
+                "SY" => Some(1),
+                _ => None, // Default stride=4 for ST, CT
+            };
+            let q_matrix = parse_dda_output(&output_content, stride)?;
 
             if !q_matrix.is_empty() {
                 let num_channels = q_matrix.len();
@@ -524,11 +602,14 @@ impl DDARunner {
                     .arg("-WS")
                     .arg(request.window_parameters.window_step.to_string());
 
-                // Add SELECT mask - CT only (0 1 0 0)
+                // Add SELECT mask - CT only (0 1 0 0 0 0)
+                // Format: ST CT CD RESERVED DE SY
                 pair_command
                     .arg("-SELECT")
                     .arg("0")
                     .arg("1")
+                    .arg("0")
+                    .arg("0")
                     .arg("0")
                     .arg("0");
 
@@ -542,14 +623,32 @@ impl DDARunner {
                     pair_command.arg("-WS_CT").arg(ct_ws.to_string());
                 }
 
-                // Add delay values - use delay_list if provided, otherwise use default [7, 10]
+                // Add delay values - use delay_list if provided, otherwise generate from scale parameters
                 pair_command.arg("-TAU");
                 if let Some(ref delay_list) = request.scale_parameters.delay_list {
                     for delay in delay_list {
                         pair_command.arg(delay.to_string());
                     }
                 } else {
-                    pair_command.arg("7").arg("10");
+                    // Generate delay list from scale_min, scale_max, scale_num
+                    let scale_min = request.scale_parameters.scale_min as i32;
+                    let scale_max = request.scale_parameters.scale_max as i32;
+                    let scale_num = request.scale_parameters.scale_num;
+
+                    let generated_delays: Vec<i32> = if scale_num == 1 {
+                        vec![scale_min]
+                    } else {
+                        (0..scale_num)
+                            .map(|i| {
+                                scale_min
+                                    + ((scale_max - scale_min) * i as i32) / (scale_num as i32 - 1)
+                            })
+                            .collect()
+                    };
+
+                    for delay in &generated_delays {
+                        pair_command.arg(delay.to_string());
+                    }
                 }
 
                 // Add time bounds only if provided
@@ -690,13 +789,17 @@ impl DDARunner {
                 .arg("-WS")
                 .arg(request.window_parameters.window_step.to_string());
 
-            // Add SELECT mask - CD only (0 0 1 0) but need ST and CT enabled for CD to work
+            // Add SELECT mask - CD only (0 0 1 0 0 0)
+            // CD now works independently, no longer requires ST+CT
+            // Format: ST CT CD RESERVED DE SY
             cd_command
                 .arg("-SELECT")
-                .arg("1") // ST must be enabled for CD
-                .arg("1") // CT must be enabled for CD
+                .arg("0") // ST
+                .arg("0") // CT
                 .arg("1") // CD
-                .arg("0"); // DE
+                .arg("0") // RESERVED
+                .arg("0") // DE
+                .arg("0"); // SY
 
             cd_command.arg("-MODEL").arg("1").arg("2").arg("10");
 
@@ -706,14 +809,32 @@ impl DDARunner {
             cd_command.arg("-WL_CT").arg(ct_wl.to_string());
             cd_command.arg("-WS_CT").arg(ct_ws.to_string());
 
-            // Add delay values - use delay_list if provided, otherwise use default [7, 10]
+            // Add delay values - use delay_list if provided, otherwise generate from scale parameters
             cd_command.arg("-TAU");
             if let Some(ref delay_list) = request.scale_parameters.delay_list {
                 for delay in delay_list {
                     cd_command.arg(delay.to_string());
                 }
             } else {
-                cd_command.arg("7").arg("10");
+                // Generate delay list from scale_min, scale_max, scale_num
+                let scale_min = request.scale_parameters.scale_min as i32;
+                let scale_max = request.scale_parameters.scale_max as i32;
+                let scale_num = request.scale_parameters.scale_num;
+
+                let generated_delays: Vec<i32> = if scale_num == 1 {
+                    vec![scale_min]
+                } else {
+                    (0..scale_num)
+                        .map(|i| {
+                            scale_min
+                                + ((scale_max - scale_min) * i as i32) / (scale_num as i32 - 1)
+                        })
+                        .collect()
+                };
+
+                for delay in &generated_delays {
+                    cd_command.arg(delay.to_string());
+                }
             }
 
             // Add time bounds only if provided
@@ -836,6 +957,7 @@ impl DDARunner {
                 "CT" => "Cross-Timeseries (CT)".to_string(),
                 "CD" => "Cross-Dynamical (CD)".to_string(),
                 "DE" => "Dynamical Ergodicity (DE)".to_string(),
+                "SY" => "Synchronization (SY)".to_string(),
                 _ => id.to_string(),
             }
         };
@@ -884,17 +1006,33 @@ impl DDARunner {
                             .collect(),
                     )
                 } else if let Some(names) = edf_channel_names {
-                    // For ST/CD/DE, use EDF channel names
+                    // For ST/DE/SY, use EDF channel names
                     let channel_indices = request.channels.as_ref();
                     if let Some(indices) = channel_indices {
-                        Some(
-                            indices
-                                .iter()
-                                .filter_map(|&idx| names.get(idx).cloned())
-                                .collect(),
-                        )
+                        let mut labels: Vec<String> = indices
+                            .iter()
+                            .filter_map(|&idx| names.get(idx).cloned())
+                            .collect();
+
+                        // CRITICAL FIX: Truncate labels to match q_matrix row count
+                        // DE and SY variants may output fewer channels than input channels
+                        let num_channels = q_matrix.len();
+                        if labels.len() > num_channels {
+                            log::warn!(
+                                "Variant {} has {} channel labels but only {} data rows. Truncating labels to match data.",
+                                variant_id, labels.len(), num_channels
+                            );
+                            labels.truncate(num_channels);
+                        }
+
+                        Some(labels)
                     } else {
-                        Some(names.to_vec())
+                        let mut labels = names.to_vec();
+                        let num_channels = q_matrix.len();
+                        if labels.len() > num_channels {
+                            labels.truncate(num_channels);
+                        }
+                        Some(labels)
                     }
                 } else {
                     // Fallback to None, will use default labels
