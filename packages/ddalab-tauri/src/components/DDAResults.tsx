@@ -18,6 +18,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ChannelSelector } from "@/components/ChannelSelector";
@@ -29,6 +36,11 @@ import {
   Eye,
   ExternalLink,
   Loader2,
+  FileImage,
+  FileCode,
+  FileText,
+  Database,
+  Image,
 } from "lucide-react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
@@ -42,6 +54,7 @@ import {
 import {
   canvasToPNG,
   canvasToSVG,
+  canvasToPDF,
   getDefaultPlotFilename,
 } from "@/utils/plotExport";
 import { useDDAAnnotations } from "@/hooks/useAnnotations";
@@ -67,6 +80,23 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   );
   const heatmapRef = useRef<HTMLDivElement>(null);
   const linePlotRef = useRef<HTMLDivElement>(null);
+  // Track when heatmap DOM is mounted to trigger effect re-run
+  const [heatmapDOMMounted, setHeatmapDOMMounted] = useState(false);
+  const [linePlotDOMMounted, setLinePlotDOMMounted] = useState(false);
+
+  // Callback ref to detect when heatmap DOM is mounted/unmounted
+  const heatmapCallbackRef = useCallback((node: HTMLDivElement | null) => {
+    heatmapRef.current = node;
+    setHeatmapDOMMounted(!!node);
+    console.log(`[HEATMAP REF] DOM ${node ? "mounted" : "unmounted"}`);
+  }, []);
+
+  // Callback ref to detect when line plot DOM is mounted/unmounted
+  const linePlotCallbackRef = useCallback((node: HTMLDivElement | null) => {
+    linePlotRef.current = node;
+    setLinePlotDOMMounted(!!node);
+    console.log(`[LINEPLOT REF] DOM ${node ? "mounted" : "unmounted"}`);
+  }, []);
   const uplotHeatmapRef = useRef<uPlot | null>(null);
   const uplotLinePlotRef = useRef<uPlot | null>(null);
   const lastRenderedResultId = useRef<string | null>(null);
@@ -542,24 +572,25 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       prevHeatmapDataRef.current.range = computedColorRange;
     }
 
-    // Use requestAnimationFrame to batch STATE updates and avoid blocking UI
-    const rafId = requestAnimationFrame(() => {
-      setIsProcessingData(false);
+    // CRITICAL FIX: Update state SYNCHRONOUSLY instead of using RAF
+    // The RAF delay was causing race conditions where selectedChannels updated
+    // before heatmapData, causing plots to disappear when switching variants
+    setIsProcessingData(false);
 
-      if (dataChanged) {
-        setHeatmapData(processedHeatmapData);
-      }
+    if (dataChanged) {
+      console.log(
+        `[HEATMAP DATA] Updating heatmapData synchronously for variant ${currentVariantId}, ${processedHeatmapData.length} channels`,
+      );
+      setHeatmapData(processedHeatmapData);
+    }
 
-      if (
-        autoScale &&
-        rangeChanged &&
-        computedColorRange[0] !== computedColorRange[1]
-      ) {
-        setColorRange(computedColorRange);
-      }
-    });
-
-    return () => cancelAnimationFrame(rafId);
+    if (
+      autoScale &&
+      rangeChanged &&
+      computedColorRange[0] !== computedColorRange[1]
+    ) {
+      setColorRange(computedColorRange);
+    }
   }, [
     processedHeatmapData,
     computedColorRange,
@@ -1110,6 +1141,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       cross_timeseries: "#33CC33", // RGB(51, 204, 51) - Bright Green
       cross_dynamical: "#ED2790", // RGB(237, 39, 144) - Magenta Pink
       dynamical_ergodicity: "#9900CC", // RGB(153, 0, 204) - Purple
+      synchronization: "#CC3300", // RGB(204, 51, 0) - Orange Red
     };
     return colorMap[variantId] || "#64748b"; // Default to slate if unknown
   };
@@ -1227,7 +1259,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   );
 
   const exportPlot = useCallback(
-    async (format: "png" | "svg") => {
+    async (format: "png" | "svg" | "pdf") => {
       try {
         let canvas: HTMLCanvasElement | null = null;
         let plotTypeForFilename: "heatmap" | "lineplot" = "heatmap";
@@ -1284,8 +1316,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         let imageData: Uint8Array;
         if (format === "png") {
           imageData = await canvasToPNG(canvas);
-        } else {
+        } else if (format === "svg") {
           imageData = await canvasToSVG(canvas);
+        } else {
+          imageData = await canvasToPDF(canvas);
         }
 
         const savedPath = await TauriService.savePlotExportFile(
@@ -1343,18 +1377,32 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   // Re-render plots when dependencies change - using IntersectionObserver to detect visibility
   // CRITICAL FIX: Track what we've rendered to prevent duplicate renders
   const lastRenderedHeatmapKey = useRef<string>("");
+  const lastRenderedLinePlotKey = useRef<string>("");
 
   useEffect(() => {
-    if (
-      (viewMode === "heatmap" || viewMode === "both") &&
-      heatmapData.length > 0 &&
-      heatmapRef.current
-    ) {
+    console.log(
+      `[HEATMAP EFFECT] Running with: viewMode=${viewMode}, heatmapData.length=${heatmapData.length}, heatmapRef.current=${!!heatmapRef.current}, variant=${currentVariantData?.variant_id}`,
+    );
+
+    // CRITICAL: Don't check heatmapRef.current here - it may be null if DOM hasn't mounted yet
+    // The IntersectionObserver will wait for the element to exist
+    if ((viewMode === "heatmap" || viewMode === "both") && heatmapData.length > 0) {
+      // Create a unique key for this render configuration FIRST
+      // CRITICAL: Must include variant ID to distinguish between variants with same channels (e.g., DE vs SY)
+      // CRITICAL: Don't include colorRange in key when autoScale is on, as it changes during processing
+      // This prevents the effect from running again when colorRange updates automatically
+      const variantId = currentVariantData?.variant_id || "unknown";
+      const renderKey = autoScale
+        ? `${result.id}_${variantId}_${selectedChannels.join(",")}_auto_${colorScheme}`
+        : `${result.id}_${variantId}_${selectedChannels.join(",")}_${colorRange[0]}_${
+            colorRange[1]
+          }_${colorScheme}`;
+
       // CRITICAL: Ensure heatmapData and selectedChannels are in sync
       // If not, the data hasn't finished processing yet
       if (heatmapData.length !== selectedChannels.length) {
         console.log(
-          `[HEATMAP] Data not in sync yet: heatmapData=${heatmapData.length}, selectedChannels=${selectedChannels.length}`,
+          `[HEATMAP] Data not in sync yet: heatmapData=${heatmapData.length}, selectedChannels=${selectedChannels.length}, variant=${currentVariantData?.variant_id}, lastRenderedKey="${lastRenderedHeatmapKey.current}"`,
         );
 
         // Clear the old plot so user doesn't see stale labels
@@ -1364,48 +1412,44 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
           heatmapCleanupRef.current = null;
         }
 
+        // CRITICAL FIX: Reset the render key so we'll re-render when data syncs
+        // Without this, when effect re-runs with synced data, it thinks it already rendered
+        lastRenderedHeatmapKey.current = "";
+
         return;
       }
 
-      // CRITICAL: Also verify the data is for the current variant
-      // When switching between variants with same channel count, length check passes
-      // but data might still be from previous variant
-      const currentVariantId = currentVariantData?.variant_id || null;
-      if (prevHeatmapDataRef.current.variantId !== currentVariantId) {
+      console.log(
+        `[HEATMAP] Data IN SYNC: heatmapData=${heatmapData.length}, selectedChannels=${selectedChannels.length}, variant=${currentVariantData?.variant_id}, renderKey="${renderKey}", lastRenderedKey="${lastRenderedHeatmapKey.current}"`,
+      );
+
+      // CRITICAL: Check if DOM element is available FIRST
+      // When switching tabs, the effect runs before new tab's DOM is mounted
+      if (!heatmapRef.current) {
         console.log(
-          `[HEATMAP] Waiting for data to be reprocessed for variant ${currentVariantId} (current data is for ${prevHeatmapDataRef.current.variantId})`,
+          "[HEATMAP] DOM element not ready, waiting for mount... renderKey:",
+          renderKey,
         );
-
-        // Clear the old plot so user doesn't see wrong variant's data
-        if (heatmapCleanupRef.current) {
-          console.log(
-            "[HEATMAP] Clearing stale plot while waiting for variant data",
-          );
-          heatmapCleanupRef.current();
-          heatmapCleanupRef.current = null;
-        }
-
+        // Reset render key so effect will retry when ref becomes available
+        lastRenderedHeatmapKey.current = "";
         return;
       }
 
-      // Create a unique key for this render configuration
-      // CRITICAL: Don't include colorRange in key when autoScale is on, as it changes during processing
-      // This prevents the effect from running again when colorRange updates automatically
-      const renderKey = autoScale
-        ? `${result.id}_${selectedChannels.join(",")}_auto_${colorScheme}`
-        : `${result.id}_${selectedChannels.join(",")}_${colorRange[0]}_${
-            colorRange[1]
-          }_${colorScheme}`;
-
+      // Check if we've already rendered this exact configuration
       if (lastRenderedHeatmapKey.current === renderKey) {
+        console.log(
+          "[HEATMAP] Already rendered this configuration, skipping:",
+          renderKey,
+        );
         // Already rendered this exact configuration, skip
         return;
       }
 
-      // CRITICAL FIX: Mark as rendering IMMEDIATELY before async operations
-      // This prevents re-renders from setting up duplicate observers
-      lastRenderedHeatmapKey.current = renderKey;
+      // CRITICAL: Don't set lastRenderedHeatmapKey yet - wait until plot is actually created
+      // Setting it here causes issues when DOM mounts/unmounts rapidly
       let hasRendered = false;
+
+      console.log("[HEATMAP] DOM element ready, setting up observer for:", renderKey);
 
       // Use IntersectionObserver to detect when the element becomes visible
       const observer = new IntersectionObserver(
@@ -1418,7 +1462,11 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
             ) {
               // Element is visible, render the heatmap
               hasRendered = true;
+              console.log("[HEATMAP] IntersectionObserver triggered, creating plot");
               renderHeatmap();
+              // CRITICAL: Mark as rendered AFTER successful render, not before
+              lastRenderedHeatmapKey.current = renderKey;
+              console.log("[HEATMAP] Plot created successfully, marked as rendered:", renderKey);
               // Disconnect after first render to prevent re-triggering
               observer.disconnect();
             }
@@ -1431,6 +1479,12 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
       return () => {
         observer.disconnect();
+        // CRITICAL: If observer is cleaned up before it fires, reset the render key
+        // This ensures next mount will try again instead of thinking it already rendered
+        if (!hasRendered) {
+          console.log("[HEATMAP] Observer cleaned up before render, resetting key");
+          lastRenderedHeatmapKey.current = "";
+        }
         // Clean up heatmap ResizeObserver when effect re-runs
         if (heatmapCleanupRef.current) {
           heatmapCleanupRef.current();
@@ -1440,53 +1494,91 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     }
   }, [
     viewMode,
-    heatmapData.length,
+    heatmapData.length, // Use length since state updates are now synchronous
     autoScale ? "auto" : colorRange[0],
     autoScale ? "auto" : colorRange[1],
     autoScale,
     result.id,
     selectedChannels.join(","),
     colorScheme,
+    currentVariantData?.variant_id, // Re-run when variant changes (even if channel count is same)
+    heatmapDOMMounted, // Re-run when DOM element becomes available
   ]);
 
   useEffect(() => {
-    const renderKey = `${result.id}_${selectedVariant}_${selectedChannels.join(
-      ",",
-    )}`;
-
-    // Skip if we've already rendered this exact result+variant+channels combination
-    if (lastRenderedResultId.current === renderKey) {
-      return;
-    }
+    console.log(
+      `[LINEPLOT EFFECT] Running with: viewMode=${viewMode}, availableVariants.length=${availableVariants.length}, linePlotRef.current=${!!linePlotRef.current}, variant=${currentVariantData?.variant_id}`,
+    );
 
     if (
       (viewMode === "lineplot" || viewMode === "both") &&
-      availableVariants.length > 0 &&
-      linePlotRef.current
+      availableVariants.length > 0
     ) {
-      // CRITICAL FIX: Don't clear timer if we're scheduling the same renderKey
-      // This prevents re-renders from canceling the plot render
-      if (renderTimerRef.current) {
+      // Create a unique key for this render configuration FIRST
+      const variantId = currentVariantData?.variant_id || "unknown";
+      const renderKey = `${result.id}_${variantId}_${selectedChannels.join(",")}`;
+
+      console.log(
+        `[LINEPLOT] Preparing to render with renderKey="${renderKey}", lastRenderedKey="${lastRenderedLinePlotKey.current}"`,
+      );
+
+      // CRITICAL: Check if DOM element is available FIRST
+      // When switching tabs, the effect runs before new tab's DOM is mounted
+      if (!linePlotRef.current) {
+        console.log(
+          "[LINEPLOT] DOM element not ready, waiting for mount... renderKey:",
+          renderKey,
+        );
+        // Reset render key so effect will retry when ref becomes available
+        lastRenderedLinePlotKey.current = "";
         return;
       }
 
-      // Small delay to ensure DOM is ready
-      const timer = setTimeout(() => {
-        if (linePlotRef.current) {
-          renderLinePlot();
-          // CRITICAL: Only mark as rendered AFTER successful render
-          lastRenderedResultId.current = renderKey;
-          renderTimerRef.current = null;
-        }
-      }, 50);
+      // Skip if we've already rendered this exact configuration
+      if (lastRenderedLinePlotKey.current === renderKey) {
+        console.log("[LINEPLOT] Already rendered this configuration, skipping");
+        return;
+      }
 
-      renderTimerRef.current = timer;
+      // CRITICAL: Don't set lastRenderedLinePlotKey yet - wait until plot is actually created
+      // Setting it here causes issues when DOM mounts/unmounts rapidly
+      let hasRendered = false;
+
+      console.log("[LINEPLOT] DOM element ready, setting up observer for:", renderKey);
+
+      // Use IntersectionObserver to detect when the element becomes visible
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (
+              entry.isIntersecting &&
+              entry.target === linePlotRef.current &&
+              !hasRendered
+            ) {
+              // Element is visible, render the line plot
+              hasRendered = true;
+              console.log("[LINEPLOT] IntersectionObserver triggered, creating plot");
+              renderLinePlot();
+              // CRITICAL: Mark as rendered AFTER successful render, not before
+              lastRenderedLinePlotKey.current = renderKey;
+              console.log("[LINEPLOT] Plot created successfully, marked as rendered:", renderKey);
+              // Disconnect after first render to prevent re-triggering
+              observer.disconnect();
+            }
+          });
+        },
+        { threshold: 0.1 }, // Trigger when at least 10% is visible
+      );
+
+      observer.observe(linePlotRef.current);
 
       return () => {
-        // Clear timer on cleanup
-        if (renderTimerRef.current === timer) {
-          clearTimeout(timer);
-          renderTimerRef.current = null;
+        observer.disconnect();
+        // CRITICAL: If observer is cleaned up before it fires, reset the render key
+        // This ensures next mount will try again instead of thinking it already rendered
+        if (!hasRendered) {
+          console.log("[LINEPLOT] Observer cleaned up before render, resetting key");
+          lastRenderedLinePlotKey.current = "";
         }
         // Clean up line plot ResizeObserver when effect re-runs
         if (linePlotCleanupRef.current) {
@@ -1497,10 +1589,11 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     }
   }, [
     viewMode,
-    selectedVariant,
     result.id,
     availableVariants.length,
     selectedChannels.join(","),
+    currentVariantData?.variant_id, // Re-run when variant changes (even if channel count is same)
+    linePlotDOMMounted, // Re-run when DOM element becomes available
   ]);
 
   // Broadcast state changes to popout windows
@@ -1586,38 +1679,48 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
               </CardDescription>
             </div>
             <div className="flex items-center space-x-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => exportData("csv")}
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Export CSV
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => exportData("json")}
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Export JSON
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => exportPlot("png")}
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Export PNG
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => exportPlot("svg")}
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Export SVG
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Database className="h-4 w-4 mr-2" />
+                    Export Data
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => exportData("csv")}>
+                    <FileText className="h-4 w-4 mr-2" />
+                    Export as CSV
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => exportData("json")}>
+                    <FileCode className="h-4 w-4 mr-2" />
+                    Export as JSON
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Image className="h-4 w-4 mr-2" />
+                    Save Plot
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => exportPlot("png")}>
+                    <FileImage className="h-4 w-4 mr-2" />
+                    Save as PNG
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => exportPlot("svg")}>
+                    <FileCode className="h-4 w-4 mr-2" />
+                    Save as SVG
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => exportPlot("pdf")}>
+                    <FileText className="h-4 w-4 mr-2" />
+                    Save as PDF
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
               <Button
                 variant="outline"
                 size="sm"
@@ -1859,7 +1962,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                             </div>
                           )}
                           <div
-                            ref={heatmapRef}
+                            ref={heatmapCallbackRef}
                             className="w-full"
                             style={{
                               minHeight: Math.max(
@@ -2008,7 +2111,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                             </div>
                           )}
                           <div
-                            ref={linePlotRef}
+                            ref={linePlotCallbackRef}
                             className="w-full h-full overflow-hidden"
                           />
 
@@ -2310,7 +2413,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                     </div>
                   )}
                   <div
-                    ref={linePlotRef}
+                    ref={linePlotCallbackRef}
                     className="w-full h-full overflow-hidden"
                   />
 
