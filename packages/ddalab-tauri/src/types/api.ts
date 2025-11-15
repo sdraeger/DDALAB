@@ -47,12 +47,18 @@ export interface DDAAnalysisRequest {
   scale_min?: number;
   scale_max?: number;
   scale_num?: number;
+  delay_list?: number[]; // Explicit list of delay values (overrides scale_min/max/num if provided)
   // CT-specific parameters
   ct_window_length?: number;
   ct_window_step?: number;
   ct_channel_pairs?: [number, number][]; // Array of channel index pairs
   // CD-specific parameters
   cd_channel_pairs?: [number, number][]; // Array of directed channel pairs (from -> to)
+  // Expert mode parameters
+  model_dimension?: number; // Model dimension (dm parameter, default: 4)
+  polynomial_order?: number; // Polynomial order (order parameter, default: 4)
+  nr_tau?: number; // Number of tau values (nr_tau parameter, default: 2)
+  model_params?: number[]; // MODEL parameter encoding (selected polynomial terms)
 }
 
 export interface DDAVariantResult {

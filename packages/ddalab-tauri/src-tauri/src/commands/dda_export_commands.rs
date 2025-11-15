@@ -60,6 +60,7 @@ pub async fn save_plot_export_file(
     let (filter_name, filter_ext) = match format.as_str() {
         "png" => ("PNG Files", vec!["png"]),
         "svg" => ("SVG Files", vec!["svg"]),
+        "pdf" => ("PDF Files", vec!["pdf"]),
         _ => return Err(format!("Unsupported format: {}", format)),
     };
 

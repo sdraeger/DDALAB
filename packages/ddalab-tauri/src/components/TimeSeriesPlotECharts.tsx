@@ -55,6 +55,7 @@ import {
   getDefaultPreprocessing,
 } from "@/utils/preprocessing";
 import { OverviewPlot } from "@/components/OverviewPlot";
+import { formatSecondsToDHMS } from "@/utils/timeFormat";
 
 interface TimeSeriesPlotProps {
   apiService: ApiService;
@@ -1359,7 +1360,12 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
               <SkipBack className="h-4 w-4" />
             </Button>
             <div className="flex-1 text-sm text-center">
-              {currentTime.toFixed(2)}s / {duration.toFixed(2)}s
+              <div className="font-medium">
+                {formatSecondsToDHMS(currentTime, { precision: 4 })} / {formatSecondsToDHMS(duration, { precision: 4 })}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {currentTime.toFixed(4)}s / {duration.toFixed(4)}s
+              </div>
             </div>
             <Button
               variant="outline"

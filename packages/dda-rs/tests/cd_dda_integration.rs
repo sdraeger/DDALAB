@@ -60,10 +60,12 @@ async fn test_cd_dda_matches_binary_output() {
         .arg("2")
         .arg("3") // 2→3
         .arg("-SELECT")
+        .arg("0")
+        .arg("0")
         .arg("1")
-        .arg("1")
-        .arg("1")
-        .arg("0") // ST CT CD DE
+        .arg("0")
+        .arg("0")
+        .arg("0") // ST CT CD RESERVED DE SY
         .arg("-MODEL")
         .arg("1")
         .arg("2")
@@ -146,7 +148,7 @@ async fn test_cd_dda_matches_binary_output() {
         },
         algorithm_selection: AlgorithmSelection {
             enabled_variants: vec!["cross_dynamical".to_string()],
-            select_mask: Some("1 1 1 0".to_string()), // ST CT CD DE
+            select_mask: Some("0 0 1 0 0 0".to_string()), // ST CT CD RESERVED DE SY
         },
         window_parameters: WindowParameters {
             window_length,
@@ -158,9 +160,11 @@ async fn test_cd_dda_matches_binary_output() {
             scale_min,
             scale_max,
             scale_num: ((scale_max - scale_min) as u32) + 1,
+            delay_list: None,
         },
         ct_channel_pairs: None,
         cd_channel_pairs: Some(cd_pairs.clone()),
+        model_parameters: None,
     };
 
     // Calculate sample bounds
@@ -255,7 +259,7 @@ async fn test_cd_dda_matches_binary_output() {
         api_q_matrix[0].len()
     );
 
-    // Parse direct output: skip first 2 columns (window bounds), take every 4th column
+    // Parse direct output: skip first 2 columns (window bounds), take every 2nd column
     let mut direct_matrix: Vec<Vec<f64>> = Vec::new();
     for line in direct_lines {
         let values: Vec<f64> = line
@@ -268,12 +272,19 @@ async fn test_cd_dda_matches_binary_output() {
         }
     }
 
-    // Apply same processing as parser: skip first 2, then take every column (stride=1 for CD)
+    // Apply same processing as parser: skip first 2, then take every 2nd column (stride=2 for CD)
+    // Each directed pair produces 2 columns, we take the first of each pair
     let mut processed_direct: Vec<Vec<f64>> = Vec::new();
     for row in &direct_matrix {
         let after_skip: Vec<f64> = row.iter().skip(2).copied().collect();
-        // For CD, each column after the window bounds is one directed pair (stride=1)
-        processed_direct.push(after_skip);
+        // For CD, each directed pair produces 2 columns, take every 2nd column (indices 0, 2, 4...)
+        let mut extracted = Vec::new();
+        for (idx, &val) in after_skip.iter().enumerate() {
+            if idx % 2 == 0 {
+                extracted.push(val);
+            }
+        }
+        processed_direct.push(extracted);
     }
 
     // Transpose to [channels × timepoints]

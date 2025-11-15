@@ -1,0 +1,201 @@
+# AUTO-GENERATED from DDA_SPEC.yaml
+# DO NOT EDIT - Changes will be overwritten
+#
+# Generated at: {{ timestamp }}
+# Spec version: {{ metadata.spec_version }}
+# Generator: dda-codegen v0.1.0
+
+"""
+DDA Variant Metadata
+
+Defines properties and behavior for each DDA analysis variant.
+"""
+
+struct VariantMetadata
+    """Variant abbreviation (e.g., "ST", "CT", "CD")"""
+    abbreviation::String
+
+    """Full variant name"""
+    name::String
+
+    """Detailed description"""
+    description::String
+
+    """Output file suffix appended by binary"""
+    output_suffix::String
+
+    """
+    Column stride for parsing output
+    - ST/CT/DE: 4 columns per channel/pair
+    - CD: 2 columns per directed pair
+    - SY: 1 column per channel
+    """
+    stride::Int
+
+    """Whether this variant requires CT window parameters"""
+    requires_ct_params::Bool
+end
+
+"""
+Registry of all DDA variants
+
+This is the canonical list of all supported DDA analysis variants.
+"""
+const VARIANT_REGISTRY = [
+{%- for key, variant in variants %}
+{%-   if variant.output_suffix and variant.stride %}
+    VariantMetadata(
+        "{{ key }}",
+        "{{ variant.name }}",
+        "{{ variant.description }}",
+        "{{ variant.output_suffix }}",
+        {{ variant.stride }},
+        {% if variant.required_params and "WL_CT" in variant.required_params or "WS_CT" in variant.required_params %}true{% else %}false{% endif %}
+    ),
+{%-   endif %}
+{%- endfor %}
+]
+
+"""
+SELECT mask bit positions
+
+The SELECT mask is a 6-element array controlling which variants to execute.
+Format: ST CT CD RESERVED DE SY
+"""
+const SELECT_MASK_POSITIONS = Dict(
+    "ST" => 1,
+    "CT" => 2,
+    "CD" => 3,
+    "RESERVED" => 4,
+    "DE" => 5,
+    "SY" => 6
+)
+
+"""
+    get_variant_by_abbrev(abbrev::String) -> Union{VariantMetadata,Nothing}
+
+Get variant metadata by abbreviation.
+
+# Arguments
+- `abbrev`: Variant abbreviation (e.g., "ST", "CT")
+
+# Returns
+VariantMetadata if found, nothing otherwise
+"""
+function get_variant_by_abbrev(abbrev::String)::Union{VariantMetadata,Nothing}
+    for v in VARIANT_REGISTRY
+        if v.abbreviation == abbrev
+            return v
+        end
+    end
+    return nothing
+end
+
+"""
+    get_variant_by_suffix(suffix::String) -> Union{VariantMetadata,Nothing}
+
+Get variant metadata by output suffix.
+
+# Arguments
+- `suffix`: Output file suffix (e.g., "_DDA_ST")
+
+# Returns
+VariantMetadata if found, nothing otherwise
+"""
+function get_variant_by_suffix(suffix::String)::Union{VariantMetadata,Nothing}
+    for v in VARIANT_REGISTRY
+        if v.output_suffix == suffix
+            return v
+        end
+    end
+    return nothing
+end
+
+"""
+    generate_select_mask(variants::Vector{String}) -> Vector{Int}
+
+Generate SELECT mask from enabled variants.
+
+# Arguments
+- `variants`: List of variant abbreviations to enable (e.g., ["ST", "CT"])
+
+# Returns
+6-element array with 1s for enabled variants, 0s for disabled
+
+# Example
+```julia
+mask = generate_select_mask(["ST", "SY"])
+# Result: [1, 0, 0, 0, 0, 1] - ST and SY enabled
+```
+"""
+function generate_select_mask(variants::Vector{String})::Vector{Int}
+    mask = [0, 0, 0, 0, 0, 0]
+
+    for variant in variants
+        if haskey(SELECT_MASK_POSITIONS, variant)
+            mask[SELECT_MASK_POSITIONS[variant]] = 1
+        else
+            @warn "Unknown variant: $variant"
+        end
+    end
+
+    return mask
+end
+
+"""
+    parse_select_mask(mask::Vector{Int}) -> Vector{String}
+
+Parse SELECT mask to list of enabled variants.
+
+# Arguments
+- `mask`: 6-element SELECT mask array
+
+# Returns
+Array of enabled variant abbreviations
+
+# Example
+```julia
+mask = [1, 0, 0, 0, 0, 1]
+enabled = parse_select_mask(mask)
+# Result: ["ST", "SY"]
+```
+"""
+function parse_select_mask(mask::Vector{Int})::Vector{String}
+    if length(mask) < 6
+        error("Invalid SELECT mask: expected 6 bits, got $(length(mask))")
+    end
+
+    enabled = String[]
+
+    if mask[SELECT_MASK_POSITIONS["ST"]] == 1
+        push!(enabled, "ST")
+    end
+    if mask[SELECT_MASK_POSITIONS["CT"]] == 1
+        push!(enabled, "CT")
+    end
+    if mask[SELECT_MASK_POSITIONS["CD"]] == 1
+        push!(enabled, "CD")
+    end
+    if mask[SELECT_MASK_POSITIONS["DE"]] == 1
+        push!(enabled, "DE")
+    end
+    if mask[SELECT_MASK_POSITIONS["SY"]] == 1
+        push!(enabled, "SY")
+    end
+
+    return enabled
+end
+
+"""
+Type alias for variant abbreviations (for type safety)
+"""
+const VariantAbbreviation = String
+
+"""
+    is_variant_abbreviation(value::String) -> Bool
+
+Type guard to check if a string is a valid variant abbreviation.
+"""
+function is_variant_abbreviation(value::String)::Bool
+    return any(v -> v.abbreviation == value, VARIANT_REGISTRY)
+end

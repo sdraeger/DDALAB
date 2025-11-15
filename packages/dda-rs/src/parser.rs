@@ -6,7 +6,7 @@ use crate::error::{DDAError, Result};
 ///
 /// # Arguments
 /// * `content` - Raw text output from run_DDA_AsciiEdf binary
-/// * `column_stride` - Optional stride for column extraction (default 4 for ST/CT, use 2 for CD)
+/// * `column_stride` - Optional stride for column extraction (default 4 for ST/CT/DE, use 2 for CD, use 1 for SY)
 ///
 /// # Returns
 /// Processed matrix in [channels/scales × timepoints] format

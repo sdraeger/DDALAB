@@ -1,0 +1,101 @@
+// AUTO-GENERATED from DDA_SPEC.yaml
+// DO NOT EDIT - Changes will be overwritten
+//
+// Generated at: {{ timestamp }}
+// Spec version: {{ metadata.spec_version }}
+// Generator: dda-codegen v0.1.0
+
+/// DDA Binary CLI Constants
+///
+/// Constants derived from the DDA specification for building command-line invocations.
+
+/// Binary name
+pub const BINARY_NAME: &str = "{{ metadata.binary_name }}";
+
+/// Binary requires shell wrapper on Unix
+pub const REQUIRES_SHELL_WRAPPER: bool = {{ cli.shell_wrapper }};
+
+/// CLI Flags
+pub mod flags {
+{%- for arg in cli.arguments %}
+{%-   if arg.flag %}
+    /// {{ arg.description }}
+    pub const {{ arg.name | upper_snake_case }}: &str = "{{ arg.flag }}";
+{%-   endif %}
+{%- endfor %}
+}
+
+/// Default values for CLI parameters
+pub mod defaults {
+{%- for arg in cli.arguments %}
+{%-   if arg.default and arg.arg_type %}
+{%-     if arg.default is number %}
+    pub const {{ arg.name | upper_snake_case }}: {{ arg.arg_type | replace(from="int", to="i32") }} = {{ arg.default }};
+{%-     elif arg.default is string %}
+    pub const {{ arg.name | upper_snake_case }}: &str = "{{ arg.default }}";
+{%-     endif %}
+{%-   endif %}
+{%- endfor %}
+}
+
+/// File type flags (mutually exclusive)
+pub enum FileType {
+    /// EDF/EDF+ format
+    EDF,
+    /// ASCII text format (numeric only, no headers)
+    ASCII,
+}
+
+impl FileType {
+    /// Get the CLI flag for this file type
+    pub fn flag(&self) -> &'static str {
+        match self {
+            FileType::EDF => "-EDF",
+            FileType::ASCII => "-ASCII",
+        }
+    }
+
+    /// Detect file type from path extension
+    pub fn from_path(path: &std::path::Path) -> Self {
+        if let Some(ext) = path.extension() {
+            let ext_str = ext.to_string_lossy().to_lowercase();
+            match ext_str.as_str() {
+                "edf" | "edf+" => FileType::EDF,
+                "ascii" | "txt" => FileType::ASCII,
+                _ => FileType::EDF, // Default to EDF
+            }
+        } else {
+            FileType::EDF
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_binary_name() {
+        assert_eq!(BINARY_NAME, "{{ metadata.binary_name }}");
+    }
+
+    #[test]
+    fn test_file_type_flags() {
+        assert_eq!(FileType::EDF.flag(), "-EDF");
+        assert_eq!(FileType::ASCII.flag(), "-ASCII");
+    }
+
+    #[test]
+    fn test_file_type_detection() {
+        use std::path::Path;
+
+        let edf_path = Path::new("test.edf");
+        assert!(matches!(FileType::from_path(edf_path), FileType::EDF));
+
+        let ascii_path = Path::new("test.ascii");
+        assert!(matches!(FileType::from_path(ascii_path), FileType::ASCII));
+
+        let txt_path = Path::new("test.txt");
+        assert!(matches!(FileType::from_path(txt_path), FileType::ASCII));
+    }
+}

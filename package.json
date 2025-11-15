@@ -34,7 +34,10 @@
     "deploy:generate": "node scripts/generate-deployment.js",
     "deploy:dev": "node scripts/generate-deployment.js development local",
     "deploy:prod": "node scripts/generate-deployment.js production docker-compose",
-    "deploy:configmanager": "node scripts/generate-deployment.js production configmanager"
+    "deploy:configmanager": "node scripts/generate-deployment.js production configmanager",
+    "codegen": "cargo run --manifest-path packages/dda-codegen/Cargo.toml --release",
+    "codegen:check": "cargo run --manifest-path packages/dda-codegen/Cargo.toml --release && git diff --exit-code packages/*/generated/",
+    "codegen:dry-run": "cargo run --manifest-path packages/dda-codegen/Cargo.toml --release -- --dry-run --verbose"
   },
   "volta": {
     "node": "20.18.2",

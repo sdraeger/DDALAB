@@ -499,17 +499,36 @@ export class ApiService {
       cross_timeseries: "Cross Timeseries (CT)",
       cross_dynamical: "Cross Dynamical (CD)",
       dynamical_ergodicity: "Dynamical Ergodicity (DE)",
+      synchronization: "Synchronization (SY)",
+      delay_evolution: "Dynamical Ergodicity (DE)",
     };
     return variantNames[variantId] || variantId;
   }
 
+  private normalizeVariantId(variantId: string): string {
+    // Map old variant IDs to new standardized ones for backward compatibility
+    const idMapping: Record<string, string> = {
+      sy: "synchronization", // Old SY variant ID
+      delay_evolution: "dynamical_ergodicity", // Normalize DE naming
+      // All other IDs remain unchanged
+    };
+    return idMapping[variantId] || variantId;
+  }
+
   async submitDDAAnalysis(request: DDAAnalysisRequest): Promise<DDAResult> {
     try {
-      // Map channel names to indices if needed
-      const channelIndices = request.channels.map((ch, idx) => {
+      // Channels now come as string indices from frontend (0-based)
+      // Convert to numbers for backend
+      const channelIndices = request.channels.map((ch) => {
         const parsed = parseInt(ch);
-        return isNaN(parsed) ? idx + 1 : parsed;
-      });
+        if (isNaN(parsed)) {
+          console.warn(`Invalid channel index: ${ch}, skipping`);
+          return -1;
+        }
+        return parsed;
+      }).filter(idx => idx !== -1);
+
+      console.log("Channel indices (0-based) received from frontend:", channelIndices);
 
       // Note: The backend DDARequest schema expects:
       // - algorithm_selection.enabled_variants: List of variant IDs
@@ -539,6 +558,7 @@ export class ApiService {
           scale_min: request.scale_min || 1,
           scale_max: request.scale_max || 20,
           scale_num: request.scale_num || 20,
+          delay_list: request.delay_list,
         },
         ct_channel_pairs: request.ct_channel_pairs,
         cd_channel_pairs: request.cd_channel_pairs,
@@ -1054,6 +1074,14 @@ export class ApiService {
           result_id: analysisWrapper.result_id,
           storage_created_at: analysisWrapper.created_at,
         };
+
+        // Normalize old variant IDs for backward compatibility
+        if (result.results?.variants) {
+          result.results.variants = result.results.variants.map((v: any) => ({
+            ...v,
+            variant_id: this.normalizeVariantId(v.variant_id),
+          }));
+        }
 
         console.log("[DEBUG] Final result channels:", result.channels);
         console.log("[DEBUG] Final result Q present:", "Q" in result);

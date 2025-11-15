@@ -52,43 +52,75 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-latest'
+          # macOS builds with LSL support using older Xcode
+          # NOTE: macos-13 will be deprecated Dec 2025 - will need to migrate to macos-14
+          # with updated LSL crate or compiler workarounds before then
+          - platform: 'macos-13'  # Use older macOS with Xcode 14/15 for LSL compatibility
             args: '--target aarch64-apple-darwin'
             target: 'aarch64-apple-darwin'
             arch: 'aarch64'
-          - platform: 'macos-latest'
+            lsl_support: true  # Enabled: Xcode 15.2 compatible with LSL C++ code
+            xcode_version: '15.2'  # Explicitly use Xcode 15.2
+          - platform: 'macos-13'  # Use older macOS with Xcode 14/15 for LSL compatibility
             args: '--target x86_64-apple-darwin'
             target: 'x86_64-apple-darwin'
             arch: 'x86_64'
+            lsl_support: true  # Enabled: Xcode 15.2 compatible with LSL C++ code
+            xcode_version: '15.2'  # Explicitly use Xcode 15.2
           - platform: 'ubuntu-22.04'
             args: ''
             target: 'x86_64-unknown-linux-gnu'
             arch: 'x86_64'
+            lsl_support: true  # Enabled: GCC on Ubuntu 22.04 supports LSL
+            xcode_version: ''  # Not applicable
           - platform: 'ubuntu-22.04-arm'
             args: '--target aarch64-unknown-linux-gnu'
             target: 'aarch64-unknown-linux-gnu'
             arch: 'aarch64'
+            lsl_support: true  # Enabled: GCC on Ubuntu 22.04 supports LSL
+            xcode_version: ''  # Not applicable
           - platform: 'windows-latest'
             args: '--target x86_64-pc-windows-msvc'
             target: 'x86_64-pc-windows-msvc'
             arch: 'x86_64'
+            lsl_support: true  # Enabled: MSVC should support LSL
+            xcode_version: ''  # Not applicable
 
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Select Xcode version (macOS)
+        if: runner.os == 'macOS' && matrix.xcode_version != ''
+        run: |
+          sudo xcode-select -s /Applications/Xcode_${{ matrix.xcode_version }}.app/Contents/Developer
+          xcodebuild -version
+          echo "✅ Using Xcode ${{ matrix.xcode_version }}"
+
+      - name: Set LSL build environment (macOS)
+        if: runner.os == 'macOS' && matrix.lsl_support == true
+        run: |
+          # Set CMake flags to disable problematic warnings as errors for LSL C++ compilation
+          echo "CXXFLAGS=-Wno-error=enum-constexpr-conversion -Wno-error=deprecated-declarations" >> $GITHUB_ENV
+          echo "CFLAGS=-Wno-error=enum-constexpr-conversion -Wno-error=deprecated-declarations" >> $GITHUB_ENV
+          echo "✅ LSL build environment configured for macOS"
+
       - name: Install dependencies (ubuntu x86_64)
         if: matrix.platform == 'ubuntu-22.04' && matrix.arch == 'x86_64'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev cmake build-essential
 
       - name: Install dependencies (ubuntu arm64)
         if: matrix.platform == 'ubuntu-22.04-arm' && matrix.arch == 'aarch64'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev cmake build-essential
+
+      - name: Install CMake (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: lukka/get-cmake@latest
 
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
@@ -132,6 +164,19 @@ jobs:
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
           "
 
+      - name: Set build arguments
+        id: build-args
+        shell: bash
+        run: |
+          BASE_ARGS="${{ matrix.args }}"
+          if [ "${{ matrix.lsl_support }}" = "true" ]; then
+            echo "args=$BASE_ARGS -- --features lsl-support" >> $GITHUB_OUTPUT
+            echo "✅ LSL support enabled for this platform"
+          else
+            echo "args=$BASE_ARGS" >> $GITHUB_OUTPUT
+            echo "⚠️ LSL support disabled (compiler incompatibility)"
+          fi
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -149,39 +194,42 @@ jobs:
             - Cross-platform desktop application for EEG analysis
             - Delay Differential Analysis (DDA) support
             - Self-contained Docker stack management
+            - **Lab Streaming Layer (LSL) support** for real-time data acquisition (Linux/Windows builds)
 
             ## 📥 Downloads
 
             ### 🍎 macOS
-            | Architecture | File | Installation |
-            |--------------|------|--------------|
-            | **Apple Silicon** (M1/M2/M3) | `DDALAB_${{ needs.check-version.outputs.version }}_aarch64_darwin.dmg` | Download, open, drag to Applications |
-            | **Intel x86_64** | `DDALAB_${{ needs.check-version.outputs.version }}_x64_darwin.dmg` | Download, open, drag to Applications |
+            | Architecture | File | Installation | LSL Support |
+            |--------------|------|--------------|-------------|
+            | **Apple Silicon** (M1/M2/M3) | `DDALAB_${{ needs.check-version.outputs.version }}_aarch64_darwin.dmg` | Download, open, drag to Applications | ✅ Included |
+            | **Intel x86_64** | `DDALAB_${{ needs.check-version.outputs.version }}_x64_darwin.dmg` | Download, open, drag to Applications | ✅ Included |
 
             **Requirements**: macOS 10.15 or later
 
             ---
 
             ### 🐧 Linux
-            | Architecture | Format | File | Installation |
-            |--------------|--------|------|--------------|
-            | **x86_64** | AppImage | `DDALAB_${{ needs.check-version.outputs.version }}_amd64_linux.AppImage` | `chmod +x` then run |
-            | **x86_64** | Debian | `DDALAB_${{ needs.check-version.outputs.version }}_amd64_linux.deb` | `sudo dpkg -i` |
-            | **x86_64** | RPM | `DDALAB-${{ needs.check-version.outputs.version }}-1.x86_64_linux.rpm` | `sudo dnf install` |
-            | **ARM64/aarch64** | AppImage | `DDALAB_${{ needs.check-version.outputs.version }}_aarch64_linux.AppImage` | `chmod +x` then run |
-            | **ARM64/aarch64** | Debian | `DDALAB_${{ needs.check-version.outputs.version }}_arm64_linux.deb` | `sudo dpkg -i` |
-            | **ARM64/aarch64** | RPM | `DDALAB-${{ needs.check-version.outputs.version }}-1.aarch64_linux.rpm` | `sudo dnf install` |
+            | Architecture | Format | File | Installation | LSL Support |
+            |--------------|--------|------|--------------|-------------|
+            | **x86_64** | AppImage | `DDALAB_${{ needs.check-version.outputs.version }}_amd64_linux.AppImage` | `chmod +x` then run | ✅ Included |
+            | **x86_64** | Debian | `DDALAB_${{ needs.check-version.outputs.version }}_amd64_linux.deb` | `sudo dpkg -i` | ✅ Included |
+            | **x86_64** | RPM | `DDALAB-${{ needs.check-version.outputs.version }}-1.x86_64_linux.rpm` | `sudo dnf install` | ✅ Included |
+            | **ARM64/aarch64** | AppImage | `DDALAB_${{ needs.check-version.outputs.version }}_aarch64_linux.AppImage` | `chmod +x` then run | ✅ Included |
+            | **ARM64/aarch64** | Debian | `DDALAB_${{ needs.check-version.outputs.version }}_arm64_linux.deb` | `sudo dpkg -i` | ✅ Included |
+            | **ARM64/aarch64** | RPM | `DDALAB-${{ needs.check-version.outputs.version }}-1.aarch64_linux.rpm` | `sudo dnf install` | ✅ Included |
 
             **Requirements**: Ubuntu 20.04 or later (Debian/Ubuntu), Fedora 38+ (RPM)
+
+            **✨ Linux builds include full Lab Streaming Layer (LSL) support for real-time neuroscience data acquisition.**
 
             **⚠️ Note for RHEL/Rocky/AlmaLinux users**: If the RPM fails with `webkit2gtk-4.1` dependency errors, use the **AppImage** instead (it bundles all dependencies and works on all distributions).
 
             ---
 
             ### 🪟 Windows
-            | Architecture | File | Installation |
-            |--------------|------|--------------|
-            | **x64** | `DDALAB_${{ needs.check-version.outputs.version }}_x64_en-US_windows.msi` | Download and run installer |
+            | Architecture | File | Installation | LSL Support |
+            |--------------|------|--------------|-------------|
+            | **x64** | `DDALAB_${{ needs.check-version.outputs.version }}_x64_en-US_windows.msi` | Download and run installer | ✅ Included |
 
             **Requirements**: Windows 10 or later
 
@@ -207,7 +255,7 @@ jobs:
           includeDebug: false
           includeRelease: true
           projectPath: packages/ddalab-tauri
-          args: ${{ matrix.args }}
+          args: ${{ steps.build-args.outputs.args }}
 
   finalize-release:
     needs: [check-version, create-release]

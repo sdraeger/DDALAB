@@ -5,8 +5,6 @@ import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 import { DDAAnalysisRequest, DDAResult } from "@/types/api";
 import { DDAResults } from "@/components/DDAResults";
-import { CTChannelPairPicker } from "@/components/CTChannelPairPicker";
-import { CDChannelPairPicker } from "@/components/CDChannelPairPicker";
 import { useWorkflow } from "@/hooks/useWorkflow";
 import {
   createSetDDAParametersAction,
@@ -28,32 +26,27 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ChannelSelector } from "@/components/ChannelSelector";
 import { Progress } from "@/components/ui/progress";
 import {
   Play,
-  BarChart3,
   AlertCircle,
   CheckCircle,
   Clock,
   Cpu,
   Brain,
   RefreshCw,
-  Pencil,
-  Trash2,
   Cloud,
-  X,
 } from "lucide-react";
 import { TauriService, NotificationType } from "@/services/tauriService";
 import { ParameterInput } from "@/components/dda/ParameterInput";
 import { DelayPresetManager } from "@/components/dda/DelayPresetManager";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { CompactChannelConfigGroup } from "@/components/dda/CompactChannelConfig";
+import { ModelBuilder } from "@/components/dda/ModelBuilder";
 import {
   exportDDAConfig,
   serializeDDAConfig,
@@ -102,6 +95,14 @@ interface DDAParameters {
   ctChannelPairs: [string, string][]; // Pairs of channel names
   // CD-specific parameters
   cdChannelPairs: [string, string][]; // Directed pairs of channel names (from -> to)
+  // Per-variant channel configurations (NEW - scalable approach)
+  variantChannelConfigs: {
+    [variantId: string]: {
+      selectedChannels?: string[];
+      ctChannelPairs?: [string, string][];
+      cdChannelPairs?: [string, string][];
+    };
+  };
   // Parallelization
   parallelCores?: number; // Number of CPU cores to use (1 = serial, >1 = parallel)
   // NSG-specific resource configuration
@@ -116,6 +117,7 @@ interface DDAParameters {
     dm: number; // Embedding dimension (default: 4)
     order: number; // Polynomial order (default: 4)
     nr_tau: number; // Number of tau values (default: 2)
+    encoding?: number[]; // Selected polynomial terms (e.g., [1, 2, 10] for EEG)
   };
 }
 
@@ -124,22 +126,22 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   // Select only the specific properties we need, not entire objects
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
   const storedAnalysisParameters = useAppStore(
-    (state) => state.dda.analysisParameters,
+    (state) => state.dda.analysisParameters
   );
   const currentAnalysis = useAppStore((state) => state.dda.currentAnalysis);
   const isWorkflowRecording = useAppStore(
-    (state) => state.workflowRecording.isRecording,
+    (state) => state.workflowRecording.isRecording
   );
   const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis);
   const addAnalysisToHistory = useAppStore(
-    (state) => state.addAnalysisToHistory,
+    (state) => state.addAnalysisToHistory
   );
   const updateAnalysisParameters = useAppStore(
-    (state) => state.updateAnalysisParameters,
+    (state) => state.updateAnalysisParameters
   );
   const setDDARunning = useAppStore((state) => state.setDDARunning);
   const incrementActionCount = useAppStore(
-    (state) => state.incrementActionCount,
+    (state) => state.incrementActionCount
   );
   const isServerReady = useAppStore((state) => state.ui.isServerReady);
 
@@ -157,7 +159,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     refetch: refetchHistory,
   } = useDDAHistory(
     apiService,
-    isServerReady && !!apiService.getSessionToken(),
+    isServerReady && !!apiService.getSessionToken()
   );
 
   // TanStack Query: Delete and rename mutations with optimistic updates
@@ -167,7 +169,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   // Track progress from Tauri events for the current analysis
   const progressEvent = useDDAProgress(
     submitAnalysisMutation.data?.id,
-    submitAnalysisMutation.isPending,
+    submitAnalysisMutation.isPending
   );
 
   // Store ALL parameters locally for instant UI updates - only sync to store when running analysis
@@ -194,6 +196,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     ctWindowStep: undefined,
     ctChannelPairs: [],
     cdChannelPairs: [],
+    variantChannelConfigs: {}, // Initialize empty per-variant configs
     parallelCores: 1, // Default to serial execution
     nsgResourceConfig: {
       runtimeHours: 1.0,
@@ -234,7 +237,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const [autoLoadingResults, setAutoLoadingResults] = useState(false);
   const [resultsFromPersistence, setResultsFromPersistence] = useState(false);
   const [renamingAnalysisId, setRenamingAnalysisId] = useState<string | null>(
-    null,
+    null
   );
   const [newAnalysisName, setNewAnalysisName] = useState("");
 
@@ -259,7 +262,30 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
   // Calculate estimated time using useMemo to avoid re-running on every render
   const estimatedTime = useMemo(() => {
-    const channelCount = parameters.selectedChannels.length;
+    // Count total unique channels from variant configs
+    const allChannels = new Set<string>();
+    parameters.variants.forEach((variantId) => {
+      const config = parameters.variantChannelConfigs[variantId];
+      if (config) {
+        if (config.selectedChannels) {
+          config.selectedChannels.forEach((ch) => allChannels.add(ch));
+        }
+        if (config.ctChannelPairs) {
+          config.ctChannelPairs.forEach(([ch1, ch2]) => {
+            allChannels.add(ch1);
+            allChannels.add(ch2);
+          });
+        }
+        if (config.cdChannelPairs) {
+          config.cdChannelPairs.forEach(([from, to]) => {
+            allChannels.add(from);
+            allChannels.add(to);
+          });
+        }
+      }
+    });
+
+    const channelCount = allChannels.size;
     const timeRange = parameters.timeEnd - parameters.timeStart;
     const windowCount = Math.floor(timeRange / parameters.windowStep);
     const variantCount = parameters.variants.length;
@@ -273,11 +299,11 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
     return Math.round(estimated);
   }, [
-    parameters.selectedChannels.length,
+    parameters.variantChannelConfigs,
     parameters.timeEnd,
     parameters.timeStart,
     parameters.windowStep,
-    parameters.variants.length,
+    parameters.variants,
     parameters.scaleNum,
   ]);
 
@@ -295,7 +321,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
         // Get full analysis data from history (in case the list only has metadata)
         const fullAnalysis = await apiService.getAnalysisFromHistory(
-          analysis.id,
+          analysis.id
         );
         if (fullAnalysis) {
           // Import TauriService dynamically to avoid SSR issues
@@ -314,7 +340,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         console.error("Failed to load analysis preview:", error);
       }
     },
-    [apiService],
+    [apiService]
   );
 
   // Delete analysis from history with optimistic update
@@ -330,7 +356,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           {
             title: "Delete Analysis",
             kind: "warning",
-          },
+          }
         );
 
         if (!confirmed) {
@@ -352,7 +378,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               {
                 title: "Delete Failed",
                 kind: "error",
-              },
+              }
             );
           },
         });
@@ -360,7 +386,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         console.error("[DDAAnalysis] Error in delete handler:", error);
       }
     },
-    [deleteAnalysisMutation, previewingAnalysis],
+    [deleteAnalysisMutation, previewingAnalysis]
   );
 
   // Start renaming an analysis
@@ -370,7 +396,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       setRenamingAnalysisId(analysis.id);
       setNewAnalysisName(analysis.name || "");
     },
-    [],
+    []
   );
 
   // Submit rename with optimistic update
@@ -426,13 +452,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               {
                 title: "Rename Failed",
                 kind: "error",
-              },
+              }
             );
           },
-        },
+        }
       );
     },
-    [renameAnalysisMutation, newAnalysisName],
+    [renameAnalysisMutation, newAnalysisName]
   );
 
   // Cancel rename
@@ -494,7 +520,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       if (resultsData) {
         setCurrentAnalysis(resultsData);
         console.log(
-          "[DDAAnalysis] NSG results loaded to global store (main Results tab only)",
+          "[DDAAnalysis] NSG results loaded to global store (main Results tab only)"
         );
       }
     };
@@ -547,6 +573,16 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       bgColor: "bg-[#9900CC]/10",
       borderColor: "border-l-[#9900CC]",
     },
+    {
+      id: "synchronization",
+      name: "Synchronization",
+      abbreviation: "SY",
+      description: "Phase synchronization analysis",
+      color: "#FF6600", // RGB(255, 102, 0) - Orange
+      rgb: "255, 102, 0",
+      bgColor: "bg-[#FF6600]/10",
+      borderColor: "border-l-[#FF6600]",
+    },
   ];
 
   // Initialize with file data - run when file changes or duration is loaded
@@ -558,7 +594,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       if (fileDuration && fileDuration > 0) {
         const defaultChannels = selectedFile.channels.slice(
           0,
-          Math.min(8, selectedFile.channels.length),
+          Math.min(8, selectedFile.channels.length)
         );
         // Calculate default window length as 1/4 second (0.25 * sampling_rate)
         const defaultWindowLength = Math.round(0.25 * selectedFile.sample_rate);
@@ -566,7 +602,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         console.log(
           "[DDAAnalysis] Updating time range - file duration:",
           fileDuration,
-          "seconds",
+          "seconds"
         );
 
         setLocalParameters((prev) => ({
@@ -584,16 +620,48 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       } else {
         console.warn(
           "[DDAAnalysis] File loaded but duration not available yet:",
-          selectedFile.file_path,
+          selectedFile.file_path
         );
       }
     }
   }, [selectedFile?.file_path, selectedFile?.duration]); // Depend on both file path and duration
 
   const runAnalysis = async () => {
-    if (!selectedFile || parameters.selectedChannels.length === 0) {
-      // Can't use setError directly anymore, error comes from mutation
-      console.error("Please select a file and at least one channel");
+    if (!selectedFile) {
+      console.error("Please select a file");
+      return;
+    }
+
+    // Extract all channels from variant configurations
+    const allChannels = new Set<string>();
+
+    parameters.variants.forEach((variantId) => {
+      const config = parameters.variantChannelConfigs[variantId];
+
+      if (config) {
+        // Add single channels (for ST, DE, SY)
+        if (config.selectedChannels) {
+          config.selectedChannels.forEach((ch) => allChannels.add(ch));
+        }
+        // Add channels from CT pairs
+        if (config.ctChannelPairs) {
+          config.ctChannelPairs.forEach(([ch1, ch2]) => {
+            allChannels.add(ch1);
+            allChannels.add(ch2);
+          });
+        }
+        // Add channels from CD pairs
+        if (config.cdChannelPairs) {
+          config.cdChannelPairs.forEach(([from, to]) => {
+            allChannels.add(from);
+            allChannels.add(to);
+          });
+        }
+      }
+    });
+
+    if (allChannels.size === 0) {
+      console.error("Please configure channels for at least one variant");
       return;
     }
 
@@ -607,10 +675,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       scaleNum: parameters.scaleNum,
     });
 
-    // Convert CT channel pairs from names to indices
+    // Get CT channel pairs from variant config
+    const ctConfig = parameters.variantChannelConfigs["cross_timeseries"];
     const ctChannelPairs: [number, number][] | undefined =
-      parameters.ctChannelPairs.length > 0 && selectedFile
-        ? parameters.ctChannelPairs
+      ctConfig?.ctChannelPairs &&
+      ctConfig.ctChannelPairs.length > 0 &&
+      selectedFile
+        ? ctConfig.ctChannelPairs
             .map(([ch1, ch2]) => {
               const idx1 = selectedFile!.channels.indexOf(ch1);
               const idx2 = selectedFile!.channels.indexOf(ch2);
@@ -619,10 +690,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             .filter(([idx1, idx2]) => idx1 !== -1 && idx2 !== -1)
         : undefined;
 
-    // Convert CD channel pairs from names to indices (directed pairs)
+    // Get CD channel pairs from variant config
+    const cdConfig = parameters.variantChannelConfigs["cross_dynamical"];
     const cdChannelPairs: [number, number][] | undefined =
-      parameters.cdChannelPairs.length > 0 && selectedFile
-        ? parameters.cdChannelPairs
+      cdConfig?.cdChannelPairs &&
+      cdConfig.cdChannelPairs.length > 0 &&
+      selectedFile
+        ? cdConfig.cdChannelPairs
             .map(([from, to]) => {
               const fromIdx = selectedFile!.channels.indexOf(from);
               const toIdx = selectedFile!.channels.indexOf(to);
@@ -631,10 +705,16 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             .filter(([fromIdx, toIdx]) => fromIdx !== -1 && toIdx !== -1)
         : undefined;
 
+    // Convert channel names to indices BEFORE creating the request
+    const channelNames = Array.from(allChannels);
+    const channelIndices = channelNames
+      .map((ch) => selectedFile!.channels.indexOf(ch))
+      .filter((idx) => idx !== -1);
+
     // Prepare the analysis request
     const request: DDAAnalysisRequest = {
       file_path: selectedFile.file_path,
-      channels: parameters.selectedChannels,
+      channels: channelIndices.map((idx) => idx.toString()), // API service expects numeric strings
       start_time: parameters.timeStart,
       end_time: parameters.timeEnd,
       variants: parameters.variants,
@@ -649,37 +729,34 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       cd_channel_pairs: cdChannelPairs,
     };
 
-    // Convert channel names to indices for comparison
-    const channelIndices = parameters.selectedChannels.map((ch) =>
-      typeof ch === "string" ? selectedFile!.channels.indexOf(ch) : ch,
-    );
-
     console.log("📋 [LOCAL] DDA Analysis Parameters:");
     console.log(`   File: ${selectedFile.file_path}`);
     console.log(`   Sample rate: ${selectedFile.sample_rate} Hz`);
-    console.log(`   Channels (names): [${request.channels.join(", ")}]`);
-    console.log(`   Channels (indices): [${channelIndices.join(", ")}]`);
+    console.log(`   Channels (names): [${channelNames.join(", ")}]`);
     console.log(
-      `   Time range: ${request.start_time} - ${request.end_time} seconds`,
+      `   Channels (indices sent to API): [${request.channels.join(", ")}]`
     );
     console.log(
-      `   Window: length=${request.window_length}, step=${request.window_step}`,
+      `   Time range: ${request.start_time} - ${request.end_time} seconds`
     );
     console.log(
-      `   Scale: min=${request.scale_min}, max=${request.scale_max}, num=${request.scale_num}`,
+      `   Window: length=${request.window_length}, step=${request.window_step}`
+    );
+    console.log(
+      `   Scale: min=${request.scale_min}, max=${request.scale_max}, num=${request.scale_num}`
     );
     if (ctChannelPairs && ctChannelPairs.length > 0) {
       console.log(
         `   CT channel pairs: ${ctChannelPairs
           .map(([a, b]) => `[${a}, ${b}]`)
-          .join(", ")}`,
+          .join(", ")}`
       );
     }
     if (cdChannelPairs && cdChannelPairs.length > 0) {
       console.log(
         `   CD channel pairs (directed): ${cdChannelPairs
           .map(([from, to]) => `[${from} → ${to}]`)
-          .join(", ")}`,
+          .join(", ")}`
       );
     }
 
@@ -690,7 +767,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           parameters.scaleMin, // lag (using scaleMin as proxy)
           4, // dimension (default)
           parameters.windowLength,
-          parameters.windowStep,
+          parameters.windowStep
         );
         await recordAction(paramAction);
         incrementActionCount();
@@ -706,14 +783,17 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
     submitAnalysisMutation.mutate(request, {
       onSuccess: (result) => {
-        // Add custom name to result if provided
-        const resultWithName = analysisName.trim()
-          ? { ...result, name: analysisName.trim() }
-          : result;
+        // Ensure channels are properly set in the result
+        // The backend may return empty or generic channel names, so we use the actual names
+        const resultWithChannels = {
+          ...result,
+          channels: channelNames, // Use the actual channel names, not the indices
+          name: analysisName.trim() || result.name,
+        };
 
-        setResults(resultWithName);
-        setCurrentAnalysis(resultWithName);
-        addAnalysisToHistory(resultWithName);
+        setResults(resultWithChannels);
+        setCurrentAnalysis(resultWithChannels);
+        addAnalysisToHistory(resultWithChannels);
         setLocalIsRunning(false);
         setDDARunning(false);
         setAnalysisName(""); // Clear name after successful analysis
@@ -728,11 +808,11 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
           console.log(
             "[WORKFLOW] Recording DDA analysis with channel indices:",
-            channelIndices,
+            channelIndices
           );
           const analysisAction = createRunDDAAnalysisAction(
             result.id,
-            channelIndices,
+            channelIndices
           );
           recordAction(analysisAction)
             .then(() => {
@@ -745,7 +825,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         }
 
         // Save to history asynchronously (non-blocking)
-        saveToHistoryMutation.mutate(resultWithName, {
+        saveToHistoryMutation.mutate(resultWithChannels, {
           onError: (err) => {
             console.error("Background save to history failed:", err);
           },
@@ -780,13 +860,38 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const submitToNSG = async () => {
     if (!TauriService.isTauri()) {
       setNsgError(
-        "NSG submission is only available in the Tauri desktop application",
+        "NSG submission is only available in the Tauri desktop application"
       );
       return;
     }
 
-    if (!selectedFile || parameters.selectedChannels.length === 0) {
-      setNsgError("Please select a file and at least one channel");
+    // Extract all channels from variant configurations
+    const allChannels = new Set<string>();
+    parameters.variants.forEach((variantId) => {
+      const config = parameters.variantChannelConfigs[variantId];
+      if (config) {
+        if (config.selectedChannels) {
+          config.selectedChannels.forEach((ch) => allChannels.add(ch));
+        }
+        if (config.ctChannelPairs) {
+          config.ctChannelPairs.forEach(([ch1, ch2]) => {
+            allChannels.add(ch1);
+            allChannels.add(ch2);
+          });
+        }
+        if (config.cdChannelPairs) {
+          config.cdChannelPairs.forEach(([from, to]) => {
+            allChannels.add(from);
+            allChannels.add(to);
+          });
+        }
+      }
+    });
+
+    if (!selectedFile || allChannels.size === 0) {
+      setNsgError(
+        "Please select a file and configure channels for at least one variant"
+      );
       return;
     }
 
@@ -802,11 +907,12 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
       // Build DDA request parameters in the format expected by Rust DDARequest struct
       // Note: selectedFile is guaranteed to be non-null by the check above
+      const channelArray = Array.from(allChannels);
       const request = {
         file_path: selectedFile!.file_path,
         channels:
-          parameters.selectedChannels.length > 0
-            ? parameters.selectedChannels.map((ch) => {
+          channelArray.length > 0
+            ? channelArray.map((ch) => {
                 const channelIndex = selectedFile!.channels.indexOf(ch);
                 return channelIndex >= 0 ? channelIndex : 0;
               })
@@ -835,9 +941,21 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           scale_num: parameters.scaleNum,
           delay_list: parameters.delayConfig.list,
         },
-        model_parameters:
+        model_dimension:
           parameters.expertMode && parameters.modelParameters
-            ? parameters.modelParameters
+            ? parameters.modelParameters.dm
+            : undefined,
+        polynomial_order:
+          parameters.expertMode && parameters.modelParameters
+            ? parameters.modelParameters.order
+            : undefined,
+        nr_tau:
+          parameters.expertMode && parameters.modelParameters
+            ? parameters.modelParameters.nr_tau
+            : undefined,
+        model_params:
+          parameters.expertMode && parameters.modelParameters?.encoding
+            ? parameters.modelParameters.encoding
             : undefined,
         ct_channel_pairs:
           parameters.ctChannelPairs?.length > 0
@@ -854,24 +972,24 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       // Map channel indices back to names for display
       const channelNames =
         request.channels?.map(
-          (idx) => selectedFile.channels[idx] || `Unknown(${idx})`,
+          (idx) => selectedFile.channels[idx] || `Unknown(${idx})`
         ) || [];
 
       console.log("📋 [NSG] DDA Analysis Parameters:");
       console.log(`   File: ${selectedFile.file_path}`);
       console.log(`   Sample rate: ${selectedFile.sample_rate} Hz`);
       console.log(
-        `   Channels (indices): [${request.channels?.join(", ") || ""}]`,
+        `   Channels (indices): [${request.channels?.join(", ") || ""}]`
       );
       console.log(`   Channels (names): [${channelNames.join(", ")}]`);
       console.log(
-        `   Time range: ${request.time_range.start} - ${request.time_range.end} seconds`,
+        `   Time range: ${request.time_range.start} - ${request.time_range.end} seconds`
       );
       console.log(
-        `   Window: length=${request.window_parameters.window_length}, step=${request.window_parameters.window_step}`,
+        `   Window: length=${request.window_parameters.window_length}, step=${request.window_parameters.window_step}`
       );
       console.log(
-        `   Scale: min=${request.scale_parameters.scale_min}, max=${request.scale_parameters.scale_max}, num=${request.scale_parameters.scale_num}`,
+        `   Scale: min=${request.scale_parameters.scale_min}, max=${request.scale_parameters.scale_max}, num=${request.scale_parameters.scale_num}`
       );
 
       setNsgSubmissionPhase("Creating job in database...");
@@ -880,13 +998,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       const jobId = await TauriService.createNSGJob(
         "PY_EXPANSE",
         request,
-        selectedFile.file_path,
+        selectedFile.file_path
       );
 
       console.log("[NSG] Job created with ID:", jobId);
 
       setNsgSubmissionPhase(
-        "Uploading file to NSG (this may take a few minutes for large files)...",
+        "Uploading file to NSG (this may take a few minutes for large files)..."
       );
 
       // Submit the job to NSG
@@ -902,11 +1020,11 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         "NSG Job Submitted",
         `Job successfully submitted to Neuroscience Gateway. Job ID: ${jobId.substring(
           0,
-          8,
+          8
         )}...`,
         NotificationType.Success,
         "navigate_nsg_manager",
-        { jobId },
+        { jobId }
       );
     } catch (error) {
       console.error("[NSG] Submission error:", error);
@@ -916,7 +1034,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         error,
       });
       setNsgError(
-        error instanceof Error ? error.message : "Failed to submit job to NSG",
+        error instanceof Error ? error.message : "Failed to submit job to NSG"
       );
       setNsgSubmissionPhase("");
       setIsSubmittingToNsg(false);
@@ -952,6 +1070,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       ctWindowStep: undefined,
       ctChannelPairs: [],
       cdChannelPairs: [],
+      variantChannelConfigs: {}, // Reset per-variant configs
       parallelCores: 1,
       nsgResourceConfig: {
         runtimeHours: 1.0,
@@ -1020,7 +1139,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           analysisName: analysisName || "DDA Analysis",
           description: `DDA configuration for ${selectedFile.file_name}`,
           analysisId: results?.id,
-        },
+        }
       );
 
       // Set the computed hash
@@ -1029,7 +1148,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       const jsonContent = serializeDDAConfig(config);
       const filename = generateExportFilename(
         analysisName || "analysis",
-        selectedFile.file_name,
+        selectedFile.file_name
       );
 
       if (TauriService.isTauri()) {
@@ -1057,7 +1176,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           await TauriService.createNotification(
             "Configuration Exported",
             `Saved to ${filePath}`,
-            NotificationType.Success,
+            NotificationType.Success
           );
         }
       } else {
@@ -1076,7 +1195,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         await TauriService.createNotification(
           "Export Failed",
           error instanceof Error ? error.message : "Unknown error",
-          NotificationType.Error,
+          NotificationType.Error
         );
       }
     }
@@ -1212,7 +1331,19 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             <Button
               onClick={runAnalysis}
               disabled={
-                localIsRunning || parameters.selectedChannels.length === 0
+                localIsRunning ||
+                !parameters.variants.some((variantId) => {
+                  const config = parameters.variantChannelConfigs[variantId];
+                  return (
+                    config &&
+                    ((config.selectedChannels &&
+                      config.selectedChannels.length > 0) ||
+                      (config.ctChannelPairs &&
+                        config.ctChannelPairs.length > 0) ||
+                      (config.cdChannelPairs &&
+                        config.cdChannelPairs.length > 0))
+                  );
+                })
               }
               className="min-w-[120px]"
             >
@@ -1319,12 +1450,12 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             </Card>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-3">
             {/* Algorithm Selection */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Algorithm Selection</CardTitle>
-                <CardDescription>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">Algorithm Selection</CardTitle>
+                <CardDescription className="text-xs">
                   Choose DDA variants to compute
                 </CardDescription>
               </CardHeader>
@@ -1351,7 +1482,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                           const newVariants = checked
                             ? [...parameters.variants, variant.id]
                             : parameters.variants.filter(
-                                (v) => v !== variant.id,
+                                (v) => v !== variant.id
                               );
                           setLocalParameters((prev) => ({
                             ...prev,
@@ -1362,11 +1493,11 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <Label className="text-sm font-semibold">
+                          <Label className="text-xs font-semibold">
                             {variant.name}
                           </Label>
                           <span
-                            className="text-xs font-bold px-2.5 py-1 rounded-md shadow-sm"
+                            className="text-[10px] font-bold px-2 py-0.5 rounded shadow-sm"
                             style={{
                               backgroundColor: variant.color,
                               color: "white",
@@ -1375,7 +1506,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                             {variant.abbreviation}
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-1">
+                        <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">
                           {variant.description}
                         </p>
                       </div>
@@ -1385,11 +1516,15 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               </CardContent>
             </Card>
 
-            {/* Time Range */}
+            {/* Time Range & Window Parameters - Combined for compactness */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Time Range</CardTitle>
-                <CardDescription>Analysis time window</CardDescription>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">
+                  Time Range & Window Settings
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Analysis window configuration
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
@@ -1421,7 +1556,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                         ...prev,
                         timeEnd: Math.min(
                           maxDuration,
-                          Math.max(prev.timeStart + 0.1, inputValue),
+                          Math.max(prev.timeStart + 0.1, inputValue)
                         ),
                       }));
                     }}
@@ -1435,355 +1570,81 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   Duration:{" "}
                   {(parameters.timeEnd - parameters.timeStart).toFixed(1)}s
                 </div>
-              </CardContent>
-            </Card>
-          </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            {/* Window Parameters */}
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center gap-2">
-                  <CardTitle className="text-base">Window Parameters</CardTitle>
-                  <InfoTooltip
-                    content={
-                      <div className="space-y-1">
-                        <p className="font-semibold">Window Parameters</p>
-                        <p>
-                          <strong>Window Length:</strong> Number of data points
-                          in each analysis window
-                        </p>
-                        <p>
-                          <strong>Window Step:</strong> Number of points to
-                          shift between consecutive windows
-                        </p>
-                        <p className="text-xs mt-2">
-                          Smaller steps = higher temporal resolution but longer
-                          computation time
-                        </p>
-                      </div>
-                    }
-                  />
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <ParameterInput
-                  label="Window Length"
-                  value={parameters.windowLength}
-                  onChange={(value) =>
-                    setLocalParameters((prev) => ({
-                      ...prev,
-                      windowLength: value,
-                    }))
-                  }
-                  sampleRate={selectedFile?.sample_rate || 256}
-                  disabled={localIsRunning}
-                  min={50}
-                  max={500}
-                  tooltip="Number of samples in each analysis window"
-                />
-                <ParameterInput
-                  label="Window Step"
-                  value={parameters.windowStep}
-                  onChange={(value) =>
-                    setLocalParameters((prev) => ({
-                      ...prev,
-                      windowStep: value,
-                    }))
-                  }
-                  sampleRate={selectedFile?.sample_rate || 256}
-                  disabled={localIsRunning}
-                  min={1}
-                  max={50}
-                  tooltip="Shift between consecutive windows (smaller = more overlap)"
-                />
-              </CardContent>
-            </Card>
-
-            {/* CT-Specific Parameters */}
-            {parameters.variants.includes("cross_timeseries") && (
-              <Card>
-                <CardHeader>
+                {/* Window Parameters - Merged into same card */}
+                <div className="pt-4 mt-4 border-t space-y-3">
                   <div className="flex items-center gap-2">
-                    <CardTitle className="text-base">CT Parameters</CardTitle>
+                    <h4 className="text-xs font-semibold">Window Parameters</h4>
                     <InfoTooltip
                       content={
                         <div className="space-y-1">
-                          <p className="font-semibold">
-                            Cross-Timeseries Parameters
+                          <p className="font-semibold">Window Parameters</p>
+                          <p>
+                            <strong>Window Length:</strong> Number of data
+                            points in each analysis window
                           </p>
                           <p>
-                            Optional custom window settings for information flow
-                            across time series. If not set, uses standard window
-                            parameters.
+                            <strong>Window Step:</strong> Number of points to
+                            shift between consecutive windows
+                          </p>
+                          <p className="text-xs mt-2">
+                            Smaller steps = higher temporal resolution but
+                            longer computation time
                           </p>
                         </div>
                       }
                     />
                   </div>
-                  <CardDescription>
-                    Cross-Timeseries specific settings (optional)
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label className="text-sm mb-2 block">
-                      CT Window Length (optional)
-                    </Label>
-                    {parameters.ctWindowLength === undefined ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          setLocalParameters((prev) => ({
-                            ...prev,
-                            ctWindowLength: prev.windowLength,
-                          }))
-                        }
-                        disabled={localIsRunning}
-                      >
-                        Set Custom CT Window Length
-                      </Button>
-                    ) : (
-                      <div className="space-y-2">
-                        <ParameterInput
-                          label=""
-                          value={parameters.ctWindowLength}
-                          onChange={(value) =>
-                            setLocalParameters((prev) => ({
-                              ...prev,
-                              ctWindowLength: value,
-                            }))
-                          }
-                          sampleRate={selectedFile?.sample_rate || 256}
-                          disabled={localIsRunning}
-                          min={10}
-                          max={1000}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            setLocalParameters((prev) => ({
-                              ...prev,
-                              ctWindowLength: undefined,
-                            }))
-                          }
-                          disabled={localIsRunning}
-                        >
-                          Use Standard Window Length
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <Label className="text-sm mb-2 block">
-                      CT Window Step (optional)
-                    </Label>
-                    {parameters.ctWindowStep === undefined ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          setLocalParameters((prev) => ({
-                            ...prev,
-                            ctWindowStep: prev.windowStep,
-                          }))
-                        }
-                        disabled={localIsRunning}
-                      >
-                        Set Custom CT Window Step
-                      </Button>
-                    ) : (
-                      <div className="space-y-2">
-                        <ParameterInput
-                          label=""
-                          value={parameters.ctWindowStep}
-                          onChange={(value) =>
-                            setLocalParameters((prev) => ({
-                              ...prev,
-                              ctWindowStep: value,
-                            }))
-                          }
-                          sampleRate={selectedFile?.sample_rate || 256}
-                          disabled={localIsRunning}
-                          min={1}
-                          max={100}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            setLocalParameters((prev) => ({
-                              ...prev,
-                              ctWindowStep: undefined,
-                            }))
-                          }
-                          disabled={localIsRunning}
-                        >
-                          Use Standard Window Step
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <Label className="text-sm">
-                        Channel Pairs ({parameters.ctChannelPairs.length})
-                      </Label>
-                      {parameters.ctChannelPairs.length > 0 && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            setLocalParameters((prev) => ({
-                              ...prev,
-                              ctChannelPairs: [],
-                            }))
-                          }
-                          disabled={localIsRunning}
-                        >
-                          Clear All
-                        </Button>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground mb-3">
-                      Click two channels below to create a pair
-                    </p>
+                  <ParameterInput
+                    label="Window Length"
+                    value={parameters.windowLength}
+                    onChange={(value) =>
+                      setLocalParameters((prev) => ({
+                        ...prev,
+                        windowLength: value,
+                      }))
+                    }
+                    sampleRate={selectedFile?.sample_rate || 256}
+                    disabled={localIsRunning}
+                    min={50}
+                    max={500}
+                    tooltip="Number of samples in each analysis window"
+                  />
+                  <ParameterInput
+                    label="Window Step"
+                    value={parameters.windowStep}
+                    onChange={(value) =>
+                      setLocalParameters((prev) => ({
+                        ...prev,
+                        windowStep: value,
+                      }))
+                    }
+                    sampleRate={selectedFile?.sample_rate || 256}
+                    disabled={localIsRunning}
+                    min={1}
+                    max={50}
+                    tooltip="Shift between consecutive windows (smaller = more overlap)"
+                  />
+                </div>
+              </CardContent>
+            </Card>
 
-                    {/* Display existing pairs */}
-                    {parameters.ctChannelPairs.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mb-3 p-2 bg-muted/50 rounded-md">
-                        {parameters.ctChannelPairs.map(([ch1, ch2], idx) => (
-                          <Badge
-                            key={idx}
-                            variant="secondary"
-                            className="cursor-pointer hover:bg-destructive/80"
-                            onClick={() => {
-                              setLocalParameters((prev) => ({
-                                ...prev,
-                                ctChannelPairs: prev.ctChannelPairs.filter(
-                                  (_, i) => i !== idx,
-                                ),
-                              }));
-                            }}
-                          >
-                            {ch1} ⟷ {ch2} ×
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Channel pair picker */}
-                    {selectedFile && (
-                      <CTChannelPairPicker
-                        channels={selectedFile.channels}
-                        onPairAdded={(ch1, ch2) => {
-                          setLocalParameters((prev) => ({
-                            ...prev,
-                            ctChannelPairs: [
-                              ...prev.ctChannelPairs,
-                              [ch1, ch2],
-                            ],
-                          }));
-                        }}
-                        disabled={localIsRunning}
-                      />
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* CD-Specific Parameters */}
-            {parameters.variants.includes("cross_dynamical") && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">CD Parameters</CardTitle>
-                  <CardDescription>
-                    Cross-Dynamical specific settings
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label className="text-sm font-semibold">
-                      Channel Pairs (Directed)
-                    </Label>
-                    <p className="text-xs text-muted-foreground mb-2">
-                      Select directed channel pairs for Cross-Dynamical analysis
-                      (From → To)
-                    </p>
-
-                    {/* Display current pairs */}
-                    {parameters.cdChannelPairs.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mb-3">
-                        {parameters.cdChannelPairs.map(([from, to], idx) => (
-                          <Badge
-                            key={idx}
-                            variant="secondary"
-                            className="cursor-pointer hover:bg-destructive/20"
-                            onClick={() => {
-                              if (!localIsRunning) {
-                                setLocalParameters((prev) => ({
-                                  ...prev,
-                                  cdChannelPairs: prev.cdChannelPairs.filter(
-                                    (_, i) => i !== idx,
-                                  ),
-                                }));
-                              }
-                            }}
-                          >
-                            {from} → {to}
-                            <X className="ml-1 h-3 w-3" />
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-
-                    {parameters.cdChannelPairs.length === 0 && (
-                      <p className="text-sm text-amber-600 mb-2">
-                        No directed pairs selected. Please add at least one
-                        pair.
-                      </p>
-                    )}
-
-                    {/* Channel pair picker */}
-                    {selectedFile && (
-                      <CDChannelPairPicker
-                        channels={selectedFile.channels}
-                        onPairAdded={(from, to) => {
-                          setLocalParameters((prev) => ({
-                            ...prev,
-                            cdChannelPairs: [
-                              ...prev.cdChannelPairs,
-                              [from, to],
-                            ],
-                          }));
-                        }}
-                        disabled={localIsRunning}
-                      />
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Expert Mode Toggle */}
+            {/* Expert Mode Toggle - Compact */}
             <Card>
-              <CardHeader>
+              <CardHeader className="pb-3 pt-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle className="text-base">
+                    <CardTitle className="text-sm">
                       Configuration Mode
                     </CardTitle>
-                    <CardDescription>
+                    <CardDescription className="text-xs">
                       {parameters.expertMode
-                        ? "Advanced settings for delays and MODEL parameters"
-                        : "Simple mode uses default settings (delays: [7, 10], MODEL: 1 2 10)"}
+                        ? "Advanced delays & MODEL parameters"
+                        : "Simple mode (delays: [7, 10], MODEL: 1 2 10)"}
                     </CardDescription>
                   </div>
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <span className="text-sm font-medium">Expert Mode</span>
+                    <span className="text-xs font-medium">Expert Mode</span>
                     <input
                       type="checkbox"
                       checked={parameters.expertMode}
@@ -1793,7 +1654,12 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                           ...prev,
                           expertMode,
                           modelParameters: expertMode
-                            ? { dm: 4, order: 4, nr_tau: 2 }
+                            ? {
+                                dm: 4,
+                                order: 4,
+                                nr_tau: 2,
+                                encoding: [1, 2, 10],
+                              }
                             : undefined,
                         }));
                       }}
@@ -1826,106 +1692,55 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
             {/* MODEL Parameters - Only in Expert Mode */}
             {parameters.expertMode && parameters.modelParameters && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">MODEL Parameters</CardTitle>
-                  <CardDescription>
-                    Advanced DDA algorithm parameters (defaults: dm=4, order=4,
-                    nr_tau=2)
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <Label htmlFor="dm" className="text-sm">
-                        Embedding Dimension (dm)
-                      </Label>
-                      <Input
-                        id="dm"
-                        type="number"
-                        min="1"
-                        max="10"
-                        value={parameters.modelParameters.dm}
-                        onChange={(e) => {
-                          const dm = parseInt(e.target.value) || 4;
-                          setLocalParameters((prev) => ({
-                            ...prev,
-                            modelParameters: {
-                              ...prev.modelParameters!,
-                              dm,
-                            },
-                          }));
-                        }}
-                        disabled={localIsRunning}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="order" className="text-sm">
-                        Polynomial Order
-                      </Label>
-                      <Input
-                        id="order"
-                        type="number"
-                        min="1"
-                        max="10"
-                        value={parameters.modelParameters.order}
-                        onChange={(e) => {
-                          const order = parseInt(e.target.value) || 4;
-                          setLocalParameters((prev) => ({
-                            ...prev,
-                            modelParameters: {
-                              ...prev.modelParameters!,
-                              order,
-                            },
-                          }));
-                        }}
-                        disabled={localIsRunning}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="nr_tau" className="text-sm">
-                        Number of Tau (nr_tau)
-                      </Label>
-                      <Input
-                        id="nr_tau"
-                        type="number"
-                        min="1"
-                        max="10"
-                        value={parameters.modelParameters.nr_tau}
-                        onChange={(e) => {
-                          const nr_tau = parseInt(e.target.value) || 2;
-                          setLocalParameters((prev) => ({
-                            ...prev,
-                            modelParameters: {
-                              ...prev.modelParameters!,
-                              nr_tau,
-                            },
-                          }));
-                        }}
-                        disabled={localIsRunning}
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              <ModelBuilder
+                numDelays={parameters.modelParameters.nr_tau}
+                polynomialOrder={parameters.modelParameters.order}
+                selectedTerms={
+                  parameters.modelParameters.encoding || [1, 2, 10]
+                }
+                onTermsChange={(terms) => {
+                  setLocalParameters((prev) => ({
+                    ...prev,
+                    modelParameters: {
+                      ...prev.modelParameters!,
+                      encoding: terms,
+                    },
+                  }));
+                }}
+                tauValues={parameters.delayConfig.list}
+              />
             )}
           </div>
 
-          {/* Channel Selection */}
-          <ChannelSelector
-            channels={selectedFile.channels}
-            selectedChannels={parameters.selectedChannels}
-            onSelectionChange={(channels) => {
-              setLocalParameters((prev) => ({
-                ...prev,
-                selectedChannels: channels,
-              }));
-            }}
-            label="Channel Selection"
-            description="Select channels for DDA analysis"
-            variant="default"
-            maxHeight="max-h-40"
-          />
+          {/* Per-Variant Channel Configuration */}
+          {parameters.variants.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">Channel Configuration</CardTitle>
+                <CardDescription className="text-xs">
+                  Configure channels for each enabled variant
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <CompactChannelConfigGroup
+                  variants={availableVariants}
+                  selectedVariants={parameters.variants}
+                  channels={selectedFile.channels}
+                  disabled={localIsRunning}
+                  channelConfigs={parameters.variantChannelConfigs}
+                  onConfigChange={(variantId, config) => {
+                    setLocalParameters((prev) => ({
+                      ...prev,
+                      variantChannelConfigs: {
+                        ...prev.variantChannelConfigs,
+                        [variantId]: config,
+                      },
+                    }));
+                  }}
+                />
+              </CardContent>
+            </Card>
+          )}
 
           {/* Analysis Summary */}
           <Card>
