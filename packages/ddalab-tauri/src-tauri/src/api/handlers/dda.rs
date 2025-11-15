@@ -321,6 +321,14 @@ pub async fn run_dda_analysis(
             .map(|vr| {
                 let variant_channel_labels = vr.channel_labels.as_ref().unwrap_or(&channel_names);
 
+                // DEBUG: Log variant details
+                log::info!("[DEBUG] Processing variant {}:", vr.variant_id);
+                log::info!("  Q matrix rows: {}", vr.q_matrix.len());
+                log::info!("  Channel labels count: {}", variant_channel_labels.len());
+                if !variant_channel_labels.is_empty() {
+                    log::info!("  First 5 labels: {:?}", variant_channel_labels.iter().take(5).collect::<Vec<_>>());
+                }
+
                 let mut variant_dda_matrix = serde_json::Map::new();
                 for (i, channel_label) in variant_channel_labels.iter().enumerate() {
                     if i < vr.q_matrix.len() {
@@ -328,6 +336,8 @@ pub async fn run_dda_analysis(
                             .insert(channel_label.clone(), serde_json::json!(vr.q_matrix[i]));
                     }
                 }
+
+                log::info!("  DDA matrix keys added: {}", variant_dda_matrix.len());
 
                 serde_json::json!({
                     "variant_id": map_variant_id_to_frontend(&vr.variant_id),
@@ -795,32 +805,35 @@ fn get_dda_binary_path(state: &ApiState) -> Result<PathBuf, StatusCode> {
 
 fn generate_select_mask(enabled_variants: &[String]) -> String {
     // Check which variants are explicitly enabled
-    let cd_enabled = enabled_variants.iter().any(|v| v == "cross_dynamical");
-    let st_explicit = enabled_variants.iter().any(|v| v == "single_timeseries");
-    let ct_explicit = enabled_variants.iter().any(|v| v == "cross_timeseries");
-
-    // CD requires ST and CT to be enabled as well
-    // If CD is enabled, automatically enable ST and CT
-    let st = if st_explicit || cd_enabled { "1" } else { "0" };
-    let ct = if ct_explicit || cd_enabled { "1" } else { "0" };
-    let cd = if cd_enabled { "1" } else { "0" };
+    // Format: ST CT CD RESERVED DE SY
+    let st = if enabled_variants.iter().any(|v| v == "single_timeseries") {
+        "1"
+    } else {
+        "0"
+    };
+    let ct = if enabled_variants.iter().any(|v| v == "cross_timeseries") {
+        "1"
+    } else {
+        "0"
+    };
+    let cd = if enabled_variants.iter().any(|v| v == "cross_dynamical") {
+        "1"
+    } else {
+        "0"
+    };
+    let reserved = "0"; // Reserved bit for internal development
     let de = if enabled_variants.iter().any(|v| v == "dynamical_ergodicity") {
         "1"
     } else {
         "0"
     };
+    let sy = if enabled_variants.iter().any(|v| v == "synchronization") {
+        "1"
+    } else {
+        "0"
+    };
 
-    let mask = format!("{} {} {} {}", st, ct, cd, de);
-
-    // Log when CD auto-enables ST and CT
-    if cd_enabled && (!st_explicit || !ct_explicit) {
-        log::info!(
-            "CD-DDA enabled: automatically enabling ST and CT (SELECT mask: {})",
-            mask
-        );
-    }
-
-    mask
+    format!("{} {} {} {} {} {}", st, ct, cd, reserved, de, sy)
 }
 
 fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
@@ -895,6 +908,7 @@ fn map_variant_id_to_frontend(variant_id: &str) -> String {
         "CT" => "cross_timeseries".to_string(),
         "CD" => "cross_dynamical".to_string(),
         "DE" => "delay_evolution".to_string(),
+        "SY" => "synchronization".to_string(),
         _ => variant_id.to_lowercase().replace('-', "_"),
     }
 }
