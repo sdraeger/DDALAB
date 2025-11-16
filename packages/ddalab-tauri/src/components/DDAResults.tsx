@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo, Suspense } from "react";
 import { useAppStore } from "@/store/appStore";
+import { profiler, useRenderProfiler } from "@/utils/performance";
+import { throttle } from "@/utils/debounce";
 import { DDAResult } from "@/types/api";
 import {
   Card,
@@ -61,6 +63,7 @@ import { useDDAAnnotations } from "@/hooks/useAnnotations";
 import { AnnotationContextMenu } from "@/components/annotations/AnnotationContextMenu";
 import { AnnotationMarker } from "@/components/annotations/AnnotationMarker";
 import { PlotAnnotation, PlotInfo } from "@/types/annotations";
+import { PlotLoadingSkeleton } from "@/components/dda/PlotLoadingSkeleton";
 
 interface DDAResultsProps {
   result: DDAResult;
@@ -71,6 +74,14 @@ type ViewMode = "heatmap" | "lineplot" | "both";
 
 // Internal component (will be wrapped with memo at export)
 function DDAResultsComponent({ result }: DDAResultsProps) {
+  // Performance profiling for this component
+  // TEMPORARILY DISABLED to check if profiler is adding overhead
+  // useRenderProfiler('DDAResults');
+
+  // CRITICAL FIX: Progressive rendering to prevent UI freeze
+  // Render controls first, defer heavy plot containers to next frame
+  const [showPlots, setShowPlots] = useState(false);
+
   // Popout window hooks with memoization
   const { createWindow, broadcastToType } = usePopoutWindows();
 
@@ -135,6 +146,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     })(),
   );
 
+  // Start with both views for better user experience
   const [viewMode, setViewMode] = useState<ViewMode>("both");
   const [colorScheme, setColorScheme] = useState<ColorScheme>("viridis");
   const [heatmapHeight, setHeatmapHeight] = useState(() => {
@@ -156,6 +168,15 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   const [isResizing, setIsResizing] = useState<"heatmap" | "lineplot" | null>(
     null,
   );
+
+  // CRITICAL FIX: Progressive rendering - defer plot containers to prevent UI freeze
+  // Render controls first, then mount heavy plot containers on next frame
+  useEffect(() => {
+    const rafId = requestAnimationFrame(() => {
+      setShowPlots(true);
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, []);
 
   // Persist plot heights to localStorage and keep refs in sync
   useEffect(() => {
@@ -196,7 +217,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   const [heatmapData, setHeatmapData] = useState<number[][]>([]);
   const [colorRange, setColorRange] = useState<[number, number]>([0, 1]);
   const [autoScale, setAutoScale] = useState(true);
-  const [isProcessingData, setIsProcessingData] = useState(true);
+  const [isProcessingData, setIsProcessingData] = useState(false);
   const [isRenderingHeatmap, setIsRenderingHeatmap] = useState(false);
   const [isRenderingLinePlot, setIsRenderingLinePlot] = useState(false);
 
@@ -446,8 +467,14 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   };
 
   // Memoized heatmap data processing - only recompute when inputs change
+  // CRITICAL FIX: Defer processing until showPlots is true to prevent UI freeze
   const { heatmapData: processedHeatmapData, colorRange: computedColorRange } =
     useMemo(() => {
+      // Don't process data until plots are ready to show
+      if (!showPlots) {
+        return { heatmapData: [], colorRange: [0, 1] as [number, number] };
+      }
+
       const startTime = performance.now();
       console.log(
         "[PERF] Starting heatmap data processing for",
@@ -528,7 +555,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         heatmapData: data,
         colorRange: [minVal, maxVal] as [number, number],
       };
-    }, [selectedChannels, currentVariantData, autoScale]);
+    }, [showPlots, selectedChannels, currentVariantData, autoScale]);
 
   // Track previous heatmap data to prevent unnecessary updates
   const prevHeatmapDataRef = useRef<{
@@ -572,14 +599,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       prevHeatmapDataRef.current.range = computedColorRange;
     }
 
-    // CRITICAL FIX: Update state SYNCHRONOUSLY instead of using RAF
-    // The RAF delay was causing race conditions where selectedChannels updated
-    // before heatmapData, causing plots to disappear when switching variants
-    setIsProcessingData(false);
-
+    // Data processing is already fast (~16ms), no need to defer the update
     if (dataChanged) {
       console.log(
-        `[HEATMAP DATA] Updating heatmapData synchronously for variant ${currentVariantId}, ${processedHeatmapData.length} channels`,
+        `[HEATMAP DATA] Updating heatmapData for variant ${currentVariantId}, ${processedHeatmapData.length} channels`,
       );
       setHeatmapData(processedHeatmapData);
     }
@@ -636,9 +659,16 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     // CRITICAL: Defer heavy rendering to NEXT frame so browser can paint loading state first
     // Without this, the loading overlay never shows because we block the main thread
     const deferredRender = () => {
+      profiler.start('heatmap-render', {
+        channels: selectedChannels.length,
+        timePoints: result.results.scales.length,
+        variant: currentVariantData?.variant_id,
+      });
+
       try {
         // Double-check ref is still available
         if (!heatmapRef.current) {
+          profiler.end('heatmap-render');
           return;
         }
 
@@ -819,20 +849,27 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
         uplotHeatmapRef.current = new uPlot(opts, plotData, heatmapRef.current);
 
-        const resizeObserver = new ResizeObserver(() => {
-          if (uplotHeatmapRef.current && heatmapRef.current) {
-            const newWidth = heatmapRef.current.clientWidth || 800;
-            const currentHeight = heatmapHeightRef.current;
-            console.log(
-              `[HEATMAP RESIZE] Resizing to width=${newWidth}, height=${currentHeight}`,
-            );
-            uplotHeatmapRef.current.setSize({
-              width: newWidth,
-              height: currentHeight,
-            });
-            uplotHeatmapRef.current.redraw();
-          }
-        });
+        const resizeObserver = new ResizeObserver(
+          throttle(() => {
+            profiler.start('heatmap-resize', { category: 'render' });
+            try {
+              if (uplotHeatmapRef.current && heatmapRef.current) {
+                const newWidth = heatmapRef.current.clientWidth || 800;
+                const currentHeight = heatmapHeightRef.current;
+                console.log(
+                  `[HEATMAP RESIZE] Resizing to width=${newWidth}, height=${currentHeight}`,
+                );
+                uplotHeatmapRef.current.setSize({
+                  width: newWidth,
+                  height: currentHeight,
+                });
+                uplotHeatmapRef.current.redraw();
+              }
+            } finally {
+              profiler.end('heatmap-resize');
+            }
+          }, 100), // Throttle to max 10 times per second
+        );
 
         if (heatmapRef.current) {
           resizeObserver.observe(heatmapRef.current);
@@ -853,21 +890,18 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         // Clear loading state after plot is created
         setTimeout(() => {
           setIsRenderingHeatmap(false);
+          profiler.end('heatmap-render');
         }, 50);
       } catch (error) {
         console.error("Error rendering heatmap:", error);
         setIsRenderingHeatmap(false);
+        profiler.end('heatmap-render');
       }
     };
 
-    // CRITICAL: Use setTimeout to let browser paint loading state before heavy work
-    // requestAnimationFrame alone isn't enough - need to yield to browser completely
-    setTimeout(() => {
-      // Double RAF ensures we're past the paint phase
-      requestAnimationFrame(() => {
-        requestAnimationFrame(deferredRender);
-      });
-    }, 0);
+    // Call deferredRender directly since we're already in a setTimeout(0) from the effect
+    // No need for additional deferral (requestIdleCallback/RAF) - that was causing 8+ second delays
+    deferredRender();
   }, [
     heatmapData,
     selectedChannels,
@@ -1085,15 +1119,22 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         );
 
         // Handle resize
-        const resizeObserver = new ResizeObserver(() => {
-          if (uplotLinePlotRef.current && linePlotRef.current) {
-            const currentHeight = linePlotHeightRef.current;
-            uplotLinePlotRef.current.setSize({
-              width: linePlotRef.current.clientWidth || 800, // Fallback width
-              height: currentHeight,
-            });
-          }
-        });
+        const resizeObserver = new ResizeObserver(
+          throttle(() => {
+            profiler.start('lineplot-resize', { category: 'render' });
+            try {
+              if (uplotLinePlotRef.current && linePlotRef.current) {
+                const currentHeight = linePlotHeightRef.current;
+                uplotLinePlotRef.current.setSize({
+                  width: linePlotRef.current.clientWidth || 800, // Fallback width
+                  height: currentHeight,
+                });
+              }
+            } finally {
+              profiler.end('lineplot-resize');
+            }
+          }, 100), // Throttle to max 10 times per second
+        );
 
         if (linePlotRef.current) {
           resizeObserver.observe(linePlotRef.current);
@@ -1118,13 +1159,9 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       }
     };
 
-    // CRITICAL: Use setTimeout to let browser paint loading state before heavy work
-    setTimeout(() => {
-      // Double RAF ensures we're past the paint phase
-      requestAnimationFrame(() => {
-        requestAnimationFrame(deferredRender);
-      });
-    }, 0);
+    // Call deferredRender directly since we're already in a setTimeout(0) from the effect
+    // No need for additional deferral (requestIdleCallback/RAF) - that was causing 8+ second delays
+    deferredRender();
   }, [
     result.id,
     selectedChannels,
@@ -1445,46 +1482,25 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         return;
       }
 
-      // CRITICAL: Don't set lastRenderedHeatmapKey yet - wait until plot is actually created
-      // Setting it here causes issues when DOM mounts/unmounts rapidly
-      let hasRendered = false;
+      console.log("[HEATMAP] DOM element ready, scheduling render:", renderKey);
 
-      console.log("[HEATMAP] DOM element ready, setting up observer for:", renderKey);
+      // FINAL FIX: Use single requestAnimationFrame to yield to browser for painting
+      // This prevents UI freeze while keeping rendering fast and avoiding cascading delays
+      const rafId = requestAnimationFrame(() => {
+        if (lastRenderedHeatmapKey.current === renderKey) {
+          console.log("[HEATMAP] Already rendered, skipping");
+          return;
+        }
 
-      // Use IntersectionObserver to detect when the element becomes visible
-      const observer = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
-            if (
-              entry.isIntersecting &&
-              entry.target === heatmapRef.current &&
-              !hasRendered
-            ) {
-              // Element is visible, render the heatmap
-              hasRendered = true;
-              console.log("[HEATMAP] IntersectionObserver triggered, creating plot");
-              renderHeatmap();
-              // CRITICAL: Mark as rendered AFTER successful render, not before
-              lastRenderedHeatmapKey.current = renderKey;
-              console.log("[HEATMAP] Plot created successfully, marked as rendered:", renderKey);
-              // Disconnect after first render to prevent re-triggering
-              observer.disconnect();
-            }
-          });
-        },
-        { threshold: 0.1 }, // Trigger when at least 10% is visible
-      );
-
-      observer.observe(heatmapRef.current);
+        renderHeatmap();
+        lastRenderedHeatmapKey.current = renderKey;
+        console.log("[HEATMAP] Plot created successfully, marked as rendered:", renderKey);
+      });
 
       return () => {
-        observer.disconnect();
-        // CRITICAL: If observer is cleaned up before it fires, reset the render key
-        // This ensures next mount will try again instead of thinking it already rendered
-        if (!hasRendered) {
-          console.log("[HEATMAP] Observer cleaned up before render, resetting key");
-          lastRenderedHeatmapKey.current = "";
-        }
+        // Cancel pending animation frame
+        cancelAnimationFrame(rafId);
+
         // Clean up heatmap ResizeObserver when effect re-runs
         if (heatmapCleanupRef.current) {
           heatmapCleanupRef.current();
@@ -1540,46 +1556,25 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         return;
       }
 
-      // CRITICAL: Don't set lastRenderedLinePlotKey yet - wait until plot is actually created
-      // Setting it here causes issues when DOM mounts/unmounts rapidly
-      let hasRendered = false;
+      console.log("[LINEPLOT] DOM element ready, scheduling render:", renderKey);
 
-      console.log("[LINEPLOT] DOM element ready, setting up observer for:", renderKey);
+      // FINAL FIX: Use single requestAnimationFrame to yield to browser for painting
+      // This prevents UI freeze while keeping rendering fast and avoiding cascading delays
+      const rafId = requestAnimationFrame(() => {
+        if (lastRenderedLinePlotKey.current === renderKey) {
+          console.log("[LINEPLOT] Already rendered, skipping");
+          return;
+        }
 
-      // Use IntersectionObserver to detect when the element becomes visible
-      const observer = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
-            if (
-              entry.isIntersecting &&
-              entry.target === linePlotRef.current &&
-              !hasRendered
-            ) {
-              // Element is visible, render the line plot
-              hasRendered = true;
-              console.log("[LINEPLOT] IntersectionObserver triggered, creating plot");
-              renderLinePlot();
-              // CRITICAL: Mark as rendered AFTER successful render, not before
-              lastRenderedLinePlotKey.current = renderKey;
-              console.log("[LINEPLOT] Plot created successfully, marked as rendered:", renderKey);
-              // Disconnect after first render to prevent re-triggering
-              observer.disconnect();
-            }
-          });
-        },
-        { threshold: 0.1 }, // Trigger when at least 10% is visible
-      );
-
-      observer.observe(linePlotRef.current);
+        renderLinePlot();
+        lastRenderedLinePlotKey.current = renderKey;
+        console.log("[LINEPLOT] Plot created successfully, marked as rendered:", renderKey);
+      });
 
       return () => {
-        observer.disconnect();
-        // CRITICAL: If observer is cleaned up before it fires, reset the render key
-        // This ensures next mount will try again instead of thinking it already rendered
-        if (!hasRendered) {
-          console.log("[LINEPLOT] Observer cleaned up before render, resetting key");
-          lastRenderedLinePlotKey.current = "";
-        }
+        // Cancel pending animation frame
+        cancelAnimationFrame(rafId);
+
         // Clean up line plot ResizeObserver when effect re-runs
         if (linePlotCleanupRef.current) {
           linePlotCleanupRef.current();
@@ -1889,8 +1884,21 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         </CardContent>
       </Card>
 
-      {/* Visualization Area */}
-      {availableVariants.length > 1 ? (
+      {/* Visualization Area - Deferred rendering to prevent UI freeze */}
+      {!showPlots && (
+        <Card className="mt-4">
+          <CardContent className="flex items-center justify-center p-12">
+            <div className="text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+              <p className="text-sm text-muted-foreground">
+                Initializing visualization...
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {showPlots && availableVariants.length > 1 ? (
         <Tabs
           value={selectedVariant.toString()}
           onValueChange={(v) => setSelectedVariant(parseInt(v))}
@@ -1949,16 +1957,17 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                             ),
                           }}
                         >
+                          {/* Show skeleton overlay while processing or rendering */}
                           {(isProcessingData || isRenderingHeatmap) && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
-                              <div className="flex flex-col items-center space-y-2">
-                                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                                <p className="text-sm text-muted-foreground">
-                                  {isProcessingData
+                            <div className="absolute inset-0 z-10">
+                              <PlotLoadingSkeleton
+                                height={Math.max(300, selectedChannels.length * 30 + 100)}
+                                title={
+                                  isProcessingData
                                     ? "Processing DDA data..."
-                                    : "Rendering heatmap..."}
-                                </p>
-                              </div>
+                                    : "Rendering heatmap..."
+                                }
+                              />
                             </div>
                           )}
                           <div
@@ -1998,9 +2007,11 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                                         annotation.position,
                                         "x",
                                       );
+                                    // Filter out invalid values: null, undefined, Infinity, NaN
                                     if (
                                       canvasX === null ||
-                                      canvasX === undefined
+                                      canvasX === undefined ||
+                                      !isFinite(canvasX)
                                     )
                                       return null;
 
@@ -2142,9 +2153,11 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                                         annotation.position,
                                         "x",
                                       );
+                                    // Filter out invalid values: null, undefined, Infinity, NaN
                                     if (
                                       canvasX === null ||
-                                      canvasX === undefined
+                                      canvasX === undefined ||
+                                      !isFinite(canvasX)
                                     )
                                       return null;
 
@@ -2235,7 +2248,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
             </TabsContent>
           ))}
         </Tabs>
-      ) : (
+      ) : showPlots ? (
         <div className="flex flex-col space-y-4">
           {/* Single variant view */}
           {/* Heatmap */}
@@ -2522,7 +2535,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
             </Card>
           )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

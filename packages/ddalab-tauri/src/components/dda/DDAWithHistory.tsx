@@ -48,6 +48,8 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(
     null,
   );
+  // Deferred mounting to prevent UI freeze
+  const [showResults, setShowResults] = useState(false);
   const [activeTab, setActiveTab] = useState<"configure" | "results">(
     "configure",
   );
@@ -95,8 +97,13 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
       }
     } else if (!currentAnalysisId && fileHistory.length > 0) {
       // Auto-select most recent for this file
+      // Re-enabled now that backend is optimized (<50ms instead of 9s)
       const mostRecentId = fileHistory[0].id;
       if (selectedAnalysisId !== mostRecentId) {
+        console.log(
+          "[DDA HISTORY] Auto-selecting most recent analysis:",
+          mostRecentId,
+        );
         setSelectedAnalysisId(mostRecentId);
       }
     } else if (!currentAnalysisId && selectedAnalysisId !== null) {
@@ -225,25 +232,38 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
 
   // Determine what to display - HEAVILY MEMOIZED to prevent excessive re-renders of DDAResults
   // Keep showing current analysis while new one loads to prevent flash of empty state
-  // CRITICAL: Use refs to access current data, but only recalculate when IDs change
-  const selectedAnalysisRef = useRef(selectedAnalysisData);
-  const currentAnalysisRef = useRef(currentAnalysis);
+  // CRITICAL FIX: Maintain stable object reference when ID hasn't changed
+  const prevDisplayAnalysisRef = useRef<DDAResult | null>(null);
 
-  // Update refs on every render (cheap)
-  selectedAnalysisRef.current = selectedAnalysisData;
-  currentAnalysisRef.current = currentAnalysis;
-
-  // But only recalculate displayAnalysis when IDs actually change (expensive)
   const displayAnalysis = useMemo(() => {
-    const selected = selectedAnalysisRef.current;
-    const current = currentAnalysisRef.current;
+    let result: DDAResult | null = null;
 
-    if (selected) return selected;
-    if (current?.id === selectedAnalysisId) return current;
-    return null;
+    // Determine which analysis to display
+    if (selectedAnalysisData) {
+      result = selectedAnalysisData;
+    } else if (currentAnalysis?.id === selectedAnalysisId) {
+      result = currentAnalysis;
+    }
+
+    // CRITICAL: If the ID is the same as before, return the previous reference
+    // This prevents mount/unmount thrashing when parent re-renders with new object references
+    if (result && prevDisplayAnalysisRef.current?.id === result.id) {
+      console.log("[DDA HISTORY] Same ID, returning previous reference:", result.id);
+      return prevDisplayAnalysisRef.current;
+    }
+
+    // New ID or null, update the ref and return new result
+    if (result?.id !== prevDisplayAnalysisRef.current?.id) {
+      console.log("[DDA HISTORY] New ID, updating reference:", {
+        prev: prevDisplayAnalysisRef.current?.id,
+        next: result?.id,
+      });
+    }
+    prevDisplayAnalysisRef.current = result;
+    return result;
   }, [
-    selectedAnalysisData?.id, // Only depend on IDs
-    currentAnalysisId,
+    selectedAnalysisData, // Must include full object to avoid stale closure
+    currentAnalysis,      // Must include full object to avoid stale closure
     selectedAnalysisId,
   ]);
 
@@ -253,6 +273,25 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
       setActiveTab("results");
     }
   }, [currentAnalysisId]);
+
+  // CRITICAL FIX: Deferred mounting to prevent UI freeze
+  // When analysis changes, hide results first, then show on next frame
+  // This allows browser to paint loading state before mounting heavy component
+  useEffect(() => {
+    if (displayAnalysis) {
+      // Hide results immediately
+      setShowResults(false);
+
+      // Show results on next animation frame
+      const rafId = requestAnimationFrame(() => {
+        setShowResults(true);
+      });
+
+      return () => cancelAnimationFrame(rafId);
+    } else {
+      setShowResults(false);
+    }
+  }, [displayAnalysis?.id]);
 
   // Log what we're about to display
   useEffect(() => {
@@ -334,45 +373,69 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
             value="results"
             className="flex-1 min-h-0 overflow-auto m-0"
           >
-            {(isLoadingAnalysis || isFetchingAnalysis) && selectedAnalysisId ? (
-              // Show loading state while fetching analysis data
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center">
-                  <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
-                  <p className="text-sm text-muted-foreground">
-                    Loading analysis...
-                  </p>
-                </div>
-              </div>
-            ) : displayAnalysis ? (
+            {displayAnalysis ? (
               // Show results when analysis data is loaded
               // DDAResults is memoized and will efficiently update when result.id changes
-              <div className="p-4 space-y-4">
-                {/* NSG Results Indicator Banner */}
-                {displayAnalysis.source === "nsg" && hasPreviousAnalysis && (
-                  <Alert className="border-blue-200 bg-blue-50">
-                    <Cloud className="h-4 w-4 text-blue-600" />
-                    <AlertDescription className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-blue-900">
-                          <strong>Viewing NSG Results</strong> from job{" "}
-                          {displayAnalysis.id.slice(0, 8)}
-                        </span>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => restorePreviousAnalysis()}
-                        className="ml-4 h-7 text-xs"
-                      >
-                        <ArrowLeft className="h-3 w-3 mr-1" />
-                        Back to Previous Analysis
-                      </Button>
-                    </AlertDescription>
-                  </Alert>
+              // CRITICAL FIX: Keep component mounted during loading to prevent mount/unmount thrashing
+              <div className="p-4 space-y-4 relative">
+                {/* Loading state shown FIRST before mounting heavy component */}
+                {!showResults && (
+                  <div className="flex items-center justify-center h-full min-h-[400px]">
+                    <div className="text-center">
+                      <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+                      <p className="text-sm text-muted-foreground">
+                        Preparing analysis visualization...
+                      </p>
+                    </div>
+                  </div>
                 )}
 
-                <DDAResults result={displayAnalysis} />
+                {/* Mount DDAResults only after RAF fires */}
+                {showResults && (
+                  <>
+                    {/* Loading overlay for fetching data */}
+                    {(isLoadingAnalysis || isFetchingAnalysis) && selectedAnalysisId && (
+                      <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center rounded-lg">
+                        <div className="text-center">
+                          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+                          <p className="text-sm text-muted-foreground">
+                            Loading analysis...
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* NSG Results Indicator Banner */}
+                    {displayAnalysis.source === "nsg" && hasPreviousAnalysis && (
+                      <Alert className="border-blue-200 bg-blue-50">
+                        <Cloud className="h-4 w-4 text-blue-600" />
+                        <AlertDescription className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-blue-900">
+                              <strong>Viewing NSG Results</strong> from job{" "}
+                              {displayAnalysis.id.slice(0, 8)}
+                            </span>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => restorePreviousAnalysis()}
+                            className="ml-4 h-7 text-xs"
+                          >
+                            <ArrowLeft className="h-3 w-3 mr-1" />
+                            Back to Previous Analysis
+                          </Button>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
+                    {/* CRITICAL FIX: Add key prop to help React track component identity */}
+                    <DDAResults
+                      key={displayAnalysis.id}
+                      result={displayAnalysis}
+                    />
+                  </>
+                )}
               </div>
             ) : (
               // No analysis available

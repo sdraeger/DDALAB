@@ -181,11 +181,17 @@ impl AnalysisDatabase {
         Ok(analyses)
     }
 
+    /// Get recent analyses WITHOUT plot_data for fast listing
+    /// Use get_analysis_by_id() to fetch full data when needed
     pub fn get_recent_analyses(&self, limit: usize) -> Result<Vec<AnalysisResult>> {
+        let start_time = std::time::Instant::now();
         let conn = self.conn.lock();
+
+        // CRITICAL FIX: Don't fetch plot_data for list view - it's massive!
+        // Only fetch plot_data when user clicks to view a specific analysis
         let mut stmt = conn.prepare(
             "SELECT id, file_path, timestamp, variant_name, variant_display_name,
-                    parameters, chunk_position, plot_data, name
+                    parameters, chunk_position, name
              FROM analyses
              ORDER BY created_at DESC
              LIMIT ?1",
@@ -194,7 +200,6 @@ impl AnalysisDatabase {
         let analyses = stmt
             .query_map(params![limit], |row| {
                 let parameters_json: String = row.get(5)?;
-                let plot_data_json: Option<String> = row.get(7)?;
 
                 Ok(AnalysisResult {
                     id: row.get(0)?,
@@ -205,15 +210,19 @@ impl AnalysisDatabase {
                     parameters: serde_json::from_str(&parameters_json)
                         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
                     chunk_position: row.get(6)?,
-                    plot_data: plot_data_json
-                        .map(|s| serde_json::from_str(&s))
-                        .transpose()
-                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                    name: row.get(8)?,
+                    plot_data: None, // Don't load plot_data for list view
+                    name: row.get(7)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()
             .context("Failed to get recent analyses")?;
+
+        let elapsed = start_time.elapsed();
+        log::info!(
+            "✅ get_recent_analyses fetched {} analyses in {:.2}ms (no plot_data)",
+            analyses.len(),
+            elapsed.as_millis()
+        );
 
         Ok(analyses)
     }

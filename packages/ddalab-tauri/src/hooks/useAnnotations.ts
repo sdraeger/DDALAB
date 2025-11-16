@@ -4,6 +4,7 @@ import { PlotAnnotation } from "@/types/annotations";
 import { DDAResult } from "@/types/api";
 import { timeSeriesAnnotationToDDA } from "@/utils/annotationSync";
 import { useAvailablePlots } from "./useAvailablePlots";
+import { profiler } from "@/utils/performance";
 
 interface UseTimeSeriesAnnotationsOptions {
   filePath: string;
@@ -193,43 +194,66 @@ export const useDDAAnnotations = ({
 
   // Merge both annotation sets with coordinate transformation
   const annotations = useMemo(() => {
-    const currentPlotId = `dda:${variantId}:${plotType === "heatmap" ? "heatmap" : "lineplot"}`;
-
-    // Filter by time range
-    const inTimeRange = timeSeriesAnnotations.filter(
-      (ann) => ann.position >= startTime && ann.position <= endTime,
-    );
-
-    // Filter by visibility
-    const visibleAnnotations = inTimeRange.filter((ann) => {
-      if (!ann.visible_in_plots || ann.visible_in_plots.length === 0)
-        return true;
-      return ann.visible_in_plots.includes(currentPlotId);
+    const profilerKey = `annotation-merge-${plotType}`;
+    profiler.start(profilerKey, {
+      category: 'data_processing',
+      plotType,
+      variantId,
+      timeSeriesCount: timeSeriesAnnotations.length,
+      ddaCount: ddaAnnotations.length,
     });
 
-    // Transform to DDA coordinates
-    const transformed = visibleAnnotations
-      .map((ann) => timeSeriesAnnotationToDDA(ann, ddaResult, sampleRate))
-      .filter((ann) => ann.position >= 0);
+    try {
+      const currentPlotId = `dda:${variantId}:${plotType === "heatmap" ? "heatmap" : "lineplot"}`;
 
-    // Combine DDA-specific and transformed timeseries annotations
-    const annotationMap = new Map<string, PlotAnnotation>();
+      // Filter by time range
+      profiler.start(`${profilerKey}-time-filter`);
+      const inTimeRange = timeSeriesAnnotations.filter(
+        (ann) => ann.position >= startTime && ann.position <= endTime,
+      );
+      profiler.end(`${profilerKey}-time-filter`);
 
-    // Add transformed timeseries first
-    transformed.forEach((ann) => annotationMap.set(ann.id, ann));
+      // Filter by visibility
+      profiler.start(`${profilerKey}-visibility-filter`);
+      const visibleAnnotations = inTimeRange.filter((ann) => {
+        if (!ann.visible_in_plots || ann.visible_in_plots.length === 0)
+          return true;
+        return ann.visible_in_plots.includes(currentPlotId);
+      });
+      profiler.end(`${profilerKey}-visibility-filter`);
 
-    // Add DDA-specific (overrides transformed if same ID) and filter by plot visibility
-    const filteredDDA = ddaAnnotations.filter((ann) => {
-      if (!ann.visible_in_plots || ann.visible_in_plots.length === 0)
-        return true;
-      return ann.visible_in_plots.includes(currentPlotId);
-    });
+      // Transform to DDA coordinates
+      profiler.start(`${profilerKey}-transform`);
+      const transformed = visibleAnnotations
+        .map((ann) => timeSeriesAnnotationToDDA(ann, ddaResult, sampleRate))
+        .filter((ann) => ann.position >= 0);
+      profiler.end(`${profilerKey}-transform`);
 
-    filteredDDA.forEach((ann) => annotationMap.set(ann.id, ann));
+      // Combine DDA-specific and transformed timeseries annotations
+      profiler.start(`${profilerKey}-merge`);
+      const annotationMap = new Map<string, PlotAnnotation>();
 
-    return Array.from(annotationMap.values()).sort(
-      (a, b) => a.position - b.position,
-    );
+      // Add transformed timeseries first
+      transformed.forEach((ann) => annotationMap.set(ann.id, ann));
+
+      // Add DDA-specific (overrides transformed if same ID) and filter by plot visibility
+      const filteredDDA = ddaAnnotations.filter((ann) => {
+        if (!ann.visible_in_plots || ann.visible_in_plots.length === 0)
+          return true;
+        return ann.visible_in_plots.includes(currentPlotId);
+      });
+
+      filteredDDA.forEach((ann) => annotationMap.set(ann.id, ann));
+
+      const result = Array.from(annotationMap.values()).sort(
+        (a, b) => a.position - b.position,
+      );
+      profiler.end(`${profilerKey}-merge`);
+
+      return result;
+    } finally {
+      profiler.end(profilerKey);
+    }
   }, [
     timeSeriesAnnotations,
     ddaAnnotations,
