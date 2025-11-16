@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 import { DDAAnalysisRequest, DDAResult } from "@/types/api";
-import { DDAResults } from "@/components/DDAResults";
 import { useWorkflow } from "@/hooks/useWorkflow";
 import {
   createSetDDAParametersAction,
@@ -488,6 +487,77 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       }
     }
   }, [currentAnalysis, results]);
+
+  // Auto-populate parameters when loading an analysis from history
+  useEffect(() => {
+    if (currentAnalysis?.parameters && selectedFile?.channels) {
+      const params = currentAnalysis.parameters;
+      const fileChannels = selectedFile.channels;
+
+      console.log("[DDAAnalysis] Auto-populating parameters from loaded analysis:", {
+        variants: params.variants,
+        channels: params.channels,
+        windowLength: params.window_length,
+        windowStep: params.window_step,
+      });
+
+      // Convert channel indices to channel names if needed
+      const channelNames = params.channels || [];
+
+      // Convert CT channel pairs from indices to names (if they are indices)
+      let ctPairs: [string, string][] = [];
+      if (params.ct_channel_pairs && Array.isArray(params.ct_channel_pairs)) {
+        ctPairs = params.ct_channel_pairs.map(([idx1, idx2]) => {
+          // If the pair contains numbers (indices), convert to channel names
+          if (typeof idx1 === 'number' && typeof idx2 === 'number') {
+            return [fileChannels[idx1] || '', fileChannels[idx2] || ''] as [string, string];
+          }
+          // Otherwise assume they're already channel names
+          return [String(idx1), String(idx2)] as [string, string];
+        });
+      }
+
+      // Convert CD channel pairs from indices to names (if they are indices)
+      let cdPairs: [string, string][] = [];
+      if (params.cd_channel_pairs && Array.isArray(params.cd_channel_pairs)) {
+        cdPairs = params.cd_channel_pairs.map(([idx1, idx2]) => {
+          // If the pair contains numbers (indices), convert to channel names
+          if (typeof idx1 === 'number' && typeof idx2 === 'number') {
+            return [fileChannels[idx1] || '', fileChannels[idx2] || ''] as [string, string];
+          }
+          // Otherwise assume they're already channel names
+          return [String(idx1), String(idx2)] as [string, string];
+        });
+      }
+
+      setLocalParameters((prev) => ({
+        ...prev,
+        variants: params.variants || prev.variants,
+        windowLength: params.window_length || prev.windowLength,
+        windowStep: params.window_step || prev.windowStep,
+        delayConfig: params.delay_list
+          ? { mode: "list" as const, list: params.delay_list }
+          : prev.delayConfig,
+        scaleMin: params.scale_min || prev.scaleMin,
+        scaleMax: params.scale_max || prev.scaleMax,
+        scaleNum: params.scale_num || prev.scaleNum,
+        timeStart: params.start_time ?? prev.timeStart,
+        timeEnd: params.end_time ?? prev.timeEnd,
+        selectedChannels: channelNames,
+        ctWindowLength: params.ct_window_length || prev.ctWindowLength,
+        ctWindowStep: params.ct_window_step || prev.ctWindowStep,
+        ctChannelPairs: ctPairs.length > 0 ? ctPairs : prev.ctChannelPairs,
+        cdChannelPairs: cdPairs.length > 0 ? cdPairs : prev.cdChannelPairs,
+        expertMode: (params.model_dimension !== undefined || params.polynomial_order !== undefined) ? true : prev.expertMode,
+        modelParameters: (params.model_dimension || params.polynomial_order) ? {
+          dm: params.model_dimension || 4,
+          order: params.polynomial_order || 4,
+          nr_tau: params.nr_tau || 2,
+          encoding: params.model_params,
+        } : prev.modelParameters,
+      }));
+    }
+  }, [currentAnalysis?.id, selectedFile?.channels]); // Only re-run when analysis ID or file channels change
 
   // Check for NSG credentials on mount
   useEffect(() => {

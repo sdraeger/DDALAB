@@ -48,24 +48,17 @@ export const navigationConfig: Record<PrimaryNavTab, NavigationCategory> = {
   },
   explore: {
     id: "explore",
-    label: "Explore",
+    label: "Data Visualization",
     icon: "BarChart3",
     description: "Data visualization and inspection",
     secondaryTabs: ["timeseries", "annotations", "streaming"],
   },
   analyze: {
     id: "analyze",
-    label: "Analyze",
+    label: "DDA",
     icon: "Brain",
-    description: "Analysis tools and methods",
-    secondaryTabs: ["dda"],
-  },
-  manage: {
-    id: "manage",
-    label: "Manage",
-    icon: "Settings",
-    description: "Settings and data repositories",
-    secondaryTabs: ["settings", "data-sources", "jobs"],
+    description: "Delay Differential Analysis",
+    secondaryTabs: null,
   },
   notifications: {
     id: "notifications",
@@ -73,6 +66,13 @@ export const navigationConfig: Record<PrimaryNavTab, NavigationCategory> = {
     icon: "Bell",
     description: "System notifications and alerts",
     secondaryTabs: null,
+  },
+  manage: {
+    id: "manage",
+    label: "Settings",
+    icon: "Settings",
+    description: "Application settings and data management",
+    secondaryTabs: ["settings", "data-sources", "jobs"],
   },
 };
 

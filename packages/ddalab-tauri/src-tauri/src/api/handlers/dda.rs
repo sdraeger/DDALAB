@@ -317,7 +317,7 @@ pub async fn run_dda_analysis(
         dda_result.variant_results
     {
         variant_results
-            .iter()
+            .par_iter()
             .map(|vr| {
                 let variant_channel_labels = vr.channel_labels.as_ref().unwrap_or(&channel_names);
 
@@ -544,6 +544,8 @@ pub async fn list_analysis_history(State(state): State<Arc<ApiState>>) -> Json<V
                     analyses.len()
                 );
 
+                // CRITICAL FIX: plot_data is now None for list view (performance optimization)
+                // We only need lightweight metadata for the history list
                 let results: Vec<DDAResult> = analyses.iter().filter_map(|analysis| {
                     let parameters: DDAParameters = match serde_json::from_value(analysis.parameters.clone()) {
                         Ok(p) => p,
@@ -553,37 +555,23 @@ pub async fn list_analysis_history(State(state): State<Arc<ApiState>>) -> Json<V
                         }
                     };
 
-                    let (results, channels, q_matrix, status) = if let Some(ref complete_data) = analysis.plot_data {
-                        let results_val = complete_data.get("results").cloned()
-                            .unwrap_or_else(|| serde_json::json!({
-                                "variants": [{"variant_id": "single_timeseries", "variant_name": "Single Timeseries (ST)"}]
-                            }));
-                        let channels_val: Vec<String> = complete_data.get("channels")
-                            .and_then(|v| serde_json::from_value(v.clone()).ok())
-                            .unwrap_or_default();
-                        let q_matrix_val: Option<Vec<Vec<f64>>> = complete_data.get("q_matrix")
-                            .and_then(|v| serde_json::from_value(v.clone()).ok());
-                        let status_val: String = complete_data.get("status")
-                            .and_then(|v| v.as_str().map(|s| s.to_string()))
-                            .unwrap_or_else(|| "completed".to_string());
-                        (results_val, channels_val, q_matrix_val, status_val)
-                    } else {
-                        (serde_json::json!({
-                            "variants": [{"variant_id": "single_timeseries", "variant_name": "Single Timeseries (ST)"}]
-                        }), Vec::new(), None, "completed".to_string())
-                    };
+                    // For list view, use minimal data - no need to parse plot_data
+                    // Channel count and variant count come from parameters
+                    let channels = parameters.selected_channels.clone();
 
                     Some(DDAResult {
                         id: analysis.id.clone(),
                         name: analysis.name.clone(),
                         file_path: analysis.file_path.clone(),
-                        channels,
+                        channels, // Extract from parameters for display
                         parameters,
-                        results,
-                        plot_data: analysis.plot_data.as_ref().and_then(|d| d.get("plot_data").cloned()),
-                        q_matrix,
+                        results: serde_json::json!({
+                            "variants": [] // Empty for list view - populated when viewing
+                        }),
+                        plot_data: None, // No plot_data in list view
+                        q_matrix: None,
                         created_at: analysis.timestamp.clone(),
-                        status,
+                        status: "completed".to_string(),
                     })
                 }).collect();
 

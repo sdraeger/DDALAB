@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { DDAResult } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +44,14 @@ export function DDAHistorySidebar({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
 
+  // Virtual scrolling state
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [visibleRange, setVisibleRange] = useState({ start: 0, end: 20 });
+
+  // Constants for virtual scrolling
+  const ITEM_HEIGHT = 88; // Approximate height of each history item in pixels
+  const BUFFER_SIZE = 5; // Number of items to render above/below viewport
+
   const handleStartRename = (analysis: DDAResult, e: React.MouseEvent) => {
     e.stopPropagation();
     setRenamingId(analysis.id);
@@ -62,6 +70,45 @@ export function DDAHistorySidebar({
     setRenamingId(null);
     setNewName("");
   };
+
+  // Handle scroll for virtual rendering
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || history.length === 0) return;
+
+    const handleScroll = () => {
+      const scrollTop = container.scrollTop;
+      const containerHeight = container.clientHeight;
+
+      // Calculate visible range with buffer
+      const start = Math.max(
+        0,
+        Math.floor(scrollTop / ITEM_HEIGHT) - BUFFER_SIZE,
+      );
+      const visibleCount = Math.ceil(containerHeight / ITEM_HEIGHT);
+      const end = Math.min(
+        history.length,
+        start + visibleCount + BUFFER_SIZE * 2,
+      );
+
+      setVisibleRange({ start, end });
+    };
+
+    // Initial calculation
+    handleScroll();
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [history.length]);
+
+  // Calculate visible items
+  const visibleHistory = useMemo(() => {
+    return history.slice(visibleRange.start, visibleRange.end);
+  }, [history, visibleRange.start, visibleRange.end]);
+
+  // Total height for scroll container
+  const totalHeight = history.length * ITEM_HEIGHT;
+  const offsetY = visibleRange.start * ITEM_HEIGHT;
 
   if (isCollapsed) {
     return (
@@ -118,19 +165,35 @@ export function DDAHistorySidebar({
       </div>
 
       {/* History List */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="p-2 space-y-2">
-          {history.length === 0 ? (
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto"
+        style={{ position: "relative" }}
+      >
+        {history.length === 0 ? (
+          <div className="p-2">
             <div className="text-center py-8 text-sm text-muted-foreground">
               <Save className="h-8 w-8 mx-auto mb-2 opacity-50" />
               <p>No analysis history</p>
               <p className="text-xs mt-1">Run analysis to see results here</p>
             </div>
-          ) : (
-            history.map((analysis) => {
-              const isRenaming = renamingId === analysis.id;
-              const isCurrent = currentAnalysisId === analysis.id;
-              const isSelected = selectedAnalysisId === analysis.id;
+          </div>
+        ) : (
+          <div style={{ height: totalHeight, position: "relative" }}>
+            <div
+              className="p-2 space-y-2"
+              style={{
+                transform: `translateY(${offsetY}px)`,
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+              }}
+            >
+              {visibleHistory.map((analysis) => {
+                const isRenaming = renamingId === analysis.id;
+                const isCurrent = currentAnalysisId === analysis.id;
+                const isSelected = selectedAnalysisId === analysis.id;
 
               return (
                 <div
@@ -207,7 +270,12 @@ export function DDAHistorySidebar({
 
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <span>{analysis.channels?.length || 0} ch</span>
+                          <span>
+                            {analysis.parameters?.channels?.length ||
+                              analysis.channels?.length ||
+                              0}{" "}
+                            ch
+                          </span>
                           <span>•</span>
                           <span>
                             {analysis.parameters?.variants?.length || 0} var
@@ -247,9 +315,10 @@ export function DDAHistorySidebar({
                   )}
                 </div>
               );
-            })
-          )}
-        </div>
+            })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

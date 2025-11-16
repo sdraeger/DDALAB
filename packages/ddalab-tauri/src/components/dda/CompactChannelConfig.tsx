@@ -5,7 +5,7 @@
 
 'use client';
 
-import React from 'react';
+import React, { useDeferredValue, useTransition, useState, useEffect, memo } from 'react';
 import {
   Accordion,
   AccordionContent,
@@ -42,7 +42,8 @@ interface CompactChannelConfigProps {
   onCDChannelPairsChange?: (pairs: [string, string][]) => void;
 }
 
-export const CompactChannelConfig: React.FC<CompactChannelConfigProps> = ({
+// Internal component (will be wrapped with memo at export)
+const CompactChannelConfigComponent = ({
   variant,
   channels,
   disabled = false,
@@ -52,7 +53,7 @@ export const CompactChannelConfig: React.FC<CompactChannelConfigProps> = ({
   onCTChannelPairsChange,
   cdChannelPairs = [],
   onCDChannelPairsChange,
-}) => {
+}: CompactChannelConfigProps) => {
   const getChannelCount = () => {
     if (variant.id === 'cross_timeseries' || variant.id === 'CT') {
       return ctChannelPairs.length;
@@ -227,6 +228,10 @@ export const CompactChannelConfig: React.FC<CompactChannelConfigProps> = ({
   );
 };
 
+CompactChannelConfigComponent.displayName = 'CompactChannelConfig';
+
+export const CompactChannelConfig = memo(CompactChannelConfigComponent);
+
 interface CompactChannelConfigGroupProps {
   variants: VariantConfig[];
   selectedVariants: string[];
@@ -243,6 +248,15 @@ interface CompactChannelConfigGroupProps {
   onConfigChange: (variantId: string, config: any) => void;
 }
 
+// Loading skeleton component
+const VariantConfigSkeleton = () => (
+  <div className="space-y-2 animate-pulse">
+    <div className="h-12 bg-muted/50 rounded-lg" />
+    <div className="h-12 bg-muted/30 rounded-lg" />
+    <div className="h-12 bg-muted/20 rounded-lg" />
+  </div>
+);
+
 export const CompactChannelConfigGroup: React.FC<CompactChannelConfigGroupProps> = ({
   variants,
   selectedVariants,
@@ -251,7 +265,33 @@ export const CompactChannelConfigGroup: React.FC<CompactChannelConfigGroupProps>
   channelConfigs,
   onConfigChange,
 }) => {
-  const enabledVariants = variants.filter((v) => selectedVariants.includes(v.id));
+  const [isPending, startTransition] = useTransition();
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [renderedVariants, setRenderedVariants] = useState<string[]>([]);
+
+  // Use deferred value to keep UI responsive during updates
+  const deferredSelectedVariants = useDeferredValue(selectedVariants);
+
+  const enabledVariants = variants.filter((v) => deferredSelectedVariants.includes(v.id));
+
+  // Handle initial load and variant changes with transitions
+  useEffect(() => {
+    if (isInitialLoad && enabledVariants.length > 0) {
+      // On initial load, render variants progressively to avoid blocking
+      const variantIds = enabledVariants.map(v => v.id);
+
+      // Only open the first variant by default instead of all
+      setRenderedVariants([variantIds[0]]);
+      setIsInitialLoad(false);
+    } else if (enabledVariants.length > 0) {
+      // When variants change, use transition to keep UI responsive
+      startTransition(() => {
+        setRenderedVariants(enabledVariants.map(v => v.id));
+      });
+    } else {
+      setRenderedVariants([]);
+    }
+  }, [enabledVariants.length, isInitialLoad]);
 
   if (enabledVariants.length === 0) {
     return null;
@@ -264,35 +304,49 @@ export const CompactChannelConfigGroup: React.FC<CompactChannelConfigGroupProps>
         <Badge variant="outline" className="text-[10px]">
           {enabledVariants.length} variant{enabledVariants.length !== 1 ? 's' : ''}
         </Badge>
+        {isPending && (
+          <span className="text-[10px] text-muted-foreground animate-pulse">
+            Loading...
+          </span>
+        )}
       </div>
       <p className="text-xs text-muted-foreground">
         Configure channel selection for each enabled variant
       </p>
-      <Accordion type="multiple" defaultValue={selectedVariants} className="space-y-2">
-        {enabledVariants.map((variant) => {
-          const config = channelConfigs[variant.id] || {};
-          return (
-            <CompactChannelConfig
-              key={variant.id}
-              variant={variant}
-              channels={channels}
-              disabled={disabled}
-              selectedChannels={config.selectedChannels}
-              onChannelsChange={(channels) => {
-                onConfigChange(variant.id, { ...config, selectedChannels: channels });
-              }}
-              ctChannelPairs={config.ctChannelPairs}
-              onCTChannelPairsChange={(pairs) => {
-                onConfigChange(variant.id, { ...config, ctChannelPairs: pairs });
-              }}
-              cdChannelPairs={config.cdChannelPairs}
-              onCDChannelPairsChange={(pairs) => {
-                onConfigChange(variant.id, { ...config, cdChannelPairs: pairs });
-              }}
-            />
-          );
-        })}
-      </Accordion>
+
+      {isPending && isInitialLoad ? (
+        <VariantConfigSkeleton />
+      ) : (
+        <Accordion
+          type="multiple"
+          defaultValue={renderedVariants.length > 0 ? [renderedVariants[0]] : []}
+          className="space-y-2"
+        >
+          {enabledVariants.map((variant) => {
+            const config = channelConfigs[variant.id] || {};
+            return (
+              <CompactChannelConfig
+                key={variant.id}
+                variant={variant}
+                channels={channels}
+                disabled={disabled}
+                selectedChannels={config.selectedChannels}
+                onChannelsChange={(channels) => {
+                  onConfigChange(variant.id, { ...config, selectedChannels: channels });
+                }}
+                ctChannelPairs={config.ctChannelPairs}
+                onCTChannelPairsChange={(pairs) => {
+                  onConfigChange(variant.id, { ...config, ctChannelPairs: pairs });
+                }}
+                cdChannelPairs={config.cdChannelPairs}
+                onCDChannelPairsChange={(pairs) => {
+                  onConfigChange(variant.id, { ...config, cdChannelPairs: pairs });
+                }}
+              />
+            );
+          })}
+        </Accordion>
+      )}
     </div>
   );
 };

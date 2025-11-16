@@ -74,6 +74,8 @@ matfile = { version = "0.5.0", features = ["ndarray"] }        # MATLAB .mat/.se
 ndarray = "0.16.1"                                             # Array processing for MAT files
 fiff = "0.1.0"                                                 # FIFF/FIF format parser (MEG/EEG)
 nifti = { version = "0.17.0", features = ["ndarray_volumes"] }
+hdf5 = { version = "0.8", optional = true }                    # HDF5 support for NWB files (optional due to compatibility issues)
+quick-xml = "0.38"                                             # XML parsing for XDF files
 # Embedded database
 rusqlite = { version = "0.37", features = ["bundled", "chrono", "uuid"] }
 serde_rusqlite = "0.40.1"
@@ -106,7 +108,8 @@ name = "ddalab-tauri"
 path = "src/main.rs"
 
 [features]
-default = ["custom-protocol", "devtools"]  # LSL disabled for local dev with Xcode 26+
+default = ["custom-protocol", "devtools"]  # LSL and NWB disabled for local dev compatibility
 custom-protocol = ["tauri/custom-protocol"]
 devtools = ["tauri/devtools"]
 lsl-support = ["lsl"]  # Enable Lab Streaming Layer support (requires Xcode 15.2 or earlier)
+nwb-support = ["hdf5"]  # Enable NWB file format support (requires compatible HDF5 system library)

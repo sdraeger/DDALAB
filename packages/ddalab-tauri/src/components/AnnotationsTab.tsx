@@ -335,7 +335,6 @@ export function AnnotationsTab() {
 
       // Navigate to DDA tab
       setPrimaryNav("analyze");
-      setSecondaryNav("dda");
 
       // Note: The DDA component should handle showing the correct variant/plot type
       // based on what's in the URL or state
