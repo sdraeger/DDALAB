@@ -18,7 +18,7 @@ from .variants import (
     parse_select_mask,
 )
 
-from .cli import (
+from .dda import (
     DDARunner,
     DDARequest,
     BINARY_NAME,

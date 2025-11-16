@@ -331,7 +331,7 @@ fn generate_language_code(
 
         let file_name = match lang {
             "rust" => "cli.rs",
-            "python" => "cli.py",
+            "python" => "dda.py",  // For Python, generate dda.py (main module)
             "typescript" => "cli.ts",
             "julia" => "cli.jl",
             _ => "cli.txt",
