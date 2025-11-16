@@ -80,31 +80,22 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
     );
   }
 
-  // Analyze
+  // DDA (formerly Analyze)
   if (primaryNav === "analyze") {
-    if (secondaryNav === "dda") {
-      return (
-        <div className="h-full">
-          {hasSelectedFile ? (
-            <DDAWithHistory apiService={apiService} />
-          ) : (
-            <div className="p-4 h-full">
-              <EmptyState
-                icon={Brain}
-                title="No File Selected"
-                description="Select a file from the sidebar to run DDA analysis"
-              />
-            </div>
-          )}
-        </div>
-      );
-    }
-
     return (
-      <ComingSoonPlaceholder
-        feature={secondaryNav || "Feature"}
-        category="Analysis Tools"
-      />
+      <div className="h-full">
+        {hasSelectedFile ? (
+          <DDAWithHistory apiService={apiService} />
+        ) : (
+          <div className="p-4 h-full">
+            <EmptyState
+              icon={Brain}
+              title="No File Selected"
+              description="Select a file from the sidebar to run DDA analysis"
+            />
+          </div>
+        )}
+      </div>
     );
   }
 

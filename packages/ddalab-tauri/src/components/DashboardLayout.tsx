@@ -154,7 +154,6 @@ export function DashboardLayout({
   useEffect(() => {
     const handleNavigateToMainResults = () => {
       setPrimaryNav("analyze");
-      setSecondaryNav("dda");
     };
 
     window.addEventListener(
@@ -226,7 +225,6 @@ export function DashboardLayout({
       case "navigate_results":
       case "navigate_analysis":
         setPrimaryNav("analyze");
-        setSecondaryNav("dda");
         break;
       case "navigate_openneuro":
         setPrimaryNav("manage");

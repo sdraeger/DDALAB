@@ -984,15 +984,8 @@ export class ApiService {
 
   async getAnalysisHistory(): Promise<DDAResult[]> {
     try {
-      console.log("Fetching analysis history from backend...");
+      const startTime = performance.now();
       const response = await this.client.get("/api/dda/history");
-      console.log("Analysis history response:", {
-        status: response.status,
-        dataType: typeof response.data,
-        dataKeys: response.data ? Object.keys(response.data) : "null",
-        analysesCount:
-          response.data.analyses?.length || response.data?.length || 0,
-      });
 
       // Handle both array and object responses
       let analyses = [];
@@ -1002,8 +995,17 @@ export class ApiService {
         analyses = response.data.analyses || [];
       }
 
+      const fetchTime = performance.now() - startTime;
+      console.log(
+        `[PERF] Analysis history fetched in ${fetchTime.toFixed(2)}ms (${analyses.length} items)`,
+      );
+
+      // CRITICAL FIX: Add performance monitoring for data processing
+      // For large history lists, processing all items synchronously can block the UI
+      const processStartTime = performance.now();
+
       // Flatten analysis data structure if needed
-      return analyses.map((item: any) => {
+      const processed = analyses.map((item: any) => {
         // If the item has analysis_data nested inside, flatten it
         if (item.analysis_data && typeof item.analysis_data === "object") {
           return {
@@ -1018,6 +1020,13 @@ export class ApiService {
         }
         return item;
       });
+
+      const processTime = performance.now() - processStartTime;
+      console.log(
+        `[PERF] History processing completed in ${processTime.toFixed(2)}ms for ${analyses.length} items`,
+      );
+
+      return processed;
     } catch (error) {
       console.error("Failed to get analysis history:", error);
       if (error instanceof Error) {
@@ -1029,17 +1038,11 @@ export class ApiService {
 
   async getAnalysisFromHistory(resultId: string): Promise<DDAResult | null> {
     try {
+      const startTime = performance.now();
       const response = await this.client.get(`/api/dda/history/${resultId}`);
-      const analysisWrapper = response.data.analysis;
+      const fetchTime = performance.now() - startTime;
 
-      console.log(
-        "[DEBUG] getAnalysisFromHistory raw response keys:",
-        Object.keys(response.data),
-      );
-      console.log(
-        "[DEBUG] analysisWrapper keys:",
-        analysisWrapper ? Object.keys(analysisWrapper) : "null",
-      );
+      const analysisWrapper = response.data.analysis;
 
       if (!analysisWrapper) return null;
 
@@ -1048,22 +1051,7 @@ export class ApiService {
         analysisWrapper.analysis_data &&
         typeof analysisWrapper.analysis_data === "object"
       ) {
-        console.log(
-          "[DEBUG] analysis_data keys:",
-          Object.keys(analysisWrapper.analysis_data),
-        );
-        console.log(
-          "[DEBUG] analysis_data.channels:",
-          analysisWrapper.analysis_data.channels,
-        );
-        console.log(
-          "[DEBUG] analysis_data.Q present:",
-          "Q" in analysisWrapper.analysis_data,
-        );
-        console.log(
-          "[DEBUG] analysis_data.plot_data present:",
-          !!analysisWrapper.analysis_data.plot_data,
-        );
+        const processStartTime = performance.now();
 
         const result = {
           ...analysisWrapper.analysis_data,
@@ -1083,16 +1071,18 @@ export class ApiService {
           }));
         }
 
-        console.log("[DEBUG] Final result channels:", result.channels);
-        console.log("[DEBUG] Final result Q present:", "Q" in result);
+        const processTime = performance.now() - processStartTime;
+
         console.log(
-          "[DEBUG] Final result plot_data present:",
-          !!result.plot_data,
+          `[PERF] Analysis loaded from history in ${fetchTime.toFixed(2)}ms, processed in ${processTime.toFixed(2)}ms (${result.channels?.length || 0} channels, ${result.results?.variants?.length || 0} variants)`,
         );
 
         return result;
       }
 
+      console.log(
+        `[PERF] Analysis loaded from history in ${fetchTime.toFixed(2)}ms`,
+      );
       return analysisWrapper;
     } catch (error) {
       console.error(`Failed to get analysis ${resultId} from history:`, error);

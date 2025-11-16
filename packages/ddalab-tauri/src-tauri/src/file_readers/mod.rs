@@ -16,6 +16,9 @@ pub mod edf_reader;
 pub mod eeglab_reader;
 pub mod fif_reader; // FIF/FIFF reader (uses external fiff crate)
 pub mod nifti_reader; // NIfTI reader (uses external nifti crate)
+#[cfg(feature = "nwb-support")]
+pub mod nwb_reader; // NWB (Neurodata Without Borders) reader (HDF5-based)
+pub mod xdf_reader; // XDF (Extensible Data Format) reader (LSL files)
 
 // Re-export readers
 pub use ascii_reader::ASCIIFileReader;
@@ -25,6 +28,9 @@ pub use edf_reader::EDFFileReader;
 pub use eeglab_reader::EEGLABFileReader;
 pub use fif_reader::FIFFileReader;
 pub use nifti_reader::NIfTIFileReader;
+#[cfg(feature = "nwb-support")]
+pub use nwb_reader::NWBFileReader;
+pub use xdf_reader::XDFFileReader;
 
 /// Parse EDF datetime from date (dd.mm.yy) and time (hh.mm.ss) strings to RFC3339 format
 pub fn parse_edf_datetime(date_str: &str, time_str: &str) -> Option<String> {
@@ -179,6 +185,13 @@ impl FileReaderFactory {
             "set" => Ok(Box::new(EEGLABFileReader::new(path)?)),
             "fif" => Ok(Box::new(FIFFileReader::new(path)?)),
             "nii" => Ok(Box::new(NIfTIFileReader::new(path)?)),
+            #[cfg(feature = "nwb-support")]
+            "nwb" => Ok(Box::new(NWBFileReader::new(path)?)),
+            #[cfg(not(feature = "nwb-support"))]
+            "nwb" => Err(FileReaderError::UnsupportedFormat(
+                "NWB support not enabled. Rebuild with --features nwb-support".to_string()
+            )),
+            "xdf" => Ok(Box::new(XDFFileReader::new(path)?)),
             _ => Err(FileReaderError::UnsupportedFormat(format!(
                 "Unsupported file extension: {}",
                 extension
@@ -188,7 +201,10 @@ impl FileReaderFactory {
 
     /// Get list of supported extensions for reading/analysis
     pub fn supported_extensions() -> Vec<&'static str> {
-        vec!["edf", "csv", "txt", "ascii", "vhdr", "set", "nii", "gz"]
+        let mut exts = vec!["edf", "csv", "txt", "ascii", "vhdr", "set", "nii", "gz", "xdf"];
+        #[cfg(feature = "nwb-support")]
+        exts.push("nwb");
+        exts
     }
 
     /// Get list of recognized but unsupported MEG extensions
@@ -312,6 +328,8 @@ mod tests {
         assert!(extensions.contains(&"csv"));
         assert!(extensions.contains(&"vhdr"));
         assert!(extensions.contains(&"set"));
+        assert!(extensions.contains(&"nwb"));
+        assert!(extensions.contains(&"xdf"));
     }
 
     #[test]

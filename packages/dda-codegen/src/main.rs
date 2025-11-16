@@ -23,6 +23,14 @@ struct Args {
     #[arg(short, long, default_value = "rust,python,typescript,julia")]
     languages: String,
 
+    /// Custom Python output directory (overrides default packages/dda-py path)
+    #[arg(long)]
+    python_output: Option<PathBuf>,
+
+    /// Custom Julia output directory (overrides default absolute path)
+    #[arg(long)]
+    julia_output: Option<PathBuf>,
+
     /// Dry run - don't write files
     #[arg(long)]
     dry_run: bool,
@@ -218,7 +226,7 @@ fn main() -> Result<()> {
     // Generate code for each language
     for lang in &languages {
         log::info!("Generating {} code...", lang);
-        generate_language_code(&spec, lang, &args.output, &tera, args.dry_run)?;
+        generate_language_code(&spec, lang, &args, &tera)?;
     }
 
     log::info!("✅ Code generation complete!");
@@ -228,22 +236,35 @@ fn main() -> Result<()> {
 fn generate_language_code(
     spec: &DDASpec,
     lang: &str,
-    output_root: &Path,
+    args: &Args,
     tera: &Tera,
-    dry_run: bool,
 ) -> Result<()> {
-    // Determine output directory based on language
+    // Determine output directory based on language and custom overrides
     let output_dir = match lang {
-        "rust" => output_root.join("dda-rs/src/generated"),
-        "python" => output_root.join("dda-py/src/dda_py/generated"),
-        "typescript" => output_root.join("ddalab-tauri/src/types/generated"),
-        "julia" => PathBuf::from("/Users/simon/Desktop/DelayDifferentialAnalysis.jl/src/generated"),
+        "rust" => args.output.join("dda-rs/src/generated"),
+        "python" => {
+            if let Some(ref custom_path) = args.python_output {
+                // For external repos, output directly to src/dda_py (main package)
+                custom_path.join("src/dda_py")
+            } else {
+                // For local monorepo, keep in generated subfolder for isolation
+                args.output.join("dda-py/src/dda_py/generated")
+            }
+        }
+        "typescript" => args.output.join("ddalab-tauri/src/types/generated"),
+        "julia" => {
+            if let Some(ref custom_path) = args.julia_output {
+                custom_path.join("src/generated")
+            } else {
+                PathBuf::from("/Users/simon/Desktop/DelayDifferentialAnalysis.jl/src/generated")
+            }
+        }
         _ => anyhow::bail!("Unsupported language: {}", lang),
     };
 
     log::debug!("Output directory for {}: {:?}", lang, output_dir);
 
-    if !dry_run {
+    if !args.dry_run {
         fs::create_dir_all(&output_dir)
             .with_context(|| format!("Failed to create output directory: {:?}", output_dir))?;
     }
@@ -291,7 +312,7 @@ fn generate_language_code(
         };
 
         let output_file = output_dir.join(file_name);
-        if dry_run {
+        if args.dry_run {
             log::info!("Would write: {:?}", output_file);
             log::debug!("Content preview:\n{}", &output[..output.len().min(500)]);
         } else {
@@ -317,7 +338,7 @@ fn generate_language_code(
         };
 
         let output_file = output_dir.join(file_name);
-        if dry_run {
+        if args.dry_run {
             log::info!("Would write: {:?}", output_file);
         } else {
             fs::write(&output_file, output)
@@ -330,7 +351,7 @@ fn generate_language_code(
     if lang == "rust" {
         let mod_content = "// AUTO-GENERATED - Do not edit\n\npub mod variants;\npub mod cli;\n";
         let mod_file = output_dir.join("mod.rs");
-        if !dry_run {
+        if !args.dry_run {
             fs::write(&mod_file, mod_content)?;
             log::info!("✓ Generated: {:?}", mod_file);
         }
@@ -345,7 +366,7 @@ fn generate_language_code(
                 .with_context(|| format!("Failed to render template: {}", init_template_name))?;
 
             let init_file = output_dir.join("__init__.py");
-            if dry_run {
+            if args.dry_run {
                 log::info!("Would write: {:?}", init_file);
             } else {
                 fs::write(&init_file, output)
@@ -364,7 +385,7 @@ fn generate_language_code(
                 .with_context(|| format!("Failed to render template: {}", parser_template_name))?;
 
             let parser_file = output_dir.join("parser.jl");
-            if dry_run {
+            if args.dry_run {
                 log::info!("Would write: {:?}", parser_file);
             } else {
                 fs::write(&parser_file, output)

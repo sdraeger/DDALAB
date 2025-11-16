@@ -17,6 +17,7 @@ const nextConfig = {
     // Skip type checking during build for faster builds
     ignoreBuildErrors: false,
   },
+  reactStrictMode: true,
   // Remove assetPrefix for now - causes font loading issues
   // assetPrefix: '.',
 };
