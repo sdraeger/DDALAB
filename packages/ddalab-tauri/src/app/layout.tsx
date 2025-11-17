@@ -5,6 +5,7 @@ import { QueryProvider } from "@/providers/QueryProvider";
 import { ZoomWrapper } from "@/components/ZoomWrapper";
 import { ZoomKeyboardShortcuts } from "@/components/ZoomKeyboardShortcuts";
 import { ThemeProvider } from "@/components/theme-provider";
+import { GlobalSearchProvider } from "@/components/GlobalSearchProvider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -30,6 +31,7 @@ export default function RootLayout({
         >
           <QueryProvider>
             <ZoomKeyboardShortcuts />
+            <GlobalSearchProvider />
             <ZoomWrapper>
               <div className="min-h-screen bg-background text-foreground">
                 {children}

@@ -2,9 +2,10 @@
 
 import { useAppStore } from "@/store/appStore";
 import { navigationConfig, PrimaryNavTab } from "@/types/navigation";
-import { Home, BarChart3, Brain, Settings, Bell } from "lucide-react";
+import { Home, BarChart3, Brain, Settings, Bell, Search, Command } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { useGlobalSearch } from "@/components/GlobalSearchProvider";
 
 const iconMap = {
   Home,
@@ -17,6 +18,7 @@ const iconMap = {
 export function PrimaryNavigation() {
   const primaryNav = useAppStore((state) => state.ui.primaryNav);
   const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
+  const { openSearch } = useGlobalSearch();
 
   const handleNavClick = (tab: PrimaryNavTab) => {
     setPrimaryNav(tab);
@@ -47,7 +49,23 @@ export function PrimaryNavigation() {
             );
           })}
         </div>
-        <ThemeToggle />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={openSearch}
+            className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors",
+              "hover:bg-accent hover:text-accent-foreground",
+              "border border-input"
+            )}
+            title="Search (⌘K or Ctrl+K)"
+          >
+            <Search className="h-4 w-4" />
+            <span className="text-xs text-muted-foreground hidden sm:inline">
+              <Command className="h-3 w-3 inline" />K
+            </span>
+          </button>
+          <ThemeToggle />
+        </div>
       </div>
     </div>
   );
