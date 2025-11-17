@@ -36,9 +36,19 @@ export interface Annotation {
   created_by?: string;
 }
 
+export interface DDAVariantConfig {
+  // For individual channel variants (ST, DE, SY)
+  selectedChannels?: number[]; // Channel indices (camelCase from backend)
+  // For pair-based variants (CT)
+  ctChannelPairs?: [number, number][]; // Bidirectional channel pairs (camelCase from backend)
+  // For directed pair variants (CD)
+  cdChannelPairs?: [number, number][]; // Directed channel pairs (from -> to) (camelCase from backend)
+  // Future: add any variant-specific options here (preprocessing, window params, etc.)
+}
+
 export interface DDAAnalysisRequest {
   file_path: string;
-  channels: string[];
+  channels: string[]; // Legacy: all channels (union of all variant channels)
   start_time: number;
   end_time: number;
   variants: string[];
@@ -48,17 +58,21 @@ export interface DDAAnalysisRequest {
   scale_max?: number;
   scale_num?: number;
   delay_list?: number[]; // Explicit list of delay values (overrides scale_min/max/num if provided)
-  // CT-specific parameters
+  // CT-specific parameters (legacy - use variant_configs instead)
   ct_window_length?: number;
   ct_window_step?: number;
-  ct_channel_pairs?: [number, number][]; // Array of channel index pairs
-  // CD-specific parameters
-  cd_channel_pairs?: [number, number][]; // Array of directed channel pairs (from -> to)
+  ct_channel_pairs?: [number, number][]; // Array of channel index pairs (legacy)
+  // CD-specific parameters (legacy - use variant_configs instead)
+  cd_channel_pairs?: [number, number][]; // Array of directed channel pairs (legacy)
   // Expert mode parameters
   model_dimension?: number; // Model dimension (dm parameter, default: 4)
   polynomial_order?: number; // Polynomial order (order parameter, default: 4)
   nr_tau?: number; // Number of tau values (nr_tau parameter, default: 2)
   model_params?: number[]; // MODEL parameter encoding (selected polynomial terms)
+  // NEW: Per-variant configuration (extensible for future options)
+  variant_configs?: {
+    [variantId: string]: DDAVariantConfig;
+  };
 }
 
 export interface DDAVariantResult {

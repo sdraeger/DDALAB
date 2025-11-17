@@ -741,6 +741,9 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
               points: { show: false },
             },
           ],
+          legend: {
+            show: false, // Hide legend for heatmap as it doesn't add value
+          },
           cursor: {
             lock: false,
             drag: {
@@ -1951,17 +1954,14 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                         <div
                           className="w-full relative"
                           style={{
-                            minHeight: Math.max(
-                              300,
-                              selectedChannels.length * 30 + 100,
-                            ),
+                            height: heatmapHeight,
                           }}
                         >
                           {/* Show skeleton overlay while processing or rendering */}
                           {(isProcessingData || isRenderingHeatmap) && (
                             <div className="absolute inset-0 z-10">
                               <PlotLoadingSkeleton
-                                height={Math.max(300, selectedChannels.length * 30 + 100)}
+                                height={heatmapHeight}
                                 title={
                                   isProcessingData
                                     ? "Processing DDA data..."
@@ -1974,10 +1974,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                             ref={heatmapCallbackRef}
                             className="w-full"
                             style={{
-                              minHeight: Math.max(
-                                300,
-                                selectedChannels.length * 30 + 100,
-                              ),
+                              height: heatmapHeight,
                             }}
                           />
 
