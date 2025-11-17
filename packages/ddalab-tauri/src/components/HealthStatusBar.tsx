@@ -18,6 +18,8 @@ import {
   Server,
   Cloud,
   CloudOff,
+  Brain,
+  Loader2,
 } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 
@@ -28,6 +30,7 @@ interface HealthStatusBarProps {
 export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
   const { ui, updateHealthStatus } = useAppStore();
   const { isConnected: syncConnected, isLoading: syncLoading } = useSync();
+  const ddaRunning = useAppStore((state) => state.dda.isRunning);
 
   // Use TanStack Query for health checks with automatic polling
   const {
@@ -140,6 +143,17 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
                   : "offline"}
             </span>
           </div>
+
+          {/* DDA Analysis Status */}
+          {ddaRunning && (
+            <div
+              className="flex items-center space-x-1 text-blue-600"
+              title="DDA analysis is running in the background. You'll receive a notification when complete."
+            >
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>DDA: running</span>
+            </div>
+          )}
 
           {/* Last Check Time */}
           <div className="flex items-center space-x-1 text-muted-foreground">

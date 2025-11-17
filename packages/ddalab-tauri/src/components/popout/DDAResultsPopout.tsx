@@ -396,6 +396,9 @@ function DDAResultsPopoutContent({
           points: { show: false },
         },
       ],
+      legend: {
+        show: false, // Hide legend for heatmap as it doesn't add value
+      },
       hooks: {
         drawClear: [
           (u) => {
