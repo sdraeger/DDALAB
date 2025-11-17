@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { ApiService } from "@/services/apiService";
 import { useAppStore } from "@/store/appStore";
 import { useDDAHistory, useAnalysisFromHistory } from "@/hooks/useDDAAnalysis";
+import { DDAProgressEvent } from "@/types/api";
 import { FileManager } from "@/components/FileManager";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { HealthStatusBar } from "@/components/HealthStatusBar";
-import { DDAProgressIndicator } from "@/components/DDAProgressIndicator";
 import { PrimaryNavigation } from "@/components/navigation/PrimaryNavigation";
 import { SecondaryNavigation } from "@/components/navigation/SecondaryNavigation";
 import { NavigationContent } from "@/components/navigation/NavigationContent";
@@ -66,6 +67,7 @@ export function DashboardLayout({
   const setLayout = useAppStore((state) => state.setLayout);
   const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis);
   const setAnalysisHistory = useAppStore((state) => state.setAnalysisHistory);
+  const setDDARunning = useAppStore((state) => state.setDDARunning);
 
   // Use Tanstack Query hook for async, non-blocking history loading
   // Only enable when server is ready and authenticated to avoid connection errors
@@ -213,6 +215,33 @@ export function DashboardLayout({
     }
   }, [activeTab]);
 
+  // Listen for DDA completion events to unlock the configure tab
+  useEffect(() => {
+    if (!TauriService.isTauri()) return;
+
+    let unlisten: UnlistenFn | null = null;
+
+    const setupListener = async () => {
+      unlisten = await listen<DDAProgressEvent>("dda-progress", (event) => {
+        const phase = event.payload.phase;
+
+        // When DDA completes (successfully or with error), unlock the configure tab
+        if (phase === "completed" || phase === "error") {
+          console.log("[DASHBOARD] DDA analysis finished, unlocking configure tab");
+          setDDARunning(false);
+        }
+      });
+    };
+
+    setupListener();
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [setDDARunning]);
+
   // Handle notification navigation
   const handleNotificationNavigate = (actionType: string, actionData: any) => {
     console.log("[DASHBOARD] Notification clicked:", actionType, actionData);
@@ -225,6 +254,13 @@ export function DashboardLayout({
       case "navigate_results":
       case "navigate_analysis":
         setPrimaryNav("analyze");
+        break;
+      case "view-analysis":
+        // Navigate to analysis view
+        setPrimaryNav("analyze");
+        // If we have the analysis ID, we could potentially load it
+        // For now, just navigate to the analysis tab where the user can see it in history
+        console.log("[DASHBOARD] Navigating to analysis:", actionData?.analysisId);
         break;
       case "navigate_openneuro":
         setPrimaryNav("manage");
@@ -367,9 +403,6 @@ export function DashboardLayout({
 
       {/* Health Status Bar */}
       <HealthStatusBar apiService={apiService} />
-
-      {/* Global DDA Progress Indicator - visible on all tabs */}
-      <DDAProgressIndicator />
     </div>
   );
 }

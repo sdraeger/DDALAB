@@ -139,6 +139,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     (state) => state.updateAnalysisParameters
   );
   const setDDARunning = useAppStore((state) => state.setDDARunning);
+  const ddaRunning = useAppStore((state) => state.dda.isRunning);
   const incrementActionCount = useAppStore(
     (state) => state.incrementActionCount
   );
@@ -496,15 +497,67 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
       console.log("[DDAAnalysis] Auto-populating parameters from loaded analysis:", {
         variants: params.variants,
-        channels: params.channels,
+        hasVariantConfigs: !!params.variant_configs,
+        topLevelChannels: currentAnalysis.channels,
+        paramsChannels: params.channels,
         windowLength: params.window_length,
         windowStep: params.window_step,
       });
 
-      // Convert channel indices to channel names if needed
-      const channelNames = params.channels || [];
+      // NEW: Build per-variant channel configs from variant_configs (if available)
+      const newVariantChannelConfigs: typeof localParameters.variantChannelConfigs = {};
 
-      // Convert CT channel pairs from indices to names (if they are indices)
+      if (params.variant_configs) {
+        console.log("[DDAAnalysis] Loading from variant_configs:", params.variant_configs);
+
+        // Iterate through each variant in variant_configs
+        Object.entries(params.variant_configs).forEach(([variantId, config]) => {
+          newVariantChannelConfigs[variantId] = {};
+
+          // Convert channel indices to channel names
+          if (config.selectedChannels && Array.isArray(config.selectedChannels)) {
+            newVariantChannelConfigs[variantId].selectedChannels = config.selectedChannels.map(
+              (idx) => fileChannels[idx] || `Channel ${idx}`
+            );
+          }
+
+          // Convert ctChannelPairs (for CT) from indices to names
+          if (config.ctChannelPairs && Array.isArray(config.ctChannelPairs)) {
+            newVariantChannelConfigs[variantId].ctChannelPairs = config.ctChannelPairs.map(
+              ([idx1, idx2]) => [
+                fileChannels[idx1] || `Channel ${idx1}`,
+                fileChannels[idx2] || `Channel ${idx2}`,
+              ] as [string, string]
+            );
+          }
+
+          // Convert cdChannelPairs (for CD) from indices to names
+          if (config.cdChannelPairs && Array.isArray(config.cdChannelPairs)) {
+            newVariantChannelConfigs[variantId].cdChannelPairs = config.cdChannelPairs.map(
+              ([idx1, idx2]) => [
+                fileChannels[idx1] || `Channel ${idx1}`,
+                fileChannels[idx2] || `Channel ${idx2}`,
+              ] as [string, string]
+            );
+          }
+        });
+
+        console.log("[DDAAnalysis] Populated variantChannelConfigs:", newVariantChannelConfigs);
+      }
+
+      // FALLBACK: Use top-level channels from DDAResult or params.channels (legacy)
+      const channelNames = currentAnalysis.channels || params.channels || [];
+
+      console.log("[DDAAnalysis] Checking for CT/CD pairs:", {
+        hasCTPairs: !!params.ct_channel_pairs,
+        ctPairsLength: params.ct_channel_pairs?.length,
+        ctPairsValue: params.ct_channel_pairs,
+        hasCDPairs: !!params.cd_channel_pairs,
+        cdPairsLength: params.cd_channel_pairs?.length,
+        cdPairsValue: params.cd_channel_pairs,
+      });
+
+      // FALLBACK: Convert CT channel pairs from indices to names (legacy format)
       let ctPairs: [string, string][] = [];
       if (params.ct_channel_pairs && Array.isArray(params.ct_channel_pairs)) {
         ctPairs = params.ct_channel_pairs.map(([idx1, idx2]) => {
@@ -515,9 +568,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           // Otherwise assume they're already channel names
           return [String(idx1), String(idx2)] as [string, string];
         });
+        console.log("[DDAAnalysis] Converted CT pairs:", ctPairs);
       }
 
-      // Convert CD channel pairs from indices to names (if they are indices)
+      // FALLBACK: Convert CD channel pairs from indices to names (legacy format)
       let cdPairs: [string, string][] = [];
       if (params.cd_channel_pairs && Array.isArray(params.cd_channel_pairs)) {
         cdPairs = params.cd_channel_pairs.map(([idx1, idx2]) => {
@@ -528,6 +582,65 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           // Otherwise assume they're already channel names
           return [String(idx1), String(idx2)] as [string, string];
         });
+        console.log("[DDAAnalysis] Converted CD pairs:", cdPairs);
+      }
+
+      // LEGACY FALLBACK: If no variant_configs, build from legacy format
+      if (!params.variant_configs && params.variants && params.variants.length > 0) {
+        console.log("[DDAAnalysis] Building variantChannelConfigs from legacy format");
+
+        params.variants.forEach((variantId) => {
+          newVariantChannelConfigs[variantId] = {};
+
+          // For ST, DE, SY: Use top-level channels
+          if (variantId === "single_timeseries" || variantId === "dynamical_ergodicity" || variantId === "synchronization") {
+            if (channelNames.length > 0) {
+              newVariantChannelConfigs[variantId].selectedChannels = channelNames;
+            }
+          }
+
+          // For CT: Use ct_channel_pairs or generate defaults
+          if (variantId === "cross_timeseries") {
+            if (ctPairs.length > 0) {
+              newVariantChannelConfigs[variantId].ctChannelPairs = ctPairs;
+            } else if (channelNames.length >= 2) {
+              // Generate default pairs from first N channels (sequential pairs)
+              const defaultPairs: [string, string][] = [];
+              const maxPairs = Math.min(4, Math.floor(channelNames.length / 2)); // Max 4 pairs
+              for (let i = 0; i < maxPairs * 2; i += 2) {
+                if (i + 1 < channelNames.length) {
+                  defaultPairs.push([channelNames[i], channelNames[i + 1]]);
+                }
+              }
+              if (defaultPairs.length > 0) {
+                newVariantChannelConfigs[variantId].ctChannelPairs = defaultPairs;
+                console.log("[DDAAnalysis] Generated default CT pairs:", defaultPairs);
+              }
+            }
+          }
+
+          // For CD: Use cd_channel_pairs or generate defaults
+          if (variantId === "cross_dynamical") {
+            if (cdPairs.length > 0) {
+              newVariantChannelConfigs[variantId].cdChannelPairs = cdPairs;
+            } else if (channelNames.length >= 2) {
+              // Generate default directed pairs (same as CT for simplicity)
+              const defaultPairs: [string, string][] = [];
+              const maxPairs = Math.min(4, Math.floor(channelNames.length / 2)); // Max 4 pairs
+              for (let i = 0; i < maxPairs * 2; i += 2) {
+                if (i + 1 < channelNames.length) {
+                  defaultPairs.push([channelNames[i], channelNames[i + 1]]);
+                }
+              }
+              if (defaultPairs.length > 0) {
+                newVariantChannelConfigs[variantId].cdChannelPairs = defaultPairs;
+                console.log("[DDAAnalysis] Generated default CD pairs:", defaultPairs);
+              }
+            }
+          }
+        });
+
+        console.log("[DDAAnalysis] Built variantChannelConfigs from legacy:", newVariantChannelConfigs);
       }
 
       setLocalParameters((prev) => ({
@@ -548,6 +661,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         ctWindowStep: params.ct_window_step || prev.ctWindowStep,
         ctChannelPairs: ctPairs.length > 0 ? ctPairs : prev.ctChannelPairs,
         cdChannelPairs: cdPairs.length > 0 ? cdPairs : prev.cdChannelPairs,
+        // NEW: Set per-variant configs if available, otherwise keep previous
+        variantChannelConfigs: Object.keys(newVariantChannelConfigs).length > 0
+          ? newVariantChannelConfigs
+          : prev.variantChannelConfigs,
         expertMode: (params.model_dimension !== undefined || params.polynomial_order !== undefined) ? true : prev.expertMode,
         modelParameters: (params.model_dimension || params.polynomial_order) ? {
           dm: params.model_dimension || 4,
@@ -781,6 +898,50 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       .map((ch) => selectedFile!.channels.indexOf(ch))
       .filter((idx) => idx !== -1);
 
+    // Build variant_configs from variantChannelConfigs
+    const variantConfigs: { [variantId: string]: any } = {};
+
+    parameters.variants.forEach((variantId) => {
+      const config = parameters.variantChannelConfigs[variantId];
+      if (!config) return;
+
+      const variantConfig: any = {};
+
+      // Handle individual channels (ST, DE, SY)
+      if (config.selectedChannels && config.selectedChannels.length > 0) {
+        variantConfig.selectedChannels = config.selectedChannels
+          .map((ch) => selectedFile!.channels.indexOf(ch))
+          .filter((idx) => idx !== -1);
+      }
+
+      // Handle CT channel pairs
+      if (config.ctChannelPairs && config.ctChannelPairs.length > 0) {
+        variantConfig.ctChannelPairs = config.ctChannelPairs
+          .map(([ch1, ch2]) => {
+            const idx1 = selectedFile!.channels.indexOf(ch1);
+            const idx2 = selectedFile!.channels.indexOf(ch2);
+            return [idx1, idx2] as [number, number];
+          })
+          .filter(([idx1, idx2]) => idx1 !== -1 && idx2 !== -1);
+      }
+
+      // Handle CD directed pairs
+      if (config.cdChannelPairs && config.cdChannelPairs.length > 0) {
+        variantConfig.cdChannelPairs = config.cdChannelPairs
+          .map(([from, to]) => {
+            const fromIdx = selectedFile!.channels.indexOf(from);
+            const toIdx = selectedFile!.channels.indexOf(to);
+            return [fromIdx, toIdx] as [number, number];
+          })
+          .filter(([fromIdx, toIdx]) => fromIdx !== -1 && toIdx !== -1);
+      }
+
+      // Only add to variantConfigs if there's actual configuration
+      if (Object.keys(variantConfig).length > 0) {
+        variantConfigs[variantId] = variantConfig;
+      }
+    });
+
     // Prepare the analysis request
     const request: DDAAnalysisRequest = {
       file_path: selectedFile.file_path,
@@ -797,6 +958,8 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       ct_window_step: parameters.ctWindowStep,
       ct_channel_pairs: ctChannelPairs,
       cd_channel_pairs: cdChannelPairs,
+      // NEW: Per-variant channel configuration
+      variant_configs: Object.keys(variantConfigs).length > 0 ? variantConfigs : undefined,
     };
 
     console.log("📋 [LOCAL] DDA Analysis Parameters:");
@@ -829,6 +992,12 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           .join(", ")}`
       );
     }
+    if (request.variant_configs) {
+      console.log("   Per-variant configurations:");
+      Object.entries(request.variant_configs).forEach(([variantId, config]) => {
+        console.log(`      ${variantId}:`, config);
+      });
+    }
 
     // Record DDA parameters if recording is active
     if (isWorkflowRecording) {
@@ -860,6 +1029,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           channels: channelNames, // Use the actual channel names, not the indices
           name: analysisName.trim() || result.name,
         };
+
+        console.log("[DDA ANALYSIS] Analysis complete, setting as current:");
+        console.log("  Analysis ID:", resultWithChannels.id);
+        console.log("  File path:", resultWithChannels.file_path);
 
         setResults(resultWithChannels);
         setCurrentAnalysis(resultWithChannels);
@@ -1366,7 +1539,25 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   }
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="h-full flex flex-col overflow-hidden relative">
+      {/* Disabled overlay when DDA is running */}
+      {ddaRunning && (
+        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="text-center space-y-4">
+            <Cpu className="h-12 w-12 animate-spin text-primary mx-auto" />
+            <div>
+              <p className="text-lg font-semibold">DDA Analysis Running</p>
+              <p className="text-sm text-muted-foreground">
+                Configuration is locked while analysis is in progress
+              </p>
+              <p className="text-xs text-muted-foreground mt-2">
+                Check the status bar for progress
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 flex flex-col min-h-0">
         <div className="flex items-center justify-end flex-shrink-0 pb-4">
           <div className="flex items-center space-x-2">
@@ -1374,14 +1565,14 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               placeholder="Analysis name (optional)"
               value={analysisName}
               onChange={(e) => setAnalysisName(e.target.value)}
-              disabled={localIsRunning}
+              disabled={ddaRunning || localIsRunning}
               className="w-48"
             />
             <Button
               variant="outline"
               size="sm"
               onClick={handleImportConfig}
-              disabled={localIsRunning}
+              disabled={ddaRunning || localIsRunning}
             >
               <Upload className="h-4 w-4 mr-1" />
               Import
@@ -1390,17 +1581,23 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               variant="outline"
               size="sm"
               onClick={handleExportConfig}
-              disabled={localIsRunning}
+              disabled={ddaRunning || localIsRunning}
             >
               <Download className="h-4 w-4 mr-1" />
               Export
             </Button>
-            <Button variant="outline" size="sm" onClick={resetParameters}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={resetParameters}
+              disabled={ddaRunning}
+            >
               Reset
             </Button>
             <Button
               onClick={runAnalysis}
               disabled={
+                ddaRunning ||
                 localIsRunning ||
                 !parameters.variants.some((variantId) => {
                   const config = parameters.variantChannelConfigs[variantId];
@@ -1417,7 +1614,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               }
               className="min-w-[120px]"
             >
-              {localIsRunning ? (
+              {ddaRunning || localIsRunning ? (
                 <>
                   <Cpu className="h-4 w-4 mr-2 animate-spin" />
                   Running...
@@ -1433,6 +1630,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               <Button
                 onClick={submitToNSG}
                 disabled={
+                  ddaRunning ||
                   isSubmittingToNsg ||
                   localIsRunning ||
                   parameters.selectedChannels.length === 0
@@ -1559,7 +1757,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                             variants: newVariants,
                           }));
                         }}
-                        disabled={localIsRunning}
+                        disabled={ddaRunning || localIsRunning}
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -1608,7 +1806,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                         timeStart: Math.max(0, parseFloat(e.target.value) || 0),
                       }))
                     }
-                    disabled={localIsRunning}
+                    disabled={ddaRunning || localIsRunning}
                     min="0"
                     max={selectedFile?.duration}
                     step="0.1"
@@ -1630,7 +1828,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                         ),
                       }));
                     }}
-                    disabled={localIsRunning}
+                    disabled={ddaRunning || localIsRunning}
                     min={parameters.timeStart + 1}
                     max={selectedFile?.duration}
                     step="0.1"
@@ -1675,7 +1873,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                       }))
                     }
                     sampleRate={selectedFile?.sample_rate || 256}
-                    disabled={localIsRunning}
+                    disabled={ddaRunning || localIsRunning}
                     min={50}
                     max={500}
                     tooltip="Number of samples in each analysis window"
@@ -1690,7 +1888,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                       }))
                     }
                     sampleRate={selectedFile?.sample_rate || 256}
-                    disabled={localIsRunning}
+                    disabled={ddaRunning || localIsRunning}
                     min={1}
                     max={50}
                     tooltip="Shift between consecutive windows (smaller = more overlap)"
@@ -1733,7 +1931,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                             : undefined,
                         }));
                       }}
-                      disabled={localIsRunning}
+                      disabled={ddaRunning || localIsRunning}
                       className="w-4 h-4"
                     />
                   </label>
@@ -1755,7 +1953,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     scaleNum: config.list?.length || 0,
                   }));
                 }}
-                disabled={localIsRunning}
+                disabled={ddaRunning || localIsRunning}
                 sampleRate={selectedFile?.sample_rate || 256}
               />
             )}
@@ -1796,7 +1994,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   variants={availableVariants}
                   selectedVariants={parameters.variants}
                   channels={selectedFile.channels}
-                  disabled={localIsRunning}
+                  disabled={ddaRunning || localIsRunning}
                   channelConfigs={parameters.variantChannelConfigs}
                   onConfigChange={(variantId, config) => {
                     setLocalParameters((prev) => ({

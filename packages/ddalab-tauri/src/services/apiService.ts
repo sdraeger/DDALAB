@@ -562,12 +562,16 @@ export class ApiService {
         },
         ct_channel_pairs: request.ct_channel_pairs,
         cd_channel_pairs: request.cd_channel_pairs,
+        // NEW: Per-variant channel configuration
+        variant_configs: request.variant_configs,
       };
 
       console.log("Submitting DDA request:", ddaRequest);
+      console.log("variant_configs being sent:", ddaRequest.variant_configs);
       const response = await this.client.post("/api/dda", ddaRequest);
 
       console.log("Raw DDA API response:", response.data);
+      console.log("variant_configs in response:", response.data.variant_configs || response.data.parameters?.variant_configs);
       console.log("Response structure:", {
         hasQ: !!response.data.Q,
         Q_type: typeof response.data.Q,
@@ -587,7 +591,8 @@ export class ApiService {
       });
 
       // Process the real API response
-      const job_id = `dda_${Date.now()}`;
+      // Use the ID from the backend response (UUID format) instead of generating our own
+      const job_id = response.data.id || `dda_${Date.now()}`;
 
       // Create scales array (fallback to default values if no Q matrix)
       const scaleMin = request.scale_min || 1;
@@ -1045,6 +1050,15 @@ export class ApiService {
       const analysisWrapper = response.data.analysis;
 
       if (!analysisWrapper) return null;
+
+      console.log("[BACKEND RESPONSE] Analysis from history:", {
+        hasParameters: !!analysisWrapper.analysis_data?.parameters,
+        hasVariantConfigs: !!analysisWrapper.analysis_data?.parameters?.variant_configs,
+        variantConfigs: analysisWrapper.analysis_data?.parameters?.variant_configs,
+        parameterKeys: analysisWrapper.analysis_data?.parameters
+          ? Object.keys(analysisWrapper.analysis_data.parameters)
+          : null,
+      });
 
       // Flatten analysis data structure if needed
       if (

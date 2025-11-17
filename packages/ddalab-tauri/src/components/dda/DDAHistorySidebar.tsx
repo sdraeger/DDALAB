@@ -11,7 +11,6 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
-  Star,
   Save,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -70,6 +69,7 @@ export function DDAHistorySidebar({
     setRenamingId(null);
     setNewName("");
   };
+
 
   // Handle scroll for virtual rendering
   useEffect(() => {
@@ -195,15 +195,18 @@ export function DDAHistorySidebar({
                 const isCurrent = currentAnalysisId === analysis.id;
                 const isSelected = selectedAnalysisId === analysis.id;
 
-              return (
+                return (
                 <div
                   key={analysis.id}
                   onClick={() => !isRenaming && onSelectAnalysis(analysis)}
                   className={cn(
                     "p-3 rounded-md border transition-colors",
                     !isRenaming && "cursor-pointer hover:bg-accent/50",
-                    isSelected && "bg-accent border-accent-foreground/20",
-                    isCurrent && "border-primary/50",
+                    // When selected OR current: show background highlight
+                    (isSelected || isCurrent) && "bg-accent",
+                    // Border styling: primary for current, accent for selected only
+                    isCurrent && "border-primary",
+                    !isCurrent && isSelected && "border-accent-foreground/20",
                   )}
                 >
                   {isRenaming ? (
@@ -246,9 +249,6 @@ export function DDAHistorySidebar({
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 mb-1">
-                            {isCurrent && (
-                              <Star className="h-3 w-3 fill-primary text-primary flex-shrink-0" />
-                            )}
                             <p className="font-medium text-xs truncate">
                               {analysis.name ||
                                 `Analysis ${analysis.id.slice(0, 8)}`}
@@ -268,48 +268,57 @@ export function DDAHistorySidebar({
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <span>
-                            {analysis.parameters?.channels?.length ||
-                              analysis.channels?.length ||
-                              0}{" "}
-                            ch
-                          </span>
-                          <span>•</span>
-                          <span>
-                            {analysis.parameters?.variants?.length || 0} var
-                          </span>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <span>
+                              {analysis.parameters?.channels?.length ||
+                                analysis.channels?.length ||
+                                0}{" "}
+                              ch
+                            </span>
+                            <span>•</span>
+                            <span>
+                              {analysis.parameters?.variants?.length || 0} var
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => handleStartRename(analysis, e)}
+                              className="h-6 w-6 flex-shrink-0"
+                              title="Rename"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => onDeleteAnalysis(analysis.id, e)}
+                              className="h-6 w-6 flex-shrink-0 text-destructive hover:text-destructive"
+                              title="Delete"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </div>
 
-                        <div className="flex items-center gap-1">
-                          {isCurrent && (
+                        {isCurrent && (
+                          <div className="flex items-center">
                             <Badge
                               variant="default"
-                              className="text-xs h-5 px-1.5"
+                              className="text-[10px] h-5 px-2 font-semibold"
+                              style={{
+                                backgroundColor: '#3b82f6',
+                                color: 'white',
+                              }}
                             >
-                              Current
+                              Current Analysis
                             </Badge>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={(e) => handleStartRename(analysis, e)}
-                            className="h-6 w-6"
-                            title="Rename"
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={(e) => onDeleteAnalysis(analysis.id, e)}
-                            className="h-6 w-6 text-destructive hover:text-destructive"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
+                          </div>
+                        )}
                       </div>
                     </>
                   )}

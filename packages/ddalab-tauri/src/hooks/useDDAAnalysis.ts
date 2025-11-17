@@ -3,6 +3,8 @@ import { useState, useEffect } from "react";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { ApiService } from "@/services/apiService";
 import { DDAAnalysisRequest, DDAResult, DDAProgressEvent } from "@/types/api";
+import { useAppStore } from "@/store/appStore";
+import { TauriService, NotificationType } from "@/services/tauriService";
 
 /**
  * Query key factory for DDA analysis operations
@@ -38,7 +40,7 @@ export function useSubmitDDAAnalysis(apiService: ApiService) {
     mutationFn: (request: DDAAnalysisRequest) => {
       return apiService.submitDDAAnalysis(request);
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       // Add the new result to the history cache immediately
       queryClient.setQueryData<DDAResult[]>(ddaKeys.history(), (old) => {
         return old ? [result, ...old] : [result];
@@ -46,6 +48,43 @@ export function useSubmitDDAAnalysis(apiService: ApiService) {
 
       // Invalidate history to trigger refetch (for server-side changes)
       queryClient.invalidateQueries({ queryKey: ddaKeys.history() });
+
+      // Unlock the config tab by setting DDA running state to false
+      // This ensures the config tab unlocks even if the component is unmounted
+      useAppStore.getState().setDDARunning(false);
+
+      // Send native notification for successful completion
+      if (TauriService.isTauri()) {
+        try {
+          const variantCount = result.results?.variants?.length || 1;
+          await TauriService.createNotification(
+            "DDA Analysis Complete",
+            `Analysis completed successfully with ${variantCount} variant(s)`,
+            NotificationType.Success,
+            "view-analysis",
+            { analysisId: result.id }
+          );
+        } catch (err) {
+          console.error("[NOTIFICATIONS] Failed to create success notification:", err);
+        }
+      }
+    },
+    onError: async (error: Error) => {
+      // Unlock the config tab on error as well
+      useAppStore.getState().setDDARunning(false);
+
+      // Send native notification for error
+      if (TauriService.isTauri()) {
+        try {
+          await TauriService.createNotification(
+            "DDA Analysis Failed",
+            error.message || "An error occurred during analysis",
+            NotificationType.Error
+          );
+        } catch (err) {
+          console.error("[NOTIFICATIONS] Failed to create error notification:", err);
+        }
+      }
     },
     retry: 1, // Retry once on failure
   });
@@ -145,8 +184,34 @@ export function useSaveDDAToHistory(apiService: ApiService) {
     mutationFn: (result: DDAResult) => {
       return apiService.saveAnalysisToHistory(result);
     },
+    onMutate: async (newAnalysis) => {
+      // Cancel any outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: ddaKeys.history() });
+
+      // Get current history
+      const previousHistory = queryClient.getQueryData<DDAResult[]>(ddaKeys.history());
+
+      // Optimistically update history by adding the new analysis at the beginning
+      if (previousHistory) {
+        queryClient.setQueryData<DDAResult[]>(ddaKeys.history(), (old) => {
+          if (!old) return [newAnalysis];
+          // Add to beginning if not already present
+          const exists = old.some(a => a.id === newAnalysis.id);
+          if (exists) return old;
+          return [newAnalysis, ...old];
+        });
+      }
+
+      return { previousHistory };
+    },
+    onError: (err, newAnalysis, context) => {
+      // Rollback on error
+      if (context?.previousHistory) {
+        queryClient.setQueryData(ddaKeys.history(), context.previousHistory);
+      }
+    },
     onSuccess: () => {
-      // Invalidate history to trigger refetch
+      // Invalidate history to trigger refetch and sync with server
       queryClient.invalidateQueries({ queryKey: ddaKeys.history() });
     },
   });

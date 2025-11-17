@@ -329,6 +329,7 @@ impl StreamingDDAProcessor {
             ct_channel_pairs: None,
             cd_channel_pairs: None,
             model_parameters: self.config.model_parameters.clone(),
+            variant_configs: None,
         };
 
         // Run DDA (blocking operation, but we're in a Rayon thread pool)

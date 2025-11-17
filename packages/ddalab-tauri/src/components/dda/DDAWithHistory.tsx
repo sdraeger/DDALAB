@@ -38,6 +38,7 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   const hasPreviousAnalysis = useAppStore(
     (state) => !!state.dda.previousAnalysis,
   );
+  const ddaRunning = useAppStore((state) => state.dda.isRunning);
   const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis);
   const restorePreviousAnalysis = useAppStore(
     (state) => state.restorePreviousAnalysis,
@@ -88,12 +89,38 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   const deleteAnalysisMutation = useDeleteAnalysis(apiService);
   const renameAnalysisMutation = useRenameAnalysis(apiService);
 
+  // Track previous currentAnalysisId to detect actual changes
+  const prevCurrentAnalysisId = useRef<string | null | undefined>(null);
+
   // Initialize selected ID when current analysis changes or file changes
   useEffect(() => {
+    // Check if currentAnalysisId actually changed (not just a re-render)
+    const currentAnalysisIdChanged = prevCurrentAnalysisId.current !== currentAnalysisId;
+
+    console.log("[DDA HISTORY SYNC]");
+    console.log("  currentAnalysisId:", currentAnalysisId);
+    console.log("  selectedAnalysisId:", selectedAnalysisId);
+    console.log("  prevCurrentAnalysisId:", prevCurrentAnalysisId.current);
+    console.log("  currentAnalysisIdChanged:", currentAnalysisIdChanged);
+    console.log("  currentAnalysisFilePath:", currentAnalysisFilePath);
+    console.log("  currentFilePath:", currentFilePath);
+    console.log("  filePathsMatch:", currentAnalysisFilePath === currentFilePath);
+
     if (currentAnalysisFilePath === currentFilePath && currentAnalysisId) {
-      // Only update if actually different to prevent unnecessary state updates
+      // Sync selectedAnalysisId to currentAnalysisId whenever they don't match
+      // This handles race conditions where fileHistory updates after currentAnalysisId changes
       if (selectedAnalysisId !== currentAnalysisId) {
+        console.log(
+          "[DDA HISTORY] Syncing selectedAnalysisId to currentAnalysisId:",
+          currentAnalysisId,
+          "( changed:", currentAnalysisIdChanged, ")"
+        );
         setSelectedAnalysisId(currentAnalysisId);
+      } else {
+        console.log("[DDA HISTORY] Already in sync:", {
+          currentAnalysisId: currentAnalysisId?.slice(0, 8),
+          selectedAnalysisId: selectedAnalysisId?.slice(0, 8),
+        });
       }
     } else if (!currentAnalysisId && fileHistory.length > 0) {
       // Auto-select most recent for this file
@@ -107,8 +134,12 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
         setSelectedAnalysisId(mostRecentId);
       }
     } else if (!currentAnalysisId && selectedAnalysisId !== null) {
+      console.log("[DDA HISTORY] Clearing selectedAnalysisId (no current analysis)");
       setSelectedAnalysisId(null);
     }
+
+    // CRITICAL: Update ref AFTER condition checks to avoid missing rapid successive updates
+    prevCurrentAnalysisId.current = currentAnalysisId;
   }, [
     currentAnalysisId,
     currentAnalysisFilePath,
@@ -436,6 +467,20 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
                     />
                   </>
                 )}
+              </div>
+            ) : ddaRunning ? (
+              // Analysis is running - show persistent loading indicator
+              <div className="flex items-center justify-center h-full min-h-[400px]">
+                <div className="text-center">
+                  <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-primary" />
+                  <p className="text-lg font-medium mb-2">DDA Analysis Running</p>
+                  <p className="text-sm text-muted-foreground">
+                    Analysis is in progress. You'll receive a notification when complete.
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-4">
+                    Feel free to switch tabs or continue working
+                  </p>
+                </div>
               </div>
             ) : (
               // No analysis available
