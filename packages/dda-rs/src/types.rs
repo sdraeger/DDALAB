@@ -64,6 +64,20 @@ pub struct ModelParameters {
     pub nr_tau: u32, // Number of tau values (default: 2)
 }
 
+/// Per-variant channel configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VariantChannelConfig {
+    /// Selected channel indices for single-channel variants (ST, DE, SY)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_channels: Option<Vec<usize>>,
+    /// Channel pairs for CT variant
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ct_channel_pairs: Option<Vec<[usize; 2]>>,
+    /// Directed channel pairs for CD variant
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cd_channel_pairs: Option<Vec<[usize; 2]>>,
+}
+
 /// Complete DDA request configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DDARequest {
@@ -88,6 +102,10 @@ pub struct DDARequest {
     /// If not provided, defaults to dm=4, order=4, nr_tau=2
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_parameters: Option<ModelParameters>,
+    /// Per-variant channel configurations (new format)
+    /// Maps variant IDs to their specific channel configurations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variant_configs: Option<std::collections::HashMap<String, VariantChannelConfig>>,
 }
 
 /// Variant-specific DDA result

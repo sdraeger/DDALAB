@@ -1062,6 +1062,345 @@ impl DDARunner {
         Ok(result)
     }
 
+    /// Run DDA analysis for a single variant with specific channels
+    ///
+    /// This is a more focused version of `run()` that executes only one variant
+    /// with its own channel configuration. Used when variant_configs are provided.
+    ///
+    /// # Arguments
+    /// * `request` - Base DDA analysis configuration
+    /// * `variant_id` - Variant to run ("ST", "CT", "CD", "DE", "SY")
+    /// * `channels` - Channel indices specific to this variant (0-based)
+    /// * `ct_pairs` - CT channel pairs (only for CT variant)
+    /// * `cd_pairs` - CD directed pairs (only for CD variant)
+    /// * `start_bound` - Optional starting sample index
+    /// * `end_bound` - Optional ending sample index
+    /// * `edf_channel_names` - Optional list of EDF channel names for labeling
+    ///
+    /// # Returns
+    /// VariantResult for the requested variant
+    pub async fn run_single_variant(
+        &self,
+        request: &DDARequest,
+        variant_id: &str,
+        channels: &[usize],
+        ct_pairs: Option<&[[usize; 2]]>,
+        cd_pairs: Option<&[[usize; 2]]>,
+        start_bound: Option<u64>,
+        end_bound: Option<u64>,
+        edf_channel_names: Option<&[String]>,
+    ) -> Result<crate::types::VariantResult> {
+        let analysis_id = Uuid::new_v4().to_string();
+
+        // Validate input file exists
+        let file_path = PathBuf::from(&request.file_path);
+        if !file_path.exists() {
+            return Err(DDAError::FileNotFound(request.file_path.clone()));
+        }
+
+        log::info!(
+            "Running single variant {} with {} channels",
+            variant_id,
+            channels.len()
+        );
+
+        // Create temporary output file
+        let temp_dir = std::env::temp_dir();
+        let output_file = temp_dir.join(format!("dda_output_{}_{}.txt", analysis_id, variant_id));
+
+        // Convert channel indices to 1-based
+        let channel_indices: Vec<String> = channels
+            .iter()
+            .map(|&idx| (idx + 1).to_string())
+            .collect();
+
+        // Determine file type
+        let is_ascii_file = file_path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("ascii") || ext.eq_ignore_ascii_case("txt"))
+            .unwrap_or(false);
+
+        let file_type_flag = if is_ascii_file { "-ASCII" } else { "-EDF" };
+
+        // Handle ASCII files (strip header)
+        let actual_input_file = if is_ascii_file {
+            let temp_ascii_file = temp_dir.join(format!("dda_input_{}_{}.ascii", analysis_id, variant_id));
+            let content = tokio::fs::read_to_string(&file_path)
+                .await
+                .map_err(|e| DDAError::IoError(e))?;
+            let lines: Vec<&str> = content.lines().collect();
+            if lines.is_empty() {
+                return Err(DDAError::ParseError("ASCII file is empty".to_string()));
+            }
+            let has_header = lines[0].chars().any(|c| c.is_alphabetic());
+            let data_lines = if has_header { &lines[1..] } else { &lines[..] };
+            tokio::fs::write(&temp_ascii_file, data_lines.join("\n"))
+                .await
+                .map_err(|e| DDAError::IoError(e))?;
+            temp_ascii_file
+        } else {
+            file_path.clone()
+        };
+
+        // Build command
+        let mut command = if cfg!(target_os = "windows") {
+            Command::new(&self.binary_path)
+        } else {
+            let mut cmd = Command::new("sh");
+            cmd.arg(&self.binary_path);
+            cmd
+        };
+
+        command
+            .arg("-DATA_FN")
+            .arg(&actual_input_file)
+            .arg("-OUT_FN")
+            .arg(output_file.to_str().unwrap())
+            .arg(file_type_flag)
+            .arg("-CH_list");
+
+        // Add channels based on variant type
+        match variant_id {
+            "CT" => {
+                // CT: use first pair (will run multiple times for multiple pairs)
+                if let Some(pairs) = ct_pairs {
+                    if !pairs.is_empty() {
+                        command.arg((pairs[0][0] + 1).to_string());
+                        command.arg((pairs[0][1] + 1).to_string());
+                    }
+                }
+            }
+            "CD" => {
+                // CD: flat list of directed pairs
+                if let Some(pairs) = cd_pairs {
+                    for pair in pairs {
+                        command.arg((pair[0] + 1).to_string());
+                        command.arg((pair[1] + 1).to_string());
+                    }
+                }
+            }
+            _ => {
+                // ST, DE, SY: individual channels
+                for ch in &channel_indices {
+                    command.arg(ch);
+                }
+            }
+        }
+
+        // Model parameters
+        let model_params = request.model_parameters.as_ref();
+        let dm = model_params.map(|m| m.dm).unwrap_or(4);
+        let order = model_params.map(|m| m.order).unwrap_or(4);
+        let nr_tau = model_params.map(|m| m.nr_tau).unwrap_or(2);
+
+        command
+            .arg("-dm")
+            .arg(dm.to_string())
+            .arg("-order")
+            .arg(order.to_string())
+            .arg("-nr_tau")
+            .arg(nr_tau.to_string())
+            .arg("-WL")
+            .arg(request.window_parameters.window_length.to_string())
+            .arg("-WS")
+            .arg(request.window_parameters.window_step.to_string());
+
+        // SELECT mask for single variant
+        let select_mask = match variant_id {
+            "ST" => "1 0 0 0 0 0",
+            "CT" => "0 1 0 0 0 0",
+            "CD" => "0 0 1 0 0 0",
+            "DE" => "0 0 0 0 1 0",
+            "SY" => "0 0 0 0 0 1",
+            _ => return Err(DDAError::ExecutionFailed(format!("Unknown variant: {}", variant_id))),
+        };
+
+        command.arg("-SELECT");
+        for bit in select_mask.split_whitespace() {
+            command.arg(bit);
+        }
+
+        command.arg("-MODEL").arg("1").arg("2").arg("10");
+
+        // CT/CD window parameters
+        if matches!(variant_id, "CT" | "CD" | "DE") {
+            let ct_wl = request.window_parameters.ct_window_length.unwrap_or(2);
+            let ct_ws = request.window_parameters.ct_window_step.unwrap_or(2);
+            command.arg("-WL_CT").arg(ct_wl.to_string());
+            command.arg("-WS_CT").arg(ct_ws.to_string());
+        }
+
+        // Delay values
+        command.arg("-TAU");
+        if let Some(ref delay_list) = request.scale_parameters.delay_list {
+            for delay in delay_list {
+                command.arg(delay.to_string());
+            }
+        } else {
+            let scale_min = request.scale_parameters.scale_min as i32;
+            let scale_max = request.scale_parameters.scale_max as i32;
+            let scale_num = request.scale_parameters.scale_num;
+            let delays: Vec<i32> = if scale_num == 1 {
+                vec![scale_min]
+            } else {
+                (0..scale_num)
+                    .map(|i| scale_min + ((scale_max - scale_min) * i as i32) / (scale_num as i32 - 1))
+                    .collect()
+            };
+            for delay in &delays {
+                command.arg(delay.to_string());
+            }
+        }
+
+        // Time bounds
+        if let (Some(start), Some(end)) = (start_bound, end_bound) {
+            command.arg("-StartEnd").arg(start.to_string()).arg(end.to_string());
+        }
+
+        log::info!("Executing single variant command: {:?}", command);
+
+        // Execute
+        let output = command
+            .output()
+            .await
+            .map_err(|e| DDAError::ExecutionFailed(format!("Failed to execute: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            log::error!("DDA binary failed for {}: {}", variant_id, stderr);
+            return Err(DDAError::ExecutionFailed(format!("Binary failed: {}", stderr)));
+        }
+
+        // Determine output file suffix
+        let suffix = match variant_id {
+            "ST" => "_ST",
+            "CT" => "_CT",
+            "CD" => "_CD_DDA_ST",
+            "DE" => "_DE",
+            "SY" => "_SY",
+            _ => return Err(DDAError::ExecutionFailed(format!("Unknown variant: {}", variant_id))),
+        };
+
+        let variant_output_file = PathBuf::from(format!("{}{}", output_file.to_str().unwrap(), suffix));
+
+        // For DE and SY with single channels, the binary might produce _ST files instead
+        let actual_output_file = if !variant_output_file.exists() && matches!(variant_id, "DE" | "SY") {
+            let fallback_file = PathBuf::from(format!("{}_ST", output_file.to_str().unwrap()));
+            if fallback_file.exists() {
+                log::info!("Using fallback _ST file for {} variant", variant_id);
+                fallback_file
+            } else {
+                return Err(DDAError::ExecutionFailed(format!(
+                    "Output file not found for {}: {:?} (also tried {:?})",
+                    variant_id, variant_output_file, fallback_file
+                )));
+            }
+        } else if !variant_output_file.exists() {
+            return Err(DDAError::ExecutionFailed(format!(
+                "Output file not found for {}: {:?}",
+                variant_id, variant_output_file
+            )));
+        } else {
+            variant_output_file
+        };
+
+        // Parse output
+        let output_content = tokio::fs::read_to_string(&actual_output_file)
+            .await
+            .map_err(|e| DDAError::IoError(e))?;
+
+        let stride = match variant_id {
+            "CD" => Some(2),
+            "DE" => Some(1),
+            "SY" => Some(1),
+            _ => None,
+        };
+        let q_matrix = parse_dda_output(&output_content, stride)?;
+
+        // Generate channel labels
+        let channel_labels = match variant_id {
+            "CD" => {
+                if let Some(pairs) = cd_pairs {
+                    Some(
+                        pairs
+                            .iter()
+                            .map(|pair| {
+                                if let Some(names) = edf_channel_names {
+                                    let from_name = names.get(pair[0]).map(|s| s.as_str()).unwrap_or("?");
+                                    let to_name = names.get(pair[1]).map(|s| s.as_str()).unwrap_or("?");
+                                    format!("{} → {}", from_name, to_name)
+                                } else {
+                                    format!("Ch{} → Ch{}", pair[0] + 1, pair[1] + 1)
+                                }
+                            })
+                            .collect(),
+                    )
+                } else {
+                    None
+                }
+            }
+            "CT" => {
+                if let Some(pairs) = ct_pairs {
+                    Some(
+                        pairs
+                            .iter()
+                            .map(|pair| {
+                                if let Some(names) = edf_channel_names {
+                                    let ch1 = names.get(pair[0]).map(|s| s.as_str()).unwrap_or("?");
+                                    let ch2 = names.get(pair[1]).map(|s| s.as_str()).unwrap_or("?");
+                                    format!("{} ⟷ {}", ch1, ch2)
+                                } else {
+                                    format!("Ch{} ⟷ Ch{}", pair[0] + 1, pair[1] + 1)
+                                }
+                            })
+                            .collect(),
+                    )
+                } else {
+                    None
+                }
+            }
+            _ => {
+                if let Some(names) = edf_channel_names {
+                    let mut labels: Vec<String> = channels
+                        .iter()
+                        .filter_map(|&idx| names.get(idx).cloned())
+                        .collect();
+                    // Truncate to match matrix size
+                    if labels.len() > q_matrix.len() {
+                        labels.truncate(q_matrix.len());
+                    }
+                    Some(labels)
+                } else {
+                    None
+                }
+            }
+        };
+
+        // Cleanup
+        let _ = tokio::fs::remove_file(&actual_output_file).await;
+        let _ = tokio::fs::remove_file(&output_file).await;
+        if is_ascii_file && actual_input_file != file_path {
+            let _ = tokio::fs::remove_file(&actual_input_file).await;
+        }
+
+        let variant_name = match variant_id {
+            "ST" => "Single Timeseries (ST)".to_string(),
+            "CT" => "Cross-Timeseries (CT)".to_string(),
+            "CD" => "Cross-Dynamical (CD)".to_string(),
+            "DE" => "Dynamical Ergodicity (DE)".to_string(),
+            "SY" => "Synchronization (SY)".to_string(),
+            _ => variant_id.to_string(),
+        };
+
+        Ok(crate::types::VariantResult {
+            variant_id: variant_id.to_string(),
+            variant_name,
+            q_matrix,
+            channel_labels,
+        })
+    }
+
     /// Get the path to the DDA binary
     pub fn binary_path(&self) -> &Path {
         &self.binary_path
