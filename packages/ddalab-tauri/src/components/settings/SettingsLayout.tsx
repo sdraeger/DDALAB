@@ -60,7 +60,12 @@ export function SettingsLayout({
       {/* Content Area */}
       <div className="flex-1 overflow-y-auto">
         {currentSection ? (
-          <div className="p-6">{currentSection.component}</div>
+          <div
+            id={`settings-section-${currentSection.id}`}
+            className="p-6"
+          >
+            {currentSection.component}
+          </div>
         ) : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center text-muted-foreground">
