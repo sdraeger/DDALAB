@@ -10,6 +10,7 @@
 /// - Single source of truth for data representation
 /// - Easy to add new file format readers
 /// - Decouple file format parsing from analysis/visualization
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -246,7 +247,7 @@ impl IntermediateData {
         };
 
         channels_to_use
-            .iter()
+            .par_iter()
             .map(|channel| {
                 let end_sample = (start_sample + num_samples).min(channel.samples.len());
                 channel.samples[start_sample..end_sample].to_vec()
@@ -263,7 +264,7 @@ impl IntermediateData {
 
         let decimated_channels: Vec<ChannelData> = self
             .channels
-            .iter()
+            .par_iter()
             .map(|channel| {
                 let decimated_samples: Vec<f64> = channel
                     .samples

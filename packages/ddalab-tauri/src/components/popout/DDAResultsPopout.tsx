@@ -19,8 +19,16 @@ import {
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Download, Grid3x3, TrendingUp, Eye, BarChart3 } from "lucide-react";
+import {
+  Download,
+  Grid3x3,
+  TrendingUp,
+  Eye,
+  BarChart3,
+  Network,
+} from "lucide-react";
 import { DDAResult } from "@/types/api";
+import { NetworkMotifPlot } from "@/components/dda/NetworkMotifPlot";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 
@@ -43,7 +51,7 @@ interface DDAResultsPopoutContentProps {
 }
 
 type ColorScheme = "viridis" | "plasma" | "inferno" | "jet" | "cool" | "hot";
-type ViewMode = "heatmap" | "lineplot" | "both";
+type ViewMode = "heatmap" | "lineplot" | "both" | "network";
 
 function DDAResultsPopoutContent({
   data,
@@ -656,6 +664,14 @@ function DDAResultsPopoutContent({
                       Line Plot
                     </div>
                   </SelectItem>
+                  {getCurrentVariant()?.network_motifs && (
+                    <SelectItem value="network">
+                      <div className="flex items-center">
+                        <Network className="h-4 w-4 mr-2" />
+                        Network Motifs
+                      </div>
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -739,6 +755,25 @@ function DDAResultsPopoutContent({
             </CardHeader>
             <CardContent className="h-full">
               <div ref={linePlotRef} className="w-full h-full min-h-[400px]" />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Network Motifs (CD-DDA only) */}
+        {viewMode === "network" && getCurrentVariant()?.network_motifs && (
+          <Card className="flex-1">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Network Motifs</CardTitle>
+              <CardDescription>
+                Directed network graphs showing cross-dynamical relationships
+                between channels at different delays
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="h-full min-h-[300px]">
+              <NetworkMotifPlot
+                data={getCurrentVariant()!.network_motifs!}
+                colorScheme="default"
+              />
             </CardContent>
           </Card>
         )}
