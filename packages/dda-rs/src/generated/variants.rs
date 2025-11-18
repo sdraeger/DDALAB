@@ -1,7 +1,7 @@
 // AUTO-GENERATED from DDA_SPEC.yaml
 // DO NOT EDIT - Changes will be overwritten
 //
-// Generated at: 2025-11-17T19:08:43.256048+00:00
+// Generated at: 2025-11-17T20:47:03.356623+00:00
 // Spec version: 1.0.0
 // Generator: dda-codegen v0.1.0
 
@@ -198,7 +198,10 @@ mod tests {
         assert_eq!(variant.unwrap().stride, 4);
         let variant = VariantMetadata::from_abbrev("DE");
         assert!(variant.is_some());
-        assert_eq!(variant.unwrap().name, "Delay Embedding (Dynamical Ergodicity)");
+        assert_eq!(
+            variant.unwrap().name,
+            "Delay Embedding (Dynamical Ergodicity)"
+        );
         assert_eq!(variant.unwrap().stride, 1);
         let variant = VariantMetadata::from_abbrev("ST");
         assert!(variant.is_some());

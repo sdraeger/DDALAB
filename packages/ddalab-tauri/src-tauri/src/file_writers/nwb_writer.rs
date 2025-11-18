@@ -23,49 +23,56 @@ impl NWBWriter {
         Self
     }
 
-    fn create_nwb_structure(
-        file: &H5File,
-        data: &IntermediateData,
-    ) -> FileWriterResult<()> {
+    fn create_nwb_structure(file: &H5File, data: &IntermediateData) -> FileWriterResult<()> {
         file.new_attr_builder()
             .with_data(&["NWB-2.5.0"])
             .create("nwb_version")
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to write nwb_version: {}", e)))?;
+            .map_err(|e| {
+                FileWriterError::WriteError(format!("Failed to write nwb_version: {}", e))
+            })?;
 
         file.new_attr_builder()
             .with_data(&[chrono::Utc::now().to_rfc3339()])
             .create("file_create_date")
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to write file_create_date: {}", e)))?;
+            .map_err(|e| {
+                FileWriterError::WriteError(format!("Failed to write file_create_date: {}", e))
+            })?;
 
-        let general = file
-            .create_group("general")
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to create /general: {}", e)))?;
+        let general = file.create_group("general").map_err(|e| {
+            FileWriterError::WriteError(format!("Failed to create /general: {}", e))
+        })?;
 
         general
             .new_attr_builder()
             .with_data(&["DDALAB-generated NWB file"])
             .create("experimenter")
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to write experimenter: {}", e)))?;
+            .map_err(|e| {
+                FileWriterError::WriteError(format!("Failed to write experimenter: {}", e))
+            })?;
 
-        let acquisition = file
-            .create_group("acquisition")
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to create /acquisition: {}", e)))?;
+        let acquisition = file.create_group("acquisition").map_err(|e| {
+            FileWriterError::WriteError(format!("Failed to create /acquisition: {}", e))
+        })?;
 
-        let electrical_series = acquisition
-            .create_group("ElectricalSeries")
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to create ElectricalSeries: {}", e)))?;
+        let electrical_series = acquisition.create_group("ElectricalSeries").map_err(|e| {
+            FileWriterError::WriteError(format!("Failed to create ElectricalSeries: {}", e))
+        })?;
 
         electrical_series
             .new_attr_builder()
             .with_data(&["ElectricalSeries"])
             .create("neurodata_type")
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to write neurodata_type: {}", e)))?;
+            .map_err(|e| {
+                FileWriterError::WriteError(format!("Failed to write neurodata_type: {}", e))
+            })?;
 
         electrical_series
             .new_attr_builder()
             .with_data(&["Voltage recordings"])
             .create("description")
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to write description: {}", e)))?;
+            .map_err(|e| {
+                FileWriterError::WriteError(format!("Failed to write description: {}", e))
+            })?;
 
         let num_samples = data.num_samples();
         let num_channels = data.num_channels();
@@ -84,7 +91,9 @@ impl NWBWriter {
             .new_dataset::<f64>()
             .shape([num_samples, num_channels])
             .create("data")
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to create data dataset: {}", e)))?;
+            .map_err(|e| {
+                FileWriterError::WriteError(format!("Failed to create data dataset: {}", e))
+            })?;
 
         dataset
             .write(&flat_samples)
@@ -94,7 +103,9 @@ impl NWBWriter {
             .new_attr_builder()
             .with_data(&[1.0f64])
             .create("conversion")
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to write conversion: {}", e)))?;
+            .map_err(|e| {
+                FileWriterError::WriteError(format!("Failed to write conversion: {}", e))
+            })?;
 
         dataset
             .new_attr_builder()
@@ -117,33 +128,46 @@ impl NWBWriter {
         let rate_dataset = electrical_series
             .new_dataset::<f64>()
             .create("starting_time_rate")
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to create starting_time_rate: {}", e)))?;
+            .map_err(|e| {
+                FileWriterError::WriteError(format!("Failed to create starting_time_rate: {}", e))
+            })?;
 
         rate_dataset
             .write_scalar(&data.metadata.sample_rate)
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to write sample rate: {}", e)))?;
+            .map_err(|e| {
+                FileWriterError::WriteError(format!("Failed to write sample rate: {}", e))
+            })?;
 
         let starting_time_dataset = electrical_series
             .new_dataset::<f64>()
             .create("starting_time")
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to create starting_time: {}", e)))?;
+            .map_err(|e| {
+                FileWriterError::WriteError(format!("Failed to create starting_time: {}", e))
+            })?;
 
-        starting_time_dataset
-            .write_scalar(&0.0f64)
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to write starting_time: {}", e)))?;
+        starting_time_dataset.write_scalar(&0.0f64).map_err(|e| {
+            FileWriterError::WriteError(format!("Failed to write starting_time: {}", e))
+        })?;
 
         let channel_labels: Vec<String> = data.channels.iter().map(|ch| ch.label.clone()).collect();
         let electrodes = electrical_series
             .new_dataset_builder()
             .with_data(&channel_labels)
             .create("electrodes")
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to create electrodes: {}", e)))?;
+            .map_err(|e| {
+                FileWriterError::WriteError(format!("Failed to create electrodes: {}", e))
+            })?;
 
         electrodes
             .new_attr_builder()
             .with_data(&["Channel labels"])
             .create("description")
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to write electrodes description: {}", e)))?;
+            .map_err(|e| {
+                FileWriterError::WriteError(format!(
+                    "Failed to write electrodes description: {}",
+                    e
+                ))
+            })?;
 
         Ok(())
     }
@@ -159,11 +183,12 @@ impl FileWriter for NWBWriter {
     ) -> FileWriterResult<()> {
         self.validate_data(data)?;
 
-        let file = H5File::create(output_path)
-            .map_err(|e| FileWriterError::IoError(std::io::Error::new(
+        let file = H5File::create(output_path).map_err(|e| {
+            FileWriterError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
-                format!("Failed to create HDF5 file: {}", e)
-            )))?;
+                format!("Failed to create HDF5 file: {}", e),
+            ))
+        })?;
 
         Self::create_nwb_structure(&file, data)?;
 
@@ -205,7 +230,7 @@ impl super::FileWriter for NWBWriter {
         _config: &super::WriterConfig,
     ) -> super::FileWriterResult<()> {
         Err(super::FileWriterError::UnsupportedFormat(
-            "NWB support not enabled. Rebuild with --features nwb-support".to_string()
+            "NWB support not enabled. Rebuild with --features nwb-support".to_string(),
         ))
     }
 

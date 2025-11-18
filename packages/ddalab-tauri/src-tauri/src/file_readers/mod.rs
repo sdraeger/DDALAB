@@ -189,7 +189,7 @@ impl FileReaderFactory {
             "nwb" => Ok(Box::new(NWBFileReader::new(path)?)),
             #[cfg(not(feature = "nwb-support"))]
             "nwb" => Err(FileReaderError::UnsupportedFormat(
-                "NWB support not enabled. Rebuild with --features nwb-support".to_string()
+                "NWB support not enabled. Rebuild with --features nwb-support".to_string(),
             )),
             "xdf" => Ok(Box::new(XDFFileReader::new(path)?)),
             _ => Err(FileReaderError::UnsupportedFormat(format!(
@@ -201,7 +201,9 @@ impl FileReaderFactory {
 
     /// Get list of supported extensions for reading/analysis
     pub fn supported_extensions() -> Vec<&'static str> {
-        let mut exts = vec!["edf", "csv", "txt", "ascii", "vhdr", "set", "nii", "gz", "xdf"];
+        let mut exts = vec![
+            "edf", "csv", "txt", "ascii", "vhdr", "set", "nii", "gz", "xdf",
+        ];
         #[cfg(feature = "nwb-support")]
         exts.push("nwb");
         exts

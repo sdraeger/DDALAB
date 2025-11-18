@@ -48,7 +48,7 @@ export default function Home() {
     if (pathname !== "/") {
       console.log(
         "[MAIN_WINDOW] Skipping initialization - not on main route:",
-        pathname
+        pathname,
       );
       return;
     }
@@ -62,7 +62,7 @@ export default function Home() {
       windowKeys:
         typeof window !== "undefined"
           ? Object.keys(window).filter(
-              (k) => k.includes("TAURI") || k.includes("tauri")
+              (k) => k.includes("TAURI") || k.includes("tauri"),
             )
           : [],
       userAgent:
@@ -92,7 +92,7 @@ export default function Home() {
     if (typeof window !== "undefined" && window.location.pathname !== "/") {
       console.log(
         "Skipping preference loading - not on main window. Path:",
-        window.location.pathname
+        window.location.pathname,
       );
       return;
     }
@@ -100,7 +100,7 @@ export default function Home() {
     // CRITICAL: Don't reload preferences if already loaded in this session
     if (hasLoadedPreferences) {
       console.log(
-        "[MAIN_WINDOW] Preferences already loaded this session, skipping"
+        "[MAIN_WINDOW] Preferences already loaded this session, skipping",
       );
       return;
     }
@@ -109,7 +109,7 @@ export default function Home() {
     // This ref is checked immediately, before any async operations
     if (initializingRef.current) {
       console.log(
-        "[MAIN_WINDOW] Already initializing (caught by ref), skipping duplicate call"
+        "[MAIN_WINDOW] Already initializing (caught by ref), skipping duplicate call",
       );
       return;
     }
@@ -189,8 +189,8 @@ export default function Home() {
               await new Promise((resolve) =>
                 setTimeout(
                   resolve,
-                  Math.min(200 * Math.pow(1.5, retries - 1), 2000)
-                )
+                  Math.min(200 * Math.pow(1.5, retries - 1), 2000),
+                ),
               );
             }
 
@@ -220,7 +220,7 @@ export default function Home() {
             console.error(
               "Embedded API server failed to respond after",
               maxRetries,
-              "retries"
+              "retries",
             );
             setIsApiConnected(false);
             setServerReady(false);
@@ -255,7 +255,7 @@ export default function Home() {
         await TauriService.setWindowTitle("DDALAB - Connected");
         await TauriService.showNotification(
           "DDALAB",
-          "Successfully connected to API server"
+          "Successfully connected to API server",
         );
       } else if (isTauri) {
         await TauriService.setWindowTitle("DDALAB - Disconnected");

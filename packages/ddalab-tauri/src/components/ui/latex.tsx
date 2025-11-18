@@ -3,11 +3,11 @@
  * Renders beautiful mathematical notation using KaTeX
  */
 
-'use client';
+"use client";
 
-import React, { useMemo } from 'react';
-import katex from 'katex';
-import 'katex/dist/katex.min.css';
+import React, { useMemo } from "react";
+import katex from "katex";
+import "katex/dist/katex.min.css";
 
 interface LatexProps {
   children: string;
@@ -18,7 +18,11 @@ interface LatexProps {
 /**
  * LaTeX renderer using KaTeX
  */
-export const Latex: React.FC<LatexProps> = ({ children, block = false, className = '' }) => {
+export const Latex: React.FC<LatexProps> = ({
+  children,
+  block = false,
+  className = "",
+}) => {
   const html = useMemo(() => {
     try {
       return katex.renderToString(children, {
@@ -26,22 +30,22 @@ export const Latex: React.FC<LatexProps> = ({ children, block = false, className
         throwOnError: false,
         strict: false,
         trust: false,
-        output: 'html',
+        output: "html",
       });
     } catch (error) {
-      console.error('KaTeX rendering error:', error);
+      console.error("KaTeX rendering error:", error);
       // Fallback to plain text if rendering fails
       return children;
     }
   }, [children, block]);
 
-  const Component = block ? 'div' : 'span';
+  const Component = block ? "div" : "span";
 
   return (
     <Component
-      className={`latex-content ${block ? 'latex-block' : 'latex-inline'} ${className}`}
+      className={`latex-content ${block ? "latex-block" : "latex-inline"} ${className}`}
       style={{
-        fontSize: block ? '1.15em' : 'inherit',
+        fontSize: block ? "1.15em" : "inherit",
       }}
       dangerouslySetInnerHTML={{ __html: html }}
     />
@@ -53,7 +57,7 @@ export const Latex: React.FC<LatexProps> = ({ children, block = false, className
  */
 export const LatexBlock: React.FC<{ children: string; className?: string }> = ({
   children,
-  className
+  className,
 }) => (
   <Latex block={true} className={className}>
     {children}

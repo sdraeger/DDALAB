@@ -5,3 +5,9 @@
 [target.'cfg(target_os = "macos")'.env]
 CXXFLAGS = { value = "-Wno-enum-constexpr-conversion -Wno-deprecated-declarations -Wno-deprecated-builtins", force = true }
 CFLAGS = { value = "-Wno-enum-constexpr-conversion -Wno-deprecated-declarations", force = true }
+
+# Environment variables for building dependencies on Linux
+# Suppress warnings that cause build failures in lslboost with GCC
+[target.'cfg(target_os = "linux")'.env]
+CXXFLAGS = { value = "-Wno-nonnull -Wno-error", force = true }
+CFLAGS = { value = "-Wno-nonnull -Wno-error", force = true }

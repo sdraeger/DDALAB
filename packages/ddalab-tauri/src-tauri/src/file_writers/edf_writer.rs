@@ -16,11 +16,7 @@ impl EDFWriter {
         Self
     }
 
-    fn write_fixed_string<W: Write>(
-        writer: &mut W,
-        s: &str,
-        size: usize,
-    ) -> FileWriterResult<()> {
+    fn write_fixed_string<W: Write>(writer: &mut W, s: &str, size: usize) -> FileWriterResult<()> {
         let mut buffer = vec![b' '; size];
         let bytes = s.as_bytes();
         let copy_len = bytes.len().min(size);
@@ -63,28 +59,29 @@ impl EDFWriter {
         );
         Self::write_fixed_string(writer, &recording_id, 80)?;
 
-        let (start_date_str, start_time_str) = if let Some(ref start_time) = data.metadata.start_time {
-            if let Ok(dt) = DateTime::parse_from_rfc3339(start_time) {
-                let dt_utc = dt.with_timezone(&Utc);
-                let date = format!(
-                    "{:02}.{:02}.{:02}",
-                    dt_utc.day(),
-                    dt_utc.month(),
-                    dt_utc.year() % 100
-                );
-                let time = format!(
-                    "{:02}.{:02}.{:02}",
-                    dt_utc.hour(),
-                    dt_utc.minute(),
-                    dt_utc.second()
-                );
-                (date, time)
+        let (start_date_str, start_time_str) =
+            if let Some(ref start_time) = data.metadata.start_time {
+                if let Ok(dt) = DateTime::parse_from_rfc3339(start_time) {
+                    let dt_utc = dt.with_timezone(&Utc);
+                    let date = format!(
+                        "{:02}.{:02}.{:02}",
+                        dt_utc.day(),
+                        dt_utc.month(),
+                        dt_utc.year() % 100
+                    );
+                    let time = format!(
+                        "{:02}.{:02}.{:02}",
+                        dt_utc.hour(),
+                        dt_utc.minute(),
+                        dt_utc.second()
+                    );
+                    (date, time)
+                } else {
+                    ("01.01.00".to_string(), "00.00.00".to_string())
+                }
             } else {
                 ("01.01.00".to_string(), "00.00.00".to_string())
-            }
-        } else {
-            ("01.01.00".to_string(), "00.00.00".to_string())
-        };
+            };
 
         Self::write_fixed_string(writer, &start_date_str, 8)?;
         Self::write_fixed_string(writer, &start_time_str, 8)?;

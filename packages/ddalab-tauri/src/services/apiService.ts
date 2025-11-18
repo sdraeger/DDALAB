@@ -519,16 +519,21 @@ export class ApiService {
     try {
       // Channels now come as string indices from frontend (0-based)
       // Convert to numbers for backend
-      const channelIndices = request.channels.map((ch) => {
-        const parsed = parseInt(ch);
-        if (isNaN(parsed)) {
-          console.warn(`Invalid channel index: ${ch}, skipping`);
-          return -1;
-        }
-        return parsed;
-      }).filter(idx => idx !== -1);
+      const channelIndices = request.channels
+        .map((ch) => {
+          const parsed = parseInt(ch);
+          if (isNaN(parsed)) {
+            console.warn(`Invalid channel index: ${ch}, skipping`);
+            return -1;
+          }
+          return parsed;
+        })
+        .filter((idx) => idx !== -1);
 
-      console.log("Channel indices (0-based) received from frontend:", channelIndices);
+      console.log(
+        "Channel indices (0-based) received from frontend:",
+        channelIndices,
+      );
 
       // Note: The backend DDARequest schema expects:
       // - algorithm_selection.enabled_variants: List of variant IDs
@@ -571,7 +576,11 @@ export class ApiService {
       const response = await this.client.post("/api/dda", ddaRequest);
 
       console.log("Raw DDA API response:", response.data);
-      console.log("variant_configs in response:", response.data.variant_configs || response.data.parameters?.variant_configs);
+      console.log(
+        "variant_configs in response:",
+        response.data.variant_configs ||
+          response.data.parameters?.variant_configs,
+      );
       console.log("Response structure:", {
         hasQ: !!response.data.Q,
         Q_type: typeof response.data.Q,
@@ -1053,8 +1062,10 @@ export class ApiService {
 
       console.log("[BACKEND RESPONSE] Analysis from history:", {
         hasParameters: !!analysisWrapper.analysis_data?.parameters,
-        hasVariantConfigs: !!analysisWrapper.analysis_data?.parameters?.variant_configs,
-        variantConfigs: analysisWrapper.analysis_data?.parameters?.variant_configs,
+        hasVariantConfigs:
+          !!analysisWrapper.analysis_data?.parameters?.variant_configs,
+        variantConfigs:
+          analysisWrapper.analysis_data?.parameters?.variant_configs,
         parameterKeys: analysisWrapper.analysis_data?.parameters
           ? Object.keys(analysisWrapper.analysis_data.parameters)
           : null,

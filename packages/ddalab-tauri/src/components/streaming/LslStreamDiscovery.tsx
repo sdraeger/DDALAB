@@ -154,7 +154,7 @@ export function LslStreamDiscovery({
                       </div>
                       <Badge
                         className={`${getStreamTypeColor(
-                          stream.stream_type
+                          stream.stream_type,
                         )} text-white`}
                       >
                         {stream.stream_type}
