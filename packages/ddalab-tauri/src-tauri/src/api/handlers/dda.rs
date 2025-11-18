@@ -9,7 +9,7 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use dda_rs::DDARunner;
+use dda_rs::{transform_cd_to_network_motifs, DDARunner};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -260,8 +260,21 @@ pub async fn run_dda_analysis(
 
         let mut variant_results = Vec::new();
 
-        // Process each variant with its specific configuration
-        for (frontend_variant_id, config) in variant_configs.iter() {
+        // Process each variant in the order specified by enabled_variants
+        // This ensures deterministic tab ordering in the frontend
+        for frontend_variant_id in &request.algorithm_selection.enabled_variants {
+            // Get config for this variant from the HashMap
+            let config = match variant_configs.get(frontend_variant_id) {
+                Some(c) => c,
+                None => {
+                    log::warn!(
+                        "No config found for variant {}, skipping",
+                        frontend_variant_id
+                    );
+                    continue;
+                }
+            };
+
             let variant_id = map_variant_id(frontend_variant_id).ok_or_else(|| {
                 log::error!("Unknown variant ID: {}", frontend_variant_id);
                 StatusCode::BAD_REQUEST
@@ -622,6 +635,16 @@ pub async fn run_dda_analysis(
 
     let scales: Vec<f64> = (0..num_timepoints).map(|i| i as f64 * 0.1).collect();
 
+    // Get CD channel pairs from request for network motif computation
+    let cd_pairs_for_motifs: Option<Vec<[usize; 2]>> =
+        request.cd_channel_pairs.clone().or_else(|| {
+            request.variant_configs.as_ref().and_then(|vc| {
+                vc.get("cross_dynamical")
+                    .and_then(|v| v.get("cdChannelPairs"))
+                    .and_then(|p| serde_json::from_value(p.clone()).ok())
+            })
+        });
+
     let variants_array: Vec<serde_json::Value> = if let Some(ref variant_results) =
         dda_result.variant_results
     {
@@ -651,13 +674,70 @@ pub async fn run_dda_analysis(
 
                 log::info!("  DDA matrix keys added: {}", variant_dda_matrix.len());
 
-                serde_json::json!({
+                // Compute network motifs for CD variant
+                let network_motifs = if vr.variant_id == "CD" {
+                    if let Some(ref pairs) = cd_pairs_for_motifs {
+                        // Get the delay list from the request
+                        let delay_values: Vec<f64> = request
+                            .scale_parameters
+                            .delay_list
+                            .as_ref()
+                            .map(|dl| dl.iter().map(|&d| d as f64).collect())
+                            .unwrap_or_else(|| vec![7.0, 10.0]); // Default delays
+
+                        // Use full EDF channel names since CD pairs use original EDF indices
+                        let full_channel_names = edf_channel_names
+                            .as_ref()
+                            .cloned()
+                            .unwrap_or_else(|| channel_names.clone());
+
+                        match transform_cd_to_network_motifs(
+                            &vr.q_matrix,
+                            pairs,
+                            &full_channel_names,
+                            &delay_values,
+                            Some(0.25),
+                        ) {
+                            Ok(motifs) => {
+                                log::info!(
+                                    "  Generated network motifs: {} nodes, {} matrices",
+                                    motifs.num_nodes,
+                                    motifs.adjacency_matrices.len()
+                                );
+                                Some(
+                                    serde_json::to_value(motifs).unwrap_or(serde_json::Value::Null),
+                                )
+                            }
+                            Err(e) => {
+                                log::warn!("  Failed to generate network motifs: {}", e);
+                                None
+                            }
+                        }
+                    } else {
+                        log::warn!("  No CD channel pairs available for network motifs");
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                let mut result = serde_json::json!({
                     "variant_id": map_variant_id_to_frontend(&vr.variant_id),
                     "variant_name": vr.variant_name.clone(),
                     "dda_matrix": variant_dda_matrix,
                     "exponents": serde_json::json!({}),
                     "quality_metrics": serde_json::json!({})
-                })
+                });
+
+                // Add network_motifs if available
+                if let Some(motifs) = network_motifs {
+                    result
+                        .as_object_mut()
+                        .unwrap()
+                        .insert("network_motifs".to_string(), motifs);
+                }
+
+                result
             })
             .collect()
     } else {
@@ -761,6 +841,26 @@ pub async fn get_analysis_result(
                             .unwrap_or_else(|| serde_json::json!({
                                 "variants": [{"variant_id": "single_timeseries", "variant_name": "Single Timeseries (ST)"}]
                             }));
+
+                        // Debug: Check if network_motifs are present when loading
+                        if let Some(variants) =
+                            results_val.get("variants").and_then(|v| v.as_array())
+                        {
+                            for (i, variant) in variants.iter().enumerate() {
+                                let has_motifs = variant.get("network_motifs").is_some();
+                                let variant_id = variant
+                                    .get("variant_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("?");
+                                if has_motifs {
+                                    log::info!(
+                                        "📊 Loaded variant {} ({}): has network_motifs",
+                                        i,
+                                        variant_id
+                                    );
+                                }
+                            }
+                        }
                         let channels_val: Vec<String> = complete_data
                             .get("channels")
                             .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -1216,7 +1316,7 @@ fn map_variant_id_to_frontend(variant_id: &str) -> String {
         "ST" => "single_timeseries".to_string(),
         "CT" => "cross_timeseries".to_string(),
         "CD" => "cross_dynamical".to_string(),
-        "DE" => "delay_evolution".to_string(),
+        "DE" => "dynamical_ergodicity".to_string(),
         "SY" => "synchronization".to_string(),
         _ => variant_id.to_lowercase().replace('-', "_"),
     }

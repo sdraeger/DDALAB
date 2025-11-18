@@ -111,9 +111,12 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
     );
 
     if (currentAnalysisFilePath === currentFilePath && currentAnalysisId) {
-      // Sync selectedAnalysisId to currentAnalysisId whenever they don't match
-      // This handles race conditions where fileHistory updates after currentAnalysisId changes
-      if (selectedAnalysisId !== currentAnalysisId) {
+      // ONLY sync when currentAnalysisId actually changed (new analysis completed)
+      // This prevents overriding the user's manual selection from history
+      if (
+        currentAnalysisIdChanged &&
+        selectedAnalysisId !== currentAnalysisId
+      ) {
         console.log(
           "[DDA HISTORY] Syncing selectedAnalysisId to currentAnalysisId:",
           currentAnalysisId,
@@ -122,11 +125,19 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
           ")",
         );
         setSelectedAnalysisId(currentAnalysisId);
-      } else {
+      } else if (selectedAnalysisId === currentAnalysisId) {
         console.log("[DDA HISTORY] Already in sync:", {
           currentAnalysisId: currentAnalysisId?.slice(0, 8),
           selectedAnalysisId: selectedAnalysisId?.slice(0, 8),
         });
+      } else {
+        console.log(
+          "[DDA HISTORY] User has different selection, not overriding:",
+          {
+            currentAnalysisId: currentAnalysisId?.slice(0, 8),
+            selectedAnalysisId: selectedAnalysisId?.slice(0, 8),
+          },
+        );
       }
     } else if (!currentAnalysisId && fileHistory.length > 0) {
       // Auto-select most recent for this file
@@ -278,10 +289,13 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
     let result: DDAResult | null = null;
 
     // Determine which analysis to display
-    if (selectedAnalysisData) {
-      result = selectedAnalysisData;
-    } else if (currentAnalysis?.id === selectedAnalysisId) {
+    // CRITICAL: Check currentAnalysis first when IDs match to avoid using stale cached data
+    // When a new analysis completes, currentAnalysis has the fresh data while
+    // selectedAnalysisData may still have old cached data from a previous fetch
+    if (currentAnalysis?.id === selectedAnalysisId) {
       result = currentAnalysis;
+    } else if (selectedAnalysisData) {
+      result = selectedAnalysisData;
     }
 
     // CRITICAL: If the ID is the same as before, return the previous reference

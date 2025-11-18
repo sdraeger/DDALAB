@@ -51,6 +51,7 @@ import {
   FileText,
   Database,
   Image,
+  Network,
 } from "lucide-react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
@@ -72,13 +73,14 @@ import { AnnotationContextMenu } from "@/components/annotations/AnnotationContex
 import { AnnotationMarker } from "@/components/annotations/AnnotationMarker";
 import { PlotAnnotation, PlotInfo } from "@/types/annotations";
 import { PlotLoadingSkeleton } from "@/components/dda/PlotLoadingSkeleton";
+import { NetworkMotifPlot } from "@/components/dda/NetworkMotifPlot";
 
 interface DDAResultsProps {
   result: DDAResult;
 }
 
 type ColorScheme = "viridis" | "plasma" | "inferno" | "jet" | "cool" | "hot";
-type ViewMode = "heatmap" | "lineplot" | "both";
+type ViewMode = "heatmap" | "lineplot" | "both" | "network";
 
 // Internal component (will be wrapped with memo at export)
 function DDAResultsComponent({ result }: DDAResultsProps) {
@@ -339,10 +341,34 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   // CRITICAL FIX: Use result.id as dependency instead of result.results object
   // This prevents re-renders when parent passes new result object with same data
   const availableVariants = useMemo(() => {
-    // Removed verbose logging
+    // Canonical variant order: ST, CT, CD, DE, SY
+    const variantOrder: Record<string, number> = {
+      single_timeseries: 0,
+      cross_timeseries: 1,
+      cross_dynamical: 2,
+      dynamical_ergodicity: 3,
+      synchronization: 4,
+    };
 
+    // Debug: Log variants with network_motifs info
     if (result.results.variants && result.results.variants.length > 0) {
-      return result.results.variants;
+      // Sort variants by canonical order
+      const sortedVariants = [...result.results.variants].sort((a, b) => {
+        const orderA = variantOrder[a.variant_id] ?? 99;
+        const orderB = variantOrder[b.variant_id] ?? 99;
+        return orderA - orderB;
+      });
+
+      console.log(
+        "[DDAResults] Loading variants:",
+        sortedVariants.map((v) => ({
+          id: v.variant_id,
+          name: v.variant_name,
+          has_network_motifs: !!v.network_motifs,
+          motifs_nodes: v.network_motifs?.num_nodes,
+        })),
+      );
+      return sortedVariants;
     }
     // Fallback to legacy format
     if (result.results.dda_matrix) {
@@ -382,7 +408,17 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
   // Memoize current variant data to prevent re-renders when variant hasn't changed
   const currentVariantData = useMemo(() => {
-    return availableVariants[selectedVariant] || availableVariants[0];
+    const variant = availableVariants[selectedVariant] || availableVariants[0];
+    // Debug: log network_motifs availability
+    if (variant) {
+      console.log(
+        `[DDAResults] Variant ${variant.variant_id}: network_motifs =`,
+        variant.network_motifs
+          ? `${variant.network_motifs.num_nodes} nodes, ${variant.network_motifs.adjacency_matrices?.length} matrices`
+          : "undefined",
+      );
+    }
+    return variant;
   }, [availableVariants, selectedVariant]);
 
   // Get available channels from the CURRENT variant's dda_matrix
@@ -1783,6 +1819,14 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                       Line Plot
                     </div>
                   </SelectItem>
+                  {currentVariantData?.network_motifs && (
+                    <SelectItem value="network">
+                      <div className="flex items-center">
+                        <Network className="h-4 w-4 mr-2" />
+                        Network Motifs
+                      </div>
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -2253,6 +2297,27 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                             }:lineplot`}
                           />
                         )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Network Motifs (CD-DDA only) */}
+                  {viewMode === "network" && variant.network_motifs && (
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">
+                          Network Motifs - {variant.variant_name}
+                        </CardTitle>
+                        <CardDescription>
+                          Directed network graphs showing cross-dynamical
+                          relationships between channels at different delays
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <NetworkMotifPlot
+                          data={variant.network_motifs}
+                          colorScheme="default"
+                        />
                       </CardContent>
                     </Card>
                   )}

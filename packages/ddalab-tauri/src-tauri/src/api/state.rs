@@ -127,6 +127,24 @@ impl ApiState {
     /// Save analysis result to SQLite database
     pub fn save_to_disk(&self, result: &DDAResult) -> Result<(), String> {
         if let Some(ref db) = self.analysis_db {
+            // Debug: Check if network_motifs are present in any variant
+            if let Some(variants) = result.results.get("variants").and_then(|v| v.as_array()) {
+                for (i, variant) in variants.iter().enumerate() {
+                    let has_motifs = variant.get("network_motifs").is_some();
+                    let variant_id = variant
+                        .get("variant_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    if has_motifs {
+                        log::info!(
+                            "📊 Saving variant {} ({}): has network_motifs",
+                            i,
+                            variant_id
+                        );
+                    }
+                }
+            }
+
             let complete_data = json!({
                 "results": result.results,
                 "channels": result.channels,
