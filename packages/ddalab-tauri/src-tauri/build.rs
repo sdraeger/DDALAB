@@ -4,7 +4,10 @@ use std::process::Command;
 fn fetch_latest_version() -> String {
     let latest_json_url = "https://snl.salk.edu/~sfdraeger/dda/latest.json";
 
-    println!("cargo:warning=Fetching latest DDA version from: {}", latest_json_url);
+    println!(
+        "cargo:warning=Fetching latest DDA version from: {}",
+        latest_json_url
+    );
 
     let output = Command::new("curl")
         .args(&[
