@@ -75,12 +75,34 @@ export interface DDAAnalysisRequest {
   };
 }
 
+// Network motif types for CD-DDA visualization
+export interface NetworkEdge {
+  from: number;
+  to: number;
+  weight: number;
+}
+
+export interface AdjacencyMatrix {
+  index: number;
+  delay: number;
+  matrix: number[];
+  edges: NetworkEdge[];
+}
+
+export interface NetworkMotifData {
+  num_nodes: number;
+  node_labels: string[];
+  adjacency_matrices: AdjacencyMatrix[];
+  delay_values: number[];
+}
+
 export interface DDAVariantResult {
   variant_id: string;
   variant_name: string;
   dda_matrix: Record<string, number[]>;
   exponents: Record<string, number>;
   quality_metrics: Record<string, number>;
+  network_motifs?: NetworkMotifData; // Network motif data for CD-DDA
 }
 
 export interface DDAResult {

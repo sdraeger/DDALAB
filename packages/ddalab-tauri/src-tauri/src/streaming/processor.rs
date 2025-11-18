@@ -457,8 +457,8 @@ struct WindowData {
 fn compute_variant_summary(variant: &dda_rs::VariantResult) -> VariantSummary {
     let mut all_values: Vec<f64> = variant
         .q_matrix
-        .iter()
-        .flat_map(|row| row.iter().copied())
+        .par_iter()
+        .flat_map(|row| row.par_iter().copied())
         .collect();
 
     if all_values.is_empty() {
@@ -476,9 +476,13 @@ fn compute_variant_summary(variant: &dda_rs::VariantResult) -> VariantSummary {
 
     all_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-    let mean = all_values.iter().sum::<f64>() / all_values.len() as f64;
-    let variance =
-        all_values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / all_values.len() as f64;
+    let len = all_values.len() as f64;
+    let mean = all_values.par_iter().sum::<f64>() / len;
+    let variance = all_values
+        .par_iter()
+        .map(|v| (v - mean).powi(2))
+        .sum::<f64>()
+        / len;
     let std_dev = variance.sqrt();
 
     VariantSummary {
