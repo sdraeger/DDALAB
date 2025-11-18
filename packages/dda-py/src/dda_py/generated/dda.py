@@ -1,7 +1,7 @@
 """AUTO-GENERATED from DDA_SPEC.yaml
 DO NOT EDIT - Changes will be overwritten
 
-Generated at: 2025-11-17T19:08:43.259180+00:00
+Generated at: 2025-11-17T20:47:03.358668+00:00
 Spec version: 1.0.0
 Generator: dda-codegen v0.1.0
 

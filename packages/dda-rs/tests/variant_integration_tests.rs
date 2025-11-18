@@ -278,7 +278,10 @@ async fn test_multiple_variants() {
             lowpass: None,
         },
         algorithm_selection: AlgorithmSelection {
-            enabled_variants: vec!["single_timeseries".to_string(), "cross_timeseries".to_string()],
+            enabled_variants: vec![
+                "single_timeseries".to_string(),
+                "cross_timeseries".to_string(),
+            ],
             select_mask: Some("1 1 0 0 0 0".to_string()), // ST + CT
         },
         window_parameters: WindowParameters {

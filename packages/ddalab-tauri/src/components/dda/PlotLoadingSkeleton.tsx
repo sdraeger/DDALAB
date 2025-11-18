@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import React from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Loader2 } from 'lucide-react';
+import React from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Loader2 } from "lucide-react";
 
 interface PlotLoadingSkeletonProps {
   height?: number;
@@ -12,7 +12,7 @@ interface PlotLoadingSkeletonProps {
 
 export const PlotLoadingSkeleton: React.FC<PlotLoadingSkeletonProps> = ({
   height = 500,
-  title = 'Loading visualization...',
+  title = "Loading visualization...",
   progress,
 }) => {
   return (
@@ -39,17 +39,30 @@ export const PlotLoadingSkeleton: React.FC<PlotLoadingSkeletonProps> = ({
 
           {/* Skeleton bars with staggered animation */}
           <div className="mt-4 space-y-2 w-3/4 max-w-md">
-            <div className="h-2 bg-muted/50 rounded animate-pulse" style={{ animationDelay: '0ms' }} />
-            <div className="h-2 bg-muted/40 rounded animate-pulse" style={{ width: '80%', animationDelay: '150ms' }} />
-            <div className="h-2 bg-muted/30 rounded animate-pulse" style={{ width: '60%', animationDelay: '300ms' }} />
+            <div
+              className="h-2 bg-muted/50 rounded animate-pulse"
+              style={{ animationDelay: "0ms" }}
+            />
+            <div
+              className="h-2 bg-muted/40 rounded animate-pulse"
+              style={{ width: "80%", animationDelay: "150ms" }}
+            />
+            <div
+              className="h-2 bg-muted/30 rounded animate-pulse"
+              style={{ width: "60%", animationDelay: "300ms" }}
+            />
           </div>
         </div>
       </CardContent>
 
       <style jsx>{`
         @keyframes shimmer {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(100%); }
+          0% {
+            transform: translateX(-100%);
+          }
+          100% {
+            transform: translateX(100%);
+          }
         }
         .animate-shimmer {
           animation: shimmer 2s infinite;

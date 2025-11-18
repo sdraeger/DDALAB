@@ -108,7 +108,9 @@ export const VARIANT_REGISTRY: VariantMetadata[] = [
 /**
  * Helper function to get variant metadata by ID
  */
-export function getVariantMetadata(variantId: string): VariantMetadata | undefined {
+export function getVariantMetadata(
+  variantId: string,
+): VariantMetadata | undefined {
   return VARIANT_REGISTRY.find((v) => v.id === variantId);
 }
 

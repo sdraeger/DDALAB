@@ -5,6 +5,7 @@ This module provides a modular, extensible architecture for writing various neur
 ## Overview
 
 All file writers implement the `FileWriter` trait and accept the universal `IntermediateData` format, which enables:
+
 - Converting processed data to various standard formats
 - Exporting analysis results for use in other tools
 - Creating archival copies in different formats
@@ -14,18 +15,18 @@ All file writers implement the `FileWriter` trait and accept the universal `Inte
 
 ### Default (Always Available)
 
-| Format | Extension | Description | Status |\
-|--------|-----------|-------------|--------|
-| CSV | `.csv` | Comma-separated values | ✅ Implemented |
-| ASCII | `.txt`, `.ascii` | Space-separated text for DDA | ✅ Implemented |
-| EDF/EDF+ | `.edf` | European Data Format (clinical EEG standard) | ✅ Implemented |
-| XDF | `.xdf` | Lab Streaming Layer recordings | ✅ Implemented |
+| Format   | Extension        | Description                                  | Status         | \   |
+| -------- | ---------------- | -------------------------------------------- | -------------- | --- |
+| CSV      | `.csv`           | Comma-separated values                       | ✅ Implemented |
+| ASCII    | `.txt`, `.ascii` | Space-separated text for DDA                 | ✅ Implemented |
+| EDF/EDF+ | `.edf`           | European Data Format (clinical EEG standard) | ✅ Implemented |
+| XDF      | `.xdf`           | Lab Streaming Layer recordings               | ✅ Implemented |
 
 ### Optional (Feature Flags)
 
-| Format | Extension | Feature Flag | Dependency | Status |
-|--------|-----------|--------------|------------|--------|
-| **NWB** | `.nwb` | `nwb-support` | `hdf5 = "0.8"` | ✅ Basic Implementation |
+| Format  | Extension | Feature Flag  | Dependency     | Status                  |
+| ------- | --------- | ------------- | -------------- | ----------------------- |
+| **NWB** | `.nwb`    | `nwb-support` | `hdf5 = "0.8"` | ✅ Basic Implementation |
 
 ## Architecture
 
@@ -76,11 +77,13 @@ FileWriterFactory::write_file(&intermediate_data, Path::new("output.edf"), None)
 **Purpose:** Export data to comma-separated values format for analysis in spreadsheet tools.
 
 **Format:**
+
 - First row: Channel labels
 - Subsequent rows: Sample values (one row per time point, one column per channel)
 - Precision: Configurable (default 6 decimal places)
 
 **Usage:**
+
 ```rust
 let writer = CSVWriter::new();
 let config = WriterConfig::default();
@@ -88,6 +91,7 @@ writer.write(&data, Path::new("output.csv"), &config)?;
 ```
 
 **Use Cases:**
+
 - Import into MATLAB, Python, R
 - Spreadsheet analysis (Excel, Google Sheets)
 - Database import
@@ -99,12 +103,14 @@ writer.write(&data, Path::new("output.csv"), &config)?;
 **Purpose:** Export data to space-separated ASCII format suitable for DDA analysis.
 
 **Format:**
+
 - Header comments with metadata (# prefix)
 - Channel labels as comment
 - Space-separated values
 - Source file, format, sample rate, duration in comments
 
 **Usage:**
+
 ```rust
 let writer = ASCIIWriter::new();
 let config = WriterConfig::default();
@@ -112,6 +118,7 @@ writer.write(&data, Path::new("output.txt"), &config)?;
 ```
 
 **Use Cases:**
+
 - DDA analysis input
 - Text-based analysis tools
 - Version control friendly format
@@ -124,6 +131,7 @@ writer.write(&data, Path::new("output.txt"), &config)?;
 **Purpose:** Write data to EDF (European Data Format) - the clinical EEG standard.
 
 **Key Features:**
+
 - Full EDF specification compliance
 - Automatic calibration (physical ↔ digital value conversion)
 - 16-bit integer storage with gain/offset
@@ -132,6 +140,7 @@ writer.write(&data, Path::new("output.txt"), &config)?;
 - Handles date/time conversion
 
 **Technical Details:**
+
 ```rust
 // EDF structure
 Header (256 bytes) → Signal Headers (256 bytes × N channels) → Data Records
@@ -146,11 +155,13 @@ offset = physical_max - gain × digital_max
 ```
 
 **Validation:**
+
 - All channels must have equal length
 - Sample rate must be positive
 - Automatically computes physical min/max with 10% margin
 
 **Usage:**
+
 ```rust
 let writer = EDFWriter::new();
 let config = WriterConfig::default();
@@ -158,6 +169,7 @@ writer.write(&data, Path::new("output.edf"), &config)?;
 ```
 
 **Use Cases:**
+
 - Clinical EEG analysis
 - Archival storage
 - Sharing data with hospitals/clinics
@@ -170,6 +182,7 @@ writer.write(&data, Path::new("output.edf"), &config)?;
 **Purpose:** Write data to XDF format for Lab Streaming Layer compatibility.
 
 **Key Features:**
+
 - Binary format with XML stream descriptors
 - Multi-stream support (single stream for now)
 - Chunk-based structure
@@ -178,6 +191,7 @@ writer.write(&data, Path::new("output.edf"), &config)?;
 - Stream metadata (name, type, channel info)
 
 **XDF Structure:**
+
 - Magic string: `"XDF:"`
 - File header chunk (version info)
 - Stream header chunk (XML descriptor)
@@ -185,6 +199,7 @@ writer.write(&data, Path::new("output.edf"), &config)?;
 - Stream footer chunk (statistics)
 
 **Usage:**
+
 ```rust
 let writer = XDFWriter::new();
 let config = WriterConfig::default();
@@ -192,6 +207,7 @@ writer.write(&data, Path::new("output.xdf"), &config)?;
 ```
 
 **Use Cases:**
+
 - Lab Streaming Layer integration
 - Real-time experiment replay
 - Multi-modal data synchronization
@@ -204,6 +220,7 @@ writer.write(&data, Path::new("output.xdf"), &config)?;
 **Purpose:** Write data to Neurodata Without Borders format (BRAIN Initiative standard).
 
 **Key Features:**
+
 - HDF5-based hierarchical structure
 - NWB 2.5.0 schema compliance (minimal)
 - ElectricalSeries creation in `/acquisition/`
@@ -212,6 +229,7 @@ writer.write(&data, Path::new("output.xdf"), &config)?;
 - Conversion and offset attributes
 
 **Limitations:**
+
 - Basic implementation (minimal NWB compliance)
 - Single ElectricalSeries
 - No electrode table (only labels)
@@ -219,6 +237,7 @@ writer.write(&data, Path::new("output.xdf"), &config)?;
 - For full NWB features, use PyNWB
 
 **Enable NWB Support:**
+
 ```bash
 cargo build --features nwb-support
 ```
@@ -227,6 +246,7 @@ cargo build --features nwb-support
 NWB requires the HDF5 C library. Some systems have incompatible HDF5 versions.
 
 **Usage:**
+
 ```rust
 let writer = NWBWriter::new();
 let config = WriterConfig::default();
@@ -234,6 +254,7 @@ writer.write(&data, Path::new("output.nwb"), &config)?;
 ```
 
 **Use Cases:**
+
 - DANDI archive submission
 - BRAIN Initiative data sharing
 - Neuroscience data standardization
@@ -242,6 +263,7 @@ writer.write(&data, Path::new("output.nwb"), &config)?;
 ## Adding a New File Format Writer
 
 1. **Create Writer File**
+
    ```rust
    // packages/ddalab-tauri/src-tauri/src/file_writers/my_format_writer.rs
    use super::{FileWriter, FileWriterError, FileWriterResult, WriterConfig};
@@ -265,12 +287,14 @@ writer.write(&data, Path::new("output.nwb"), &config)?;
    ```
 
 2. **Register in mod.rs**
+
    ```rust
    pub mod my_format_writer;
    pub use my_format_writer::MyFormatWriter;
    ```
 
 3. **Add to Factory**
+
    ```rust
    match extension.to_lowercase().as_str() {
        // ...
@@ -280,6 +304,7 @@ writer.write(&data, Path::new("output.nwb"), &config)?;
    ```
 
 4. **Test**
+
    ```rust
    #[cfg(test)]
    mod tests {
@@ -406,6 +431,7 @@ match edf_writer.write(&data_with_mismatched_lengths, &path, &config) {
 ## Testing
 
 Run tests for specific writers:
+
 ```bash
 cargo test --package ddalab-tauri file_writers::csv_writer
 cargo test --package ddalab-tauri file_writers::edf_writer
@@ -414,6 +440,7 @@ cargo test --package ddalab-tauri file_writers::nwb_writer --features nwb-suppor
 ```
 
 Run all writer tests:
+
 ```bash
 cargo test --package ddalab-tauri file_writers
 ```
@@ -433,17 +460,17 @@ cargo test --package ddalab-tauri file_writers
 
 ## Format Comparison
 
-| Feature | CSV | ASCII | EDF | XDF | NWB |
-|---------|-----|-------|-----|-----|-----|
-| Human Readable | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Metadata Support | ❌ | Limited | ✅ | ✅ | ✅✅ |
-| Clinical Standard | ❌ | ❌ | ✅ | ❌ | ❌ |
-| Research Standard | ❌ | ❌ | ❌ | ✅ | ✅✅ |
-| Compression | ❌ | ❌ | ✅ | ❌ | ✅ |
-| Multi-stream | ❌ | ❌ | ❌ | ✅ | ✅ |
-| File Size | Large | Large | Medium | Medium | Medium |
-| Write Speed | Fast | Fast | Fast | Medium | Slow |
-| Tool Support | ✅✅ | Limited | ✅✅ | ✅ | ✅ |
+| Feature           | CSV   | ASCII   | EDF    | XDF    | NWB    |
+| ----------------- | ----- | ------- | ------ | ------ | ------ |
+| Human Readable    | ✅    | ✅      | ❌     | ❌     | ❌     |
+| Metadata Support  | ❌    | Limited | ✅     | ✅     | ✅✅   |
+| Clinical Standard | ❌    | ❌      | ✅     | ❌     | ❌     |
+| Research Standard | ❌    | ❌      | ❌     | ✅     | ✅✅   |
+| Compression       | ❌    | ❌      | ✅     | ❌     | ✅     |
+| Multi-stream      | ❌    | ❌      | ❌     | ✅     | ✅     |
+| File Size         | Large | Large   | Medium | Medium | Medium |
+| Write Speed       | Fast  | Fast    | Fast   | Medium | Slow   |
+| Tool Support      | ✅✅  | Limited | ✅✅   | ✅     | ✅     |
 
 ## References
 

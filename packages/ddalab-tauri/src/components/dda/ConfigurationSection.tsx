@@ -3,23 +3,23 @@
  * Provides a cleaner accordion-based UI for DDA configuration
  */
 
-'use client';
+"use client";
 
-import React from 'react';
+import React from "react";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from '@/components/ui/accordion';
-import { Badge } from '@/components/ui/badge';
-import { LucideIcon } from 'lucide-react';
+} from "@/components/ui/accordion";
+import { Badge } from "@/components/ui/badge";
+import { LucideIcon } from "lucide-react";
 
 interface ConfigurationSectionProps {
   icon: LucideIcon;
   title: string;
   badge?: string | number;
-  badgeVariant?: 'default' | 'secondary' | 'outline' | 'destructive';
+  badgeVariant?: "default" | "secondary" | "outline" | "destructive";
   defaultOpen?: boolean;
   children: React.ReactNode;
   value: string;
@@ -29,7 +29,7 @@ export const ConfigurationSection: React.FC<ConfigurationSectionProps> = ({
   icon: Icon,
   title,
   badge,
-  badgeVariant = 'secondary',
+  badgeVariant = "secondary",
   children,
   value,
 }) => {
@@ -62,10 +62,14 @@ interface ConfigurationAccordionProps {
 export const ConfigurationAccordion: React.FC<ConfigurationAccordionProps> = ({
   children,
   defaultOpen = [],
-  className = '',
+  className = "",
 }) => {
   return (
-    <Accordion type="multiple" defaultValue={defaultOpen} className={`space-y-3 ${className}`}>
+    <Accordion
+      type="multiple"
+      defaultValue={defaultOpen}
+      className={`space-y-3 ${className}`}
+    >
       {children}
     </Accordion>
   );

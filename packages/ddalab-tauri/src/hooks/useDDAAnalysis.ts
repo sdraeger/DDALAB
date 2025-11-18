@@ -62,10 +62,13 @@ export function useSubmitDDAAnalysis(apiService: ApiService) {
             `Analysis completed successfully with ${variantCount} variant(s)`,
             NotificationType.Success,
             "view-analysis",
-            { analysisId: result.id }
+            { analysisId: result.id },
           );
         } catch (err) {
-          console.error("[NOTIFICATIONS] Failed to create success notification:", err);
+          console.error(
+            "[NOTIFICATIONS] Failed to create success notification:",
+            err,
+          );
         }
       }
     },
@@ -79,10 +82,13 @@ export function useSubmitDDAAnalysis(apiService: ApiService) {
           await TauriService.createNotification(
             "DDA Analysis Failed",
             error.message || "An error occurred during analysis",
-            NotificationType.Error
+            NotificationType.Error,
           );
         } catch (err) {
-          console.error("[NOTIFICATIONS] Failed to create error notification:", err);
+          console.error(
+            "[NOTIFICATIONS] Failed to create error notification:",
+            err,
+          );
         }
       }
     },
@@ -189,14 +195,16 @@ export function useSaveDDAToHistory(apiService: ApiService) {
       await queryClient.cancelQueries({ queryKey: ddaKeys.history() });
 
       // Get current history
-      const previousHistory = queryClient.getQueryData<DDAResult[]>(ddaKeys.history());
+      const previousHistory = queryClient.getQueryData<DDAResult[]>(
+        ddaKeys.history(),
+      );
 
       // Optimistically update history by adding the new analysis at the beginning
       if (previousHistory) {
         queryClient.setQueryData<DDAResult[]>(ddaKeys.history(), (old) => {
           if (!old) return [newAnalysis];
           // Add to beginning if not already present
-          const exists = old.some(a => a.id === newAnalysis.id);
+          const exists = old.some((a) => a.id === newAnalysis.id);
           if (exists) return old;
           return [newAnalysis, ...old];
         });

@@ -19,7 +19,7 @@
 use super::{DataChunk, DataFormat, SourceMetadata, StreamSource};
 use crate::streaming::types::{StreamError, StreamResult};
 use async_trait::async_trait;
-use lsl::{ChannelFormat, StreamInlet, StreamInfo};
+use lsl::{ChannelFormat, StreamInfo, StreamInlet};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::task;
@@ -163,9 +163,7 @@ impl LslStreamSource {
         }
 
         // Fallback: Generate default channel names
-        (0..channel_count)
-            .map(|i| format!("Ch{}", i + 1))
-            .collect()
+        (0..channel_count).map(|i| format!("Ch{}", i + 1)).collect()
     }
 
     /// Parse channel names from LSL XML metadata
@@ -236,7 +234,10 @@ impl StreamSource for LslStreamSource {
 
         let mut properties = HashMap::new();
         properties.insert("stream_name".to_string(), stream_info.name().to_string());
-        properties.insert("stream_type".to_string(), stream_info.stream_type().to_string());
+        properties.insert(
+            "stream_type".to_string(),
+            stream_info.stream_type().to_string(),
+        );
         properties.insert("source_id".to_string(), stream_info.source_id().to_string());
         properties.insert("hostname".to_string(), stream_info.hostname().to_string());
         properties.insert(
@@ -274,9 +275,10 @@ impl StreamSource for LslStreamSource {
             .ok_or_else(|| StreamError::Connection("Stream info not available".to_string()))?
             .clone();
 
-        let metadata = self.metadata.clone().ok_or_else(|| {
-            StreamError::Connection("Metadata not available".to_string())
-        })?;
+        let metadata = self
+            .metadata
+            .clone()
+            .ok_or_else(|| StreamError::Connection("Metadata not available".to_string()))?;
 
         let chunk_size = self.chunk_size;
         let use_lsl_timestamps = self.use_lsl_timestamps;
@@ -297,10 +299,12 @@ impl StreamSource for LslStreamSource {
                 // Pull chunk of samples with timestamps
                 let samples_pulled = inlet
                     .pull_chunk_f32(&mut sample_buffer, Some(&mut timestamp_buffer))
-                    .map_err(|e| StreamError::Io(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("LSL pull error: {:?}", e)
-                    )))?;
+                    .map_err(|e| {
+                        StreamError::Io(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("LSL pull error: {:?}", e),
+                        ))
+                    })?;
 
                 if samples_pulled == 0 {
                     // No data available, wait briefly

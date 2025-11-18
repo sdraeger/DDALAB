@@ -79,7 +79,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
         setIsSearching(false);
       }
     },
-    [searchService]
+    [searchService],
   );
 
   useEffect(() => {
@@ -153,7 +153,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
       acc[category].push(result);
       return acc;
     },
-    {} as Record<string, SearchResult[]>
+    {} as Record<string, SearchResult[]>,
   );
 
   return (
@@ -217,13 +217,13 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                         className={cn(
                           "w-full flex items-start gap-3 px-4 py-2.5 text-left transition-colors",
                           "hover:bg-accent",
-                          isSelected && "bg-accent"
+                          isSelected && "bg-accent",
                         )}
                       >
                         <div
                           className={cn(
                             "mt-0.5 flex-shrink-0",
-                            getCategoryColor(result.type)
+                            getCategoryColor(result.type),
                           )}
                         >
                           <Icon className="h-4 w-4" />
@@ -235,9 +235,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
                             </span>
                             {result.subtitle && (
                               <>
-                                <span className="text-muted-foreground">
-                                  /
-                                </span>
+                                <span className="text-muted-foreground">/</span>
                                 <span className="text-xs text-muted-foreground truncate">
                                   {result.subtitle}
                                 </span>

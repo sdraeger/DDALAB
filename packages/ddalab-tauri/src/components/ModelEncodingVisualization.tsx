@@ -5,10 +5,23 @@
  * showing how they map to delay differential equation terms.
  */
 
-import React, { useMemo } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { Badge } from './ui/badge';
+import React, { useMemo } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "./ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "./ui/table";
+import { Badge } from "./ui/badge";
 
 interface Monomial {
   index: number;
@@ -29,7 +42,10 @@ interface ModelEncodingVisualizationProps {
 /**
  * Generate all monomials for given num_delays and polynomial_order
  */
-function generateMonomials(numDelays: number, polynomialOrder: number): number[][] {
+function generateMonomials(
+  numDelays: number,
+  polynomialOrder: number,
+): number[][] {
   const monomials: number[][] = [];
 
   // Degree 1: Linear terms [0, j] for j in 1..numDelays
@@ -41,7 +57,7 @@ function generateMonomials(numDelays: number, polynomialOrder: number): number[]
   for (let degree = 2; degree <= polynomialOrder; degree++) {
     const combos = combinationsWithReplacement(
       Array.from({ length: numDelays }, (_, i) => i + 1),
-      degree
+      degree,
     );
     monomials.push(...combos);
   }
@@ -107,7 +123,7 @@ function monomialToText(monomial: number[], tauValues?: number[]): string {
     }
   }
 
-  return terms.join(' · ');
+  return terms.join(" · ");
 }
 
 /**
@@ -116,7 +132,7 @@ function monomialToText(monomial: number[], tauValues?: number[]): string {
 function decodeModelEncoding(
   modelEncoding: number[],
   monomials: number[][],
-  tauValues?: number[]
+  tauValues?: number[],
 ): string {
   const terms: string[] = [];
 
@@ -131,10 +147,12 @@ function decodeModelEncoding(
     terms.push(`a_${i + 1} ${termStr}`);
   }
 
-  return `dx/dt = ${terms.join(' + ')}`;
+  return `dx/dt = ${terms.join(" + ")}`;
 }
 
-export const ModelEncodingVisualization: React.FC<ModelEncodingVisualizationProps> = ({
+export const ModelEncodingVisualization: React.FC<
+  ModelEncodingVisualizationProps
+> = ({
   numDelays,
   polynomialOrder,
   modelEncoding = [],
@@ -169,7 +187,7 @@ export const ModelEncodingVisualization: React.FC<ModelEncodingVisualizationProp
   }, [modelEncoding, monomials, tauValues]);
 
   const tauDisplay = tauValues
-    ? tauValues.map((tau, i) => `τ_${i + 1}=${tau}`).join(', ')
+    ? tauValues.map((tau, i) => `τ_${i + 1}=${tau}`).join(", ")
     : null;
 
   return (
@@ -178,7 +196,9 @@ export const ModelEncodingVisualization: React.FC<ModelEncodingVisualizationProp
         <CardTitle>Model Encoding Visualization</CardTitle>
         <CardDescription>
           Model space: {numDelays} delays, polynomial order {polynomialOrder}
-          {tauDisplay && <div className="text-xs mt-1">Delays: {tauDisplay}</div>}
+          {tauDisplay && (
+            <div className="text-xs mt-1">Delays: {tauDisplay}</div>
+          )}
           <div className="text-xs mt-1">Total monomials: {totalMonomials}</div>
         </CardDescription>
       </CardHeader>
@@ -199,13 +219,17 @@ export const ModelEncodingVisualization: React.FC<ModelEncodingVisualizationProp
                 {monomialData.map((mon) => (
                   <TableRow
                     key={mon.index}
-                    className={mon.isSelected ? 'bg-primary/5' : ''}
+                    className={mon.isSelected ? "bg-primary/5" : ""}
                   >
-                    <TableCell className="font-mono text-sm">{mon.index}</TableCell>
-                    <TableCell className="font-mono text-xs">
-                      [{mon.encoding.join(', ')}]
+                    <TableCell className="font-mono text-sm">
+                      {mon.index}
                     </TableCell>
-                    <TableCell className="font-mono text-sm">{mon.termText}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      [{mon.encoding.join(", ")}]
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {mon.termText}
+                    </TableCell>
                     <TableCell>
                       {mon.isSelected && (
                         <Badge variant="default" className="text-xs">
@@ -222,10 +246,12 @@ export const ModelEncodingVisualization: React.FC<ModelEncodingVisualizationProp
           {/* Equation Display */}
           {equation && (
             <div className="p-4 bg-muted rounded-lg">
-              <div className="text-sm font-medium mb-2">Resulting Equation:</div>
+              <div className="text-sm font-medium mb-2">
+                Resulting Equation:
+              </div>
               <div className="font-mono text-base">{equation}</div>
               <div className="text-xs text-muted-foreground mt-2">
-                Selected terms: [{modelEncoding.join(', ')}]
+                Selected terms: [{modelEncoding.join(", ")}]
               </div>
             </div>
           )}
@@ -239,7 +265,8 @@ export const ModelEncodingVisualization: React.FC<ModelEncodingVisualizationProp
                 <li>Linear terms (degree 1) are encoded as [0, j]</li>
                 <li>Higher order terms use indices of delay variables</li>
                 <li>
-                  Example: [1, 3, 5] selects x₁, x₁², and x₂² for a 2-delay, order-2 model
+                  Example: [1, 3, 5] selects x₁, x₁², and x₂² for a 2-delay,
+                  order-2 model
                 </li>
               </ul>
             </div>

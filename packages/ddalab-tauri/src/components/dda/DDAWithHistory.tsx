@@ -95,7 +95,8 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   // Initialize selected ID when current analysis changes or file changes
   useEffect(() => {
     // Check if currentAnalysisId actually changed (not just a re-render)
-    const currentAnalysisIdChanged = prevCurrentAnalysisId.current !== currentAnalysisId;
+    const currentAnalysisIdChanged =
+      prevCurrentAnalysisId.current !== currentAnalysisId;
 
     console.log("[DDA HISTORY SYNC]");
     console.log("  currentAnalysisId:", currentAnalysisId);
@@ -104,7 +105,10 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
     console.log("  currentAnalysisIdChanged:", currentAnalysisIdChanged);
     console.log("  currentAnalysisFilePath:", currentAnalysisFilePath);
     console.log("  currentFilePath:", currentFilePath);
-    console.log("  filePathsMatch:", currentAnalysisFilePath === currentFilePath);
+    console.log(
+      "  filePathsMatch:",
+      currentAnalysisFilePath === currentFilePath,
+    );
 
     if (currentAnalysisFilePath === currentFilePath && currentAnalysisId) {
       // Sync selectedAnalysisId to currentAnalysisId whenever they don't match
@@ -113,7 +117,9 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
         console.log(
           "[DDA HISTORY] Syncing selectedAnalysisId to currentAnalysisId:",
           currentAnalysisId,
-          "( changed:", currentAnalysisIdChanged, ")"
+          "( changed:",
+          currentAnalysisIdChanged,
+          ")",
         );
         setSelectedAnalysisId(currentAnalysisId);
       } else {
@@ -134,7 +140,9 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
         setSelectedAnalysisId(mostRecentId);
       }
     } else if (!currentAnalysisId && selectedAnalysisId !== null) {
-      console.log("[DDA HISTORY] Clearing selectedAnalysisId (no current analysis)");
+      console.log(
+        "[DDA HISTORY] Clearing selectedAnalysisId (no current analysis)",
+      );
       setSelectedAnalysisId(null);
     }
 
@@ -279,7 +287,10 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
     // CRITICAL: If the ID is the same as before, return the previous reference
     // This prevents mount/unmount thrashing when parent re-renders with new object references
     if (result && prevDisplayAnalysisRef.current?.id === result.id) {
-      console.log("[DDA HISTORY] Same ID, returning previous reference:", result.id);
+      console.log(
+        "[DDA HISTORY] Same ID, returning previous reference:",
+        result.id,
+      );
       return prevDisplayAnalysisRef.current;
     }
 
@@ -294,7 +305,7 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
     return result;
   }, [
     selectedAnalysisData, // Must include full object to avoid stale closure
-    currentAnalysis,      // Must include full object to avoid stale closure
+    currentAnalysis, // Must include full object to avoid stale closure
     selectedAnalysisId,
   ]);
 
@@ -425,40 +436,42 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
                 {showResults && (
                   <>
                     {/* Loading overlay for fetching data */}
-                    {(isLoadingAnalysis || isFetchingAnalysis) && selectedAnalysisId && (
-                      <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center rounded-lg">
-                        <div className="text-center">
-                          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
-                          <p className="text-sm text-muted-foreground">
-                            Loading analysis...
-                          </p>
+                    {(isLoadingAnalysis || isFetchingAnalysis) &&
+                      selectedAnalysisId && (
+                        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center rounded-lg">
+                          <div className="text-center">
+                            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+                            <p className="text-sm text-muted-foreground">
+                              Loading analysis...
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
                     {/* NSG Results Indicator Banner */}
-                    {displayAnalysis.source === "nsg" && hasPreviousAnalysis && (
-                      <Alert className="border-blue-200 bg-blue-50">
-                        <Cloud className="h-4 w-4 text-blue-600" />
-                        <AlertDescription className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-blue-900">
-                              <strong>Viewing NSG Results</strong> from job{" "}
-                              {displayAnalysis.id.slice(0, 8)}
-                            </span>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => restorePreviousAnalysis()}
-                            className="ml-4 h-7 text-xs"
-                          >
-                            <ArrowLeft className="h-3 w-3 mr-1" />
-                            Back to Previous Analysis
-                          </Button>
-                        </AlertDescription>
-                      </Alert>
-                    )}
+                    {displayAnalysis.source === "nsg" &&
+                      hasPreviousAnalysis && (
+                        <Alert className="border-blue-200 bg-blue-50">
+                          <Cloud className="h-4 w-4 text-blue-600" />
+                          <AlertDescription className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-blue-900">
+                                <strong>Viewing NSG Results</strong> from job{" "}
+                                {displayAnalysis.id.slice(0, 8)}
+                              </span>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => restorePreviousAnalysis()}
+                              className="ml-4 h-7 text-xs"
+                            >
+                              <ArrowLeft className="h-3 w-3 mr-1" />
+                              Back to Previous Analysis
+                            </Button>
+                          </AlertDescription>
+                        </Alert>
+                      )}
 
                     {/* CRITICAL FIX: Add key prop to help React track component identity */}
                     <DDAResults
@@ -473,9 +486,12 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
               <div className="flex items-center justify-center h-full min-h-[400px]">
                 <div className="text-center">
                   <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-primary" />
-                  <p className="text-lg font-medium mb-2">DDA Analysis Running</p>
+                  <p className="text-lg font-medium mb-2">
+                    DDA Analysis Running
+                  </p>
                   <p className="text-sm text-muted-foreground">
-                    Analysis is in progress. You'll receive a notification when complete.
+                    Analysis is in progress. You'll receive a notification when
+                    complete.
                   </p>
                   <p className="text-xs text-muted-foreground mt-4">
                     Feel free to switch tabs or continue working

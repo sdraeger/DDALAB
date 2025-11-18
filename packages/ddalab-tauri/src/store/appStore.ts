@@ -2654,7 +2654,8 @@ export const useAppStore = create<AppState>()(
           // Immer allows direct mutation
           if (updates.state) session.state = updates.state;
           if (updates.stats) session.stats = updates.stats;
-          if (updates.source_config) session.source_config = updates.source_config;
+          if (updates.source_config)
+            session.source_config = updates.source_config;
           if (updates.dda_config) session.dda_config = updates.dda_config;
           session.updated_at = Date.now() / 1000;
         }
@@ -2843,7 +2844,8 @@ export const useAppStore = create<AppState>()(
 
         // Keep only last 10 entries
         if (state.streaming.ui.recentSources.length > 10) {
-          state.streaming.ui.recentSources = state.streaming.ui.recentSources.slice(0, 10);
+          state.streaming.ui.recentSources =
+            state.streaming.ui.recentSources.slice(0, 10);
         }
       });
     },
@@ -2851,7 +2853,7 @@ export const useAppStore = create<AppState>()(
     createStreamFromHistory: async (historyId) => {
       const state = get();
       const historyEntry = state.streaming.ui.recentSources.find(
-        (entry) => entry.id === historyId
+        (entry) => entry.id === historyId,
       );
 
       if (!historyEntry) {
@@ -2861,15 +2863,16 @@ export const useAppStore = create<AppState>()(
       // Create stream using the saved config
       return state.createStreamSession(
         historyEntry.sourceConfig,
-        historyEntry.ddaConfig
+        historyEntry.ddaConfig,
       );
     },
 
     removeFromStreamHistory: (historyId) => {
       set((state) => {
-        state.streaming.ui.recentSources = state.streaming.ui.recentSources.filter(
-          (entry) => entry.id !== historyId
-        );
+        state.streaming.ui.recentSources =
+          state.streaming.ui.recentSources.filter(
+            (entry) => entry.id !== historyId,
+          );
       });
     },
 

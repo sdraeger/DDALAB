@@ -196,7 +196,7 @@ export const useDDAAnnotations = ({
   const annotations = useMemo(() => {
     const profilerKey = `annotation-merge-${plotType}`;
     profiler.start(profilerKey, {
-      category: 'data_processing',
+      category: "data_processing",
       plotType,
       variantId,
       timeSeriesCount: timeSeriesAnnotations.length,

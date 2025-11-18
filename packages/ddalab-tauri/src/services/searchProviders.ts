@@ -39,7 +39,7 @@ export class NavigationSearchProvider implements SearchProvider {
       if (nav.secondaryTabs) {
         nav.secondaryTabs.forEach((tabId) => {
           const tab = secondaryTabConfig[tabId];
-          if (!tab || (tab.enabled === false)) return;
+          if (!tab || tab.enabled === false) return;
 
           const matchesTabLabel = tab.label.toLowerCase().includes(lowerQuery);
           const matchesTabDesc = tab.description
@@ -59,7 +59,9 @@ export class NavigationSearchProvider implements SearchProvider {
               keywords: [tab.id, tab.label, tab.description || ""],
               action: () => {
                 useAppStore.getState().setPrimaryNav(nav.id as PrimaryNavTab);
-                useAppStore.getState().setSecondaryNav(tabId as SecondaryNavTab);
+                useAppStore
+                  .getState()
+                  .setSecondaryNav(tabId as SecondaryNavTab);
               },
             });
           }
@@ -123,7 +125,7 @@ export class SettingsSearchProvider implements SearchProvider {
         .toLowerCase()
         .includes(lowerQuery);
       const matchesKeywords = section.keywords.some((kw) =>
-        kw.toLowerCase().includes(lowerQuery)
+        kw.toLowerCase().includes(lowerQuery),
       );
       const matchesId = section.id.toLowerCase().includes(lowerQuery);
 
@@ -141,7 +143,7 @@ export class SettingsSearchProvider implements SearchProvider {
             useAppStore.getState().setSecondaryNav("settings");
             setTimeout(() => {
               const element = document.getElementById(
-                `settings-section-${section.id}`
+                `settings-section-${section.id}`,
               );
               if (element) {
                 element.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -219,9 +221,12 @@ export class ChannelSearchProvider implements SearchProvider {
             action: () => {
               useAppStore.getState().setPrimaryNav("explore");
               useAppStore.getState().setSecondaryNav("timeseries");
-              const currentChannels = useAppStore.getState().fileManager.selectedChannels;
+              const currentChannels =
+                useAppStore.getState().fileManager.selectedChannels;
               if (!currentChannels.includes(channel)) {
-                useAppStore.getState().setSelectedChannels([...currentChannels, channel]);
+                useAppStore
+                  .getState()
+                  .setSelectedChannels([...currentChannels, channel]);
               }
             },
           });
@@ -244,19 +249,31 @@ export class AnalysisSearchProvider implements SearchProvider {
 
     analysisHistory.forEach((analysis, index) => {
       const matchesId = analysis.id.toLowerCase().includes(lowerQuery);
-      const matchesFile = analysis.file_path?.toLowerCase().includes(lowerQuery);
+      const matchesFile = analysis.file_path
+        ?.toLowerCase()
+        .includes(lowerQuery);
       const matchesName = analysis.name?.toLowerCase().includes(lowerQuery);
       const matchesChannels = analysis.channels?.some((ch) =>
-        ch.toLowerCase().includes(lowerQuery)
+        ch.toLowerCase().includes(lowerQuery),
       );
-      const variants = analysis.results?.variants?.map(v => v.variant_name) || [];
-      const matchesVariant = variants.some(v => v.toLowerCase().includes(lowerQuery));
+      const variants =
+        analysis.results?.variants?.map((v) => v.variant_name) || [];
+      const matchesVariant = variants.some((v) =>
+        v.toLowerCase().includes(lowerQuery),
+      );
 
-      if (matchesId || matchesFile || matchesName || matchesChannels || matchesVariant) {
+      if (
+        matchesId ||
+        matchesFile ||
+        matchesName ||
+        matchesChannels ||
+        matchesVariant
+      ) {
         const date = analysis.created_at
           ? new Date(analysis.created_at).toLocaleString()
           : "Unknown date";
-        const fileName = analysis.file_path.split('/').pop() || analysis.file_path;
+        const fileName =
+          analysis.file_path.split("/").pop() || analysis.file_path;
         const variantLabel = variants.length > 0 ? variants.join(", ") : "DDA";
 
         results.push({
@@ -356,7 +373,7 @@ export class ActionSearchProvider implements SearchProvider {
         .toLowerCase()
         .includes(lowerQuery);
       const matchesKeywords = action.keywords.some((kw) =>
-        kw.toLowerCase().includes(lowerQuery)
+        kw.toLowerCase().includes(lowerQuery),
       );
       const matchesId = action.id.toLowerCase().includes(lowerQuery);
 
@@ -378,13 +395,567 @@ export class ActionSearchProvider implements SearchProvider {
   }
 }
 
+// === File & Data Management ===
+
+export class FileHistorySearchProvider implements SearchProvider {
+  name = "FileHistory";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+    const state = useAppStore.getState();
+
+    // Search through analysis history to find all unique files
+    const fileMap = new Map<
+      string,
+      { name: string; path: string; lastUsed: string }
+    >();
+
+    state.dda.analysisHistory.forEach((analysis) => {
+      const fileName =
+        analysis.file_path.split("/").pop() || analysis.file_path;
+      const matchesName = fileName.toLowerCase().includes(lowerQuery);
+      const matchesPath = analysis.file_path.toLowerCase().includes(lowerQuery);
+
+      if ((matchesName || matchesPath) && !fileMap.has(analysis.file_path)) {
+        fileMap.set(analysis.file_path, {
+          name: fileName,
+          path: analysis.file_path,
+          lastUsed: analysis.created_at,
+        });
+      }
+    });
+
+    fileMap.forEach((file, path) => {
+      results.push({
+        id: `file-history-${path}`,
+        type: "file",
+        title: file.name,
+        subtitle: file.path,
+        description: `Last used: ${new Date(file.lastUsed).toLocaleString()}`,
+        category: "File History",
+        icon: "File",
+        keywords: [file.name, file.path, "history"],
+        action: () => {
+          // Navigate to explore tab - user can load this file
+          useAppStore.getState().setPrimaryNav("explore");
+        },
+      });
+    });
+
+    return results;
+  }
+}
+
+export class FileMetadataSearchProvider implements SearchProvider {
+  name = "FileMetadata";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+    const state = useAppStore.getState();
+
+    // Search current file metadata
+    const selectedFile = state.fileManager.selectedFile;
+    if (!selectedFile) return results;
+
+    // Infer format from file extension
+    const extension =
+      selectedFile.file_path.split(".").pop()?.toUpperCase() || "";
+    const format = extension || "Unknown format";
+
+    const metadata = [
+      `${selectedFile.channels.length} channels`,
+      `${selectedFile.sample_rate} Hz`,
+      `${selectedFile.duration.toFixed(2)}s duration`,
+      format,
+    ];
+
+    const searchableText = metadata.join(" ").toLowerCase();
+    if (searchableText.includes(lowerQuery)) {
+      results.push({
+        id: `file-metadata-${selectedFile.file_path}`,
+        type: "file",
+        title: selectedFile.file_name,
+        subtitle: metadata.join(" • "),
+        description: `Format: ${format}`,
+        category: "File Metadata",
+        icon: "File",
+        keywords: metadata,
+        action: () => {
+          useAppStore.getState().setPrimaryNav("explore");
+          useAppStore.getState().setSecondaryNav("timeseries");
+        },
+      });
+    }
+
+    return results;
+  }
+}
+
+export class FileFormatSearchProvider implements SearchProvider {
+  name = "FileFormat";
+
+  private formats = [
+    {
+      type: "EDF",
+      description: "European Data Format",
+      keywords: ["edf", "edf+", "european"],
+    },
+    {
+      type: "ASCII",
+      description: "Plain text data",
+      keywords: ["ascii", "text", "csv", "txt"],
+    },
+    {
+      type: "XDF",
+      description: "Extensible Data Format (LSL)",
+      keywords: ["xdf", "lsl", "lab streaming"],
+    },
+    {
+      type: "NWB",
+      description: "Neurodata Without Borders",
+      keywords: ["nwb", "hdf5", "neurodata"],
+    },
+    {
+      type: "BrainVision",
+      description: "BrainProducts format",
+      keywords: ["vhdr", "vmrk", "brainvision"],
+    },
+    {
+      type: "EEGLAB",
+      description: "MATLAB EEGLAB format",
+      keywords: ["set", "fdt", "eeglab", "matlab"],
+    },
+    {
+      type: "FIF",
+      description: "Neuromag/Elekta MEG format",
+      keywords: ["fif", "fiff", "neuromag", "elekta", "meg"],
+    },
+    {
+      type: "NIfTI",
+      description: "Neuroimaging format",
+      keywords: ["nii", "nifti", "neuroimaging"],
+    },
+  ];
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    this.formats.forEach((format) => {
+      const matchesType = format.type.toLowerCase().includes(lowerQuery);
+      const matchesDescription = format.description
+        .toLowerCase()
+        .includes(lowerQuery);
+      const matchesKeywords = format.keywords.some((kw) =>
+        kw.includes(lowerQuery),
+      );
+
+      if (matchesType || matchesDescription || matchesKeywords) {
+        results.push({
+          id: `format-${format.type}`,
+          type: "file",
+          title: format.type,
+          description: format.description,
+          category: "File Formats",
+          icon: "File",
+          keywords: format.keywords,
+          action: () => {
+            // Navigate to file manager
+            useAppStore.getState().setPrimaryNav("explore");
+          },
+        });
+      }
+    });
+
+    return results;
+  }
+}
+
+// === Analysis & Results ===
+
+export class DDAVariantSearchProvider implements SearchProvider {
+  name = "DDAVariant";
+
+  private variants = [
+    {
+      name: "ST-DDA",
+      description: "Single-Timeseries delay differential analysis",
+      keywords: ["st", "single", "time"],
+    },
+    {
+      name: "CT-DDA",
+      description: "Cross-Timeseries delay differential analysis",
+      keywords: ["ct", "cross", "time"],
+    },
+    {
+      name: "CD-DDA",
+      description: "Cross-Dynamical delay differential analysis",
+      keywords: ["cd", "cross", "dynamical"],
+    },
+    {
+      name: "DE-DDA",
+      description: "Dynamical Ergodicity delay differential analysis",
+      keywords: ["de", "dynamical", "ergodicity"],
+    },
+    {
+      name: "SY-DDA",
+      description: "Synchronization delay differential analysis",
+      keywords: ["sy", "synchrony", "sync"],
+    },
+    {
+      name: "SELECT-DDA",
+      description: "Model selection analysis",
+      keywords: ["select", "selection", "model"],
+    },
+  ];
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    this.variants.forEach((variant) => {
+      const matchesName = variant.name.toLowerCase().includes(lowerQuery);
+      const matchesDescription = variant.description
+        .toLowerCase()
+        .includes(lowerQuery);
+      const matchesKeywords = variant.keywords.some((kw) =>
+        kw.includes(lowerQuery),
+      );
+
+      if (matchesName || matchesDescription || matchesKeywords) {
+        results.push({
+          id: `variant-${variant.name}`,
+          type: "analysis",
+          title: variant.name,
+          description: variant.description,
+          category: "DDA Variants",
+          icon: "Brain",
+          keywords: variant.keywords,
+          action: () => {
+            useAppStore.getState().setPrimaryNav("analyze");
+          },
+        });
+      }
+    });
+
+    return results;
+  }
+}
+
+export class AnalysisParametersSearchProvider implements SearchProvider {
+  name = "AnalysisParameters";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+    const state = useAppStore.getState();
+    const params = state.dda.analysisParameters;
+
+    const paramDescriptions = [
+      {
+        key: "window length",
+        value: `${params.windowLength}s`,
+        keywords: ["window", "length", "time"],
+      },
+      {
+        key: "window step",
+        value: `${params.windowStep}s`,
+        keywords: ["step", "stride", "hop"],
+      },
+      {
+        key: "scale range",
+        value: `${params.scaleMin}-${params.scaleMax}`,
+        keywords: ["scale", "range", "min", "max"],
+      },
+      {
+        key: "scale count",
+        value: `${params.scaleNum}`,
+        keywords: ["scales", "count", "number"],
+      },
+      {
+        key: "variants",
+        value: params.variants.join(", "),
+        keywords: ["variant", "type", "model"],
+      },
+    ];
+
+    paramDescriptions.forEach((param) => {
+      const matchesKey = param.key.includes(lowerQuery);
+      const matchesValue = param.value.toLowerCase().includes(lowerQuery);
+      const matchesKeywords = param.keywords.some((kw) =>
+        kw.includes(lowerQuery),
+      );
+
+      if (matchesKey || matchesValue || matchesKeywords) {
+        results.push({
+          id: `param-${param.key}`,
+          type: "action",
+          title: param.key.charAt(0).toUpperCase() + param.key.slice(1),
+          subtitle: param.value,
+          description: "Current analysis parameter",
+          category: "Analysis Parameters",
+          icon: "Settings",
+          keywords: param.keywords,
+          action: () => {
+            useAppStore.getState().setPrimaryNav("analyze");
+          },
+        });
+      }
+    });
+
+    return results;
+  }
+}
+
+export class DelayPresetSearchProvider implements SearchProvider {
+  name = "DelayPreset";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+    const state = useAppStore.getState();
+
+    state.dda.customDelayPresets.forEach((preset) => {
+      const matchesName = preset.name.toLowerCase().includes(lowerQuery);
+      const matchesDescription = preset.description
+        .toLowerCase()
+        .includes(lowerQuery);
+      const matchesDelays = preset.delays.some((d) =>
+        d.toString().includes(lowerQuery),
+      );
+
+      if (matchesName || matchesDescription || matchesDelays) {
+        results.push({
+          id: `preset-${preset.id}`,
+          type: "action",
+          title: preset.name,
+          subtitle: `Delays: ${preset.delays.join(", ")}`,
+          description: preset.description,
+          category: preset.isBuiltIn ? "Built-in Presets" : "Custom Presets",
+          icon: "Brain",
+          keywords: [preset.name, ...preset.delays.map((d) => d.toString())],
+          action: () => {
+            useAppStore.getState().setPrimaryNav("analyze");
+          },
+        });
+      }
+    });
+
+    return results;
+  }
+}
+
+export class AnalysisStatusSearchProvider implements SearchProvider {
+  name = "AnalysisStatus";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+    const state = useAppStore.getState();
+
+    const statusKeywords = {
+      pending: ["pending", "queued", "waiting"],
+      running: ["running", "processing", "active", "in progress"],
+      completed: ["completed", "finished", "done", "success"],
+      failed: ["failed", "error", "failed"],
+    };
+
+    state.dda.analysisHistory.forEach((analysis) => {
+      const status = analysis.status;
+      const keywords = statusKeywords[status] || [];
+      const matchesStatus = keywords.some((kw) => kw.includes(lowerQuery));
+      const matchesFile = analysis.file_path.toLowerCase().includes(lowerQuery);
+
+      if (matchesStatus || (matchesFile && status !== "completed")) {
+        const fileName =
+          analysis.file_path.split("/").pop() || analysis.file_path;
+        results.push({
+          id: `status-${analysis.id}`,
+          type: "analysis",
+          title: `${status.toUpperCase()} Analysis`,
+          subtitle: fileName,
+          description: `Status: ${status} - ${new Date(analysis.created_at).toLocaleString()}`,
+          category: "Analysis Status",
+          icon: "Brain",
+          keywords: [...keywords, fileName],
+          action: () => {
+            useAppStore.getState().setCurrentAnalysis(analysis);
+            useAppStore.getState().setPrimaryNav("analyze");
+          },
+        });
+      }
+    });
+
+    return results;
+  }
+}
+
+// === Streaming & Real-time ===
+
+export class StreamSessionSearchProvider implements SearchProvider {
+  name = "StreamSession";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+    const state = useAppStore.getState();
+
+    Object.entries(state.streaming.sessions).forEach(([sessionId, session]) => {
+      const matchesId = sessionId.toLowerCase().includes(lowerQuery);
+      const sourceType = session.source_config.type;
+      const matchesSource = sourceType.toLowerCase().includes(lowerQuery);
+      const status = session.state.type;
+      const matchesStatus = status.toLowerCase().includes(lowerQuery);
+
+      if (matchesId || matchesSource || matchesStatus) {
+        results.push({
+          id: `stream-${sessionId}`,
+          type: "action",
+          title: `Stream: ${sessionId.substring(0, 8)}`,
+          subtitle: `${sourceType} - ${status}`,
+          description: `Chunks received: ${session.stats.chunks_received}`,
+          category: "Stream Sessions",
+          icon: "Radio",
+          keywords: [sourceType, status, "stream"],
+          action: () => {
+            useAppStore.getState().setPrimaryNav("explore");
+            useAppStore.getState().setSecondaryNav("streaming");
+          },
+        });
+      }
+    });
+
+    return results;
+  }
+}
+
+// === Annotations & Events ===
+
+export class AnnotationSearchProvider implements SearchProvider {
+  name = "Annotation";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+    const state = useAppStore.getState();
+
+    // Search time series annotations
+    Object.entries(state.annotations.timeSeries).forEach(
+      ([fileId, annotations]) => {
+        // Defensive check: ensure annotations exist
+        if (!annotations) {
+          return;
+        }
+
+        // Search global annotations
+        if (
+          annotations.globalAnnotations &&
+          Array.isArray(annotations.globalAnnotations)
+        ) {
+          annotations.globalAnnotations.forEach((annotation, index) => {
+            const matchesLabel = annotation.label
+              ?.toLowerCase()
+              .includes(lowerQuery);
+            const matchesPosition = annotation.position
+              .toString()
+              .includes(lowerQuery);
+
+            if (matchesLabel || matchesPosition) {
+              results.push({
+                id: `annotation-ts-${fileId}-global-${index}`,
+                type: "action",
+                title:
+                  annotation.label || `Annotation at ${annotation.position}`,
+                subtitle: `Position: ${annotation.position}`,
+                description: annotation.description || "Time series annotation",
+                category: "Annotations",
+                icon: "Bell",
+                keywords: [annotation.label || "", "annotation", "global"],
+                action: () => {
+                  useAppStore.getState().setPrimaryNav("explore");
+                  useAppStore.getState().setSecondaryNav("timeseries");
+                },
+              });
+            }
+          });
+        }
+
+        // Search channel-specific annotations
+        if (annotations.channelAnnotations) {
+          Object.entries(annotations.channelAnnotations).forEach(
+            ([channel, channelAnns]) => {
+              if (Array.isArray(channelAnns)) {
+                channelAnns.forEach((annotation, index) => {
+                  const matchesLabel = annotation.label
+                    ?.toLowerCase()
+                    .includes(lowerQuery);
+                  const matchesPosition = annotation.position
+                    .toString()
+                    .includes(lowerQuery);
+                  const matchesChannel = channel
+                    .toLowerCase()
+                    .includes(lowerQuery);
+
+                  if (matchesLabel || matchesPosition || matchesChannel) {
+                    results.push({
+                      id: `annotation-ts-${fileId}-${channel}-${index}`,
+                      type: "action",
+                      title:
+                        annotation.label ||
+                        `Annotation at ${annotation.position}`,
+                      subtitle: `Channel: ${channel} | Position: ${annotation.position}`,
+                      description:
+                        annotation.description || "Channel annotation",
+                      category: "Annotations",
+                      icon: "Bell",
+                      keywords: [annotation.label || "", "annotation", channel],
+                      action: () => {
+                        useAppStore.getState().setPrimaryNav("explore");
+                        useAppStore.getState().setSecondaryNav("timeseries");
+                      },
+                    });
+                  }
+                });
+              }
+            },
+          );
+        }
+      },
+    );
+
+    return results;
+  }
+}
+
 export function getAllSearchProviders(): SearchProvider[] {
   return [
+    // Core navigation
     new NavigationSearchProvider(),
     new SettingsSearchProvider(),
-    new FileSearchProvider(),
-    new ChannelSearchProvider(),
-    new AnalysisSearchProvider(),
     new ActionSearchProvider(),
+
+    // File & Data Management
+    new FileSearchProvider(),
+    new FileHistorySearchProvider(),
+    new FileMetadataSearchProvider(),
+    new FileFormatSearchProvider(),
+
+    // Channels
+    new ChannelSearchProvider(),
+
+    // Analysis & Results
+    new AnalysisSearchProvider(),
+    new DDAVariantSearchProvider(),
+    new AnalysisParametersSearchProvider(),
+    new DelayPresetSearchProvider(),
+    new AnalysisStatusSearchProvider(),
+
+    // Streaming
+    new StreamSessionSearchProvider(),
+
+    // Annotations
+    new AnnotationSearchProvider(),
   ];
 }

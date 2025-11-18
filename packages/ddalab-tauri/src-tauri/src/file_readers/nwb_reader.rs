@@ -48,18 +48,22 @@ impl NWBFileReader {
 
     /// Create reader with specific ElectricalSeries name
     pub fn with_series_name(path: &Path, series_name: Option<&str>) -> FileResult<Self> {
-        let file = H5File::open(path).map_err(|e| {
-            FileReaderError::ParseError(format!("Failed to open NWB file: {}", e))
-        })?;
+        let file = H5File::open(path)
+            .map_err(|e| FileReaderError::ParseError(format!("Failed to open NWB file: {}", e)))?;
 
         // Validate NWB version
         let nwb_version = file
             .attr("nwb_version")
             .map_err(|e| {
-                FileReaderError::ParseError(format!("Invalid NWB file (missing nwb_version): {}", e))
+                FileReaderError::ParseError(format!(
+                    "Invalid NWB file (missing nwb_version): {}",
+                    e
+                ))
             })?
             .read_scalar::<hdf5::types::VarLenUnicode>()
-            .map_err(|e| FileReaderError::ParseError(format!("Failed to read NWB version: {}", e)))?;
+            .map_err(|e| {
+                FileReaderError::ParseError(format!("Failed to read NWB version: {}", e))
+            })?;
 
         log::info!("NWB version: {}", nwb_version);
 
@@ -87,13 +91,17 @@ impl NWBFileReader {
         // Iterate through acquisition group members
         for i in 0..acquisition.len() {
             if let Ok(member_name) = acquisition.member_names().and_then(|names| {
-                names.get(i).ok_or_else(|| hdf5::Error::from("Index out of bounds"))
+                names
+                    .get(i)
+                    .ok_or_else(|| hdf5::Error::from("Index out of bounds"))
             }) {
                 let group_path = format!("/acquisition/{}", member_name);
                 if let Ok(group) = file.group(&group_path) {
                     // Check if this is an ElectricalSeries by looking for neurodata_type attribute
                     if let Ok(neurodata_type) = group.attr("neurodata_type") {
-                        if let Ok(type_str) = neurodata_type.read_scalar::<hdf5::types::VarLenUnicode>() {
+                        if let Ok(type_str) =
+                            neurodata_type.read_scalar::<hdf5::types::VarLenUnicode>()
+                        {
                             if type_str.to_string().contains("ElectricalSeries") {
                                 log::info!("Found ElectricalSeries: {}", member_name);
                                 return Ok(member_name.clone());
@@ -117,13 +125,16 @@ impl NWBFileReader {
 
         let series_path = format!("/acquisition/{}", self.electrical_series_name);
         let series = self.file.group(&series_path).map_err(|e| {
-            FileReaderError::ParseError(format!("ElectricalSeries not found at {}: {}", series_path, e))
+            FileReaderError::ParseError(format!(
+                "ElectricalSeries not found at {}: {}",
+                series_path, e
+            ))
         })?;
 
         // Read data dataset to get shape
-        let data = series.dataset("data").map_err(|e| {
-            FileReaderError::ParseError(format!("No data dataset found: {}", e))
-        })?;
+        let data = series
+            .dataset("data")
+            .map_err(|e| FileReaderError::ParseError(format!("No data dataset found: {}", e)))?;
 
         let shape = data.shape();
         if shape.len() != 2 {
@@ -186,9 +197,9 @@ impl NWBFileReader {
 
         if let Ok(timestamps_dataset) = series.dataset("timestamps") {
             // Read first two timestamps to calculate sample rate
-            let timestamps: Vec<f64> = timestamps_dataset
-                .read_slice_1d(..)
-                .map_err(|e| FileReaderError::ParseError(format!("Failed to read timestamps: {}", e)))?;
+            let timestamps: Vec<f64> = timestamps_dataset.read_slice_1d(..).map_err(|e| {
+                FileReaderError::ParseError(format!("Failed to read timestamps: {}", e))
+            })?;
 
             if timestamps.len() < 2 {
                 return Err(FileReaderError::InvalidData(
@@ -208,7 +219,10 @@ impl NWBFileReader {
                 .attr("rate")
                 .and_then(|a| a.read_scalar::<f64>())
                 .map_err(|e| {
-                    FileReaderError::ParseError(format!("Missing or invalid 'rate' attribute: {}", e))
+                    FileReaderError::ParseError(format!(
+                        "Missing or invalid 'rate' attribute: {}",
+                        e
+                    ))
                 })?;
 
             let start_time = self.read_session_start_time();
@@ -242,9 +256,9 @@ impl NWBFileReader {
             .map_err(|e| FileReaderError::ParseError(format!("No electrodes dataset: {}", e)))?;
 
         // Read electrode indices
-        let electrode_indices: Vec<i32> = electrodes
-            .read_1d()
-            .map_err(|e| FileReaderError::ParseError(format!("Failed to read electrode indices: {}", e)))?;
+        let electrode_indices: Vec<i32> = electrodes.read_1d().map_err(|e| {
+            FileReaderError::ParseError(format!("Failed to read electrode indices: {}", e))
+        })?;
 
         // Access electrode table in /general/extracellular_ephys/electrodes
         let electrode_table_path = "/general/extracellular_ephys/electrodes";
@@ -304,13 +318,14 @@ impl NWBFileReader {
             FileReaderError::ParseError(format!("ElectricalSeries not found: {}", e))
         })?;
 
-        let data = series.dataset("data").map_err(|e| {
-            FileReaderError::ParseError(format!("No data dataset found: {}", e))
-        })?;
+        let data = series
+            .dataset("data")
+            .map_err(|e| FileReaderError::ParseError(format!("No data dataset found: {}", e)))?;
 
-        let metadata = self.metadata_cache.as_ref().ok_or_else(|| {
-            FileReaderError::InvalidData("Metadata not loaded".to_string())
-        })?;
+        let metadata = self
+            .metadata_cache
+            .as_ref()
+            .ok_or_else(|| FileReaderError::InvalidData("Metadata not loaded".to_string()))?;
 
         // Read data slice: [start_sample:start_sample+num_samples, channel_indices]
         let end_sample = (start_sample + num_samples).min(metadata.num_samples);
@@ -332,8 +347,13 @@ impl NWBFileReader {
             let mut channel_data = Vec::with_capacity(actual_samples);
             for sample_idx in start_sample..end_sample {
                 let value: f64 = data
-                    .read_slice_2d::<f64, _, _>(sample_idx..sample_idx + 1, global_ch_idx..global_ch_idx + 1)
-                    .map_err(|e| FileReaderError::ParseError(format!("Failed to read data: {}", e)))?[0];
+                    .read_slice_2d::<f64, _, _>(
+                        sample_idx..sample_idx + 1,
+                        global_ch_idx..global_ch_idx + 1,
+                    )
+                    .map_err(|e| {
+                        FileReaderError::ParseError(format!("Failed to read data: {}", e))
+                    })?[0];
 
                 // Apply unit conversion: physical_value = data * conversion + offset
                 let physical_value = value * metadata.conversion_factor + metadata.offset;
@@ -348,20 +368,25 @@ impl NWBFileReader {
 
     /// List all available ElectricalSeries in the file
     pub fn list_electrical_series(&self) -> FileResult<Vec<String>> {
-        let acquisition = self.file.group("acquisition").map_err(|e| {
-            FileReaderError::ParseError(format!("No /acquisition group: {}", e))
-        })?;
+        let acquisition = self
+            .file
+            .group("acquisition")
+            .map_err(|e| FileReaderError::ParseError(format!("No /acquisition group: {}", e)))?;
 
         let mut series_names = Vec::new();
 
         for i in 0..acquisition.len() {
             if let Ok(member_name) = acquisition.member_names().and_then(|names| {
-                names.get(i).ok_or_else(|| hdf5::Error::from("Index out of bounds"))
+                names
+                    .get(i)
+                    .ok_or_else(|| hdf5::Error::from("Index out of bounds"))
             }) {
                 let group_path = format!("/acquisition/{}", member_name);
                 if let Ok(group) = self.file.group(&group_path) {
                     if let Ok(neurodata_type) = group.attr("neurodata_type") {
-                        if let Ok(type_str) = neurodata_type.read_scalar::<hdf5::types::VarLenUnicode>() {
+                        if let Ok(type_str) =
+                            neurodata_type.read_scalar::<hdf5::types::VarLenUnicode>()
+                        {
                             if type_str.to_string().contains("ElectricalSeries") {
                                 series_names.push(member_name.clone());
                             }
@@ -379,10 +404,8 @@ impl FileReader for NWBFileReader {
     fn metadata(&self) -> FileResult<FileMetadata> {
         // Need mutable reference to cache metadata
         // For now, create a temporary reader to read metadata
-        let mut temp_reader = Self::with_series_name(
-            Path::new(&self.path),
-            Some(&self.electrical_series_name),
-        )?;
+        let mut temp_reader =
+            Self::with_series_name(Path::new(&self.path), Some(&self.electrical_series_name))?;
 
         let nwb_metadata = temp_reader.read_metadata()?;
 
@@ -411,10 +434,8 @@ impl FileReader for NWBFileReader {
         channels: Option<&[String]>,
     ) -> FileResult<Vec<Vec<f64>>> {
         // Need metadata to resolve channel names
-        let mut temp_reader = Self::with_series_name(
-            Path::new(&self.path),
-            Some(&self.electrical_series_name),
-        )?;
+        let mut temp_reader =
+            Self::with_series_name(Path::new(&self.path), Some(&self.electrical_series_name))?;
 
         let metadata = temp_reader.read_metadata()?;
 
