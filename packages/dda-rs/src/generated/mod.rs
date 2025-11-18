@@ -1,4 +1,4 @@
 // AUTO-GENERATED - Do not edit
 
-pub mod variants;
 pub mod cli;
+pub mod variants;

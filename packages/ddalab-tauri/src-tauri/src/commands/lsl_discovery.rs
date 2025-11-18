@@ -32,15 +32,13 @@ pub async fn discover_lsl_streams(
 
         let info_list: Vec<LslStreamInfo> = streams
             .iter()
-            .map(|stream| {
-                LslStreamInfo {
-                    name: stream.name(),
-                    stream_type: stream.stream_type(),
-                    channel_count: stream.channel_count(),
-                    sample_rate: stream.nominal_srate(),
-                    source_id: stream.source_id(),
-                    hostname: stream.hostname(),
-                }
+            .map(|stream| LslStreamInfo {
+                name: stream.name(),
+                stream_type: stream.stream_type(),
+                channel_count: stream.channel_count(),
+                sample_rate: stream.nominal_srate(),
+                source_id: stream.source_id(),
+                hostname: stream.hostname(),
             })
             .collect();
 
@@ -73,19 +71,21 @@ pub async fn discover_lsl_streams_by_type(
 
         let info_list: Vec<LslStreamInfo> = streams
             .iter()
-            .map(|stream| {
-                LslStreamInfo {
-                    name: stream.name(),
-                    stream_type: stream.stream_type(),
-                    channel_count: stream.channel_count(),
-                    sample_rate: stream.nominal_srate(),
-                    source_id: stream.source_id(),
-                    hostname: stream.hostname(),
-                }
+            .map(|stream| LslStreamInfo {
+                name: stream.name(),
+                stream_type: stream.stream_type(),
+                channel_count: stream.channel_count(),
+                sample_rate: stream.nominal_srate(),
+                source_id: stream.source_id(),
+                hostname: stream.hostname(),
             })
             .collect();
 
-        log::info!("Found {} LSL streams of type '{}'", info_list.len(), stream_type);
+        log::info!(
+            "Found {} LSL streams of type '{}'",
+            info_list.len(),
+            stream_type
+        );
         Ok(info_list)
     })
     .await

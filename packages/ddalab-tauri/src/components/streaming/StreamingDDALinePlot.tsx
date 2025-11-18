@@ -44,7 +44,7 @@ export function StreamingDDALinePlot({
     useStreamingData(streamId);
   const autoScroll = useAppStore((state) => state.streaming.ui.autoScroll);
   const displayWindowSeconds = useAppStore(
-    (state) => state.streaming.ui.displayWindowSeconds
+    (state) => state.streaming.ui.displayWindowSeconds,
   );
 
   // Detect visibility to pause processing when not visible
@@ -53,7 +53,7 @@ export function StreamingDDALinePlot({
       ([entry]) => {
         setIsVisible(entry.isIntersecting);
       },
-      { threshold: 0.1 }
+      { threshold: 0.1 },
     );
 
     if (plotRef.current) {
@@ -70,7 +70,7 @@ export function StreamingDDALinePlot({
     const variants = new Set<string>();
     latestResults.forEach((result) => {
       Object.keys(result.variant_summaries).forEach((variantId) =>
-        variants.add(variantId)
+        variants.add(variantId),
       );
     });
 
@@ -179,7 +179,7 @@ export function StreamingDDALinePlot({
     const seriesData = [
       new Float64Array(timestamps),
       ...Array.from(channelSeries.values()).map(
-        (series) => new Float64Array(series)
+        (series) => new Float64Array(series),
       ),
     ];
 
@@ -270,7 +270,7 @@ export function StreamingDDALinePlot({
     setSelectedChannels((prev) =>
       prev.includes(channelName)
         ? prev.filter((ch) => ch !== channelName)
-        : [...prev, channelName]
+        : [...prev, channelName],
     );
   };
 

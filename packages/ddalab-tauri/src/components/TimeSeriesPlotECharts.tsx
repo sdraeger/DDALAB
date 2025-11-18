@@ -1361,7 +1361,8 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
             </Button>
             <div className="flex-1 text-sm text-center">
               <div className="font-medium">
-                {formatSecondsToDHMS(currentTime, { precision: 4 })} / {formatSecondsToDHMS(duration, { precision: 4 })}
+                {formatSecondsToDHMS(currentTime, { precision: 4 })} /{" "}
+                {formatSecondsToDHMS(duration, { precision: 4 })}
               </div>
               <div className="text-xs text-muted-foreground">
                 {currentTime.toFixed(4)}s / {duration.toFixed(4)}s

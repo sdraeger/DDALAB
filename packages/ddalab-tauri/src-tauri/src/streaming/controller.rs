@@ -50,7 +50,7 @@ impl Default for StreamControllerConfig {
             dda_binary_path: PathBuf::from("run_DDA_AsciiEdf"),
             data_buffer_capacity: 1000,
             result_buffer_capacity: 500,
-            processing_batch_size: 5, // Smaller batches for lower latency
+            processing_batch_size: 5,   // Smaller batches for lower latency
             processing_interval_ms: 50, // Process more frequently for smoother updates
         }
     }

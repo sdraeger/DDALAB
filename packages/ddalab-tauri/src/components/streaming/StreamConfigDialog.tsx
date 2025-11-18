@@ -196,7 +196,10 @@ export function StreamConfigDialog() {
           sourceConfig = {
             type: "lsl",
             stream_name: lslConfig.stream_name || undefined,
-            stream_type: lslConfig.stream_type === "any" ? undefined : lslConfig.stream_type,
+            stream_type:
+              lslConfig.stream_type === "any"
+                ? undefined
+                : lslConfig.stream_type,
             source_id: lslConfig.source_id || undefined,
             resolve_timeout: lslConfig.resolve_timeout,
             chunk_size: lslConfig.chunk_size,
@@ -393,7 +396,10 @@ export function StreamConfigDialog() {
                       setLslConfig({
                         ...lslConfig,
                         stream_name: stream.name,
-                        stream_type: stream.stream_type === "any" ? "" : stream.stream_type,
+                        stream_type:
+                          stream.stream_type === "any"
+                            ? ""
+                            : stream.stream_type,
                         source_id: stream.source_id,
                       });
                     }}
@@ -407,7 +413,8 @@ export function StreamConfigDialog() {
                   <Alert>
                     <AlertCircle className="h-4 w-4" />
                     <AlertDescription>
-                      Select a stream above or manually configure below. Leave fields empty to match any stream.
+                      Select a stream above or manually configure below. Leave
+                      fields empty to match any stream.
                     </AlertDescription>
                   </Alert>
 
@@ -420,7 +427,10 @@ export function StreamConfigDialog() {
                       placeholder="Leave empty to match any name"
                       value={lslConfig.stream_name}
                       onChange={(e) =>
-                        setLslConfig({ ...lslConfig, stream_name: e.target.value })
+                        setLslConfig({
+                          ...lslConfig,
+                          stream_name: e.target.value,
+                        })
                       }
                     />
                   </div>
@@ -460,7 +470,10 @@ export function StreamConfigDialog() {
                       placeholder="Unique identifier"
                       value={lslConfig.source_id}
                       onChange={(e) =>
-                        setLslConfig({ ...lslConfig, source_id: e.target.value })
+                        setLslConfig({
+                          ...lslConfig,
+                          source_id: e.target.value,
+                        })
                       }
                     />
                   </div>
@@ -526,18 +539,15 @@ export function StreamConfigDialog() {
             {sourceType === "zmq" && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">
-                    ZeroMQ Settings
-                  </CardTitle>
+                  <CardTitle className="text-base">ZeroMQ Settings</CardTitle>
                   <CardDescription>
-                    Connect to ZeroMQ publishers or pushers with high-throughput messaging (pure Rust, no dependencies)
+                    Connect to ZeroMQ publishers or pushers with high-throughput
+                    messaging (pure Rust, no dependencies)
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="zmq-endpoint">
-                      Endpoint
-                    </Label>
+                    <Label htmlFor="zmq-endpoint">Endpoint</Label>
                     <Input
                       id="zmq-endpoint"
                       placeholder="tcp://127.0.0.1:5555"
@@ -556,7 +566,10 @@ export function StreamConfigDialog() {
                     <Select
                       value={zmqConfig.pattern}
                       onValueChange={(value) =>
-                        setZmqConfig({ ...zmqConfig, pattern: value as "sub" | "pull" })
+                        setZmqConfig({
+                          ...zmqConfig,
+                          pattern: value as "sub" | "pull",
+                        })
                       }
                     >
                       <SelectTrigger id="zmq-pattern">
@@ -564,24 +577,25 @@ export function StreamConfigDialog() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="sub">
-                          SUB (Subscribe) <Badge variant="secondary">Pub/Sub</Badge>
+                          SUB (Subscribe){" "}
+                          <Badge variant="secondary">Pub/Sub</Badge>
                         </SelectItem>
                         <SelectItem value="pull">
-                          PULL (Receive) <Badge variant="secondary">Pipeline</Badge>
+                          PULL (Receive){" "}
+                          <Badge variant="secondary">Pipeline</Badge>
                         </SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-sm text-muted-foreground">
-                      SUB: Subscribe to published messages with topic filtering<br />
+                      SUB: Subscribe to published messages with topic filtering
+                      <br />
                       PULL: Receive pushed messages in round-robin
                     </p>
                   </div>
 
                   {zmqConfig.pattern === "sub" && (
                     <div className="space-y-2">
-                      <Label htmlFor="zmq-topic">
-                        Topic Filter (optional)
-                      </Label>
+                      <Label htmlFor="zmq-topic">Topic Filter (optional)</Label>
                       <Input
                         id="zmq-topic"
                         placeholder="Leave empty to subscribe to all topics"
@@ -591,7 +605,8 @@ export function StreamConfigDialog() {
                         }
                       />
                       <p className="text-sm text-muted-foreground">
-                        Subscribe only to messages with this prefix. Empty = all messages.
+                        Subscribe only to messages with this prefix. Empty = all
+                        messages.
                       </p>
                     </div>
                   )}
@@ -623,7 +638,10 @@ export function StreamConfigDialog() {
                       step={1}
                       value={[zmqConfig.expected_sample_rate]}
                       onValueChange={([value]) =>
-                        setZmqConfig({ ...zmqConfig, expected_sample_rate: value })
+                        setZmqConfig({
+                          ...zmqConfig,
+                          expected_sample_rate: value,
+                        })
                       }
                     />
                   </div>
@@ -650,7 +668,8 @@ export function StreamConfigDialog() {
                   <Alert>
                     <AlertCircle className="h-4 w-4" />
                     <AlertDescription>
-                      Messages must be JSON with format: {`{"samples": [[...], [...]], "timestamp": 123.45, "sample_rate": 250, "channel_names": [...]}`}
+                      Messages must be JSON with format:{" "}
+                      {`{"samples": [[...], [...]], "timestamp": 123.45, "sample_rate": 250, "channel_names": [...]}`}
                     </AlertDescription>
                   </Alert>
                 </CardContent>
@@ -950,7 +969,9 @@ export function StreamConfigDialog() {
                   <Input
                     id="delay-list"
                     placeholder="7, 10"
-                    value={(ddaConfig.scale_parameters.delay_list || [7, 10]).join(", ")}
+                    value={(
+                      ddaConfig.scale_parameters.delay_list || [7, 10]
+                    ).join(", ")}
                     onChange={(e) => {
                       const delays = e.target.value
                         .split(",")

@@ -3,21 +3,27 @@
  * Provides a scalable accordion-based UI for per-variant channel selection
  */
 
-'use client';
+"use client";
 
-import React, { useDeferredValue, useTransition, useState, useEffect, memo } from 'react';
+import React, {
+  useDeferredValue,
+  useTransition,
+  useState,
+  useEffect,
+  memo,
+} from "react";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from '@/components/ui/accordion';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { ChannelSelector } from '@/components/ChannelSelector';
-import { CTChannelPairPicker } from '@/components/CTChannelPairPicker';
-import { CDChannelPairPicker } from '@/components/CDChannelPairPicker';
-import { X } from 'lucide-react';
+} from "@/components/ui/accordion";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ChannelSelector } from "@/components/ChannelSelector";
+import { CTChannelPairPicker } from "@/components/CTChannelPairPicker";
+import { CDChannelPairPicker } from "@/components/CDChannelPairPicker";
+import { X } from "lucide-react";
 
 interface VariantConfig {
   id: string;
@@ -55,18 +61,21 @@ const CompactChannelConfigComponent = ({
   onCDChannelPairsChange,
 }: CompactChannelConfigProps) => {
   const getChannelCount = () => {
-    if (variant.id === 'cross_timeseries' || variant.id === 'CT') {
+    if (variant.id === "cross_timeseries" || variant.id === "CT") {
       return ctChannelPairs.length;
     }
-    if (variant.id === 'cross_dynamical' || variant.id === 'CD') {
+    if (variant.id === "cross_dynamical" || variant.id === "CD") {
       return cdChannelPairs.length;
     }
     return selectedChannels.length;
   };
 
   const count = getChannelCount();
-  const requiresPairs = variant.id === 'cross_timeseries' || variant.id === 'cross_dynamical' ||
-                        variant.id === 'CT' || variant.id === 'CD';
+  const requiresPairs =
+    variant.id === "cross_timeseries" ||
+    variant.id === "cross_dynamical" ||
+    variant.id === "CT" ||
+    variant.id === "CD";
 
   return (
     <AccordionItem value={variant.id} className="border rounded-lg px-3 py-1">
@@ -76,18 +85,26 @@ const CompactChannelConfigComponent = ({
             className="text-[10px] font-bold px-2 py-0.5 rounded shadow-sm flex-shrink-0"
             style={{
               backgroundColor: variant.color,
-              color: 'white',
+              color: "white",
             }}
           >
             {variant.abbreviation}
           </span>
-          <span className="text-xs font-medium flex-1 text-left">{variant.name}</span>
+          <span className="text-xs font-medium flex-1 text-left">
+            {variant.name}
+          </span>
           {count > 0 ? (
-            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-auto mr-2">
-              {count} {requiresPairs ? 'pairs' : 'ch'}
+            <Badge
+              variant="secondary"
+              className="text-[10px] px-1.5 py-0 ml-auto mr-2"
+            >
+              {count} {requiresPairs ? "pairs" : "ch"}
             </Badge>
           ) : (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 ml-auto mr-2 text-muted-foreground">
+            <Badge
+              variant="outline"
+              className="text-[10px] px-1.5 py-0 ml-auto mr-2 text-muted-foreground"
+            >
               none
             </Badge>
           )}
@@ -126,7 +143,7 @@ const CompactChannelConfigComponent = ({
           )}
 
           {/* CT channel pairs */}
-          {variant.id === 'cross_timeseries' && onCTChannelPairsChange && (
+          {variant.id === "cross_timeseries" && onCTChannelPairsChange && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium">Channel Pairs</span>
@@ -153,7 +170,7 @@ const CompactChannelConfigComponent = ({
                       onClick={() => {
                         if (!disabled) {
                           onCTChannelPairsChange(
-                            ctChannelPairs.filter((_, i) => i !== idx)
+                            ctChannelPairs.filter((_, i) => i !== idx),
                           );
                         }
                       }}
@@ -175,10 +192,12 @@ const CompactChannelConfigComponent = ({
           )}
 
           {/* CD channel pairs (directed) */}
-          {variant.id === 'cross_dynamical' && onCDChannelPairsChange && (
+          {variant.id === "cross_dynamical" && onCDChannelPairsChange && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium">Directed Pairs (From → To)</span>
+                <span className="text-xs font-medium">
+                  Directed Pairs (From → To)
+                </span>
                 {cdChannelPairs.length > 0 && (
                   <Button
                     variant="ghost"
@@ -202,7 +221,7 @@ const CompactChannelConfigComponent = ({
                       onClick={() => {
                         if (!disabled) {
                           onCDChannelPairsChange(
-                            cdChannelPairs.filter((_, i) => i !== idx)
+                            cdChannelPairs.filter((_, i) => i !== idx),
                           );
                         }
                       }}
@@ -228,7 +247,7 @@ const CompactChannelConfigComponent = ({
   );
 };
 
-CompactChannelConfigComponent.displayName = 'CompactChannelConfig';
+CompactChannelConfigComponent.displayName = "CompactChannelConfig";
 
 export const CompactChannelConfig = memo(CompactChannelConfigComponent);
 
@@ -257,7 +276,9 @@ const VariantConfigSkeleton = () => (
   </div>
 );
 
-export const CompactChannelConfigGroup: React.FC<CompactChannelConfigGroupProps> = ({
+export const CompactChannelConfigGroup: React.FC<
+  CompactChannelConfigGroupProps
+> = ({
   variants,
   selectedVariants,
   channels,
@@ -272,13 +293,15 @@ export const CompactChannelConfigGroup: React.FC<CompactChannelConfigGroupProps>
   // Use deferred value to keep UI responsive during updates
   const deferredSelectedVariants = useDeferredValue(selectedVariants);
 
-  const enabledVariants = variants.filter((v) => deferredSelectedVariants.includes(v.id));
+  const enabledVariants = variants.filter((v) =>
+    deferredSelectedVariants.includes(v.id),
+  );
 
   // Handle initial load and variant changes with transitions
   useEffect(() => {
     if (isInitialLoad && enabledVariants.length > 0) {
       // On initial load, render variants progressively to avoid blocking
-      const variantIds = enabledVariants.map(v => v.id);
+      const variantIds = enabledVariants.map((v) => v.id);
 
       // Only open the first variant by default instead of all
       setRenderedVariants([variantIds[0]]);
@@ -286,7 +309,7 @@ export const CompactChannelConfigGroup: React.FC<CompactChannelConfigGroupProps>
     } else if (enabledVariants.length > 0) {
       // When variants change, use transition to keep UI responsive
       startTransition(() => {
-        setRenderedVariants(enabledVariants.map(v => v.id));
+        setRenderedVariants(enabledVariants.map((v) => v.id));
       });
     } else {
       setRenderedVariants([]);
@@ -302,7 +325,8 @@ export const CompactChannelConfigGroup: React.FC<CompactChannelConfigGroupProps>
       <div className="flex items-center gap-2">
         <h3 className="text-sm font-semibold">Channel Configuration</h3>
         <Badge variant="outline" className="text-[10px]">
-          {enabledVariants.length} variant{enabledVariants.length !== 1 ? 's' : ''}
+          {enabledVariants.length} variant
+          {enabledVariants.length !== 1 ? "s" : ""}
         </Badge>
         {isPending && (
           <span className="text-[10px] text-muted-foreground animate-pulse">
@@ -319,7 +343,9 @@ export const CompactChannelConfigGroup: React.FC<CompactChannelConfigGroupProps>
       ) : (
         <Accordion
           type="multiple"
-          defaultValue={renderedVariants.length > 0 ? [renderedVariants[0]] : []}
+          defaultValue={
+            renderedVariants.length > 0 ? [renderedVariants[0]] : []
+          }
           className="space-y-2"
         >
           {enabledVariants.map((variant) => {
@@ -332,15 +358,24 @@ export const CompactChannelConfigGroup: React.FC<CompactChannelConfigGroupProps>
                 disabled={disabled}
                 selectedChannels={config.selectedChannels}
                 onChannelsChange={(channels) => {
-                  onConfigChange(variant.id, { ...config, selectedChannels: channels });
+                  onConfigChange(variant.id, {
+                    ...config,
+                    selectedChannels: channels,
+                  });
                 }}
                 ctChannelPairs={config.ctChannelPairs}
                 onCTChannelPairsChange={(pairs) => {
-                  onConfigChange(variant.id, { ...config, ctChannelPairs: pairs });
+                  onConfigChange(variant.id, {
+                    ...config,
+                    ctChannelPairs: pairs,
+                  });
                 }}
                 cdChannelPairs={config.cdChannelPairs}
                 onCDChannelPairsChange={(pairs) => {
-                  onConfigChange(variant.id, { ...config, cdChannelPairs: pairs });
+                  onConfigChange(variant.id, {
+                    ...config,
+                    cdChannelPairs: pairs,
+                  });
                 }}
               />
             );

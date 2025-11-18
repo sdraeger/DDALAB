@@ -135,7 +135,11 @@ impl XDFFileReader {
                 }
                 CHUNK_STREAM_HEADER => {
                     let stream_info = Self::parse_stream_header(&content)?;
-                    log::info!("Found XDF stream: {} (ID: {})", stream_info.name, stream_info.stream_id);
+                    log::info!(
+                        "Found XDF stream: {} (ID: {})",
+                        stream_info.name,
+                        stream_info.stream_id
+                    );
                     stream_headers.insert(stream_info.stream_id, stream_info);
                 }
                 CHUNK_SAMPLES => {
@@ -217,14 +221,16 @@ impl XDFFileReader {
                         b"name" => {
                             for attr in e.attributes() {
                                 if let Ok(a) = attr {
-                                    stream_info.name = String::from_utf8_lossy(a.value.as_ref()).to_string();
+                                    stream_info.name =
+                                        String::from_utf8_lossy(a.value.as_ref()).to_string();
                                 }
                             }
                         }
                         b"type" => {
                             for attr in e.attributes() {
                                 if let Ok(a) = attr {
-                                    stream_info.stream_type = String::from_utf8_lossy(a.value.as_ref()).to_string();
+                                    stream_info.stream_type =
+                                        String::from_utf8_lossy(a.value.as_ref()).to_string();
                                 }
                             }
                         }
@@ -263,7 +269,8 @@ impl XDFFileReader {
 
         // Extract stream_id from content (first 4 bytes before XML)
         if content.len() >= 4 {
-            stream_info.stream_id = u32::from_le_bytes([content[0], content[1], content[2], content[3]]);
+            stream_info.stream_id =
+                u32::from_le_bytes([content[0], content[1], content[2], content[3]]);
         }
 
         // If no channel labels found, generate defaults
@@ -347,9 +354,9 @@ impl XDFFileReader {
 
     /// Get selected stream
     fn get_selected_stream(&self) -> FileResult<&XDFStream> {
-        let stream_id = self.selected_stream_id.ok_or_else(|| {
-            FileReaderError::InvalidData("No stream selected".to_string())
-        })?;
+        let stream_id = self
+            .selected_stream_id
+            .ok_or_else(|| FileReaderError::InvalidData("No stream selected".to_string()))?;
 
         self.streams
             .iter()
@@ -390,7 +397,8 @@ impl FileReader for XDFFileReader {
         // Get start time from first sample timestamp
         let start_time = stream.samples.first().map(|s| {
             use chrono::{TimeZone, Utc};
-            let dt = Utc.timestamp_opt(s.timestamp as i64, (s.timestamp.fract() * 1e9) as u32)
+            let dt = Utc
+                .timestamp_opt(s.timestamp as i64, (s.timestamp.fract() * 1e9) as u32)
                 .single()
                 .unwrap_or_else(|| Utc::now());
             dt.to_rfc3339()

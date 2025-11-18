@@ -1,7 +1,7 @@
 // AUTO-GENERATED from DDA_SPEC.yaml
 // DO NOT EDIT - Changes will be overwritten
 //
-// Generated at: 2025-11-17T19:08:43.261025+00:00
+// Generated at: 2025-11-17T20:47:03.360355+00:00
 // Spec version: 1.0.0
 // Generator: dda-codegen v0.1.0
 
@@ -104,7 +104,9 @@ export const SelectMaskPositions = {
  * @param abbrev - Variant abbreviation (e.g., "ST", "CT")
  * @returns VariantMetadata if found, undefined otherwise
  */
-export function getVariantByAbbrev(abbrev: string): VariantMetadata | undefined {
+export function getVariantByAbbrev(
+  abbrev: string,
+): VariantMetadata | undefined {
   return VARIANT_REGISTRY.find((v) => v.abbreviation === abbrev);
 }
 
@@ -114,7 +116,9 @@ export function getVariantByAbbrev(abbrev: string): VariantMetadata | undefined 
  * @param suffix - Output file suffix (e.g., "_DDA_ST")
  * @returns VariantMetadata if found, undefined otherwise
  */
-export function getVariantBySuffix(suffix: string): VariantMetadata | undefined {
+export function getVariantBySuffix(
+  suffix: string,
+): VariantMetadata | undefined {
   return VARIANT_REGISTRY.find((v) => v.outputSuffix === suffix);
 }
 
@@ -204,6 +208,8 @@ export type VariantAbbreviation = "CD" | "CT" | "DE" | "ST" | "SY";
 /**
  * Type guard to check if a string is a valid variant abbreviation
  */
-export function isVariantAbbreviation(value: string): value is VariantAbbreviation {
+export function isVariantAbbreviation(
+  value: string,
+): value is VariantAbbreviation {
   return VARIANT_REGISTRY.some((v) => v.abbreviation === value);
 }

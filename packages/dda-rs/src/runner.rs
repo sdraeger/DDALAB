@@ -302,10 +302,7 @@ impl DDARunner {
         // Add CT-specific window parameters if provided, or if DE is enabled (required for DE)
         let needs_ct_params = ct_enabled || has_ct_pairs || cd_enabled || de_enabled;
         if needs_ct_params {
-            let ct_wl = request
-                .window_parameters
-                .ct_window_length
-                .unwrap_or(2); // Default to 2 if not provided
+            let ct_wl = request.window_parameters.ct_window_length.unwrap_or(2); // Default to 2 if not provided
             let ct_ws = request.window_parameters.ct_window_step.unwrap_or(2); // Default to 2 if not provided
             command.arg("-WL_CT").arg(ct_wl.to_string());
             command.arg("-WS_CT").arg(ct_ws.to_string());
@@ -344,7 +341,10 @@ impl DDARunner {
                     .collect()
             };
 
-            log::info!("Generated delay list from scale parameters: {:?}", generated_delays);
+            log::info!(
+                "Generated delay list from scale parameters: {:?}",
+                generated_delays
+            );
             for delay in &generated_delays {
                 command.arg(delay.to_string());
             }
@@ -1109,10 +1109,8 @@ impl DDARunner {
         let output_file = temp_dir.join(format!("dda_output_{}_{}.txt", analysis_id, variant_id));
 
         // Convert channel indices to 1-based
-        let channel_indices: Vec<String> = channels
-            .iter()
-            .map(|&idx| (idx + 1).to_string())
-            .collect();
+        let channel_indices: Vec<String> =
+            channels.iter().map(|&idx| (idx + 1).to_string()).collect();
 
         // Determine file type
         let is_ascii_file = file_path
@@ -1125,7 +1123,8 @@ impl DDARunner {
 
         // Handle ASCII files (strip header)
         let actual_input_file = if is_ascii_file {
-            let temp_ascii_file = temp_dir.join(format!("dda_input_{}_{}.ascii", analysis_id, variant_id));
+            let temp_ascii_file =
+                temp_dir.join(format!("dda_input_{}_{}.ascii", analysis_id, variant_id));
             let content = tokio::fs::read_to_string(&file_path)
                 .await
                 .map_err(|e| DDAError::IoError(e))?;
@@ -1213,7 +1212,12 @@ impl DDARunner {
             "CD" => "0 0 1 0 0 0",
             "DE" => "0 0 0 0 1 0",
             "SY" => "0 0 0 0 0 1",
-            _ => return Err(DDAError::ExecutionFailed(format!("Unknown variant: {}", variant_id))),
+            _ => {
+                return Err(DDAError::ExecutionFailed(format!(
+                    "Unknown variant: {}",
+                    variant_id
+                )))
+            }
         };
 
         command.arg("-SELECT");
@@ -1245,7 +1249,9 @@ impl DDARunner {
                 vec![scale_min]
             } else {
                 (0..scale_num)
-                    .map(|i| scale_min + ((scale_max - scale_min) * i as i32) / (scale_num as i32 - 1))
+                    .map(|i| {
+                        scale_min + ((scale_max - scale_min) * i as i32) / (scale_num as i32 - 1)
+                    })
                     .collect()
             };
             for delay in &delays {
@@ -1255,7 +1261,10 @@ impl DDARunner {
 
         // Time bounds
         if let (Some(start), Some(end)) = (start_bound, end_bound) {
-            command.arg("-StartEnd").arg(start.to_string()).arg(end.to_string());
+            command
+                .arg("-StartEnd")
+                .arg(start.to_string())
+                .arg(end.to_string());
         }
 
         log::info!("Executing single variant command: {:?}", command);
@@ -1269,7 +1278,10 @@ impl DDARunner {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             log::error!("DDA binary failed for {}: {}", variant_id, stderr);
-            return Err(DDAError::ExecutionFailed(format!("Binary failed: {}", stderr)));
+            return Err(DDAError::ExecutionFailed(format!(
+                "Binary failed: {}",
+                stderr
+            )));
         }
 
         // Determine output file suffix
@@ -1279,31 +1291,38 @@ impl DDARunner {
             "CD" => "_CD_DDA_ST",
             "DE" => "_DE",
             "SY" => "_SY",
-            _ => return Err(DDAError::ExecutionFailed(format!("Unknown variant: {}", variant_id))),
+            _ => {
+                return Err(DDAError::ExecutionFailed(format!(
+                    "Unknown variant: {}",
+                    variant_id
+                )))
+            }
         };
 
-        let variant_output_file = PathBuf::from(format!("{}{}", output_file.to_str().unwrap(), suffix));
+        let variant_output_file =
+            PathBuf::from(format!("{}{}", output_file.to_str().unwrap(), suffix));
 
         // For DE and SY with single channels, the binary might produce _ST files instead
-        let actual_output_file = if !variant_output_file.exists() && matches!(variant_id, "DE" | "SY") {
-            let fallback_file = PathBuf::from(format!("{}_ST", output_file.to_str().unwrap()));
-            if fallback_file.exists() {
-                log::info!("Using fallback _ST file for {} variant", variant_id);
-                fallback_file
-            } else {
+        let actual_output_file =
+            if !variant_output_file.exists() && matches!(variant_id, "DE" | "SY") {
+                let fallback_file = PathBuf::from(format!("{}_ST", output_file.to_str().unwrap()));
+                if fallback_file.exists() {
+                    log::info!("Using fallback _ST file for {} variant", variant_id);
+                    fallback_file
+                } else {
+                    return Err(DDAError::ExecutionFailed(format!(
+                        "Output file not found for {}: {:?} (also tried {:?})",
+                        variant_id, variant_output_file, fallback_file
+                    )));
+                }
+            } else if !variant_output_file.exists() {
                 return Err(DDAError::ExecutionFailed(format!(
-                    "Output file not found for {}: {:?} (also tried {:?})",
-                    variant_id, variant_output_file, fallback_file
+                    "Output file not found for {}: {:?}",
+                    variant_id, variant_output_file
                 )));
-            }
-        } else if !variant_output_file.exists() {
-            return Err(DDAError::ExecutionFailed(format!(
-                "Output file not found for {}: {:?}",
-                variant_id, variant_output_file
-            )));
-        } else {
-            variant_output_file
-        };
+            } else {
+                variant_output_file
+            };
 
         // Parse output
         let output_content = tokio::fs::read_to_string(&actual_output_file)
@@ -1327,8 +1346,10 @@ impl DDARunner {
                             .iter()
                             .map(|pair| {
                                 if let Some(names) = edf_channel_names {
-                                    let from_name = names.get(pair[0]).map(|s| s.as_str()).unwrap_or("?");
-                                    let to_name = names.get(pair[1]).map(|s| s.as_str()).unwrap_or("?");
+                                    let from_name =
+                                        names.get(pair[0]).map(|s| s.as_str()).unwrap_or("?");
+                                    let to_name =
+                                        names.get(pair[1]).map(|s| s.as_str()).unwrap_or("?");
                                     format!("{} → {}", from_name, to_name)
                                 } else {
                                     format!("Ch{} → Ch{}", pair[0] + 1, pair[1] + 1)

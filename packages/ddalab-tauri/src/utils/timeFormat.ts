@@ -25,7 +25,9 @@ export function secondsToDHMS(totalSeconds: number): DHMSTime {
  * Convert DHMS format to total seconds
  */
 export function dhmsToSeconds(dhms: DHMSTime): number {
-  return dhms.days * 86400 + dhms.hours * 3600 + dhms.minutes * 60 + dhms.seconds;
+  return (
+    dhms.days * 86400 + dhms.hours * 3600 + dhms.minutes * 60 + dhms.seconds
+  );
 }
 
 /**
@@ -42,12 +44,19 @@ export function dhmsToSeconds(dhms: DHMSTime): number {
  * @param options.showZeroValues - Show zero values for all units (default: false)
  * @param options.precision - Decimal places for seconds component (default: 0, recommended: 4)
  */
-export function formatSecondsToDHMS(totalSeconds: number, options?: {
-  compact?: boolean;
-  showZeroValues?: boolean;
-  precision?: number;
-}): string {
-  const { compact = true, showZeroValues = false, precision = 0 } = options || {};
+export function formatSecondsToDHMS(
+  totalSeconds: number,
+  options?: {
+    compact?: boolean;
+    showZeroValues?: boolean;
+    precision?: number;
+  },
+): string {
+  const {
+    compact = true,
+    showZeroValues = false,
+    precision = 0,
+  } = options || {};
 
   const dhms = secondsToDHMS(totalSeconds);
   const parts: string[] = [];
@@ -63,12 +72,13 @@ export function formatSecondsToDHMS(totalSeconds: number, options?: {
   }
 
   // Always show seconds (with optional decimal precision)
-  const secondsStr = precision > 0
-    ? dhms.seconds.toFixed(precision)
-    : Math.floor(dhms.seconds).toString();
+  const secondsStr =
+    precision > 0
+      ? dhms.seconds.toFixed(precision)
+      : Math.floor(dhms.seconds).toString();
   parts.push(`${secondsStr}s`);
 
-  return compact ? parts.join(' ') : parts.join(', ');
+  return compact ? parts.join(" ") : parts.join(", ");
 }
 
 /**
@@ -85,16 +95,16 @@ export function parseDHMSToSeconds(dhmsStr: string): number {
     const unit = match[2].toLowerCase();
 
     switch (unit) {
-      case 'd':
+      case "d":
         totalSeconds += value * 86400;
         break;
-      case 'h':
+      case "h":
         totalSeconds += value * 3600;
         break;
-      case 'm':
+      case "m":
         totalSeconds += value * 60;
         break;
-      case 's':
+      case "s":
         totalSeconds += value;
         break;
     }
@@ -106,21 +116,30 @@ export function parseDHMSToSeconds(dhmsStr: string): number {
 /**
  * Convert data points to seconds
  */
-export function dataPointsToSeconds(dataPoints: number, sampleRate: number): number {
+export function dataPointsToSeconds(
+  dataPoints: number,
+  sampleRate: number,
+): number {
   return dataPoints / sampleRate;
 }
 
 /**
  * Convert seconds to data points
  */
-export function secondsToDataPoints(seconds: number, sampleRate: number): number {
+export function secondsToDataPoints(
+  seconds: number,
+  sampleRate: number,
+): number {
   return Math.floor(seconds * sampleRate);
 }
 
 /**
  * Format data points as a human-readable string with sample rate context
  */
-export function formatDataPoints(dataPoints: number, sampleRate: number): string {
+export function formatDataPoints(
+  dataPoints: number,
+  sampleRate: number,
+): string {
   const seconds = dataPointsToSeconds(dataPoints, sampleRate);
   return `${dataPoints.toLocaleString()} pts (${formatSecondsToDHMS(seconds)})`;
 }

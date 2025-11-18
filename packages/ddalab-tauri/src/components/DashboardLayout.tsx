@@ -227,7 +227,9 @@ export function DashboardLayout({
 
         // When DDA completes (successfully or with error), unlock the configure tab
         if (phase === "completed" || phase === "error") {
-          console.log("[DASHBOARD] DDA analysis finished, unlocking configure tab");
+          console.log(
+            "[DASHBOARD] DDA analysis finished, unlocking configure tab",
+          );
           setDDARunning(false);
         }
       });
@@ -260,7 +262,10 @@ export function DashboardLayout({
         setPrimaryNav("analyze");
         // If we have the analysis ID, we could potentially load it
         // For now, just navigate to the analysis tab where the user can see it in history
-        console.log("[DASHBOARD] Navigating to analysis:", actionData?.analysisId);
+        console.log(
+          "[DASHBOARD] Navigating to analysis:",
+          actionData?.analysisId,
+        );
         break;
       case "navigate_openneuro":
         setPrimaryNav("manage");

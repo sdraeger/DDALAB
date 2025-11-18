@@ -146,10 +146,7 @@ impl FileWriterFactory {
     ///
     /// The writer is selected based on the file extension
     pub fn create_writer(path: &Path) -> FileWriterResult<Box<dyn FileWriter>> {
-        let extension = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         match extension.to_lowercase().as_str() {
             "edf" => Ok(Box::new(EDFWriter::new())),
@@ -160,7 +157,7 @@ impl FileWriterFactory {
             "nwb" => Ok(Box::new(NWBWriter::new())),
             #[cfg(not(feature = "nwb-support"))]
             "nwb" => Err(FileWriterError::UnsupportedFormat(
-                "NWB support not enabled. Rebuild with --features nwb-support".to_string()
+                "NWB support not enabled. Rebuild with --features nwb-support".to_string(),
             )),
             _ => Err(FileWriterError::UnsupportedFormat(format!(
                 "Unsupported file extension for writing: {}",

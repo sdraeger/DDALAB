@@ -1,6 +1,14 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useMemo, memo, Suspense } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+  memo,
+  Suspense,
+} from "react";
 import { useAppStore } from "@/store/appStore";
 import { profiler, useRenderProfiler } from "@/utils/performance";
 import { throttle } from "@/utils/debounce";
@@ -659,7 +667,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     // CRITICAL: Defer heavy rendering to NEXT frame so browser can paint loading state first
     // Without this, the loading overlay never shows because we block the main thread
     const deferredRender = () => {
-      profiler.start('heatmap-render', {
+      profiler.start("heatmap-render", {
         channels: selectedChannels.length,
         timePoints: result.results.scales.length,
         variant: currentVariantData?.variant_id,
@@ -668,7 +676,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       try {
         // Double-check ref is still available
         if (!heatmapRef.current) {
-          profiler.end('heatmap-render');
+          profiler.end("heatmap-render");
           return;
         }
 
@@ -854,7 +862,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
         const resizeObserver = new ResizeObserver(
           throttle(() => {
-            profiler.start('heatmap-resize', { category: 'render' });
+            profiler.start("heatmap-resize", { category: "render" });
             try {
               if (uplotHeatmapRef.current && heatmapRef.current) {
                 const newWidth = heatmapRef.current.clientWidth || 800;
@@ -869,7 +877,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                 uplotHeatmapRef.current.redraw();
               }
             } finally {
-              profiler.end('heatmap-resize');
+              profiler.end("heatmap-resize");
             }
           }, 100), // Throttle to max 10 times per second
         );
@@ -893,12 +901,12 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         // Clear loading state after plot is created
         setTimeout(() => {
           setIsRenderingHeatmap(false);
-          profiler.end('heatmap-render');
+          profiler.end("heatmap-render");
         }, 50);
       } catch (error) {
         console.error("Error rendering heatmap:", error);
         setIsRenderingHeatmap(false);
-        profiler.end('heatmap-render');
+        profiler.end("heatmap-render");
       }
     };
 
@@ -1124,7 +1132,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         // Handle resize
         const resizeObserver = new ResizeObserver(
           throttle(() => {
-            profiler.start('lineplot-resize', { category: 'render' });
+            profiler.start("lineplot-resize", { category: "render" });
             try {
               if (uplotLinePlotRef.current && linePlotRef.current) {
                 const currentHeight = linePlotHeightRef.current;
@@ -1134,7 +1142,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                 });
               }
             } finally {
-              profiler.end('lineplot-resize');
+              profiler.end("lineplot-resize");
             }
           }, 100), // Throttle to max 10 times per second
         );
@@ -1426,7 +1434,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
     // CRITICAL: Don't check heatmapRef.current here - it may be null if DOM hasn't mounted yet
     // The IntersectionObserver will wait for the element to exist
-    if ((viewMode === "heatmap" || viewMode === "both") && heatmapData.length > 0) {
+    if (
+      (viewMode === "heatmap" || viewMode === "both") &&
+      heatmapData.length > 0
+    ) {
       // Create a unique key for this render configuration FIRST
       // CRITICAL: Must include variant ID to distinguish between variants with same channels (e.g., DE vs SY)
       // CRITICAL: Don't include colorRange in key when autoScale is on, as it changes during processing
@@ -1497,7 +1508,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
         renderHeatmap();
         lastRenderedHeatmapKey.current = renderKey;
-        console.log("[HEATMAP] Plot created successfully, marked as rendered:", renderKey);
+        console.log(
+          "[HEATMAP] Plot created successfully, marked as rendered:",
+          renderKey,
+        );
       });
 
       return () => {
@@ -1559,7 +1573,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         return;
       }
 
-      console.log("[LINEPLOT] DOM element ready, scheduling render:", renderKey);
+      console.log(
+        "[LINEPLOT] DOM element ready, scheduling render:",
+        renderKey,
+      );
 
       // FINAL FIX: Use single requestAnimationFrame to yield to browser for painting
       // This prevents UI freeze while keeping rendering fast and avoiding cascading delays
@@ -1571,7 +1588,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
         renderLinePlot();
         lastRenderedLinePlotKey.current = renderKey;
-        console.log("[LINEPLOT] Plot created successfully, marked as rendered:", renderKey);
+        console.log(
+          "[LINEPLOT] Plot created successfully, marked as rendered:",
+          renderKey,
+        );
       });
 
       return () => {

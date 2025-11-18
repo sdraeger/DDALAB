@@ -2,7 +2,15 @@
 
 import { useAppStore } from "@/store/appStore";
 import { navigationConfig, PrimaryNavTab } from "@/types/navigation";
-import { Home, BarChart3, Brain, Settings, Bell, Search, Command } from "lucide-react";
+import {
+  Home,
+  BarChart3,
+  Brain,
+  Settings,
+  Bell,
+  Search,
+  Command,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useGlobalSearch } from "@/components/GlobalSearchProvider";
@@ -53,16 +61,21 @@ export function PrimaryNavigation() {
           <button
             onClick={openSearch}
             className={cn(
-              "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors",
-              "hover:bg-accent hover:text-accent-foreground",
-              "border border-input"
+              "flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+              "bg-muted/50 hover:bg-muted border border-border",
+              "hover:shadow-sm active:scale-[0.98]",
+              "min-w-[200px] justify-between",
             )}
-            title="Search (⌘K or Ctrl+K)"
+            title="Search (⌘K / Ctrl+K)"
           >
-            <Search className="h-4 w-4" />
-            <span className="text-xs text-muted-foreground hidden sm:inline">
-              <Command className="h-3 w-3 inline" />K
-            </span>
+            <div className="flex items-center gap-2">
+              <Search className="h-4 w-4 text-muted-foreground" />
+              <span className="text-muted-foreground">Search...</span>
+            </div>
+            <kbd className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-muted-foreground bg-background border border-border rounded">
+              <Command className="h-3 w-3" />
+              <span>K</span>
+            </kbd>
           </button>
           <ThemeToggle />
         </div>

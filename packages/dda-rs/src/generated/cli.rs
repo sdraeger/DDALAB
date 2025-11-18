@@ -1,7 +1,7 @@
 // AUTO-GENERATED from DDA_SPEC.yaml
 // DO NOT EDIT - Changes will be overwritten
 //
-// Generated at: 2025-11-17T19:08:43.256048+00:00
+// Generated at: 2025-11-17T20:47:03.356623+00:00
 // Spec version: 1.0.0
 // Generator: dda-codegen v0.1.0
 
@@ -48,8 +48,7 @@ pub mod flags {
 }
 
 /// Default values for CLI parameters
-pub mod defaults {
-}
+pub mod defaults {}
 
 /// File type flags (mutually exclusive)
 pub enum FileType {

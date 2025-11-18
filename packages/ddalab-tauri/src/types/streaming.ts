@@ -9,7 +9,14 @@
 // Stream Sources
 // ====================================================================
 
-export type StreamSourceType = "websocket" | "tcp" | "udp" | "serial" | "file" | "lsl" | "zmq";
+export type StreamSourceType =
+  | "websocket"
+  | "tcp"
+  | "udp"
+  | "serial"
+  | "file"
+  | "lsl"
+  | "zmq";
 
 export interface WebSocketSourceConfig {
   type: "websocket";

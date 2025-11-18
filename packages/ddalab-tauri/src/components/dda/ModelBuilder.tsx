@@ -5,15 +5,21 @@
  * with LaTeX rendering and persistent presets
  */
 
-import React, { useMemo, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { Separator } from '../ui/separator';
-import { Latex } from '../ui/latex';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
+import React, { useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "../ui/card";
+import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
+import { Separator } from "../ui/separator";
+import { Latex } from "../ui/latex";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
 import {
   Sparkles,
   X,
@@ -24,13 +30,13 @@ import {
   Plus,
   Save,
   Database,
-} from 'lucide-react';
+} from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '../ui/tooltip';
+} from "../ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -39,8 +45,8 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '../ui/dialog';
-import { useModelPresets, ModelPreset } from '@/hooks/useModelPresets';
+} from "../ui/dialog";
+import { useModelPresets, ModelPreset } from "@/hooks/useModelPresets";
 
 interface ModelBuilderProps {
   numDelays: number;
@@ -62,7 +68,10 @@ interface Monomial {
   isCross: boolean;
 }
 
-function generateMonomials(numDelays: number, polynomialOrder: number): number[][] {
+function generateMonomials(
+  numDelays: number,
+  polynomialOrder: number,
+): number[][] {
   const monomials: number[][] = [];
 
   for (let j = 1; j <= numDelays; j++) {
@@ -72,7 +81,7 @@ function generateMonomials(numDelays: number, polynomialOrder: number): number[]
   for (let degree = 2; degree <= polynomialOrder; degree++) {
     const combos = combinationsWithReplacement(
       Array.from({ length: numDelays }, (_, i) => i + 1),
-      degree
+      degree,
     );
     monomials.push(...combos);
   }
@@ -130,7 +139,7 @@ function monomialToLatex(monomial: number[], tauValues?: number[]): string {
     }
   }
 
-  return terms.join(' \\, ');
+  return terms.join(" \\, ");
 }
 
 function analyzeMonomialType(monomial: number[]): {
@@ -139,7 +148,8 @@ function analyzeMonomialType(monomial: number[]): {
   isPure: boolean;
   isCross: boolean;
 } {
-  const degree = monomial.length === 2 && monomial[0] === 0 ? 1 : monomial.length;
+  const degree =
+    monomial.length === 2 && monomial[0] === 0 ? 1 : monomial.length;
   const isLinear = degree === 1;
 
   if (isLinear) {
@@ -163,9 +173,9 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
 }) => {
   const [showInfo, setShowInfo] = useState(false);
   const [showAddPreset, setShowAddPreset] = useState(false);
-  const [newPresetName, setNewPresetName] = useState('');
-  const [newPresetDescription, setNewPresetDescription] = useState('');
-  const [newPresetIcon, setNewPresetIcon] = useState('⭐');
+  const [newPresetName, setNewPresetName] = useState("");
+  const [newPresetDescription, setNewPresetDescription] = useState("");
+  const [newPresetIcon, setNewPresetIcon] = useState("⭐");
 
   const {
     structuralPresets,
@@ -209,17 +219,17 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
     if (selectedTerms.length === 0) return null;
 
     const terms = selectedTerms.map((idx, i) => {
-      const mon = monomials.find(m => m.index === idx);
-      if (!mon) return '';
+      const mon = monomials.find((m) => m.index === idx);
+      if (!mon) return "";
       return `a_{${i + 1}} \\, ${mon.termLatex}`;
     });
 
-    return `\\dot{x} = ${terms.join(' + ')}`;
+    return `\\dot{x} = ${terms.join(" + ")}`;
   }, [selectedTerms, monomials]);
 
   const toggleTerm = (index: number) => {
     const newTerms = selectedSet.has(index)
-      ? selectedTerms.filter(t => t !== index)
+      ? selectedTerms.filter((t) => t !== index)
       : [...selectedTerms, index].sort((a, b) => a - b);
     onTermsChange(newTerms);
   };
@@ -229,22 +239,26 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
     let indices: number[] = [];
 
     switch (presetId) {
-      case 'linear-only':
-        indices = monomials.filter(m => m.isLinear).map(m => m.index);
+      case "linear-only":
+        indices = monomials.filter((m) => m.isLinear).map((m) => m.index);
         break;
-      case 'quadratic-diagonal':
-        indices = monomials.filter(m => m.isLinear || (m.degree === 2 && m.isPure)).map(m => m.index);
+      case "quadratic-diagonal":
+        indices = monomials
+          .filter((m) => m.isLinear || (m.degree === 2 && m.isPure))
+          .map((m) => m.index);
         break;
-      case 'full-quadratic':
-        indices = monomials.filter(m => m.degree <= 2).map(m => m.index);
+      case "full-quadratic":
+        indices = monomials.filter((m) => m.degree <= 2).map((m) => m.index);
         break;
-      case 'symmetric':
-        indices = monomials.filter(m => m.isLinear || m.isPure).map(m => m.index);
+      case "symmetric":
+        indices = monomials
+          .filter((m) => m.isLinear || m.isPure)
+          .map((m) => m.index);
         break;
       default:
         // Custom structural preset
-        const preset = customPresets.find(p => p.id === presetId);
-        if (preset && preset.type === 'structural') {
+        const preset = customPresets.find((p) => p.id === presetId);
+        if (preset && preset.type === "structural") {
           indices = preset.encoding;
         }
     }
@@ -260,14 +274,16 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
   const clearAll = () => onTermsChange([]);
 
   const selectAllDegree = (degree: number) => {
-    const degreeIndices = groupedByDegree[degree]?.map(m => m.index) || [];
+    const degreeIndices = groupedByDegree[degree]?.map((m) => m.index) || [];
     const newSet = new Set([...selectedTerms, ...degreeIndices]);
     onTermsChange(Array.from(newSet).sort((a, b) => a - b));
   };
 
   const deselectAllDegree = (degree: number) => {
-    const degreeIndices = new Set(groupedByDegree[degree]?.map(m => m.index) || []);
-    onTermsChange(selectedTerms.filter(t => !degreeIndices.has(t)));
+    const degreeIndices = new Set(
+      groupedByDegree[degree]?.map((m) => m.index) || [],
+    );
+    onTermsChange(selectedTerms.filter((t) => !degreeIndices.has(t)));
   };
 
   const handleSaveAsPreset = () => {
@@ -275,15 +291,17 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
 
     addPreset({
       name: newPresetName,
-      description: newPresetDescription || `Custom model with ${selectedTerms.length} terms`,
+      description:
+        newPresetDescription ||
+        `Custom model with ${selectedTerms.length} terms`,
       icon: newPresetIcon,
       encoding: [...selectedTerms],
-      type: 'data-based',
+      type: "data-based",
     });
 
-    setNewPresetName('');
-    setNewPresetDescription('');
-    setNewPresetIcon('⭐');
+    setNewPresetName("");
+    setNewPresetDescription("");
+    setNewPresetIcon("⭐");
     setShowAddPreset(false);
   };
 
@@ -297,7 +315,8 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
               Model Builder
             </CardTitle>
             <CardDescription>
-              {numDelays} delays, order {polynomialOrder} · {monomials.length} terms available
+              {numDelays} delays, order {polynomialOrder} · {monomials.length}{" "}
+              terms available
             </CardDescription>
           </div>
           <div className="flex gap-2">
@@ -318,7 +337,7 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
           {showInfo && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
+              animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="overflow-hidden"
@@ -327,8 +346,13 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
                 <p className="font-medium">How to build your model:</p>
                 <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground">
                   <li>Click terms to add/remove them from your model</li>
-                  <li>Use structural presets for common patterns (linear, quadratic, etc.)</li>
-                  <li>Use data-based presets for specific data types (EEG, etc.)</li>
+                  <li>
+                    Use structural presets for common patterns (linear,
+                    quadratic, etc.)
+                  </li>
+                  <li>
+                    Use data-based presets for specific data types (EEG, etc.)
+                  </li>
                   <li>Equations are shown in LaTeX notation</li>
                   <li>Save your current selection as a custom preset</li>
                 </ul>
@@ -357,7 +381,9 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
                       >
                         <span className="mr-2">{preset.icon}</span>
                         <div className="text-left flex-1">
-                          <div className="text-xs font-medium">{preset.name}</div>
+                          <div className="text-xs font-medium">
+                            {preset.name}
+                          </div>
                           {preset.dataType && (
                             <div className="text-xs text-muted-foreground">
                               {preset.dataType}
@@ -383,7 +409,7 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
                       <div className="text-xs">
                         <p>{preset.description}</p>
                         <p className="text-muted-foreground mt-1">
-                          Encoding: [{preset.encoding.join(', ')}]
+                          Encoding: [{preset.encoding.join(", ")}]
                         </p>
                       </div>
                     </TooltipContent>
@@ -434,7 +460,9 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
                       <Input
                         id="preset-description"
                         value={newPresetDescription}
-                        onChange={(e) => setNewPresetDescription(e.target.value)}
+                        onChange={(e) =>
+                          setNewPresetDescription(e.target.value)
+                        }
                         placeholder="Describe when to use this model..."
                       />
                     </div>
@@ -449,14 +477,20 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
                       />
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      This will save encoding: [{selectedTerms.join(', ')}]
+                      This will save encoding: [{selectedTerms.join(", ")}]
                     </div>
                   </div>
                   <DialogFooter>
-                    <Button variant="outline" onClick={() => setShowAddPreset(false)}>
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowAddPreset(false)}
+                    >
                       Cancel
                     </Button>
-                    <Button onClick={handleSaveAsPreset} disabled={!newPresetName.trim()}>
+                    <Button
+                      onClick={handleSaveAsPreset}
+                      disabled={!newPresetName.trim()}
+                    >
                       <Plus className="h-4 w-4 mr-1" />
                       Save Preset
                     </Button>
@@ -486,7 +520,9 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
                       className="justify-start h-auto py-2 relative group"
                     >
                       <span className="mr-2">{preset.icon}</span>
-                      <span className="text-xs flex-1 text-left">{preset.name}</span>
+                      <span className="text-xs flex-1 text-left">
+                        {preset.name}
+                      </span>
                       {preset.isCustom && (
                         <Button
                           variant="ghost"
@@ -519,8 +555,8 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
             .sort(([a], [b]) => parseInt(a) - parseInt(b))
             .map(([degree, terms]) => {
               const degreeNum = parseInt(degree);
-              const allSelected = terms.every(t => selectedSet.has(t.index));
-              const someSelected = terms.some(t => selectedSet.has(t.index));
+              const allSelected = terms.every((t) => selectedSet.has(t.index));
+              const someSelected = terms.some((t) => selectedSet.has(t.index));
 
               return (
                 <div key={degree} className="space-y-2">
@@ -567,9 +603,10 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
                           onClick={() => toggleTerm(mon.index)}
                           className={`
                             relative p-3 rounded-lg border-2 transition-all
-                            ${isSelected
-                              ? 'border-primary bg-primary/10 shadow-md'
-                              : 'border-border hover:border-primary/50 hover:bg-accent'
+                            ${
+                              isSelected
+                                ? "border-primary bg-primary/10 shadow-md"
+                                : "border-border hover:border-primary/50 hover:bg-accent"
                             }
                           `}
                           whileHover={{ scale: 1.02 }}
@@ -600,12 +637,18 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
                             </div>
                             <div className="flex gap-1">
                               {mon.isPure && (
-                                <Badge variant="outline" className="text-xs px-1 py-0">
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs px-1 py-0"
+                                >
                                   Pure
                                 </Badge>
                               )}
                               {mon.isCross && (
-                                <Badge variant="outline" className="text-xs px-1 py-0">
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs px-1 py-0"
+                                >
                                   Cross
                                 </Badge>
                               )}
@@ -625,7 +668,7 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
           {equationLatex && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
+              animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.3 }}
               className="overflow-hidden"
@@ -636,7 +679,8 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
                   <Sparkles className="h-4 w-4 text-primary" />
                   <span className="text-sm font-medium">Your Model</span>
                   <Badge variant="default" className="ml-auto">
-                    {selectedTerms.length} term{selectedTerms.length !== 1 ? 's' : ''}
+                    {selectedTerms.length} term
+                    {selectedTerms.length !== 1 ? "s" : ""}
                   </Badge>
                 </div>
                 <motion.div
@@ -649,7 +693,7 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
                     <Latex block>{equationLatex}</Latex>
                   </div>
                   <div className="mt-2 text-xs text-muted-foreground text-center">
-                    Encoding: [{selectedTerms.join(', ')}]
+                    Encoding: [{selectedTerms.join(", ")}]
                   </div>
                 </motion.div>
               </div>

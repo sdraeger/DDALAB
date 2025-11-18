@@ -70,7 +70,6 @@ export function DDAHistorySidebar({
     setNewName("");
   };
 
-
   // Handle scroll for virtual rendering
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -196,135 +195,137 @@ export function DDAHistorySidebar({
                 const isSelected = selectedAnalysisId === analysis.id;
 
                 return (
-                <div
-                  key={analysis.id}
-                  onClick={() => !isRenaming && onSelectAnalysis(analysis)}
-                  className={cn(
-                    "p-3 rounded-md border transition-colors",
-                    !isRenaming && "cursor-pointer hover:bg-accent/50",
-                    // When selected OR current: show background highlight
-                    (isSelected || isCurrent) && "bg-accent",
-                    // Border styling: primary for current, accent for selected only
-                    isCurrent && "border-primary",
-                    !isCurrent && isSelected && "border-accent-foreground/20",
-                  )}
-                >
-                  {isRenaming ? (
-                    <div
-                      className="space-y-2"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Input
-                        value={newName}
-                        onChange={(e) => setNewName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter")
-                            handleSubmitRename(analysis.id);
-                          if (e.key === "Escape") handleCancelRename();
-                        }}
-                        className="text-xs h-7"
-                        placeholder="Analysis name"
-                        autoFocus
-                      />
-                      <div className="flex gap-1">
-                        <Button
-                          size="sm"
-                          onClick={() => handleSubmitRename(analysis.id)}
-                          className="h-6 text-xs flex-1"
-                        >
-                          Save
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleCancelRename}
-                          className="h-6 text-xs flex-1"
-                        >
-                          Cancel
-                        </Button>
+                  <div
+                    key={analysis.id}
+                    onClick={() => !isRenaming && onSelectAnalysis(analysis)}
+                    className={cn(
+                      "p-3 rounded-md border transition-colors",
+                      !isRenaming && "cursor-pointer hover:bg-accent/50",
+                      // When selected OR current: show background highlight
+                      (isSelected || isCurrent) && "bg-accent",
+                      // Border styling: primary for current, accent for selected only
+                      isCurrent && "border-primary",
+                      !isCurrent && isSelected && "border-accent-foreground/20",
+                    )}
+                  >
+                    {isRenaming ? (
+                      <div
+                        className="space-y-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Input
+                          value={newName}
+                          onChange={(e) => setNewName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter")
+                              handleSubmitRename(analysis.id);
+                            if (e.key === "Escape") handleCancelRename();
+                          }}
+                          className="text-xs h-7"
+                          placeholder="Analysis name"
+                          autoFocus
+                        />
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            onClick={() => handleSubmitRename(analysis.id)}
+                            className="h-6 text-xs flex-1"
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleCancelRename}
+                            className="h-6 text-xs flex-1"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <p className="font-medium text-xs truncate">
-                              {analysis.name ||
-                                `Analysis ${analysis.id.slice(0, 8)}`}
+                    ) : (
+                      <>
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <p className="font-medium text-xs truncate">
+                                {analysis.name ||
+                                  `Analysis ${analysis.id.slice(0, 8)}`}
+                              </p>
+                            </div>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {new Date(analysis.created_at).toLocaleString(
+                                "en-US",
+                                {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                },
+                              )}
                             </p>
                           </div>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {new Date(analysis.created_at).toLocaleString(
-                              "en-US",
-                              {
-                                month: "short",
-                                day: "numeric",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              },
-                            )}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <span>
-                              {analysis.parameters?.channels?.length ||
-                                analysis.channels?.length ||
-                                0}{" "}
-                              ch
-                            </span>
-                            <span>•</span>
-                            <span>
-                              {analysis.parameters?.variants?.length || 0} var
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={(e) => handleStartRename(analysis, e)}
-                              className="h-6 w-6 flex-shrink-0"
-                              title="Rename"
-                            >
-                              <Pencil className="h-3 w-3" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={(e) => onDeleteAnalysis(analysis.id, e)}
-                              className="h-6 w-6 flex-shrink-0 text-destructive hover:text-destructive"
-                              title="Delete"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
                         </div>
 
-                        {isCurrent && (
-                          <div className="flex items-center">
-                            <Badge
-                              variant="default"
-                              className="text-[10px] h-5 px-2 font-semibold"
-                              style={{
-                                backgroundColor: '#3b82f6',
-                                color: 'white',
-                              }}
-                            >
-                              Current Analysis
-                            </Badge>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <span>
+                                {analysis.parameters?.channels?.length ||
+                                  analysis.channels?.length ||
+                                  0}{" "}
+                                ch
+                              </span>
+                              <span>•</span>
+                              <span>
+                                {analysis.parameters?.variants?.length || 0} var
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={(e) => handleStartRename(analysis, e)}
+                                className="h-6 w-6 flex-shrink-0"
+                                title="Rename"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={(e) =>
+                                  onDeleteAnalysis(analysis.id, e)
+                                }
+                                className="h-6 w-6 flex-shrink-0 text-destructive hover:text-destructive"
+                                title="Delete"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
                           </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              );
-            })}
+
+                          {isCurrent && (
+                            <div className="flex items-center">
+                              <Badge
+                                variant="default"
+                                className="text-[10px] h-5 px-2 font-semibold"
+                                style={{
+                                  backgroundColor: "#3b82f6",
+                                  color: "white",
+                                }}
+                              >
+                                Current Analysis
+                              </Badge>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

@@ -23,11 +23,7 @@ impl XDFWriter {
         Self
     }
 
-    fn write_chunk<W: Write>(
-        writer: &mut W,
-        tag: u16,
-        content: &[u8],
-    ) -> FileWriterResult<()> {
+    fn write_chunk<W: Write>(writer: &mut W, tag: u16, content: &[u8]) -> FileWriterResult<()> {
         let length = (content.len() + 2) as u32;
 
         writer.write_all(&length.to_le_bytes())?;
@@ -63,7 +59,9 @@ impl XDFWriter {
         xml_writer.write_event(Event::End(BytesEnd::new("type")))?;
 
         xml_writer.write_event(Event::Start(BytesStart::new("channel_count")))?;
-        xml_writer.write_event(Event::Text(BytesText::new(&data.num_channels().to_string())))?;
+        xml_writer.write_event(Event::Text(BytesText::new(
+            &data.num_channels().to_string(),
+        )))?;
         xml_writer.write_event(Event::End(BytesEnd::new("channel_count")))?;
 
         xml_writer.write_event(Event::Start(BytesStart::new("nominal_srate")))?;

@@ -288,7 +288,7 @@ pub async fn run_dda_analysis(
                                 .run_single_variant(
                                     &dda_request,
                                     variant_id,
-                                    &[], // Channels not used for CT
+                                    &[],            // Channels not used for CT
                                     Some(&[*pair]), // Pass single pair
                                     None,
                                     Some(start_bound),
@@ -315,8 +315,14 @@ pub async fn run_dda_analysis(
                                         pairs
                                             .iter()
                                             .map(|pair| {
-                                                let ch1 = names.get(pair[0]).map(|s| s.as_str()).unwrap_or("?");
-                                                let ch2 = names.get(pair[1]).map(|s| s.as_str()).unwrap_or("?");
+                                                let ch1 = names
+                                                    .get(pair[0])
+                                                    .map(|s| s.as_str())
+                                                    .unwrap_or("?");
+                                                let ch2 = names
+                                                    .get(pair[1])
+                                                    .map(|s| s.as_str())
+                                                    .unwrap_or("?");
                                                 format!("{} ⟷ {}", ch1, ch2)
                                             })
                                             .collect(),
@@ -403,7 +409,11 @@ pub async fn run_dda_analysis(
                             continue;
                         }
 
-                        log::info!("{} variant: {} channels (running separately per channel)", variant_id, channels.len());
+                        log::info!(
+                            "{} variant: {} channels (running separately per channel)",
+                            variant_id,
+                            channels.len()
+                        );
 
                         let mut combined_results: Vec<Vec<f64>> = Vec::new();
 
@@ -443,7 +453,11 @@ pub async fn run_dda_analysis(
                                         channels
                                             .iter()
                                             .map(|&ch| {
-                                                names.get(ch).map(|s| s.as_str()).unwrap_or("?").to_string()
+                                                names
+                                                    .get(ch)
+                                                    .map(|s| s.as_str())
+                                                    .unwrap_or("?")
+                                                    .to_string()
                                             })
                                             .collect(),
                                     )
@@ -583,7 +597,10 @@ pub async fn run_dda_analysis(
 
     // Log variant_configs if present
     if let Some(ref vc) = request.variant_configs {
-        log::info!("📊 Received variant_configs: {}", serde_json::to_string_pretty(vc).unwrap_or_else(|_| "error serializing".to_string()));
+        log::info!(
+            "📊 Received variant_configs: {}",
+            serde_json::to_string_pretty(vc).unwrap_or_else(|_| "error serializing".to_string())
+        );
     } else {
         log::info!("⚠️  No variant_configs received (using legacy format)");
     }
@@ -618,7 +635,10 @@ pub async fn run_dda_analysis(
                 log::info!("  Q matrix rows: {}", vr.q_matrix.len());
                 log::info!("  Channel labels count: {}", variant_channel_labels.len());
                 if !variant_channel_labels.is_empty() {
-                    log::info!("  First 5 labels: {:?}", variant_channel_labels.iter().take(5).collect::<Vec<_>>());
+                    log::info!(
+                        "  First 5 labels: {:?}",
+                        variant_channel_labels.iter().take(5).collect::<Vec<_>>()
+                    );
                 }
 
                 let mut variant_dda_matrix = serde_json::Map::new();
@@ -838,34 +858,42 @@ pub async fn list_analysis_history(State(state): State<Arc<ApiState>>) -> Json<V
 
                 // CRITICAL FIX: plot_data is now None for list view (performance optimization)
                 // We only need lightweight metadata for the history list
-                let results: Vec<DDAResult> = analyses.iter().filter_map(|analysis| {
-                    let parameters: DDAParameters = match serde_json::from_value(analysis.parameters.clone()) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            log::warn!("Failed to parse parameters for analysis {}: {}", analysis.id, e);
-                            return None;
-                        }
-                    };
+                let results: Vec<DDAResult> = analyses
+                    .iter()
+                    .filter_map(|analysis| {
+                        let parameters: DDAParameters =
+                            match serde_json::from_value(analysis.parameters.clone()) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    log::warn!(
+                                        "Failed to parse parameters for analysis {}: {}",
+                                        analysis.id,
+                                        e
+                                    );
+                                    return None;
+                                }
+                            };
 
-                    // For list view, use minimal data - no need to parse plot_data
-                    // Channel count and variant count come from parameters
-                    let channels = parameters.selected_channels.clone();
+                        // For list view, use minimal data - no need to parse plot_data
+                        // Channel count and variant count come from parameters
+                        let channels = parameters.selected_channels.clone();
 
-                    Some(DDAResult {
-                        id: analysis.id.clone(),
-                        name: analysis.name.clone(),
-                        file_path: analysis.file_path.clone(),
-                        channels, // Extract from parameters for display
-                        parameters,
-                        results: serde_json::json!({
-                            "variants": [] // Empty for list view - populated when viewing
-                        }),
-                        plot_data: None, // No plot_data in list view
-                        q_matrix: None,
-                        created_at: analysis.timestamp.clone(),
-                        status: "completed".to_string(),
+                        Some(DDAResult {
+                            id: analysis.id.clone(),
+                            name: analysis.name.clone(),
+                            file_path: analysis.file_path.clone(),
+                            channels, // Extract from parameters for display
+                            parameters,
+                            results: serde_json::json!({
+                                "variants": [] // Empty for list view - populated when viewing
+                            }),
+                            plot_data: None, // No plot_data in list view
+                            q_matrix: None,
+                            created_at: analysis.timestamp.clone(),
+                            status: "completed".to_string(),
+                        })
                     })
-                }).collect();
+                    .collect();
 
                 return Json(results);
             }

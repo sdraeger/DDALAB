@@ -31,12 +31,13 @@ export default function RootLayout({
         >
           <QueryProvider>
             <ZoomKeyboardShortcuts />
-            <GlobalSearchProvider />
-            <ZoomWrapper>
-              <div className="min-h-screen bg-background text-foreground">
-                {children}
-              </div>
-            </ZoomWrapper>
+            <GlobalSearchProvider>
+              <ZoomWrapper>
+                <div className="min-h-screen bg-background text-foreground">
+                  {children}
+                </div>
+              </ZoomWrapper>
+            </GlobalSearchProvider>
           </QueryProvider>
         </ThemeProvider>
       </body>

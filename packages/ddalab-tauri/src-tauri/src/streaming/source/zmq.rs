@@ -21,7 +21,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
-use zeromq::{Socket, SocketRecv, SubSocket, PullSocket};
+use zeromq::{PullSocket, Socket, SocketRecv, SubSocket};
 
 /// ZeroMQ socket patterns supported for streaming
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -126,19 +126,23 @@ impl StreamSource for ZmqStreamSource {
         match self.pattern {
             ZmqPattern::Sub => {
                 let mut socket = SubSocket::new();
-                socket.connect(&self.endpoint).await
-                    .map_err(|e| StreamError::Connection(format!("ZMQ SUB connect error: {}", e)))?;
+                socket.connect(&self.endpoint).await.map_err(|e| {
+                    StreamError::Connection(format!("ZMQ SUB connect error: {}", e))
+                })?;
 
                 // Subscribe to topic
-                socket.subscribe(&self.topic).await
+                socket
+                    .subscribe(&self.topic)
+                    .await
                     .map_err(|e| StreamError::Connection(format!("ZMQ subscribe error: {}", e)))?;
 
                 log::info!("ZMQ SUB socket connected");
             }
             ZmqPattern::Pull => {
                 let mut socket = PullSocket::new();
-                socket.connect(&self.endpoint).await
-                    .map_err(|e| StreamError::Connection(format!("ZMQ PULL connect error: {}", e)))?;
+                socket.connect(&self.endpoint).await.map_err(|e| {
+                    StreamError::Connection(format!("ZMQ PULL connect error: {}", e))
+                })?;
 
                 log::info!("ZMQ PULL socket connected");
             }
@@ -184,10 +188,13 @@ impl StreamSource for ZmqStreamSource {
         match pattern {
             ZmqPattern::Sub => {
                 let mut socket = SubSocket::new();
-                socket.connect(&endpoint).await
-                    .map_err(|e| StreamError::Connection(format!("ZMQ SUB connect error: {}", e)))?;
+                socket.connect(&endpoint).await.map_err(|e| {
+                    StreamError::Connection(format!("ZMQ SUB connect error: {}", e))
+                })?;
 
-                socket.subscribe(&topic).await
+                socket
+                    .subscribe(&topic)
+                    .await
                     .map_err(|e| StreamError::Connection(format!("ZMQ subscribe error: {}", e)))?;
 
                 log::info!("ZMQ SUB socket connected, receiving messages...");
@@ -251,12 +258,16 @@ impl StreamSource for ZmqStreamSource {
                     }
                 }
 
-                log::info!("ZMQ SUB stream stopped (received {} messages)", message_count);
+                log::info!(
+                    "ZMQ SUB stream stopped (received {} messages)",
+                    message_count
+                );
             }
             ZmqPattern::Pull => {
                 let mut socket = PullSocket::new();
-                socket.connect(&endpoint).await
-                    .map_err(|e| StreamError::Connection(format!("ZMQ PULL connect error: {}", e)))?;
+                socket.connect(&endpoint).await.map_err(|e| {
+                    StreamError::Connection(format!("ZMQ PULL connect error: {}", e))
+                })?;
 
                 log::info!("ZMQ PULL socket connected, receiving messages...");
 
@@ -319,7 +330,10 @@ impl StreamSource for ZmqStreamSource {
                     }
                 }
 
-                log::info!("ZMQ PULL stream stopped (received {} messages)", message_count);
+                log::info!(
+                    "ZMQ PULL stream stopped (received {} messages)",
+                    message_count
+                );
             }
         }
 

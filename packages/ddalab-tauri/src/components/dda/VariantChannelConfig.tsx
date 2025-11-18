@@ -1,5 +1,11 @@
 import React, { useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
@@ -80,11 +86,17 @@ export function VariantChannelConfig({
   const getConfigSummary = () => {
     const count = getChannelCount();
     if (variant.channelType === "individual") {
-      return count === 0 ? "No channels selected" : `${count} channel${count !== 1 ? "s" : ""}`;
+      return count === 0
+        ? "No channels selected"
+        : `${count} channel${count !== 1 ? "s" : ""}`;
     } else if (variant.channelType === "pairs") {
-      return count === 0 ? "No pairs selected" : `${count} pair${count !== 1 ? "s" : ""}`;
+      return count === 0
+        ? "No pairs selected"
+        : `${count} pair${count !== 1 ? "s" : ""}`;
     } else if (variant.channelType === "directed_pairs") {
-      return count === 0 ? "No directed pairs selected" : `${count} directed pair${count !== 1 ? "s" : ""}`;
+      return count === 0
+        ? "No directed pairs selected"
+        : `${count} directed pair${count !== 1 ? "s" : ""}`;
     }
     return "";
   };
@@ -112,7 +124,7 @@ export function VariantChannelConfig({
                     "ml-2",
                     hasValidConfig
                       ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
-                      : "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100"
+                      : "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100",
                   )}
                 >
                   {getConfigSummary()}
@@ -162,7 +174,8 @@ export function VariantChannelConfig({
                 Channel Pairs
               </Label>
               <p className="text-xs text-muted-foreground mb-3">
-                Select channel pairs for {variant.abbreviation} analysis (bidirectional)
+                Select channel pairs for {variant.abbreviation} analysis
+                (bidirectional)
               </p>
 
               {/* Display current pairs */}
@@ -208,7 +221,8 @@ export function VariantChannelConfig({
                 Directed Channel Pairs
               </Label>
               <p className="text-xs text-muted-foreground mb-3">
-                Select directed channel pairs for {variant.abbreviation} analysis (From → To)
+                Select directed channel pairs for {variant.abbreviation}{" "}
+                analysis (From → To)
               </p>
 
               {/* Display current directed pairs */}
@@ -251,7 +265,8 @@ export function VariantChannelConfig({
           {variant.requiresCTParameters && (
             <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
               <strong>Note:</strong> This variant requires CT window parameters
-              (window length and step). Configure these in the parameters section above.
+              (window length and step). Configure these in the parameters
+              section above.
             </div>
           )}
         </CardContent>

@@ -28,7 +28,7 @@ export interface PerformanceReport {
 class PerformanceProfiler {
   private metrics: Map<string, PerformanceMetric> = new Map();
   private completedMetrics: PerformanceMetric[] = [];
-  private enabled: boolean = process.env.NODE_ENV === 'development';
+  private enabled: boolean = process.env.NODE_ENV === "development";
 
   /**
    * Enable or disable profiling
@@ -52,7 +52,7 @@ class PerformanceProfiler {
     this.metrics.set(name, metric);
 
     // Use Performance API marks
-    if ('mark' in performance) {
+    if ("mark" in performance) {
       performance.mark(`${name}-start`);
     }
   }
@@ -79,7 +79,7 @@ class PerformanceProfiler {
     this.metrics.delete(name);
 
     // Use Performance API measures
-    if ('mark' in performance && 'measure' in performance) {
+    if ("mark" in performance && "measure" in performance) {
       try {
         performance.mark(`${name}-end`);
         performance.measure(name, `${name}-start`, `${name}-end`);
@@ -92,7 +92,7 @@ class PerformanceProfiler {
     if (duration > 100) {
       console.warn(
         `[Profiler] Slow operation detected: ${name} took ${duration.toFixed(2)}ms`,
-        metric.metadata
+        metric.metadata,
       );
     }
 
@@ -105,7 +105,7 @@ class PerformanceProfiler {
   async measure<T>(
     name: string,
     fn: () => T | Promise<T>,
-    metadata?: Record<string, any>
+    metadata?: Record<string, any>,
   ): Promise<T> {
     this.start(name, metadata);
     try {
@@ -121,11 +121,7 @@ class PerformanceProfiler {
   /**
    * Measure a synchronous function
    */
-  measureSync<T>(
-    name: string,
-    fn: () => T,
-    metadata?: Record<string, any>
-  ): T {
+  measureSync<T>(name: string, fn: () => T, metadata?: Record<string, any>): T {
     this.start(name, metadata);
     try {
       const result = fn();
@@ -185,23 +181,29 @@ class PerformanceProfiler {
 
     if (averages.render > 100) {
       recommendations.push(
-        'Render times are high (>100ms). Consider: virtualizing long lists, memoizing expensive computations, or splitting into smaller components.'
+        "Render times are high (>100ms). Consider: virtualizing long lists, memoizing expensive computations, or splitting into smaller components.",
       );
     }
 
     if (averages.data_processing > 200) {
       recommendations.push(
-        'Data processing is slow (>200ms). Consider: using Web Workers for heavy computations, implementing incremental processing, or optimizing algorithms.'
+        "Data processing is slow (>200ms). Consider: using Web Workers for heavy computations, implementing incremental processing, or optimizing algorithms.",
       );
     }
 
     if (bottlenecks.length > 5) {
       recommendations.push(
-        `${bottlenecks.length} bottlenecks detected. Focus on optimizing: ${bottlenecks.slice(0, 3).map((b) => b.name).join(', ')}`
+        `${bottlenecks.length} bottlenecks detected. Focus on optimizing: ${bottlenecks
+          .slice(0, 3)
+          .map((b) => b.name)
+          .join(", ")}`,
       );
     }
 
-    const totalDuration = metrics.reduce((sum, m) => sum + (m.duration || 0), 0);
+    const totalDuration = metrics.reduce(
+      (sum, m) => sum + (m.duration || 0),
+      0,
+    );
 
     return {
       totalDuration,
@@ -218,23 +220,25 @@ class PerformanceProfiler {
   printReport(threshold: number = 50): void {
     const report = this.generateReport(threshold);
 
-    console.group('📊 Performance Report');
+    console.group("📊 Performance Report");
 
     console.log(`Total measured time: ${report.totalDuration.toFixed(2)}ms`);
     console.log(`Total operations: ${report.metrics.length}`);
 
     if (report.bottlenecks.length > 0) {
-      console.group(`⚠️ Bottlenecks (${report.bottlenecks.length} operations > ${threshold}ms)`);
+      console.group(
+        `⚠️ Bottlenecks (${report.bottlenecks.length} operations > ${threshold}ms)`,
+      );
       report.bottlenecks.forEach((b, i) => {
         console.log(
           `${i + 1}. ${b.name}: ${b.duration?.toFixed(2)}ms`,
-          b.metadata || ''
+          b.metadata || "",
         );
       });
       console.groupEnd();
     }
 
-    console.group('📈 Average Times by Category');
+    console.group("📈 Average Times by Category");
     Object.entries(report.averages).forEach(([category, avg]) => {
       if (avg > 0) {
         console.log(`${category}: ${avg.toFixed(2)}ms`);
@@ -243,7 +247,7 @@ class PerformanceProfiler {
     console.groupEnd();
 
     if (report.recommendations.length > 0) {
-      console.group('💡 Recommendations');
+      console.group("💡 Recommendations");
       report.recommendations.forEach((rec, i) => {
         console.log(`${i + 1}. ${rec}`);
       });
@@ -261,10 +265,10 @@ class PerformanceProfiler {
     this.completedMetrics = [];
 
     // Clear Performance API marks/measures
-    if ('clearMarks' in performance) {
+    if ("clearMarks" in performance) {
       performance.clearMarks();
     }
-    if ('clearMeasures' in performance) {
+    if ("clearMeasures" in performance) {
       performance.clearMeasures();
     }
   }
@@ -273,12 +277,12 @@ class PerformanceProfiler {
    * Get browser performance entries
    */
   getBrowserMetrics(): PerformanceEntry[] {
-    if ('getEntriesByType' in performance) {
+    if ("getEntriesByType" in performance) {
       return [
-        ...performance.getEntriesByType('navigation'),
-        ...performance.getEntriesByType('resource'),
-        ...performance.getEntriesByType('measure'),
-        ...performance.getEntriesByType('paint'),
+        ...performance.getEntriesByType("navigation"),
+        ...performance.getEntriesByType("resource"),
+        ...performance.getEntriesByType("measure"),
+        ...performance.getEntriesByType("paint"),
       ];
     }
     return [];
@@ -287,7 +291,11 @@ class PerformanceProfiler {
   /**
    * Monitor memory usage (Chrome only)
    */
-  getMemoryUsage(): { usedJSHeapSize: number; totalJSHeapSize: number; limit: number } | null {
+  getMemoryUsage(): {
+    usedJSHeapSize: number;
+    totalJSHeapSize: number;
+    limit: number;
+  } | null {
     // @ts-ignore - Chrome-specific API
     if (performance.memory) {
       // @ts-ignore
@@ -313,7 +321,7 @@ class PerformanceProfiler {
       const totalMB = (memory.totalJSHeapSize / 1024 / 1024).toFixed(2);
       const limitMB = (memory.limit / 1024 / 1024).toFixed(2);
       console.log(
-        `💾 Memory: ${usedMB}MB / ${totalMB}MB (limit: ${limitMB}MB)`
+        `💾 Memory: ${usedMB}MB / ${totalMB}MB (limit: ${limitMB}MB)`,
       );
     }
   }
@@ -341,7 +349,7 @@ export function useRenderProfiler(componentName: string) {
   // Log excessive re-renders (synchronously during render)
   if (renderCount.current > 10 && renderCount.current % 10 === 0) {
     console.warn(
-      `[Profiler] ${componentName} has rendered ${renderCount.current} times. Consider memoization.`
+      `[Profiler] ${componentName} has rendered ${renderCount.current} times. Consider memoization.`,
     );
   }
 
@@ -359,7 +367,7 @@ export function useRenderProfiler(componentName: string) {
         duration: renderDuration,
         metadata: {
           renderCount: currentRenderCount,
-          category: 'render',
+          category: "render",
         },
       };
 
@@ -369,7 +377,7 @@ export function useRenderProfiler(componentName: string) {
       // Log slow renders
       if (renderDuration > 100) {
         console.warn(
-          `[Profiler] Slow render detected: ${componentName} (render #${currentRenderCount}) took ${renderDuration.toFixed(2)}ms`
+          `[Profiler] Slow render detected: ${componentName} (render #${currentRenderCount}) took ${renderDuration.toFixed(2)}ms`,
         );
       }
     }
@@ -384,7 +392,7 @@ export function useRenderProfiler(componentName: string) {
  */
 export function profileAsync<T extends (...args: any[]) => Promise<any>>(
   name: string,
-  fn: T
+  fn: T,
 ): T {
   return (async (...args: Parameters<T>) => {
     return await profiler.measure(name, () => fn(...args), {
@@ -398,7 +406,7 @@ export function profileAsync<T extends (...args: any[]) => Promise<any>>(
  */
 export function profileSync<T extends (...args: any[]) => any>(
   name: string,
-  fn: T
+  fn: T,
 ): T {
   return ((...args: Parameters<T>) => {
     return profiler.measureSync(name, () => fn(...args), {
@@ -408,16 +416,16 @@ export function profileSync<T extends (...args: any[]) => any>(
 }
 
 // Import useRef and useEffect for the hook
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect } from "react";
 
 // Enable profiler in development
-if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') {
+if (process.env.NODE_ENV === "development" && typeof window !== "undefined") {
   // Make profiler available globally for debugging
   (window as any).profiler = profiler;
 
   console.log(
-    '%c[Profiler] Performance profiling enabled. Use window.profiler.printReport() to see results.',
-    'color: #00B0F0; font-weight: bold;'
+    "%c[Profiler] Performance profiling enabled. Use window.profiler.printReport() to see results.",
+    "color: #00B0F0; font-weight: bold;",
   );
 }
 

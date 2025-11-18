@@ -46,7 +46,7 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
       ([entry]) => {
         setIsVisible(entry.isIntersecting);
       },
-      { threshold: 0.1 }
+      { threshold: 0.1 },
     );
 
     if (plotRef.current) {
@@ -58,7 +58,9 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
 
   // Throttle data updates to prevent UI freeze
   // CRITICAL: Initialize with only last 10 chunks to prevent freeze on mount
-  const [throttledChunks, setThrottledChunks] = useState(() => latestChunks.slice(-10));
+  const [throttledChunks, setThrottledChunks] = useState(() =>
+    latestChunks.slice(-10),
+  );
   const lastUpdateRef = useRef<number>(0);
   const rafRef = useRef<number | null>(null);
 
@@ -85,16 +87,19 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
       });
     } else {
       // Schedule update for later
-      const timer = setTimeout(() => {
-        if (rafRef.current) {
-          cancelAnimationFrame(rafRef.current);
-        }
+      const timer = setTimeout(
+        () => {
+          if (rafRef.current) {
+            cancelAnimationFrame(rafRef.current);
+          }
 
-        rafRef.current = requestAnimationFrame(() => {
-          setThrottledChunks(limitedChunks);
-          lastUpdateRef.current = Date.now();
-        });
-      }, 100 - (now - lastUpdateRef.current));
+          rafRef.current = requestAnimationFrame(() => {
+            setThrottledChunks(limitedChunks);
+            lastUpdateRef.current = Date.now();
+          });
+        },
+        100 - (now - lastUpdateRef.current),
+      );
       return () => {
         clearTimeout(timer);
         if (rafRef.current) {
@@ -128,19 +133,24 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
 
     // OPTIMIZED: Pre-compute channel indices to avoid repeated indexOf calls
     const sampleRate = chunksToProcess[0].sample_rate;
-    const channelIndices = activeChannels.map(name => channelNames.indexOf(name));
+    const channelIndices = activeChannels.map((name) =>
+      channelNames.indexOf(name),
+    );
 
     // Pre-allocate arrays with estimated size for better performance
     const estimatedSize = chunksToProcess.length * 1000; // estimate samples per chunk
     let timePoints: number[] = new Array(estimatedSize);
-    let allSamples: number[][] = activeChannels.map(() => new Array(estimatedSize));
+    let allSamples: number[][] = activeChannels.map(
+      () => new Array(estimatedSize),
+    );
 
     let pointIndex = 0;
     let currentTime = 0;
 
     // OPTIMIZED: Flatten data with pre-computed indices
     for (const chunk of chunksToProcess) {
-      const chunkSamples = chunk.samples.length > 0 ? chunk.samples[0].length : 0;
+      const chunkSamples =
+        chunk.samples.length > 0 ? chunk.samples[0].length : 0;
 
       for (let i = 0; i < chunkSamples; i++) {
         timePoints[pointIndex] = currentTime;
@@ -148,9 +158,10 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
 
         for (let ch = 0; ch < activeChannels.length; ch++) {
           const channelIndex = channelIndices[ch];
-          allSamples[ch][pointIndex] = (channelIndex !== -1 && channelIndex < chunk.samples.length)
-            ? chunk.samples[channelIndex][i]
-            : 0;
+          allSamples[ch][pointIndex] =
+            channelIndex !== -1 && channelIndex < chunk.samples.length
+              ? chunk.samples[channelIndex][i]
+              : 0;
         }
         pointIndex++;
       }
@@ -158,7 +169,7 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
 
     // Trim arrays to actual size
     timePoints = timePoints.slice(0, pointIndex);
-    allSamples = allSamples.map(ch => ch.slice(0, pointIndex));
+    allSamples = allSamples.map((ch) => ch.slice(0, pointIndex));
 
     // Aggressive downsampling: max 1000 points for rendering (reduced from 2000)
     const MAX_RENDER_POINTS = 1000;
@@ -180,7 +191,9 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
     }
 
     // Limit to display window
-    const maxSamples = Math.floor(displayWindowSeconds * (timePoints.length / currentTime));
+    const maxSamples = Math.floor(
+      displayWindowSeconds * (timePoints.length / currentTime),
+    );
     if (timePoints.length > maxSamples && autoScroll) {
       const startIndex = timePoints.length - maxSamples;
       timePoints = timePoints.slice(startIndex);

@@ -19,12 +19,17 @@ export function useGlobalSearch() {
   return context;
 }
 
-export function GlobalSearchProvider() {
+export function GlobalSearchProvider({
+  children,
+}: {
+  children?: React.ReactNode;
+}) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      // Support Cmd+K (Mac), Win+K (Windows), Super+K (Linux), or Ctrl+K (all platforms)
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setOpen((prev) => !prev);
       }
@@ -42,6 +47,7 @@ export function GlobalSearchProvider() {
 
   return (
     <SearchContext.Provider value={value}>
+      {children}
       <GlobalSearch open={open} onOpenChange={setOpen} />
     </SearchContext.Provider>
   );
