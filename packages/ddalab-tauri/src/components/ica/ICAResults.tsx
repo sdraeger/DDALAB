@@ -299,10 +299,13 @@ function ComponentTimeSeries({
         const newHeight = Math.floor(entry.contentRect.height);
 
         // Only resize if dimensions actually changed significantly (>5px difference)
-        if (uplotRef.current &&
-            newWidth > 0 &&
-            newHeight > 0 &&
-            (Math.abs(newWidth - lastWidth) > 5 || Math.abs(newHeight - lastHeight) > 5)) {
+        if (
+          uplotRef.current &&
+          newWidth > 0 &&
+          newHeight > 0 &&
+          (Math.abs(newWidth - lastWidth) > 5 ||
+            Math.abs(newHeight - lastHeight) > 5)
+        ) {
           lastWidth = newWidth;
           lastHeight = newHeight;
           uplotRef.current.setSize({
@@ -491,10 +494,13 @@ function ComponentTopography({
         const newHeight = Math.floor(entry.contentRect.height);
 
         // Only resize if dimensions actually changed significantly (>5px difference)
-        if (uplotRef.current &&
-            newWidth > 0 &&
-            newHeight > 0 &&
-            (Math.abs(newWidth - lastWidth) > 5 || Math.abs(newHeight - lastHeight) > 5)) {
+        if (
+          uplotRef.current &&
+          newWidth > 0 &&
+          newHeight > 0 &&
+          (Math.abs(newWidth - lastWidth) > 5 ||
+            Math.abs(newHeight - lastHeight) > 5)
+        ) {
           lastWidth = newWidth;
           lastHeight = newHeight;
           uplotRef.current.setSize({
@@ -661,10 +667,13 @@ function ComponentSpectrum({ component }: ComponentSpectrumProps) {
         const newHeight = Math.floor(entry.contentRect.height);
 
         // Only resize if dimensions actually changed significantly (>5px difference)
-        if (uplotRef.current &&
-            newWidth > 0 &&
-            newHeight > 0 &&
-            (Math.abs(newWidth - lastWidth) > 5 || Math.abs(newHeight - lastHeight) > 5)) {
+        if (
+          uplotRef.current &&
+          newWidth > 0 &&
+          newHeight > 0 &&
+          (Math.abs(newWidth - lastWidth) > 5 ||
+            Math.abs(newHeight - lastHeight) > 5)
+        ) {
           lastWidth = newWidth;
           lastHeight = newHeight;
           uplotRef.current.setSize({
