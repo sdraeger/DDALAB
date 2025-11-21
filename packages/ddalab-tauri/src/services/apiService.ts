@@ -7,6 +7,12 @@ import {
   DDAResult,
   HealthResponse,
 } from "@/types/api";
+import {
+  ICAAnalysisRequest,
+  ICAResult,
+  ReconstructRequest,
+  ReconstructResponse,
+} from "@/types/ica";
 import { getChunkCache } from "./chunkCache";
 
 export class ApiService {
@@ -1165,5 +1171,44 @@ export class ApiService {
         "Unknown error";
       throw new Error(`Failed to rename analysis: ${errorMsg}`);
     }
+  }
+
+  // ICA Analysis
+  async submitICAAnalysis(
+    request: ICAAnalysisRequest,
+    signal?: AbortSignal,
+  ): Promise<ICAResult> {
+    console.log("[API] Submitting ICA analysis:", request);
+    const response = await this.client.post<ICAResult>("/api/ica", request, {
+      signal,
+    });
+    console.log("[API] ICA analysis result:", response.data);
+    return response.data;
+  }
+
+  async getICAResults(): Promise<ICAResult[]> {
+    const response = await this.client.get<ICAResult[]>("/api/ica/results");
+    return response.data;
+  }
+
+  async getICAResult(analysisId: string): Promise<ICAResult> {
+    const response = await this.client.get<ICAResult>(
+      `/api/ica/results/${analysisId}`,
+    );
+    return response.data;
+  }
+
+  async deleteICAResult(analysisId: string): Promise<void> {
+    await this.client.delete(`/api/ica/results/${analysisId}`);
+  }
+
+  async reconstructWithoutComponents(
+    request: ReconstructRequest,
+  ): Promise<ReconstructResponse> {
+    const response = await this.client.post<ReconstructResponse>(
+      "/api/ica/reconstruct",
+      request,
+    );
+    return response.data;
   }
 }

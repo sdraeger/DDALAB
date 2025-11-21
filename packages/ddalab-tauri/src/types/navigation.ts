@@ -14,6 +14,7 @@ export type SecondaryNavTab =
   | "power-spectrum"
   // Analyze tabs
   | "dda"
+  | "ica"
   | "meg-analysis"
   | "connectivity"
   | "statistics"
@@ -55,10 +56,10 @@ export const navigationConfig: Record<PrimaryNavTab, NavigationCategory> = {
   },
   analyze: {
     id: "analyze",
-    label: "DDA",
+    label: "Analysis",
     icon: "Brain",
-    description: "Delay Differential Analysis",
-    secondaryTabs: null,
+    description: "Signal analysis tools",
+    secondaryTabs: ["dda", "ica"],
   },
   notifications: {
     id: "notifications",
@@ -117,6 +118,12 @@ export const secondaryTabConfig: Record<SecondaryNavTab, SecondaryTabConfig> = {
     label: "DDA",
     icon: "Brain",
     description: "Delay Differential Analysis",
+  },
+  ica: {
+    id: "ica",
+    label: "ICA",
+    icon: "Sparkles",
+    description: "Independent Component Analysis",
   },
   "meg-analysis": {
     id: "meg-analysis",
