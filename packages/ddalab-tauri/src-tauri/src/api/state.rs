@@ -1,10 +1,11 @@
 use crate::api::auth::constant_time_eq;
+use crate::api::handlers::ica::ICAResultResponse;
 use crate::api::models::{ChunkData, DDAResult, EDFFileInfo};
 use crate::db::analysis_db::AnalysisDatabase;
 use crate::db::overview_cache_db::OverviewCacheDatabase;
 use crate::models::AnalysisResult;
 use crate::utils::get_database_path;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -22,6 +23,7 @@ pub struct ApiState {
     pub overview_cache_db: Option<Arc<OverviewCacheDatabase>>,
     pub session_token: Arc<RwLock<Option<String>>>,
     pub require_auth: Arc<RwLock<bool>>,
+    pub ica_history: Mutex<Vec<ICAResultResponse>>,
 }
 
 impl ApiState {
@@ -88,6 +90,7 @@ impl ApiState {
             overview_cache_db,
             session_token: Arc::new(RwLock::new(None)),
             require_auth: Arc::new(RwLock::new(true)),
+            ica_history: Mutex::new(Vec::new()),
         };
 
         state

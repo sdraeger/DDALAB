@@ -8,13 +8,14 @@ import { TimeSeriesPlotECharts } from "@/components/TimeSeriesPlotECharts";
 import { AnnotationsTab } from "@/components/AnnotationsTab";
 import { StreamingView } from "@/components/streaming";
 import { DDAWithHistory } from "@/components/dda/DDAWithHistory";
+import { ICAAnalysisPanel } from "@/components/ica";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { OpenNeuroBrowser } from "@/components/OpenNeuroBrowser";
 import { NSGJobManager } from "@/components/NSGJobManager";
 import { NotificationHistory } from "@/components/NotificationHistory";
 import { FileInfoCard } from "@/components/FileInfoCard";
 import { Card, CardContent } from "@/components/ui/card";
-import { Brain, Activity, FileText } from "lucide-react";
+import { Brain, Activity, FileText, Sparkles } from "lucide-react";
 
 interface NavigationContentProps {
   apiService: ApiService;
@@ -80,22 +81,51 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
     );
   }
 
-  // DDA (formerly Analyze)
+  // Analyze (DDA and ICA)
   if (primaryNav === "analyze") {
+    // DDA tab (default)
+    if (secondaryNav === "dda" || !secondaryNav) {
+      return (
+        <div className="h-full">
+          {hasSelectedFile ? (
+            <DDAWithHistory apiService={apiService} />
+          ) : (
+            <div className="p-4 h-full">
+              <EmptyState
+                icon={Brain}
+                title="No File Selected"
+                description="Select a file from the sidebar to run DDA analysis"
+              />
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ICA tab
+    if (secondaryNav === "ica") {
+      return (
+        <div className="h-full">
+          {hasSelectedFile ? (
+            <ICAAnalysisPanel apiService={apiService} />
+          ) : (
+            <div className="p-4 h-full">
+              <EmptyState
+                icon={Sparkles}
+                title="No File Selected"
+                description="Select a file from the sidebar to run ICA analysis"
+              />
+            </div>
+          )}
+        </div>
+      );
+    }
+
     return (
-      <div className="h-full">
-        {hasSelectedFile ? (
-          <DDAWithHistory apiService={apiService} />
-        ) : (
-          <div className="p-4 h-full">
-            <EmptyState
-              icon={Brain}
-              title="No File Selected"
-              description="Select a file from the sidebar to run DDA analysis"
-            />
-          </div>
-        )}
-      </div>
+      <ComingSoonPlaceholder
+        feature={secondaryNav || "Feature"}
+        category="Analysis"
+      />
     );
   }
 

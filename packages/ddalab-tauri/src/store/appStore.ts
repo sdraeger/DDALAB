@@ -113,6 +113,22 @@ export interface SyncState {
   lastStatusCheck: number;
 }
 
+export interface ICAState {
+  // Selected channels for ICA analysis (indices)
+  selectedChannels: number[];
+  // Configuration
+  nComponents: number | undefined;
+  maxIterations: number;
+  tolerance: number;
+  centering: boolean;
+  whitening: boolean;
+  // UI state
+  showChannelSelector: boolean;
+  selectedResultId: string | null;
+  // Analysis state (persists across tab switches)
+  isSubmitting: boolean;
+}
+
 export interface UIState {
   // Legacy activeTab for backward compatibility
   activeTab: string;
@@ -204,6 +220,11 @@ export interface AppState {
   // Sync state
   sync: SyncState;
   updateSyncStatus: (status: Partial<SyncState>) => void;
+
+  // ICA state
+  ica: ICAState;
+  updateICAState: (updates: Partial<ICAState>) => void;
+  resetICAChannels: (channels: number[]) => void;
 
   // UI state
   ui: UIState;
@@ -355,6 +376,18 @@ const defaultSyncState: SyncState = {
   isLoading: false,
   error: null,
   lastStatusCheck: Date.now(),
+};
+
+const defaultICAState: ICAState = {
+  selectedChannels: [],
+  nComponents: undefined,
+  maxIterations: 200,
+  tolerance: 0.0001,
+  centering: true,
+  whitening: true,
+  showChannelSelector: false,
+  selectedResultId: null,
+  isSubmitting: false,
 };
 
 const defaultHealthState: HealthState = {
@@ -1732,6 +1765,21 @@ export const useAppStore = create<AppState>()(
       set((state) => {
         Object.assign(state.sync, status);
         state.sync.lastStatusCheck = Date.now();
+      });
+    },
+
+    // ICA state
+    ica: defaultICAState,
+
+    updateICAState: (updates) => {
+      set((state) => {
+        Object.assign(state.ica, updates);
+      });
+    },
+
+    resetICAChannels: (channels) => {
+      set((state) => {
+        state.ica.selectedChannels = channels;
       });
     },
 

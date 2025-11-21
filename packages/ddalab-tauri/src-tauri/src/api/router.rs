@@ -1,9 +1,10 @@
 use crate::api::auth::auth_middleware;
 use crate::api::handlers::{
-    delete_analysis_result, get_analysis_result, get_analysis_status, get_dda_results,
-    get_edf_data, get_edf_info, get_edf_overview, get_file_chunk, get_file_info,
-    get_overview_progress, health, list_analysis_history, list_files, rename_analysis_result,
-    run_dda_analysis, save_analysis_to_history,
+    delete_analysis_result, delete_ica_result, get_analysis_result, get_analysis_status,
+    get_dda_results, get_edf_data, get_edf_info, get_edf_overview, get_file_chunk, get_file_info,
+    get_ica_result, get_ica_results, get_overview_progress, health, list_analysis_history,
+    list_files, reconstruct_without_components, rename_analysis_result, run_dda_analysis,
+    run_ica_analysis, save_analysis_to_history,
 };
 use crate::api::state::ApiState;
 use axum::{
@@ -47,6 +48,12 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
             "/api/dda/history/{analysis_id}/rename",
             put(rename_analysis_result),
         )
+        // ICA routes
+        .route("/api/ica", post(run_ica_analysis))
+        .route("/api/ica/results", get(get_ica_results))
+        .route("/api/ica/results/{analysis_id}", get(get_ica_result))
+        .route("/api/ica/results/{analysis_id}", delete(delete_ica_result))
+        .route("/api/ica/reconstruct", post(reconstruct_without_components))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
