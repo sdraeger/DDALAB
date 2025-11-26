@@ -100,6 +100,7 @@ zeromq = { version = "0.4", default-features = false, features = [
 linfa = "0.8.0"     # Core ML framework
 linfa-ica = "0.8.0" # FastICA implementation
 rustfft = "6.4.1"   # FFT for spectral analysis of components
+tokio-util = "0.7"  # CancellationToken for graceful task cancellation
 
 [dev-dependencies]
 hyper = "1.7.0"
