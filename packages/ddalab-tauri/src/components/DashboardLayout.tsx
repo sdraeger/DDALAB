@@ -318,7 +318,7 @@ export function DashboardLayout() {
                 variant="ghost"
                 size="icon"
                 onClick={handleClose}
-                className="h-6 w-6 text-red-500 hover:text-red-600"
+                className="h-6 w-6 text-red-500 hover:text-red-600 transition-colors"
               >
                 ×
               </Button>

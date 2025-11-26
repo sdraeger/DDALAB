@@ -79,7 +79,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
   return (
     <li>
       <div
-        className={`flex items-start hover:*:translate-x-1 *:transition-all m-0.5 select-none gap-2 ${
+        className={`flex items-start hover:*:translate-x-1 *:transition-all m-0.5 select-none gap-2 transition-colors ${
           sizeClasses.padding
         } rounded-md cursor-pointer hover:bg-gradient-to-r from-secondary to-secondary/10 group border hover:border-secondary ${
           isSelected ? "bg-secondary border-secondary" : "border-border/60"
