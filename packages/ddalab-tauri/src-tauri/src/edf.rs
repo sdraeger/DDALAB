@@ -476,30 +476,32 @@ impl EDFWriter {
         }
 
         // Parallel conversion of physical to digital, then sequential write
-        let digital_data: Vec<Vec<i16>> = physical_data
+        let digital_data: Result<Vec<Vec<i16>>, String> = physical_data
             .par_iter()
             .enumerate()
             .map(|(signal_idx, physical_samples)| {
                 let signal_header = &self.signal_headers[signal_idx];
 
                 if physical_samples.len() != signal_header.num_samples_per_record {
-                    panic!(
+                    return Err(format!(
                         "Signal {} expected {} samples, got {}",
                         signal_idx,
                         signal_header.num_samples_per_record,
                         physical_samples.len()
-                    );
+                    ));
                 }
 
                 let gain = signal_header.gain();
                 let offset = signal_header.offset();
 
-                physical_samples
+                Ok(physical_samples
                     .iter()
                     .map(|&physical| ((physical - offset) / gain).round() as i16)
-                    .collect()
+                    .collect())
             })
             .collect();
+
+        let digital_data = digital_data?;
 
         // Sequential write (I/O bound)
         for digital_samples in digital_data {

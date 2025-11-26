@@ -411,7 +411,12 @@ impl ICAProcessor {
 
     /// Center data by subtracting column means
     fn center_data(data: &Array2<f64>) -> Array2<f64> {
-        let means = data.mean_axis(Axis(0)).unwrap();
+        // mean_axis returns None only if axis is out of bounds, which won't happen here
+        // since we're always using Axis(0) on a 2D array
+        let means = match data.mean_axis(Axis(0)) {
+            Some(m) => m,
+            None => return data.clone(), // Return uncentered data if mean computation fails
+        };
         let mut centered = data.clone();
         for (mut col, &mean) in centered.columns_mut().into_iter().zip(means.iter()) {
             col.mapv_inplace(|x| x - mean);

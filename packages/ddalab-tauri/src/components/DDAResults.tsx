@@ -2170,16 +2170,17 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                           className="w-full relative"
                           style={{ height: `${linePlotHeight}px` }}
                         >
+                          {/* Show skeleton overlay while processing or rendering */}
                           {(isProcessingData || isRenderingLinePlot) && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
-                              <div className="flex flex-col items-center space-y-2">
-                                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                                <p className="text-sm text-muted-foreground">
-                                  {isProcessingData
+                            <div className="absolute inset-0 z-10">
+                              <PlotLoadingSkeleton
+                                height={linePlotHeight}
+                                title={
+                                  isProcessingData
                                     ? "Processing DDA data..."
-                                    : "Rendering line plot..."}
-                                </p>
-                              </div>
+                                    : "Rendering line plot..."
+                                }
+                              />
                             </div>
                           )}
                           <div
@@ -2495,16 +2496,17 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                   className="w-full relative"
                   style={{ height: `${linePlotHeight}px` }}
                 >
+                  {/* Show skeleton overlay while processing or rendering */}
                   {(isProcessingData || isRenderingLinePlot) && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
-                      <div className="flex flex-col items-center space-y-2">
-                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                        <p className="text-sm text-muted-foreground">
-                          {isProcessingData
+                    <div className="absolute inset-0 z-10">
+                      <PlotLoadingSkeleton
+                        height={linePlotHeight}
+                        title={
+                          isProcessingData
                             ? "Processing DDA data..."
-                            : "Rendering line plot..."}
-                        </p>
-                      </div>
+                            : "Rendering line plot..."
+                        }
+                      />
                     </div>
                   )}
                   <div
