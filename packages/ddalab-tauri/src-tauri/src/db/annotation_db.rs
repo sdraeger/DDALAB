@@ -377,6 +377,60 @@ impl AnnotationDatabase {
         Ok(paths)
     }
 
+    /// Get all annotations for all files in a single query (avoids N+1 problem)
+    /// Returns a HashMap where keys are file paths and values are FileAnnotations
+    pub fn get_all_annotations_bulk(&self) -> Result<HashMap<String, FileAnnotations>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT file_path, id, channel, position, label, color, description, visible_in_plots
+             FROM annotations
+             ORDER BY file_path, position",
+        )?;
+
+        // Collect all rows grouped by file_path
+        let mut result: HashMap<String, FileAnnotations> = HashMap::new();
+
+        let rows = stmt.query_map([], |row| {
+            let file_path: String = row.get(0)?;
+            let channel: Option<String> = row.get(2)?;
+            let visible_in_plots_json: Option<String> = row.get(7)?;
+            let visible_in_plots = visible_in_plots_json
+                .and_then(|json| serde_json::from_str(&json).ok())
+                .unwrap_or_else(Vec::new);
+
+            let annotation = Annotation {
+                id: row.get(1)?,
+                position: row.get(3)?,
+                label: row.get(4)?,
+                color: row.get(5)?,
+                description: row.get(6)?,
+                visible_in_plots,
+            };
+            Ok((file_path, channel, annotation))
+        })?;
+
+        for row in rows {
+            let (file_path, channel, annotation) = row?;
+
+            let file_annotations = result.entry(file_path).or_insert_with(|| FileAnnotations {
+                global_annotations: Vec::new(),
+                channel_annotations: HashMap::new(),
+            });
+
+            if let Some(ch) = channel {
+                file_annotations
+                    .channel_annotations
+                    .entry(ch)
+                    .or_insert_with(Vec::new)
+                    .push(annotation);
+            } else {
+                file_annotations.global_annotations.push(annotation);
+            }
+        }
+
+        Ok(result)
+    }
+
     /// Update file hash for all annotations of a specific file (for migration)
     pub fn update_file_hash(&self, file_path: &str, file_hash: &str) -> Result<usize> {
         let updated = self

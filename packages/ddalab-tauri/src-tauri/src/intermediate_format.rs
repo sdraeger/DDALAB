@@ -100,8 +100,13 @@ impl IntermediateData {
         self.channels.iter().find(|c| c.label == label)
     }
 
-    /// Get all channel labels
-    pub fn channel_labels(&self) -> Vec<String> {
+    /// Get all channel labels as references (avoids cloning)
+    pub fn channel_labels(&self) -> Vec<&str> {
+        self.channels.iter().map(|c| c.label.as_str()).collect()
+    }
+
+    /// Get all channel labels as owned Strings (when ownership is needed)
+    pub fn channel_labels_owned(&self) -> Vec<String> {
         self.channels.iter().map(|c| c.label.clone()).collect()
     }
 
@@ -321,7 +326,7 @@ mod tests {
 
         assert_eq!(data.num_channels(), 1);
         assert_eq!(data.num_samples(), 5);
-        assert_eq!(data.channel_labels(), vec!["Fp1"]);
+        assert_eq!(data.channel_labels(), vec!["Fp1"] as Vec<&str>);
     }
 
     #[test]

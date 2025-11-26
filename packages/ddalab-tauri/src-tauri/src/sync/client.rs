@@ -278,7 +278,7 @@ fn handle_broker_message(msg: SyncMessage, pending_requests: &PendingRequests) {
 /// Generate a random share token
 fn generate_share_token() -> String {
     use rand::Rng;
-    let mut rng = rand::thread_rng();
-    let bytes: [u8; 16] = rng.gen();
+    let mut rng = rand::rng();
+    let bytes: [u8; 16] = rng.random();
     URL_SAFE_NO_PAD.encode(bytes)
 }

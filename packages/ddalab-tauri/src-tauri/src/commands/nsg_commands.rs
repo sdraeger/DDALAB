@@ -335,29 +335,17 @@ pub async fn get_nsg_job_stats(
 }
 
 /// Clean up old pending jobs (jobs that failed to submit properly)
+/// Uses a single SQL DELETE query instead of N+1 queries for better performance
 #[tauri::command]
 pub async fn cleanup_pending_nsg_jobs(state: State<'_, AppStateManager>) -> Result<usize, String> {
     let nsg_manager = state
         .get_nsg_manager()
         .ok_or_else(|| "NSG manager not initialized".to_string())?;
 
-    let jobs = nsg_manager
-        .list_jobs()
-        .map_err(|e| format!("Failed to list NSG jobs: {}", e))?;
-
-    let mut deleted_count = 0;
-
-    // Find all jobs that are still in "Pending" state
-    // These are jobs that were created but never successfully submitted
-    for job in jobs {
-        if matches!(job.status, NSGJobStatus::Pending) {
-            log::info!("Cleaning up pending job: {}", job.id);
-            nsg_manager
-                .delete_job(&job.id)
-                .map_err(|e| format!("Failed to delete pending job {}: {}", job.id, e))?;
-            deleted_count += 1;
-        }
-    }
+    // Delete all pending jobs in a single query (avoids N+1 problem)
+    let deleted_count = nsg_manager
+        .delete_pending_jobs()
+        .map_err(|e| format!("Failed to cleanup pending NSG jobs: {}", e))?;
 
     log::info!("Cleaned up {} pending NSG jobs", deleted_count);
     Ok(deleted_count)

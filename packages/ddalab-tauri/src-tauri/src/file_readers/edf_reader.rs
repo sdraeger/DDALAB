@@ -1,13 +1,19 @@
 use super::{parse_edf_datetime, FileMetadata, FileReader, FileReaderError, FileResult};
 use crate::edf::EDFReader as CoreEDFReader;
+use parking_lot::Mutex;
 use rayon::prelude::*;
+use std::collections::HashMap;
 /// EDF (European Data Format) File Reader
 ///
 /// Implementation of FileReader trait for EDF files.
+/// Uses interior mutability (Mutex) to cache the reader and avoid
+/// re-opening the file on every chunk read.
 use std::path::Path;
 
 pub struct EDFFileReader {
-    edf: CoreEDFReader,
+    /// Cached EDF reader wrapped in Mutex for interior mutability.
+    /// This avoids re-opening the file on every read_chunk() call.
+    edf: Mutex<CoreEDFReader>,
     path: String,
 }
 
@@ -17,7 +23,7 @@ impl EDFFileReader {
             .map_err(|e| FileReaderError::ParseError(format!("Failed to open EDF: {}", e)))?;
 
         Ok(Self {
-            edf,
+            edf: Mutex::new(edf),
             path: path.to_string_lossy().to_string(),
         })
     }
@@ -25,14 +31,12 @@ impl EDFFileReader {
 
 impl FileReader for EDFFileReader {
     fn metadata(&self) -> FileResult<FileMetadata> {
-        let header = &self.edf.header;
-        let signal_headers = &self.edf.signal_headers;
+        let edf = self.edf.lock();
+        let header = &edf.header;
+        let signal_headers = &edf.signal_headers;
 
-        // Get channel labels from signal headers
-        let channels: Vec<String> = signal_headers
-            .par_iter()
-            .map(|sh| sh.label.clone())
-            .collect();
+        // Get channel labels from signal headers (sequential - small data set)
+        let channels: Vec<String> = signal_headers.iter().map(|sh| sh.label.clone()).collect();
 
         // Calculate sample rate (assuming all channels have same rate)
         let sample_rate = if !signal_headers.is_empty() {
@@ -61,6 +65,10 @@ impl FileReader for EDFFileReader {
         let start_time = parse_edf_datetime(&header.start_date, &header.start_time);
         log::info!("Parsed start_time: {:?}", start_time);
 
+        // Clone values needed after releasing lock
+        let num_channels = signal_headers.len();
+        drop(edf); // Release lock before file I/O
+
         Ok(FileMetadata {
             file_path: self.path.clone(),
             file_name: Path::new(&self.path)
@@ -70,7 +78,7 @@ impl FileReader for EDFFileReader {
                 .to_string(),
             file_size: std::fs::metadata(&self.path)?.len(),
             sample_rate,
-            num_channels: signal_headers.len(),
+            num_channels,
             num_samples,
             duration,
             channels,
@@ -85,40 +93,42 @@ impl FileReader for EDFFileReader {
         num_samples: usize,
         channels: Option<&[String]>,
     ) -> FileResult<Vec<Vec<f64>>> {
-        let signal_headers = &self.edf.signal_headers;
+        // Use the cached reader - lock provides mutable access
+        let mut edf = self.edf.lock();
+        let signal_headers = &edf.signal_headers;
 
-        // Get all channel labels
-        let all_channels: Vec<String> = signal_headers
-            .par_iter()
-            .map(|sh| sh.label.clone())
+        // Build channel name to index map for O(1) lookups
+        let channel_map: HashMap<&str, usize> = signal_headers
+            .iter()
+            .enumerate()
+            .map(|(i, sh)| (sh.label.as_str(), i))
             .collect();
 
-        // Determine which channels to read
+        // Determine which channels to read using O(1) HashMap lookup
         let channel_indices: Vec<usize> = if let Some(selected) = channels {
             selected
-                .par_iter()
-                .filter_map(|ch| all_channels.iter().position(|c| c == ch))
+                .iter()
+                .filter_map(|ch| channel_map.get(ch.as_str()).copied())
                 .collect()
         } else {
-            (0..all_channels.len()).collect()
+            (0..signal_headers.len()).collect()
         };
 
+        // Guard against empty signal headers
+        if signal_headers.is_empty() {
+            return Ok(Vec::new());
+        }
+
         // Calculate time window for read_signal_window
-        let sample_rate =
-            signal_headers[0].sample_frequency(self.edf.header.duration_of_data_record);
+        let sample_rate = signal_headers[0].sample_frequency(edf.header.duration_of_data_record);
         let start_time_sec = start_sample as f64 / sample_rate;
         let duration_sec = num_samples as f64 / sample_rate;
 
-        // Read data for selected channels (need mutable reference)
-        // Since we can't get mutable reference to self.edf, we need to use a different approach
-        // For now, create a new reader instance
-        let mut edf_reader = CoreEDFReader::new(Path::new(&self.path))
-            .map_err(|e| FileReaderError::ParseError(format!("Failed to open EDF: {}", e)))?;
-
+        // Read data using cached reader (no file re-open!)
         let mut result = Vec::with_capacity(channel_indices.len());
 
         for &ch_idx in &channel_indices {
-            let channel_data = edf_reader
+            let channel_data = edf
                 .read_signal_window(ch_idx, start_time_sec, duration_sec)
                 .map_err(|e| {
                     FileReaderError::ParseError(format!("Failed to read channel {}: {}", ch_idx, e))

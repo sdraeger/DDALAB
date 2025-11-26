@@ -25,9 +25,10 @@ struct SimpleBVHeader {
 
 impl SimpleBVHeader {
     fn parse(vhdr_path: &Path) -> FileResult<Self> {
-        // Read as bytes and convert from Latin-1 to UTF-8 (parallel)
+        // Read as bytes and convert from Latin-1 to UTF-8
+        // Sequential is faster for small header files (< 1MB)
         let bytes = fs::read(vhdr_path)?;
-        let content: String = bytes.par_iter().map(|&b| b as char).collect();
+        let content: String = bytes.iter().map(|&b| b as char).collect();
 
         let mut data_file = String::new();
         let mut marker_file = None;
@@ -116,21 +117,27 @@ impl BrainVisionFileReader {
         );
 
         // Need to convert - create a temporary directory for all files
-        let temp_dir = std::env::temp_dir().join(format!(
-            "bv_utf8_{}",
-            vhdr_path.file_stem().unwrap().to_string_lossy()
-        ));
+        let file_stem = vhdr_path.file_stem().ok_or_else(|| {
+            FileReaderError::ParseError(format!(
+                "Invalid file stem in path: {}",
+                vhdr_path.display()
+            ))
+        })?;
+        let temp_dir =
+            std::env::temp_dir().join(format!("bv_utf8_{}", file_stem.to_string_lossy()));
         fs::create_dir_all(&temp_dir)?;
 
         // Get parent directory
-        let parent_dir = vhdr_path.parent().unwrap();
+        let parent_dir = vhdr_path.parent().ok_or_else(|| {
+            FileReaderError::ParseError(format!("No parent directory for: {}", vhdr_path.display()))
+        })?;
 
         // Helper function to convert text file: Latin-1 to UTF-8, LF to CRLF
         let convert_text_file = |input_path: &Path, output_path: &Path| -> FileResult<()> {
             let bytes = fs::read(input_path)?;
 
-            // Convert from Latin-1 to UTF-8 (parallel)
-            let text: String = bytes.par_iter().map(|&b| b as char).collect();
+            // Convert from Latin-1 to UTF-8 (sequential - faster for small files)
+            let text: String = bytes.iter().map(|&b| b as char).collect();
 
             // Convert LF to CRLF (normalize line endings)
             let text_crlf = text.replace("\r\n", "\n").replace('\n', "\r\n");
@@ -149,7 +156,10 @@ impl BrainVisionFileReader {
         };
 
         // Convert .vhdr file and parse it to find referenced files
-        let temp_vhdr = temp_dir.join(vhdr_path.file_name().unwrap());
+        let vhdr_file_name = vhdr_path.file_name().ok_or_else(|| {
+            FileReaderError::ParseError(format!("No file name in path: {}", vhdr_path.display()))
+        })?;
+        let temp_vhdr = temp_dir.join(vhdr_file_name);
         convert_text_file(vhdr_path, &temp_vhdr)?;
 
         // Parse the header to find DataFile and MarkerFile references
@@ -270,7 +280,9 @@ impl BrainVisionFileReader {
         );
 
         // Get data file path
-        let parent_dir = path.parent().unwrap();
+        let parent_dir = path.parent().ok_or_else(|| {
+            FileReaderError::ParseError(format!("No parent directory for: {}", path.display()))
+        })?;
         let data_file_path = parent_dir.join(&header.data_file);
 
         if !data_file_path.exists() {

@@ -438,7 +438,6 @@ function ComponentTopography({
           paths: (u, seriesIdx, idx0, idx1) => {
             // Draw bars instead of lines
             const data = u.data[seriesIdx];
-            const s = u.series[seriesIdx];
             const xScale = u.scales.x;
             const yScale = u.scales.y;
 
@@ -451,6 +450,9 @@ function ComponentTopography({
               const x = u.data[0][i];
               const y = data[i];
 
+              // Skip if y is null/undefined
+              if (y == null) continue;
+
               const xPos = u.valToPos(x, "x", true);
               const yPos = u.valToPos(y, "y", true);
               const y0Pos = u.valToPos(0, "y", true);
@@ -462,7 +464,8 @@ function ComponentTopography({
               d += `M${xPos - barHalfWidth},${y0Pos} L${xPos - barHalfWidth},${yPos} L${xPos + barHalfWidth},${yPos} L${xPos + barHalfWidth},${y0Pos} Z `;
             }
 
-            return new Path2D(d);
+            const path = new Path2D(d);
+            return { stroke: path, fill: path };
           },
           fill: "rgba(139, 92, 246, 0.3)",
         },
