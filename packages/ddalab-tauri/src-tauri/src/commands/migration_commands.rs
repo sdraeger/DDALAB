@@ -1,9 +1,9 @@
 use crate::state_manager::AppStateManager;
 use crate::utils::file_hash::compute_file_hash;
+use parking_lot::Mutex;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
 use tauri::State;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,7 +75,7 @@ pub async fn migrate_file_hashes(
             // Check if file exists
             if !std::path::Path::new(file_path).exists() {
                 log::warn!("File not found, skipping: {}", file_path);
-                failed_files.lock().unwrap().push(FailedFileReport {
+                failed_files.lock().push(FailedFileReport {
                     file_path: file_path.clone(),
                     error: "File not found".to_string(),
                 });
@@ -87,7 +87,7 @@ pub async fn migrate_file_hashes(
                 Ok(h) => h,
                 Err(e) => {
                     log::warn!("Failed to hash file {}: {}", file_path, e);
-                    failed_files.lock().unwrap().push(FailedFileReport {
+                    failed_files.lock().push(FailedFileReport {
                         file_path: file_path.clone(),
                         error: format!("Failed to compute hash: {}", e),
                     });
@@ -129,7 +129,7 @@ pub async fn migrate_file_hashes(
     // Collect results from parallel processing
     report.hashed_files = hashed_files.load(Ordering::Relaxed);
     report.already_hashed = already_hashed.load(Ordering::Relaxed);
-    report.failed_files = failed_files.into_inner().unwrap();
+    report.failed_files = failed_files.into_inner();
 
     report.duration_ms = start_time.elapsed().as_millis();
 

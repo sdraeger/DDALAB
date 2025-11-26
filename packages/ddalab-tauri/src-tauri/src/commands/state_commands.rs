@@ -363,23 +363,12 @@ pub async fn get_annotations_in_range(
 pub async fn get_all_annotations(
     state_manager: State<'_, AppStateManager>,
 ) -> Result<std::collections::HashMap<String, FileAnnotations>, String> {
-    let annotation_db = state_manager.get_annotation_db();
-
-    // Get all file paths that have annotations
-    let file_paths = annotation_db
-        .get_all_file_paths()
-        .map_err(|e| e.to_string())?;
-
-    // Load annotations for each file
-    let mut all_annotations = std::collections::HashMap::new();
-    for file_path in file_paths {
-        let file_annotations = annotation_db
-            .get_file_annotations(&file_path)
-            .map_err(|e| e.to_string())?;
-        all_annotations.insert(file_path, file_annotations);
-    }
-
-    Ok(all_annotations)
+    // Use bulk query to load all annotations in a single database call
+    // This avoids the N+1 query problem (1 query instead of 1 + N)
+    state_manager
+        .get_annotation_db()
+        .get_all_annotations_bulk()
+        .map_err(|e| e.to_string())
 }
 
 // ============================================================================

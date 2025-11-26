@@ -146,7 +146,7 @@ impl NSGJobManager {
         log::info!(
             "✅ Submitted NSG job: {} -> {}",
             job.id,
-            job.nsg_job_id.as_ref().unwrap()
+            job.nsg_job_id.as_deref().unwrap_or("unknown")
         );
 
         Ok(job)
@@ -260,7 +260,10 @@ impl NSGJobManager {
     pub async fn cancel_job(&self, job_id: &str) -> Result<NSGJob> {
         // Handle external jobs - they're not in the database
         if job_id.starts_with("external_") {
-            let nsg_job_id = job_id.strip_prefix("external_").unwrap();
+            // Safe: we just checked starts_with("external_")
+            let nsg_job_id = job_id
+                .strip_prefix("external_")
+                .context("Invalid external job ID format")?;
             let job_url = format!(
                 "{}/job/{}/{}",
                 "https://nsgr.sdsc.edu:8443/cipresrest/v1",
@@ -328,7 +331,11 @@ impl NSGJobManager {
         // Handle external jobs differently - they're not in the database
         let nsg_job_id = if job_id.starts_with("external_") {
             // Extract NSG job ID by removing the "external_" prefix
-            let nsg_id = job_id.strip_prefix("external_").unwrap().to_string();
+            // Safe: we just checked starts_with("external_")
+            let nsg_id = job_id
+                .strip_prefix("external_")
+                .context("Invalid external job ID format")?
+                .to_string();
             log::info!("📋 External job detected, using NSG job ID: {}", nsg_id);
             nsg_id
         } else {
@@ -669,6 +676,21 @@ impl NSGJobManager {
         log::info!("🗑️  Deleted job: {}", job_id);
 
         Ok(())
+    }
+
+    /// Delete all pending jobs in a single query (avoids N+1 problem)
+    /// Returns the number of jobs deleted
+    pub fn delete_pending_jobs(&self) -> Result<usize> {
+        use crate::db::NSGJobStatus;
+
+        let deleted = self
+            .db
+            .delete_jobs_by_status(&NSGJobStatus::Pending)
+            .context("Failed to delete pending jobs from database")?;
+
+        log::info!("🗑️  Deleted {} pending jobs", deleted);
+
+        Ok(deleted)
     }
 
     pub fn get_active_jobs(&self) -> Result<Vec<NSGJob>> {

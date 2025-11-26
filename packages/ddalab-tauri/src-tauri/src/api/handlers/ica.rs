@@ -13,6 +13,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use uuid::Uuid;
 
+// Re-use TimeRange from DDA module to avoid duplicate definitions
+pub use super::dda::TimeRange;
+
 /// Request body for ICA analysis
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ICARequest {
@@ -20,13 +23,6 @@ pub struct ICARequest {
     pub channels: Option<Vec<usize>>,
     pub time_range: Option<TimeRange>,
     pub parameters: ICAParametersRequest,
-}
-
-/// Time range for analysis
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct TimeRange {
-    pub start: f64,
-    pub end: f64,
 }
 
 /// ICA parameters from frontend

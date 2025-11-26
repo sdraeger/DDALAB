@@ -67,11 +67,20 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   );
 
   // Memoize filtered history to prevent unnecessary re-renders
-  const fileHistory = useMemo(
-    () =>
-      allHistory?.filter((item) => item.file_path === currentFilePath) || [],
-    [allHistory, currentFilePath],
-  );
+  const fileHistory = useMemo(() => {
+    // Normalize path for comparison (handle trailing slashes, backslashes, etc.)
+    const normalizePath = (path: string | undefined | null): string => {
+      if (!path) return "";
+      return path.replace(/\\/g, "/").replace(/\/+$/, "");
+    };
+
+    const normalizedCurrentPath = normalizePath(currentFilePath);
+    return (
+      allHistory?.filter(
+        (item) => normalizePath(item.file_path) === normalizedCurrentPath,
+      ) || []
+    );
+  }, [allHistory, currentFilePath]);
 
   // Fetch full analysis data when a history item is selected
   // TanStack Query will cache this and prevent duplicate requests
