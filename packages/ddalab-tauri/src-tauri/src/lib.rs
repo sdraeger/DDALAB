@@ -12,5 +12,6 @@ pub mod nsg;
 pub mod profiling;
 pub mod streaming; // Real-time data streaming and DDA processing
 pub mod sync;
+pub mod tasks; // Task management with cancellation support
 pub mod text_reader;
 pub mod utils;

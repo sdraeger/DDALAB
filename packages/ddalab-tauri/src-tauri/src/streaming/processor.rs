@@ -334,29 +334,42 @@ impl StreamingDDAProcessor {
             variant_configs: None,
         };
 
-        // Run DDA (blocking operation, but we're in a Rayon thread pool)
-        let dda_result = tokio::runtime::Handle::try_current()
-            .ok()
-            .and_then(|handle| {
-                handle.block_on(async {
-                    self.dda_runner
-                        .run(&request, None, None, Some(&self.channel_names))
-                        .await
-                        .ok()
-                })
-            })
-            .or_else(|| {
-                // Fallback if no tokio runtime (create a temporary one)
-                tokio::runtime::Runtime::new().ok().and_then(|rt| {
+        // Run DDA using oneshot channel to avoid block_on() deadlock in Rayon thread pool
+        // We spawn a task on the tokio runtime and use blocking_recv to wait for the result
+        let dda_runner = Arc::clone(&self.dda_runner);
+        let channel_names = self.channel_names.clone();
+
+        let dda_result = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            // Use oneshot channel to safely bridge async and sync contexts
+            let (tx, rx) = tokio::sync::oneshot::channel();
+
+            handle.spawn(async move {
+                let result = dda_runner
+                    .run(&request, None, None, Some(&channel_names))
+                    .await
+                    .ok();
+                let _ = tx.send(result);
+            });
+
+            // blocking_recv is safe here - we're in a Rayon worker thread, not blocking tokio
+            rx.blocking_recv().ok().flatten()
+        } else {
+            // No runtime available - create a minimal one just for this call
+            // This is a fallback for edge cases
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .ok()
+                .and_then(|rt| {
                     rt.block_on(async {
-                        self.dda_runner
-                            .run(&request, None, None, Some(&self.channel_names))
+                        dda_runner
+                            .run(&request, None, None, Some(&channel_names))
                             .await
                             .ok()
                     })
                 })
-            })
-            .ok_or_else(|| StreamError::DDAProcessing("DDA execution failed".to_string()))?;
+        }
+        .ok_or_else(|| StreamError::DDAProcessing("DDA execution failed".to_string()))?;
 
         // Clean up temp file
         let _ = std::fs::remove_file(&temp_file);

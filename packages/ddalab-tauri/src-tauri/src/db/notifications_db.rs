@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use parking_lot::Mutex;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -77,6 +78,9 @@ impl Notification {
 }
 
 pub struct NotificationsDatabase {
+    /// Using parking_lot::Mutex instead of std::sync::Mutex.
+    /// parking_lot::Mutex doesn't poison on panic, avoiding cascading failures.
+    /// Note: RwLock can't be used because rusqlite::Connection doesn't implement Sync.
     conn: Arc<Mutex<Connection>>,
 }
 
@@ -94,7 +98,7 @@ impl NotificationsDatabase {
     }
 
     fn init_schema(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS notifications (
@@ -130,7 +134,7 @@ impl NotificationsDatabase {
     }
 
     pub fn insert_notification(&self, notification: &Notification) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
 
         conn.execute(
             "INSERT INTO notifications
@@ -157,7 +161,7 @@ impl NotificationsDatabase {
     }
 
     pub fn get_notification(&self, id: &str) -> Result<Option<Notification>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
 
         let mut stmt = conn.prepare(
             "SELECT id, title, message, notification_type, created_at, read, action_type, action_data
@@ -202,7 +206,7 @@ impl NotificationsDatabase {
     }
 
     pub fn list_notifications(&self, limit: usize) -> Result<Vec<Notification>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
 
         let mut stmt = conn.prepare(
             "SELECT id, title, message, notification_type, created_at, read, action_type, action_data
@@ -247,7 +251,7 @@ impl NotificationsDatabase {
     }
 
     pub fn get_unread_count(&self) -> Result<usize> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
 
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM notifications WHERE read = 0",
@@ -259,7 +263,7 @@ impl NotificationsDatabase {
     }
 
     pub fn mark_as_read(&self, id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
 
         conn.execute("UPDATE notifications SET read = 1 WHERE id = ?1", [id])
             .context("Failed to mark notification as read")?;
@@ -268,7 +272,7 @@ impl NotificationsDatabase {
     }
 
     pub fn mark_all_as_read(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
 
         conn.execute("UPDATE notifications SET read = 1", [])
             .context("Failed to mark all notifications as read")?;
@@ -277,7 +281,7 @@ impl NotificationsDatabase {
     }
 
     pub fn delete_notification(&self, id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
 
         conn.execute("DELETE FROM notifications WHERE id = ?1", [id])
             .context("Failed to delete notification")?;
@@ -286,7 +290,7 @@ impl NotificationsDatabase {
     }
 
     pub fn delete_old_notifications(&self, days: i64) -> Result<usize> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
 
         let cutoff_date = Utc::now() - chrono::Duration::days(days);
 

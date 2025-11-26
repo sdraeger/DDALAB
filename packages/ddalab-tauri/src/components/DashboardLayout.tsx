@@ -98,8 +98,16 @@ export function DashboardLayout({
   // Determine which analysis to auto-load (if any)
   // Only enable auto-load if: no current analysis, persistence restored, and history loaded
   // IMPORTANT: Filter history by current file to prevent loading results from different files
+  // Normalize paths for comparison (handle trailing slashes, backslashes, etc.)
+  const normalizePath = (path: string | undefined | null): string => {
+    if (!path) return "";
+    return path.replace(/\\/g, "/").replace(/\/+$/, "");
+  };
+  const normalizedCurrentFilePath = normalizePath(currentFilePath);
   const fileSpecificHistory =
-    historyData?.filter((item) => item.file_path === currentFilePath) || [];
+    historyData?.filter(
+      (item) => normalizePath(item.file_path) === normalizedCurrentFilePath,
+    ) || [];
   const shouldAutoLoad =
     !hasCurrentAnalysis &&
     isPersistenceRestored &&

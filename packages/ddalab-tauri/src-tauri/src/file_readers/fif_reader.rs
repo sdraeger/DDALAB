@@ -952,7 +952,11 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let ascii_path = temp_dir.path().join("test_output.txt");
 
-        let selected: Vec<String> = intermediate.channel_labels().into_iter().take(3).collect();
+        let selected: Vec<String> = intermediate
+            .channel_labels_owned()
+            .into_iter()
+            .take(3)
+            .collect();
         let result = intermediate.to_ascii(&ascii_path, Some(&selected));
         assert!(result.is_ok());
         assert!(ascii_path.exists());

@@ -9,6 +9,10 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// Maximum number of analysis preview entries to keep in memory.
+/// Prevents unbounded memory growth in long-running sessions.
+const MAX_PREVIEW_DATA_ENTRIES: usize = 50;
+
 pub struct AppStateManager {
     ui_state: Arc<RwLock<UIState>>,
     analysis_db: Arc<AnalysisDatabase>,
@@ -322,12 +326,51 @@ impl AppStateManager {
 
     pub fn store_analysis_preview_data(&self, window_id: String, analysis_data: serde_json::Value) {
         let mut preview_data = self.analysis_preview_data.write();
+
+        // Enforce size limit to prevent unbounded memory growth
+        // Remove oldest entries if we're at capacity (simple FIFO eviction)
+        while preview_data.len() >= MAX_PREVIEW_DATA_ENTRIES {
+            // Remove an arbitrary entry (HashMap doesn't preserve order)
+            // In practice this provides bounded memory usage
+            if let Some(key_to_remove) = preview_data.keys().next().cloned() {
+                preview_data.remove(&key_to_remove);
+                log::debug!(
+                    "[STATE_MANAGER] Evicted preview data entry '{}' (limit: {})",
+                    key_to_remove,
+                    MAX_PREVIEW_DATA_ENTRIES
+                );
+            } else {
+                break;
+            }
+        }
+
         preview_data.insert(window_id, analysis_data);
     }
 
     pub fn get_analysis_preview_data(&self, window_id: &str) -> Option<serde_json::Value> {
         let preview_data = self.analysis_preview_data.read();
         preview_data.get(window_id).cloned()
+    }
+
+    /// Remove preview data for a specific window (call when window is closed)
+    pub fn remove_analysis_preview_data(&self, window_id: &str) {
+        let mut preview_data = self.analysis_preview_data.write();
+        if preview_data.remove(window_id).is_some() {
+            log::debug!(
+                "[STATE_MANAGER] Removed preview data for window '{}'",
+                window_id
+            );
+        }
+    }
+
+    /// Clear all preview data (useful for memory cleanup)
+    pub fn clear_all_preview_data(&self) {
+        let mut preview_data = self.analysis_preview_data.write();
+        let count = preview_data.len();
+        preview_data.clear();
+        if count > 0 {
+            log::info!("[STATE_MANAGER] Cleared {} preview data entries", count);
+        }
     }
 
     pub fn get_nsg_manager(&self) -> Option<Arc<NSGJobManager>> {

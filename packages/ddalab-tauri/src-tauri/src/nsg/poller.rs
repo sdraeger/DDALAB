@@ -2,7 +2,7 @@ use super::job_manager::NSGJobManager;
 use anyhow::{Context, Result};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
 
 const DEFAULT_POLL_INTERVAL_SECS: u64 = 300;
 const FAST_POLL_INTERVAL_SECS: u64 = 60;
@@ -12,7 +12,7 @@ pub struct NSGJobPoller {
     job_manager: Arc<NSGJobManager>,
     poll_interval: Duration,
     fast_poll_interval: Duration,
-    is_running: Arc<parking_lot::RwLock<bool>>,
+    cancel_token: CancellationToken,
 }
 
 impl NSGJobPoller {
@@ -21,7 +21,7 @@ impl NSGJobPoller {
             job_manager,
             poll_interval: Duration::from_secs(DEFAULT_POLL_INTERVAL_SECS),
             fast_poll_interval: Duration::from_secs(FAST_POLL_INTERVAL_SECS),
-            is_running: Arc::new(parking_lot::RwLock::new(false)),
+            cancel_token: CancellationToken::new(),
         }
     }
 
@@ -33,6 +33,11 @@ impl NSGJobPoller {
     pub fn with_fast_poll_interval(mut self, seconds: u64) -> Self {
         self.fast_poll_interval = Duration::from_secs(seconds);
         self
+    }
+
+    /// Get the cancellation token for external use
+    pub fn cancellation_token(&self) -> CancellationToken {
+        self.cancel_token.clone()
     }
 
     pub async fn poll_once(&self) -> Result<Vec<String>> {
@@ -52,6 +57,12 @@ impl NSGJobPoller {
         let mut error_count = 0;
 
         for job in active_jobs {
+            // Check for cancellation between job updates
+            if self.cancel_token.is_cancelled() {
+                log::info!("🛑 Polling cancelled mid-iteration");
+                break;
+            }
+
             match self.job_manager.update_job_status(&job.id).await {
                 Ok(updated_job) => {
                     if updated_job.status != job.status {
@@ -75,19 +86,23 @@ impl NSGJobPoller {
                 }
             }
 
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            // Use select! for responsive cancellation during sleep
+            tokio::select! {
+                biased;
+                _ = self.cancel_token.cancelled() => {
+                    log::info!("🛑 Polling cancelled during job delay");
+                    break;
+                }
+                _ = tokio::time::sleep(Duration::from_millis(500)) => {}
+            }
         }
 
         Ok(updated_jobs)
     }
 
     pub fn start_polling(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
-        {
-            let mut is_running = self.is_running.write();
-            *is_running = true;
-        }
-
         let poller = Arc::clone(&self);
+        let cancel_token = self.cancel_token.clone();
 
         tokio::spawn(async move {
             log::info!(
@@ -97,7 +112,12 @@ impl NSGJobPoller {
 
             let mut iteration = 0u64;
 
-            while *poller.is_running.read() {
+            loop {
+                // Check cancellation at start of each iteration
+                if cancel_token.is_cancelled() {
+                    break;
+                }
+
                 iteration += 1;
                 log::debug!("🔄 Polling iteration #{}", iteration);
 
@@ -116,8 +136,8 @@ impl NSGJobPoller {
                     }
                 }
 
-                let should_continue = *poller.is_running.read();
-                if !should_continue {
+                // Check cancellation after polling
+                if cancel_token.is_cancelled() {
                     break;
                 }
 
@@ -154,21 +174,31 @@ impl NSGJobPoller {
                     "💤 Sleeping for {}s until next poll",
                     sleep_duration.as_secs()
                 );
-                sleep(sleep_duration).await;
+
+                // Use select! for responsive cancellation during sleep
+                tokio::select! {
+                    biased;
+                    _ = cancel_token.cancelled() => {
+                        log::info!("🛑 NSG job poller cancelled during sleep");
+                        break;
+                    }
+                    _ = tokio::time::sleep(sleep_duration) => {}
+                }
             }
 
             log::info!("🛑 NSG job poller stopped");
         })
     }
 
+    /// Stop polling - cancels the token immediately
     pub fn stop_polling(&self) {
-        let mut is_running = self.is_running.write();
-        *is_running = false;
+        self.cancel_token.cancel();
         log::info!("🛑 Stopping NSG job poller");
     }
 
+    /// Check if the poller is still running (not cancelled)
     pub fn is_running(&self) -> bool {
-        *self.is_running.read()
+        !self.cancel_token.is_cancelled()
     }
 }
 
@@ -199,5 +229,29 @@ mod tests {
 
         assert_eq!(poller.poll_interval, Duration::from_secs(120));
         assert_eq!(poller.fast_poll_interval, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_cancellation_token() {
+        let job_manager = Arc::new(
+            NSGJobManager::new(
+                crate::nsg::models::NSGCredentials {
+                    username: "test".to_string(),
+                    password: "test".to_string(),
+                    app_key: "test".to_string(),
+                },
+                Arc::new(
+                    crate::db::NSGJobsDatabase::new(&std::path::PathBuf::from(":memory:")).unwrap(),
+                ),
+                std::path::PathBuf::from("/tmp"),
+            )
+            .unwrap(),
+        );
+
+        let poller = NSGJobPoller::new(job_manager);
+        assert!(poller.is_running());
+
+        poller.stop_polling();
+        assert!(!poller.is_running());
     }
 }

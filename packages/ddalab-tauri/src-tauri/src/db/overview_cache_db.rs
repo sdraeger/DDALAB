@@ -32,6 +32,9 @@ pub struct OverviewSegment {
 
 #[derive(Debug)]
 pub struct OverviewCacheDatabase {
+    /// Using parking_lot::Mutex instead of std::sync::Mutex.
+    /// parking_lot::Mutex doesn't poison on panic, avoiding cascading failures.
+    /// Note: RwLock can't be used because rusqlite::Connection doesn't implement Sync.
     conn: Mutex<Connection>,
 }
 
@@ -302,12 +305,12 @@ impl OverviewCacheDatabase {
 
     /// Save segment data
     pub fn save_segment(&self, segment: &OverviewSegment) -> Result<()> {
-        // Parallel serialization of f64 vector to bytes
-        let data_bytes: Vec<u8> = segment
-            .data
-            .par_iter()
-            .flat_map(|&f| f.to_le_bytes())
-            .collect();
+        // Serialize f64 vector to bytes with pre-allocated capacity
+        // Sequential is faster than par_iter for simple byte conversion
+        let mut data_bytes = Vec::with_capacity(segment.data.len() * 8);
+        for &f in &segment.data {
+            data_bytes.extend_from_slice(&f.to_le_bytes());
+        }
 
         self.conn.lock().execute(
             "INSERT OR REPLACE INTO overview_cache_data

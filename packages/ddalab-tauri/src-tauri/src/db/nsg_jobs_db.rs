@@ -482,6 +482,21 @@ impl NSGJobsDatabase {
         Ok(())
     }
 
+    /// Delete all jobs with a specific status in a single query (avoids N+1 problem)
+    /// Returns the number of jobs deleted
+    pub fn delete_jobs_by_status(&self, status: &NSGJobStatus) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+
+        let deleted = conn
+            .execute(
+                "DELETE FROM nsg_jobs WHERE status = ?1",
+                params![status.to_string()],
+            )
+            .context("Failed to delete jobs by status")?;
+
+        Ok(deleted)
+    }
+
     fn parse_status(status_str: &str) -> NSGJobStatus {
         match status_str.to_lowercase().as_str() {
             "pending" => NSGJobStatus::Pending,

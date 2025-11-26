@@ -21,6 +21,8 @@ use crate::streaming::types::{StreamError, StreamResult};
 use async_trait::async_trait;
 use lsl::{ChannelFormat, StreamInfo, StreamInlet};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::task;
 
@@ -52,6 +54,9 @@ pub struct LslStreamSource {
 
     /// Resolved stream info (available after connect)
     stream_info: Option<StreamInfo>,
+
+    /// Stop flag for graceful shutdown of the blocking streaming loop
+    stop_flag: Arc<AtomicBool>,
 }
 
 impl LslStreamSource {
@@ -82,6 +87,7 @@ impl LslStreamSource {
             is_connected: false,
             metadata: None,
             stream_info: None,
+            stop_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -269,6 +275,9 @@ impl StreamSource for LslStreamSource {
             self.connect().await?;
         }
 
+        // Reset stop flag for new session
+        self.stop_flag.store(false, Ordering::Relaxed);
+
         let stream_info = self
             .stream_info
             .as_ref()
@@ -282,11 +291,13 @@ impl StreamSource for LslStreamSource {
 
         let chunk_size = self.chunk_size;
         let use_lsl_timestamps = self.use_lsl_timestamps;
+        let stop_flag = Arc::clone(&self.stop_flag);
 
         // Create inlet and start streaming in blocking task
         task::spawn_blocking(move || {
-            // Create inlet with default buffer size and chunk size
-            let mut inlet = StreamInlet::new(&stream_info, 360, chunk_size, true)
+            // Create inlet with bounded buffer (360 seconds max, chunk_size samples per pull)
+            // This prevents unbounded memory growth if consumer is slow
+            let inlet = StreamInlet::new(&stream_info, 360, chunk_size, true)
                 .map_err(|e| StreamError::Connection(format!("Failed to create inlet: {:?}", e)))?;
 
             log::info!("LSL inlet created, starting data stream");
@@ -296,6 +307,12 @@ impl StreamSource for LslStreamSource {
             let mut timestamp_buffer = vec![0.0f64; chunk_size];
 
             loop {
+                // Check stop flag at start of each iteration for responsive cancellation
+                if stop_flag.load(Ordering::Relaxed) {
+                    log::info!("LSL stream stop signal received");
+                    break;
+                }
+
                 // Pull chunk of samples with timestamps
                 let samples_pulled = inlet
                     .pull_chunk_f32(&mut sample_buffer, Some(&mut timestamp_buffer))
@@ -307,7 +324,11 @@ impl StreamSource for LslStreamSource {
                     })?;
 
                 if samples_pulled == 0 {
-                    // No data available, wait briefly
+                    // No data available, check stop flag and wait briefly
+                    if stop_flag.load(Ordering::Relaxed) {
+                        log::info!("LSL stream stop signal received during idle");
+                        break;
+                    }
                     std::thread::sleep(std::time::Duration::from_millis(1));
                     continue;
                 }
@@ -339,7 +360,7 @@ impl StreamSource for LslStreamSource {
                 };
 
                 // Send chunk (blocking send on runtime)
-                if let Err(_) = sender.blocking_send(chunk) {
+                if sender.blocking_send(chunk).is_err() {
                     log::warn!("LSL stream receiver closed, stopping");
                     break;
                 }
@@ -355,6 +376,8 @@ impl StreamSource for LslStreamSource {
 
     async fn stop(&mut self) -> StreamResult<()> {
         log::info!("Stopping LSL stream");
+        // Signal the blocking loop to stop
+        self.stop_flag.store(true, Ordering::Relaxed);
         self.is_connected = false;
         self.stream_info = None;
         Ok(())

@@ -6,6 +6,9 @@ use std::path::Path;
 
 #[derive(Debug)]
 pub struct AnalysisDatabase {
+    /// Using parking_lot::Mutex instead of std::sync::Mutex.
+    /// parking_lot::Mutex doesn't poison on panic, avoiding cascading failures.
+    /// Note: RwLock can't be used because rusqlite::Connection doesn't implement Sync.
     conn: Mutex<Connection>,
 }
 
@@ -139,10 +142,22 @@ impl AnalysisDatabase {
         Ok(result)
     }
 
+    /// Get analyses for a file with pagination support.
+    /// Use offset for cursor-based pagination to avoid loading all results.
     pub fn get_analyses_by_file(
         &self,
         file_path: &str,
         limit: usize,
+    ) -> Result<Vec<AnalysisResult>> {
+        self.get_analyses_by_file_paginated(file_path, limit, 0)
+    }
+
+    /// Get analyses for a file with full pagination support (limit + offset).
+    pub fn get_analyses_by_file_paginated(
+        &self,
+        file_path: &str,
+        limit: usize,
+        offset: usize,
     ) -> Result<Vec<AnalysisResult>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
@@ -151,11 +166,11 @@ impl AnalysisDatabase {
              FROM analyses
              WHERE file_path = ?1
              ORDER BY timestamp DESC
-             LIMIT ?2",
+             LIMIT ?2 OFFSET ?3",
         )?;
 
         let analyses = stmt
-            .query_map(params![file_path, limit], |row| {
+            .query_map(params![file_path, limit, offset], |row| {
                 let parameters_json: String = row.get(5)?;
                 let plot_data_json: Option<String> = row.get(7)?;
 
@@ -179,6 +194,17 @@ impl AnalysisDatabase {
             .context("Failed to get analyses by file")?;
 
         Ok(analyses)
+    }
+
+    /// Get total count of analyses for a file (useful for pagination UI).
+    pub fn count_analyses_by_file(&self, file_path: &str) -> Result<usize> {
+        let conn = self.conn.lock();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM analyses WHERE file_path = ?1",
+            params![file_path],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
     }
 
     /// Get recent analyses WITHOUT plot_data for fast listing

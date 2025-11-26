@@ -222,7 +222,14 @@ impl StreamSource for ZmqStreamSource {
                     // Parse message as JSON
                     // ZMQ message is Vec<Bytes>, extract the data
                     let frames = msg.into_vec();
-                    let data = frames.first().unwrap();
+                    let data = match frames.first() {
+                        Some(d) => d,
+                        None => {
+                            error_count += 1;
+                            log::warn!("Empty ZMQ message received (no frames)");
+                            continue;
+                        }
+                    };
                     let chunk: DataChunk = match serde_json::from_slice(data) {
                         Ok(c) => c,
                         Err(e) => {
@@ -294,7 +301,14 @@ impl StreamSource for ZmqStreamSource {
                     // Parse message as JSON
                     // ZMQ message is Vec<Bytes>, extract the data
                     let frames = msg.into_vec();
-                    let data = frames.first().unwrap();
+                    let data = match frames.first() {
+                        Some(d) => d,
+                        None => {
+                            error_count += 1;
+                            log::warn!("Empty ZMQ message received (no frames)");
+                            continue;
+                        }
+                    };
                     let chunk: DataChunk = match serde_json::from_slice(data) {
                         Ok(c) => c,
                         Err(e) => {

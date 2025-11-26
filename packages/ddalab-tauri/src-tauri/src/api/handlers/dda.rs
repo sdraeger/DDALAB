@@ -496,7 +496,10 @@ pub async fn run_dda_analysis(
         }
 
         // Use first variant as primary (for backward compatibility)
-        let primary_variant = variant_results.first().unwrap();
+        // Safe: we already checked variant_results.is_empty() above
+        let primary_variant = variant_results
+            .first()
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
         let analysis_id = Uuid::new_v4().to_string();
 
         dda_rs::DDAResult::new(
@@ -731,10 +734,9 @@ pub async fn run_dda_analysis(
 
                 // Add network_motifs if available
                 if let Some(motifs) = network_motifs {
-                    result
-                        .as_object_mut()
-                        .unwrap()
-                        .insert("network_motifs".to_string(), motifs);
+                    if let Some(obj) = result.as_object_mut() {
+                        obj.insert("network_motifs".to_string(), motifs);
+                    }
                 }
 
                 result

@@ -7,6 +7,7 @@
 // - Result buffering
 // - Event emission to frontend
 // - State management
+// - Task cancellation via CancellationToken for graceful shutdown
 
 use crate::streaming::{
     buffer::{CircularBuffer, CircularDataBuffer, OverflowStrategy},
@@ -23,6 +24,7 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock as TokioRwLock;
 use tokio::time::{interval, Duration};
+use tokio_util::sync::CancellationToken;
 
 /// Stream controller configuration
 pub struct StreamControllerConfig {
@@ -74,6 +76,9 @@ pub struct StreamController {
     state: Arc<RwLock<StreamState>>,
     is_running: Arc<AtomicBool>,
     stop_signal: Arc<AtomicBool>,
+
+    // Cancellation token for graceful async cancellation
+    cancel_token: CancellationToken,
 
     // Statistics
     total_chunks_received: Arc<AtomicU64>,
@@ -142,6 +147,7 @@ impl StreamController {
             state: Arc::new(RwLock::new(StreamState::Idle)),
             is_running: Arc::new(AtomicBool::new(false)),
             stop_signal: Arc::new(AtomicBool::new(false)),
+            cancel_token: CancellationToken::new(),
             total_chunks_received: Arc::new(AtomicU64::new(0)),
             total_results_generated: Arc::new(AtomicU64::new(0)),
             start_time: Arc::new(RwLock::new(None)),
@@ -171,6 +177,9 @@ impl StreamController {
         }
 
         log::info!("Starting stream controller: {}", self.id);
+
+        // Create a new cancellation token for this session
+        self.cancel_token = CancellationToken::new();
 
         // Update state
         self.set_state(StreamState::Connecting);
@@ -232,7 +241,10 @@ impl StreamController {
 
         log::info!("Stopping stream controller: {}", self.id);
 
-        // Signal stop
+        // Cancel the token - this will immediately interrupt all waiting tasks
+        self.cancel_token.cancel();
+
+        // Also signal stop for backward compatibility with AtomicBool checks
         self.stop_signal.store(true, Ordering::Relaxed);
 
         // Stop source
@@ -248,6 +260,11 @@ impl StreamController {
         log::info!("Stream controller stopped");
 
         Ok(())
+    }
+
+    /// Get the cancellation token for external cancellation support
+    pub fn cancellation_token(&self) -> CancellationToken {
+        self.cancel_token.clone()
     }
 
     /// Pause the stream (maintains connection)
@@ -279,11 +296,20 @@ impl StreamController {
 
         // Spawn source streaming task
         let source = Arc::clone(&self.source);
+        let cancel_token_source = self.cancel_token.clone();
 
         tokio::spawn(async move {
             let mut source = source.write().await;
-            if let Err(e) = source.start(tx).await {
-                log::error!("Source streaming error: {}", e);
+            // Use select! to allow cancellation during source.start()
+            tokio::select! {
+                result = source.start(tx) => {
+                    if let Err(e) = result {
+                        log::error!("Source streaming error: {}", e);
+                    }
+                }
+                _ = cancel_token_source.cancelled() => {
+                    log::info!("Source streaming cancelled");
+                }
             }
         });
 
@@ -293,31 +319,47 @@ impl StreamController {
         let chunks_received = Arc::clone(&self.total_chunks_received);
         let stream_id = self.id.clone();
         let event_callback = Arc::clone(&self.event_callback);
-        let stop_signal2 = Arc::clone(&self.stop_signal);
+        let cancel_token_receiver = self.cancel_token.clone();
 
         tokio::spawn(async move {
-            while let Some(chunk) = rx.recv().await {
-                if stop_signal2.load(Ordering::Relaxed) {
-                    break;
-                }
+            loop {
+                tokio::select! {
+                    // Check for cancellation first (biased ensures priority)
+                    biased;
 
-                // Add to circular buffer for processing
-                if let Err(_dropped_chunk) = data_buffer.push(chunk.clone()) {
-                    log::warn!("Data buffer full, oldest chunk dropped");
-                }
+                    _ = cancel_token_receiver.cancelled() => {
+                        log::info!("Producer receiver cancelled");
+                        break;
+                    }
 
-                // Add to time window buffer for efficient display
-                time_window.push_data(chunk);
+                    chunk = rx.recv() => {
+                        match chunk {
+                            Some(chunk) => {
+                                // Add to circular buffer for processing
+                                if let Err(_dropped_chunk) = data_buffer.push(chunk.clone()) {
+                                    log::warn!("Data buffer full, oldest chunk dropped");
+                                }
 
-                chunks_received.fetch_add(1, Ordering::Relaxed);
+                                // Add to time window buffer for efficient display
+                                time_window.push_data(chunk);
 
-                // Emit event periodically
-                if chunks_received.load(Ordering::Relaxed) % 10 == 0 {
-                    if let Some(callback) = event_callback.read().as_ref() {
-                        callback(StreamEvent::DataReceived {
-                            stream_id: stream_id.clone(),
-                            chunks_count: chunks_received.load(Ordering::Relaxed) as usize,
-                        });
+                                chunks_received.fetch_add(1, Ordering::Relaxed);
+
+                                // Emit event periodically
+                                if chunks_received.load(Ordering::Relaxed) % 10 == 0 {
+                                    if let Some(callback) = event_callback.read().as_ref() {
+                                        callback(StreamEvent::DataReceived {
+                                            stream_id: stream_id.clone(),
+                                            chunks_count: chunks_received.load(Ordering::Relaxed) as usize,
+                                        });
+                                    }
+                                }
+                            }
+                            None => {
+                                log::info!("Producer channel closed");
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -332,7 +374,6 @@ impl StreamController {
         let result_buffer = Arc::clone(&self.result_buffer);
         let time_window = Arc::clone(&self.time_window);
         let processor = self.processor.as_ref().unwrap().clone();
-        let stop_signal = Arc::clone(&self.stop_signal);
         let results_generated = Arc::clone(&self.total_results_generated);
         let chunks_received = Arc::clone(&self.total_chunks_received);
         let stream_id = self.id.clone();
@@ -340,102 +381,109 @@ impl StreamController {
         let batch_size = self.config.processing_batch_size;
         let interval_ms = self.config.processing_interval_ms;
         let start_time = Arc::clone(&self.start_time);
+        let cancel_token = self.cancel_token.clone();
 
         tokio::spawn(async move {
             let mut tick = interval(Duration::from_millis(interval_ms));
             let mut last_stats_emit = std::time::Instant::now();
 
             loop {
-                tick.tick().await;
+                // Use select! for responsive cancellation
+                tokio::select! {
+                    biased;
 
-                if stop_signal.load(Ordering::Relaxed) {
-                    break;
-                }
-
-                // Emit stats every 500ms
-                if last_stats_emit.elapsed().as_millis() >= 500 {
-                    if let Some(callback) = event_callback.read().as_ref() {
-                        let elapsed_secs = start_time
-                            .read()
-                            .as_ref()
-                            .map(|t| t.elapsed().as_secs_f64())
-                            .unwrap_or(0.0);
-
-                        let total_chunks = chunks_received.load(Ordering::Relaxed);
-                        let total_samples = total_chunks * 1000; // Rough estimate
-                        let data_rate = if elapsed_secs > 0.0 {
-                            total_samples as f64 / elapsed_secs
-                        } else {
-                            0.0
-                        };
-
-                        callback(StreamEvent::StatsUpdate {
-                            stream_id: stream_id.clone(),
-                            stats: StreamStats {
-                                total_chunks_received: total_chunks,
-                                total_samples_received: total_samples,
-                                total_results_generated: results_generated.load(Ordering::Relaxed),
-                                total_dropped_chunks: 0,
-                                current_buffer_size: data_buffer.len(),
-                                peak_buffer_size: 0,
-                                avg_processing_time_ms: 0.0,
-                                uptime_seconds: Some(elapsed_secs),
-                            },
-                        });
+                    _ = cancel_token.cancelled() => {
+                        log::info!("Stream consumer task cancelled");
+                        break;
                     }
-                    last_stats_emit = std::time::Instant::now();
-                }
 
-                // Drain chunks from buffer
-                let chunks = data_buffer.drain(batch_size);
+                    _ = tick.tick() => {
+                        // Emit stats every 500ms
+                        if last_stats_emit.elapsed().as_millis() >= 500 {
+                            if let Some(callback) = event_callback.read().as_ref() {
+                                let elapsed_secs = start_time
+                                    .read()
+                                    .as_ref()
+                                    .map(|t| t.elapsed().as_secs_f64())
+                                    .unwrap_or(0.0);
 
-                if chunks.is_empty() {
-                    continue;
-                }
+                                let total_chunks = chunks_received.load(Ordering::Relaxed);
+                                let total_samples = total_chunks * 1000; // Rough estimate
+                                let _data_rate = if elapsed_secs > 0.0 {
+                                    total_samples as f64 / elapsed_secs
+                                } else {
+                                    0.0
+                                };
 
-                log::debug!("Processing {} chunks", chunks.len());
-
-                // Process with DDA (in blocking task to avoid blocking async executor)
-                let processor_clone = processor.clone();
-                let process_result =
-                    tokio::task::spawn_blocking(move || processor_clone.process_chunks(&chunks))
-                        .await;
-
-                match process_result {
-                    Ok(Ok(results)) => {
-                        let results_count = results.len();
-
-                        // Add results to buffers
-                        for result in results {
-                            // Add to circular buffer
-                            result_buffer.push(result.clone()).ok();
-                            // Add to time window buffer for efficient display
-                            time_window.push_result(result);
+                                callback(StreamEvent::StatsUpdate {
+                                    stream_id: stream_id.clone(),
+                                    stats: StreamStats {
+                                        total_chunks_received: total_chunks,
+                                        total_samples_received: total_samples,
+                                        total_results_generated: results_generated.load(Ordering::Relaxed),
+                                        total_dropped_chunks: 0,
+                                        current_buffer_size: data_buffer.len(),
+                                        peak_buffer_size: 0,
+                                        avg_processing_time_ms: 0.0,
+                                        uptime_seconds: Some(elapsed_secs),
+                                    },
+                                });
+                            }
+                            last_stats_emit = std::time::Instant::now();
                         }
 
-                        results_generated.fetch_add(results_count as u64, Ordering::Relaxed);
+                        // Drain chunks from buffer
+                        let chunks = data_buffer.drain(batch_size);
 
-                        // Emit event
-                        if let Some(callback) = event_callback.read().as_ref() {
-                            callback(StreamEvent::ResultsReady {
-                                stream_id: stream_id.clone(),
-                                results_count,
-                            });
+                        if chunks.is_empty() {
+                            continue;
                         }
 
-                        log::debug!("Generated {} DDA results", results_count);
-                    }
-                    Ok(Err(e)) => {
-                        log::error!("DDA processing error: {}", e);
-                        if let Some(callback) = event_callback.read().as_ref() {
-                            callback(StreamEvent::Error {
-                                stream_id: stream_id.clone(),
-                                error: e.to_string(),
-                            });
+                        log::debug!("Processing {} chunks", chunks.len());
+
+                        // Process with DDA (in blocking task to avoid blocking async executor)
+                        let processor_clone = processor.clone();
+                        let process_result =
+                            tokio::task::spawn_blocking(move || processor_clone.process_chunks(&chunks))
+                                .await;
+
+                        match process_result {
+                            Ok(Ok(results)) => {
+                                let results_count = results.len();
+
+                                // Add results to buffers
+                                for result in results {
+                                    // Add to circular buffer
+                                    result_buffer.push(result.clone()).ok();
+                                    // Add to time window buffer for efficient display
+                                    time_window.push_result(result);
+                                }
+
+                                results_generated.fetch_add(results_count as u64, Ordering::Relaxed);
+
+                                // Emit event
+                                if let Some(callback) = event_callback.read().as_ref() {
+                                    callback(StreamEvent::ResultsReady {
+                                        stream_id: stream_id.clone(),
+                                        results_count,
+                                    });
+                                }
+
+                                log::debug!("Generated {} DDA results", results_count);
+                            }
+                            Ok(Err(e)) => {
+                                log::error!("DDA processing error: {}", e);
+                                if let Some(callback) = event_callback.read().as_ref() {
+                                    callback(StreamEvent::Error {
+                                        stream_id: stream_id.clone(),
+                                        error: e.to_string(),
+                                    });
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Task join error: {}", e);
+                            }
                         }
-                    }
-                    Err(e) => {
-                        log::error!("Task join error: {}", e);
                     }
                 }
             }
@@ -520,7 +568,8 @@ impl StreamController {
 
 impl Drop for StreamController {
     fn drop(&mut self) {
-        // Ensure stream is stopped on drop
+        // Ensure stream is stopped on drop - cancel token triggers immediate shutdown
+        self.cancel_token.cancel();
         self.stop_signal.store(true, Ordering::Relaxed);
         log::info!("StreamController {} dropped", self.id);
     }
