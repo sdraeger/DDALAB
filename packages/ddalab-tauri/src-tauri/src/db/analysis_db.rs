@@ -153,16 +153,21 @@ impl AnalysisDatabase {
     }
 
     /// Get analyses for a file with full pagination support (limit + offset).
+    /// NOTE: Does NOT load plot_data for performance - use get_analysis() for full data.
     pub fn get_analyses_by_file_paginated(
         &self,
         file_path: &str,
         limit: usize,
         offset: usize,
     ) -> Result<Vec<AnalysisResult>> {
+        let start_time = std::time::Instant::now();
         let conn = self.conn.lock();
+
+        // PERFORMANCE FIX: Don't fetch plot_data for list views - it can be 10MB+ per row
+        // Use get_analysis() to fetch full data when user clicks a specific analysis
         let mut stmt = conn.prepare(
             "SELECT id, file_path, timestamp, variant_name, variant_display_name,
-                    parameters, chunk_position, plot_data, name
+                    parameters, chunk_position, name
              FROM analyses
              WHERE file_path = ?1
              ORDER BY timestamp DESC
@@ -172,7 +177,6 @@ impl AnalysisDatabase {
         let analyses = stmt
             .query_map(params![file_path, limit, offset], |row| {
                 let parameters_json: String = row.get(5)?;
-                let plot_data_json: Option<String> = row.get(7)?;
 
                 Ok(AnalysisResult {
                     id: row.get(0)?,
@@ -183,15 +187,19 @@ impl AnalysisDatabase {
                     parameters: serde_json::from_str(&parameters_json)
                         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
                     chunk_position: row.get(6)?,
-                    plot_data: plot_data_json
-                        .map(|s| serde_json::from_str(&s))
-                        .transpose()
-                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                    name: row.get(8)?,
+                    plot_data: None, // Don't load plot_data for list view - too large
+                    name: row.get(7)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()
             .context("Failed to get analyses by file")?;
+
+        let elapsed = start_time.elapsed();
+        log::info!(
+            "✅ get_analyses_by_file_paginated fetched {} analyses in {:.2}ms (no plot_data)",
+            analyses.len(),
+            elapsed.as_millis()
+        );
 
         Ok(analyses)
     }

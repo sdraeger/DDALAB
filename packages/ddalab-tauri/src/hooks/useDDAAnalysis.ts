@@ -76,12 +76,39 @@ export function useSubmitDDAAnalysis(apiService: ApiService) {
       // Unlock the config tab on error as well
       useAppStore.getState().setDDARunning(false);
 
+      // Create a user-friendly error message
+      const errorMessage = error.message || "";
+      let userMessage = "Analysis failed. Please try again.";
+
+      if (
+        errorMessage.includes("network") ||
+        errorMessage.includes("fetch") ||
+        errorMessage.includes("ECONNREFUSED")
+      ) {
+        userMessage =
+          "Network connection issue. Please check your connection and try again.";
+      } else if (
+        errorMessage.includes("timeout") ||
+        errorMessage.includes("timed out")
+      ) {
+        userMessage =
+          "Analysis timed out. Try with fewer channels or a shorter time range.";
+      } else if (
+        errorMessage.includes("500") ||
+        errorMessage.includes("server")
+      ) {
+        userMessage = "Server error. Please try again in a moment.";
+      } else if (errorMessage.length > 0 && errorMessage.length < 100) {
+        // Use the original message if it's short and readable
+        userMessage = errorMessage;
+      }
+
       // Send native notification for error
       if (TauriService.isTauri()) {
         try {
           await TauriService.createNotification(
             "DDA Analysis Failed",
-            error.message || "An error occurred during analysis",
+            userMessage,
             NotificationType.Error,
           );
         } catch (err) {

@@ -172,29 +172,25 @@ export const FileTreeInput: React.FC<FileTreeInputProps> = ({
     path?: string,
     node?: FileTreeNode,
   ) => {
-    setState((prev) => {
-      const newState =
-        type === "toggle"
-          ? {
-              ...prev,
-              expanded: prev.expanded.includes(id)
-                ? prev.expanded.filter((i) => i !== id)
-                : [...prev.expanded, id],
-            }
-          : {
-              ...prev,
-              selected: id,
-            };
-
-      if (type === "select") {
-        onChange?.({
-          id: newState.selected,
-          path: path || null,
-          node: node || null,
-        });
-      }
-      return newState;
-    });
+    if (type === "toggle") {
+      setState((prev) => ({
+        ...prev,
+        expanded: prev.expanded.includes(id)
+          ? prev.expanded.filter((i) => i !== id)
+          : [...prev.expanded, id],
+      }));
+    } else if (type === "select") {
+      setState((prev) => ({
+        ...prev,
+        selected: id,
+      }));
+      // Call onChange outside of setState to avoid updating parent during render
+      onChange?.({
+        id,
+        path: path || null,
+        node: node || null,
+      });
+    }
   };
 
   return (

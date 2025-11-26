@@ -6,6 +6,7 @@ import {
   PrimaryNavTab,
   SecondaryNavTab,
 } from "@/types/navigation";
+import { RegisteredItemsSearchProvider } from "./searchRegistry";
 
 export class NavigationSearchProvider implements SearchProvider {
   name = "Navigation";
@@ -929,18 +930,407 @@ export class AnnotationSearchProvider implements SearchProvider {
   }
 }
 
+// === NSG (Neuroscience Gateway) Jobs ===
+
+export class NSGJobSearchProvider implements SearchProvider {
+  name = "NSGJobs";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    // NSG navigation keywords
+    const nsgKeywords = [
+      "nsg",
+      "gateway",
+      "neuroscience",
+      "hpc",
+      "high performance",
+      "computing",
+      "cluster",
+      "job",
+      "submit",
+    ];
+
+    const matchesNSG = nsgKeywords.some((kw) => kw.includes(lowerQuery));
+
+    if (matchesNSG) {
+      results.push({
+        id: "nav-nsg-jobs",
+        type: "navigation",
+        title: "NSG Job Manager",
+        description: "View and manage Neuroscience Gateway jobs",
+        category: "NSG",
+        icon: "Cloud",
+        keywords: nsgKeywords,
+        action: () => {
+          useAppStore.getState().setPrimaryNav("manage");
+          useAppStore.getState().setSecondaryNav("jobs");
+        },
+      });
+
+      results.push({
+        id: "action-submit-nsg",
+        type: "action",
+        title: "Submit NSG Job",
+        subtitle: "Cloud Computing",
+        description: "Submit a new job to the Neuroscience Gateway",
+        category: "NSG",
+        icon: "Upload",
+        keywords: ["submit", "upload", "nsg", "job", "hpc"],
+        action: () => {
+          useAppStore.getState().setPrimaryNav("manage");
+          useAppStore.getState().setSecondaryNav("jobs");
+        },
+      });
+    }
+
+    return results;
+  }
+}
+
+// === ICA Analysis ===
+
+export class ICASearchProvider implements SearchProvider {
+  name = "ICA";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    const icaKeywords = [
+      "ica",
+      "independent component",
+      "component analysis",
+      "artifact",
+      "decomposition",
+      "fastica",
+      "source separation",
+    ];
+
+    const matchesICA = icaKeywords.some((kw) => kw.includes(lowerQuery));
+
+    if (matchesICA) {
+      results.push({
+        id: "nav-ica-analysis",
+        type: "navigation",
+        title: "ICA Analysis",
+        description: "Independent Component Analysis for artifact removal",
+        category: "Analysis",
+        icon: "Brain",
+        keywords: icaKeywords,
+        action: () => {
+          useAppStore.getState().setPrimaryNav("analyze");
+          useAppStore.getState().setSecondaryNav("ica");
+        },
+      });
+
+      results.push({
+        id: "action-run-ica",
+        type: "action",
+        title: "Run ICA",
+        description: "Start Independent Component Analysis on current file",
+        category: "Actions",
+        icon: "Play",
+        keywords: ["run", "start", ...icaKeywords],
+        action: () => {
+          useAppStore.getState().setPrimaryNav("analyze");
+          useAppStore.getState().setSecondaryNav("ica");
+        },
+      });
+    }
+
+    return results;
+  }
+}
+
+// === Data Sources (OpenNeuro, BIDS) ===
+
+export class DataSourceSearchProvider implements SearchProvider {
+  name = "DataSources";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    // OpenNeuro
+    if (
+      "openneuro".includes(lowerQuery) ||
+      "nemar".includes(lowerQuery) ||
+      "dataset".includes(lowerQuery) ||
+      "download".includes(lowerQuery)
+    ) {
+      results.push({
+        id: "nav-openneuro",
+        type: "navigation",
+        title: "OpenNeuro Browser",
+        description: "Browse and download public EEG datasets from OpenNeuro",
+        category: "Data Sources",
+        icon: "FolderOpen",
+        keywords: [
+          "openneuro",
+          "nemar",
+          "dataset",
+          "download",
+          "public",
+          "eeg",
+        ],
+        action: () => {
+          useAppStore.getState().setPrimaryNav("manage");
+          useAppStore.getState().setSecondaryNav("data-sources");
+        },
+      });
+    }
+
+    // BIDS - navigates to data-sources tab
+    if ("bids".includes(lowerQuery) || "brain imaging".includes(lowerQuery)) {
+      results.push({
+        id: "nav-bids",
+        type: "navigation",
+        title: "BIDS Browser",
+        description: "Browse BIDS-formatted datasets",
+        category: "Data Sources",
+        icon: "FolderOpen",
+        keywords: ["bids", "brain imaging", "dataset", "structure"],
+        action: () => {
+          useAppStore.getState().setPrimaryNav("manage");
+          useAppStore.getState().setSecondaryNav("data-sources");
+        },
+      });
+    }
+
+    return results;
+  }
+}
+
+// === Quick Actions ===
+
+export class QuickActionsSearchProvider implements SearchProvider {
+  name = "QuickActions";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    const quickActions = [
+      {
+        id: "export-results",
+        title: "Export Results",
+        description: "Export analysis results to CSV or JSON",
+        keywords: ["export", "save", "download", "results", "csv", "json"],
+        action: () => {
+          useAppStore.getState().setPrimaryNav("analyze");
+        },
+      },
+      {
+        id: "export-plot",
+        title: "Export Plot",
+        description: "Export current plot as PNG, SVG, or PDF",
+        keywords: ["export", "plot", "image", "png", "svg", "pdf", "figure"],
+        action: () => {
+          useAppStore.getState().setPrimaryNav("analyze");
+        },
+      },
+      {
+        id: "clear-cache",
+        title: "Clear Cache",
+        description: "Clear application cache and temporary data",
+        keywords: ["clear", "cache", "reset", "clean", "temporary"],
+        action: () => {
+          useAppStore.getState().setPrimaryNav("manage");
+          useAppStore.getState().setSecondaryNav("settings");
+        },
+      },
+      {
+        id: "view-logs",
+        title: "View Application Logs",
+        description: "Open debug logs and diagnostics",
+        keywords: ["logs", "debug", "diagnostics", "errors", "troubleshoot"],
+        action: () => {
+          useAppStore.getState().setPrimaryNav("manage");
+          useAppStore.getState().setSecondaryNav("settings");
+        },
+      },
+      {
+        id: "check-updates",
+        title: "Check for Updates",
+        description: "Check if a newer version of DDALAB is available",
+        keywords: ["update", "upgrade", "version", "new", "latest"],
+        action: () => {
+          useAppStore.getState().setPrimaryNav("manage");
+          useAppStore.getState().setSecondaryNav("settings");
+        },
+      },
+      {
+        id: "network-motifs",
+        title: "Network Motifs",
+        description: "View network motif analysis from DDA results",
+        keywords: ["network", "motifs", "graph", "connectivity", "patterns"],
+        action: () => {
+          useAppStore.getState().setPrimaryNav("analyze");
+        },
+      },
+      {
+        id: "time-series-view",
+        title: "Time Series Viewer",
+        description: "View and explore time series data from current file",
+        keywords: ["time", "series", "view", "plot", "signal", "waveform"],
+        action: () => {
+          useAppStore.getState().setPrimaryNav("explore");
+          useAppStore.getState().setSecondaryNav("timeseries");
+        },
+      },
+      {
+        id: "channel-selection",
+        title: "Select Channels",
+        description: "Choose which channels to analyze",
+        keywords: ["channel", "select", "electrode", "choose"],
+        action: () => {
+          useAppStore.getState().setPrimaryNav("analyze");
+        },
+      },
+    ];
+
+    quickActions.forEach((action) => {
+      const matchesTitle = action.title.toLowerCase().includes(lowerQuery);
+      const matchesDescription = action.description
+        .toLowerCase()
+        .includes(lowerQuery);
+      const matchesKeywords = action.keywords.some((kw) =>
+        kw.includes(lowerQuery),
+      );
+
+      if (matchesTitle || matchesDescription || matchesKeywords) {
+        results.push({
+          id: `quick-${action.id}`,
+          type: "action",
+          title: action.title,
+          description: action.description,
+          category: "Quick Actions",
+          icon: "Play",
+          keywords: action.keywords,
+          action: action.action,
+        });
+      }
+    });
+
+    return results;
+  }
+}
+
+// === Help & Documentation ===
+
+export class HelpSearchProvider implements SearchProvider {
+  name = "Help";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    const helpTopics = [
+      {
+        id: "help-dda",
+        title: "What is DDA?",
+        description: "Learn about Delay Differential Analysis",
+        keywords: [
+          "help",
+          "dda",
+          "what",
+          "learn",
+          "about",
+          "delay differential",
+        ],
+      },
+      {
+        id: "help-variants",
+        title: "DDA Variants Explained",
+        description: "Understand ST-DDA, CT-DDA, CD-DDA, and other variants",
+        keywords: [
+          "help",
+          "variant",
+          "st",
+          "ct",
+          "cd",
+          "de",
+          "sy",
+          "explained",
+        ],
+      },
+      {
+        id: "help-parameters",
+        title: "Parameter Selection Guide",
+        description:
+          "How to choose window length, scale range, and other parameters",
+        keywords: ["help", "parameter", "window", "scale", "guide", "choose"],
+      },
+      {
+        id: "help-interpretation",
+        title: "Interpreting Results",
+        description: "How to interpret DDA matrices and exponents",
+        keywords: [
+          "help",
+          "interpret",
+          "results",
+          "matrix",
+          "exponent",
+          "understand",
+        ],
+      },
+      {
+        id: "help-file-formats",
+        title: "Supported File Formats",
+        description: "EDF, BrainVision, XDF, and other supported formats",
+        keywords: ["help", "format", "edf", "file", "support", "import"],
+      },
+    ];
+
+    helpTopics.forEach((topic) => {
+      const matchesTitle = topic.title.toLowerCase().includes(lowerQuery);
+      const matchesDescription = topic.description
+        .toLowerCase()
+        .includes(lowerQuery);
+      const matchesKeywords = topic.keywords.some((kw) =>
+        kw.includes(lowerQuery),
+      );
+
+      if (matchesTitle || matchesDescription || matchesKeywords) {
+        results.push({
+          id: topic.id,
+          type: "action",
+          title: topic.title,
+          description: topic.description,
+          category: "Help & Documentation",
+          icon: "Home",
+          keywords: topic.keywords,
+          action: () => {
+            // Could open help modal or navigate to docs
+            console.log(`Help topic: ${topic.id}`);
+          },
+        });
+      }
+    });
+
+    return results;
+  }
+}
+
 export function getAllSearchProviders(): SearchProvider[] {
   return [
+    // Dynamically registered items (highest priority - from components)
+    new RegisteredItemsSearchProvider(),
+
     // Core navigation
     new NavigationSearchProvider(),
     new SettingsSearchProvider(),
     new ActionSearchProvider(),
+    new QuickActionsSearchProvider(),
 
     // File & Data Management
     new FileSearchProvider(),
     new FileHistorySearchProvider(),
     new FileMetadataSearchProvider(),
     new FileFormatSearchProvider(),
+    new DataSourceSearchProvider(),
 
     // Channels
     new ChannelSearchProvider(),
@@ -951,11 +1341,18 @@ export function getAllSearchProviders(): SearchProvider[] {
     new AnalysisParametersSearchProvider(),
     new DelayPresetSearchProvider(),
     new AnalysisStatusSearchProvider(),
+    new ICASearchProvider(),
+
+    // NSG & Cloud
+    new NSGJobSearchProvider(),
 
     // Streaming
     new StreamSessionSearchProvider(),
 
     // Annotations
     new AnnotationSearchProvider(),
+
+    // Help
+    new HelpSearchProvider(),
   ];
 }

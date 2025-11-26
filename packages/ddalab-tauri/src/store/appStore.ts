@@ -60,6 +60,8 @@ export interface FileManagerState {
   showHidden: boolean;
   // For state restoration - file path to re-select after restart
   pendingFileSelection: string | null;
+  // For "reveal in file browser" - temporarily highlights a file
+  highlightedFilePath: string | null;
 }
 
 export interface PlotState {
@@ -187,6 +189,10 @@ export interface AppState {
   setTimeWindow: (window: { start: number; end: number }) => void;
   updateFileManagerState: (updates: Partial<FileManagerState>) => void;
   clearPendingFileSelection: () => void;
+  /** Navigate file browser to show the file's directory and highlight it */
+  navigateToFile: (filePath: string) => void;
+  /** Clear the highlighted file */
+  clearHighlightedFile: () => void;
 
   // Plotting
   plot: PlotState;
@@ -342,6 +348,7 @@ const defaultFileManagerState: FileManagerState = {
   sortOrder: "asc",
   showHidden: false,
   pendingFileSelection: null,
+  highlightedFilePath: null,
 };
 
 const defaultPlotState: PlotState = {
@@ -1311,6 +1318,59 @@ export const useAppStore = create<AppState>()(
       // OPTIMIZED: Using Immer - direct mutation syntax
       set((state) => {
         state.fileManager.pendingFileSelection = null;
+      });
+    },
+
+    navigateToFile: (filePath: string) => {
+      const { fileManager } = get();
+      const dataDir = fileManager.dataDirectoryPath;
+
+      if (!filePath || !dataDir) {
+        console.warn(
+          "[STORE] Cannot navigate to file - missing path or data directory",
+        );
+        return;
+      }
+
+      // Check if filePath is under the data directory
+      if (!filePath.startsWith(dataDir)) {
+        console.warn("[STORE] File is not under data directory:", filePath);
+        return;
+      }
+
+      // Get the directory containing the file (remove filename)
+      const lastSlash = filePath.lastIndexOf("/");
+      const fileDir =
+        lastSlash > 0 ? filePath.substring(0, lastSlash) : filePath;
+
+      // Calculate the relative path from data directory
+      const relativePath = fileDir.substring(dataDir.length);
+      // Split into path segments, filtering out empty strings
+      const pathSegments = relativePath.split("/").filter(Boolean);
+
+      console.log("[STORE] Navigating to file:", {
+        filePath,
+        dataDir,
+        fileDir,
+        relativePath,
+        pathSegments,
+      });
+
+      // Update state: set current path and highlight the file
+      set((state) => {
+        state.fileManager.currentPath = pathSegments;
+        state.fileManager.highlightedFilePath = filePath;
+      });
+
+      // Auto-clear the highlight after 3 seconds
+      setTimeout(() => {
+        get().clearHighlightedFile();
+      }, 3000);
+    },
+
+    clearHighlightedFile: () => {
+      set((state) => {
+        state.fileManager.highlightedFilePath = null;
       });
     },
 

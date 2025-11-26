@@ -1,4 +1,4 @@
-import axios, { AxiosInstance } from "axios";
+import axios, { AxiosInstance, AxiosError } from "axios";
 import {
   EDFFileInfo,
   ChunkData,
@@ -14,6 +14,75 @@ import {
   ReconstructResponse,
 } from "@/types/ica";
 import { getChunkCache } from "./chunkCache";
+
+/**
+ * Check if an error is retryable (network issues, timeouts, 5xx errors)
+ */
+function isRetryableError(error: unknown): boolean {
+  if (axios.isAxiosError(error)) {
+    const axiosError = error as AxiosError;
+    // Network errors (no response)
+    if (!axiosError.response) {
+      return true;
+    }
+    // Server errors (5xx)
+    const status = axiosError.response.status;
+    if (status >= 500 && status < 600) {
+      return true;
+    }
+    // Rate limiting
+    if (status === 429) {
+      return true;
+    }
+  }
+  // Check error message for common retryable patterns
+  const message =
+    error instanceof Error ? error.message.toLowerCase() : String(error);
+  return (
+    message.includes("network") ||
+    message.includes("timeout") ||
+    message.includes("econnreset") ||
+    message.includes("econnrefused")
+  );
+}
+
+/**
+ * Execute a function with retry logic for network operations
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  options: {
+    maxRetries?: number;
+    baseDelay?: number;
+    context?: string;
+  } = {},
+): Promise<T> {
+  const { maxRetries = 3, baseDelay = 1000, context = "API call" } = options;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+
+      // Don't retry if not a retryable error or last attempt
+      if (attempt >= maxRetries || !isRetryableError(error)) {
+        throw error;
+      }
+
+      // Calculate delay with exponential backoff
+      const delay = Math.min(baseDelay * Math.pow(2, attempt), 10000);
+      console.log(
+        `[${context}] Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms`,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
 
 export class ApiService {
   private client: AxiosInstance;
@@ -73,8 +142,13 @@ export class ApiService {
 
   // Health check
   async checkHealth(): Promise<HealthResponse> {
-    const response = await this.client.get<HealthResponse>("/api/health");
-    return response.data;
+    return withRetry(
+      async () => {
+        const response = await this.client.get<HealthResponse>("/api/health");
+        return response.data;
+      },
+      { maxRetries: 3, context: "Health check" },
+    );
   }
 
   // File management
@@ -118,63 +192,65 @@ export class ApiService {
   }
 
   async getFileInfo(filePath: string): Promise<EDFFileInfo> {
-    try {
-      // Clear cache for this file when loading new file info
-      this.chunkCache.clearFile(filePath);
+    // Clear cache for this file when loading new file info
+    this.chunkCache.clearFile(filePath);
 
-      // Get EDF-specific metadata from the correct endpoint
-      const edfResponse = await this.client.get(`/api/edf/info`, {
-        params: {
-          file_path: filePath,
-        },
-      });
-
-      console.log("Raw EDF response:", edfResponse.data);
-
-      // Get file size from files list endpoint
-      let fileSize = 0;
-      try {
-        const directory = filePath.substring(0, filePath.lastIndexOf("/"));
-        const fileName = filePath.split("/").pop() || filePath;
-
-        const filesResponse = await this.client.get(`/api/files/list`, {
+    return withRetry(
+      async () => {
+        // Get EDF-specific metadata from the correct endpoint
+        const edfResponse = await this.client.get(`/api/edf/info`, {
           params: {
-            path: directory,
+            file_path: filePath,
           },
         });
 
-        const fileEntry = filesResponse.data.files?.find(
-          (f: any) => f.name === fileName,
-        );
-        fileSize = fileEntry?.file_size || fileEntry?.size || 0;
-      } catch (filesError) {
-        console.warn(
-          "Could not get file size from files endpoint:",
-          filesError,
-        );
-      }
+        console.log("Raw EDF response:", edfResponse.data);
 
-      const fileInfo: EDFFileInfo = {
-        file_path: filePath,
-        file_name: filePath.split("/").pop() || filePath,
-        file_size: fileSize,
-        duration:
-          edfResponse.data.duration || edfResponse.data.total_duration || 0,
-        sample_rate:
-          edfResponse.data.sample_rate || edfResponse.data.sampling_rate || 256,
-        channels: edfResponse.data.channels || [],
-        total_samples: edfResponse.data.total_samples || 0,
-        start_time: edfResponse.data.start_time || new Date().toISOString(),
-        end_time: edfResponse.data.end_time || new Date().toISOString(),
-        annotations_count: 0,
-      };
+        // Get file size from files list endpoint
+        let fileSize = 0;
+        try {
+          const directory = filePath.substring(0, filePath.lastIndexOf("/"));
+          const fileName = filePath.split("/").pop() || filePath;
 
-      console.log("Processed file info:", fileInfo);
-      return fileInfo;
-    } catch (error) {
-      console.error("Failed to get file info:", error);
-      throw error;
-    }
+          const filesResponse = await this.client.get(`/api/files/list`, {
+            params: {
+              path: directory,
+            },
+          });
+
+          const fileEntry = filesResponse.data.files?.find(
+            (f: any) => f.name === fileName,
+          );
+          fileSize = fileEntry?.file_size || fileEntry?.size || 0;
+        } catch (filesError) {
+          console.warn(
+            "Could not get file size from files endpoint:",
+            filesError,
+          );
+        }
+
+        const fileInfo: EDFFileInfo = {
+          file_path: filePath,
+          file_name: filePath.split("/").pop() || filePath,
+          file_size: fileSize,
+          duration:
+            edfResponse.data.duration || edfResponse.data.total_duration || 0,
+          sample_rate:
+            edfResponse.data.sample_rate ||
+            edfResponse.data.sampling_rate ||
+            256,
+          channels: edfResponse.data.channels || [],
+          total_samples: edfResponse.data.total_samples || 0,
+          start_time: edfResponse.data.start_time || new Date().toISOString(),
+          end_time: edfResponse.data.end_time || new Date().toISOString(),
+          annotations_count: 0,
+        };
+
+        console.log("Processed file info:", fileInfo);
+        return fileInfo;
+      },
+      { maxRetries: 2, context: "Get file info" },
+    );
   }
 
   async listDirectory(path: string = ""): Promise<{
@@ -184,6 +260,8 @@ export class ApiService {
       is_directory: boolean;
       size?: number;
       last_modified?: string;
+      /** True if file is a git-annex symlink that hasn't been downloaded */
+      is_annex_placeholder?: boolean;
     }>;
   }> {
     const response = await this.client.get("/api/files/list", {
@@ -970,6 +1048,27 @@ export class ApiService {
     } catch (error) {
       console.error(`Failed to get DDA status ${jobId}:`, error);
       return { status: "unknown", message: "Failed to get status" };
+    }
+  }
+
+  // DDA Cancellation
+  async cancelDDAAnalysis(): Promise<{
+    success: boolean;
+    message: string;
+    cancelled_analysis_id?: string;
+  }> {
+    try {
+      console.log("[ApiService] Requesting DDA cancellation");
+      const response = await this.client.post("/api/dda/cancel");
+      console.log("[ApiService] Cancel response:", response.data);
+      return response.data;
+    } catch (error) {
+      console.error("[ApiService] Failed to cancel DDA analysis:", error);
+      return {
+        success: false,
+        message:
+          error instanceof Error ? error.message : "Failed to cancel analysis",
+      };
     }
   }
 

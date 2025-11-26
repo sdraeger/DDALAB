@@ -1,6 +1,6 @@
 use crate::models::WindowState;
 use crate::state_manager::AppStateManager;
-use tauri::{App, Manager, PhysicalPosition, PhysicalSize};
+use tauri::{App, Emitter, Manager, PhysicalPosition, PhysicalSize};
 
 pub fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     let window = app
@@ -62,8 +62,11 @@ pub fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
                     log::error!("Failed to save window state: {}", e);
                 }
             }
-            tauri::WindowEvent::CloseRequested { .. } => {
-                // Save final state before closing
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                // Prevent the default close behavior
+                api.prevent_close();
+
+                // Save state before potential close
                 if let Err(e) = save_main_window_state(&window_clone) {
                     log::error!("Failed to save window state on close: {}", e);
                 }
@@ -73,6 +76,11 @@ pub fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
                 if let Err(e) = state_manager.save() {
                     log::error!("Failed to save state on close: {}", e);
                 }
+
+                // Emit event to frontend to handle close confirmation
+                // Frontend will call force_close_window if user confirms
+                log::info!("Window close requested, emitting event to frontend");
+                let _ = window_clone.emit("close-requested", ());
             }
             _ => {}
         }

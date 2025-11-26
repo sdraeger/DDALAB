@@ -330,3 +330,100 @@ pub async fn compute_file_hash(file_path: String) -> Result<String, String> {
         format!("Failed to compute file hash: {}", e)
     })
 }
+
+/// Result of git annex get operation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitAnnexGetResult {
+    pub success: bool,
+    pub output: String,
+    pub error: Option<String>,
+}
+
+/// Check if a file is a git-annex placeholder (symlink that hasn't been downloaded)
+#[tauri::command]
+pub async fn check_annex_placeholder(file_path: String) -> Result<bool, String> {
+    let path = std::path::Path::new(&file_path);
+
+    // Use symlink_metadata to check if it's a symlink without following it
+    if let Ok(metadata) = std::fs::symlink_metadata(path) {
+        if metadata.file_type().is_symlink() {
+            // Read the symlink target
+            if let Ok(target) = std::fs::read_link(path) {
+                let target_str = target.to_string_lossy();
+                // Git-annex symlinks point to .git/annex/objects/...
+                if target_str.contains(".git/annex/objects") || target_str.contains("annex/objects")
+                {
+                    // Check if the target actually exists (resolved through the symlink)
+                    // If path.exists() is false but symlink_metadata succeeds, it's a broken symlink
+                    return Ok(!path.exists());
+                }
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// Run git annex get to download a file managed by git-annex
+#[tauri::command]
+pub async fn run_git_annex_get(file_path: String) -> Result<GitAnnexGetResult, String> {
+    log::info!("[GIT_ANNEX] Attempting to download: {}", file_path);
+
+    let path = PathBuf::from(&file_path);
+
+    // Get the directory containing the file
+    let parent_dir = path
+        .parent()
+        .ok_or_else(|| "Invalid file path - no parent directory".to_string())?;
+
+    // Get the filename
+    let file_name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| "Invalid file path - no filename".to_string())?;
+
+    log::info!(
+        "[GIT_ANNEX] Running 'git annex get {}' in {:?}",
+        file_name,
+        parent_dir
+    );
+
+    // Run git annex get
+    let output = std::process::Command::new("git")
+        .args(["annex", "get", file_name])
+        .current_dir(parent_dir)
+        .output()
+        .map_err(|e| format!("Failed to execute git annex get: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    log::info!("[GIT_ANNEX] stdout: {}", stdout);
+    if !stderr.is_empty() {
+        log::warn!("[GIT_ANNEX] stderr: {}", stderr);
+    }
+
+    if output.status.success() {
+        log::info!("[GIT_ANNEX] Successfully downloaded: {}", file_name);
+        Ok(GitAnnexGetResult {
+            success: true,
+            output: stdout,
+            error: None,
+        })
+    } else {
+        let error_msg = if stderr.is_empty() {
+            format!(
+                "git annex get failed with exit code: {:?}",
+                output.status.code()
+            )
+        } else {
+            stderr
+        };
+        log::error!("[GIT_ANNEX] Failed to download: {}", error_msg);
+        Ok(GitAnnexGetResult {
+            success: false,
+            output: stdout,
+            error: Some(error_msg),
+        })
+    }
+}

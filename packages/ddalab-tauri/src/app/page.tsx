@@ -6,6 +6,9 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { WelcomeScreen } from "@/components/WelcomeScreen";
 import { StatePersistenceProvider } from "@/components/StatePersistenceProvider";
 import { useAppStore } from "@/store/appStore";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ApiServiceProvider } from "@/contexts/ApiServiceContext";
+import { CloseWarningHandler } from "@/components/CloseWarningHandler";
 
 // Conditionally import PerformanceMonitor only in development
 const PerformanceMonitor =
@@ -307,9 +310,14 @@ export default function Home() {
   }
 
   return (
-    <StatePersistenceProvider>
-      <DashboardLayout apiUrl={apiUrl} sessionToken={sessionToken} />
-      {PerformanceMonitor && <PerformanceMonitor />}
-    </StatePersistenceProvider>
+    <ErrorBoundary>
+      <ApiServiceProvider apiUrl={apiUrl} sessionToken={sessionToken}>
+        <StatePersistenceProvider>
+          <DashboardLayout />
+          {PerformanceMonitor && <PerformanceMonitor />}
+          <CloseWarningHandler />
+        </StatePersistenceProvider>
+      </ApiServiceProvider>
+    </ErrorBoundary>
   );
 }

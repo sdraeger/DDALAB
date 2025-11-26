@@ -1,5 +1,78 @@
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// API Error types with user-friendly messages
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiErrorResponse {
+    pub error: String,
+    pub error_type: String,
+    pub details: Option<String>,
+}
+
+/// Enum for different API error types
+#[derive(Debug)]
+pub enum ApiError {
+    /// File is a git-annex symlink that hasn't been downloaded
+    GitAnnexNotDownloaded(String),
+    /// File does not exist
+    FileNotFound(String),
+    /// Failed to parse file
+    ParseError(String),
+    /// Generic internal error
+    InternalError(String),
+    /// Bad request parameters
+    BadRequest(String),
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let (status, error_type, message, details) = match self {
+            ApiError::GitAnnexNotDownloaded(path) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "git_annex_not_downloaded",
+                format!("File not downloaded: {}", path.split('/').last().unwrap_or(&path)),
+                Some("This file is managed by git-annex and hasn't been downloaded yet. Run 'git annex get <filename>' in the dataset directory to download it.".to_string()),
+            ),
+            ApiError::FileNotFound(path) => (
+                StatusCode::NOT_FOUND,
+                "file_not_found",
+                format!("File not found: {}", path),
+                None,
+            ),
+            ApiError::ParseError(msg) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "parse_error",
+                format!("Failed to read file: {}", msg),
+                None,
+            ),
+            ApiError::InternalError(msg) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
+                msg,
+                None,
+            ),
+            ApiError::BadRequest(msg) => (
+                StatusCode::BAD_REQUEST,
+                "bad_request",
+                msg,
+                None,
+            ),
+        };
+
+        let body = ApiErrorResponse {
+            error: message,
+            error_type: error_type.to_string(),
+            details,
+        };
+
+        (status, Json(body)).into_response()
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EDFFileInfo {

@@ -1,6 +1,23 @@
 use crate::state_manager::AppStateManager;
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 
+/// Force close the main window, bypassing any close confirmation
+/// This is called by the frontend after user confirms the close action
+#[tauri::command]
+pub async fn force_close_window(app: tauri::AppHandle) -> Result<(), String> {
+    log::info!("Force closing main window");
+    if let Some(window) = app.get_webview_window("main") {
+        // Destroy the window to force close
+        window.destroy().map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        // If window not found, exit the app anyway
+        log::warn!("Main window not found, exiting app");
+        app.exit(0);
+        Ok(())
+    }
+}
+
 #[tauri::command]
 pub async fn focus_main_window(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {

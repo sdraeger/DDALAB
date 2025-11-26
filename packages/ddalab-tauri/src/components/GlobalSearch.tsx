@@ -196,6 +196,30 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
               <p className="text-xs text-muted-foreground mt-2">
                 Try searching for navigation tabs, settings, files, or actions
               </p>
+              {/* Keyboard hints in empty state */}
+              <div className="mt-6 flex items-center justify-center gap-6 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1.5">
+                  <kbd className="px-2 py-1 rounded bg-muted border text-[10px] font-mono">
+                    ↑
+                  </kbd>
+                  <kbd className="px-2 py-1 rounded bg-muted border text-[10px] font-mono">
+                    ↓
+                  </kbd>
+                  <span>to navigate</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <kbd className="px-2 py-1 rounded bg-muted border text-[10px] font-mono">
+                    Enter
+                  </kbd>
+                  <span>to select</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <kbd className="px-2 py-1 rounded bg-muted border text-[10px] font-mono">
+                    Esc
+                  </kbd>
+                  <span>to close</span>
+                </div>
+              </div>
             </div>
           ) : (
             <div className="py-2">

@@ -29,6 +29,7 @@ import { StreamingPlot } from "./StreamingPlot";
 import { StreamingHeatmap } from "./StreamingHeatmap";
 import { StreamingDDALinePlot } from "./StreamingDDALinePlot";
 import { StreamHistoryList } from "./StreamHistoryList";
+import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
 
 export function StreamingView() {
   const { isInitialized, error } = useInitializeStreaming();
@@ -48,6 +49,53 @@ export function StreamingView() {
       }
     }
   }, [selectedStreamId, allSessions, updateStreamUI]);
+
+  // Register searchable items for streaming
+  useSearchableItems(
+    [
+      createActionItem(
+        "streaming-new-session",
+        "New Streaming Session",
+        () => {
+          document.getElementById("new-stream-button")?.click();
+        },
+        {
+          description: "Start a new real-time streaming session",
+          keywords: [
+            "stream",
+            "new",
+            "session",
+            "real-time",
+            "live",
+            "lsl",
+            "zmq",
+          ],
+          category: "Streaming",
+        },
+      ),
+      // Add active streams as searchable items
+      ...allSessions
+        .filter((s) => s.state.type === "Running")
+        .map((session) =>
+          createActionItem(
+            `stream-${session.id}`,
+            `Stream: ${session.source_config.type}`,
+            () => updateStreamUI({ selectedStreamId: session.id }),
+            {
+              description: `Active ${session.source_config.type} streaming session`,
+              keywords: [
+                "stream",
+                "active",
+                "running",
+                session.source_config.type.toLowerCase(),
+              ],
+              category: "Active Streams",
+            },
+          ),
+        ),
+    ],
+    [allSessions.length, runningCount],
+  );
 
   if (!isInitialized) {
     return (

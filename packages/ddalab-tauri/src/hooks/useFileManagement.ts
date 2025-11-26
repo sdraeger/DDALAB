@@ -42,6 +42,8 @@ export interface DirectoryListingResult {
     is_directory: boolean;
     size?: number;
     last_modified?: string;
+    /** True if file is a git-annex symlink that hasn't been downloaded */
+    is_annex_placeholder?: boolean;
   }>;
 }
 
