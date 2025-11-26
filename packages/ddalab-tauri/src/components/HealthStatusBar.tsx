@@ -243,13 +243,13 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
                         <>
                           <button
                             onClick={handleCancelDDA}
-                            className="text-red-600 hover:text-red-700 hover:underline font-medium"
+                            className="text-red-600 hover:text-red-700 hover:underline font-medium transition-colors"
                           >
                             Cancel?
                           </button>
                           <button
                             onClick={closePopover}
-                            className="text-muted-foreground hover:text-foreground p-0.5"
+                            className="text-muted-foreground hover:text-foreground p-0.5 transition-colors"
                           >
                             <X className="h-3 w-3" />
                           </button>
