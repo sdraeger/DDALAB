@@ -46,6 +46,7 @@ export function ParameterInput({
 }: ParameterInputProps) {
   const [unit, setUnit] = useState<TimeUnit>(defaultUnit);
   const [displayValue, setDisplayValue] = useState<string>("");
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   // Convert samples to the current unit
   const samplesToUnit = (samples: number, targetUnit: TimeUnit): number => {
@@ -80,15 +81,45 @@ export function ParameterInput({
   const handleValueChange = (inputValue: string) => {
     setDisplayValue(inputValue);
 
+    // Validate input
+    if (inputValue.trim() === "") {
+      setValidationError("Value is required");
+      return;
+    }
+
     const numericValue = parseFloat(inputValue);
-    if (isNaN(numericValue)) return;
+    if (isNaN(numericValue)) {
+      setValidationError("Please enter a valid number");
+      return;
+    }
+
+    if (numericValue < 0) {
+      setValidationError("Value must be positive");
+      return;
+    }
 
     const samplesValue = unitToSamples(numericValue, unit);
 
     // Apply min/max constraints in samples
     let constrainedValue = samplesValue;
-    if (min !== undefined) constrainedValue = Math.max(min, constrainedValue);
-    if (max !== undefined) constrainedValue = Math.min(max, constrainedValue);
+    let wasConstrained = false;
+
+    if (min !== undefined && constrainedValue < min) {
+      constrainedValue = min;
+      wasConstrained = true;
+    }
+    if (max !== undefined && constrainedValue > max) {
+      constrainedValue = max;
+      wasConstrained = true;
+    }
+
+    if (wasConstrained) {
+      setValidationError(
+        `Value constrained to ${min !== undefined ? `min ${min}` : ""}${min !== undefined && max !== undefined ? " - " : ""}${max !== undefined ? `max ${max}` : ""} samples`,
+      );
+    } else {
+      setValidationError(null);
+    }
 
     onChange(constrainedValue);
   };
@@ -122,7 +153,12 @@ export function ParameterInput({
           onChange={(e) => handleValueChange(e.target.value)}
           disabled={disabled}
           step={getStepForUnit()}
-          className="flex-1"
+          className={cn(
+            "flex-1",
+            validationError &&
+              "border-destructive focus-visible:ring-destructive",
+          )}
+          aria-invalid={!!validationError}
         />
         <Select
           value={unit}
@@ -143,9 +179,13 @@ export function ParameterInput({
           </SelectContent>
         </Select>
       </div>
-      <p className="text-xs text-muted-foreground">
-        = {value} samples ({(value / sampleRate).toFixed(3)}s)
-      </p>
+      {validationError ? (
+        <p className="text-xs text-destructive">{validationError}</p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          = {value} samples ({(value / sampleRate).toFixed(3)}s)
+        </p>
+      )}
     </div>
   );
 }

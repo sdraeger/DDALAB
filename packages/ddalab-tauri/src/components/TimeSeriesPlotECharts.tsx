@@ -262,6 +262,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     data: overviewData,
     isLoading: overviewLoading,
     error: overviewError,
+    refetch: refetchOverview,
   } = useOverviewData(
     apiService,
     selectedFile?.file_path || "",
@@ -278,6 +279,26 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     overviewMaxPoints,
     overviewLoading && !!selectedFile && selectedChannels.length > 0,
   );
+
+  // Track previous completion state to detect transitions
+  const prevOverviewCompleteRef = useRef<boolean | undefined>(undefined);
+
+  // Refetch overview data when generation completes
+  // This handles the race condition where initial fetch might return partial/stale data
+  useEffect(() => {
+    const isComplete = overviewProgress?.is_complete;
+    const wasComplete = prevOverviewCompleteRef.current;
+
+    // Detect transition from incomplete to complete
+    if (isComplete && wasComplete === false) {
+      console.log(
+        "[TimeSeriesPlot] Overview generation completed, refetching data...",
+      );
+      refetchOverview();
+    }
+
+    prevOverviewCompleteRef.current = isComplete;
+  }, [overviewProgress?.is_complete, refetchOverview]);
 
   // Derived loading/error states for UI
   const loading = chunkLoading;
@@ -1165,6 +1186,17 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
       if (!chartInstanceRef.current) return;
 
+      // Check if the chart is fully initialized with series data
+      const chartOption = chartInstanceRef.current.getOption();
+      if (
+        !chartOption ||
+        !chartOption.series ||
+        (chartOption.series as unknown[]).length === 0
+      ) {
+        console.log("[ECharts] Chart not ready for right-click - no series");
+        return;
+      }
+
       console.log("[ECharts] Right-click event triggered");
 
       // Get the chart's bounding rectangle
@@ -1173,10 +1205,16 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
       // Convert pixel position to time value
       // ECharts uses the convertFromPixel method
-      const pointInGrid = chartInstanceRef.current.convertFromPixel(
-        { seriesIndex: 0 },
-        [x, 0],
-      );
+      let pointInGrid: number[] | undefined;
+      try {
+        pointInGrid = chartInstanceRef.current.convertFromPixel(
+          { seriesIndex: 0 },
+          [x, 0],
+        );
+      } catch (err) {
+        console.warn("[ECharts] Failed to convert pixel position:", err);
+        return;
+      }
 
       if (pointInGrid && typeof pointInGrid[0] === "number") {
         const timePosition = pointInGrid[0];

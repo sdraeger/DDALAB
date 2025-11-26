@@ -135,7 +135,14 @@ pub async fn run_dda_analysis(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    log::info!("Starting DDA analysis for file: {}", request.file_path);
+    // Generate analysis ID early and register with cancellation system
+    let analysis_id = Uuid::new_v4().to_string();
+    state.start_analysis(analysis_id.clone());
+    log::info!(
+        "Starting DDA analysis {} for file: {}",
+        analysis_id,
+        request.file_path
+    );
 
     let dda_binary_path = get_dda_binary_path(&state)?;
     log::info!("Using DDA binary at: {}", dda_binary_path.display());
@@ -190,6 +197,13 @@ pub async fn run_dda_analysis(
         "⏱️  [TIMING] File metadata read completed in {:.2}s",
         start_time.elapsed().as_secs_f64()
     );
+
+    // Check for cancellation after metadata read
+    if state.is_analysis_cancelled() {
+        log::info!("🛑 Analysis {} cancelled before processing", analysis_id);
+        state.complete_analysis();
+        return Err(StatusCode::NO_CONTENT); // 204 indicates cancelled
+    }
 
     let available_samples = if end_bound > start_bound {
         end_bound - start_bound
@@ -263,6 +277,16 @@ pub async fn run_dda_analysis(
         // Process each variant in the order specified by enabled_variants
         // This ensures deterministic tab ordering in the frontend
         for frontend_variant_id in &request.algorithm_selection.enabled_variants {
+            // Check for cancellation before each variant
+            if state.is_analysis_cancelled() {
+                log::info!(
+                    "🛑 Analysis {} cancelled during variant processing",
+                    analysis_id
+                );
+                state.complete_analysis();
+                return Err(StatusCode::NO_CONTENT);
+            }
+
             // Get config for this variant from the HashMap
             let config = match variant_configs.get(frontend_variant_id) {
                 Some(c) => c,
@@ -297,6 +321,17 @@ pub async fn run_dda_analysis(
                         let mut combined_ct_results: Vec<Vec<f64>> = Vec::new();
 
                         for (pair_idx, pair) in pairs.iter().enumerate() {
+                            // Check for cancellation between CT pairs
+                            if state.is_analysis_cancelled() {
+                                log::info!(
+                                    "🛑 Analysis {} cancelled during CT pair {}",
+                                    analysis_id,
+                                    pair_idx
+                                );
+                                state.complete_analysis();
+                                return Err(StatusCode::NO_CONTENT);
+                            }
+
                             let pair_result = runner
                                 .run_single_variant(
                                     &dda_request,
@@ -431,6 +466,18 @@ pub async fn run_dda_analysis(
                         let mut combined_results: Vec<Vec<f64>> = Vec::new();
 
                         for (ch_idx, channel) in channels.iter().enumerate() {
+                            // Check for cancellation between channel iterations
+                            if state.is_analysis_cancelled() {
+                                log::info!(
+                                    "🛑 Analysis {} cancelled during {} channel {}",
+                                    analysis_id,
+                                    variant_id,
+                                    ch_idx
+                                );
+                                state.complete_analysis();
+                                return Err(StatusCode::NO_CONTENT);
+                            }
+
                             let channel_result = runner
                                 .run_single_variant(
                                     &dda_request,
@@ -814,6 +861,9 @@ pub async fn run_dda_analysis(
         start_time.elapsed().as_secs_f64()
     );
 
+    // Mark analysis as complete (clears from running state)
+    state.complete_analysis();
+
     Ok(Json(result))
 }
 
@@ -1149,11 +1199,12 @@ fn get_dda_binary_path(state: &ApiState) -> Result<PathBuf, StatusCode> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
         .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap();
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .ok_or_else(|| {
+            log::error!("Failed to resolve repository root from manifest directory");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let binary_name = if cfg!(target_os = "windows") {
         "run_DDA_AsciiEdf.exe"
@@ -1338,4 +1389,57 @@ fn calculate_std(values: &[f64]) -> f64 {
     let mean = calculate_mean(values);
     let variance = values.par_iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
     variance.sqrt()
+}
+
+/// Response for cancel endpoint
+#[derive(Debug, Serialize)]
+pub struct CancelDDAResponse {
+    pub success: bool,
+    pub message: String,
+    pub cancelled_analysis_id: Option<String>,
+}
+
+/// Cancel the current running DDA analysis
+pub async fn cancel_dda_analysis(
+    State(state): State<Arc<ApiState>>,
+) -> Result<Json<CancelDDAResponse>, StatusCode> {
+    log::info!("🛑 Cancel DDA analysis request received");
+
+    let cancelled_id = state.cancel_current_analysis();
+
+    match cancelled_id {
+        Some(id) => {
+            log::info!("✅ Successfully requested cancellation of analysis: {}", id);
+            Ok(Json(CancelDDAResponse {
+                success: true,
+                message: format!("Cancellation requested for analysis {}", id),
+                cancelled_analysis_id: Some(id),
+            }))
+        }
+        None => {
+            log::info!("⚠️ No running analysis to cancel");
+            Ok(Json(CancelDDAResponse {
+                success: false,
+                message: "No running analysis to cancel".to_string(),
+                cancelled_analysis_id: None,
+            }))
+        }
+    }
+}
+
+/// Get the current running analysis status
+#[derive(Debug, Serialize)]
+pub struct RunningAnalysisStatus {
+    pub is_running: bool,
+    pub analysis_id: Option<String>,
+}
+
+pub async fn get_running_analysis_status(
+    State(state): State<Arc<ApiState>>,
+) -> Json<RunningAnalysisStatus> {
+    let analysis_id = state.get_current_analysis_id();
+    Json(RunningAnalysisStatus {
+        is_running: analysis_id.is_some(),
+        analysis_id,
+    })
 }

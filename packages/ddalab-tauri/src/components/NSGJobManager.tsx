@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, memo } from "react";
 import {
   Card,
   CardContent,
@@ -64,6 +64,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -72,6 +73,296 @@ function formatBytes(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
 }
+
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return "-";
+  return new Date(dateStr).toLocaleString();
+}
+
+function getStatusIcon(status: NSGJobStatus) {
+  switch (status) {
+    case NSGJobStatus.Pending:
+      return <Clock className="h-4 w-4 text-gray-500" />;
+    case NSGJobStatus.Submitted:
+    case NSGJobStatus.Queue:
+      return <Play className="h-4 w-4 text-blue-500" />;
+    case NSGJobStatus.InputStaging:
+      return <Cloud className="h-4 w-4 text-blue-500" />;
+    case NSGJobStatus.Running:
+      return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />;
+    case NSGJobStatus.Completed:
+      return <CheckCircle className="h-4 w-4 text-green-500" />;
+    case NSGJobStatus.Failed:
+      return <XCircle className="h-4 w-4 text-red-500" />;
+    case NSGJobStatus.Cancelled:
+      return <AlertCircle className="h-4 w-4 text-orange-500" />;
+    default:
+      return <AlertCircle className="h-4 w-4" />;
+  }
+}
+
+function getStatusBadge(status: NSGJobStatus) {
+  const variants: Record<
+    NSGJobStatus,
+    "default" | "secondary" | "destructive" | "outline"
+  > = {
+    [NSGJobStatus.Pending]: "outline",
+    [NSGJobStatus.Submitted]: "secondary",
+    [NSGJobStatus.Queue]: "secondary",
+    [NSGJobStatus.InputStaging]: "secondary",
+    [NSGJobStatus.Running]: "default",
+    [NSGJobStatus.Completed]: "default",
+    [NSGJobStatus.Failed]: "destructive",
+    [NSGJobStatus.Cancelled]: "outline",
+  };
+
+  return (
+    <Badge variant={variants[status]} className="flex items-center gap-1">
+      {getStatusIcon(status)}
+      <span>{status}</span>
+    </Badge>
+  );
+}
+
+function canCancel(job: NSGJob): boolean {
+  return [
+    NSGJobStatus.Submitted,
+    NSGJobStatus.Queue,
+    NSGJobStatus.Running,
+  ].includes(job.status);
+}
+
+function canDownload(job: NSGJob): boolean {
+  return job.status === NSGJobStatus.Completed && job.output_files.length > 0;
+}
+
+function canViewResults(job: NSGJob): boolean {
+  return job.status === NSGJobStatus.Completed;
+}
+
+function canUpdateStatus(job: NSGJob): boolean {
+  if (isExternalJob(job)) return false;
+  return ![
+    NSGJobStatus.Completed,
+    NSGJobStatus.Failed,
+    NSGJobStatus.Cancelled,
+  ].includes(job.status);
+}
+
+interface NSGJobRowProps {
+  job: NSGJob;
+  copiedJobId: string | null;
+  viewingJobId: string | null;
+  downloadProgress: {
+    jobId: string;
+    currentFile: number;
+    totalFiles: number;
+    filename: string;
+    bytesDownloaded: number;
+    totalBytes: number;
+    fileProgress: number;
+  } | null;
+  updateJobStatusPending: boolean;
+  downloadResultsPending: boolean;
+  cancelJobPending: boolean;
+  deleteJobPending: boolean;
+  onCopyJobId: (jobId: string, nsgJobId: string | null) => void;
+  onUpdateStatus: (jobId: string) => void;
+  onViewResults: (jobId: string) => void;
+  onDownloadResults: (jobId: string) => void;
+  onCancelJob: (jobId: string) => void;
+  onDeleteJob: (jobId: string) => void;
+}
+
+const NSGJobRow = memo(function NSGJobRow({
+  job,
+  copiedJobId,
+  viewingJobId,
+  downloadProgress,
+  updateJobStatusPending,
+  downloadResultsPending,
+  cancelJobPending,
+  deleteJobPending,
+  onCopyJobId,
+  onUpdateStatus,
+  onViewResults,
+  onDownloadResults,
+  onCancelJob,
+  onDeleteJob,
+}: NSGJobRowProps) {
+  const isDownloading = viewingJobId === job.id;
+  const showProgress = isDownloading && downloadProgress?.jobId === job.id;
+  const isExternal = isExternalJob(job);
+  const showViewButton = canViewResults(job);
+
+  return (
+    <TableRow>
+      <TableCell className="font-mono text-xs">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            {isExternal ? (
+              <Badge variant="outline" className="text-xs px-1.5 py-0">
+                <Cloud className="h-3 w-3 mr-1" />
+                External
+              </Badge>
+            ) : (
+              <Badge
+                variant="default"
+                className="text-xs px-1.5 py-0 bg-blue-600"
+              >
+                DDALAB
+              </Badge>
+            )}
+            <span>{job.nsg_job_id || job.id.slice(0, 8)}</span>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 w-6 p-0"
+            onClick={() => onCopyJobId(job.id, job.nsg_job_id)}
+            title="Copy job ID"
+          >
+            {copiedJobId === job.id ? (
+              <Check className="h-3 w-3 text-green-500" />
+            ) : (
+              <Copy className="h-3 w-3" />
+            )}
+          </Button>
+        </div>
+      </TableCell>
+      <TableCell>{getStatusBadge(job.status)}</TableCell>
+      <TableCell>{job.tool}</TableCell>
+      <TableCell className="text-sm">{formatDate(job.created_at)}</TableCell>
+      <TableCell className="text-sm">{formatDate(job.submitted_at)}</TableCell>
+      <TableCell className="text-sm">{formatDate(job.completed_at)}</TableCell>
+      <TableCell className="text-sm">
+        {showViewButton ? (
+          <div className="flex flex-col gap-1">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onViewResults(job.id)}
+              disabled={isDownloading}
+              className="h-7"
+              title={
+                isExternal
+                  ? "Download files (DDA results may not be available for external jobs)"
+                  : "View DDA results"
+              }
+            >
+              {isDownloading ? (
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+              ) : isExternal ? (
+                <Download className="h-3 w-3 mr-1" />
+              ) : (
+                <Eye className="h-3 w-3 mr-1" />
+              )}
+              {isExternal
+                ? job.output_files.length > 0
+                  ? `Download (${job.output_files.length})`
+                  : "Download Files"
+                : job.output_files.length > 0
+                  ? `View (${job.output_files.length})`
+                  : "View Results"}
+            </Button>
+            {showProgress && downloadProgress && (
+              <div className="flex flex-col gap-1 min-w-[200px]">
+                <div
+                  className="text-xs text-muted-foreground truncate"
+                  title={downloadProgress.filename}
+                >
+                  {downloadProgress.filename}
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-1.5">
+                  <div
+                    className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                    style={{ width: `${downloadProgress.fileProgress}%` }}
+                  />
+                </div>
+                <div className="text-xs text-muted-foreground flex justify-between">
+                  <span>
+                    File {downloadProgress.currentFile}/
+                    {downloadProgress.totalFiles}
+                  </span>
+                  <span>{downloadProgress.fileProgress}%</span>
+                </div>
+                <div className="text-xs text-muted-foreground text-center">
+                  {formatBytes(downloadProgress.bytesDownloaded)} /{" "}
+                  {formatBytes(downloadProgress.totalBytes)}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <span className="text-muted-foreground">
+            {job.output_files.length > 0
+              ? `${job.output_files.length} files`
+              : "-"}
+          </span>
+        )}
+      </TableCell>
+      <TableCell>
+        <div className="flex justify-end gap-1">
+          {canUpdateStatus(job) && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onUpdateStatus(job.id)}
+              disabled={updateJobStatusPending}
+              title="Update job status"
+            >
+              {updateJobStatusPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </Button>
+          )}
+          {canDownload(job) && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onDownloadResults(job.id)}
+              disabled={downloadResultsPending}
+            >
+              {downloadResultsPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+            </Button>
+          )}
+          {canCancel(job) && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onCancelJob(job.id)}
+              disabled={cancelJobPending}
+            >
+              {cancelJobPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <XCircle className="h-4 w-4" />
+              )}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onDeleteJob(job.id)}
+            disabled={deleteJobPending}
+          >
+            {deleteJobPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+});
 
 export function NSGJobManager() {
   // TanStack Query hooks
@@ -129,6 +420,44 @@ export function NSGJobManager() {
     const saved = localStorage.getItem("nsgJobManager_sortDirection");
     return (saved as SortDirection) || "desc";
   });
+
+  // Register NSG jobs as searchable items
+  useSearchableItems(
+    [
+      // Add each job as a searchable item
+      ...jobs.map((job) =>
+        createActionItem(
+          `nsg-job-${job.id}`,
+          `NSG Job: ${job.id.substring(0, 8)}...`,
+          () => setViewingJobId(job.id),
+          {
+            subtitle: `Status: ${job.status}`,
+            description: `${job.tool || "DDA"} job - ${job.status}`,
+            keywords: [
+              "nsg",
+              "job",
+              job.status.toLowerCase(),
+              job.tool?.toLowerCase() || "dda",
+              job.id,
+            ],
+            category: "NSG Jobs",
+          },
+        ),
+      ),
+      // Refresh jobs action
+      createActionItem(
+        "nsg-refresh-jobs",
+        "Refresh NSG Jobs",
+        () => refetchJobs(),
+        {
+          description: "Refresh the list of NSG jobs",
+          keywords: ["refresh", "reload", "nsg", "jobs", "update"],
+          category: "NSG Actions",
+        },
+      ),
+    ],
+    [jobs.length, jobs.map((j) => j.status).join(",")],
+  );
 
   // Persist sort preferences
   useEffect(() => {
@@ -241,71 +570,87 @@ export function NSGJobManager() {
     await refetchJobs();
   };
 
-  const handleUpdateStatus = async (jobId: string) => {
-    try {
-      setError(null);
-      await updateJobStatus.mutateAsync(jobId);
-    } catch (error) {
-      console.error("[NSG] Failed to update job status:", error);
-      const errorMsg = error instanceof Error ? error.message : String(error);
+  const handleUpdateStatus = useCallback(
+    async (jobId: string) => {
+      try {
+        setError(null);
+        await updateJobStatus.mutateAsync(jobId);
+      } catch (error) {
+        console.error("[NSG] Failed to update job status:", error);
+        const errorMsg = error instanceof Error ? error.message : String(error);
 
-      // If job hasn't been submitted yet, show a clearer message
-      if (
-        errorMsg.includes("has not been submitted yet") ||
-        errorMsg.includes("Job not found")
-      ) {
+        // If job hasn't been submitted yet, show a clearer message
+        if (
+          errorMsg.includes("has not been submitted yet") ||
+          errorMsg.includes("Job not found")
+        ) {
+          setError(
+            "Cannot update status: Job is still pending submission. Try deleting and re-submitting this job.",
+          );
+        } else {
+          setError(`Failed to update job status: ${errorMsg}`);
+        }
+      }
+    },
+    [updateJobStatus],
+  );
+
+  const handleDownloadResults = useCallback(
+    async (jobId: string) => {
+      try {
+        setError(null);
+        const files = await downloadResults.mutateAsync(jobId);
+
+        if (files.length > 0) {
+          alert(`Downloaded ${files.length} files:\n${files.join("\n")}`);
+        } else {
+          alert("No result files available");
+        }
+      } catch (error) {
         setError(
-          "Cannot update status: Job is still pending submission. Try deleting and re-submitting this job.",
+          error instanceof Error ? error.message : "Failed to download results",
         );
-      } else {
-        setError(`Failed to update job status: ${errorMsg}`);
       }
-    }
-  };
+    },
+    [downloadResults],
+  );
 
-  const handleDownloadResults = async (jobId: string) => {
-    try {
-      setError(null);
-      const files = await downloadResults.mutateAsync(jobId);
+  const handleCancelJob = useCallback(
+    async (jobId: string) => {
+      if (!confirm("Are you sure you want to cancel this job?")) return;
 
-      if (files.length > 0) {
-        alert(`Downloaded ${files.length} files:\n${files.join("\n")}`);
-      } else {
-        alert("No result files available");
+      try {
+        setError(null);
+        await cancelJob.mutateAsync(jobId);
+      } catch (error) {
+        setError(
+          error instanceof Error ? error.message : "Failed to cancel job",
+        );
       }
-    } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "Failed to download results",
-      );
-    }
-  };
+    },
+    [cancelJob],
+  );
 
-  const handleCancelJob = async (jobId: string) => {
-    if (!confirm("Are you sure you want to cancel this job?")) return;
-
-    try {
-      setError(null);
-      await cancelJob.mutateAsync(jobId);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to cancel job");
-    }
-  };
-
-  const handleDeleteJob = async (jobId: string) => {
-    if (
-      !confirm(
-        "Are you sure you want to delete this job? This will remove it from the database.",
+  const handleDeleteJob = useCallback(
+    async (jobId: string) => {
+      if (
+        !confirm(
+          "Are you sure you want to delete this job? This will remove it from the database.",
+        )
       )
-    )
-      return;
+        return;
 
-    try {
-      setError(null);
-      await deleteJob.mutateAsync(jobId);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to delete job");
-    }
-  };
+      try {
+        setError(null);
+        await deleteJob.mutateAsync(jobId);
+      } catch (error) {
+        setError(
+          error instanceof Error ? error.message : "Failed to delete job",
+        );
+      }
+    },
+    [deleteJob],
+  );
 
   const handleCleanupPending = async () => {
     const pendingCount = jobs.filter(
@@ -336,329 +681,290 @@ export function NSGJobManager() {
     }
   };
 
-  const handleCopyJobId = async (jobId: string, nsgJobId: string | null) => {
-    try {
-      const idToCopy = nsgJobId || jobId;
-      await navigator.clipboard.writeText(idToCopy);
-      setCopiedJobId(jobId);
-
-      // Reset the copied state after 2 seconds
-      setTimeout(() => {
-        setCopiedJobId(null);
-      }, 2000);
-    } catch (error) {
-      console.error("Failed to copy job ID:", error);
-      setError("Failed to copy job ID to clipboard");
-    }
-  };
-
-  const handleViewResults = async (jobId: string) => {
-    try {
-      setViewingJobId(jobId);
-
-      console.log("[NSG] Downloading results for job:", jobId);
-
-      // Download results files (will fetch from NSG API)
-      const files = await TauriService.downloadNSGResults(jobId);
-
-      console.log("[NSG] Downloaded files:", files);
-
-      if (files.length === 0) {
-        alert(
-          "No result files available.\n\nThis job may have failed or the results may have been cleaned up by NSG.\n\nIf this is an old job from before recent fixes, please submit a new job.",
-        );
-        return;
-      }
-
-      // Check if output.tar.gz exists - need to extract it
-      const tarFile = files.find((f) => f.includes("output.tar.gz"));
-      if (tarFile) {
-        console.log("[NSG] Found output.tar.gz, extracting...");
-        try {
-          const extractedFiles = await extractTarball.mutateAsync({
-            jobId,
-            tarFilePath: tarFile,
-          });
-          console.log("[NSG] Extracted files:", extractedFiles);
-          // Add extracted files to the files list
-          files.push(...extractedFiles);
-        } catch (error) {
-          console.error("[NSG] Failed to extract tarball:", error);
-          // Continue anyway - maybe the files are already extracted
-        }
-      }
-
-      // Find dda_results.json in the downloaded files
-      const resultsFile = files.find((f) => f.includes("dda_results.json"));
-
-      if (!resultsFile) {
-        // Show all downloaded files for debugging
-        console.error("[NSG] Available files:", files);
-
-        // Check if this is an external non-DDALAB job
-        const isExternalNonDDALAB = isExternalJob({ id: jobId } as NSGJob);
-
-        if (isExternalNonDDALAB) {
-          alert(
-            `This external job doesn't have DDALAB DDA results.\n\n` +
-              `This appears to be a job submitted outside of DDALAB (possibly through the NSG portal directly).\n\n` +
-              `Only DDALAB DDA analysis jobs have viewable results in the application.\n\n` +
-              `Downloaded files (${files.length} total):\n${files.map((f) => f.split("/").pop()).join("\n")}\n\n` +
-              `Files have been downloaded to your local system. Check STDOUT/STDERR for job output.`,
-          );
-        } else {
-          alert(
-            `DDA results file not found.\n\n` +
-              `Downloaded files:\n${files.map((f) => f.split("/").pop()).join("\n")}\n\n` +
-              `The job may have failed. Check STDERR for errors.`,
-          );
-        }
-        return;
-      }
-
-      // Read and parse the results file
-      console.log("[NSG] Loading results from:", resultsFile);
-
+  const handleCopyJobId = useCallback(
+    async (jobId: string, nsgJobId: string | null) => {
       try {
-        // Read the JSON file from disk
-        const resultsJson = await TauriService.readTextFile(resultsFile);
+        const idToCopy = nsgJobId || jobId;
+        await navigator.clipboard.writeText(idToCopy);
+        setCopiedJobId(jobId);
 
-        console.log("[NSG] Raw JSON length:", resultsJson.length, "chars");
-        console.log("[NSG] First 500 chars:", resultsJson.substring(0, 500));
+        // Reset the copied state after 2 seconds
+        setTimeout(() => {
+          setCopiedJobId(null);
+        }, 2000);
+      } catch (error) {
+        console.error("Failed to copy job ID:", error);
+        setError("Failed to copy job ID to clipboard");
+      }
+    },
+    [],
+  );
 
-        // Check for invalid JSON patterns
-        if (resultsJson.includes("NaN") || resultsJson.includes("Infinity")) {
-          console.log("[NSG] JSON contains NaN/Infinity, sanitizing...");
-          // Only replace in numeric contexts, not in strings
-          const sanitized = resultsJson
-            .replace(/:\s*NaN\b/g, ": null")
-            .replace(/:\s*Infinity\b/g, ": null")
-            .replace(/:\s*-Infinity\b/g, ": null")
-            .replace(/,\s*NaN\b/g, ", null")
-            .replace(/,\s*Infinity\b/g, ", null")
-            .replace(/,\s*-Infinity\b/g, ", null")
-            .replace(/\[\s*NaN\b/g, "[null")
-            .replace(/\[\s*Infinity\b/g, "[null")
-            .replace(/\[\s*-Infinity\b/g, "[null");
+  const handleViewResults = useCallback(
+    async (jobId: string) => {
+      try {
+        setViewingJobId(jobId);
 
-          console.log("[NSG] Parsing sanitized JSON...");
-          var resultsData = JSON.parse(sanitized);
-        } else {
-          console.log("[NSG] Parsing JSON directly...");
-          var resultsData = JSON.parse(resultsJson);
+        console.log("[NSG] Downloading results for job:", jobId);
+
+        // Download results files (will fetch from NSG API)
+        const files = await TauriService.downloadNSGResults(jobId);
+
+        console.log("[NSG] Downloaded files:", files);
+
+        if (files.length === 0) {
+          alert(
+            "No result files available.\n\nThis job may have failed or the results may have been cleaned up by NSG.\n\nIf this is an old job from before recent fixes, please submit a new job.",
+          );
+          return;
         }
 
-        console.log("[NSG] ✅ Parsed results data successfully:", {
-          hasQMatrix: !!resultsData.q_matrix,
-          qMatrixType: Array.isArray(resultsData.q_matrix) ? "array" : "object",
-          numChannels: resultsData.num_channels,
-          numTimepoints: resultsData.num_timepoints,
-          parameters: resultsData.parameters,
-        });
+        // Check if output.tar.gz exists - need to extract it
+        const tarFile = files.find((f) => f.includes("output.tar.gz"));
+        if (tarFile) {
+          console.log("[NSG] Found output.tar.gz, extracting...");
+          try {
+            const extractedFiles = await extractTarball.mutateAsync({
+              jobId,
+              tarFilePath: tarFile,
+            });
+            console.log("[NSG] Extracted files:", extractedFiles);
+            // Add extracted files to the files list
+            files.push(...extractedFiles);
+          } catch (error) {
+            console.error("[NSG] Failed to extract tarball:", error);
+            // Continue anyway - maybe the files are already extracted
+          }
+        }
 
-        // NSG returns q_matrix as 2D array [[...], [...]] (channels × timepoints)
-        // We need to convert to {channel_name: [...]} format
-        const channelIndices = resultsData.parameters?.channels || [];
-        const qMatrixArray = Array.isArray(resultsData.q_matrix)
-          ? resultsData.q_matrix
-          : Object.values(resultsData.q_matrix);
+        // Find dda_results.json in the downloaded files
+        const resultsFile = files.find((f) => f.includes("dda_results.json"));
 
-        console.log("[NSG] Channel indices from params:", channelIndices);
-        console.log("[NSG] Q matrix array length:", qMatrixArray.length);
+        if (!resultsFile) {
+          // Show all downloaded files for debugging
+          console.error("[NSG] Available files:", files);
 
-        // Convert 2D array to map format
-        // IMPORTANT: Channel indices can be 0, which is falsy in JavaScript!
-        // Use explicit undefined check instead of ||
-        const ddaMatrix: Record<string, number[]> = {};
-        const channels: string[] = [];
+          // Check if this is an external non-DDALAB job
+          const isExternalNonDDALAB = isExternalJob({ id: jobId } as NSGJob);
 
-        // Use channel names from EDF if available, otherwise fall back to generic names
-        const channelNamesFromEdf = resultsData.channel_names || [];
+          if (isExternalNonDDALAB) {
+            alert(
+              `This external job doesn't have DDALAB DDA results.\n\n` +
+                `This appears to be a job submitted outside of DDALAB (possibly through the NSG portal directly).\n\n` +
+                `Only DDALAB DDA analysis jobs have viewable results in the application.\n\n` +
+                `Downloaded files (${files.length} total):\n${files.map((f) => f.split("/").pop()).join("\n")}\n\n` +
+                `Files have been downloaded to your local system. Check STDOUT/STDERR for job output.`,
+            );
+          } else {
+            alert(
+              `DDA results file not found.\n\n` +
+                `Downloaded files:\n${files.map((f) => f.split("/").pop()).join("\n")}\n\n` +
+                `The job may have failed. Check STDERR for errors.`,
+            );
+          }
+          return;
+        }
 
-        qMatrixArray.forEach((channelData: number[], index: number) => {
-          // Get channel index or use the iteration index as fallback
-          const channelIndex =
-            channelIndices[index] !== undefined ? channelIndices[index] : index;
+        // Read and parse the results file
+        console.log("[NSG] Loading results from:", resultsFile);
 
-          // Use actual channel name from EDF if available, otherwise use generic name
-          const channelName =
-            channelNamesFromEdf[index] || `Ch ${channelIndex + 1}`;
+        try {
+          // Read the JSON file from disk
+          const resultsJson = await TauriService.readTextFile(resultsFile);
 
-          ddaMatrix[channelName] = channelData;
-          channels.push(channelName);
-        });
+          console.log("[NSG] Raw JSON length:", resultsJson.length, "chars");
+          console.log("[NSG] First 500 chars:", resultsJson.substring(0, 500));
 
-        console.log("[NSG] Using channel names:", channels);
+          let resultsData;
+          // Check for invalid JSON patterns
+          if (resultsJson.includes("NaN") || resultsJson.includes("Infinity")) {
+            console.log("[NSG] JSON contains NaN/Infinity, sanitizing...");
+            // Only replace in numeric contexts, not in strings
+            const sanitized = resultsJson
+              .replace(/:\s*NaN\b/g, ": null")
+              .replace(/:\s*Infinity\b/g, ": null")
+              .replace(/:\s*-Infinity\b/g, ": null")
+              .replace(/,\s*NaN\b/g, ", null")
+              .replace(/,\s*Infinity\b/g, ", null")
+              .replace(/,\s*-Infinity\b/g, ", null")
+              .replace(/\[\s*NaN\b/g, "[null")
+              .replace(/\[\s*Infinity\b/g, "[null")
+              .replace(/\[\s*-Infinity\b/g, "[null");
 
-        // Sample some values to check data range
-        const firstChannel = Object.keys(ddaMatrix)[0];
-        const firstChannelData = ddaMatrix[firstChannel];
-        const sampleValues = firstChannelData?.slice(0, 10) || [];
-        const allValues = Object.values(ddaMatrix).flat();
-        const minVal = Math.min(...allValues);
-        const maxVal = Math.max(...allValues);
+            console.log("[NSG] Parsing sanitized JSON...");
+            resultsData = JSON.parse(sanitized);
+          } else {
+            console.log("[NSG] Parsing JSON directly...");
+            resultsData = JSON.parse(resultsJson);
+          }
 
-        console.log("[NSG] Converted q_matrix to dda_matrix:", {
-          numChannels: Object.keys(ddaMatrix).length,
-          channels: Object.keys(ddaMatrix),
-          firstChannelLength: firstChannelData?.length,
-          sampleValues: sampleValues,
-          dataRange: { min: minVal, max: maxVal },
-        });
+          console.log("[NSG] ✅ Parsed results data successfully:", {
+            hasQMatrix: !!resultsData.q_matrix,
+            qMatrixType: Array.isArray(resultsData.q_matrix)
+              ? "array"
+              : "object",
+            numChannels: resultsData.num_channels,
+            numTimepoints: resultsData.num_timepoints,
+            parameters: resultsData.parameters,
+          });
 
-        // Generate scales array (actual time values, not just indices)
-        // Match local results format: 0.0, 0.1, 0.2, ...
-        const numTimepoints =
-          resultsData.num_timepoints || qMatrixArray[0]?.length || 0;
-        const scales =
-          resultsData.scales ||
-          Array.from(
-            { length: numTimepoints },
-            (_, i) => i * 0.1, // Match local results: time in 0.1s increments
+          // NSG returns q_matrix as 2D array [[...], [...]] (channels × timepoints)
+          // We need to convert to {channel_name: [...]} format
+          const channelIndices = resultsData.parameters?.channels || [];
+          const qMatrixArray = Array.isArray(resultsData.q_matrix)
+            ? resultsData.q_matrix
+            : Object.values(resultsData.q_matrix);
+
+          console.log("[NSG] Channel indices from params:", channelIndices);
+          console.log("[NSG] Q matrix array length:", qMatrixArray.length);
+
+          // Convert 2D array to map format
+          // IMPORTANT: Channel indices can be 0, which is falsy in JavaScript!
+          // Use explicit undefined check instead of ||
+          const ddaMatrix: Record<string, number[]> = {};
+          const channels: string[] = [];
+
+          // Use channel names from EDF if available, otherwise fall back to generic names
+          const channelNamesFromEdf = resultsData.channel_names || [];
+
+          qMatrixArray.forEach((channelData: number[], index: number) => {
+            // Get channel index or use the iteration index as fallback
+            const channelIndex =
+              channelIndices[index] !== undefined
+                ? channelIndices[index]
+                : index;
+
+            // Use actual channel name from EDF if available, otherwise use generic name
+            const channelName =
+              channelNamesFromEdf[index] || `Ch ${channelIndex + 1}`;
+
+            ddaMatrix[channelName] = channelData;
+            channels.push(channelName);
+          });
+
+          console.log("[NSG] Using channel names:", channels);
+
+          // Sample some values to check data range
+          const firstChannel = Object.keys(ddaMatrix)[0];
+          const firstChannelData = ddaMatrix[firstChannel];
+          const sampleValues = firstChannelData?.slice(0, 10) || [];
+          const allValues = Object.values(ddaMatrix).flat();
+          const minVal = Math.min(...allValues);
+          const maxVal = Math.max(...allValues);
+
+          console.log("[NSG] Converted q_matrix to dda_matrix:", {
+            numChannels: Object.keys(ddaMatrix).length,
+            channels: Object.keys(ddaMatrix),
+            firstChannelLength: firstChannelData?.length,
+            sampleValues: sampleValues,
+            dataRange: { min: minVal, max: maxVal },
+          });
+
+          // Generate scales array (actual time values, not just indices)
+          // Match local results format: 0.0, 0.1, 0.2, ...
+          const numTimepoints =
+            resultsData.num_timepoints || qMatrixArray[0]?.length || 0;
+          const scales =
+            resultsData.scales ||
+            Array.from(
+              { length: numTimepoints },
+              (_, i) => i * 0.1, // Match local results: time in 0.1s increments
+            );
+
+          // Transform NSG results to match DDA Results component expected format
+          // DDAResults expects: result.results.variants to be an ARRAY of variant objects
+          const transformedResults = {
+            results: {
+              variants: [
+                // MUST be an array!
+                {
+                  variant_id: "single_timeseries",
+                  variant_name: "NSG Results",
+                  dda_matrix: ddaMatrix, // {channel: [values]}
+                  exponents: resultsData.exponents || {},
+                  quality_metrics: resultsData.quality_metrics || {},
+                },
+              ],
+              scales: scales, // Required: x-axis values for plots
+              Q: qMatrixArray, // Original 2D array format
+              channels: channels,
+              plot_data: qMatrixArray, // Original 2D array format
+              dda_matrix: ddaMatrix, // Also add at top level for backward compatibility
+              metadata: {
+                input_file: resultsData.parameters?.input_file,
+                time_range: resultsData.parameters?.time_range,
+                window_parameters: {
+                  window_length: resultsData.parameters?.window_length,
+                  window_step: resultsData.parameters?.window_step,
+                },
+                scale_parameters: resultsData.parameters?.scale_parameters,
+                num_channels: resultsData.num_channels,
+                num_timepoints: numTimepoints,
+              },
+            },
+            parameters: resultsData.parameters,
+            channels: channels, // Top-level channels for metadata display
+            name: `NSG Job ${jobId.slice(0, 8)}`,
+            id: jobId,
+            created_at: new Date().toISOString(),
+            source: "nsg", // Mark as NSG source
+          };
+
+          console.log("[NSG] Transformed results for viewer:", {
+            hasVariants: !!transformedResults.results.variants,
+            variantsIsArray: Array.isArray(transformedResults.results.variants),
+            variantsLength: transformedResults.results.variants?.length,
+            hasScales: !!transformedResults.results.scales,
+            scalesLength: transformedResults.results.scales?.length,
+            channels: transformedResults.channels,
+          });
+
+          // Load the results into the DDA analysis viewer
+          // Dispatch event to DDA Analysis component to load these results
+          window.dispatchEvent(
+            new CustomEvent("load-nsg-results", {
+              detail: {
+                jobId,
+                resultsFile,
+                resultsData: transformedResults,
+                sourceType: "nsg",
+              },
+            }),
           );
 
-        // Transform NSG results to match DDA Results component expected format
-        // DDAResults expects: result.results.variants to be an ARRAY of variant objects
-        const transformedResults = {
-          results: {
-            variants: [
-              // MUST be an array!
-              {
-                variant_id: "single_timeseries",
-                variant_name: "NSG Results",
-                dda_matrix: ddaMatrix, // {channel: [values]}
-                exponents: resultsData.exponents || {},
-                quality_metrics: resultsData.quality_metrics || {},
-              },
-            ],
-            scales: scales, // Required: x-axis values for plots
-            Q: qMatrixArray, // Original 2D array format
-            channels: channels,
-            plot_data: qMatrixArray, // Original 2D array format
-            dda_matrix: ddaMatrix, // Also add at top level for backward compatibility
-            metadata: {
-              input_file: resultsData.parameters?.input_file,
-              time_range: resultsData.parameters?.time_range,
-              window_parameters: {
-                window_length: resultsData.parameters?.window_length,
-                window_step: resultsData.parameters?.window_step,
-              },
-              scale_parameters: resultsData.parameters?.scale_parameters,
-              num_channels: resultsData.num_channels,
-              num_timepoints: numTimepoints,
-            },
-          },
-          parameters: resultsData.parameters,
-          channels: channels, // Top-level channels for metadata display
-          name: `NSG Job ${jobId.slice(0, 8)}`,
-          id: jobId,
-          created_at: new Date().toISOString(),
-          source: "nsg", // Mark as NSG source
-        };
+          // Show success dialog with option to navigate to Results tab
+          setSuccessDialog({
+            show: true,
+            jobId: jobId.slice(0, 8),
+            numChannels: resultsData.num_channels || 0,
+          });
+        } catch (parseError) {
+          console.error("[NSG] Failed to parse results file:", parseError);
+          alert(
+            `Failed to load results file.\n\nFile: ${resultsFile}\nError: ${parseError}\n\nThe file may be corrupted.`,
+          );
+          return;
+        }
+      } catch (error) {
+        console.error("[NSG] Failed to view results:", error);
+        const errorMsg =
+          error instanceof Error ? error.message : "Failed to view results";
 
-        console.log("[NSG] Transformed results for viewer:", {
-          hasVariants: !!transformedResults.results.variants,
-          variantsIsArray: Array.isArray(transformedResults.results.variants),
-          variantsLength: transformedResults.results.variants?.length,
-          hasScales: !!transformedResults.results.scales,
-          scalesLength: transformedResults.results.scales?.length,
-          channels: transformedResults.channels,
-        });
-
-        // Load the results into the DDA analysis viewer
-        // Dispatch event to DDA Analysis component to load these results
-        window.dispatchEvent(
-          new CustomEvent("load-nsg-results", {
-            detail: {
-              jobId,
-              resultsFile,
-              resultsData: transformedResults,
-              sourceType: "nsg",
-            },
-          }),
-        );
-
-        // Show success dialog with option to navigate to Results tab
-        setSuccessDialog({
-          show: true,
-          jobId: jobId.slice(0, 8),
-          numChannels: resultsData.num_channels || 0,
-        });
-      } catch (parseError) {
-        console.error("[NSG] Failed to parse results file:", parseError);
-        alert(
-          `Failed to load results file.\n\nFile: ${resultsFile}\nError: ${parseError}\n\nThe file may be corrupted.`,
-        );
-        return;
+        // Show user-friendly error
+        if (errorMsg.includes("No output files available")) {
+          setError(
+            "No output files available. This job may have failed or results were cleaned up. Please submit a new job.",
+          );
+        } else {
+          setError(errorMsg);
+        }
+      } finally {
+        setViewingJobId(null);
+        setDownloadProgress(null);
       }
-    } catch (error) {
-      console.error("[NSG] Failed to view results:", error);
-      const errorMsg =
-        error instanceof Error ? error.message : "Failed to view results";
-
-      // Show user-friendly error
-      if (errorMsg.includes("No output files available")) {
-        setError(
-          "No output files available. This job may have failed or results were cleaned up. Please submit a new job.",
-        );
-      } else {
-        setError(errorMsg);
-      }
-    } finally {
-      setViewingJobId(null);
-      setDownloadProgress(null);
-    }
-  };
-
-  const getStatusIcon = (status: NSGJobStatus) => {
-    switch (status) {
-      case NSGJobStatus.Pending:
-        return <Clock className="h-4 w-4 text-gray-500" />;
-      case NSGJobStatus.Submitted:
-      case NSGJobStatus.Queue:
-        return <Play className="h-4 w-4 text-blue-500" />;
-      case NSGJobStatus.InputStaging:
-        return <Cloud className="h-4 w-4 text-blue-500" />;
-      case NSGJobStatus.Running:
-        return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />;
-      case NSGJobStatus.Completed:
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case NSGJobStatus.Failed:
-        return <XCircle className="h-4 w-4 text-red-500" />;
-      case NSGJobStatus.Cancelled:
-        return <AlertCircle className="h-4 w-4 text-orange-500" />;
-      default:
-        return <AlertCircle className="h-4 w-4" />;
-    }
-  };
-
-  const getStatusBadge = (status: NSGJobStatus) => {
-    const variants: Record<
-      NSGJobStatus,
-      "default" | "secondary" | "destructive" | "outline"
-    > = {
-      [NSGJobStatus.Pending]: "outline",
-      [NSGJobStatus.Submitted]: "secondary",
-      [NSGJobStatus.Queue]: "secondary",
-      [NSGJobStatus.InputStaging]: "secondary",
-      [NSGJobStatus.Running]: "default",
-      [NSGJobStatus.Completed]: "default",
-      [NSGJobStatus.Failed]: "destructive",
-      [NSGJobStatus.Cancelled]: "outline",
-    };
-
-    return (
-      <Badge variant={variants[status]} className="flex items-center gap-1">
-        {getStatusIcon(status)}
-        <span>{status}</span>
-      </Badge>
-    );
-  };
-
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return "-";
-    return new Date(dateStr).toLocaleString();
-  };
+    },
+    [extractTarball],
+  );
 
   // Filter jobs based on search term across all fields
   const filteredJobs = jobs
@@ -725,35 +1031,6 @@ export function NSGJobManager() {
       if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
       return 0;
     });
-
-  const canCancel = (job: NSGJob) => {
-    return [
-      NSGJobStatus.Submitted,
-      NSGJobStatus.Queue,
-      NSGJobStatus.Running,
-    ].includes(job.status);
-  };
-
-  const canDownload = (job: NSGJob) => {
-    return job.status === NSGJobStatus.Completed && job.output_files.length > 0;
-  };
-
-  const canViewResults = (job: NSGJob) => {
-    // Show view button for all completed jobs (both DDALAB and external)
-    // Results are read from dda_results.json which contains all necessary data
-    // Files will be downloaded on-demand when clicking view
-    return job.status === NSGJobStatus.Completed;
-  };
-
-  const canUpdateStatus = (job: NSGJob) => {
-    // External jobs are automatically synced from NSG - can't manually update status
-    if (isExternalJob(job)) return false;
-    return ![
-      NSGJobStatus.Completed,
-      NSGJobStatus.Failed,
-      NSGJobStatus.Cancelled,
-    ].includes(job.status);
-  };
 
   const handleNavigateToResults = () => {
     // Navigate to the main Dashboard Results tab, not the DDA Analysis tab
@@ -990,196 +1267,23 @@ export function NSGJobManager() {
                 </TableHeader>
                 <TableBody>
                   {filteredJobs.map((job) => (
-                    <TableRow key={job.id}>
-                      <TableCell className="font-mono text-xs">
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center gap-1.5">
-                            {isExternalJob(job) ? (
-                              <Badge
-                                variant="outline"
-                                className="text-xs px-1.5 py-0"
-                              >
-                                <Cloud className="h-3 w-3 mr-1" />
-                                External
-                              </Badge>
-                            ) : (
-                              <Badge
-                                variant="default"
-                                className="text-xs px-1.5 py-0 bg-blue-600"
-                              >
-                                DDALAB
-                              </Badge>
-                            )}
-                            <span>{job.nsg_job_id || job.id.slice(0, 8)}</span>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-6 w-6 p-0"
-                            onClick={() =>
-                              handleCopyJobId(job.id, job.nsg_job_id)
-                            }
-                            title="Copy job ID"
-                          >
-                            {copiedJobId === job.id ? (
-                              <Check className="h-3 w-3 text-green-500" />
-                            ) : (
-                              <Copy className="h-3 w-3" />
-                            )}
-                          </Button>
-                        </div>
-                      </TableCell>
-                      <TableCell>{getStatusBadge(job.status)}</TableCell>
-                      <TableCell>{job.tool}</TableCell>
-                      <TableCell className="text-sm">
-                        {formatDate(job.created_at)}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {formatDate(job.submitted_at)}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {formatDate(job.completed_at)}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {(() => {
-                          const canView = canViewResults(job);
-                          const isDownloading = viewingJobId === job.id;
-                          const showProgress =
-                            isDownloading && downloadProgress?.jobId === job.id;
-                          const isExternal = isExternalJob(job);
-
-                          return canView ? (
-                            <div className="flex flex-col gap-1">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleViewResults(job.id)}
-                                disabled={isDownloading}
-                                className="h-7"
-                                title={
-                                  isExternal
-                                    ? "Download files (DDA results may not be available for external jobs)"
-                                    : "View DDA results"
-                                }
-                              >
-                                {isDownloading ? (
-                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                ) : isExternal ? (
-                                  <Download className="h-3 w-3 mr-1" />
-                                ) : (
-                                  <Eye className="h-3 w-3 mr-1" />
-                                )}
-                                {isExternal
-                                  ? job.output_files.length > 0
-                                    ? `Download (${job.output_files.length})`
-                                    : "Download Files"
-                                  : job.output_files.length > 0
-                                    ? `View (${job.output_files.length})`
-                                    : "View Results"}
-                              </Button>
-                              {showProgress && (
-                                <div className="flex flex-col gap-1 min-w-[200px]">
-                                  <div
-                                    className="text-xs text-muted-foreground truncate"
-                                    title={downloadProgress.filename}
-                                  >
-                                    {downloadProgress.filename}
-                                  </div>
-                                  <div className="w-full bg-gray-200 rounded-full h-1.5">
-                                    <div
-                                      className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
-                                      style={{
-                                        width: `${downloadProgress.fileProgress}%`,
-                                      }}
-                                    />
-                                  </div>
-                                  <div className="text-xs text-muted-foreground flex justify-between">
-                                    <span>
-                                      File {downloadProgress.currentFile}/
-                                      {downloadProgress.totalFiles}
-                                    </span>
-                                    <span>
-                                      {downloadProgress.fileProgress}%
-                                    </span>
-                                  </div>
-                                  <div className="text-xs text-muted-foreground text-center">
-                                    {formatBytes(
-                                      downloadProgress.bytesDownloaded,
-                                    )}{" "}
-                                    / {formatBytes(downloadProgress.totalBytes)}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground">
-                              {job.output_files.length > 0
-                                ? `${job.output_files.length} files`
-                                : "-"}
-                            </span>
-                          );
-                        })()}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex justify-end gap-1">
-                          {canUpdateStatus(job) && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleUpdateStatus(job.id)}
-                              disabled={updateJobStatus.isPending}
-                              title="Update job status"
-                            >
-                              {updateJobStatus.isPending ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <RefreshCw className="h-4 w-4" />
-                              )}
-                            </Button>
-                          )}
-                          {canDownload(job) && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleDownloadResults(job.id)}
-                              disabled={downloadResults.isPending}
-                            >
-                              {downloadResults.isPending ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Download className="h-4 w-4" />
-                              )}
-                            </Button>
-                          )}
-                          {canCancel(job) && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleCancelJob(job.id)}
-                              disabled={cancelJob.isPending}
-                            >
-                              {cancelJob.isPending ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <XCircle className="h-4 w-4" />
-                              )}
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleDeleteJob(job.id)}
-                            disabled={deleteJob.isPending}
-                          >
-                            {deleteJob.isPending ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                    <NSGJobRow
+                      key={job.id}
+                      job={job}
+                      copiedJobId={copiedJobId}
+                      viewingJobId={viewingJobId}
+                      downloadProgress={downloadProgress}
+                      updateJobStatusPending={updateJobStatus.isPending}
+                      downloadResultsPending={downloadResults.isPending}
+                      cancelJobPending={cancelJob.isPending}
+                      deleteJobPending={deleteJob.isPending}
+                      onCopyJobId={handleCopyJobId}
+                      onUpdateStatus={handleUpdateStatus}
+                      onViewResults={handleViewResults}
+                      onDownloadResults={handleDownloadResults}
+                      onCancelJob={handleCancelJob}
+                      onDeleteJob={handleDeleteJob}
+                    />
                   ))}
                 </TableBody>
               </Table>

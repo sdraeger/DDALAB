@@ -1,10 +1,11 @@
 use crate::api::auth::auth_middleware;
 use crate::api::handlers::{
-    delete_analysis_result, delete_ica_result, get_analysis_result, get_analysis_status,
-    get_dda_results, get_edf_data, get_edf_info, get_edf_overview, get_file_chunk, get_file_info,
-    get_ica_result, get_ica_results, get_overview_progress, health, list_analysis_history,
-    list_files, reconstruct_without_components, rename_analysis_result, run_dda_analysis,
-    run_ica_analysis, save_analysis_to_history,
+    cancel_dda_analysis, delete_analysis_result, delete_ica_result, get_analysis_result,
+    get_analysis_status, get_dda_results, get_edf_data, get_edf_info, get_edf_overview,
+    get_file_chunk, get_file_info, get_ica_result, get_ica_results, get_overview_progress,
+    get_running_analysis_status, health, list_analysis_history, list_files,
+    reconstruct_without_components, rename_analysis_result, run_dda_analysis, run_ica_analysis,
+    save_analysis_to_history,
 };
 use crate::api::state::ApiState;
 use axum::{
@@ -30,6 +31,8 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
         .route("/api/edf/overview/progress", get(get_overview_progress))
         .route("/api/dda", post(run_dda_analysis))
         .route("/api/dda/analyze", post(run_dda_analysis))
+        .route("/api/dda/cancel", post(cancel_dda_analysis))
+        .route("/api/dda/running", get(get_running_analysis_status))
         .route("/api/dda/results", get(get_dda_results))
         .route("/api/dda/results/{analysis_id}", get(get_analysis_result))
         .route(

@@ -34,6 +34,7 @@ function OverviewPlotComponent({
   const plotRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const initObserverRef = useRef<ResizeObserver | null>(null);
   const onSeekRef = useRef(onSeek);
   const currentTimeRef = useRef(currentTime);
   const timeWindowRef = useRef(timeWindow);
@@ -41,6 +42,7 @@ function OverviewPlotComponent({
   const lastDurationRef = useRef<number | null>(null);
   const retryCountRef = useRef(0);
   const [retryTrigger, setRetryTrigger] = useState(0);
+  const [containerReady, setContainerReady] = useState(false);
 
   // Keep refs up to date
   useEffect(() => {
@@ -53,7 +55,46 @@ function OverviewPlotComponent({
   // Reset retry counter when data changes (new file loaded)
   useEffect(() => {
     retryCountRef.current = 0;
+    setContainerReady(false);
   }, [overviewData, duration]);
+
+  // Watch for container to become ready (have valid dimensions)
+  // This handles the race condition where the container isn't laid out yet
+  useEffect(() => {
+    if (!plotRef.current) return;
+
+    const container = plotRef.current;
+
+    // Check if already ready
+    if (container.clientWidth > 0 && container.clientHeight > 0) {
+      setContainerReady(true);
+      return;
+    }
+
+    // Set up observer to detect when container gets valid dimensions
+    initObserverRef.current = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          console.log(
+            "[OverviewPlot] Container now ready with dimensions:",
+            width,
+            height,
+          );
+          setContainerReady(true);
+          // Disconnect once ready
+          initObserverRef.current?.disconnect();
+        }
+      }
+    });
+
+    initObserverRef.current.observe(container);
+
+    return () => {
+      initObserverRef.current?.disconnect();
+      initObserverRef.current = null;
+    };
+  }, []);
 
   // Render overview plot
   useEffect(() => {
@@ -67,6 +108,17 @@ function OverviewPlotComponent({
       return;
     }
 
+    // Validate that all channels have data (not empty arrays)
+    const hasValidChannelData = overviewData.data.every(
+      (channelData) => channelData && channelData.length > 0,
+    );
+    if (!hasValidChannelData) {
+      console.warn(
+        "[OverviewPlot] Some channels have empty data, skipping render",
+      );
+      return;
+    }
+
     const container = plotRef.current;
 
     // Ensure container has been laid out with valid dimensions
@@ -75,16 +127,25 @@ function OverviewPlotComponent({
         "[OverviewPlot] Container not ready, dimensions:",
         container.clientWidth,
         container.clientHeight,
+        "containerReady:",
+        containerReady,
       );
 
-      // Retry after a short delay (up to 5 times)
-      if (retryCountRef.current < 5) {
+      // Retry with exponential backoff (up to 10 times)
+      if (retryCountRef.current < 10) {
+        const delay = Math.min(50 * Math.pow(1.5, retryCountRef.current), 500);
         retryCountRef.current++;
+        console.log(
+          `[OverviewPlot] Retry ${retryCountRef.current}/10 in ${delay}ms`,
+        );
         const timeoutId = setTimeout(() => {
           setRetryTrigger((prev) => prev + 1);
-        }, 100);
+        }, delay);
         return () => clearTimeout(timeoutId);
       }
+      console.error(
+        "[OverviewPlot] Max retries exceeded, container never became ready",
+      );
       return;
     }
 
@@ -320,7 +381,7 @@ function OverviewPlotComponent({
         resizeObserverRef.current = null;
       }
     };
-  }, [overviewData, duration, retryTrigger]); // Include retryTrigger to handle container layout delays
+  }, [overviewData, duration, retryTrigger, containerReady]); // Include retryTrigger and containerReady to handle container layout delays
 
   // Cleanup on unmount
   useEffect(() => {

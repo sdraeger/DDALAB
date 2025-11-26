@@ -1,8 +1,9 @@
-use crate::api::models::{ChunkData, EDFFileInfo};
+use crate::api::models::{ApiError, ChunkData, EDFFileInfo};
 use crate::api::overview_generator::ProgressiveOverviewGenerator;
 use crate::api::state::ApiState;
 use crate::api::utils::{
-    create_file_info, generate_overview_with_file_reader, read_edf_file_chunk, FileType,
+    check_git_annex_symlink, create_file_info_result, generate_overview_with_file_reader,
+    read_edf_file_chunk, FileType,
 };
 use crate::edf::EDFReader;
 use crate::file_readers::FileReaderFactory;
@@ -10,6 +11,7 @@ use crate::text_reader::TextFileReader;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
+    response::IntoResponse,
     Json,
 };
 use rayon::prelude::*;
@@ -20,42 +22,51 @@ use std::sync::Arc;
 pub async fn get_edf_info(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<EDFFileInfo>, StatusCode> {
-    let file_path = params.get("file_path").ok_or(StatusCode::BAD_REQUEST)?;
+) -> Result<Json<EDFFileInfo>, ApiError> {
+    let file_path = params
+        .get("file_path")
+        .ok_or_else(|| ApiError::BadRequest("Missing file_path parameter".to_string()))?;
     log::info!("get_edf_info called for: {}", file_path);
 
     {
         let file_cache = state.files.read();
         if let Some(file_info) = file_cache.get(file_path) {
             log::info!("Found in cache, channels: {:?}", file_info.channels.len());
-            return Ok(Json(file_info.clone()));
+            return Ok(Json((*file_info).clone()));
         }
     }
 
     let full_path = PathBuf::from(file_path);
-    log::info!("Attempting to load EDF file: {:?}", full_path);
+    log::info!("Attempting to load file: {:?}", full_path);
 
-    if let Some(file_info) = create_file_info(full_path).await {
-        log::info!(
-            "Created file info, channels: {:?}",
-            file_info.channels.len()
-        );
-        {
-            let mut file_cache = state.files.write();
-            file_cache.insert(file_path.clone(), file_info.clone());
-        }
-        Ok(Json(file_info))
-    } else {
-        log::error!("Failed to create file info for: {}", file_path);
-        Err(StatusCode::INTERNAL_SERVER_ERROR)
+    // Use the new error-returning function
+    let file_info = create_file_info_result(full_path).await?;
+
+    log::info!(
+        "Created file info, channels: {:?}",
+        file_info.channels.len()
+    );
+
+    // Clone for response before moving into cache
+    let response = file_info.clone();
+    {
+        let mut file_cache = state.files.write();
+        file_cache.insert(file_path.clone(), file_info);
     }
+    Ok(Json(response))
 }
 
 pub async fn get_edf_data(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<ChunkData>, StatusCode> {
-    let file_path = params.get("file_path").ok_or(StatusCode::BAD_REQUEST)?;
+) -> Result<Json<ChunkData>, ApiError> {
+    let file_path = params
+        .get("file_path")
+        .ok_or_else(|| ApiError::BadRequest("Missing file_path parameter".to_string()))?;
+
+    // Check for git-annex symlinks early
+    let path = std::path::Path::new(file_path);
+    check_git_annex_symlink(path)?;
 
     let (start_time, duration, needs_sample_rate) =
         if let Some(chunk_start_str) = params.get("chunk_start") {
@@ -98,7 +109,8 @@ pub async fn get_edf_data(
     {
         let chunk_cache = state.chunks_cache.read();
         if let Some(chunk) = chunk_cache.get(&chunk_key) {
-            return Ok(Json(chunk.clone()));
+            // Return Arc-wrapped data - avoids cloning MB of sample data
+            return Ok(Json((*chunk).clone()));
         }
     }
 
@@ -179,26 +191,34 @@ pub async fn get_edf_data(
     .await
     .map_err(|e| {
         log::error!("Task join error: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
+        ApiError::InternalError(format!("Task join error: {}", e))
     })?
     .map_err(|e| {
-        log::error!("EDF reading error: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
+        log::error!("File reading error: {}", e);
+        ApiError::ParseError(e)
     })?;
 
+    // Clone for response before moving into cache (avoids double clone on cache miss)
+    let response = chunk.clone();
     {
         let mut chunk_cache = state.chunks_cache.write();
-        chunk_cache.insert(chunk_key, chunk.clone());
+        chunk_cache.insert(chunk_key, chunk);
     }
 
-    Ok(Json(chunk))
+    Ok(Json(response))
 }
 
 pub async fn get_overview_progress(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    let file_path = params.get("file_path").ok_or(StatusCode::BAD_REQUEST)?;
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let file_path = params
+        .get("file_path")
+        .ok_or_else(|| ApiError::BadRequest("Missing file_path parameter".to_string()))?;
+
+    // Check for git-annex symlinks
+    let path = std::path::Path::new(file_path);
+    check_git_annex_symlink(path)?;
 
     let max_points: usize = params
         .get("max_points")
@@ -251,8 +271,10 @@ pub async fn get_overview_progress(
 pub async fn get_edf_overview(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<ChunkData>, StatusCode> {
-    let file_path = params.get("file_path").ok_or(StatusCode::BAD_REQUEST)?;
+) -> Result<Json<ChunkData>, ApiError> {
+    let file_path = params
+        .get("file_path")
+        .ok_or_else(|| ApiError::BadRequest("Missing file_path parameter".to_string()))?;
 
     let max_points: usize = params
         .get("max_points")
@@ -264,9 +286,13 @@ pub async fn get_edf_overview(
         .map(|s| s.split(',').map(|c| c.trim().to_string()).collect());
 
     let path = std::path::Path::new(file_path);
+
+    // Check for git-annex symlinks first
+    check_git_annex_symlink(path)?;
+
     if !path.exists() {
         log::error!("[OVERVIEW] File not found: {}", file_path);
-        return Err(StatusCode::NOT_FOUND);
+        return Err(ApiError::FileNotFound(file_path.to_string()));
     }
 
     let file_type = FileType::from_path(path);
@@ -288,7 +314,7 @@ pub async fn get_edf_overview(
                 .await
                 .map_err(|e| {
                     log::error!("[OVERVIEW] Progressive generation failed: {}", e);
-                    StatusCode::INTERNAL_SERVER_ERROR
+                    ApiError::ParseError(e)
                 })?;
 
             return Ok(Json(chunk));
@@ -315,7 +341,8 @@ pub async fn get_edf_overview(
         let chunk_cache = state.chunks_cache.read();
         if let Some(chunk) = chunk_cache.get(&cache_key) {
             log::info!("[OVERVIEW] In-memory cache HIT for {}", file_path);
-            return Ok(Json(chunk.clone()));
+            // Return Arc-wrapped data - avoids cloning MB of overview data
+            return Ok(Json((*chunk).clone()));
         }
     }
 
@@ -358,19 +385,21 @@ pub async fn get_edf_overview(
     .await
     .map_err(|e| {
         log::error!("Task join error: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
+        ApiError::InternalError(format!("Task join error: {}", e))
     })?
     .map_err(|e| {
         log::error!("Failed to generate overview: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
+        ApiError::ParseError(e)
     })?;
 
+    // Clone for response before moving into cache
+    let response = chunk.clone();
     {
         let mut chunk_cache = state.chunks_cache.write();
-        chunk_cache.insert(cache_key, chunk.clone());
+        chunk_cache.insert(cache_key, chunk);
     }
 
-    Ok(Json(chunk))
+    Ok(Json(response))
 }
 
 fn read_chunk_with_file_reader(

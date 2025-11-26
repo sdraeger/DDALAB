@@ -140,11 +140,11 @@ pub async fn export_annotations(
     if path.exists() {
         match crate::utils::file_hash::compute_file_hash(path) {
             Ok(hash) => {
-                annotation_file.file_hash = Some(hash);
                 log::info!(
                     "Computed file hash for export: {}...",
-                    &annotation_file.file_hash.as_ref().unwrap()[..16]
+                    &hash[..16.min(hash.len())]
                 );
+                annotation_file.file_hash = Some(hash);
             }
             Err(e) => {
                 log::warn!("Failed to compute file hash for export: {}", e);
@@ -1537,7 +1537,7 @@ pub async fn export_all_annotations(
                 // Convert Vec to slice of serde_json::Value
                 let json_values: Vec<serde_json::Value> = flat_annotations
                     .into_iter()
-                    .map(|ann| serde_json::to_value(ann).unwrap())
+                    .filter_map(|ann| serde_json::to_value(ann).ok())
                     .collect();
 
                 Json2Csv::new(flattener)

@@ -2,6 +2,7 @@
 
 import { SettingsLayout, SettingsSection } from "./settings/SettingsLayout";
 import { AnalysisEngineSettings } from "./settings/AnalysisEngineSettings";
+import { BehaviorSettings } from "./settings/BehaviorSettings";
 import { SecuritySettings } from "./settings/SecuritySettings";
 import { NSGSettings } from "./settings/NSGSettings";
 import { OpenNeuroSettings } from "./settings/OpenNeuroSettings";
@@ -15,9 +16,120 @@ import {
   Database,
   Shield,
   Download,
+  Settings2,
 } from "lucide-react";
+import { useSearchableItems, createSettingsItem } from "@/hooks/useSearchable";
 
 export function SettingsPanel() {
+  // Register settings sections as searchable
+  useSearchableItems(
+    [
+      createSettingsItem(
+        "settings-engine",
+        "Analysis Engine Settings",
+        () => {
+          document
+            .querySelector('[data-settings-section="engine"]')
+            ?.scrollIntoView();
+        },
+        {
+          description: "Configure DDA analysis engine and parallel processing",
+          keywords: ["engine", "parallel", "cores", "dda", "configuration"],
+        },
+      ),
+      ...(TauriService.isTauri()
+        ? [
+            createSettingsItem(
+              "settings-behavior",
+              "Behavior Settings",
+              () => {
+                document
+                  .querySelector('[data-settings-section="behavior"]')
+                  ?.scrollIntoView();
+              },
+              {
+                description: "Configure application behavior and confirmations",
+                keywords: [
+                  "behavior",
+                  "close",
+                  "warning",
+                  "confirmation",
+                  "dialog",
+                  "analysis",
+                ],
+              },
+            ),
+            createSettingsItem(
+              "settings-security",
+              "Security Settings",
+              () => {
+                document
+                  .querySelector('[data-settings-section="security"]')
+                  ?.scrollIntoView();
+              },
+              {
+                description: "Configure API authentication and session tokens",
+                keywords: ["security", "auth", "token", "session", "password"],
+              },
+            ),
+            createSettingsItem(
+              "settings-nsg",
+              "NSG Integration Settings",
+              () => {
+                document
+                  .querySelector('[data-settings-section="nsg"]')
+                  ?.scrollIntoView();
+              },
+              {
+                description: "Configure Neuroscience Gateway credentials",
+                keywords: ["nsg", "gateway", "credentials", "hpc", "username"],
+              },
+            ),
+            createSettingsItem(
+              "settings-debug",
+              "Debug & Logs Settings",
+              () => {
+                document
+                  .querySelector('[data-settings-section="debug"]')
+                  ?.scrollIntoView();
+              },
+              {
+                description: "View application logs and debug information",
+                keywords: ["debug", "logs", "diagnostics", "errors", "console"],
+              },
+            ),
+            createSettingsItem(
+              "settings-updates",
+              "Updates Settings",
+              () => {
+                document
+                  .querySelector('[data-settings-section="updates"]')
+                  ?.scrollIntoView();
+              },
+              {
+                description: "Check for application updates",
+                keywords: ["update", "version", "upgrade", "new", "download"],
+              },
+            ),
+          ]
+        : []),
+      createSettingsItem(
+        "settings-openneuro",
+        "OpenNeuro Settings",
+        () => {
+          document
+            .querySelector('[data-settings-section="openneuro"]')
+            ?.scrollIntoView();
+        },
+        {
+          description: "Configure OpenNeuro API key for dataset access",
+          keywords: ["openneuro", "api", "key", "dataset", "download"],
+        },
+      ),
+    ],
+    [],
+  );
+
   const sections: SettingsSection[] = [
     {
       id: "engine",
@@ -26,6 +138,16 @@ export function SettingsPanel() {
       component: <AnalysisEngineSettings />,
     },
   ];
+
+  // Only add Behavior section in Tauri (close warning is Tauri-only)
+  if (TauriService.isTauri()) {
+    sections.push({
+      id: "behavior",
+      label: "Behavior",
+      icon: <Settings2 className="h-4 w-4" />,
+      component: <BehaviorSettings />,
+    });
+  }
 
   // Only add Security section in Tauri
   if (TauriService.isTauri()) {

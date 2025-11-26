@@ -109,10 +109,17 @@ pub struct AppPreferences {
     pub theme: String,
     #[serde(default = "default_use_https")]
     pub use_https: bool,
+    /// Whether to show a warning dialog when closing the app during DDA analysis
+    #[serde(default = "default_warn_on_close_during_analysis")]
+    pub warn_on_close_during_analysis: bool,
 }
 
 fn default_use_https() -> bool {
     false // HTTP by default - HTTPS has certificate trust issues in Tauri's WebView
+}
+
+fn default_warn_on_close_during_analysis() -> bool {
+    true // Warn by default
 }
 
 impl Default for FileManagerState {
@@ -214,6 +221,7 @@ impl Default for AppPreferences {
             window_state: HashMap::new(),
             theme: "auto".to_string(),
             use_https: false, // HTTP by default - HTTPS has certificate trust issues in Tauri's WebView
+            warn_on_close_during_analysis: true, // Warn by default
         }
     }
 }

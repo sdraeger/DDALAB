@@ -1,9 +1,17 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+  memo,
+} from "react";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 import { EDFFileInfo } from "@/types/api";
+import { handleError, isGitAnnexError } from "@/utils/errorHandler";
 import {
   Card,
   CardContent,
@@ -54,6 +62,8 @@ import {
   Check,
   FolderOpen,
   Upload,
+  CloudOff,
+  AlertTriangle,
 } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
 import { formatBytes, formatDate } from "@/lib/utils";
@@ -67,11 +77,27 @@ import {
   FileSegmentationDialog,
   type SegmentationParams,
 } from "@/components/FileSegmentationDialog";
+import { GitAnnexDownloadDialog } from "@/components/GitAnnexDownloadDialog";
 import {
   FileTreeInput,
   type FileTreeNode,
   type FileTreeSelection,
 } from "@/components/ui/file-tree-input";
+import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
+
+// Supported file extensions for neurophysiology data
+const SUPPORTED_EXTENSIONS = [
+  ".edf", // EDF/EDF+
+  ".csv", // CSV data
+  ".ascii", // ASCII data
+  ".txt", // Text data
+  ".fif", // FIF/FIFF (MEG)
+  ".fiff", // FIF/FIFF alternate extension
+  ".vhdr", // BrainVision header
+  ".set", // EEGLAB
+  ".xdf", // XDF (Lab Streaming Layer)
+  ".nwb", // NWB (Neurodata Without Borders)
+];
 
 interface FileManagerProps {
   apiService: ApiService;
@@ -90,9 +116,10 @@ interface FileTreeRendererProps {
   onUploadClick: (dir: DirectoryEntry) => void;
   apiService: ApiService;
   searchQuery: string;
+  highlightedFilePath: string | null;
 }
 
-function FileTreeRenderer({
+const FileTreeRenderer = memo(function FileTreeRenderer({
   directories,
   files,
   selectedFile,
@@ -105,6 +132,7 @@ function FileTreeRenderer({
   onUploadClick,
   apiService,
   searchQuery,
+  highlightedFilePath,
 }: FileTreeRendererProps) {
   const [loadedDirs, setLoadedDirs] = useState<
     Map<string, { dirs: DirectoryEntry[]; files: EDFFileInfo[] }>
@@ -222,25 +250,34 @@ function FileTreeRenderer({
               return contents;
             }
 
-            const files: EDFFileInfo[] = firstSession.runs.map((run: any) => ({
-              file_path: run.dataFile,
-              file_name:
-                run.dataFile.split("/").pop() ||
-                `task-${run.task}_run-${run.run}`,
-              file_size: 0,
-              duration: 0,
-              sample_rate: 256,
-              channels: [],
-              total_samples: 0,
-              start_time: new Date().toISOString(),
-              end_time: new Date().toISOString(),
-              annotations_count: 0,
-              bidsMetadata: {
-                task: run.task,
-                run: run.run,
-                modality: run.modality,
-              },
-            }));
+            // Check annex status for each file in parallel
+            const files: EDFFileInfo[] = await Promise.all(
+              firstSession.runs.map(async (run: any) => {
+                const filePath = run.dataFile;
+                const isAnnexPlaceholder =
+                  await TauriService.checkAnnexPlaceholder(filePath);
+                return {
+                  file_path: filePath,
+                  file_name:
+                    filePath.split("/").pop() ||
+                    `task-${run.task}_run-${run.run}`,
+                  file_size: 0,
+                  duration: 0,
+                  sample_rate: 256,
+                  channels: [],
+                  total_samples: 0,
+                  start_time: new Date().toISOString(),
+                  end_time: new Date().toISOString(),
+                  annotations_count: 0,
+                  is_annex_placeholder: isAnnexPlaceholder,
+                  bidsMetadata: {
+                    task: run.task,
+                    run: run.run,
+                    modality: run.modality,
+                  },
+                };
+              }),
+            );
 
             const contents = { dirs: [], files };
             setLoadedDirs((prev) => new Map(prev).set(dirPath, contents));
@@ -285,25 +322,34 @@ function FileTreeRenderer({
           setLoadingDirs((prev) => new Set(prev).add(dirPath));
           try {
             // This is a BIDS session - show runs as files
-            const files: EDFFileInfo[] = session.runs.map((run: any) => ({
-              file_path: run.dataFile,
-              file_name:
-                run.dataFile.split("/").pop() ||
-                `task-${run.task}_run-${run.run}`,
-              file_size: 0,
-              duration: 0,
-              sample_rate: 256,
-              channels: [],
-              total_samples: 0,
-              start_time: new Date().toISOString(),
-              end_time: new Date().toISOString(),
-              annotations_count: 0,
-              bidsMetadata: {
-                task: run.task,
-                run: run.run,
-                modality: run.modality,
-              },
-            }));
+            // Check annex status for each file in parallel
+            const files: EDFFileInfo[] = await Promise.all(
+              session.runs.map(async (run: any) => {
+                const filePath = run.dataFile;
+                const isAnnexPlaceholder =
+                  await TauriService.checkAnnexPlaceholder(filePath);
+                return {
+                  file_path: filePath,
+                  file_name:
+                    filePath.split("/").pop() ||
+                    `task-${run.task}_run-${run.run}`,
+                  file_size: 0,
+                  duration: 0,
+                  sample_rate: 256,
+                  channels: [],
+                  total_samples: 0,
+                  start_time: new Date().toISOString(),
+                  end_time: new Date().toISOString(),
+                  annotations_count: 0,
+                  is_annex_placeholder: isAnnexPlaceholder,
+                  bidsMetadata: {
+                    task: run.task,
+                    run: run.run,
+                    modality: run.modality,
+                  },
+                };
+              }),
+            );
 
             const contents = { dirs: [], files };
             setLoadedDirs((prev) => new Map(prev).set(dirPath, contents));
@@ -381,11 +427,13 @@ function FileTreeRenderer({
   const getFileFormat = (fileName: string) => {
     const lowerName = fileName.toLowerCase();
     if (lowerName.endsWith(".edf")) return "EDF";
-    if (lowerName.endsWith(".fif")) return "FIF";
+    if (lowerName.endsWith(".fif") || lowerName.endsWith(".fiff")) return "FIF";
     if (lowerName.endsWith(".csv")) return "CSV";
     if (lowerName.endsWith(".ascii")) return "ASCII";
     if (lowerName.endsWith(".set")) return "SET";
     if (lowerName.endsWith(".vhdr")) return "VHDR";
+    if (lowerName.endsWith(".xdf")) return "XDF";
+    if (lowerName.endsWith(".nwb")) return "NWB";
     if (lowerName.endsWith(".nii.gz")) return "NII.GZ";
     if (lowerName.endsWith(".nii")) return "NII";
     return "TXT";
@@ -545,12 +593,27 @@ function FileTreeRenderer({
             selectedFile?.file_path === file.file_path
               ? "bg-primary/10 ring-1 ring-primary/30"
               : ""
+          } ${
+            highlightedFilePath === file.file_path
+              ? "ring-2 ring-yellow-500 bg-yellow-500/10 animate-pulse"
+              : ""
           }`}
           onContextMenu={(e) => onContextMenu(e, file)}
         >
-          <FileText className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+          {file.is_annex_placeholder ? (
+            <div className="relative flex-shrink-0 mt-0.5">
+              <CloudOff className="h-5 w-5 text-orange-500" />
+              <AlertTriangle className="h-3 w-3 text-orange-600 absolute -bottom-1 -right-1" />
+            </div>
+          ) : (
+            <FileText className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+          )}
           <div className="flex-1 min-w-0">
-            <div className="font-medium truncate">{file.file_name}</div>
+            <div
+              className={`font-medium truncate ${file.is_annex_placeholder ? "text-orange-700 dark:text-orange-400" : ""}`}
+            >
+              {file.file_name}
+            </div>
             <div className="flex items-center gap-2 flex-wrap text-sm text-muted-foreground">
               {(file as any).bidsMetadata ? (
                 // BIDS file - show task, run, modality
@@ -595,6 +658,15 @@ function FileTreeRenderer({
                 <Check className="h-4 w-4" />
                 <span className="text-xs font-medium">Selected</span>
               </div>
+            )}
+            {file.is_annex_placeholder && (
+              <Badge
+                variant="outline"
+                className="text-xs bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700"
+              >
+                <Download className="h-3 w-3 mr-1" />
+                Not Downloaded
+              </Badge>
             )}
             <Badge variant="secondary" className="text-xs">
               {getFileFormat(file.file_name)}
@@ -763,6 +835,7 @@ function FileTreeRenderer({
     isOpenNeuroAuthenticated,
     pendingFileSelection,
     loadFileInfoMutationPending,
+    highlightedFilePath,
     onContextMenu,
     onUploadClick,
     getFileFormat,
@@ -834,7 +907,7 @@ function FileTreeRenderer({
       />
     </>
   );
-}
+});
 
 export function FileManager({ apiService }: FileManagerProps) {
   const dataDirectoryPath = useAppStore(
@@ -852,6 +925,9 @@ export function FileManager({ apiService }: FileManagerProps) {
   const showHidden = useAppStore((state) => state.fileManager.showHidden);
   const sortBy = useAppStore((state) => state.fileManager.sortBy);
   const sortOrder = useAppStore((state) => state.fileManager.sortOrder);
+  const highlightedFilePath = useAppStore(
+    (state) => state.fileManager.highlightedFilePath,
+  );
   const isServerReady = useAppStore((state) => state.ui.isServerReady);
   const isRecording = useAppStore(
     (state) => state.workflowRecording.isRecording,
@@ -926,6 +1002,9 @@ export function FileManager({ apiService }: FileManagerProps) {
   } | null>(null);
   const [showSegmentationDialog, setShowSegmentationDialog] = useState(false);
   const [fileToSegment, setFileToSegment] = useState<EDFFileInfo | null>(null);
+  const [showAnnexDownloadDialog, setShowAnnexDownloadDialog] = useState(false);
+  const [annexFileToDownload, setAnnexFileToDownload] =
+    useState<EDFFileInfo | null>(null);
 
   // Extract directories and files from query data
   const directories = useMemo(() => {
@@ -939,13 +1018,10 @@ export function FileManager({ apiService }: FileManagerProps) {
     if (!directoryData?.files) return [];
     return directoryData.files
       .filter((f) => !f.is_directory)
-      .filter(
-        (file) =>
-          file.name.toLowerCase().endsWith(".edf") ||
-          file.name.toLowerCase().endsWith(".csv") ||
-          file.name.toLowerCase().endsWith(".ascii") ||
-          file.name.toLowerCase().endsWith(".txt"),
-      )
+      .filter((file) => {
+        const lowerName = file.name.toLowerCase();
+        return SUPPORTED_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
+      })
       .map((file) => ({
         file_path: file.path,
         file_name: file.name,
@@ -957,6 +1033,7 @@ export function FileManager({ apiService }: FileManagerProps) {
         start_time: file.last_modified || new Date().toISOString(),
         end_time: file.last_modified || new Date().toISOString(),
         annotations_count: 0,
+        is_annex_placeholder: file.is_annex_placeholder || false,
       }));
   }, [directoryData]);
 
@@ -1084,7 +1161,10 @@ export function FileManager({ apiService }: FileManagerProps) {
           }
         },
         onError: (error) => {
-          console.error("[FILEMANAGER] ✗ File restoration failed:", error);
+          handleError(error, {
+            source: "FileManager",
+            severity: "warning",
+          });
           clearPendingFileSelection();
         },
       });
@@ -1167,90 +1247,131 @@ export function FileManager({ apiService }: FileManagerProps) {
     return filtered;
   }, [files, searchQuery, showHidden, sortBy, sortOrder]);
 
-  const handleFileSelect = (file: EDFFileInfo) => {
-    // Prevent file selection while persisted file is being restored
-    // This avoids race conditions and unintentional clicks during startup
-    if (pendingFileSelection) {
-      console.log(
-        "[FILEMANAGER] Ignoring file click - pending restoration:",
-        pendingFileSelection,
-      );
-      return;
-    }
+  const loadFileInfo = useCallback(
+    (file: EDFFileInfo) => {
+      // Set file as selected immediately for instant visual feedback
+      setSelectedFile(file);
 
-    // If a file is already selected and it's different from the new selection
-    if (selectedFile && selectedFile.file_path !== file.file_path) {
-      setPendingFileSelection(file);
-      setShowConfirmDialog(true);
-    } else {
-      // No file selected yet or clicking the same file
-      loadFileInfo(file);
-    }
-  };
+      // Use mutation to load file info
+      loadFileInfoMutation.mutate(file.file_path, {
+        onSuccess: (fileInfo) => {
+          // Update with full details
+          setSelectedFile(fileInfo);
 
-  const loadFileInfo = async (file: EDFFileInfo) => {
-    // Set file as selected immediately for instant visual feedback
-    setSelectedFile(file);
+          // Record file load action if recording is active
+          if (isRecording) {
+            try {
+              const ext = file.file_path.split(".").pop()?.toLowerCase();
+              let fileType: "EDF" | "ASCII" | "CSV" = "EDF";
+              if (ext === "csv") fileType = "CSV";
+              else if (ext === "ascii" || ext === "txt") fileType = "ASCII";
 
-    // Use mutation to load file info
-    loadFileInfoMutation.mutate(file.file_path, {
-      onSuccess: (fileInfo) => {
-        // Update with full details
-        setSelectedFile(fileInfo);
-
-        // Record file load action if recording is active
-        if (isRecording) {
-          try {
-            const ext = file.file_path.split(".").pop()?.toLowerCase();
-            let fileType: "EDF" | "ASCII" | "CSV" = "EDF";
-            if (ext === "csv") fileType = "CSV";
-            else if (ext === "ascii" || ext === "txt") fileType = "ASCII";
-
-            const action = createLoadFileAction(file.file_path, fileType);
-            recordAction(action)
-              .then(() => {
-                incrementActionCount();
-                console.log("[WORKFLOW] Recorded file load:", file.file_path);
-              })
-              .catch((error) => {
-                console.error("[WORKFLOW] Failed to record file load:", error);
-              });
-          } catch (error) {
-            console.error("[WORKFLOW] Failed to record file load:", error);
+              const action = createLoadFileAction(file.file_path, fileType);
+              recordAction(action)
+                .then(() => {
+                  incrementActionCount();
+                  console.log("[WORKFLOW] Recorded file load:", file.file_path);
+                })
+                .catch((error) => {
+                  console.error(
+                    "[WORKFLOW] Failed to record file load:",
+                    error,
+                  );
+                });
+            } catch (error) {
+              console.error("[WORKFLOW] Failed to record file load:", error);
+            }
           }
-        }
 
-        // Auto-select first few channels if none selected OR if selected channels don't exist in this file
-        const validSelectedChannels = selectedChannels.filter((ch) =>
-          fileInfo.channels.includes(ch),
+          // Auto-select first few channels if none selected OR if selected channels don't exist in this file
+          const validSelectedChannels = selectedChannels.filter((ch) =>
+            fileInfo.channels.includes(ch),
+          );
+
+          if (
+            fileInfo.channels.length > 0 &&
+            validSelectedChannels.length === 0
+          ) {
+            const defaultChannels = fileInfo.channels.slice(
+              0,
+              Math.min(10, fileInfo.channels.length),
+            );
+            console.log(
+              "[FILEMANAGER] Auto-selecting default channels:",
+              defaultChannels,
+            );
+            setSelectedChannels(defaultChannels);
+          } else if (validSelectedChannels.length !== selectedChannels.length) {
+            console.log(
+              "[FILEMANAGER] Updating to valid channels only:",
+              validSelectedChannels,
+            );
+            setSelectedChannels(validSelectedChannels);
+          }
+        },
+        onError: (error) => {
+          // Check if this is a git-annex error (file not downloaded)
+          if (isGitAnnexError(error)) {
+            // Show the download dialog instead of just an error
+            setAnnexFileToDownload(file);
+            setShowAnnexDownloadDialog(true);
+            // Clear the selected file since it can't be loaded
+            setSelectedFile(null);
+            return;
+          }
+
+          handleError(error, {
+            source: "FileManager",
+            severity: "warning",
+          });
+        },
+      });
+    },
+    [
+      setSelectedFile,
+      loadFileInfoMutation,
+      isRecording,
+      recordAction,
+      incrementActionCount,
+      selectedChannels,
+      setSelectedChannels,
+    ],
+  );
+
+  const handleFileSelect = useCallback(
+    (file: EDFFileInfo) => {
+      // Prevent file selection while persisted file is being restored
+      // This avoids race conditions and unintentional clicks during startup
+      if (pendingFileSelection) {
+        console.log(
+          "[FILEMANAGER] Ignoring file click - pending restoration:",
+          pendingFileSelection,
         );
+        return;
+      }
 
-        if (
-          fileInfo.channels.length > 0 &&
-          validSelectedChannels.length === 0
-        ) {
-          const defaultChannels = fileInfo.channels.slice(
-            0,
-            Math.min(10, fileInfo.channels.length),
-          );
-          console.log(
-            "[FILEMANAGER] Auto-selecting default channels:",
-            defaultChannels,
-          );
-          setSelectedChannels(defaultChannels);
-        } else if (validSelectedChannels.length !== selectedChannels.length) {
-          console.log(
-            "[FILEMANAGER] Updating to valid channels only:",
-            validSelectedChannels,
-          );
-          setSelectedChannels(validSelectedChannels);
-        }
-      },
-      onError: (error) => {
-        console.error("Failed to load file info:", error);
-      },
-    });
-  };
+      // Check if this is a git-annex placeholder file
+      if (file.is_annex_placeholder) {
+        console.log(
+          "[FILEMANAGER] Git-annex placeholder file clicked:",
+          file.file_path,
+        );
+        setAnnexFileToDownload(file);
+        setShowAnnexDownloadDialog(true);
+        return;
+      }
+
+      // If a file is already selected and it's different from the new selection
+      if (selectedFile && selectedFile.file_path !== file.file_path) {
+        setPendingFileSelection(file);
+        setShowConfirmDialog(true);
+      } else {
+        // No file selected yet or clicking the same file
+        loadFileInfo(file);
+      }
+    },
+    [pendingFileSelection, selectedFile, loadFileInfo],
+  );
 
   const confirmFileSelection = () => {
     if (pendingFileSelection) {
@@ -1265,11 +1386,14 @@ export function FileManager({ apiService }: FileManagerProps) {
     setShowConfirmDialog(false);
   };
 
-  const handleContextMenu = (e: React.MouseEvent, file: EDFFileInfo) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY, file });
-  };
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, file: EDFFileInfo) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setContextMenu({ x: e.clientX, y: e.clientY, file });
+    },
+    [],
+  );
 
   const handleSegmentFile = (file: EDFFileInfo) => {
     setFileToSegment(file);
@@ -1294,33 +1418,36 @@ export function FileManager({ apiService }: FileManagerProps) {
     }
   };
 
-  const handleDirectorySelect = (dir: DirectoryEntry) => {
-    // BIDS datasets now expand inline - no special handling needed
-    // The FileTreeRenderer will load BIDS contents when expanded
+  const handleDirectorySelect = useCallback(
+    (dir: DirectoryEntry) => {
+      // BIDS datasets now expand inline - no special handling needed
+      // The FileTreeRenderer will load BIDS contents when expanded
 
-    // dir.path is absolute - we need to make it relative to dataDirectoryPath
-    const absolutePath = dir.path;
+      // dir.path is absolute - we need to make it relative to dataDirectoryPath
+      const absoluteDirPath = dir.path;
 
-    // Remove the dataDirectoryPath prefix to get relative path
-    let relativePath = absolutePath;
-    if (absolutePath.startsWith(dataDirectoryPath)) {
-      relativePath = absolutePath.slice(dataDirectoryPath.length);
-    }
+      // Remove the dataDirectoryPath prefix to get relative path
+      let relativePath = absoluteDirPath;
+      if (absoluteDirPath.startsWith(dataDirectoryPath)) {
+        relativePath = absoluteDirPath.slice(dataDirectoryPath.length);
+      }
 
-    // Split and filter empty segments
-    const newPath = relativePath.split("/").filter((p) => p.length > 0);
+      // Split and filter empty segments
+      const newPath = relativePath.split("/").filter((p) => p.length > 0);
 
-    console.log("[FILEMANAGER] Directory selected:", {
-      dirPath: dir.path,
-      dataDirectoryPath: dataDirectoryPath,
-      relativePath,
-      newPath,
-      isBIDS: dir.isBIDS,
-      bidsInfo: dir.bidsInfo,
-    });
+      console.log("[FILEMANAGER] Directory selected:", {
+        dirPath: dir.path,
+        dataDirectoryPath: dataDirectoryPath,
+        relativePath,
+        newPath,
+        isBIDS: dir.isBIDS,
+        bidsInfo: dir.bidsInfo,
+      });
 
-    setCurrentPath(newPath);
-  };
+      setCurrentPath(newPath);
+    },
+    [dataDirectoryPath, setCurrentPath],
+  );
 
   const handleBidsFileSelect = async (filePath: string) => {
     console.log("[FILEMANAGER] BIDS file selected:", filePath);
@@ -1354,11 +1481,17 @@ export function FileManager({ apiService }: FileManagerProps) {
           setBidsDatasetPath(null);
         },
         onError: (error) => {
-          console.error("[FILEMANAGER] Failed to load BIDS file:", error);
+          handleError(error, {
+            source: "FileManager",
+            severity: "warning",
+          });
         },
       });
     } catch (error) {
-      console.error("[FILEMANAGER] Failed to load BIDS file:", error);
+      handleError(error, {
+        source: "FileManager",
+        severity: "warning",
+      });
     }
   };
 
@@ -1390,6 +1523,11 @@ export function FileManager({ apiService }: FileManagerProps) {
       });
     }
   };
+
+  const handleUploadClick = useCallback((dir: DirectoryEntry) => {
+    setUploadDatasetPath(dir.path);
+    setShowUploadDialog(true);
+  }, []);
 
   const handleChangeDataDirectory = async () => {
     if (!TauriService.isTauri()) return;
@@ -1440,6 +1578,71 @@ export function FileManager({ apiService }: FileManagerProps) {
       // User probably cancelled - silently ignore
     }
   };
+
+  // Register files as searchable items
+  useSearchableItems(
+    [
+      // Current selected file
+      ...(selectedFile
+        ? [
+            createActionItem(
+              `file-current-${selectedFile.file_path}`,
+              `Current: ${selectedFile.file_name}`,
+              () => {
+                // Already selected
+              },
+              {
+                description: `Currently selected file - ${selectedFile.channels.length} channels`,
+                keywords: [
+                  "file",
+                  "current",
+                  "selected",
+                  selectedFile.file_name,
+                ],
+                category: "Files",
+                priority: 10,
+              },
+            ),
+          ]
+        : []),
+      // Files in current directory (limit to avoid too many items)
+      ...files.slice(0, 20).map((file) =>
+        createActionItem(
+          `file-${file.file_path}`,
+          file.file_name,
+          () => handleFileSelect(file),
+          {
+            description: `${formatBytes(file.file_size)} - ${currentPath.join("/")}`,
+            keywords: ["file", "edf", file.file_name.toLowerCase()],
+            category: "Files",
+          },
+        ),
+      ),
+      // Refresh directory action
+      createActionItem(
+        "file-refresh-directory",
+        "Refresh Files",
+        () => refetchDirectory(),
+        {
+          description: "Refresh the current directory listing",
+          keywords: ["refresh", "reload", "files", "directory"],
+          category: "File Actions",
+        },
+      ),
+      // Change data directory action
+      createActionItem(
+        "file-change-directory",
+        "Change Data Directory",
+        () => handleChangeDataDirectory(),
+        {
+          description: "Select a different data directory",
+          keywords: ["change", "directory", "folder", "browse", "select"],
+          category: "File Actions",
+        },
+      ),
+    ],
+    [selectedFile?.file_path, files.length, currentPath.join("/")],
+  );
 
   // BIDS datasets now expand inline - no full-page view needed
 
@@ -1663,12 +1866,10 @@ export function FileManager({ apiService }: FileManagerProps) {
             onDirectorySelect={handleDirectorySelect}
             onFileSelect={handleFileSelect}
             onContextMenu={handleContextMenu}
-            onUploadClick={(dir) => {
-              setUploadDatasetPath(dir.path);
-              setShowUploadDialog(true);
-            }}
+            onUploadClick={handleUploadClick}
             apiService={apiService}
             searchQuery={searchQuery}
+            highlightedFilePath={highlightedFilePath}
           />
         )}
       </CardContent>
@@ -1678,17 +1879,25 @@ export function FileManager({ apiService }: FileManagerProps) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Change Selected File?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to change the selected file? This will reset
-              your current analysis workspace.
-              <div className="mt-4 space-y-2">
-                <div className="p-2 bg-muted rounded">
-                  <p className="text-sm font-medium">Current file:</p>
-                  <p className="text-sm">{selectedFile?.file_name}</p>
-                </div>
-                <div className="p-2 bg-muted rounded">
-                  <p className="text-sm font-medium">New file:</p>
-                  <p className="text-sm">{pendingFileSelection?.file_name}</p>
+            <AlertDialogDescription asChild>
+              <div className="text-sm text-muted-foreground">
+                <p>
+                  Are you sure you want to change the selected file? This will
+                  reset your current analysis workspace.
+                </p>
+                <div className="mt-4 space-y-2">
+                  <div className="p-2 bg-muted rounded">
+                    <span className="text-sm font-medium block">
+                      Current file:
+                    </span>
+                    <span className="text-sm">{selectedFile?.file_name}</span>
+                  </div>
+                  <div className="p-2 bg-muted rounded">
+                    <span className="text-sm font-medium block">New file:</span>
+                    <span className="text-sm">
+                      {pendingFileSelection?.file_name}
+                    </span>
+                  </div>
                 </div>
               </div>
             </AlertDialogDescription>
@@ -1742,6 +1951,21 @@ export function FileManager({ apiService }: FileManagerProps) {
         file={fileToSegment}
         onSegment={handleSegment}
         apiService={apiService}
+      />
+
+      {/* Git Annex Download Dialog */}
+      <GitAnnexDownloadDialog
+        open={showAnnexDownloadDialog}
+        onOpenChange={(open) => {
+          setShowAnnexDownloadDialog(open);
+          if (!open) setAnnexFileToDownload(null);
+        }}
+        filePath={annexFileToDownload?.file_path || ""}
+        fileName={annexFileToDownload?.file_name || ""}
+        onDownloadComplete={() => {
+          // Refresh directory listing after download
+          refetchDirectory();
+        }}
       />
     </Card>
   );

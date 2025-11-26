@@ -1,9 +1,24 @@
-use crate::api::models::{ChunkData, EDFFileInfo};
+use crate::api::models::{ApiError, ChunkData, EDFFileInfo};
 use crate::edf::EDFReader;
 use crate::file_readers::{parse_edf_datetime, FileReaderFactory};
 use crate::text_reader::TextFileReader;
 use chrono::Utc;
 use std::path::{Path, PathBuf};
+
+/// Check if a path is a broken git-annex symlink
+pub fn check_git_annex_symlink(path: &Path) -> Result<(), ApiError> {
+    if let Ok(metadata) = path.symlink_metadata() {
+        if metadata.is_symlink() && !path.exists() {
+            let path_str = path.to_string_lossy().to_string();
+            log::error!(
+                "File is a broken symlink (git-annex): {:?}. Run 'git annex get' to download.",
+                path
+            );
+            return Err(ApiError::GitAnnexNotDownloaded(path_str));
+        }
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileType {
@@ -316,8 +331,8 @@ pub fn read_edf_file_chunk(
 
 pub async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
     tokio::task::spawn_blocking(move || {
-        if path.symlink_metadata().is_ok() && path.symlink_metadata().unwrap().is_symlink() {
-            if !path.exists() {
+        if let Ok(metadata) = path.symlink_metadata() {
+            if metadata.is_symlink() && !path.exists() {
                 log::error!("File is a broken symlink (possibly git-annex): {:?}. Run 'git annex get' to download the actual file.", path);
                 return None;
             }
@@ -539,4 +554,40 @@ pub async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
     .await
     .ok()
     .flatten()
+}
+
+/// Create file info with proper error handling (returns Result instead of Option)
+pub async fn create_file_info_result(path: PathBuf) -> Result<EDFFileInfo, ApiError> {
+    let path_str = path.to_string_lossy().to_string();
+
+    tokio::task::spawn_blocking(move || {
+        // Check for git-annex broken symlinks first
+        check_git_annex_symlink(&path)?;
+
+        // Check if file exists
+        if !path.exists() {
+            return Err(ApiError::FileNotFound(path_str.clone()));
+        }
+
+        if !path.is_file() {
+            return Err(ApiError::BadRequest(format!(
+                "Path is not a file: {}",
+                path_str
+            )));
+        }
+
+        // Try to read metadata using the modular reader
+        match read_file_metadata_with_reader(&path) {
+            Ok(file_info) => {
+                log::info!("Successfully read file metadata for: {:?}", path);
+                Ok(file_info)
+            }
+            Err(e) => {
+                log::error!("Failed to read file {:?}: {}", path, e);
+                Err(ApiError::ParseError(e))
+            }
+        }
+    })
+    .await
+    .map_err(|e| ApiError::InternalError(format!("Task join error: {}", e)))?
 }

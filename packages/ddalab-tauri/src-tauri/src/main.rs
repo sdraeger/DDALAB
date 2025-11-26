@@ -115,6 +115,7 @@ fn main() {
             get_file_state_registry,
             get_tracked_files,
             // Window management commands
+            force_close_window,
             focus_main_window,
             create_popout_window,
             store_analysis_preview_data,
@@ -148,6 +149,8 @@ fn main() {
             // File operation commands
             segment_file,
             compute_file_hash,
+            check_annex_placeholder,
+            run_git_annex_get,
             // Update commands
             check_for_updates,
             get_app_version,

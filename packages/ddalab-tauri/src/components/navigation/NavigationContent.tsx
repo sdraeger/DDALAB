@@ -14,6 +14,7 @@ import { OpenNeuroBrowser } from "@/components/OpenNeuroBrowser";
 import { NSGJobManager } from "@/components/NSGJobManager";
 import { NotificationHistory } from "@/components/NotificationHistory";
 import { FileInfoCard } from "@/components/FileInfoCard";
+import { BIDSContextIndicator } from "@/components/BIDSContextIndicator";
 import { Card, CardContent } from "@/components/ui/card";
 import { Brain, Activity, FileText, Sparkles } from "lucide-react";
 
@@ -43,9 +44,14 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
   if (primaryNav === "explore") {
     if (secondaryNav === "timeseries") {
       return (
-        <div className="p-4 h-full">
+        <div className="p-4 h-full flex flex-col gap-3">
           {hasSelectedFile ? (
-            <TimeSeriesPlotECharts apiService={apiService} />
+            <>
+              <BIDSContextIndicator variant="full" />
+              <div className="flex-1 min-h-0">
+                <TimeSeriesPlotECharts apiService={apiService} />
+              </div>
+            </>
           ) : (
             <EmptyState
               icon={Activity}
@@ -86,9 +92,16 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
     // DDA tab (default)
     if (secondaryNav === "dda" || !secondaryNav) {
       return (
-        <div className="h-full">
+        <div className="h-full flex flex-col">
           {hasSelectedFile ? (
-            <DDAWithHistory apiService={apiService} />
+            <>
+              <div className="px-4 pt-4 pb-2">
+                <BIDSContextIndicator variant="breadcrumb" />
+              </div>
+              <div className="flex-1 min-h-0">
+                <DDAWithHistory apiService={apiService} />
+              </div>
+            </>
           ) : (
             <div className="p-4 h-full">
               <EmptyState
@@ -105,9 +118,16 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
     // ICA tab
     if (secondaryNav === "ica") {
       return (
-        <div className="h-full">
+        <div className="h-full flex flex-col">
           {hasSelectedFile ? (
-            <ICAAnalysisPanel apiService={apiService} />
+            <>
+              <div className="px-4 pt-4 pb-2">
+                <BIDSContextIndicator variant="breadcrumb" />
+              </div>
+              <div className="flex-1 min-h-0">
+                <ICAAnalysisPanel apiService={apiService} />
+              </div>
+            </>
           ) : (
             <div className="p-4 h-full">
               <EmptyState

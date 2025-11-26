@@ -11,6 +11,8 @@ export interface EDFFileInfo {
   start_time: string;
   end_time: string;
   annotations_count?: number;
+  /** True if file is a git-annex placeholder that hasn't been downloaded */
+  is_annex_placeholder?: boolean;
 }
 
 export interface ChunkData {

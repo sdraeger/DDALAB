@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 import { useSync } from "@/hooks/useSync";
@@ -20,6 +20,7 @@ import {
   CloudOff,
   Brain,
   Loader2,
+  X,
 } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 
@@ -31,6 +32,64 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
   const { ui, updateHealthStatus } = useAppStore();
   const { isConnected: syncConnected, isLoading: syncLoading } = useSync();
   const ddaRunning = useAppStore((state) => state.dda.isRunning);
+  const setDDARunning = useAppStore((state) => state.setDDARunning);
+
+  // Cancel popover state
+  const [showCancelPopover, setShowCancelPopover] = useState(false);
+  const [isPopoverClosing, setIsPopoverClosing] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const cancelPopoverRef = useRef<HTMLDivElement>(null);
+
+  // Handle smooth close animation
+  const closePopover = useCallback(() => {
+    setIsPopoverClosing(true);
+    // Wait for animation to complete before hiding
+    setTimeout(() => {
+      setShowCancelPopover(false);
+      setIsPopoverClosing(false);
+    }, 150); // Match animation duration
+  }, []);
+
+  // Close popover when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        cancelPopoverRef.current &&
+        !cancelPopoverRef.current.contains(event.target as Node)
+      ) {
+        closePopover();
+      }
+    }
+
+    if (showCancelPopover && !isPopoverClosing) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () =>
+        document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showCancelPopover, isPopoverClosing, closePopover]);
+
+  // Handle cancel DDA analysis
+  const handleCancelDDA = useCallback(async () => {
+    setIsCancelling(true);
+    try {
+      const result = await apiService.cancelDDAAnalysis();
+      if (result.success) {
+        console.log(
+          "[HealthStatusBar] DDA analysis cancelled:",
+          result.cancelled_analysis_id,
+        );
+        // Update the DDA running state
+        setDDARunning(false);
+      } else {
+        console.warn("[HealthStatusBar] Failed to cancel DDA:", result.message);
+      }
+    } catch (error) {
+      console.error("[HealthStatusBar] Error cancelling DDA:", error);
+    } finally {
+      setIsCancelling(false);
+      closePopover();
+    }
+  }, [apiService, setDDARunning, closePopover]);
 
   // Use TanStack Query for health checks with automatic polling
   const {
@@ -144,14 +203,64 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
             </span>
           </div>
 
-          {/* DDA Analysis Status */}
+          {/* DDA Analysis Status with Cancel Popover */}
           {ddaRunning && (
-            <div
-              className="flex items-center space-x-1 text-blue-600"
-              title="DDA analysis is running in the background. You'll receive a notification when complete."
-            >
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>DDA: running</span>
+            <div className="relative" ref={cancelPopoverRef}>
+              <button
+                onClick={() => {
+                  if (showCancelPopover) {
+                    closePopover();
+                  } else {
+                    setShowCancelPopover(true);
+                  }
+                }}
+                className="flex items-center space-x-1 text-blue-600 hover:text-blue-700 transition-colors cursor-pointer"
+                title="Click to cancel"
+              >
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>DDA: running</span>
+              </button>
+
+              {/* Cancel Popover */}
+              {showCancelPopover && (
+                <div className="absolute bottom-full left-0 mb-2 z-50">
+                  <div
+                    className={`bg-popover border rounded-md shadow-lg px-3 py-2 text-sm transition-all duration-150 ${
+                      isPopoverClosing
+                        ? "animate-out fade-out-0 zoom-out-95 slide-out-to-bottom-2"
+                        : "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2"
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2">
+                      {isCancelling ? (
+                        <>
+                          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                          <span className="text-muted-foreground">
+                            Cancelling...
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={handleCancelDDA}
+                            className="text-red-600 hover:text-red-700 hover:underline font-medium"
+                          >
+                            Cancel?
+                          </button>
+                          <button
+                            onClick={closePopover}
+                            className="text-muted-foreground hover:text-foreground p-0.5"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    {/* Small arrow pointing down */}
+                    <div className="absolute left-4 -bottom-1 w-2 h-2 bg-popover border-r border-b rotate-45 transform" />
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
