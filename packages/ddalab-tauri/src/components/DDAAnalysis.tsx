@@ -62,6 +62,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Download, Upload } from "lucide-react";
+import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
+import { SensitivityAnalysisDialog } from "@/components/analysis/SensitivityAnalysisDialog";
+import { TrendingUp } from "lucide-react";
 
 interface DDAAnalysisProps {
   apiService: ApiService;
@@ -234,12 +237,59 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     type: "success" | "error" | null;
     message: string;
   }>({ type: null, message: "" });
+  const [channelValidationError, setChannelValidationError] = useState<
+    string | null
+  >(null);
   const [autoLoadingResults, setAutoLoadingResults] = useState(false);
   const [resultsFromPersistence, setResultsFromPersistence] = useState(false);
   const [renamingAnalysisId, setRenamingAnalysisId] = useState<string | null>(
     null,
   );
   const [newAnalysisName, setNewAnalysisName] = useState("");
+
+  // Register searchable items for this component
+  useSearchableItems(
+    [
+      createActionItem(
+        "dda-run-analysis",
+        "Run DDA Analysis",
+        () => {
+          // Focus on run button or trigger analysis
+          document.getElementById("dda-run-button")?.focus();
+        },
+        {
+          description: `Run Delay Differential Analysis${selectedFile ? ` on ${selectedFile.file_name}` : ""}`,
+          keywords: [
+            "run",
+            "dda",
+            "analysis",
+            "delay",
+            "differential",
+            "start",
+            "execute",
+          ],
+          category: "DDA Analysis",
+        },
+      ),
+      ...(currentAnalysis
+        ? [
+            createActionItem(
+              `dda-result-${currentAnalysis.id}`,
+              `DDA Result: ${currentAnalysis.created_at}`,
+              () => {
+                // Current analysis is already displayed
+              },
+              {
+                description: `View current DDA analysis result`,
+                keywords: ["result", "dda", "current", "analysis"],
+                category: "DDA Results",
+              },
+            ),
+          ]
+        : []),
+    ],
+    [selectedFile?.file_path, currentAnalysis?.id],
+  );
 
   // NSG submission state
   const [hasNsgCredentials, setHasNsgCredentials] = useState(false);
@@ -253,6 +303,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     warnings: string[];
     errors: string[];
   } | null>(null);
+
+  // Sensitivity analysis state
+  const [showSensitivityDialog, setShowSensitivityDialog] = useState(false);
 
   // Derive history state from TanStack Query
   const historyError = historyErrorObj
@@ -904,9 +957,18 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     });
 
     if (allChannels.size === 0) {
-      console.error("Please configure channels for at least one variant");
+      setChannelValidationError(
+        "Please configure channels for at least one variant before running analysis",
+      );
+      // Scroll to channel configuration section
+      document
+        .querySelector('[data-section="channel-config"]')
+        ?.scrollIntoView({ behavior: "smooth" });
       return;
     }
+
+    // Clear any previous validation error
+    setChannelValidationError(null);
 
     // Sync local parameters to store when running analysis
     updateAnalysisParameters({
@@ -1646,6 +1708,16 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             <Button
               variant="outline"
               size="sm"
+              onClick={() => setShowSensitivityDialog(true)}
+              disabled={ddaRunning || localIsRunning || !selectedFile}
+              title="Analyze how results change with different parameters"
+            >
+              <TrendingUp className="h-4 w-4 mr-1" />
+              Sensitivity
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={resetParameters}
               disabled={ddaRunning}
             >
@@ -2039,7 +2111,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
           {/* Per-Variant Channel Configuration */}
           {parameters.variants.length > 0 && (
-            <Card>
+            <Card
+              data-section="channel-config"
+              className={channelValidationError ? "border-destructive" : ""}
+            >
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm">Channel Configuration</CardTitle>
                 <CardDescription className="text-xs">
@@ -2047,6 +2122,14 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                {channelValidationError && (
+                  <Alert variant="destructive" className="mb-4">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      {channelValidationError}
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <CompactChannelConfigGroup
                   variants={availableVariants}
                   selectedVariants={parameters.variants}
@@ -2054,6 +2137,10 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   disabled={ddaRunning || localIsRunning}
                   channelConfigs={parameters.variantChannelConfigs}
                   onConfigChange={(variantId, config) => {
+                    // Clear validation error when user configures channels
+                    if (channelValidationError) {
+                      setChannelValidationError(null);
+                    }
                     setLocalParameters((prev) => ({
                       ...prev,
                       variantChannelConfigs: {
@@ -2167,6 +2254,32 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Sensitivity Analysis Dialog */}
+      {selectedFile && (
+        <SensitivityAnalysisDialog
+          open={showSensitivityDialog}
+          onOpenChange={setShowSensitivityDialog}
+          apiService={apiService}
+          baseConfig={{
+            file_path: selectedFile.file_path,
+            channels:
+              parameters.selectedChannels.length > 0
+                ? parameters.selectedChannels
+                : Object.values(parameters.variantChannelConfigs)
+                    .flatMap((config) => config?.selectedChannels || [])
+                    .filter((ch, idx, arr) => arr.indexOf(ch) === idx),
+            start_time: parameters.timeStart,
+            end_time: parameters.timeEnd,
+            variants: parameters.variants,
+            window_length: parameters.windowLength,
+            window_step: parameters.windowStep,
+            scale_min: parameters.scaleMin,
+            scale_max: parameters.scaleMax,
+            scale_num: parameters.scaleNum,
+          }}
+        />
+      )}
     </div>
   );
 }

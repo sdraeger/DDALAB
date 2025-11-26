@@ -6,6 +6,7 @@ import { ICAResults } from "./ICAResults";
 import { useAppStore } from "@/store/appStore";
 import { TauriService, NotificationType } from "@/services/tauriService";
 import { ChannelSelector } from "@/components/ChannelSelector";
+import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
 
 interface ICAAnalysisPanelProps {
   apiService: ApiService;
@@ -84,6 +85,47 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
       }
     }
   }, [selectedFile, icaSelectedChannels.length, resetICAChannels]);
+
+  // Register searchable items for ICA
+  useSearchableItems(
+    [
+      createActionItem(
+        "ica-run-analysis",
+        "Run ICA Analysis",
+        () => {
+          document.getElementById("ica-run-button")?.focus();
+        },
+        {
+          description: `Run Independent Component Analysis${selectedFile ? ` on ${selectedFile.file_name}` : ""}`,
+          keywords: [
+            "run",
+            "ica",
+            "independent",
+            "component",
+            "artifact",
+            "removal",
+            "fastica",
+          ],
+          category: "ICA Analysis",
+        },
+      ),
+      ...(selectedResult
+        ? [
+            createActionItem(
+              `ica-result-${selectedResult.id}`,
+              `ICA Result: ${selectedResult.results.components.length} components`,
+              () => setSelectedResultId(selectedResult.id),
+              {
+                description: `View ICA decomposition with ${selectedResult.results.components.length} components`,
+                keywords: ["result", "ica", "components", "decomposition"],
+                category: "ICA Results",
+              },
+            ),
+          ]
+        : []),
+    ],
+    [selectedFile?.file_path, selectedResult?.id],
+  );
 
   // Sync global isSubmitting state with actual mutation state
   // This handles the case where mutation completes while component is unmounted

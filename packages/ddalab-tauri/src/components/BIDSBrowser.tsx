@@ -67,6 +67,11 @@ export function BIDSBrowser({
   const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(
     new Set(),
   );
+  const [loadingProgress, setLoadingProgress] = useState<{
+    step: string;
+    completed: number;
+    total: number;
+  } | null>(null);
 
   useEffect(() => {
     loadDataset();
@@ -74,27 +79,51 @@ export function BIDSBrowser({
 
   const loadDataset = async () => {
     setLoading(true);
+    setLoadingProgress({
+      step: "Reading dataset description...",
+      completed: 0,
+      total: 4,
+    });
+
     try {
-      const [description, subjects, validation, summary] = await Promise.all([
-        readDatasetDescription(datasetPath),
-        discoverSubjects(datasetPath),
-        validateBIDSDataset(datasetPath),
-        getDatasetSummary(datasetPath),
-      ]);
-
+      // Load incrementally to show progress
+      const description = await readDatasetDescription(datasetPath);
       setDatasetDescription(description);
-      setSubjects(subjects);
-      setValidationResult(validation);
-      setDatasetSummary(summary);
+      setLoadingProgress({
+        step: "Discovering subjects...",
+        completed: 1,
+        total: 4,
+      });
 
-      if (subjects.length > 0 && !selectedSubject) {
-        const firstSubject = subjects[0];
+      const discoveredSubjects = await discoverSubjects(datasetPath);
+      setSubjects(discoveredSubjects);
+      setLoadingProgress({
+        step: "Validating BIDS structure...",
+        completed: 2,
+        total: 4,
+      });
+
+      const validation = await validateBIDSDataset(datasetPath);
+      setValidationResult(validation);
+      setLoadingProgress({
+        step: "Loading dataset summary...",
+        completed: 3,
+        total: 4,
+      });
+
+      const summary = await getDatasetSummary(datasetPath);
+      setDatasetSummary(summary);
+      setLoadingProgress({ step: "Complete", completed: 4, total: 4 });
+
+      if (discoveredSubjects.length > 0 && !selectedSubject) {
+        const firstSubject = discoveredSubjects[0];
         setExpandedSubjects(new Set([firstSubject.id]));
       }
     } catch (error) {
       console.error("Failed to load BIDS dataset:", error);
     } finally {
       setLoading(false);
+      setLoadingProgress(null);
     }
   };
 
@@ -160,11 +189,30 @@ export function BIDSBrowser({
           </div>
         </CardHeader>
         <CardContent className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
+          <div className="flex flex-col items-center gap-4 w-64">
             <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
-            <p className="text-sm text-muted-foreground">
-              Scanning BIDS dataset structure...
-            </p>
+            {loadingProgress ? (
+              <>
+                <p className="text-sm text-muted-foreground text-center">
+                  {loadingProgress.step}
+                </p>
+                <div className="w-full bg-muted rounded-full h-2">
+                  <div
+                    className="bg-purple-600 h-2 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${(loadingProgress.completed / loadingProgress.total) * 100}%`,
+                    }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Step {loadingProgress.completed} of {loadingProgress.total}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Scanning BIDS dataset structure...
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>

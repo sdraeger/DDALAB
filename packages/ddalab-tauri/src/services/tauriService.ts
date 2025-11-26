@@ -50,6 +50,8 @@ export interface AppPreferences {
   window_state: Record<string, any>;
   theme: string;
   use_https: boolean;
+  /** Whether to show a warning dialog when closing the app during DDA analysis */
+  warn_on_close_during_analysis: boolean;
 }
 
 export enum NSGJobStatus {
@@ -296,6 +298,7 @@ export class TauriService {
         window_state: {},
         theme: "auto",
         use_https: true, // Matches the HTTPS URL above
+        warn_on_close_during_analysis: true, // Warn by default
       };
     }
   }
@@ -1122,5 +1125,25 @@ export class TauriService {
       console.error("[FILE] Failed to segment file:", error);
       throw error;
     }
+  }
+
+  // Git-annex support
+  static async checkAnnexPlaceholder(filePath: string): Promise<boolean> {
+    try {
+      const api = await getTauriAPI();
+      if (!api) return false;
+      return await api.invoke("check_annex_placeholder", { filePath });
+    } catch (error) {
+      console.error("[GIT-ANNEX] Failed to check annex placeholder:", error);
+      return false;
+    }
+  }
+
+  static async runGitAnnexGet(
+    filePath: string,
+  ): Promise<{ success: boolean; output: string; error?: string }> {
+    const api = await getTauriAPI();
+    if (!api) throw new Error("Not running in Tauri environment");
+    return await api.invoke("run_git_annex_get", { filePath });
   }
 }

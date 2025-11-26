@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { ApiService } from "@/services/apiService";
+import { useApiService } from "@/contexts/ApiServiceContext";
 import { useAppStore } from "@/store/appStore";
 import { useDDAHistory, useAnalysisFromHistory } from "@/hooks/useDDAAnalysis";
 import { DDAProgressEvent } from "@/types/api";
@@ -22,19 +22,9 @@ import {
 } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
 
-interface DashboardLayoutProps {
-  apiUrl: string;
-  sessionToken?: string;
-}
-
-export function DashboardLayout({
-  apiUrl,
-  sessionToken,
-}: DashboardLayoutProps) {
-  const [apiService, setApiService] = useState(() => {
-    return new ApiService(apiUrl, sessionToken);
-  });
-  const [isAuthReady, setIsAuthReady] = useState(false);
+export function DashboardLayout() {
+  // Get ApiService from context (managed by ApiServiceProvider in page.tsx)
+  const { apiService, isReady: isAuthReady } = useApiService();
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
 
   // FIX: Use specific selectors to prevent unnecessary re-renders
@@ -125,40 +115,6 @@ export function DashboardLayout({
   // This prevents duplicate setCurrentAnalysis calls when DDAWithHistory loads from manual selection
   // DDAWithHistory will auto-select the most recent analysis, so we don't need to do it here
   // The autoLoadedAnalysis state is still used by DDAWithHistory to know which analysis to display
-
-  // Update API service when URL or session token changes
-  useEffect(() => {
-    // Use the apiUrl prop which already has the correct protocol from page.tsx
-    const newApiUrl = apiUrl;
-    const currentToken = apiService.getSessionToken();
-
-    // If only token changed, update the existing instance to avoid recreating
-    if (
-      apiService.baseURL === newApiUrl &&
-      sessionToken &&
-      currentToken !== sessionToken
-    ) {
-      apiService.setSessionToken(sessionToken);
-      setIsAuthReady(true);
-      window.dispatchEvent(new CustomEvent("api-service-auth-ready"));
-    }
-    // If URL changed, we need a new instance
-    else if (apiService.baseURL !== newApiUrl) {
-      const newService = new ApiService(newApiUrl, sessionToken);
-      setApiService(newService);
-      setIsAuthReady(!!sessionToken);
-
-      // Dispatch event to signal that auth is ready
-      if (sessionToken) {
-        window.dispatchEvent(new CustomEvent("api-service-auth-ready"));
-      }
-    }
-    // Mark as ready if token already matches
-    else if (sessionToken && currentToken === sessionToken) {
-      setIsAuthReady(true);
-      window.dispatchEvent(new CustomEvent("api-service-auth-ready"));
-    }
-  }, [apiUrl, sessionToken, apiService.baseURL]);
 
   // Listen for navigation events from NSG Job Manager
   useEffect(() => {

@@ -14,6 +14,27 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// Check if a path is a git-annex symlink that hasn't been downloaded
+fn is_git_annex_placeholder(path: &std::path::Path) -> bool {
+    // Use symlink_metadata to check if it's a symlink without following it
+    if let Ok(metadata) = std::fs::symlink_metadata(path) {
+        if metadata.file_type().is_symlink() {
+            // Read the symlink target
+            if let Ok(target) = std::fs::read_link(path) {
+                let target_str = target.to_string_lossy();
+                // Git-annex symlinks point to .git/annex/objects/...
+                if target_str.contains(".git/annex/objects") || target_str.contains("annex/objects")
+                {
+                    // Check if the target actually exists (resolved through the symlink)
+                    // If path.exists() is false but symlink_metadata succeeds, it's a broken symlink
+                    return !path.exists();
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Helper function to process a single directory entry
 fn process_directory_entry(entry: &std::fs::DirEntry) -> Option<serde_json::Value> {
     let entry_path = entry.path();
@@ -22,6 +43,9 @@ fn process_directory_entry(entry: &std::fs::DirEntry) -> Option<serde_json::Valu
         .and_then(|n| n.to_str())
         .unwrap_or("")
         .to_string();
+
+    // Check for git-annex placeholder (broken symlink to annex)
+    let is_annex_placeholder = is_git_annex_placeholder(&entry_path);
 
     if entry_path.is_dir() {
         let last_modified = entry
@@ -45,14 +69,22 @@ fn process_directory_entry(entry: &std::fs::DirEntry) -> Option<serde_json::Valu
             "last_modified": last_modified,
             "is_directory": true
         }))
-    } else if entry_path.is_file() {
+    } else if entry_path.is_file() || is_annex_placeholder {
+        // Handle both regular files and git-annex placeholders
         if let Some(extension) = entry_path.extension() {
             let ext = extension.to_str().unwrap_or("");
             let file_type = FileType::from_extension(ext);
 
             // Include supported files and MEG files (with warning flag)
             if file_type.is_supported() || file_type.is_meg() {
-                if let Ok(metadata) = entry.metadata() {
+                // For annex placeholders, use symlink_metadata; for regular files, use metadata
+                let metadata_result = if is_annex_placeholder {
+                    std::fs::symlink_metadata(&entry_path)
+                } else {
+                    entry.metadata()
+                };
+
+                if let Ok(metadata) = metadata_result {
                     let last_modified = metadata
                         .modified()
                         .ok()
@@ -68,14 +100,22 @@ fn process_directory_entry(entry: &std::fs::DirEntry) -> Option<serde_json::Valu
                         })
                         .unwrap_or_else(|| Utc::now().to_rfc3339());
 
+                    // For annex placeholders, size is 0 (not downloaded)
+                    let file_size = if is_annex_placeholder {
+                        0
+                    } else {
+                        metadata.len()
+                    };
+
                     return Some(serde_json::json!({
                         "path": entry_path.to_str().unwrap_or(""),
                         "name": file_name,
-                        "size": metadata.len(),
+                        "size": file_size,
                         "last_modified": last_modified,
                         "is_directory": false,
                         "is_meg": file_type.is_meg(),
-                        "is_supported": file_type.is_supported()
+                        "is_supported": file_type.is_supported(),
+                        "is_annex_placeholder": is_annex_placeholder
                     }));
                 }
             }
@@ -161,7 +201,8 @@ pub async fn get_file_info(
         let file_cache = state.files.read();
         if let Some(file_info) = file_cache.get(&file_path) {
             log::info!("Found in cache, channels: {:?}", file_info.channels.len());
-            return Ok(Json(file_info.clone()));
+            // Dereference Arc to get inner value for Json response
+            return Ok(Json((*file_info).clone()));
         }
     }
 
@@ -171,11 +212,13 @@ pub async fn get_file_info(
             "Created file info, channels: {:?}",
             file_info.channels.len()
         );
+        // Clone for response before moving into cache
+        let response = file_info.clone();
         {
             let mut file_cache = state.files.write();
-            file_cache.insert(file_path, file_info.clone());
+            file_cache.insert(file_path, file_info);
         }
-        Ok(Json(file_info))
+        Ok(Json(response))
     } else {
         log::warn!("File not found: {}", file_path);
         Err(StatusCode::NOT_FOUND)
@@ -201,7 +244,8 @@ pub async fn get_file_chunk(
     {
         let chunk_cache = state.chunks_cache.read();
         if let Some(chunk) = chunk_cache.get(&chunk_key) {
-            return Ok(Json(chunk.clone()));
+            // Dereference Arc to get inner value for Json response
+            return Ok(Json((*chunk).clone()));
         }
     }
 
@@ -228,12 +272,14 @@ pub async fn get_file_chunk(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    // Clone for response before moving into cache
+    let response = chunk.clone();
     {
         let mut chunk_cache = state.chunks_cache.write();
-        chunk_cache.insert(chunk_key, chunk.clone());
+        chunk_cache.insert(chunk_key, chunk);
     }
 
-    Ok(Json(chunk))
+    Ok(Json(response))
 }
 
 fn read_chunk_with_file_reader(
