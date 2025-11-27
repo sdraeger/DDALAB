@@ -434,7 +434,7 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
 
         <div className="flex gap-2">
           <button
-            className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50"
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             onClick={handleRunAnalysis}
             disabled={
               !selectedFile ||
@@ -449,7 +449,7 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
 
           {globalIsSubmitting && (
             <button
-              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+              className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
               onClick={handleCancel}
             >
               Cancel
@@ -460,7 +460,7 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
             ica.markedArray.length > 0 &&
             !globalIsSubmitting && (
               <button
-                className="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 disabled:opacity-50"
+                className="px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2"
                 onClick={handleReconstruct}
                 disabled={ica.isReconstructing}
               >
@@ -503,7 +503,7 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
               {ica.results.map((result) => (
                 <div
                   key={result.id}
-                  className={`p-2 rounded cursor-pointer text-sm mb-1 ${
+                  className={`p-2 rounded cursor-pointer text-sm mb-1 transition-colors ${
                     selectedResultId === result.id
                       ? "bg-primary/10 border border-primary"
                       : "hover:bg-muted"

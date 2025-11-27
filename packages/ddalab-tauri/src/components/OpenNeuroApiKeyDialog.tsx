@@ -199,7 +199,7 @@ export function OpenNeuroApiKeyDialog({
               <button
                 onClick={handleDelete}
                 disabled={loading}
-                className="flex-1 px-4 py-2 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-lg transition-colors disabled:opacity-50 text-sm font-medium"
+                className="flex-1 px-4 py-2 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive focus-visible:ring-offset-2"
               >
                 Delete Key
               </button>
@@ -207,7 +207,7 @@ export function OpenNeuroApiKeyDialog({
             <button
               onClick={handleSave}
               disabled={loading || !apiKey.trim()}
-              className="flex-1 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50 text-sm font-medium"
+              className="flex-1 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               {loading
                 ? "Saving..."
@@ -218,7 +218,7 @@ export function OpenNeuroApiKeyDialog({
             <button
               onClick={onClose}
               disabled={loading}
-              className="px-4 py-2 bg-accent hover:bg-accent/80 rounded-lg transition-colors disabled:opacity-50 text-sm font-medium"
+              className="px-4 py-2 bg-accent hover:bg-accent/80 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               Close
             </button>

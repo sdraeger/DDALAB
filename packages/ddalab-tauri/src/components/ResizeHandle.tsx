@@ -65,7 +65,7 @@ export function ResizeHandle({
       title="Drag to resize file manager"
     >
       {/* Visual indicator on hover */}
-      <div className="absolute inset-y-0 -left-1 -right-1 hover:bg-primary/10" />
+      <div className="absolute inset-y-0 -left-1 -right-1 hover:bg-primary/10 transition-colors" />
     </div>
   );
 }

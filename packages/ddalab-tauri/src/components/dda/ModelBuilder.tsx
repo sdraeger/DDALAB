@@ -394,7 +394,7 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="absolute right-1 top-1 h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
+                            className="absolute right-1 top-1 h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
                             onClick={(e) => {
                               e.stopPropagation();
                               removePreset(preset.id);
@@ -527,7 +527,7 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="absolute right-1 top-1 h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
+                          className="absolute right-1 top-1 h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
                           onClick={(e) => {
                             e.stopPropagation();
                             removePreset(preset.id);
