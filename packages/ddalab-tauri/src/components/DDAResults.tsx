@@ -22,13 +22,6 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -41,9 +34,6 @@ import { ChannelSelector } from "@/components/ChannelSelector";
 import {
   Download,
   RotateCcw,
-  TrendingUp,
-  Grid3x3,
-  Eye,
   ExternalLink,
   Loader2,
   FileImage,
@@ -51,7 +41,6 @@ import {
   FileText,
   Database,
   Image,
-  Network,
 } from "lucide-react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
@@ -74,13 +63,16 @@ import { AnnotationMarker } from "@/components/annotations/AnnotationMarker";
 import { PlotAnnotation, PlotInfo } from "@/types/annotations";
 import { PlotLoadingSkeleton } from "@/components/dda/PlotLoadingSkeleton";
 import { NetworkMotifPlot } from "@/components/dda/NetworkMotifPlot";
+import { ViewModeSelector, ViewMode } from "@/components/dda/ViewModeSelector";
+import {
+  ColorSchemePicker,
+  ColorScheme,
+} from "@/components/dda/ColorSchemePicker";
+import { Separator } from "@/components/ui/separator";
 
 interface DDAResultsProps {
   result: DDAResult;
 }
-
-type ColorScheme = "viridis" | "plasma" | "inferno" | "jet" | "cool" | "hot";
-type ViewMode = "heatmap" | "lineplot" | "both" | "network";
 
 // Internal component (will be wrapped with memo at export)
 function DDAResultsComponent({ result }: DDAResultsProps) {
@@ -105,11 +97,21 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   const [heatmapDOMMounted, setHeatmapDOMMounted] = useState(false);
   const [linePlotDOMMounted, setLinePlotDOMMounted] = useState(false);
 
+  // Track what we've rendered to prevent duplicate renders
+  // These MUST be declared before the callback refs so they can be reset on unmount
+  const lastRenderedHeatmapKey = useRef<string>("");
+  const lastRenderedLinePlotKey = useRef<string>("");
+
   // Callback ref to detect when heatmap DOM is mounted/unmounted
   const heatmapCallbackRef = useCallback((node: HTMLDivElement | null) => {
     heatmapRef.current = node;
     setHeatmapDOMMounted(!!node);
     console.log(`[HEATMAP REF] DOM ${node ? "mounted" : "unmounted"}`);
+    // CRITICAL: Reset render key on unmount so we re-render when remounted
+    // The uPlot instance is destroyed when DOM unmounts, so we must recreate it
+    if (!node) {
+      lastRenderedHeatmapKey.current = "";
+    }
   }, []);
 
   // Callback ref to detect when line plot DOM is mounted/unmounted
@@ -117,6 +119,11 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     linePlotRef.current = node;
     setLinePlotDOMMounted(!!node);
     console.log(`[LINEPLOT REF] DOM ${node ? "mounted" : "unmounted"}`);
+    // CRITICAL: Reset render key on unmount so we re-render when remounted
+    // The uPlot instance is destroyed when DOM unmounts, so we must recreate it
+    if (!node) {
+      lastRenderedLinePlotKey.current = "";
+    }
   }, []);
   const uplotHeatmapRef = useRef<uPlot | null>(null);
   const uplotLinePlotRef = useRef<uPlot | null>(null);
@@ -1459,9 +1466,8 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   );
 
   // Re-render plots when dependencies change - using IntersectionObserver to detect visibility
-  // CRITICAL FIX: Track what we've rendered to prevent duplicate renders
-  const lastRenderedHeatmapKey = useRef<string>("");
-  const lastRenderedLinePlotKey = useRef<string>("");
+  // Note: lastRenderedHeatmapKey and lastRenderedLinePlotKey are declared near the callback refs
+  // so they can be reset when DOM unmounts (prevents white screen on view mode changes)
 
   useEffect(() => {
     console.log(
@@ -1558,6 +1564,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         if (heatmapCleanupRef.current) {
           heatmapCleanupRef.current();
           heatmapCleanupRef.current = null;
+          // CRITICAL: Reset render key when cleanup destroys the plot
+          // This ensures we re-render when the effect runs again
+          // (handles case where DOM stays mounted but plot is destroyed)
+          lastRenderedHeatmapKey.current = "";
         }
       };
     }
@@ -1638,6 +1648,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         if (linePlotCleanupRef.current) {
           linePlotCleanupRef.current();
           linePlotCleanupRef.current = null;
+          // CRITICAL: Reset render key when cleanup destroys the plot
+          // This ensures we re-render when the effect runs again
+          // (handles case where DOM stays mounted but plot is destroyed)
+          lastRenderedLinePlotKey.current = "";
         }
       };
     }
@@ -1789,113 +1803,72 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         </CardHeader>
 
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            {/* View Mode */}
-            <div className="flex items-center space-x-2">
-              <Label className="text-sm">View:</Label>
-              <Select
-                value={viewMode}
-                onValueChange={(value: ViewMode) => setViewMode(value)}
-              >
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="both">
-                    <div className="flex items-center">
-                      <Eye className="h-4 w-4 mr-2" />
-                      Both
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="heatmap">
-                    <div className="flex items-center">
-                      <Grid3x3 className="h-4 w-4 mr-2" />
-                      Heatmap
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="lineplot">
-                    <div className="flex items-center">
-                      <TrendingUp className="h-4 w-4 mr-2" />
-                      Line Plot
-                    </div>
-                  </SelectItem>
-                  {currentVariantData?.network_motifs && (
-                    <SelectItem value="network">
-                      <div className="flex items-center">
-                        <Network className="h-4 w-4 mr-2" />
-                        Network Motifs
-                      </div>
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
+          {/* Primary Toolbar - View Controls */}
+          <div className="flex flex-wrap items-center gap-4">
+            {/* View Mode Toggle */}
+            <ViewModeSelector
+              value={viewMode}
+              onValueChange={setViewMode}
+              hasNetworkMotifs={!!currentVariantData?.network_motifs}
+            />
 
-            {/* Color Scheme (for heatmap) */}
+            <Separator orientation="vertical" className="h-6 hidden sm:block" />
+
+            {/* Color Scheme (visible for heatmap views) */}
             {(viewMode === "heatmap" || viewMode === "both") && (
-              <div className="flex items-center space-x-2">
-                <Label className="text-sm">Colors:</Label>
-                <Select
-                  value={colorScheme}
-                  onValueChange={(value: ColorScheme) => setColorScheme(value)}
-                >
-                  <SelectTrigger className="w-24">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="viridis">Viridis</SelectItem>
-                    <SelectItem value="plasma">Plasma</SelectItem>
-                    <SelectItem value="inferno">Inferno</SelectItem>
-                    <SelectItem value="jet">Jet</SelectItem>
-                    <SelectItem value="cool">Cool</SelectItem>
-                    <SelectItem value="hot">Hot</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <ColorSchemePicker
+                value={colorScheme}
+                onValueChange={setColorScheme}
+              />
             )}
 
-            {/* Reset button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setSelectedChannels(result.channels);
-                setColorRange([0, 1]);
-                setAutoScale(true);
-                prevHeatmapDataRef.current.range = [0, 1];
-              }}
-            >
-              <RotateCcw className="h-4 w-4 mr-2" />
-              Reset
-            </Button>
+            {/* Spacer to push actions to the right */}
+            <div className="flex-1" />
 
-            {/* Reset Zoom button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                // Reset zoom for both plots
-                if (uplotHeatmapRef.current) {
-                  uplotHeatmapRef.current.setScale("x", {
-                    min: result.results.scales[0],
-                    max: result.results.scales[
-                      result.results.scales.length - 1
-                    ],
-                  });
-                }
-                if (uplotLinePlotRef.current) {
-                  uplotLinePlotRef.current.setScale("x", {
-                    min: result.results.scales[0],
-                    max: result.results.scales[
-                      result.results.scales.length - 1
-                    ],
-                  });
-                }
-              }}
-            >
-              <RotateCcw className="h-4 w-4 mr-2" />
-              Reset Zoom
-            </Button>
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  // Reset zoom for both plots
+                  if (uplotHeatmapRef.current) {
+                    uplotHeatmapRef.current.setScale("x", {
+                      min: result.results.scales[0],
+                      max: result.results.scales[
+                        result.results.scales.length - 1
+                      ],
+                    });
+                  }
+                  if (uplotLinePlotRef.current) {
+                    uplotLinePlotRef.current.setScale("x", {
+                      min: result.results.scales[0],
+                      max: result.results.scales[
+                        result.results.scales.length - 1
+                      ],
+                    });
+                  }
+                }}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <RotateCcw className="h-4 w-4 mr-1.5" />
+                Reset Zoom
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSelectedChannels(result.channels);
+                  setColorRange([0, 1]);
+                  setAutoScale(true);
+                  prevHeatmapDataRef.current.range = [0, 1];
+                }}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <RotateCcw className="h-4 w-4 mr-1.5" />
+                Reset All
+              </Button>
+            </div>
           </div>
 
           {/* Channel Selection */}
@@ -1909,42 +1882,48 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
             maxHeight="max-h-32"
           />
 
-          {/* Color Range Control (for heatmap) */}
+          {/* Heatmap Color Range Control - Collapsible section */}
           {(viewMode === "heatmap" || viewMode === "both") && (
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <Label className="text-sm">Min:</Label>
-                <input
-                  type="number"
-                  value={colorRange[0].toFixed(2)}
-                  onChange={(e) =>
-                    setColorRange([parseFloat(e.target.value), colorRange[1]])
-                  }
-                  disabled={autoScale}
-                  className="w-20 px-2 py-1 text-sm border rounded"
-                  step="0.1"
-                />
+            <div className="flex flex-wrap items-center gap-4 p-3 rounded-lg bg-muted/30 border border-border/50">
+              <span className="text-sm font-medium text-muted-foreground">
+                Color Range
+              </span>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground">Min</Label>
+                  <input
+                    type="number"
+                    value={colorRange[0].toFixed(2)}
+                    onChange={(e) =>
+                      setColorRange([parseFloat(e.target.value), colorRange[1]])
+                    }
+                    disabled={autoScale}
+                    className="w-20 h-8 px-2 text-sm border rounded-md bg-background transition-colors focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    step="0.1"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground">Max</Label>
+                  <input
+                    type="number"
+                    value={colorRange[1].toFixed(2)}
+                    onChange={(e) =>
+                      setColorRange([colorRange[0], parseFloat(e.target.value)])
+                    }
+                    disabled={autoScale}
+                    className="w-20 h-8 px-2 text-sm border rounded-md bg-background transition-colors focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    step="0.1"
+                  />
+                </div>
               </div>
-              <div className="flex items-center space-x-2">
-                <Label className="text-sm">Max:</Label>
-                <input
-                  type="number"
-                  value={colorRange[1].toFixed(2)}
-                  onChange={(e) =>
-                    setColorRange([colorRange[0], parseFloat(e.target.value)])
-                  }
-                  disabled={autoScale}
-                  className="w-20 px-2 py-1 text-sm border rounded"
-                  step="0.1"
-                />
-              </div>
-              <label className="flex items-center space-x-2 text-sm">
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none ml-auto">
                 <input
                   type="checkbox"
                   checked={autoScale}
                   onChange={(e) => setAutoScale(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary transition-colors"
                 />
-                <span>Auto Scale</span>
+                <span className="text-muted-foreground">Auto Scale</span>
               </label>
             </div>
           )}

@@ -533,7 +533,7 @@ export function OpenNeuroDownloadDialog({
             <button
               onClick={fetchFileTree}
               disabled={loadingFiles || isDownloading}
-              className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent/80 rounded-lg transition-colors disabled:opacity-50 w-full justify-center"
+              className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent/80 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed w-full justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               {loadingFiles ? (
                 <>
@@ -631,7 +631,7 @@ export function OpenNeuroDownloadDialog({
               <button
                 onClick={handleSelectDestination}
                 disabled={isDownloading}
-                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 <Folder className="h-4 w-4" />
                 Browse
@@ -649,7 +649,7 @@ export function OpenNeuroDownloadDialog({
                 value={selectedSnapshot || ""}
                 onChange={(e) => setSelectedSnapshot(e.target.value)}
                 disabled={isDownloading}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {dataset.snapshots.map((snapshot) => (
                   <option key={snapshot.tag} value={snapshot.tag}>
@@ -772,7 +772,7 @@ export function OpenNeuroDownloadDialog({
             <button
               onClick={handleDownload}
               disabled={!destinationPath || !gitAvailable}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <Download className="h-4 w-4" />
               Download

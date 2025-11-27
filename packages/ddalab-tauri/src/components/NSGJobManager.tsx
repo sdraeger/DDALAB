@@ -1126,12 +1126,12 @@ export function NSGJobManager() {
                 placeholder="Search jobs by ID, status, tool, or date..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full pl-10 pr-4 py-2 border border-input rounded-md bg-background text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
               />
               {searchTerm && (
                 <button
                   onClick={() => setSearchTerm("")}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                   title="Clear search"
                 >
                   <XCircle className="h-4 w-4" />
