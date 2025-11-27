@@ -344,7 +344,7 @@ export function BIDSBrowser({
                 <div key={subject.id} className="border rounded-lg">
                   {/* Subject Header */}
                   <div
-                    className="flex items-center gap-3 p-3 cursor-pointer hover:bg-accent"
+                    className="flex items-center gap-3 p-3 cursor-pointer hover:bg-accent transition-colors"
                     onClick={() => toggleSubject(subject.id)}
                   >
                     <ChevronRight

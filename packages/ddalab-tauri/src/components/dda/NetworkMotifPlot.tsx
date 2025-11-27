@@ -192,7 +192,7 @@ export function NetworkMotifPlot({
                 fill={colors.node}
                 stroke={colors.nodeStroke}
                 strokeWidth={2}
-                className="cursor-pointer hover:opacity-80 transition-opacity"
+                className="cursor-pointer hover:opacity-80 transition-opacity duration-150"
                 onMouseEnter={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
                   setTooltip({
