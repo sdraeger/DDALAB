@@ -136,6 +136,16 @@ export function SettingsPanel() {
       label: "Analysis Engine",
       icon: <Activity className="h-4 w-4" />,
       component: <AnalysisEngineSettings />,
+      keywords: [
+        "dda",
+        "parallel",
+        "cores",
+        "processing",
+        "threads",
+        "cpu",
+        "workers",
+      ],
+      description: "Configure DDA analysis engine and parallel processing",
     },
   ];
 
@@ -146,6 +156,8 @@ export function SettingsPanel() {
       label: "Behavior",
       icon: <Settings2 className="h-4 w-4" />,
       component: <BehaviorSettings />,
+      keywords: ["close", "warning", "confirm", "dialog", "prompt", "exit"],
+      description: "Configure application behavior and confirmations",
     });
   }
 
@@ -156,6 +168,8 @@ export function SettingsPanel() {
       label: "Security",
       icon: <Shield className="h-4 w-4" />,
       component: <SecuritySettings />,
+      keywords: ["token", "auth", "session", "password", "api", "credentials"],
+      description: "Configure API authentication and session tokens",
     });
   }
 
@@ -166,6 +180,15 @@ export function SettingsPanel() {
       label: "NSG Integration",
       icon: <Cloud className="h-4 w-4" />,
       component: <NSGSettings />,
+      keywords: [
+        "neuroscience",
+        "gateway",
+        "hpc",
+        "computing",
+        "jobs",
+        "remote",
+      ],
+      description: "Configure Neuroscience Gateway credentials for HPC jobs",
     });
   }
 
@@ -175,6 +198,8 @@ export function SettingsPanel() {
     label: "OpenNeuro",
     icon: <Database className="h-4 w-4" />,
     component: <OpenNeuroSettings />,
+    keywords: ["dataset", "download", "api", "key", "bids", "neuroimaging"],
+    description: "Configure OpenNeuro API key for dataset access",
   });
 
   // Only add Debug section in Tauri
@@ -184,6 +209,8 @@ export function SettingsPanel() {
       label: "Debug & Logs",
       icon: <FileText className="h-4 w-4" />,
       component: <DebugSettings />,
+      keywords: ["logs", "diagnostics", "errors", "console", "troubleshoot"],
+      description: "View application logs and debug information",
     });
   }
 
@@ -194,6 +221,8 @@ export function SettingsPanel() {
       label: "Updates",
       icon: <Download className="h-4 w-4" />,
       component: <UpdatesSettings />,
+      keywords: ["version", "upgrade", "new", "release", "check"],
+      description: "Check for and install application updates",
     });
   }
 

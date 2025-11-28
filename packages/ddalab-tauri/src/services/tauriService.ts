@@ -81,10 +81,12 @@ export interface NSGJob {
   progress: number | null;
 }
 
+// NOTE: This interface intentionally does NOT include actual credentials
+// Only indicates presence to prevent credential exposure to frontend
 export interface NSGCredentials {
   username: string;
-  password: string;
-  app_key: string;
+  has_password: boolean;
+  has_app_key: boolean;
 }
 
 export interface NSGResourceConfig {

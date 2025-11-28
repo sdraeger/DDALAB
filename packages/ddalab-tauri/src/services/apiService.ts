@@ -94,14 +94,6 @@ export class ApiService {
     this.baseURL = baseURL;
     this.sessionToken = sessionToken || null;
 
-    console.log(
-      "[API SERVICE] Constructor called with baseURL:",
-      baseURL,
-      "hasToken:",
-      !!sessionToken,
-    );
-    console.log("[API SERVICE] Stack trace:", new Error().stack);
-
     this.client = axios.create({
       baseURL,
       timeout: 3600000, // 1 hour for heavy DDA operations
@@ -112,18 +104,8 @@ export class ApiService {
 
     // Add request interceptor to include session token
     this.client.interceptors.request.use((config) => {
-      const fullUrl = `${this.baseURL}${config.url}`;
-      console.log(`[API] Making request to FULL URL: ${fullUrl}`);
-
       if (this.sessionToken) {
         config.headers.Authorization = `Bearer ${this.sessionToken}`;
-        console.log(
-          `[API] Request to ${config.url} with token: ${this.sessionToken.substring(0, 8)}...`,
-        );
-      } else {
-        console.warn(
-          `[API] Request to ${config.url} WITHOUT TOKEN - will likely fail with 401/403`,
-        );
       }
       return config;
     });
@@ -132,7 +114,6 @@ export class ApiService {
   // Set or update the session token
   setSessionToken(token: string) {
     this.sessionToken = token;
-    console.log("[API] Session token updated:", token.substring(0, 16) + "...");
   }
 
   // Get the current session token

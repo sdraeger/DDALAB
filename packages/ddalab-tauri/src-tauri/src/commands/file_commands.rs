@@ -2,7 +2,10 @@ use crate::edf::EDFReader;
 use crate::intermediate_format::{ChannelData, DataMetadata, IntermediateData};
 use crate::text_reader::TextFileReader;
 use serde::{Deserialize, Serialize};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use tauri::{AppHandle, Emitter};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -331,6 +334,20 @@ pub async fn compute_file_hash(file_path: String) -> Result<String, String> {
     })
 }
 
+/// Progress update for git annex get operation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitAnnexProgress {
+    pub file_path: String,
+    pub file_name: String,
+    pub phase: String,         // "starting", "downloading", "complete", "error"
+    pub progress_percent: f32, // 0-100
+    pub bytes_downloaded: u64,
+    pub total_bytes: u64,
+    pub transfer_rate: String, // e.g., "12.3 MiB/s"
+    pub message: String,
+}
+
 /// Result of git annex get operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -364,9 +381,72 @@ pub async fn check_annex_placeholder(file_path: String) -> Result<bool, String> 
     Ok(false)
 }
 
+/// Parse git-annex progress output
+/// Example output: "get filename (from remote...) 45% 12.3 MiB/s 2s"
+/// Or: "(checksum...) 100%"
+fn parse_git_annex_progress(line: &str) -> Option<(f32, String)> {
+    // Look for percentage pattern like "45%" or "100%"
+    let parts: Vec<&str> = line.split_whitespace().collect();
+
+    for (i, part) in parts.iter().enumerate() {
+        if part.ends_with('%') {
+            if let Ok(pct) = part.trim_end_matches('%').parse::<f32>() {
+                // Try to find transfer rate (e.g., "12.3 MiB/s")
+                let rate = if i + 1 < parts.len() && parts[i + 1].contains("/s") {
+                    parts[i + 1].to_string()
+                } else {
+                    String::new()
+                };
+                return Some((pct, rate));
+            }
+        }
+    }
+    None
+}
+
+/// Parse file size from git-annex info output
+/// Returns size in bytes
+fn parse_file_size_from_annex(line: &str) -> Option<u64> {
+    // git-annex outputs sizes like "123456789" or "1.5 gigabytes" etc.
+    // Usually in the format: "1234567890 filename"
+    if let Some(size_str) = line.split_whitespace().next() {
+        if let Ok(size) = size_str.parse::<u64>() {
+            return Some(size);
+        }
+    }
+
+    // Try parsing human-readable sizes
+    let lower = line.to_lowercase();
+    for (suffix, multiplier) in [
+        ("gib", 1024u64 * 1024 * 1024),
+        ("mib", 1024 * 1024),
+        ("kib", 1024),
+        ("gigabytes", 1000 * 1000 * 1000),
+        ("megabytes", 1000 * 1000),
+        ("kilobytes", 1000),
+        ("gb", 1000 * 1000 * 1000),
+        ("mb", 1000 * 1000),
+        ("kb", 1000),
+    ] {
+        if lower.contains(suffix) {
+            // Extract the number before the suffix
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            for part in parts {
+                if let Ok(num) = part.parse::<f64>() {
+                    return Some((num * multiplier as f64) as u64);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Run git annex get to download a file managed by git-annex
 #[tauri::command]
-pub async fn run_git_annex_get(file_path: String) -> Result<GitAnnexGetResult, String> {
+pub async fn run_git_annex_get(
+    app_handle: AppHandle,
+    file_path: String,
+) -> Result<GitAnnexGetResult, String> {
     log::info!("[GIT_ANNEX] Attempting to download: {}", file_path);
 
     let path = PathBuf::from(&file_path);
@@ -380,7 +460,8 @@ pub async fn run_git_annex_get(file_path: String) -> Result<GitAnnexGetResult, S
     let file_name = path
         .file_name()
         .and_then(|s| s.to_str())
-        .ok_or_else(|| "Invalid file path - no filename".to_string())?;
+        .ok_or_else(|| "Invalid file path - no filename".to_string())?
+        .to_string();
 
     log::info!(
         "[GIT_ANNEX] Running 'git annex get {}' in {:?}",
@@ -388,41 +469,170 @@ pub async fn run_git_annex_get(file_path: String) -> Result<GitAnnexGetResult, S
         parent_dir
     );
 
-    // Run git annex get
-    let output = std::process::Command::new("git")
-        .args(["annex", "get", file_name])
+    // Emit starting event
+    let _ = app_handle.emit(
+        "git-annex-progress",
+        GitAnnexProgress {
+            file_path: file_path.clone(),
+            file_name: file_name.clone(),
+            phase: "starting".to_string(),
+            progress_percent: 0.0,
+            bytes_downloaded: 0,
+            total_bytes: 0,
+            transfer_rate: String::new(),
+            message: "Initializing download...".to_string(),
+        },
+    );
+
+    // Try to get file size first using git-annex info
+    let total_bytes = match Command::new("git")
+        .args(["annex", "info", "--bytes", &file_name])
         .current_dir(parent_dir)
         .output()
-        .map_err(|e| format!("Failed to execute git annex get: {}", e))?;
+    {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            parse_file_size_from_annex(&stdout).unwrap_or(0)
+        }
+        _ => 0,
+    };
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    log::info!("[GIT_ANNEX] stdout: {}", stdout);
-    if !stderr.is_empty() {
-        log::warn!("[GIT_ANNEX] stderr: {}", stderr);
+    if total_bytes > 0 {
+        log::info!("[GIT_ANNEX] File size: {} bytes", total_bytes);
     }
 
-    if output.status.success() {
+    // Run git annex get with progress output
+    let mut child = Command::new("git")
+        .args(["annex", "get", "--progress", &file_name])
+        .current_dir(parent_dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to execute git annex get: {}", e))?;
+
+    let mut all_output = String::new();
+    let mut last_progress: f32 = 0.0;
+
+    // Read stderr for progress (git-annex outputs progress to stderr)
+    if let Some(stderr) = child.stderr.take() {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                log::debug!("[GIT_ANNEX] {}", line);
+                all_output.push_str(&line);
+                all_output.push('\n');
+
+                // Parse progress from the line
+                if let Some((progress, rate)) = parse_git_annex_progress(&line) {
+                    // Only emit if progress changed significantly (avoid flooding)
+                    if (progress - last_progress).abs() >= 1.0 || progress >= 100.0 {
+                        last_progress = progress;
+
+                        let bytes_downloaded = if total_bytes > 0 {
+                            ((progress as f64 / 100.0) * total_bytes as f64) as u64
+                        } else {
+                            0
+                        };
+
+                        let _ = app_handle.emit(
+                            "git-annex-progress",
+                            GitAnnexProgress {
+                                file_path: file_path.clone(),
+                                file_name: file_name.clone(),
+                                phase: "downloading".to_string(),
+                                progress_percent: progress,
+                                bytes_downloaded,
+                                total_bytes,
+                                transfer_rate: rate,
+                                message: line.clone(),
+                            },
+                        );
+                    }
+                } else if line.contains("get ") {
+                    // Starting to get a file
+                    let _ = app_handle.emit(
+                        "git-annex-progress",
+                        GitAnnexProgress {
+                            file_path: file_path.clone(),
+                            file_name: file_name.clone(),
+                            phase: "downloading".to_string(),
+                            progress_percent: 0.0,
+                            bytes_downloaded: 0,
+                            total_bytes,
+                            transfer_rate: String::new(),
+                            message: line.clone(),
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    // Also capture stdout
+    if let Some(stdout) = child.stdout.take() {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                log::info!("[GIT_ANNEX] stdout: {}", line);
+                all_output.push_str(&line);
+                all_output.push('\n');
+            }
+        }
+    }
+
+    let status = child
+        .wait()
+        .map_err(|e| format!("Failed to wait for git annex get: {}", e))?;
+
+    if status.success() {
         log::info!("[GIT_ANNEX] Successfully downloaded: {}", file_name);
+
+        // Emit completion event
+        let _ = app_handle.emit(
+            "git-annex-progress",
+            GitAnnexProgress {
+                file_path: file_path.clone(),
+                file_name: file_name.clone(),
+                phase: "complete".to_string(),
+                progress_percent: 100.0,
+                bytes_downloaded: total_bytes,
+                total_bytes,
+                transfer_rate: String::new(),
+                message: "Download complete!".to_string(),
+            },
+        );
+
         Ok(GitAnnexGetResult {
             success: true,
-            output: stdout,
+            output: all_output,
             error: None,
         })
     } else {
-        let error_msg = if stderr.is_empty() {
-            format!(
-                "git annex get failed with exit code: {:?}",
-                output.status.code()
-            )
+        let error_msg = if all_output.is_empty() {
+            format!("git annex get failed with exit code: {:?}", status.code())
         } else {
-            stderr
+            all_output.clone()
         };
         log::error!("[GIT_ANNEX] Failed to download: {}", error_msg);
+
+        // Emit error event
+        let _ = app_handle.emit(
+            "git-annex-progress",
+            GitAnnexProgress {
+                file_path: file_path.clone(),
+                file_name: file_name.clone(),
+                phase: "error".to_string(),
+                progress_percent: last_progress,
+                bytes_downloaded: 0,
+                total_bytes,
+                transfer_rate: String::new(),
+                message: error_msg.clone(),
+            },
+        );
+
         Ok(GitAnnexGetResult {
             success: false,
-            output: stdout,
+            output: all_output,
             error: Some(error_msg),
         })
     }

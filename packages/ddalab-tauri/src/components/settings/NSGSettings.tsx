@@ -12,15 +12,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ErrorState } from "@/components/ui/error-state";
 import { TauriService } from "@/services/tauriService";
-import {
-  Cloud,
-  Lock,
-  Shield,
-  Link2,
-  RefreshCw,
-  AlertTriangle,
-} from "lucide-react";
+import { Cloud, Lock, Shield, Link2, RefreshCw } from "lucide-react";
 
 export function NSGSettings() {
   const [nsgCredentials, setNsgCredentials] = useState({
@@ -35,9 +29,9 @@ export function NSGSettings() {
   const [nsgError, setNsgError] = useState<string | null>(null);
   const [showNsgPassword, setShowNsgPassword] = useState(false);
 
-  // Load NSG credentials on mount
+  // Load NSG credentials status on mount (never actual credentials)
   useEffect(() => {
-    const loadNsgCredentials = async () => {
+    const loadNsgCredentialsStatus = async () => {
       if (!TauriService.isTauri()) return;
       try {
         const hasCredentials = await TauriService.hasNSGCredentials();
@@ -46,22 +40,23 @@ export function NSGSettings() {
         if (hasCredentials) {
           const creds = await TauriService.getNSGCredentials();
           if (creds) {
+            // Only show username - password and app_key are never returned from backend
             setNsgCredentials({
               username: creds.username,
-              password: creds.password,
-              appKey: creds.app_key,
+              password: "", // Never pre-populated for security
+              appKey: "", // Never pre-populated for security
             });
           }
         }
       } catch (error) {
-        console.error("Failed to load NSG credentials:", error);
+        console.error("Failed to load NSG credentials status:", error);
       }
     };
 
-    loadNsgCredentials();
+    loadNsgCredentialsStatus();
 
     // Re-check periodically in case credentials are updated
-    const interval = setInterval(loadNsgCredentials, 10000);
+    const interval = setInterval(loadNsgCredentialsStatus, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -251,10 +246,12 @@ export function NSGSettings() {
             </div>
 
             {nsgError && (
-              <Alert variant="destructive">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>{nsgError}</AlertDescription>
-              </Alert>
+              <ErrorState
+                message={nsgError}
+                severity="error"
+                variant="inline"
+                onDismiss={() => setNsgError(null)}
+              />
             )}
 
             {nsgConnectionStatus === "success" && (

@@ -1,10 +1,16 @@
-import React, { useState, useMemo } from "react";
+import React, {
+  useState,
+  useMemo,
+  useCallback,
+  useRef,
+  useEffect,
+} from "react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Card, CardContent } from "./ui/card";
-import { Search, X, CheckSquare, Square } from "lucide-react";
+import { Search, X, CheckSquare, Square, Zap } from "lucide-react";
 
 export interface ChannelSelectorProps {
   channels: string[];
@@ -34,6 +40,9 @@ export function ChannelSelector({
   variant = "default",
 }: ChannelSelectorProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
+  const listContainerRef = useRef<HTMLDivElement>(null);
+  const badgeRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
 
   const filteredChannels = useMemo(() => {
     if (!searchQuery.trim()) return channels;
@@ -41,6 +50,81 @@ export function ChannelSelector({
     const query = searchQuery.toLowerCase();
     return channels.filter((channel) => channel.toLowerCase().includes(query));
   }, [channels, searchQuery]);
+
+  // Reset focus when filtered channels change
+  useEffect(() => {
+    setFocusedIndex(-1);
+  }, [filteredChannels.length]);
+
+  // Focus the badge element when focusedIndex changes
+  useEffect(() => {
+    if (focusedIndex >= 0 && focusedIndex < filteredChannels.length) {
+      const badge = badgeRefs.current.get(focusedIndex);
+      badge?.focus();
+    }
+  }, [focusedIndex, filteredChannels.length]);
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (disabled || filteredChannels.length === 0) return;
+
+      const { key } = event;
+      let newIndex = focusedIndex;
+
+      switch (key) {
+        case "ArrowRight":
+        case "ArrowDown":
+          event.preventDefault();
+          newIndex =
+            focusedIndex < filteredChannels.length - 1 ? focusedIndex + 1 : 0;
+          break;
+        case "ArrowLeft":
+        case "ArrowUp":
+          event.preventDefault();
+          newIndex =
+            focusedIndex > 0 ? focusedIndex - 1 : filteredChannels.length - 1;
+          break;
+        case "Home":
+          event.preventDefault();
+          newIndex = 0;
+          break;
+        case "End":
+          event.preventDefault();
+          newIndex = filteredChannels.length - 1;
+          break;
+        case "Enter":
+        case " ":
+          event.preventDefault();
+          if (focusedIndex >= 0 && focusedIndex < filteredChannels.length) {
+            handleToggle(filteredChannels[focusedIndex]);
+          }
+          return;
+        case "a":
+          // Ctrl+A to select all
+          if (event.ctrlKey || event.metaKey) {
+            event.preventDefault();
+            handleSelectAll();
+          }
+          return;
+        default:
+          return;
+      }
+
+      setFocusedIndex(newIndex);
+    },
+    [disabled, filteredChannels, focusedIndex],
+  );
+
+  const setBadgeRef = useCallback(
+    (index: number) => (el: HTMLButtonElement | null) => {
+      if (el) {
+        badgeRefs.current.set(index, el);
+      } else {
+        badgeRefs.current.delete(index);
+      }
+    },
+    [],
+  );
 
   const handleToggle = (channel: string) => {
     if (disabled) return;
@@ -96,8 +180,9 @@ export function ChannelSelector({
                 size="sm"
                 className="absolute right-1 top-1 h-7 w-7 p-0"
                 onClick={handleClearSearch}
+                aria-label="Clear search"
               >
-                <X className="h-3 w-3" />
+                <X className="h-3 w-3" aria-hidden="true" />
               </Button>
             )}
           </div>
@@ -135,21 +220,48 @@ export function ChannelSelector({
         </div>
 
         <div
-          className={`flex flex-wrap gap-2 ${maxHeight} overflow-y-auto p-2 border rounded-md ${disabled ? "opacity-50" : ""}`}
+          ref={listContainerRef}
+          role="listbox"
+          aria-label={label}
+          aria-multiselectable="true"
+          tabIndex={filteredChannels.length > 0 && !disabled ? 0 : -1}
+          onKeyDown={handleKeyDown}
+          onFocus={(e) => {
+            // Only set initial focus if focusing the container itself
+            if (e.target === listContainerRef.current && focusedIndex === -1) {
+              setFocusedIndex(0);
+            }
+          }}
+          className={`flex flex-wrap gap-2 ${maxHeight} overflow-y-auto p-2 border rounded-md ${disabled ? "opacity-50" : ""} focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`}
         >
           {filteredChannels.length > 0 ? (
-            filteredChannels.map((channel) => (
-              <Badge
-                key={channel}
-                variant={
-                  selectedChannels.includes(channel) ? "default" : "outline"
-                }
-                className={`cursor-pointer transition-all ${disabled ? "cursor-not-allowed" : "hover:brightness-90"}`}
-                onClick={() => handleToggle(channel)}
-              >
-                {channel}
-              </Badge>
-            ))
+            filteredChannels.map((channel, index) => {
+              const isSelected = selectedChannels.includes(channel);
+              const isFocused = focusedIndex === index;
+              return (
+                <button
+                  key={channel}
+                  ref={setBadgeRef(index)}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  tabIndex={isFocused ? 0 : -1}
+                  onClick={() => {
+                    setFocusedIndex(index);
+                    handleToggle(channel);
+                  }}
+                  onFocus={() => setFocusedIndex(index)}
+                  disabled={disabled}
+                  className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${
+                    isSelected
+                      ? "border-transparent bg-primary text-primary-foreground"
+                      : "border-input bg-background hover:bg-accent hover:text-accent-foreground"
+                  } ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:brightness-90"}`}
+                >
+                  {channel}
+                </button>
+              );
+            })
           ) : (
             <div className="w-full text-center text-sm text-muted-foreground py-4">
               {searchQuery
@@ -222,8 +334,9 @@ export function ChannelSelector({
                 size="sm"
                 className="absolute right-1 top-1 h-8 w-8 p-0"
                 onClick={handleClearSearch}
+                aria-label="Clear search"
               >
-                <X className="h-4 w-4" />
+                <X className="h-4 w-4" aria-hidden="true" />
               </Button>
             )}
           </div>
@@ -236,21 +349,48 @@ export function ChannelSelector({
         )}
 
         <div
-          className={`flex flex-wrap gap-2 ${maxHeight} overflow-y-auto p-3 border rounded-md bg-muted/30 ${disabled ? "opacity-50" : ""}`}
+          ref={listContainerRef}
+          role="listbox"
+          aria-label={label}
+          aria-multiselectable="true"
+          tabIndex={filteredChannels.length > 0 && !disabled ? 0 : -1}
+          onKeyDown={handleKeyDown}
+          onFocus={(e) => {
+            // Only set initial focus if focusing the container itself
+            if (e.target === listContainerRef.current && focusedIndex === -1) {
+              setFocusedIndex(0);
+            }
+          }}
+          className={`flex flex-wrap gap-2 ${maxHeight} overflow-y-auto p-3 border rounded-md bg-muted/30 ${disabled ? "opacity-50" : ""} focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`}
         >
           {filteredChannels.length > 0 ? (
-            filteredChannels.map((channel) => (
-              <Badge
-                key={channel}
-                variant={
-                  selectedChannels.includes(channel) ? "default" : "outline"
-                }
-                className={`cursor-pointer transition-all ${disabled ? "cursor-not-allowed" : "hover:brightness-90 hover:shadow-sm"}`}
-                onClick={() => handleToggle(channel)}
-              >
-                {channel}
-              </Badge>
-            ))
+            filteredChannels.map((channel, index) => {
+              const isSelected = selectedChannels.includes(channel);
+              const isFocused = focusedIndex === index;
+              return (
+                <button
+                  key={channel}
+                  ref={setBadgeRef(index)}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  tabIndex={isFocused ? 0 : -1}
+                  onClick={() => {
+                    setFocusedIndex(index);
+                    handleToggle(channel);
+                  }}
+                  onFocus={() => setFocusedIndex(index)}
+                  disabled={disabled}
+                  className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${
+                    isSelected
+                      ? "border-transparent bg-primary text-primary-foreground"
+                      : "border-input bg-background hover:bg-accent hover:text-accent-foreground"
+                  } ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:brightness-90 hover:shadow-sm"}`}
+                >
+                  {channel}
+                </button>
+              );
+            })
           ) : (
             <div className="w-full text-center text-sm text-muted-foreground py-8">
               {searchQuery ? (

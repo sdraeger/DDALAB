@@ -14,6 +14,73 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// Validate that a path is within the allowed data directory.
+/// Returns the canonicalized path if valid, or an error if the path escapes the data directory.
+fn validate_path_within_data_dir(
+    requested_path: &str,
+    data_directory: &std::path::Path,
+) -> Result<PathBuf, StatusCode> {
+    // Construct the full path
+    let path_buf = if requested_path.is_empty() {
+        data_directory.to_path_buf()
+    } else {
+        let requested = PathBuf::from(requested_path);
+        if requested.is_absolute() {
+            requested
+        } else {
+            data_directory.join(requested_path)
+        }
+    };
+
+    // Canonicalize the data directory (must exist)
+    let canonical_data_dir = data_directory.canonicalize().map_err(|e| {
+        log::error!("Failed to canonicalize data directory: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    // For the requested path, we need to handle the case where it might not exist yet
+    // Use the parent directory to canonicalize, then append the filename
+    let canonical_path = if path_buf.exists() {
+        path_buf.canonicalize().map_err(|e| {
+            log::error!("Failed to canonicalize requested path: {}", e);
+            StatusCode::BAD_REQUEST
+        })?
+    } else {
+        // Path doesn't exist - try to canonicalize parent
+        if let Some(parent) = path_buf.parent() {
+            if parent.exists() {
+                let canonical_parent = parent.canonicalize().map_err(|e| {
+                    log::error!("Failed to canonicalize parent path: {}", e);
+                    StatusCode::BAD_REQUEST
+                })?;
+                if let Some(filename) = path_buf.file_name() {
+                    canonical_parent.join(filename)
+                } else {
+                    return Err(StatusCode::BAD_REQUEST);
+                }
+            } else {
+                // Parent doesn't exist either - reject
+                log::warn!("Path does not exist: {:?}", path_buf);
+                return Err(StatusCode::NOT_FOUND);
+            }
+        } else {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    };
+
+    // Security check: ensure the canonical path starts with the data directory
+    if !canonical_path.starts_with(&canonical_data_dir) {
+        log::warn!(
+            "Path traversal attempt detected: {:?} is outside {:?}",
+            canonical_path,
+            canonical_data_dir
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    Ok(canonical_path)
+}
+
 /// Check if a path is a git-annex symlink that hasn't been downloaded
 fn is_git_annex_placeholder(path: &std::path::Path) -> bool {
     // Use symlink_metadata to check if it's a symlink without following it
@@ -132,16 +199,8 @@ pub async fn list_files(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let path = params.get("path").map(|p| p.as_str()).unwrap_or("");
 
-    let search_path = if path.is_empty() {
-        state.data_directory.clone()
-    } else {
-        let path_buf = PathBuf::from(path);
-        if path_buf.is_absolute() {
-            path_buf
-        } else {
-            state.data_directory.join(path)
-        }
-    };
+    // Validate path is within data directory (prevents path traversal attacks)
+    let search_path = validate_path_within_data_dir(path, &state.data_directory)?;
 
     let mut items = Vec::new();
 
@@ -197,17 +256,20 @@ pub async fn get_file_info(
 ) -> Result<Json<EDFFileInfo>, StatusCode> {
     log::info!("get_file_info called for: {}", file_path);
 
+    // Validate path is within data directory (prevents path traversal attacks)
+    let validated_path = validate_path_within_data_dir(&file_path, &state.data_directory)?;
+    let validated_path_str = validated_path.to_string_lossy().to_string();
+
     {
         let file_cache = state.files.read();
-        if let Some(file_info) = file_cache.get(&file_path) {
+        if let Some(file_info) = file_cache.get(&validated_path_str) {
             log::info!("Found in cache, channels: {:?}", file_info.channels.len());
             // Dereference Arc to get inner value for Json response
             return Ok(Json((*file_info).clone()));
         }
     }
 
-    let full_path = PathBuf::from(&file_path);
-    if let Some(file_info) = create_file_info(full_path).await {
+    if let Some(file_info) = create_file_info(validated_path.clone()).await {
         log::info!(
             "Created file info, channels: {:?}",
             file_info.channels.len()
@@ -216,11 +278,11 @@ pub async fn get_file_info(
         let response = file_info.clone();
         {
             let mut file_cache = state.files.write();
-            file_cache.insert(file_path, file_info);
+            file_cache.insert(validated_path_str, file_info);
         }
         Ok(Json(response))
     } else {
-        log::warn!("File not found: {}", file_path);
+        log::warn!("File not found: {:?}", validated_path);
         Err(StatusCode::NOT_FOUND)
     }
 }
@@ -230,6 +292,10 @@ pub async fn get_file_chunk(
     Path(file_path): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<ChunkData>, StatusCode> {
+    // Validate path is within data directory (prevents path traversal attacks)
+    let validated_path = validate_path_within_data_dir(&file_path, &state.data_directory)?;
+    let validated_path_str = validated_path.to_string_lossy().to_string();
+
     let start_time: f64 = params
         .get("start_time")
         .and_then(|s| s.parse().ok())
@@ -239,7 +305,7 @@ pub async fn get_file_chunk(
         .and_then(|s| s.parse().ok())
         .unwrap_or(30.0);
 
-    let chunk_key = format!("{}:{}:{}", file_path, start_time, duration);
+    let chunk_key = format!("{}:{}:{}", validated_path_str, start_time, duration);
 
     {
         let chunk_cache = state.chunks_cache.read();
@@ -253,14 +319,20 @@ pub async fn get_file_chunk(
         .get("channels")
         .and_then(|s| serde_json::from_str(s).ok());
 
-    let file_path_clone = file_path.clone();
+    let validated_path_clone = validated_path.clone();
+    let validated_path_str_clone = validated_path_str.clone();
     let chunk = tokio::task::spawn_blocking(move || -> Result<ChunkData, String> {
-        let path = std::path::Path::new(&file_path_clone);
-        if !path.exists() {
-            return Err(format!("File not found: {}", file_path_clone));
+        if !validated_path_clone.exists() {
+            return Err(format!("File not found: {}", validated_path_str_clone));
         }
 
-        read_chunk_with_file_reader(&path, &file_path_clone, start_time, duration, channels)
+        read_chunk_with_file_reader(
+            &validated_path_clone,
+            &validated_path_str_clone,
+            start_time,
+            duration,
+            channels,
+        )
     })
     .await
     .map_err(|e| {

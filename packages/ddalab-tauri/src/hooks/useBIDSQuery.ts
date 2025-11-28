@@ -120,3 +120,49 @@ export function useBIDSMultipleDetections(
     })),
   });
 }
+
+/**
+ * Hook to find BIDS root in parent directories.
+ * Useful when navigating inside a BIDS dataset (e.g., after reveal).
+ */
+export function useBIDSParentDetection(
+  currentPath: string[],
+  dataDirectoryPath: string | null,
+) {
+  // Generate all parent paths to check
+  const parentPaths = [];
+  if (dataDirectoryPath && currentPath.length > 0) {
+    for (let i = 1; i <= currentPath.length; i++) {
+      const pathSegments = currentPath.slice(0, i);
+      parentPaths.push({
+        name: pathSegments[pathSegments.length - 1],
+        path: `${dataDirectoryPath}/${pathSegments.join("/")}`,
+        depth: i,
+      });
+    }
+  }
+
+  const queries = useQueries({
+    queries: parentPaths.map((parent) => ({
+      queryKey: bidsKeys.detection(parent.path),
+      queryFn: async () => {
+        const isBIDS = await isBIDSDataset(parent.path);
+        return { ...parent, isBIDS };
+      },
+      staleTime: 15 * 60 * 1000,
+      gcTime: 30 * 60 * 1000,
+    })),
+  });
+
+  // Find the first (shallowest) BIDS root
+  const bidsParent = queries.find((q) => q.isSuccess && q.data?.isBIDS);
+
+  return {
+    isLoading: queries.some((q) => q.isLoading),
+    bidsRoot: bidsParent?.data?.path || null,
+    bidsRootDepth: bidsParent?.data?.depth || 0,
+    currentDepthInBids: bidsParent?.data
+      ? currentPath.length - bidsParent.data.depth
+      : 0,
+  };
+}

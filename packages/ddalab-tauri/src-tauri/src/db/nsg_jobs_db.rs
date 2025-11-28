@@ -120,6 +120,13 @@ pub struct NSGJobsDatabase {
 }
 
 impl NSGJobsDatabase {
+    /// Acquire the database connection lock, returning an error if the lock is poisoned
+    fn get_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
+        self.conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Database lock poisoned: {}", e))
+    }
+
     pub fn new(db_path: &Path) -> Result<Self> {
         let conn = Connection::open(db_path).context("Failed to open NSG jobs database")?;
 
@@ -133,7 +140,7 @@ impl NSGJobsDatabase {
     }
 
     fn init_schema(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS nsg_jobs (
@@ -177,7 +184,7 @@ impl NSGJobsDatabase {
     }
 
     pub fn save_job(&self, job: &NSGJob) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
 
         let output_files_json =
             serde_json::to_string(&job.output_files).context("Failed to serialize output files")?;
@@ -212,7 +219,7 @@ impl NSGJobsDatabase {
     }
 
     pub fn update_job(&self, job: &NSGJob) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
 
         let output_files_json =
             serde_json::to_string(&job.output_files).context("Failed to serialize output files")?;
@@ -255,7 +262,7 @@ impl NSGJobsDatabase {
     }
 
     pub fn get_job(&self, job_id: &str) -> Result<Option<NSGJob>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
 
         let job = conn
             .query_row(
@@ -325,7 +332,7 @@ impl NSGJobsDatabase {
     }
 
     pub fn list_jobs(&self) -> Result<Vec<NSGJob>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
 
         let mut stmt = conn
             .prepare(
@@ -399,7 +406,7 @@ impl NSGJobsDatabase {
     }
 
     pub fn get_active_jobs(&self) -> Result<Vec<NSGJob>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
 
         let mut stmt = conn
             .prepare(
@@ -474,7 +481,7 @@ impl NSGJobsDatabase {
     }
 
     pub fn delete_job(&self, job_id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
 
         conn.execute("DELETE FROM nsg_jobs WHERE id = ?1", params![job_id])
             .context("Failed to delete job from database")?;
@@ -485,7 +492,7 @@ impl NSGJobsDatabase {
     /// Delete all jobs with a specific status in a single query (avoids N+1 problem)
     /// Returns the number of jobs deleted
     pub fn delete_jobs_by_status(&self, status: &NSGJobStatus) -> Result<usize> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.get_conn()?;
 
         let deleted = conn
             .execute(

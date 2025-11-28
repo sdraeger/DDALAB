@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { flushSync } from "react-dom";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 import { DDAAnalysisRequest, DDAResult } from "@/types/api";
@@ -216,11 +217,16 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const [localIsRunning, setLocalIsRunning] = useState(false); // Local UI state for this component
   const [results, setResults] = useState<DDAResult | null>(null);
   const [analysisName, setAnalysisName] = useState("");
+  const analysisStartTimeRef = useRef<number | null>(null); // Track when analysis started
+  const minProgressDisplayTimeRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
 
   // Derive state from mutation and progress events
+  // Use localIsRunning as the primary indicator since it's set synchronously
   const progress =
     progressEvent?.progress_percent ||
-    (submitAnalysisMutation.isPending ? 50 : 0);
+    (localIsRunning || submitAnalysisMutation.isPending ? 50 : 0);
   const analysisStatus =
     progressEvent?.current_step ||
     (submitAnalysisMutation.isPending
@@ -531,7 +537,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   useEffect(() => {
     if (currentAnalysis && !results) {
       // Check if this is an NSG result (has source: 'nsg' marker)
-      const isNSGResult = (currentAnalysis as any).source === "nsg";
+      const isNSGResult = currentAnalysis.source === "nsg";
 
       if (!isNSGResult) {
         setResults(currentAnalysis);
@@ -1136,8 +1142,32 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     }
 
     // Submit analysis using mutation
-    setLocalIsRunning(true);
-    setDDARunning(true);
+    // Use flushSync to ensure the progress bar renders immediately before the async operation
+    console.log("[DDA ANALYSIS] Starting analysis, showing progress bar...");
+    analysisStartTimeRef.current = Date.now();
+    flushSync(() => {
+      setLocalIsRunning(true);
+      setDDARunning(true);
+    });
+
+    // Helper to hide progress with minimum display time
+    const hideProgressBar = (callback: () => void) => {
+      const elapsed = Date.now() - (analysisStartTimeRef.current || 0);
+      const minDisplayTime = 500; // Show progress bar for at least 500ms
+      const remainingTime = Math.max(0, minDisplayTime - elapsed);
+
+      if (remainingTime > 0) {
+        minProgressDisplayTimeRef.current = setTimeout(() => {
+          setLocalIsRunning(false);
+          setDDARunning(false);
+          callback();
+        }, remainingTime);
+      } else {
+        setLocalIsRunning(false);
+        setDDARunning(false);
+        callback();
+      }
+    };
 
     submitAnalysisMutation.mutate(request, {
       onSuccess: (result) => {
@@ -1153,50 +1183,54 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         console.log("  Analysis ID:", resultWithChannels.id);
         console.log("  File path:", resultWithChannels.file_path);
 
-        setResults(resultWithChannels);
-        setCurrentAnalysis(resultWithChannels);
-        addAnalysisToHistory(resultWithChannels);
-        setLocalIsRunning(false);
-        setDDARunning(false);
-        setAnalysisName(""); // Clear name after successful analysis
-        setResultsFromPersistence(false); // Mark as fresh analysis, not from persistence
+        // Hide progress bar with minimum display time, then update results
+        hideProgressBar(() => {
+          setResults(resultWithChannels);
+          setCurrentAnalysis(resultWithChannels);
+          addAnalysisToHistory(resultWithChannels);
+          setAnalysisName(""); // Clear name after successful analysis
+          setResultsFromPersistence(false); // Mark as fresh analysis, not from persistence
 
-        // Record DDA analysis execution if recording is active
-        if (isWorkflowRecording && selectedFile) {
-          // Convert channel names to their actual indices in the file's channel list
-          const channelIndices = parameters.selectedChannels
-            .map((channelName) => selectedFile!.channels.indexOf(channelName))
-            .filter((idx) => idx !== -1); // Remove any channels not found
+          // Record DDA analysis execution if recording is active
+          if (isWorkflowRecording && selectedFile) {
+            // Convert channel names to their actual indices in the file's channel list
+            const channelIndices = parameters.selectedChannels
+              .map((channelName) => selectedFile!.channels.indexOf(channelName))
+              .filter((idx) => idx !== -1); // Remove any channels not found
 
-          console.log(
-            "[WORKFLOW] Recording DDA analysis with channel indices:",
-            channelIndices,
-          );
-          const analysisAction = createRunDDAAnalysisAction(
-            result.id,
-            channelIndices,
-          );
-          recordAction(analysisAction)
-            .then(() => {
-              incrementActionCount();
-              console.log("[WORKFLOW] Recorded DDA analysis execution");
-            })
-            .catch((error) => {
-              console.error("[WORKFLOW] Failed to record DDA analysis:", error);
-            });
-        }
+            console.log(
+              "[WORKFLOW] Recording DDA analysis with channel indices:",
+              channelIndices,
+            );
+            const analysisAction = createRunDDAAnalysisAction(
+              result.id,
+              channelIndices,
+            );
+            recordAction(analysisAction)
+              .then(() => {
+                incrementActionCount();
+                console.log("[WORKFLOW] Recorded DDA analysis execution");
+              })
+              .catch((error) => {
+                console.error(
+                  "[WORKFLOW] Failed to record DDA analysis:",
+                  error,
+                );
+              });
+          }
 
-        // Save to history asynchronously (non-blocking)
-        saveToHistoryMutation.mutate(resultWithChannels, {
-          onError: (err) => {
-            console.error("Background save to history failed:", err);
-          },
+          // Save to history asynchronously (non-blocking)
+          saveToHistoryMutation.mutate(resultWithChannels, {
+            onError: (err) => {
+              console.error("Background save to history failed:", err);
+            },
+          });
         });
       },
       onError: (err) => {
         console.error("❌ DDA analysis failed:", err);
-        setLocalIsRunning(false);
-        setDDARunning(false);
+        // Hide progress bar with minimum display time for errors too
+        hideProgressBar(() => {});
 
         // Extract detailed error message for logging
         let errorMessage = "Analysis failed";
@@ -1659,18 +1693,28 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
   return (
     <div className="h-full flex flex-col overflow-hidden relative">
-      {/* Disabled overlay when DDA is running */}
-      {ddaRunning && (
-        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div className="text-center space-y-4">
+      {/* Disabled overlay with progress bar when DDA is running */}
+      {(ddaRunning || localIsRunning) && (
+        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in-0 duration-200">
+          <div className="text-center space-y-4 w-full max-w-md px-8">
             <Cpu className="h-12 w-12 animate-spin text-primary mx-auto" />
             <div>
               <p className="text-lg font-semibold">DDA Analysis Running</p>
               <p className="text-sm text-muted-foreground">
-                Configuration is locked while analysis is in progress
+                {analysisStatus || "Processing..."}
               </p>
-              <p className="text-xs text-muted-foreground mt-2">
-                Check the status bar for progress
+            </div>
+            {/* Progress bar */}
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Progress</span>
+                <span className="font-medium text-primary">
+                  {Math.round(progress)}%
+                </span>
+              </div>
+              <Progress value={progress} className="w-full h-2" />
+              <p className="text-xs text-muted-foreground">
+                ~{estimatedTime}s estimated • Configuration is locked
               </p>
             </div>
           </div>
@@ -1833,7 +1877,15 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   </div>
 
                   {localIsRunning && (
-                    <Progress value={progress} className="w-full" />
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Processing...</span>
+                        <span className="font-medium">
+                          {Math.round(progress)}%
+                        </span>
+                      </div>
+                      <Progress value={progress} className="w-full" />
+                    </div>
                   )}
 
                   {error && (
