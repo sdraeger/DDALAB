@@ -52,7 +52,12 @@ impl AnalysisDatabase {
 
             CREATE INDEX IF NOT EXISTS idx_analyses_file_path ON analyses(file_path);
             CREATE INDEX IF NOT EXISTS idx_analyses_timestamp ON analyses(timestamp DESC);
-            CREATE INDEX IF NOT EXISTS idx_analyses_created_at ON analyses(created_at DESC);",
+            CREATE INDEX IF NOT EXISTS idx_analyses_created_at ON analyses(created_at DESC);
+
+            -- Composite indexes for common query patterns
+            CREATE INDEX IF NOT EXISTS idx_analyses_file_path_created_at ON analyses(file_path, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_analyses_variant_name ON analyses(variant_name);
+            CREATE INDEX IF NOT EXISTS idx_analyses_file_path_variant ON analyses(file_path, variant_name);",
         )
         .context("Failed to create analyses table")?;
 

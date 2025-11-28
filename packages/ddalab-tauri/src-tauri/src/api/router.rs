@@ -10,13 +10,13 @@ use crate::api::handlers::{
 use crate::api::state::ApiState;
 use axum::{
     extract::DefaultBodyLimit,
-    http::StatusCode,
+    http::{header, HeaderValue, Method, StatusCode},
     middleware,
     routing::{delete, get, post, put},
     Json, Router,
 };
 use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 
 pub fn create_router(state: Arc<ApiState>) -> Router {
     let public_routes = Router::new().route("/api/health", get(health));
@@ -62,17 +62,35 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
             auth_middleware,
         ));
 
+    // SECURITY: Restrict CORS to localhost only
+    // This embedded API server only runs locally and should not accept cross-origin
+    // requests from external domains
+    let cors = CorsLayer::new()
+        .allow_origin([
+            "http://localhost:3000".parse::<HeaderValue>().unwrap(),
+            "http://localhost:3001".parse::<HeaderValue>().unwrap(),
+            "http://localhost:3003".parse::<HeaderValue>().unwrap(),
+            "http://127.0.0.1:3000".parse::<HeaderValue>().unwrap(),
+            "http://127.0.0.1:3001".parse::<HeaderValue>().unwrap(),
+            "http://127.0.0.1:3003".parse::<HeaderValue>().unwrap(),
+            "tauri://localhost".parse::<HeaderValue>().unwrap(),
+            "https://tauri.localhost".parse::<HeaderValue>().unwrap(),
+        ])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::ACCEPT]);
+
     Router::new()
         .merge(public_routes)
         .merge(protected_routes)
         .fallback(handle_404)
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100 MB limit
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
+        .layer(cors)
         .with_state(state)
 }
 

@@ -464,11 +464,29 @@ impl NSGJobManager {
         use std::fs::File;
         use tar::Archive;
 
+        // Limits to prevent tarball bombs
+        const MAX_EXTRACTED_FILES: usize = 10_000;
+        const MAX_EXTRACTED_SIZE: u64 = 10 * 1024 * 1024 * 1024; // 10 GB
+
         log::info!("📦 Extracting tarball: {}", tar_path);
 
         let tar_path_buf = Path::new(tar_path);
         if !tar_path_buf.exists() {
             return Err(anyhow!("Tarball not found: {}", tar_path));
+        }
+
+        // Validate tar_path is within the output directory
+        let canonical_tar_path = tar_path_buf
+            .canonicalize()
+            .context("Failed to canonicalize tar path")?;
+        let canonical_output_dir = self
+            .output_dir
+            .canonicalize()
+            .context("Failed to canonicalize output directory")?;
+        if !canonical_tar_path.starts_with(&canonical_output_dir) {
+            return Err(anyhow!(
+                "Security error: tar path is outside allowed directory"
+            ));
         }
 
         // Extract to the same directory as the tar file
@@ -481,16 +499,49 @@ impl NSGJobManager {
         let decompressor = GzDecoder::new(tar_file);
         let mut archive = Archive::new(decompressor);
 
-        // Track extracted files
+        // Track extracted files and total size
         let mut extracted_paths = Vec::new();
+        let mut total_extracted_size: u64 = 0;
 
-        // Extract all entries
+        // Extract all entries with security limits
         for entry in archive.entries().context("Failed to read tar entries")? {
+            // Check file count limit
+            if extracted_paths.len() >= MAX_EXTRACTED_FILES {
+                return Err(anyhow!(
+                    "Security limit exceeded: tarball contains more than {} files",
+                    MAX_EXTRACTED_FILES
+                ));
+            }
+
             let mut entry = entry.context("Failed to read tar entry")?;
+
+            // Check total size limit
+            let entry_size = entry.size();
+            total_extracted_size += entry_size;
+            if total_extracted_size > MAX_EXTRACTED_SIZE {
+                return Err(anyhow!(
+                    "Security limit exceeded: tarball would extract more than {} GB",
+                    MAX_EXTRACTED_SIZE / (1024 * 1024 * 1024)
+                ));
+            }
+
             let entry_path = entry
                 .path()
                 .context("Failed to get entry path")?
                 .to_path_buf();
+
+            // Reject paths with path traversal attempts
+            if entry_path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
+                log::warn!(
+                    "⚠️ Skipping suspicious tar entry with path traversal: {}",
+                    entry_path.display()
+                );
+                continue;
+            }
+
             let output_path = extract_dir.join(&entry_path);
 
             // Create parent directories if needed
@@ -508,7 +559,11 @@ impl NSGJobManager {
             extracted_paths.push(output_path);
         }
 
-        log::info!("✅ Extracted {} files from tarball", extracted_paths.len());
+        log::info!(
+            "✅ Extracted {} files ({:.2} MB) from tarball",
+            extracted_paths.len(),
+            total_extracted_size as f64 / (1024.0 * 1024.0)
+        );
 
         Ok(extracted_paths)
     }

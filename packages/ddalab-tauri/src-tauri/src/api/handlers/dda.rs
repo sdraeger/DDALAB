@@ -96,6 +96,113 @@ struct VariantConfig {
     cd_channel_pairs: Option<Vec<[usize; 2]>>,
 }
 
+/// SECURITY: Maximum allowed values for DDA parameters to prevent DoS
+const MAX_WINDOW_LENGTH: usize = 1_000_000; // 1 million samples max
+const MAX_WINDOW_STEP: usize = 1_000_000;
+const MAX_SCALE_NUM: usize = 1000;
+const MIN_SCALE_VALUE: i32 = -100;
+const MAX_SCALE_VALUE: i32 = 100;
+
+/// Validate DDA request parameters to prevent DoS and invalid configurations
+fn validate_dda_request(request: &DDARequest) -> Result<(), String> {
+    // Validate window parameters
+    if request.window_parameters.window_length == 0 {
+        return Err("window_length must be greater than 0".to_string());
+    }
+    if request.window_parameters.window_length > MAX_WINDOW_LENGTH {
+        return Err(format!(
+            "window_length {} exceeds maximum allowed value {}",
+            request.window_parameters.window_length, MAX_WINDOW_LENGTH
+        ));
+    }
+
+    if request.window_parameters.window_step == 0 {
+        return Err("window_step must be greater than 0".to_string());
+    }
+    if request.window_parameters.window_step > MAX_WINDOW_STEP {
+        return Err(format!(
+            "window_step {} exceeds maximum allowed value {}",
+            request.window_parameters.window_step, MAX_WINDOW_STEP
+        ));
+    }
+
+    // Validate CT window parameters if provided
+    if let Some(ct_window_length) = request.window_parameters.ct_window_length {
+        if ct_window_length == 0 {
+            return Err("ct_window_length must be greater than 0".to_string());
+        }
+        if ct_window_length > MAX_WINDOW_LENGTH {
+            return Err(format!(
+                "ct_window_length {} exceeds maximum allowed value {}",
+                ct_window_length, MAX_WINDOW_LENGTH
+            ));
+        }
+    }
+
+    if let Some(ct_window_step) = request.window_parameters.ct_window_step {
+        if ct_window_step == 0 {
+            return Err("ct_window_step must be greater than 0".to_string());
+        }
+    }
+
+    // Validate scale parameters
+    if request.scale_parameters.scale_min >= request.scale_parameters.scale_max {
+        return Err(format!(
+            "scale_min ({}) must be less than scale_max ({})",
+            request.scale_parameters.scale_min, request.scale_parameters.scale_max
+        ));
+    }
+
+    if request.scale_parameters.scale_min < MIN_SCALE_VALUE
+        || request.scale_parameters.scale_max > MAX_SCALE_VALUE
+    {
+        return Err(format!(
+            "Scale values must be between {} and {}",
+            MIN_SCALE_VALUE, MAX_SCALE_VALUE
+        ));
+    }
+
+    if request.scale_parameters.scale_num == 0 {
+        return Err("scale_num must be greater than 0".to_string());
+    }
+    if request.scale_parameters.scale_num > MAX_SCALE_NUM {
+        return Err(format!(
+            "scale_num {} exceeds maximum allowed value {}",
+            request.scale_parameters.scale_num, MAX_SCALE_NUM
+        ));
+    }
+
+    // Validate time range
+    if request.time_range.start < 0.0 {
+        return Err("time_range.start cannot be negative".to_string());
+    }
+    if request.time_range.end <= request.time_range.start {
+        return Err(format!(
+            "time_range.end ({}) must be greater than time_range.start ({})",
+            request.time_range.end, request.time_range.start
+        ));
+    }
+
+    // Validate delay list if provided
+    if let Some(ref delay_list) = request.scale_parameters.delay_list {
+        if delay_list.is_empty() {
+            return Err("delay_list cannot be empty if provided".to_string());
+        }
+        for &delay in delay_list {
+            if delay <= 0 {
+                return Err(format!("delay values must be positive, got {}", delay));
+            }
+        }
+    }
+
+    // Validate algorithm selection
+    if request.algorithm_selection.enabled_variants.is_empty() {
+        return Err("At least one variant must be enabled".to_string());
+    }
+
+    Ok(())
+}
+
 /// Parse variant_configs from JSON value
 fn parse_variant_configs(
     variant_configs_json: &serde_json::Value,
@@ -120,6 +227,12 @@ pub async fn run_dda_analysis(
     State(state): State<Arc<ApiState>>,
     Json(request): Json<DDARequest>,
 ) -> Result<Json<DDAResult>, StatusCode> {
+    // SECURITY: Validate all parameters before processing to prevent DoS
+    if let Err(e) = validate_dda_request(&request) {
+        log::error!("DDA request validation failed: {}", e);
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
     let file_path = PathBuf::from(&request.file_path);
     let file_type = FileType::from_path(&file_path);
     if !matches!(
