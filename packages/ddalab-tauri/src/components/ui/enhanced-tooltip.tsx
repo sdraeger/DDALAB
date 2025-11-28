@@ -155,5 +155,4 @@ export function SimpleTooltip({
   );
 }
 
-// Re-export primitives for custom usage
-export { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent };
+// Note: Tooltip primitives are exported from ./tooltip.tsx

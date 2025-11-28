@@ -67,4 +67,4 @@ export function InfoTooltip({
   );
 }
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+// Note: Tooltip primitives are exported from ./tooltip.tsx
