@@ -66,6 +66,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
+import { toast } from "@/components/ui/toaster";
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -600,9 +601,12 @@ export function NSGJobManager() {
         const files = await downloadResults.mutateAsync(jobId);
 
         if (files.length > 0) {
-          alert(`Downloaded ${files.length} files:\n${files.join("\n")}`);
+          toast.success(
+            "Download Complete",
+            `Downloaded ${files.length} file${files.length > 1 ? "s" : ""}`,
+          );
         } else {
-          alert("No result files available");
+          toast.warning("No Files", "No result files available");
         }
       } catch (error) {
         setError(
@@ -655,7 +659,7 @@ export function NSGJobManager() {
       (j) => j.status === NSGJobStatus.Pending,
     ).length;
     if (pendingCount === 0) {
-      alert("No pending jobs to clean up");
+      toast.info("No Pending Jobs", "There are no pending jobs to clean up");
       return;
     }
 
@@ -669,7 +673,10 @@ export function NSGJobManager() {
     try {
       setError(null);
       const deletedCount = await cleanupPendingJobs.mutateAsync();
-      alert(`Cleaned up ${deletedCount} pending job(s)`);
+      toast.success(
+        "Cleanup Complete",
+        `Cleaned up ${deletedCount} pending job(s)`,
+      );
     } catch (error) {
       setError(
         error instanceof Error
@@ -711,8 +718,9 @@ export function NSGJobManager() {
         console.log("[NSG] Downloaded files:", files);
 
         if (files.length === 0) {
-          alert(
-            "No result files available.\n\nThis job may have failed or the results may have been cleaned up by NSG.\n\nIf this is an old job from before recent fixes, please submit a new job.",
+          toast.warning(
+            "No Results Available",
+            "This job may have failed or the results may have been cleaned up by NSG. If this is an old job, please submit a new one.",
           );
           return;
         }
@@ -746,18 +754,16 @@ export function NSGJobManager() {
           const isExternalNonDDALAB = isExternalJob({ id: jobId } as NSGJob);
 
           if (isExternalNonDDALAB) {
-            alert(
-              `This external job doesn't have DDALAB DDA results.\n\n` +
-                `This appears to be a job submitted outside of DDALAB (possibly through the NSG portal directly).\n\n` +
-                `Only DDALAB DDA analysis jobs have viewable results in the application.\n\n` +
-                `Downloaded files (${files.length} total):\n${files.map((f) => f.split("/").pop()).join("\n")}\n\n` +
-                `Files have been downloaded to your local system. Check STDOUT/STDERR for job output.`,
+            toast.info(
+              "External Job",
+              `This external job doesn't have DDALAB DDA results. Downloaded ${files.length} files to your local system.`,
+              8000,
             );
           } else {
-            alert(
-              `DDA results file not found.\n\n` +
-                `Downloaded files:\n${files.map((f) => f.split("/").pop()).join("\n")}\n\n` +
-                `The job may have failed. Check STDERR for errors.`,
+            toast.warning(
+              "DDA Results Not Found",
+              `Downloaded ${files.length} files but no DDA results found. The job may have failed - check STDERR for errors.`,
+              8000,
             );
           }
           return;
@@ -938,8 +944,9 @@ export function NSGJobManager() {
           });
         } catch (parseError) {
           console.error("[NSG] Failed to parse results file:", parseError);
-          alert(
-            `Failed to load results file.\n\nFile: ${resultsFile}\nError: ${parseError}\n\nThe file may be corrupted.`,
+          toast.error(
+            "Failed to Load Results",
+            "The results file may be corrupted. Check the console for details.",
           );
           return;
         }

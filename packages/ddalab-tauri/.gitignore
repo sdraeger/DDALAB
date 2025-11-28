@@ -32,7 +32,10 @@ logs/
 
 # Build artifacts
 dist/
+doc-dist/
 build/
 
 # TypeScript
 *.tsbuildinfo
+*storybook.log
+storybook-static

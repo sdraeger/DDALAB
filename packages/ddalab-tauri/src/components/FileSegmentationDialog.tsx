@@ -26,6 +26,7 @@ import { TauriService } from "@/services/tauriService";
 import { formatBytes } from "@/lib/utils";
 import { ApiService } from "@/services/apiService";
 import { useLoadFileInfo } from "@/hooks/useFileManagement";
+import { toast } from "@/components/ui/toaster";
 
 interface FileSegmentationDialogProps {
   open: boolean;
@@ -168,22 +169,22 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
     const end = parseFloat(endTime);
 
     if (isNaN(start) || start < 0) {
-      alert("Please enter a valid start time");
+      toast.error("Invalid Input", "Please enter a valid start time");
       return;
     }
 
     if (isNaN(end) || end <= 0) {
-      alert("Please enter a valid end time");
+      toast.error("Invalid Input", "Please enter a valid end time");
       return;
     }
 
     if (end <= start) {
-      alert("End time must be greater than start time");
+      toast.error("Invalid Input", "End time must be greater than start time");
       return;
     }
 
     if (!selectAllChannels && selectedChannels.size === 0) {
-      alert("Please select at least one channel");
+      toast.error("Invalid Input", "Please select at least one channel");
       return;
     }
 
@@ -205,8 +206,9 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
       onClose();
     } catch (error) {
       console.error("Segmentation failed:", error);
-      alert(
-        `Segmentation failed: ${error instanceof Error ? error.message : String(error)}`,
+      toast.error(
+        "Segmentation Failed",
+        error instanceof Error ? error.message : String(error),
       );
     } finally {
       setIsProcessing(false);

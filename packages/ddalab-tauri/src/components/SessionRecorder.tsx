@@ -26,6 +26,7 @@ import {
   Clock,
   Activity,
 } from "lucide-react";
+import { toast } from "@/components/ui/toaster";
 
 export function SessionRecorder() {
   const {
@@ -124,7 +125,10 @@ export function SessionRecorder() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error("Failed to export Python script:", error);
-      alert("Failed to export Python script. See console for details.");
+      toast.error(
+        "Export Failed",
+        "Failed to export Python script. See console for details.",
+      );
     }
   };
 
@@ -142,7 +146,10 @@ export function SessionRecorder() {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error("Failed to export Julia script:", error);
-      alert("Failed to export Julia script. See console for details.");
+      toast.error(
+        "Export Failed",
+        "Failed to export Julia script. See console for details.",
+      );
     }
   };
 

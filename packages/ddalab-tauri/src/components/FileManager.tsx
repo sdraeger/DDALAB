@@ -6,7 +6,6 @@ import React, {
   useMemo,
   useCallback,
   useRef,
-  memo,
 } from "react";
 import { useAppStore } from "@/store/appStore";
 import { useShallow } from "zustand/react/shallow";
@@ -52,7 +51,6 @@ import {
 import {
   Search,
   Folder,
-  FileText,
   SortAsc,
   SortDesc,
   RefreshCw,
@@ -68,7 +66,6 @@ import {
   Upload,
   CloudOff,
   AlertTriangle,
-  X,
 } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
 import { formatBytes, formatDate } from "@/lib/utils";
@@ -83,838 +80,20 @@ import {
   type SegmentationParams,
 } from "@/components/FileSegmentationDialog";
 import { GitAnnexDownloadDialog } from "@/components/GitAnnexDownloadDialog";
-import {
-  FileTreeInput,
-  type FileTreeNode,
-  type FileTreeSelection,
-} from "@/components/ui/file-tree-input";
 import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
-
-// Supported file extensions for neurophysiology data
-const SUPPORTED_EXTENSIONS = [
-  ".edf", // EDF/EDF+
-  ".csv", // CSV data
-  ".ascii", // ASCII data
-  ".txt", // Text data
-  ".fif", // FIF/FIFF (MEG)
-  ".fiff", // FIF/FIFF alternate extension
-  ".vhdr", // BrainVision header
-  ".set", // EEGLAB
-  ".xdf", // XDF (Lab Streaming Layer)
-  ".nwb", // NWB (Neurodata Without Borders)
-];
+import {
+  FileTreeRenderer,
+  SUPPORTED_EXTENSIONS,
+  EmptyState,
+} from "@/components/file-manager";
+import { bidsCache } from "@/services/bidsCacheService";
+import { toast } from "@/components/ui/toaster";
 
 interface FileManagerProps {
   apiService: ApiService;
 }
 
-interface FileTreeRendererProps {
-  directories: DirectoryEntry[];
-  files: EDFFileInfo[];
-  selectedFile: EDFFileInfo | null;
-  isOpenNeuroAuthenticated: boolean;
-  pendingFileSelection: EDFFileInfo | null;
-  loadFileInfoMutationPending: boolean;
-  onDirectorySelect: (dir: DirectoryEntry) => void;
-  onFileSelect: (file: EDFFileInfo) => void;
-  onContextMenu: (e: React.MouseEvent, file: EDFFileInfo) => void;
-  onUploadClick: (dir: DirectoryEntry) => void;
-  apiService: ApiService;
-  searchQuery: string;
-  highlightedFilePath: string | null;
-}
-
-const FileTreeRenderer = memo(function FileTreeRenderer({
-  directories,
-  files,
-  selectedFile,
-  isOpenNeuroAuthenticated,
-  pendingFileSelection,
-  loadFileInfoMutationPending,
-  onDirectorySelect,
-  onFileSelect,
-  onContextMenu,
-  onUploadClick,
-  apiService,
-  searchQuery,
-  highlightedFilePath,
-}: FileTreeRendererProps) {
-  const [loadedDirs, setLoadedDirs] = useState<
-    Map<string, { dirs: DirectoryEntry[]; files: EDFFileInfo[] }>
-  >(new Map());
-  const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
-  const [isLoadingForSearch, setIsLoadingForSearch] = useState(false);
-  const loadingAbortControllerRef = useRef<AbortController | null>(null);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Helper function to load BIDS dataset contents
-  const loadBIDSContents = async (
-    bidsPath: string,
-  ): Promise<{ dirs: DirectoryEntry[]; files: EDFFileInfo[] } | null> => {
-    if (loadedDirs.has(bidsPath)) {
-      return loadedDirs.get(bidsPath) || null;
-    }
-
-    if (loadingDirs.has(bidsPath)) {
-      return null;
-    }
-
-    setLoadingDirs((prev) => new Set(prev).add(bidsPath));
-
-    try {
-      // Import BIDS reader functions dynamically
-      const { discoverSubjects } = await import("@/services/bids/reader");
-      const subjects = await discoverSubjects(bidsPath);
-
-      // Convert BIDS subjects to virtual directories with metadata
-      const subjectDirs: DirectoryEntry[] = subjects.map((subject) => {
-        // Count total runs across all sessions
-        const totalRuns = subject.sessions.reduce(
-          (sum: number, session: any) => {
-            return sum + (session.runs?.length || 0);
-          },
-          0,
-        );
-
-        // Extract unique modalities
-        const modalities = new Set<string>();
-        subject.sessions.forEach((session: any) => {
-          if (session.runs && Array.isArray(session.runs)) {
-            session.runs.forEach((run: any) => {
-              if (run.modality) {
-                modalities.add(run.modality);
-              }
-            });
-          }
-        });
-
-        return {
-          name: subject.id,
-          path: `${bidsPath}/${subject.id}`,
-          isBIDS: false,
-          bidsInfo: {
-            subjectCount: subject.sessions.length, // Use session count for subjects
-            datasetName: `${totalRuns} run${totalRuns !== 1 ? "s" : ""}`,
-            modalities: Array.from(modalities),
-          },
-        };
-      });
-
-      // Don't flatten - let subjects be expandable directories
-      // Store the full BIDS structure for later use
-      (window as any).__bids_cache = (window as any).__bids_cache || {};
-      (window as any).__bids_cache[bidsPath] = subjects;
-
-      const contents = { dirs: subjectDirs, files: [] }; // No files at dataset level
-      setLoadedDirs((prev) => new Map(prev).set(bidsPath, contents));
-      return contents;
-    } catch (error) {
-      console.error("[BIDS] Failed to load BIDS dataset:", bidsPath, error);
-      return null;
-    } finally {
-      setLoadingDirs((prev) => {
-        const next = new Set(prev);
-        next.delete(bidsPath);
-        return next;
-      });
-    }
-  };
-
-  // Helper function to load directory contents
-  const loadDirectoryContents = async (
-    dirPath: string,
-  ): Promise<{ dirs: DirectoryEntry[]; files: EDFFileInfo[] } | null> => {
-    if (loadedDirs.has(dirPath)) {
-      return loadedDirs.get(dirPath) || null;
-    }
-
-    if (loadingDirs.has(dirPath)) {
-      return null;
-    }
-
-    // Check if this is a BIDS subject/session directory
-    const cache = (window as any).__bids_cache || {};
-    for (const [bidsRoot, subjects] of Object.entries(cache)) {
-      // Check if this is a subject directory
-      const subjectId = dirPath.split("/").pop();
-      const subject = (subjects as any[]).find(
-        (s: any) => s.id === subjectId && dirPath.startsWith(bidsRoot),
-      );
-
-      if (subject && subject.sessions && Array.isArray(subject.sessions)) {
-        setLoadingDirs((prev) => new Set(prev).add(dirPath));
-        try {
-          // This is a BIDS subject - show sessions or runs
-          if (subject.sessions.length === 1 && !subject.sessions[0].id) {
-            // No explicit sessions - show runs as files
-            const firstSession = subject.sessions[0];
-            if (!firstSession.runs || !Array.isArray(firstSession.runs)) {
-              // No runs found - return empty
-              const contents = { dirs: [], files: [] };
-              setLoadedDirs((prev) => new Map(prev).set(dirPath, contents));
-              return contents;
-            }
-
-            // Check annex status for each file in parallel
-            const files: EDFFileInfo[] = await Promise.all(
-              firstSession.runs.map(async (run: any) => {
-                const filePath = run.dataFile;
-                const isAnnexPlaceholder =
-                  await TauriService.checkAnnexPlaceholder(filePath);
-                return {
-                  file_path: filePath,
-                  file_name:
-                    filePath.split("/").pop() ||
-                    `task-${run.task}_run-${run.run}`,
-                  file_size: 0,
-                  duration: 0,
-                  sample_rate: 256,
-                  channels: [],
-                  total_samples: 0,
-                  start_time: new Date().toISOString(),
-                  end_time: new Date().toISOString(),
-                  annotations_count: 0,
-                  is_annex_placeholder: isAnnexPlaceholder,
-                  bidsMetadata: {
-                    task: run.task,
-                    run: run.run,
-                    modality: run.modality,
-                  },
-                };
-              }),
-            );
-
-            const contents = { dirs: [], files };
-            setLoadedDirs((prev) => new Map(prev).set(dirPath, contents));
-            return contents;
-          } else {
-            // Show sessions as directories
-            const sessionDirs: DirectoryEntry[] = subject.sessions.map(
-              (session: any) => ({
-                name: session.id || "no-session",
-                path: `${dirPath}/${session.id || "no-session"}`,
-                isBIDS: false,
-              }),
-            );
-
-            // Store sessions for later
-            (window as any).__bids_cache[dirPath] = subject.sessions;
-
-            const contents = { dirs: sessionDirs, files: [] };
-            setLoadedDirs((prev) => new Map(prev).set(dirPath, contents));
-            return contents;
-          }
-        } finally {
-          setLoadingDirs((prev) => {
-            const next = new Set(prev);
-            next.delete(dirPath);
-            return next;
-          });
-        }
-      }
-
-      // Check if this is a session directory
-      const sessionId = dirPath.split("/").pop();
-      const parentPath = dirPath.substring(0, dirPath.lastIndexOf("/"));
-      const sessions = cache[parentPath];
-
-      if (sessions && Array.isArray(sessions)) {
-        const session = sessions.find(
-          (s: any) => (s.id || "no-session") === sessionId,
-        );
-
-        if (session && session.runs && Array.isArray(session.runs)) {
-          setLoadingDirs((prev) => new Set(prev).add(dirPath));
-          try {
-            // This is a BIDS session - show runs as files
-            // Check annex status for each file in parallel
-            const files: EDFFileInfo[] = await Promise.all(
-              session.runs.map(async (run: any) => {
-                const filePath = run.dataFile;
-                const isAnnexPlaceholder =
-                  await TauriService.checkAnnexPlaceholder(filePath);
-                return {
-                  file_path: filePath,
-                  file_name:
-                    filePath.split("/").pop() ||
-                    `task-${run.task}_run-${run.run}`,
-                  file_size: 0,
-                  duration: 0,
-                  sample_rate: 256,
-                  channels: [],
-                  total_samples: 0,
-                  start_time: new Date().toISOString(),
-                  end_time: new Date().toISOString(),
-                  annotations_count: 0,
-                  is_annex_placeholder: isAnnexPlaceholder,
-                  bidsMetadata: {
-                    task: run.task,
-                    run: run.run,
-                    modality: run.modality,
-                  },
-                };
-              }),
-            );
-
-            const contents = { dirs: [], files };
-            setLoadedDirs((prev) => new Map(prev).set(dirPath, contents));
-            return contents;
-          } finally {
-            setLoadingDirs((prev) => {
-              const next = new Set(prev);
-              next.delete(dirPath);
-              return next;
-            });
-          }
-        }
-      }
-    }
-
-    // Regular directory - use API
-    setLoadingDirs((prev) => new Set(prev).add(dirPath));
-
-    try {
-      const response = await apiService.listDirectory(dirPath);
-
-      const subdirs = response.files
-        .filter((f: { is_directory: boolean }) => f.is_directory)
-        .map((d: { name: string; path: string }) => ({
-          name: d.name,
-          path: d.path,
-          isBIDS: false,
-        }));
-
-      const subfiles = response.files
-        .filter((f: { is_directory: boolean }) => !f.is_directory)
-        .filter(
-          (file: { name: string }) =>
-            file.name.toLowerCase().endsWith(".edf") ||
-            file.name.toLowerCase().endsWith(".csv") ||
-            file.name.toLowerCase().endsWith(".ascii") ||
-            file.name.toLowerCase().endsWith(".txt"),
-        )
-        .map(
-          (file: {
-            path: string;
-            name: string;
-            size?: number;
-            last_modified?: string;
-          }) => ({
-            file_path: file.path,
-            file_name: file.name,
-            file_size: file.size || 0,
-            duration: 0,
-            sample_rate: 256,
-            channels: [],
-            total_samples: 0,
-            start_time: file.last_modified || new Date().toISOString(),
-            end_time: file.last_modified || new Date().toISOString(),
-            annotations_count: 0,
-          }),
-        );
-
-      const contents = { dirs: subdirs, files: subfiles };
-      setLoadedDirs((prev) => new Map(prev).set(dirPath, contents));
-      return contents;
-    } catch (error) {
-      console.error("[SEARCH] Failed to load directory:", dirPath, error);
-      return null;
-    } finally {
-      setLoadingDirs((prev) => {
-        const next = new Set(prev);
-        next.delete(dirPath);
-        return next;
-      });
-    }
-  };
-
-  // Helper function to get file format badge
-  const getFileFormat = (fileName: string) => {
-    const lowerName = fileName.toLowerCase();
-    if (lowerName.endsWith(".edf")) return "EDF";
-    if (lowerName.endsWith(".fif") || lowerName.endsWith(".fiff")) return "FIF";
-    if (lowerName.endsWith(".csv")) return "CSV";
-    if (lowerName.endsWith(".ascii")) return "ASCII";
-    if (lowerName.endsWith(".set")) return "SET";
-    if (lowerName.endsWith(".vhdr")) return "VHDR";
-    if (lowerName.endsWith(".xdf")) return "XDF";
-    if (lowerName.endsWith(".nwb")) return "NWB";
-    if (lowerName.endsWith(".nii.gz")) return "NII.GZ";
-    if (lowerName.endsWith(".nii")) return "NII";
-    return "TXT";
-  };
-
-  // Helper function to get BIDS modality badge color
-  const getModalityBadgeClass = (modality: string) => {
-    const modalityLower = modality.toLowerCase();
-    if (modalityLower === "eeg") {
-      return "bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700";
-    } else if (modalityLower === "meg") {
-      return "bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700";
-    } else if (modalityLower === "ieeg") {
-      return "bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700";
-    } else if (modalityLower === "mri" || modalityLower === "anat") {
-      return "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700";
-    } else if (modalityLower === "fmri" || modalityLower === "func") {
-      return "bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-700";
-    } else if (modalityLower === "dwi") {
-      return "bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border-teal-300 dark:border-teal-700";
-    } else if (modalityLower === "pet") {
-      return "bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700";
-    }
-    return "bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700";
-  };
-
-  // Helper function to check if a string matches the search query - memoized to prevent infinite loops
-  const matchesSearch = useCallback((text: string, query: string): boolean => {
-    if (!query) return true;
-    return text.toLowerCase().includes(query.toLowerCase());
-  }, []);
-
-  // Helper function to check if a node or any of its descendants match the search
-  const nodeOrDescendantsMatch = useCallback(
-    (node: FileTreeNode, query: string): boolean => {
-      if (!query) return true;
-
-      // Check if this node matches
-      const nodeMatches = matchesSearch(node.label, query);
-      if (nodeMatches) return true;
-
-      // Check if any children match (recursively)
-      if (node.children) {
-        return node.children.some((child) =>
-          nodeOrDescendantsMatch(child, query),
-        );
-      }
-
-      return false;
-    },
-    [matchesSearch],
-  );
-
-  // Recursive directory loading for search
-  useEffect(() => {
-    // Clear any pending timeout from previous search
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-      searchTimeoutRef.current = null;
-    }
-
-    // Cancel any ongoing loading
-    if (loadingAbortControllerRef.current) {
-      loadingAbortControllerRef.current.abort();
-      loadingAbortControllerRef.current = null;
-    }
-
-    // If no search query, clear state and return
-    if (!searchQuery) {
-      setIsLoadingForSearch(false);
-      return;
-    }
-
-    // Capture current values for closure
-    const currentQuery = searchQuery;
-    const currentDirs = directories;
-
-    // Create new abort controller for this search
-    const abortController = new AbortController();
-    loadingAbortControllerRef.current = abortController;
-
-    const loadRecursively = async () => {
-      setIsLoadingForSearch(true);
-
-      try {
-        // Breadth-first loading with max depth of 3
-        const queue: Array<{ path: string; depth: number }> = currentDirs.map(
-          (d) => ({ path: d.path, depth: 0 }),
-        );
-        const loaded = new Set<string>();
-        const maxDepth = 3;
-
-        while (queue.length > 0 && !abortController.signal.aborted) {
-          const { path, depth } = queue.shift()!;
-
-          // Skip if already loaded or max depth reached
-          if (depth >= maxDepth || loaded.has(path)) {
-            continue;
-          }
-
-          loaded.add(path);
-
-          const contents = await loadDirectoryContents(path);
-
-          if (contents && !abortController.signal.aborted) {
-            // Add subdirectories to queue for next level
-            for (const subdir of contents.dirs) {
-              if (!loaded.has(subdir.path)) {
-                queue.push({ path: subdir.path, depth: depth + 1 });
-              }
-            }
-          }
-        }
-
-        if (!abortController.signal.aborted) {
-          setIsLoadingForSearch(false);
-        }
-      } catch (error) {
-        if (!abortController.signal.aborted) {
-          console.error("[SEARCH] Error during recursive load:", error);
-          setIsLoadingForSearch(false);
-        }
-      }
-    };
-
-    // Debounce the loading by 300ms
-    searchTimeoutRef.current = setTimeout(() => {
-      loadRecursively();
-    }, 300);
-
-    // Cleanup function
-    return () => {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-        searchTimeoutRef.current = null;
-      }
-      if (loadingAbortControllerRef.current) {
-        loadingAbortControllerRef.current.abort();
-        loadingAbortControllerRef.current = null;
-      }
-    };
-  }, [searchQuery]); // Only depend on searchQuery to prevent re-triggering during directory loads
-
-  // Transform directories and files to tree nodes
-  const treeData: FileTreeNode[] = useMemo(() => {
-    // Create file node
-    const createFileNode = (file: EDFFileInfo): FileTreeNode => ({
-      id: file.file_path,
-      label: file.file_name,
-      icon: (
-        <div
-          className={`flex items-start gap-3 w-full p-2 rounded-md transition-all ${
-            pendingFileSelection || loadFileInfoMutationPending
-              ? "opacity-50 cursor-wait"
-              : "cursor-pointer hover:bg-accent/50"
-          } ${
-            selectedFile?.file_path === file.file_path
-              ? "bg-primary/10 ring-1 ring-primary/30"
-              : ""
-          } ${
-            highlightedFilePath === file.file_path
-              ? "ring-2 ring-yellow-500 bg-yellow-500/10 animate-pulse"
-              : ""
-          }`}
-          onContextMenu={(e) => onContextMenu(e, file)}
-        >
-          {file.is_annex_placeholder ? (
-            <div className="relative flex-shrink-0 mt-0.5">
-              <CloudOff className="h-5 w-5 text-orange-500" />
-              <AlertTriangle className="h-3 w-3 text-orange-600 absolute -bottom-1 -right-1" />
-            </div>
-          ) : (
-            <FileText className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
-          )}
-          <div className="flex-1 min-w-0">
-            <div
-              className={`font-medium truncate ${file.is_annex_placeholder ? "text-orange-700 dark:text-orange-400" : ""}`}
-            >
-              {file.file_name}
-            </div>
-            <div className="flex items-center gap-2 flex-wrap text-sm text-muted-foreground">
-              {file.bidsMetadata ? (
-                // BIDS file - show task, run, modality
-                <>
-                  <Badge
-                    variant="outline"
-                    className="text-xs bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800"
-                  >
-                    task-{file.bidsMetadata.task}
-                  </Badge>
-                  <Badge
-                    variant="outline"
-                    className="text-xs bg-green-50 dark:bg-green-950/50 border-green-200 dark:border-green-800"
-                  >
-                    run-{file.bidsMetadata.run}
-                  </Badge>
-                  <Badge
-                    variant="outline"
-                    className={`text-xs ${getModalityBadgeClass(file.bidsMetadata.modality ?? "")}`}
-                  >
-                    {file.bidsMetadata.modality?.toUpperCase()}
-                  </Badge>
-                </>
-              ) : (
-                // Regular file - show size and date
-                <>
-                  <span className="flex items-center gap-1">
-                    <HardDrive className="h-3 w-3" />
-                    {formatBytes(file.file_size)}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    {formatDate(file.start_time)}
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
-          <div className="flex flex-col items-end gap-1">
-            {selectedFile?.file_path === file.file_path && (
-              <div className="flex items-center gap-1 text-primary mb-1">
-                <Check className="h-4 w-4" />
-                <span className="text-xs font-medium">Selected</span>
-              </div>
-            )}
-            {file.is_annex_placeholder && (
-              <Badge
-                variant="outline"
-                className="text-xs bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700"
-              >
-                <Download className="h-3 w-3 mr-1" />
-                Not Downloaded
-              </Badge>
-            )}
-            <Badge variant="secondary" className="text-xs">
-              {getFileFormat(file.file_name)}
-            </Badge>
-            {file.channels.length > 0 && (
-              <Badge variant="outline" className="text-xs">
-                {file.channels.length} channels
-              </Badge>
-            )}
-          </div>
-        </div>
-      ),
-      metadata: { type: "file", data: file },
-    });
-
-    // Create directory node (with recursive support)
-    const createDirectoryNode = (dir: DirectoryEntry): FileTreeNode => {
-      // Check if this directory has been loaded
-      const dirContents = loadedDirs.get(dir.path);
-      const children: FileTreeNode[] = dirContents
-        ? [
-            ...dirContents.dirs.map(createDirectoryNode),
-            ...dirContents.files.map(createFileNode),
-          ]
-        : [];
-
-      return {
-        id: dir.path,
-        label: dir.name,
-        // Always set children array for directories (even if empty) to show expand chevron
-        children: children,
-        icon: (
-          <div
-            className="flex items-start gap-2 w-full"
-            onContextMenu={(e) => {
-              if (dir.isBIDS) {
-                e.preventDefault();
-                e.stopPropagation();
-                // TODO: Show BIDS context menu
-                console.log("[BIDS] Right-click on BIDS dataset:", dir);
-              }
-            }}
-          >
-            <Folder
-              className={`h-5 w-5 flex-shrink-0 mt-0.5 ${
-                dir.isBIDS || dir.isInsideBIDS
-                  ? "text-purple-600"
-                  : "text-blue-600"
-              }`}
-            />
-            <div className="flex-1 min-w-0 flex flex-col">
-              <div className="flex items-center gap-2">
-                <span className="font-medium truncate">{dir.name}</span>
-                {dir.isBIDS && (
-                  <Badge
-                    variant="secondary"
-                    className="bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 text-xs flex-shrink-0"
-                  >
-                    BIDS
-                  </Badge>
-                )}
-              </div>
-              {dir.bidsInfo && (
-                <div className="flex items-center gap-2 mt-1 flex-wrap text-sm text-muted-foreground">
-                  {dir.bidsInfo.datasetName && (
-                    <span
-                      className={`font-medium truncate text-xs ${
-                        dir.isBIDS || dir.isInsideBIDS
-                          ? "text-purple-700 dark:text-purple-400"
-                          : "text-blue-700 dark:text-blue-400"
-                      }`}
-                    >
-                      {dir.bidsInfo.datasetName}
-                    </span>
-                  )}
-                  {dir.bidsInfo.subjectCount !== undefined && (
-                    <span className="flex-shrink-0 text-xs">
-                      {dir.bidsInfo.subjectCount}{" "}
-                      {dir.isBIDS ? "subject" : "session"}
-                      {dir.bidsInfo.subjectCount !== 1 ? "s" : ""}
-                    </span>
-                  )}
-                  {dir.bidsInfo.modalities &&
-                    dir.bidsInfo.modalities.length > 0 && (
-                      <div className="flex items-center gap-1 flex-wrap">
-                        {dir.bidsInfo.modalities.map((modality) => (
-                          <Badge
-                            key={modality}
-                            variant="outline"
-                            className={`text-xs font-medium ${getModalityBadgeClass(
-                              modality,
-                            )}`}
-                          >
-                            {modality.toUpperCase()}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                </div>
-              )}
-            </div>
-            {dir.isBIDS && isOpenNeuroAuthenticated && (
-              <Button
-                size="icon"
-                variant="outline"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onUploadClick(dir);
-                }}
-                className="ml-2 flex-shrink-0"
-                title="Upload to OpenNeuro"
-              >
-                <Upload className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
-        ),
-        metadata: { type: "directory", data: dir },
-      };
-    };
-
-    // Create all nodes
-    const allNodes = [
-      ...directories.map(createDirectoryNode),
-      ...files.map(createFileNode),
-    ];
-
-    // Filter nodes based on search query
-    if (searchQuery) {
-      const filterNodes = (nodes: FileTreeNode[]): FileTreeNode[] => {
-        return nodes
-          .map((node) => {
-            // If node has children, filter them recursively
-            if (node.children) {
-              const filteredChildren = filterNodes(node.children);
-
-              // Keep this node if it matches or has matching children
-              const nodeMatches = matchesSearch(node.label, searchQuery);
-
-              if (nodeMatches || filteredChildren.length > 0) {
-                return {
-                  ...node,
-                  children:
-                    filteredChildren.length > 0
-                      ? filteredChildren
-                      : node.children,
-                };
-              }
-              return null;
-            }
-
-            // For leaf nodes, only keep if they match
-            const matches = matchesSearch(node.label, searchQuery);
-            return matches ? node : null;
-          })
-          .filter((node): node is FileTreeNode => node !== null);
-      };
-
-      return filterNodes(allNodes);
-    }
-
-    return allNodes;
-  }, [
-    directories,
-    files,
-    loadedDirs,
-    selectedFile,
-    isOpenNeuroAuthenticated,
-    pendingFileSelection,
-    loadFileInfoMutationPending,
-    highlightedFilePath,
-    onContextMenu,
-    onUploadClick,
-    getFileFormat,
-    getModalityBadgeClass,
-    searchQuery,
-    matchesSearch,
-    isLoadingForSearch,
-  ]);
-
-  const handleSelection = async (selection: FileTreeSelection) => {
-    if (!selection.node?.metadata) return;
-
-    const { type, data } = selection.node.metadata;
-
-    if (type === "directory") {
-      const dir = data as DirectoryEntry;
-      // For BIDS datasets, load BIDS structure
-      if (dir.isBIDS) {
-        // Load BIDS structure as children - defer to avoid setState during render
-        setTimeout(async () => {
-          await loadBIDSContents(dir.path);
-        }, 0);
-      } else {
-        // Load directory contents when clicked - defer to avoid setState during render
-        setTimeout(() => {
-          loadDirectoryContents(dir.path);
-        }, 0);
-      }
-    } else if (type === "file") {
-      onFileSelect(data as EDFFileInfo);
-    }
-  };
-
-  // Calculate which nodes should be initially expanded for search
-  const initialExpandedNodes = useMemo(() => {
-    if (!searchQuery) return [];
-
-    const expandedIds: string[] = [];
-
-    const collectExpandedNodes = (nodes: FileTreeNode[]) => {
-      nodes.forEach((node) => {
-        if (node.children && node.children.length > 0) {
-          // Expand any directory that has children (which means it has matches)
-          expandedIds.push(node.id);
-          collectExpandedNodes(node.children);
-        }
-      });
-    };
-
-    collectExpandedNodes(treeData);
-    return expandedIds;
-  }, [searchQuery, treeData]);
-
-  return (
-    <>
-      {isLoadingForSearch && searchQuery && (
-        <div className="flex items-center gap-2 mb-2 text-sm text-muted-foreground">
-          <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" />
-          <span>Loading directories for search...</span>
-        </div>
-      )}
-      <FileTreeInput
-        data={treeData}
-        onChange={handleSelection}
-        size="md"
-        className="border-0 bg-transparent p-0"
-        initialExpandedNodes={initialExpandedNodes}
-        key={searchQuery} // Re-mount when search changes to apply new expanded state
-      />
-    </>
-  );
-});
+// FileTreeRenderer is now imported from @/components/file-manager
 
 export function FileManager({ apiService }: FileManagerProps) {
   const dataDirectoryPath = useAppStore(
@@ -1067,24 +246,9 @@ export function FileManager({ apiService }: FileManagerProps) {
 
   // Check if we're inside a known BIDS dataset (for reveal navigation)
   const bidsContext = useMemo(() => {
-    // First check the cache
-    const cache = (window as any).__bids_cache || {};
-    const bidsRoots = Object.keys(cache);
-
-    // Find if absolutePath is inside any known BIDS root from cache
-    for (const bidsRoot of bidsRoots) {
-      if (absolutePath && absolutePath.startsWith(bidsRoot + "/")) {
-        // We're inside a BIDS dataset
-        const relativeToBids = absolutePath.substring(bidsRoot.length + 1);
-        const segments = relativeToBids.split("/").filter(Boolean);
-        return {
-          isInsideBIDS: true,
-          bidsRoot,
-          relativePath: relativeToBids,
-          depth: segments.length, // 0 = at root, 1 = subject level, 2 = session level
-          currentSegment: segments[segments.length - 1] || null,
-        };
-      }
+    // Use the centralized BIDS cache service
+    if (absolutePath) {
+      return bidsCache.getBIDSContext(absolutePath);
     }
 
     // Fallback: use parent detection if cache doesn't have it yet
@@ -1117,12 +281,11 @@ export function FileManager({ apiService }: FileManagerProps) {
       return directoriesWithBIDS;
     }
 
-    const cache = (window as any).__bids_cache || {};
-    const subjects = cache[bidsContext.bidsRoot];
+    // Use centralized BIDS cache service
+    const subjects = bidsCache.getSubjects(bidsContext.bidsRoot);
 
     // Even without cache data, mark directories as inside BIDS for styling
     if (!subjects || !Array.isArray(subjects)) {
-      // No cache data yet - just mark as inside BIDS for purple styling
       return directoriesWithBIDS.map((dir) => ({
         ...dir,
         isInsideBIDS: true,
@@ -1135,16 +298,16 @@ export function FileManager({ apiService }: FileManagerProps) {
 
       if (bidsContext.depth === 0) {
         // At BIDS root - directories are subjects
-        const subject = subjects.find((s: any) => s.id === dirName);
+        const subject = subjects.find((s) => s.id === dirName);
         if (subject) {
           const totalRuns =
             subject.sessions?.reduce(
-              (sum: number, session: any) => sum + (session.runs?.length || 0),
+              (sum: number, session) => sum + (session.runs?.length || 0),
               0,
             ) || 0;
           const modalities = new Set<string>();
-          subject.sessions?.forEach((session: any) => {
-            session.runs?.forEach((run: any) => {
+          subject.sessions?.forEach((session) => {
+            session.runs?.forEach((run) => {
               if (run.modality) modalities.add(run.modality);
             });
           });
@@ -1162,15 +325,15 @@ export function FileManager({ apiService }: FileManagerProps) {
       } else if (bidsContext.depth === 1) {
         // Inside a subject - directories are sessions
         const parentSegment = bidsContext.relativePath?.split("/")[0];
-        const subject = subjects.find((s: any) => s.id === parentSegment);
+        const subject = subjects.find((s) => s.id === parentSegment);
         if (subject && subject.sessions) {
           const session = subject.sessions.find(
-            (s: any) => (s.id || "no-session") === dirName,
+            (s) => (s.id || "no-session") === dirName,
           );
           if (session) {
             const runCount = session.runs?.length || 0;
             const modalities = new Set<string>();
-            session.runs?.forEach((run: any) => {
+            session.runs?.forEach((run) => {
               if (run.modality) modalities.add(run.modality);
             });
 
@@ -1547,7 +710,10 @@ export function FileManager({ apiService }: FileManagerProps) {
       const result = await TauriService.segmentFile(params);
       console.log("[FILEMANAGER] Cut result:", result);
 
-      alert(`File cut successfully!\n\nCreated file:\n${result.outputPath}`);
+      toast.success(
+        "File Cut Successfully",
+        `Created file: ${result.outputPath.split("/").pop()}`,
+      );
 
       // Refresh directory listing if output directory is the current directory
       if (params.outputDirectory === absolutePath) {
@@ -2011,47 +1177,17 @@ export function FileManager({ apiService }: FileManagerProps) {
           </div>
         ) : filteredAndSortedFiles.length === 0 &&
           filteredDirectories.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            <FileText
-              className="h-12 w-12 mx-auto mb-4 opacity-50"
-              aria-hidden="true"
-            />
-            {!dataDirectoryPath ? (
-              <div className="space-y-3">
-                <p className="font-medium text-foreground">
-                  No Data Directory Selected
-                </p>
-                <p className="text-sm">
-                  Choose a data directory using the "Change Directory" button
-                  above to get started
-                </p>
-              </div>
-            ) : searchQuery ? (
-              <div className="space-y-3">
-                <p className="font-medium text-foreground">No Results Found</p>
-                <p className="text-sm">
-                  No files or folders match "
-                  <span className="font-medium">{searchQuery}</span>"
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => updateFileManagerState({ searchQuery: "" })}
-                  className="mt-2"
-                >
-                  <X className="h-4 w-4 mr-2" aria-hidden="true" />
-                  Clear Search
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p>No files found</p>
-                <p className="text-sm">
-                  No EDF, CSV, or ASCII files in this directory
-                </p>
-              </div>
-            )}
-          </div>
+          <EmptyState
+            context={{
+              hasDataDirectory: !!dataDirectoryPath,
+              searchQuery: searchQuery,
+              hasFilters: false,
+              currentPath: currentPath,
+              totalFilesInDirectory: files.length,
+            }}
+            onClearSearch={() => updateFileManagerState({ searchQuery: "" })}
+            onSelectDirectory={handleChangeDataDirectory}
+          />
         ) : (
           <FileTreeRenderer
             directories={
