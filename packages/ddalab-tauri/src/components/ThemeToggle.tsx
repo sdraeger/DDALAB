@@ -37,8 +37,8 @@ export function ThemeToggle() {
 
   if (!mounted) {
     return (
-      <Button variant="ghost" size="icon">
-        <Sun className="h-5 w-5" />
+      <Button variant="ghost" size="icon" aria-label="Toggle theme">
+        <Sun className="h-5 w-5" aria-hidden="true" />
       </Button>
     );
   }
@@ -65,13 +65,13 @@ export function ThemeToggle() {
       size="icon"
       onClick={handleToggle}
       title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+      aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
     >
       {theme === "dark" ? (
-        <Sun className="h-5 w-5" />
+        <Sun className="h-5 w-5" aria-hidden="true" />
       ) : (
-        <Moon className="h-5 w-5" />
+        <Moon className="h-5 w-5" aria-hidden="true" />
       )}
-      <span className="sr-only">Toggle theme</span>
     </Button>
   );
 }

@@ -45,8 +45,9 @@ export function PrimaryNavigation() {
                 key={nav.id}
                 onClick={() => handleNavClick(nav.id)}
                 className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors",
+                  "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors duration-200",
                   "hover:bg-accent hover:text-accent-foreground",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   isActive && "bg-accent text-accent-foreground",
                 )}
                 title={nav.description}
@@ -61,9 +62,10 @@ export function PrimaryNavigation() {
           <button
             onClick={openSearch}
             className={cn(
-              "flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+              "flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200",
               "bg-muted/50 hover:bg-muted border border-border",
               "hover:shadow-sm active:scale-[0.98]",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               "min-w-[200px] justify-between",
             )}
             title="Search (⌘K / Ctrl+K)"

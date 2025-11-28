@@ -42,6 +42,7 @@ import {
   TauriService,
   type NSGJob,
   NSGJobStatus,
+  NotificationType,
 } from "@/services/tauriService";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -206,10 +207,7 @@ const NSGJobRow = memo(function NSGJobRow({
                 External
               </Badge>
             ) : (
-              <Badge
-                variant="default"
-                className="text-xs px-1.5 py-0 bg-blue-600"
-              >
+              <Badge variant="default" className="text-xs px-1.5 py-0">
                 DDALAB
               </Badge>
             )}
@@ -273,9 +271,9 @@ const NSGJobRow = memo(function NSGJobRow({
                 >
                   {downloadProgress.filename}
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-1.5">
+                <div className="w-full bg-secondary rounded-full h-1.5">
                   <div
-                    className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                    className="bg-primary h-1.5 rounded-full transition-all duration-300"
                     style={{ width: `${downloadProgress.fileProgress}%` }}
                   />
                 </div>
@@ -498,7 +496,7 @@ export function NSGJobManager() {
         TauriService.createNotification(
           "NSG Job Completed",
           `Job ${job.id.substring(0, 8)}... has finished successfully. Results are ready to download.`,
-          "Success" as any,
+          NotificationType.Success,
           "navigate_nsg_manager",
           { jobId: job.id },
         ).catch((error) => {
@@ -518,7 +516,7 @@ export function NSGJobManager() {
         TauriService.createNotification(
           "NSG Job Failed",
           `Job ${job.id.substring(0, 8)}... has failed. Check the job details for more information.`,
-          "Error" as any,
+          NotificationType.Error,
           "navigate_nsg_manager",
           { jobId: job.id },
         ).catch((error) => {
@@ -1141,18 +1139,46 @@ export function NSGJobManager() {
           )}
 
           {isLoading && jobs.length === 0 ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+              <Loader2
+                className="h-8 w-8 animate-spin mb-3"
+                aria-hidden="true"
+              />
+              <p className="text-sm">Loading jobs...</p>
             </div>
           ) : jobs.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              No NSG jobs found. Submit a job from the DDA analysis panel to get
-              started.
+            <div className="text-center py-12 text-muted-foreground">
+              <Cloud
+                className="h-12 w-12 mx-auto mb-4 opacity-50"
+                aria-hidden="true"
+              />
+              <p className="font-medium text-foreground mb-2">No NSG Jobs</p>
+              <p className="text-sm max-w-xs mx-auto">
+                Submit a job from the DDA analysis panel to run analyses on the
+                NSG cloud computing platform.
+              </p>
             </div>
           ) : filteredJobs.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              No jobs match your search "{searchTerm}". Try a different search
-              term.
+            <div className="text-center py-12 text-muted-foreground">
+              <Search
+                className="h-12 w-12 mx-auto mb-4 opacity-50"
+                aria-hidden="true"
+              />
+              <p className="font-medium text-foreground mb-2">
+                No Results Found
+              </p>
+              <p className="text-sm">
+                No jobs match "<span className="font-medium">{searchTerm}</span>
+                "
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSearchTerm("")}
+                className="mt-4"
+              >
+                Clear Search
+              </Button>
             </div>
           ) : (
             <div className="rounded-md border">

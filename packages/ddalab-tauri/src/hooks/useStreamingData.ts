@@ -7,10 +7,11 @@
 
 import { useEffect, useCallback, useMemo } from "react";
 import { useAppStore } from "@/store/appStore";
+import { useShallow } from "zustand/react/shallow";
 import { StreamSourceConfig, StreamingDDAConfig } from "@/types/streaming";
 
 export function useStreamingData(streamId: string | null) {
-  const streaming = useAppStore((state) => state.streaming);
+  const streaming = useAppStore(useShallow((state) => state.streaming));
   const createStreamSession = useAppStore((state) => state.createStreamSession);
   const stopStreamSession = useAppStore((state) => state.stopStreamSession);
   const pauseStreamSession = useAppStore((state) => state.pauseStreamSession);
@@ -90,7 +91,7 @@ export function useStreamLifecycle(
  * Hook to get all active streaming sessions
  */
 export function useActiveStreams() {
-  const sessions = useAppStore((state) => state.streaming.sessions);
+  const sessions = useAppStore(useShallow((state) => state.streaming.sessions));
 
   const activeSessions = useMemo(() => {
     return Object.values(sessions).filter(

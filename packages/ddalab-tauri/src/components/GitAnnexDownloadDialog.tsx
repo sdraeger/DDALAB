@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -13,10 +12,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import {
   Download,
   CloudOff,
-  Terminal,
   Loader2,
   CheckCircle,
   XCircle,
@@ -36,6 +35,25 @@ interface GitAnnexDownloadDialogProps {
 
 type DownloadStatus = "idle" | "downloading" | "success" | "error";
 
+interface DownloadProgress {
+  filePath: string;
+  fileName: string;
+  phase: "starting" | "downloading" | "complete" | "error";
+  progressPercent: number;
+  bytesDownloaded: number;
+  totalBytes: number;
+  transferRate: string;
+  message: string;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
+}
+
 export function GitAnnexDownloadDialog({
   open,
   onOpenChange,
@@ -45,12 +63,64 @@ export function GitAnnexDownloadDialog({
 }: GitAnnexDownloadDialogProps) {
   const [status, setStatus] = useState<DownloadStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [progress, setProgress] = useState<DownloadProgress | null>(null);
 
   // Get the directory containing the file for running git annex
   const fileDir = filePath.substring(0, filePath.lastIndexOf("/"));
 
   // Command to show the user
   const downloadCommand = `cd "${fileDir}" && git annex get "${fileName}"`;
+
+  // Set up event listener for progress updates
+  useEffect(() => {
+    if (!TauriService.isTauri() || !open) return;
+
+    let unlisten: (() => void) | undefined;
+
+    const setupListener = async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        unlisten = await listen<DownloadProgress>(
+          "git-annex-progress",
+          (event) => {
+            const payload = event.payload;
+            // Only handle progress for our file
+            if (payload.filePath === filePath) {
+              console.log("[GitAnnex] Progress update:", payload);
+              setProgress(payload);
+
+              // Update status based on phase
+              if (payload.phase === "complete") {
+                setStatus("success");
+              } else if (payload.phase === "error") {
+                setStatus("error");
+                setErrorMessage(payload.message);
+              }
+            }
+          },
+        );
+      } catch (error) {
+        console.error("[GitAnnex] Failed to setup progress listener:", error);
+      }
+    };
+
+    setupListener();
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [open, filePath]);
+
+  // Reset state when dialog opens
+  useEffect(() => {
+    if (open) {
+      setStatus("idle");
+      setErrorMessage("");
+      setProgress(null);
+    }
+  }, [open]);
 
   const handleCopyCommand = () => {
     navigator.clipboard.writeText(downloadCommand);
@@ -60,6 +130,7 @@ export function GitAnnexDownloadDialog({
   const handleDownload = async () => {
     setStatus("downloading");
     setErrorMessage("");
+    setProgress(null);
 
     try {
       if (TauriService.isTauri()) {
@@ -83,6 +154,7 @@ export function GitAnnexDownloadDialog({
           setTimeout(() => {
             onOpenChange(false);
             setStatus("idle");
+            setProgress(null);
           }, 1500);
         } else {
           setStatus("error");
@@ -109,8 +181,14 @@ export function GitAnnexDownloadDialog({
       onOpenChange(false);
       setStatus("idle");
       setErrorMessage("");
+      setProgress(null);
     }
   };
+
+  // Calculate display values
+  const progressPercent = progress?.progressPercent ?? 0;
+  const showProgress = status === "downloading" && progress !== null;
+  const hasFileSize = progress?.totalBytes && progress.totalBytes > 0;
 
   return (
     <AlertDialog open={open} onOpenChange={handleClose}>
@@ -149,45 +227,79 @@ export function GitAnnexDownloadDialog({
                 </p>
               </div>
 
-              {/* Manual command section */}
-              <div className="space-y-2">
-                <p className="text-muted-foreground text-xs font-medium">
-                  Manual download command:
-                </p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 bg-black/90 text-green-400 px-3 py-2 rounded text-xs font-mono overflow-x-auto">
-                    git annex get &quot;{fileName}&quot;
-                  </code>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleCopyCommand}
-                    className="shrink-0"
-                  >
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-              {/* Status messages */}
+              {/* Progress section */}
               {status === "downloading" && (
-                <div className="flex items-center gap-2 text-primary">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Downloading file...</span>
+                <div className="space-y-3 bg-muted/50 rounded-lg p-3">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    <span className="text-sm font-medium">
+                      {progress?.phase === "starting"
+                        ? "Initializing..."
+                        : "Downloading..."}
+                    </span>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="space-y-2">
+                    <Progress value={progressPercent} className="h-2" />
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>{Math.round(progressPercent)}%</span>
+                      {hasFileSize && (
+                        <span>
+                          {formatBytes(progress?.bytesDownloaded ?? 0)} /{" "}
+                          {formatBytes(progress?.totalBytes ?? 0)}
+                        </span>
+                      )}
+                      {progress?.transferRate && (
+                        <span className="text-primary font-medium">
+                          {progress.transferRate}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Current operation message */}
+                  {progress?.message && progress.phase !== "starting" && (
+                    <p className="text-xs text-muted-foreground truncate">
+                      {progress.message}
+                    </p>
+                  )}
                 </div>
               )}
 
               {status === "success" && (
-                <div className="flex items-center gap-2 text-green-600">
-                  <CheckCircle className="h-4 w-4" />
-                  <span>Download complete!</span>
+                <div className="flex items-center gap-2 text-green-600 bg-green-500/10 p-3 rounded-lg">
+                  <CheckCircle className="h-5 w-5" />
+                  <span className="font-medium">Download complete!</span>
                 </div>
               )}
 
               {status === "error" && errorMessage && (
-                <div className="flex items-start gap-2 text-destructive bg-destructive/10 p-2 rounded">
+                <div className="flex items-start gap-2 text-destructive bg-destructive/10 p-3 rounded-lg">
                   <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
                   <span className="text-xs">{errorMessage}</span>
+                </div>
+              )}
+
+              {/* Manual command section - collapsed during download */}
+              {status !== "downloading" && status !== "success" && (
+                <div className="space-y-2">
+                  <p className="text-muted-foreground text-xs font-medium">
+                    Manual download command:
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-black/90 text-green-400 px-3 py-2 rounded text-xs font-mono overflow-x-auto">
+                      git annex get &quot;{fileName}&quot;
+                    </code>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCopyCommand}
+                      className="shrink-0"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
@@ -195,7 +307,7 @@ export function GitAnnexDownloadDialog({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={status === "downloading"}>
-            Cancel
+            {status === "success" ? "Close" : "Cancel"}
           </AlertDialogCancel>
           {TauriService.isTauri() && status !== "success" && (
             <Button
