@@ -1,0 +1,33 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": [
+    "src/components/ui/index.ts",
+    "src/services/tauriService.ts",
+    "src/services/apiService.ts",
+    "src/store/appStore.ts",
+    "src/hooks/useBIDSQuery.ts",
+    "src/hooks/useStreamingData.ts",
+    "src/types/api.ts",
+    "src/types/bids.ts"
+  ],
+  "out": "docs/api",
+  "plugin": ["typedoc-plugin-markdown"],
+  "readme": "none",
+  "name": "DDALAB TypeScript API",
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeInternal": true,
+  "skipErrorChecking": true,
+  "hideGenerator": true,
+  "includeVersion": true,
+  "categorizeByGroup": true,
+  "navigation": {
+    "includeCategories": true,
+    "includeGroups": true
+  },
+  "sort": ["source-order"],
+  "validation": {
+    "notExported": false,
+    "invalidLink": false
+  }
+}

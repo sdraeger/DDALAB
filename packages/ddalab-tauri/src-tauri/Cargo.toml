@@ -5,8 +5,16 @@ description = "DDALAB Desktop Application"
 authors = ["DDALAB Team"]
 license = "MIT"
 repository = "https://github.com/sdraeger/DDALAB"
+documentation = "https://github.com/sdraeger/DDALAB"
+readme = "README.md"
+keywords = ["eeg", "dda", "neuroscience", "signal-processing", "desktop"]
+categories = ["science", "visualization"]
 edition = "2021"
 default-run = "ddalab-tauri"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [build-dependencies]
 tauri-build = { version = "2.5.2", features = [] }

@@ -1,4 +1,48 @@
-// Library exports for testing
+//! # DDALAB Tauri Backend
+//!
+//! This crate provides the Rust backend for the DDALAB desktop application,
+//! implementing Delay Differential Analysis (DDA) for neurophysiology data.
+//!
+//! ## Architecture
+//!
+//! The backend is organized into several key modules:
+//!
+//! - [`api`] - HTTP API server with handlers for file operations, DDA analysis, and streaming
+//! - [`file_readers`] - Support for multiple neurophysiology file formats (EDF, BrainVision, XDF, etc.)
+//! - [`file_writers`] - Export data to various formats
+//! - [`streaming`] - Real-time data acquisition and processing
+//! - [`ica`] - Independent Component Analysis for artifact removal
+//! - [`sync`] - Multi-device synchronization
+//!
+//! ## File Format Support
+//!
+//! Supported input formats:
+//! - EDF/EDF+ (European Data Format)
+//! - BrainVision (.vhdr/.vmrk/.eeg)
+//! - EEGLAB (.set)
+//! - FIF/FIFF (Neuromag/Elekta)
+//! - NIfTI (.nii/.nii.gz)
+//! - XDF (Lab Streaming Layer)
+//! - CSV/ASCII
+//! - NWB (optional, requires `nwb-support` feature)
+//!
+//! ## Features
+//!
+//! - `lsl-support` - Enable Lab Streaming Layer integration
+//! - `nwb-support` - Enable NWB file format support
+//!
+//! ## Example
+//!
+//! ```rust,ignore
+//! use ddalab_tauri::file_readers::FileReaderFactory;
+//! use std::path::Path;
+//!
+//! // Load a file
+//! let reader = FileReaderFactory::create_reader(Path::new("data.edf"))?;
+//! let data = FileReaderFactory::to_intermediate_data(&*reader, None)?;
+//!
+//! // Process with DDA...
+//! ```
 
 pub mod api; // Modular API with server startup, handlers, auth, etc.
 pub mod db;
