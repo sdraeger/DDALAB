@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -9,8 +9,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
 import { getSearchService } from "@/services/searchService";
 import { SearchResult } from "@/types/search";
+import { useRecentFilesStore, getRelativeTime } from "@/store/recentFilesStore";
 import {
   Home,
   BarChart3,
@@ -26,6 +28,13 @@ import {
   Search,
   ArrowRight,
   Command,
+  Clock,
+  History,
+  Star,
+  X,
+  FileAudio,
+  FileSpreadsheet,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -44,6 +53,24 @@ const iconMap: Record<string, any> = {
   Search,
 };
 
+// File type icons for recent files
+const fileTypeIcons: Record<string, any> = {
+  edf: FileAudio,
+  csv: FileSpreadsheet,
+  txt: FileText,
+  ascii: FileText,
+  vhdr: FileAudio,
+  xdf: FileAudio,
+  set: FileAudio,
+  fif: FileAudio,
+  nwb: FileAudio,
+  default: File,
+};
+
+function getFileIcon(type: string) {
+  return fileTypeIcons[type.toLowerCase()] || fileTypeIcons.default;
+}
+
 interface GlobalSearchProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -56,6 +83,73 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
   const [isSearching, setIsSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const searchService = getSearchService();
+
+  // Recent files and search history from store
+  const recentFiles = useRecentFilesStore((s) => s.recentFiles);
+  const favorites = useRecentFilesStore((s) => s.favorites);
+  const searchHistory = useRecentFilesStore((s) => s.searchHistory);
+  const addSearchQuery = useRecentFilesStore((s) => s.addSearchQuery);
+  const clearSearchHistory = useRecentFilesStore((s) => s.clearSearchHistory);
+  const getSearchSuggestions = useRecentFilesStore(
+    (s) => s.getSearchSuggestions,
+  );
+
+  // Search suggestions based on partial query
+  const suggestions = useMemo(() => {
+    if (!query.trim()) return [];
+    return getSearchSuggestions(query);
+  }, [query, getSearchSuggestions]);
+
+  // Recent items to show when no query
+  const recentItems = useMemo(() => {
+    const items: Array<{
+      id: string;
+      type: "history" | "file" | "favorite";
+      title: string;
+      subtitle?: string;
+      timestamp?: number;
+      fileType?: string;
+      path?: string;
+    }> = [];
+
+    // Add favorites first
+    favorites.slice(0, 3).forEach((f) => {
+      items.push({
+        id: `fav-${f.path}`,
+        type: "favorite",
+        title: f.name,
+        subtitle: f.path,
+        fileType: f.type,
+        path: f.path,
+      });
+    });
+
+    // Add recent files
+    recentFiles.slice(0, 5).forEach((f) => {
+      if (!items.find((i) => i.path === f.path)) {
+        items.push({
+          id: `file-${f.path}`,
+          type: "file",
+          title: f.name,
+          subtitle: f.path,
+          timestamp: f.lastAccessed,
+          fileType: f.type,
+          path: f.path,
+        });
+      }
+    });
+
+    // Add search history
+    searchHistory.slice(0, 5).forEach((q, idx) => {
+      items.push({
+        id: `history-${idx}`,
+        type: "history",
+        title: q,
+      });
+    });
+
+    return items;
+  }, [favorites, recentFiles, searchHistory]);
 
   const performSearch = useCallback(
     async (searchQuery: string) => {
@@ -116,6 +210,10 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
 
   const executeAction = async (result: SearchResult) => {
     try {
+      // Save search query to history if there was one
+      if (query.trim()) {
+        addSearchQuery(query.trim());
+      }
       await result.action();
       onOpenChange(false);
       setQuery("");
@@ -123,6 +221,23 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
     } catch (error) {
       console.error("Error executing action:", error);
     }
+  };
+
+  // Handle clicking on a recent/history item
+  const handleRecentItemClick = (item: (typeof recentItems)[0]) => {
+    if (item.type === "history") {
+      // Use as search query
+      setQuery(item.title);
+    } else if (item.path) {
+      // This is a file - we could navigate to it or trigger file open
+      // For now, search for it
+      setQuery(item.title);
+    }
+  };
+
+  // Handle clicking on a suggestion
+  const handleSuggestionClick = (suggestion: string) => {
+    setQuery(suggestion);
   };
 
   const getCategoryColor = (type: string): string => {
@@ -187,39 +302,185 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
               Searching...
             </div>
           ) : results.length === 0 ? (
-            <div className="py-8 text-center">
-              <p className="text-sm text-muted-foreground">
-                {query.trim()
-                  ? "No results found"
-                  : "Type to search across DDALAB"}
-              </p>
-              <p className="text-xs text-muted-foreground mt-2">
-                Try searching for navigation tabs, settings, files, or actions
-              </p>
-              {/* Keyboard hints in empty state */}
-              <div className="mt-6 flex items-center justify-center gap-6 text-xs text-muted-foreground">
-                <div className="flex items-center gap-1.5">
-                  <kbd className="px-2 py-1 rounded bg-muted border text-[10px] font-mono">
-                    ↑
-                  </kbd>
-                  <kbd className="px-2 py-1 rounded bg-muted border text-[10px] font-mono">
-                    ↓
-                  </kbd>
-                  <span>to navigate</span>
+            <div className="py-2">
+              {/* Show suggestions if typing */}
+              {query.trim() && suggestions.length > 0 && (
+                <div className="mb-2">
+                  <div className="px-4 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                    <History className="h-3 w-3" />
+                    Suggestions
+                  </div>
+                  {suggestions.map((suggestion, idx) => (
+                    <button
+                      key={`suggestion-${idx}`}
+                      onClick={() => handleSuggestionClick(suggestion)}
+                      className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-accent transition-colors"
+                    >
+                      <Search className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm">{suggestion}</span>
+                    </button>
+                  ))}
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <kbd className="px-2 py-1 rounded bg-muted border text-[10px] font-mono">
-                    Enter
-                  </kbd>
-                  <span>to select</span>
+              )}
+
+              {/* No results message */}
+              {query.trim() && suggestions.length === 0 && (
+                <div className="py-8 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    No results found
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Try a different search term
+                  </p>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <kbd className="px-2 py-1 rounded bg-muted border text-[10px] font-mono">
-                    Esc
-                  </kbd>
-                  <span>to close</span>
-                </div>
-              </div>
+              )}
+
+              {/* Empty state with recent items */}
+              {!query.trim() && (
+                <>
+                  {recentItems.length > 0 ? (
+                    <>
+                      {/* Favorites */}
+                      {favorites.length > 0 && (
+                        <div className="mb-2">
+                          <div className="px-4 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                            <Star className="h-3 w-3 text-yellow-500" />
+                            Favorites
+                          </div>
+                          {recentItems
+                            .filter((i) => i.type === "favorite")
+                            .map((item) => {
+                              const FileIcon = item.fileType
+                                ? getFileIcon(item.fileType)
+                                : File;
+                              return (
+                                <button
+                                  key={item.id}
+                                  onClick={() => handleRecentItemClick(item)}
+                                  className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-accent transition-colors"
+                                >
+                                  <FileIcon className="h-4 w-4 text-yellow-500" />
+                                  <div className="flex-1 min-w-0">
+                                    <span className="text-sm truncate block">
+                                      {item.title}
+                                    </span>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                        </div>
+                      )}
+
+                      {/* Recent files */}
+                      {recentItems.filter((i) => i.type === "file").length >
+                        0 && (
+                        <div className="mb-2">
+                          <div className="px-4 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                            <Clock className="h-3 w-3" />
+                            Recent Files
+                          </div>
+                          {recentItems
+                            .filter((i) => i.type === "file")
+                            .map((item) => {
+                              const FileIcon = item.fileType
+                                ? getFileIcon(item.fileType)
+                                : File;
+                              return (
+                                <button
+                                  key={item.id}
+                                  onClick={() => handleRecentItemClick(item)}
+                                  className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-accent transition-colors"
+                                >
+                                  <FileIcon className="h-4 w-4 text-green-500" />
+                                  <div className="flex-1 min-w-0">
+                                    <span className="text-sm truncate block">
+                                      {item.title}
+                                    </span>
+                                    {item.timestamp && (
+                                      <span className="text-xs text-muted-foreground">
+                                        {getRelativeTime(item.timestamp)}
+                                      </span>
+                                    )}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                        </div>
+                      )}
+
+                      {/* Search history */}
+                      {searchHistory.length > 0 && (
+                        <div className="mb-2">
+                          <div className="px-4 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <History className="h-3 w-3" />
+                              Recent Searches
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 text-[10px] px-1.5"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                clearSearchHistory();
+                              }}
+                            >
+                              Clear
+                            </Button>
+                          </div>
+                          {recentItems
+                            .filter((i) => i.type === "history")
+                            .map((item) => (
+                              <button
+                                key={item.id}
+                                onClick={() => handleRecentItemClick(item)}
+                                className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-accent transition-colors"
+                              >
+                                <Search className="h-4 w-4 text-muted-foreground" />
+                                <span className="text-sm">{item.title}</span>
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="py-8 text-center">
+                      <p className="text-sm text-muted-foreground">
+                        Type to search across DDALAB
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Try searching for navigation tabs, settings, files, or
+                        actions
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Keyboard hints */}
+                  <div className="mt-4 px-4 flex items-center justify-center gap-6 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1.5">
+                      <kbd className="px-2 py-1 rounded bg-muted border text-[10px] font-mono">
+                        ↑
+                      </kbd>
+                      <kbd className="px-2 py-1 rounded bg-muted border text-[10px] font-mono">
+                        ↓
+                      </kbd>
+                      <span>to navigate</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <kbd className="px-2 py-1 rounded bg-muted border text-[10px] font-mono">
+                        Enter
+                      </kbd>
+                      <span>to select</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <kbd className="px-2 py-1 rounded bg-muted border text-[10px] font-mono">
+                        Esc
+                      </kbd>
+                      <span>to close</span>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div className="py-2">

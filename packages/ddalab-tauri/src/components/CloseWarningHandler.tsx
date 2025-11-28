@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useAppStore } from "@/store/appStore";
 import { TauriService, AppPreferences } from "@/services/tauriService";
 import {
@@ -35,6 +35,19 @@ export function CloseWarningHandler() {
   // Get DDA running state from store
   const isDDARunning = useAppStore((state) => state.dda.isRunning);
 
+  // Use a ref to always have the current value in the callback
+  // This avoids recreating the listener every time isDDARunning changes
+  const isDDARunningRef = useRef(isDDARunning);
+  isDDARunningRef.current = isDDARunning;
+
+  // Log state changes for debugging
+  useEffect(() => {
+    console.log(
+      "[CloseWarningHandler] DDA running state changed:",
+      isDDARunning,
+    );
+  }, [isDDARunning]);
+
   // Force close the window via Tauri command
   const forceClose = useCallback(async () => {
     try {
@@ -62,15 +75,19 @@ export function CloseWarningHandler() {
     }
   }, []);
 
-  // Handle the close request
+  // Handle the close request - use ref to get current value
   const handleCloseRequest = useCallback(async () => {
+    // Use ref to get current value (avoids stale closures)
+    const currentIsDDARunning = isDDARunningRef.current;
     console.log(
       "[CloseWarningHandler] Close requested, DDA running:",
-      isDDARunning,
+      currentIsDDARunning,
+      "(from ref)",
     );
 
     // If DDA is not running, just close immediately
-    if (!isDDARunning) {
+    if (!currentIsDDARunning) {
+      console.log("[CloseWarningHandler] DDA not running, closing immediately");
       await forceClose();
       return;
     }
@@ -79,14 +96,19 @@ export function CloseWarningHandler() {
     try {
       const preferences = await TauriService.getAppPreferences();
       const shouldWarn = preferences.warn_on_close_during_analysis !== false; // Default true
+      console.log("[CloseWarningHandler] Should warn:", shouldWarn);
 
       if (!shouldWarn) {
         // User has disabled warnings, close immediately
+        console.log(
+          "[CloseWarningHandler] Warnings disabled, closing immediately",
+        );
         await forceClose();
         return;
       }
 
       // Show the warning dialog
+      console.log("[CloseWarningHandler] Showing warning dialog");
       setShowDialog(true);
     } catch (error) {
       console.error(
@@ -96,7 +118,7 @@ export function CloseWarningHandler() {
       // On error, show the dialog to be safe
       setShowDialog(true);
     }
-  }, [isDDARunning, forceClose]);
+  }, [forceClose]); // Only depend on forceClose, use ref for isDDARunning
 
   // Handle user confirming close
   const handleConfirmClose = useCallback(async () => {
@@ -117,24 +139,51 @@ export function CloseWarningHandler() {
     setDontAskAgain(false);
   }, []);
 
+  // Store handleCloseRequest in a ref so the listener always uses the latest version
+  const handleCloseRequestRef = useRef(handleCloseRequest);
+  handleCloseRequestRef.current = handleCloseRequest;
+
   // Listen for close-requested event from Tauri
+  // Setup only once on mount, use ref for the callback to avoid recreating listener
   useEffect(() => {
     if (!TauriService.isTauri()) {
+      console.log(
+        "[CloseWarningHandler] Not in Tauri environment, skipping listener setup",
+      );
       return;
     }
 
     let unlisten: (() => void) | null = null;
+    let mounted = true;
 
     const setupListener = async () => {
       try {
+        console.log(
+          "[CloseWarningHandler] Setting up close-requested listener...",
+        );
         const { listen } = await import("@tauri-apps/api/event");
+
+        if (!mounted) {
+          console.log(
+            "[CloseWarningHandler] Component unmounted before listener setup completed",
+          );
+          return;
+        }
+
         unlisten = await listen("close-requested", () => {
-          console.log("[CloseWarningHandler] Received close-requested event");
-          handleCloseRequest();
+          console.log(
+            "[CloseWarningHandler] ✅ Received close-requested event!",
+          );
+          // Use ref to always call the latest handler
+          handleCloseRequestRef.current();
         });
+
+        console.log(
+          "[CloseWarningHandler] ✅ Listener successfully registered",
+        );
       } catch (error) {
         console.error(
-          "[CloseWarningHandler] Failed to set up listener:",
+          "[CloseWarningHandler] ❌ Failed to set up listener:",
           error,
         );
       }
@@ -143,11 +192,14 @@ export function CloseWarningHandler() {
     setupListener();
 
     return () => {
+      mounted = false;
       if (unlisten) {
+        console.log("[CloseWarningHandler] Cleaning up listener on unmount");
         unlisten();
       }
     };
-  }, [handleCloseRequest]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array - setup only once, use refs for current values
 
   // Don't render anything if not in Tauri
   if (!TauriService.isTauri()) {

@@ -230,7 +230,11 @@ export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
                         <h4 className="font-medium text-sm flex items-center gap-2">
                           {notification.title}
                           {!notification.read && (
-                            <span className="h-2 w-2 rounded-full bg-primary" />
+                            <span
+                              className="h-2 w-2 rounded-full bg-primary"
+                              aria-label="Unread"
+                              title="Unread notification"
+                            />
                           )}
                         </h4>
                         <Badge

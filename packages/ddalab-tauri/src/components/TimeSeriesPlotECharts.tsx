@@ -1775,8 +1775,8 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
         {/* Chart Container */}
         <div className="flex-1 relative min-h-0">
           {loading && (
-            <div className="absolute inset-0 bg-background/50 backdrop-blur-sm flex items-center justify-center z-10">
-              <div className="flex flex-col items-center gap-3 bg-background border rounded-lg p-6 shadow-lg">
+            <div className="absolute inset-0 bg-background/50 backdrop-blur-sm flex items-center justify-center z-10 animate-in fade-in-0 duration-200">
+              <div className="flex flex-col items-center gap-3 bg-background border rounded-lg p-6 shadow-lg animate-in zoom-in-95 duration-200">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 <div className="text-sm font-medium">Loading data...</div>
                 <div className="text-xs text-muted-foreground max-w-xs text-center">
@@ -1801,9 +1801,10 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
               selectedChannels={selectedChannels}
               onSelectionChange={(channels) => {
                 if (!selectedFile) return;
-                const sortedChannels = channels.sort((a, b) => {
-                  const indexA = selectedFile!.channels.indexOf(a);
-                  const indexB = selectedFile!.channels.indexOf(b);
+                // Create a copy before sorting since channels may be readonly
+                const sortedChannels = [...channels].sort((a, b) => {
+                  const indexA = selectedFile.channels.indexOf(a);
+                  const indexB = selectedFile.channels.indexOf(b);
                   return indexA - indexB;
                 });
                 setSelectedChannels(sortedChannels);

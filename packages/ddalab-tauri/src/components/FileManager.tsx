@@ -9,6 +9,7 @@ import React, {
   memo,
 } from "react";
 import { useAppStore } from "@/store/appStore";
+import { useShallow } from "zustand/react/shallow";
 import { ApiService } from "@/services/apiService";
 import { EDFFileInfo } from "@/types/api";
 import { handleError, isGitAnnexError } from "@/utils/errorHandler";
@@ -33,7 +34,10 @@ import {
   useDirectoryListing,
   useLoadFileInfo,
 } from "@/hooks/useFileManagement";
-import { useBIDSMultipleDetections } from "@/hooks/useBIDSQuery";
+import {
+  useBIDSMultipleDetections,
+  useBIDSParentDetection,
+} from "@/hooks/useBIDSQuery";
 import type { DirectoryEntry } from "@/types/bids";
 import {
   AlertDialog,
@@ -64,6 +68,7 @@ import {
   Upload,
   CloudOff,
   AlertTriangle,
+  X,
 } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
 import { formatBytes, formatDate } from "@/lib/utils";
@@ -615,26 +620,26 @@ const FileTreeRenderer = memo(function FileTreeRenderer({
               {file.file_name}
             </div>
             <div className="flex items-center gap-2 flex-wrap text-sm text-muted-foreground">
-              {(file as any).bidsMetadata ? (
+              {file.bidsMetadata ? (
                 // BIDS file - show task, run, modality
                 <>
                   <Badge
                     variant="outline"
                     className="text-xs bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800"
                   >
-                    task-{(file as any).bidsMetadata.task}
+                    task-{file.bidsMetadata.task}
                   </Badge>
                   <Badge
                     variant="outline"
                     className="text-xs bg-green-50 dark:bg-green-950/50 border-green-200 dark:border-green-800"
                   >
-                    run-{(file as any).bidsMetadata.run}
+                    run-{file.bidsMetadata.run}
                   </Badge>
                   <Badge
                     variant="outline"
-                    className={`text-xs ${getModalityBadgeClass((file as any).bidsMetadata.modality)}`}
+                    className={`text-xs ${getModalityBadgeClass(file.bidsMetadata.modality ?? "")}`}
                   >
-                    {(file as any).bidsMetadata.modality.toUpperCase()}
+                    {file.bidsMetadata.modality?.toUpperCase()}
                   </Badge>
                 </>
               ) : (
@@ -712,7 +717,9 @@ const FileTreeRenderer = memo(function FileTreeRenderer({
           >
             <Folder
               className={`h-5 w-5 flex-shrink-0 mt-0.5 ${
-                dir.isBIDS ? "text-purple-600" : "text-blue-600"
+                dir.isBIDS || dir.isInsideBIDS
+                  ? "text-purple-600"
+                  : "text-blue-600"
               }`}
             />
             <div className="flex-1 min-w-0 flex flex-col">
@@ -732,7 +739,7 @@ const FileTreeRenderer = memo(function FileTreeRenderer({
                   {dir.bidsInfo.datasetName && (
                     <span
                       className={`font-medium truncate text-xs ${
-                        dir.isBIDS
+                        dir.isBIDS || dir.isInsideBIDS
                           ? "text-purple-700 dark:text-purple-400"
                           : "text-blue-700 dark:text-blue-400"
                       }`}
@@ -913,10 +920,12 @@ export function FileManager({ apiService }: FileManagerProps) {
   const dataDirectoryPath = useAppStore(
     (state) => state.fileManager.dataDirectoryPath,
   );
-  const currentPath = useAppStore((state) => state.fileManager.currentPath);
+  const currentPath = useAppStore(
+    useShallow((state) => state.fileManager.currentPath),
+  );
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
   const selectedChannels = useAppStore(
-    (state) => state.fileManager.selectedChannels,
+    useShallow((state) => state.fileManager.selectedChannels),
   );
   const pendingFileSelectionPath = useAppStore(
     (state) => state.fileManager.pendingFileSelection,
@@ -1049,6 +1058,138 @@ export function FileManager({ apiService }: FileManagerProps) {
   }, [bidsQueries, directories]);
 
   const checkingBIDS = bidsQueries.some((q) => q.isLoading);
+
+  // Check parent directories for BIDS (handles reveal navigation into BIDS datasets)
+  const bidsParentDetection = useBIDSParentDetection(
+    currentPath,
+    dataDirectoryPath,
+  );
+
+  // Check if we're inside a known BIDS dataset (for reveal navigation)
+  const bidsContext = useMemo(() => {
+    // First check the cache
+    const cache = (window as any).__bids_cache || {};
+    const bidsRoots = Object.keys(cache);
+
+    // Find if absolutePath is inside any known BIDS root from cache
+    for (const bidsRoot of bidsRoots) {
+      if (absolutePath && absolutePath.startsWith(bidsRoot + "/")) {
+        // We're inside a BIDS dataset
+        const relativeToBids = absolutePath.substring(bidsRoot.length + 1);
+        const segments = relativeToBids.split("/").filter(Boolean);
+        return {
+          isInsideBIDS: true,
+          bidsRoot,
+          relativePath: relativeToBids,
+          depth: segments.length, // 0 = at root, 1 = subject level, 2 = session level
+          currentSegment: segments[segments.length - 1] || null,
+        };
+      }
+    }
+
+    // Fallback: use parent detection if cache doesn't have it yet
+    if (bidsParentDetection.bidsRoot && absolutePath) {
+      const relativeToBids = absolutePath.substring(
+        bidsParentDetection.bidsRoot.length + 1,
+      );
+      const segments = relativeToBids.split("/").filter(Boolean);
+      return {
+        isInsideBIDS: true,
+        bidsRoot: bidsParentDetection.bidsRoot,
+        relativePath: relativeToBids,
+        depth: bidsParentDetection.currentDepthInBids,
+        currentSegment: segments[segments.length - 1] || null,
+      };
+    }
+
+    return {
+      isInsideBIDS: false,
+      bidsRoot: null,
+      relativePath: null,
+      depth: 0,
+      currentSegment: null,
+    };
+  }, [absolutePath, bidsParentDetection]);
+
+  // When inside a BIDS dataset, enhance directories with BIDS info from cache
+  const directoriesWithBIDSContext = useMemo(() => {
+    if (!bidsContext.isInsideBIDS || !bidsContext.bidsRoot) {
+      return directoriesWithBIDS;
+    }
+
+    const cache = (window as any).__bids_cache || {};
+    const subjects = cache[bidsContext.bidsRoot];
+
+    // Even without cache data, mark directories as inside BIDS for styling
+    if (!subjects || !Array.isArray(subjects)) {
+      // No cache data yet - just mark as inside BIDS for purple styling
+      return directoriesWithBIDS.map((dir) => ({
+        ...dir,
+        isInsideBIDS: true,
+      }));
+    }
+
+    // Enhance directories based on depth with full BIDS info
+    return directoriesWithBIDS.map((dir) => {
+      const dirName = dir.name;
+
+      if (bidsContext.depth === 0) {
+        // At BIDS root - directories are subjects
+        const subject = subjects.find((s: any) => s.id === dirName);
+        if (subject) {
+          const totalRuns =
+            subject.sessions?.reduce(
+              (sum: number, session: any) => sum + (session.runs?.length || 0),
+              0,
+            ) || 0;
+          const modalities = new Set<string>();
+          subject.sessions?.forEach((session: any) => {
+            session.runs?.forEach((run: any) => {
+              if (run.modality) modalities.add(run.modality);
+            });
+          });
+
+          return {
+            ...dir,
+            isInsideBIDS: true,
+            bidsInfo: {
+              subjectCount: subject.sessions?.length || 0,
+              datasetName: `${totalRuns} run${totalRuns !== 1 ? "s" : ""}`,
+              modalities: Array.from(modalities),
+            },
+          };
+        }
+      } else if (bidsContext.depth === 1) {
+        // Inside a subject - directories are sessions
+        const parentSegment = bidsContext.relativePath?.split("/")[0];
+        const subject = subjects.find((s: any) => s.id === parentSegment);
+        if (subject && subject.sessions) {
+          const session = subject.sessions.find(
+            (s: any) => (s.id || "no-session") === dirName,
+          );
+          if (session) {
+            const runCount = session.runs?.length || 0;
+            const modalities = new Set<string>();
+            session.runs?.forEach((run: any) => {
+              if (run.modality) modalities.add(run.modality);
+            });
+
+            return {
+              ...dir,
+              isInsideBIDS: true,
+              bidsInfo: {
+                subjectCount: runCount,
+                datasetName: `${runCount} run${runCount !== 1 ? "s" : ""}`,
+                modalities: Array.from(modalities),
+              },
+            };
+          }
+        }
+      }
+
+      return { ...dir, isInsideBIDS: true };
+    });
+  }, [directoriesWithBIDS, bidsContext]);
 
   // Load the data directory path on mount if not already set
   useEffect(() => {
@@ -1184,7 +1325,7 @@ export function FileManager({ apiService }: FileManagerProps) {
 
   // Filter directories based on search query
   const filteredDirectories = useMemo(() => {
-    let filtered = directoriesWithBIDS;
+    let filtered = directoriesWithBIDSContext;
 
     // Apply search filter
     if (searchQuery) {
@@ -1192,7 +1333,7 @@ export function FileManager({ apiService }: FileManagerProps) {
       filtered = filtered.filter(
         (dir) =>
           dir.name.toLowerCase().includes(query) ||
-          (dir.isBIDS &&
+          ((dir.isBIDS || dir.isInsideBIDS) &&
             dir.bidsInfo?.datasetName?.toLowerCase().includes(query)),
       );
     }
@@ -1203,7 +1344,7 @@ export function FileManager({ apiService }: FileManagerProps) {
     }
 
     return filtered;
-  }, [directoriesWithBIDS, searchQuery, showHidden]);
+  }, [directoriesWithBIDSContext, searchQuery, showHidden]);
 
   // Filter and sort files
   const filteredAndSortedFiles = useMemo(() => {
@@ -1661,94 +1802,130 @@ export function FileManager({ apiService }: FileManagerProps) {
           </div>
         </div>
 
-        {/* Navigation breadcrumbs and controls */}
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-1 flex-shrink-0">
-            {TauriService.isTauri() && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleChangeDataDirectory}
-                title="Change data directory"
-              >
-                <FolderOpen className="h-4 w-4 mr-2" />
-                Change Directory
-              </Button>
-            )}
-
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() =>
-                updateFileManagerState({
-                  showHidden: !showHidden,
-                })
-              }
-              title={showHidden ? "Hide hidden files" : "Show hidden files"}
-            >
-              {showHidden ? (
-                <EyeOff className="h-4 w-4" />
-              ) : (
-                <Eye className="h-4 w-4" />
-              )}
-            </Button>
-
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => refetchDirectory()}
-              disabled={loading}
-              title="Refresh directory"
-            >
-              <RefreshCw
-                className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
-              />
-            </Button>
-          </div>
-
-          <div className="flex items-center gap-1 text-sm text-muted-foreground">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={navigateToRoot}
-              className="h-6 px-2"
-            >
-              <Home className="h-3 w-3" />
-            </Button>
-
-            {currentPath.map((segment, index) => (
-              <div key={index} className="flex items-center gap-1">
-                <ChevronRight className="h-3 w-3" />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() =>
-                    setCurrentPath(currentPath.slice(0, index + 1))
-                  }
-                  className="h-6 px-2"
+        {/* Current directory indicator - prominent display */}
+        <div className="bg-muted/50 rounded-lg p-3 border">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <FolderOpen className="h-5 w-5 text-primary flex-shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                  Current Directory
+                </div>
+                <div
+                  className="font-mono text-sm truncate"
+                  title={absolutePath}
                 >
-                  {segment}
-                </Button>
+                  {currentPath.length > 0 ? (
+                    <span className="text-foreground">
+                      <span className="text-muted-foreground">
+                        {dataDirectoryPath}/
+                      </span>
+                      <span className="font-semibold">
+                        {currentPath.join("/")}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-foreground font-semibold">
+                      {dataDirectoryPath || "No directory selected"}
+                    </span>
+                  )}
+                </div>
               </div>
-            ))}
+            </div>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {TauriService.isTauri() && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleChangeDataDirectory}
+                  title="Change data directory"
+                >
+                  <FolderOpen className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Change</span>
+                </Button>
+              )}
 
-            {currentPath.length > 0 && (
               <Button
                 variant="ghost"
-                size="sm"
-                onClick={navigateUp}
-                className="h-6 px-2 ml-2"
-                title="Go up one level"
+                size="icon"
+                onClick={() =>
+                  updateFileManagerState({
+                    showHidden: !showHidden,
+                  })
+                }
+                title={showHidden ? "Hide hidden files" : "Show hidden files"}
+                aria-label={
+                  showHidden ? "Hide hidden files" : "Show hidden files"
+                }
+                aria-pressed={showHidden}
               >
-                ..
+                {showHidden ? (
+                  <EyeOff className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <Eye className="h-4 w-4" aria-hidden="true" />
+                )}
               </Button>
-            )}
+
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => refetchDirectory()}
+                disabled={loading}
+                title="Refresh directory"
+                aria-label="Refresh directory"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+                  aria-hidden="true"
+                />
+              </Button>
+            </div>
           </div>
         </div>
 
+        {/* Breadcrumb navigation */}
+        <div className="flex items-center gap-1 text-sm text-muted-foreground overflow-x-auto py-1 scrollbar-thin">
+          <Button
+            variant={currentPath.length === 0 ? "secondary" : "ghost"}
+            size="sm"
+            onClick={navigateToRoot}
+            className="h-7 px-2 flex-shrink-0"
+          >
+            <Home className="h-3.5 w-3.5" />
+          </Button>
+
+          {currentPath.map((segment, index) => (
+            <div key={index} className="flex items-center gap-1 flex-shrink-0">
+              <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
+              <Button
+                variant={
+                  index === currentPath.length - 1 ? "secondary" : "ghost"
+                }
+                size="sm"
+                onClick={() => setCurrentPath(currentPath.slice(0, index + 1))}
+                className={`h-7 px-2 ${index === currentPath.length - 1 ? "font-semibold" : ""}`}
+              >
+                {segment}
+              </Button>
+            </div>
+          ))}
+
+          {currentPath.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={navigateUp}
+              className="h-7 px-2 ml-2 flex-shrink-0"
+              title="Go up one level"
+            >
+              ↑ Up
+            </Button>
+          )}
+        </div>
+
         {/* Search and filters */}
-        <div className="flex gap-2">
-          <div className="relative flex-1">
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="relative flex-1 min-w-0">
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search files..."
@@ -1756,36 +1933,39 @@ export function FileManager({ apiService }: FileManagerProps) {
               onChange={(e) =>
                 updateFileManagerState({ searchQuery: e.target.value })
               }
-              className="pl-8"
+              className="pl-8 w-full"
             />
           </div>
 
-          <Select
-            value={sortBy}
-            onValueChange={(value: typeof sortBy) => toggleSort(value)}
-          >
-            <SelectTrigger className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="name">Name</SelectItem>
-              <SelectItem value="size">Size</SelectItem>
-              <SelectItem value="date">Date</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex gap-2 flex-shrink-0">
+            <Select
+              value={sortBy}
+              onValueChange={(value: typeof sortBy) => toggleSort(value)}
+            >
+              <SelectTrigger className="w-24 sm:w-28">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="name">Name</SelectItem>
+                <SelectItem value="size">Size</SelectItem>
+                <SelectItem value="date">Date</SelectItem>
+              </SelectContent>
+            </Select>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => toggleSort(sortBy)}
-            title={`Sort ${sortOrder === "asc" ? "descending" : "ascending"}`}
-          >
-            {sortOrder === "asc" ? (
-              <SortAsc className="h-4 w-4" />
-            ) : (
-              <SortDesc className="h-4 w-4" />
-            )}
-          </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => toggleSort(sortBy)}
+              title={`Sort ${sortOrder === "asc" ? "descending" : "ascending"}`}
+              className="flex-shrink-0"
+            >
+              {sortOrder === "asc" ? (
+                <SortAsc className="h-4 w-4" />
+              ) : (
+                <SortDesc className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
         </div>
       </CardHeader>
 
@@ -1830,10 +2010,12 @@ export function FileManager({ apiService }: FileManagerProps) {
             </div>
           </div>
         ) : filteredAndSortedFiles.length === 0 &&
-          filteredDirectories.length === 0 &&
-          !searchQuery ? (
+          filteredDirectories.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
-            <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            <FileText
+              className="h-12 w-12 mx-auto mb-4 opacity-50"
+              aria-hidden="true"
+            />
             {!dataDirectoryPath ? (
               <div className="space-y-3">
                 <p className="font-medium text-foreground">
@@ -1843,6 +2025,23 @@ export function FileManager({ apiService }: FileManagerProps) {
                   Choose a data directory using the "Change Directory" button
                   above to get started
                 </p>
+              </div>
+            ) : searchQuery ? (
+              <div className="space-y-3">
+                <p className="font-medium text-foreground">No Results Found</p>
+                <p className="text-sm">
+                  No files or folders match "
+                  <span className="font-medium">{searchQuery}</span>"
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => updateFileManagerState({ searchQuery: "" })}
+                  className="mt-2"
+                >
+                  <X className="h-4 w-4 mr-2" aria-hidden="true" />
+                  Clear Search
+                </Button>
               </div>
             ) : (
               <div className="space-y-2">
@@ -1856,7 +2055,7 @@ export function FileManager({ apiService }: FileManagerProps) {
         ) : (
           <FileTreeRenderer
             directories={
-              searchQuery ? directoriesWithBIDS : filteredDirectories
+              searchQuery ? directoriesWithBIDSContext : filteredDirectories
             }
             files={searchQuery ? files : filteredAndSortedFiles}
             selectedFile={selectedFile}

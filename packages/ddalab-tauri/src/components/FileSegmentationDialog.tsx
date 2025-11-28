@@ -412,7 +412,9 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
             <Label htmlFor="output-format">Output Format</Label>
             <Select
               value={outputFormat}
-              onValueChange={(value) => setOutputFormat(value as any)}
+              onValueChange={(value) =>
+                setOutputFormat(value as "same" | "edf" | "csv" | "ascii")
+              }
             >
               <SelectTrigger id="output-format">
                 <SelectValue />

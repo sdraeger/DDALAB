@@ -8,9 +8,9 @@ import {
   Eye,
   TrendingDown,
   Key,
-  Upload,
   AlertTriangle,
 } from "lucide-react";
+import { ErrorState } from "./ui/error-state";
 import {
   openNeuroService,
   type OpenNeuroDataset,
@@ -416,9 +416,12 @@ export function OpenNeuroBrowser() {
 
         {/* Error message */}
         {error && (
-          <div className="mb-4 p-4 bg-destructive/10 border border-destructive rounded-lg text-destructive">
-            {error}
-          </div>
+          <ErrorState
+            message={error}
+            severity="error"
+            variant="inline"
+            className="mb-4"
+          />
         )}
 
         {/* Loading state */}

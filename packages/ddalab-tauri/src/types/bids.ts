@@ -6,6 +6,8 @@ export interface DirectoryEntry {
   name: string;
   path: string;
   isBIDS?: boolean;
+  /** True if this directory is inside a BIDS dataset (not the root) */
+  isInsideBIDS?: boolean;
   bidsInfo?: BIDSInfo;
 }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback } from "react";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 
@@ -25,10 +26,62 @@ interface NavigationContentProps {
 export function NavigationContent({ apiService }: NavigationContentProps) {
   const primaryNav = useAppStore((state) => state.ui.primaryNav);
   const secondaryNav = useAppStore((state) => state.ui.secondaryNav);
+  const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
+  const setSecondaryNav = useAppStore((state) => state.setSecondaryNav);
   // Select ONLY a primitive boolean, not the entire selectedFile object
   // This prevents re-renders when the selectedFile object reference changes
   const hasSelectedFile = useAppStore(
     (state) => !!state.fileManager.selectedFile,
+  );
+
+  // Handle navigation from notification clicks
+  const handleNotificationNavigate = useCallback(
+    (actionType: string, actionData: any) => {
+      console.log("[NAV] Notification navigation:", actionType, actionData);
+
+      switch (actionType) {
+        case "view-analysis":
+          // Navigate to DDA analysis view
+          setPrimaryNav("analyze");
+          setSecondaryNav("dda");
+          break;
+
+        case "view-timeseries":
+          // Navigate to time series view
+          setPrimaryNav("explore");
+          setSecondaryNav("timeseries");
+          break;
+
+        case "view-annotations":
+          // Navigate to annotations view
+          setPrimaryNav("explore");
+          setSecondaryNav("annotations");
+          break;
+
+        case "view-file":
+          // Navigate to file manager in sidebar (primary nav stays, but we could highlight the file)
+          // For now, just navigate to explore/timeseries
+          setPrimaryNav("explore");
+          setSecondaryNav("timeseries");
+          break;
+
+        case "view-settings":
+          // Navigate to settings
+          setPrimaryNav("manage");
+          setSecondaryNav("settings");
+          break;
+
+        case "view-ica":
+          // Navigate to ICA analysis
+          setPrimaryNav("analyze");
+          setSecondaryNav("ica");
+          break;
+
+        default:
+          console.warn("[NAV] Unknown notification action type:", actionType);
+      }
+    },
+    [setPrimaryNav, setSecondaryNav],
   );
 
   // Overview
@@ -180,7 +233,7 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
   if (primaryNav === "notifications") {
     return (
       <div className="p-4 h-full">
-        <NotificationHistory />
+        <NotificationHistory onNavigate={handleNotificationNavigate} />
       </div>
     );
   }

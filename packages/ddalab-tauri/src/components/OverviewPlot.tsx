@@ -43,6 +43,7 @@ function OverviewPlotComponent({
   const retryCountRef = useRef(0);
   const [retryTrigger, setRetryTrigger] = useState(0);
   const [containerReady, setContainerReady] = useState(false);
+  const [plotCreated, setPlotCreated] = useState(false);
 
   // Keep refs up to date
   useEffect(() => {
@@ -52,10 +53,11 @@ function OverviewPlotComponent({
     annotationsRef.current = annotations;
   }, [onSeek, currentTime, timeWindow, annotations]);
 
-  // Reset retry counter when data changes (new file loaded)
+  // Reset state when data changes (new file loaded)
   useEffect(() => {
     retryCountRef.current = 0;
     setContainerReady(false);
+    setPlotCreated(false);
   }, [overviewData, duration]);
 
   // Watch for container to become ready (have valid dimensions)
@@ -359,6 +361,7 @@ function OverviewPlotComponent({
           container.clientHeight,
         );
         uplotRef.current = new uPlot(opts, data, container);
+        setPlotCreated(true);
 
         // Setup resize observer
         resizeObserverRef.current = new ResizeObserver(() => {
@@ -373,6 +376,7 @@ function OverviewPlotComponent({
       }
     } catch (error) {
       console.error("[OverviewPlot] Error:", error);
+      setPlotCreated(false);
     }
 
     return () => {
@@ -439,10 +443,14 @@ function OverviewPlotComponent({
     return "Starting generation...";
   };
 
+  // Show initializing state when we have data but plot hasn't rendered yet
+  const isInitializing =
+    overviewData && !plotCreated && !loading && containerReady;
+
   return (
-    <div className="relative w-full h-[100px] border-2 border-primary rounded-md bg-background/50">
+    <div className="relative w-full h-[100px] border-2 border-primary rounded-md bg-background">
       {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+        <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10 animate-in fade-in-0 duration-200">
           <div className="flex flex-col items-center gap-3 w-full px-8">
             <>
               <div className="w-full">
@@ -470,13 +478,23 @@ function OverviewPlotComponent({
         </div>
       )}
       {!overviewData && !loading && (
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center bg-background animate-in fade-in-0 duration-200">
           <div className="text-xs text-muted-foreground">
             Overview will load when file is selected...
           </div>
         </div>
       )}
-      <div ref={plotRef} className="w-full h-full" />
+      {isInitializing && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background z-10 animate-in fade-in-0 duration-200">
+          <div className="text-xs text-muted-foreground animate-pulse">
+            Initializing plot...
+          </div>
+        </div>
+      )}
+      <div
+        ref={plotRef}
+        className="w-full h-full [&_.uplot]:bg-transparent [&_.u-wrap]:bg-transparent"
+      />
       <div className="absolute bottom-1 right-2 text-[10px] text-muted-foreground pointer-events-none">
         Click to navigate • Blue region = current view
       </div>

@@ -275,11 +275,13 @@ export function DashboardLayout() {
             size="icon"
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="h-8 w-8"
+            aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+            aria-expanded={sidebarOpen}
           >
             {sidebarOpen ? (
-              <PanelLeftClose className="h-4 w-4" />
+              <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
             ) : (
-              <PanelLeftOpen className="h-4 w-4" />
+              <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
             )}
           </Button>
 
@@ -297,30 +299,37 @@ export function DashboardLayout() {
           </div>
 
           {TauriService.isTauri() && (
-            <div className="flex items-center space-x-1">
+            <div
+              className="flex items-center space-x-1"
+              role="group"
+              aria-label="Window controls"
+            >
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={handleMinimize}
                 className="h-6 w-6"
+                aria-label="Minimize window"
               >
-                <Minimize2 className="h-3 w-3" />
+                <Minimize2 className="h-3 w-3" aria-hidden="true" />
               </Button>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={handleMaximize}
                 className="h-6 w-6"
+                aria-label="Maximize window"
               >
-                <Maximize2 className="h-3 w-3" />
+                <Maximize2 className="h-3 w-3" aria-hidden="true" />
               </Button>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={handleClose}
                 className="h-6 w-6 text-red-500 hover:text-red-600 transition-colors"
+                aria-label="Close window"
               >
-                ×
+                <span aria-hidden="true">×</span>
               </Button>
             </div>
           )}

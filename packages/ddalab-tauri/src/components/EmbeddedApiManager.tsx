@@ -9,14 +9,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  Play,
-  Square,
-  Zap,
-} from "lucide-react";
+import { ErrorState } from "@/components/ui/error-state";
+import { CheckCircle2, Loader2, Play, Square, Zap } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
 import {
   useApiStatusWithHealth,
@@ -156,9 +150,12 @@ export const EmbeddedApiManager: React.FC<EmbeddedApiManagerProps> = ({
       </CardHeader>
       <CardContent className="space-y-4">
         {error && (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
+          <ErrorState
+            message={error}
+            severity="error"
+            variant="inline"
+            onDismiss={() => setError(null)}
+          />
         )}
 
         {status?.running && health?.healthy && (

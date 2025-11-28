@@ -4,11 +4,14 @@ use ddalab_tauri::db::{NSGJob, NSGJobStatus};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+/// Response for credential status check - NEVER includes actual password
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NSGCredentialsResponse {
     pub username: String,
-    pub password: String,
-    pub app_key: String,
+    /// Indicates password is stored (never exposes actual password)
+    pub has_password: bool,
+    /// Indicates app key is stored (never exposes actual key)
+    pub has_app_key: bool,
 }
 
 /// Save NSG credentials to encrypted storage and reinitialize NSG components
@@ -30,7 +33,10 @@ pub async fn save_nsg_credentials(
     Ok(())
 }
 
-/// Get NSG credentials from encrypted storage
+/// Get NSG credentials status from encrypted storage
+/// NOTE: This intentionally does NOT return the actual password or app_key
+/// to prevent credential exposure to the frontend. Only returns whether
+/// credentials exist and the username for display purposes.
 #[tauri::command]
 pub async fn get_nsg_credentials(
     state: State<'_, AppStateManager>,
@@ -44,8 +50,9 @@ pub async fn get_nsg_credentials(
     Ok(
         creds.map(|(username, password, app_key)| NSGCredentialsResponse {
             username,
-            password,
-            app_key,
+            // Only indicate presence, never expose actual credentials
+            has_password: !password.is_empty(),
+            has_app_key: !app_key.is_empty(),
         }),
     )
 }

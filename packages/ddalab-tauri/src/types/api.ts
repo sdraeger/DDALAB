@@ -1,5 +1,14 @@
 // Types for DDALAB API responses and requests
 
+/** BIDS metadata extracted from filename */
+export interface BIDSMetadata {
+  subject?: string;
+  session?: string;
+  task?: string;
+  run?: string;
+  modality?: string;
+}
+
 export interface EDFFileInfo {
   file_path: string;
   file_name: string;
@@ -13,6 +22,8 @@ export interface EDFFileInfo {
   annotations_count?: number;
   /** True if file is a git-annex placeholder that hasn't been downloaded */
   is_annex_placeholder?: boolean;
+  /** BIDS metadata if file is in BIDS format */
+  bidsMetadata?: BIDSMetadata;
 }
 
 export interface ChunkData {

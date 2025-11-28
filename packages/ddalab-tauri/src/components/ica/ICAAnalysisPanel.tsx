@@ -4,6 +4,7 @@ import { useICAWorkflow } from "@/hooks/useICAAnalysis";
 import { ICAAnalysisRequest, ICAParametersRequest } from "@/types/ica";
 import { ICAResults } from "./ICAResults";
 import { useAppStore } from "@/store/appStore";
+import { useShallow } from "zustand/react/shallow";
 import { TauriService, NotificationType } from "@/services/tauriService";
 import { ChannelSelector } from "@/components/ChannelSelector";
 import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
@@ -14,10 +15,12 @@ interface ICAAnalysisPanelProps {
 
 export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
-  const timeWindow = useAppStore((state) => state.fileManager.timeWindow);
+  const timeWindow = useAppStore(
+    useShallow((state) => state.fileManager.timeWindow),
+  );
 
   // Use global ICA state from store for persistence across tab switches
-  const icaState = useAppStore((state) => state.ica);
+  const icaState = useAppStore(useShallow((state) => state.ica));
   const updateICAState = useAppStore((state) => state.updateICAState);
   const resetICAChannels = useAppStore((state) => state.resetICAChannels);
 
