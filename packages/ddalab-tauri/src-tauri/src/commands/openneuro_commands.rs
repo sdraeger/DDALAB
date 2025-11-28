@@ -10,6 +10,10 @@ use tauri::{AppHandle, Emitter, State};
 
 const OPENNEURO_API_KEY_NAME: &str = "openneuro_api_key";
 
+/// Maximum duration for git clone/fetch operations (4 hours)
+/// Prevents indefinite hangs from malicious/slow repositories
+const GIT_OPERATION_TIMEOUT_SECS: u64 = 4 * 60 * 60;
+
 /// Validate an OpenNeuro dataset ID format.
 /// SECURITY: Prevents command injection by ensuring dataset ID matches expected pattern.
 /// Valid format: "ds" followed by exactly 6 digits (e.g., ds000001)
@@ -57,7 +61,9 @@ fn validate_git_ref(git_ref: &str) -> Result<(), String> {
 
     // Check for git-specific dangerous patterns
     if git_ref.starts_with('-') {
-        return Err("Git reference cannot start with a dash (potential option injection)".to_string());
+        return Err(
+            "Git reference cannot start with a dash (potential option injection)".to_string(),
+        );
     }
 
     if git_ref.contains("..") {
@@ -438,6 +444,37 @@ pub async fn download_openneuro_dataset(
     if let Some(stderr) = child.stderr.take() {
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
+            // SECURITY: Check for timeout to prevent indefinite hangs
+            if started_at.elapsed().as_secs() > GIT_OPERATION_TIMEOUT_SECS {
+                log::error!(
+                    "Git operation timeout for dataset: {} (exceeded {} hours)",
+                    options.dataset_id,
+                    GIT_OPERATION_TIMEOUT_SECS / 3600
+                );
+                let _ = child.kill();
+                let _ = app_handle.emit(
+                    "openneuro-download-progress",
+                    DownloadProgress {
+                        dataset_id: options.dataset_id.clone(),
+                        phase: "error".to_string(),
+                        progress_percent: 0.0,
+                        message: format!(
+                            "Download timed out after {} hours. The repository may be too large or the server may be slow.",
+                            GIT_OPERATION_TIMEOUT_SECS / 3600
+                        ),
+                        current_file: None,
+                    },
+                );
+                // Cleanup
+                if let Ok(mut downloads) = download_state.active_downloads.lock() {
+                    downloads.remove(&options.dataset_id);
+                }
+                return Err(format!(
+                    "Git operation timed out after {} hours",
+                    GIT_OPERATION_TIMEOUT_SECS / 3600
+                ));
+            }
+
             // Check for cancellation
             if is_cancelled(&download_state, &options.dataset_id) {
                 log::info!("Download cancelled for dataset: {}", options.dataset_id);

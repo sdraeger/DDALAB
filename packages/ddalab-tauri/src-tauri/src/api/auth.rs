@@ -56,19 +56,7 @@ pub async fn auth_middleware(
 
     // Verify token
     if !state.verify_session_token(token) {
-        log::warn!("🔒 Invalid session token attempted");
-        log::warn!(
-            "   Received token (first 8 chars): {}...",
-            &token[..8.min(token.len())]
-        );
-        if let Some(expected) = state.get_session_token() {
-            log::warn!(
-                "   Expected token (first 8 chars): {}...",
-                &expected[..8.min(expected.len())]
-            );
-        } else {
-            log::warn!("   No session token set in server state!");
-        }
+        log::warn!("🔒 Authentication failed: invalid session token");
         return Err(StatusCode::FORBIDDEN);
     }
 

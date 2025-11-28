@@ -95,7 +95,9 @@ fn is_git_annex_placeholder(path: &std::path::Path) -> bool {
                 let target_str = target.to_string_lossy();
 
                 // Git-annex symlinks point to .git/annex/objects/...
-                if !target_str.contains(".git/annex/objects") && !target_str.contains("annex/objects") {
+                if !target_str.contains(".git/annex/objects")
+                    && !target_str.contains("annex/objects")
+                {
                     return false;
                 }
 
@@ -112,7 +114,8 @@ fn is_git_annex_placeholder(path: &std::path::Path) -> bool {
                     // - Count how many ".." components are in the path
                     // - Git-annex symlinks typically have 4-6 ".." to reach .git
                     // - More than 10 is suspicious and likely an attack
-                    let dotdot_count = target.components()
+                    let dotdot_count = target
+                        .components()
                         .filter(|c| matches!(c, std::path::Component::ParentDir))
                         .count();
 
