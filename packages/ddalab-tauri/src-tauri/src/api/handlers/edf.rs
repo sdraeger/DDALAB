@@ -109,7 +109,10 @@ pub async fn get_edf_data(
     {
         let chunk_cache = state.chunks_cache.read();
         if let Some(chunk) = chunk_cache.get(&chunk_key) {
-            // Return Arc-wrapped data - avoids cloning MB of sample data
+            // NOTE: Clone is required here because Axum's Json<T> needs owned data.
+            // The LruCache returns Arc<ChunkData>, but we need ChunkData for the response.
+            // Future optimization: Use streaming JSON response for large datasets,
+            // or return Json<Arc<ChunkData>> (serde serializes Arc<T> same as T).
             return Ok(Json((*chunk).clone()));
         }
     }
@@ -341,7 +344,8 @@ pub async fn get_edf_overview(
         let chunk_cache = state.chunks_cache.read();
         if let Some(chunk) = chunk_cache.get(&cache_key) {
             log::info!("[OVERVIEW] In-memory cache HIT for {}", file_path);
-            // Return Arc-wrapped data - avoids cloning MB of overview data
+            // NOTE: Clone is required - see comment in get_edf_data for explanation.
+            // Overview data is typically smaller than chunk data (decimated).
             return Ok(Json((*chunk).clone()));
         }
     }

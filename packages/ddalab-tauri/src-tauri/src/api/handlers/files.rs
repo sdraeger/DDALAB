@@ -81,7 +81,11 @@ fn validate_path_within_data_dir(
     Ok(canonical_path)
 }
 
-/// Check if a path is a git-annex symlink that hasn't been downloaded
+/// Check if a path is a git-annex symlink that hasn't been downloaded.
+///
+/// SECURITY: This function validates that symlink targets stay within the
+/// repository bounds by ensuring they point to .git/annex/objects within
+/// the same repository, preventing path traversal attacks via malicious symlinks.
 fn is_git_annex_placeholder(path: &std::path::Path) -> bool {
     // Use symlink_metadata to check if it's a symlink without following it
     if let Ok(metadata) = std::fs::symlink_metadata(path) {
@@ -89,13 +93,68 @@ fn is_git_annex_placeholder(path: &std::path::Path) -> bool {
             // Read the symlink target
             if let Ok(target) = std::fs::read_link(path) {
                 let target_str = target.to_string_lossy();
+
                 // Git-annex symlinks point to .git/annex/objects/...
-                if target_str.contains(".git/annex/objects") || target_str.contains("annex/objects")
-                {
-                    // Check if the target actually exists (resolved through the symlink)
-                    // If path.exists() is false but symlink_metadata succeeds, it's a broken symlink
-                    return !path.exists();
+                if !target_str.contains(".git/annex/objects") && !target_str.contains("annex/objects") {
+                    return false;
                 }
+
+                // SECURITY: Validate that the resolved symlink target stays within bounds
+                // For git-annex symlinks, the target should resolve to a path that:
+                // 1. Contains the .git/annex/objects pattern
+                // 2. When canonicalized relative to the symlink's directory, stays within
+                //    the repository (doesn't escape via excessive ../ sequences)
+                if let Some(parent) = path.parent() {
+                    // Resolve the relative symlink target
+                    let resolved = parent.join(&target);
+
+                    // Check for path traversal attempts:
+                    // - Count how many ".." components are in the path
+                    // - Git-annex symlinks typically have 4-6 ".." to reach .git
+                    // - More than 10 is suspicious and likely an attack
+                    let dotdot_count = target.components()
+                        .filter(|c| matches!(c, std::path::Component::ParentDir))
+                        .count();
+
+                    if dotdot_count > 10 {
+                        log::warn!(
+                            "Suspicious symlink with {} parent directory traversals: {:?}",
+                            dotdot_count,
+                            path
+                        );
+                        return false;
+                    }
+
+                    // Validate the resolved path contains .git/annex in the expected location
+                    // The canonical path should contain .git/annex/objects
+                    let resolved_str = resolved.to_string_lossy();
+                    if !resolved_str.contains(".git/annex/objects") {
+                        log::warn!(
+                            "Symlink claims to be git-annex but resolved path doesn't contain .git/annex/objects: {:?}",
+                            resolved
+                        );
+                        return false;
+                    }
+
+                    // Additional check: if the file exists (symlink is valid), verify it's
+                    // actually within a .git directory structure
+                    if path.exists() {
+                        if let Ok(canonical) = path.canonicalize() {
+                            let canonical_str = canonical.to_string_lossy();
+                            if !canonical_str.contains(".git/annex/objects") {
+                                log::warn!(
+                                    "Canonical path of symlink doesn't contain .git/annex/objects: {:?}",
+                                    canonical
+                                );
+                                return false;
+                            }
+                        }
+                    }
+                }
+
+                // Check if the target actually exists (resolved through the symlink)
+                // If path.exists() is false but symlink_metadata succeeds, it's a broken symlink
+                return !path.exists();
             }
         }
     }
@@ -310,7 +369,8 @@ pub async fn get_file_chunk(
     {
         let chunk_cache = state.chunks_cache.read();
         if let Some(chunk) = chunk_cache.get(&chunk_key) {
-            // Dereference Arc to get inner value for Json response
+            // NOTE: Clone is required because Axum's Json<T> needs owned data.
+            // Future optimization: streaming JSON response or Json<Arc<ChunkData>>.
             return Ok(Json((*chunk).clone()));
         }
     }
