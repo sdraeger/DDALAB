@@ -10,9 +10,89 @@ use tauri::{AppHandle, Emitter, State};
 
 const OPENNEURO_API_KEY_NAME: &str = "openneuro_api_key";
 
+/// Validate an OpenNeuro dataset ID format.
+/// SECURITY: Prevents command injection by ensuring dataset ID matches expected pattern.
+/// Valid format: "ds" followed by exactly 6 digits (e.g., ds000001)
+fn validate_dataset_id(dataset_id: &str) -> Result<(), String> {
+    // Must be exactly 8 characters: "ds" + 6 digits
+    if dataset_id.len() != 8 {
+        return Err(format!(
+            "Invalid dataset ID format: '{}'. Expected format: dsNNNNNN (e.g., ds000001)",
+            dataset_id
+        ));
+    }
+
+    // Must start with "ds"
+    if !dataset_id.starts_with("ds") {
+        return Err(format!(
+            "Invalid dataset ID format: '{}'. Must start with 'ds'",
+            dataset_id
+        ));
+    }
+
+    // Remaining 6 characters must be digits
+    let digits = &dataset_id[2..];
+    if !digits.chars().all(|c| c.is_ascii_digit()) {
+        return Err(format!(
+            "Invalid dataset ID format: '{}'. Expected 6 digits after 'ds'",
+            dataset_id
+        ));
+    }
+
+    Ok(())
+}
+
+/// Validate a git reference (branch name, tag name) for safety.
+/// SECURITY: Prevents command injection by allowing only safe characters.
+/// Allows alphanumeric characters, dots, dashes, underscores, and forward slashes.
+/// Rejects shell metacharacters and other potentially dangerous characters.
+fn validate_git_ref(git_ref: &str) -> Result<(), String> {
+    if git_ref.is_empty() {
+        return Err("Git reference cannot be empty".to_string());
+    }
+
+    if git_ref.len() > 256 {
+        return Err("Git reference too long (max 256 characters)".to_string());
+    }
+
+    // Check for git-specific dangerous patterns
+    if git_ref.starts_with('-') {
+        return Err("Git reference cannot start with a dash (potential option injection)".to_string());
+    }
+
+    if git_ref.contains("..") {
+        return Err("Git reference cannot contain '..' (potential path traversal)".to_string());
+    }
+
+    // Allow only safe characters: alphanumeric, dots, dashes, underscores, forward slashes
+    for c in git_ref.chars() {
+        if !c.is_ascii_alphanumeric() && c != '.' && c != '-' && c != '_' && c != '/' {
+            return Err(format!(
+                "Invalid git reference: '{}'. Only alphanumeric characters, dots, dashes, underscores, and forward slashes are allowed. Found invalid character: '{}'",
+                git_ref, c
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Information about a running download process for safe cancellation
+#[derive(Clone)]
+pub struct ProcessInfo {
+    /// Process ID
+    pub pid: u32,
+    /// Timestamp when the process was started (for verification)
+    pub started_at: std::time::Instant,
+    /// Command that was executed (for verification)
+    pub command: String,
+}
+
 // State for tracking active downloads
+// SECURITY: Uses ProcessInfo instead of raw PID to prevent race conditions
+// when cancelling downloads (PID reuse could kill unrelated processes)
 pub struct DownloadState {
-    pub active_downloads: Arc<Mutex<HashMap<String, Arc<Mutex<Option<u32>>>>>>,
+    pub active_downloads: Arc<Mutex<HashMap<String, Arc<Mutex<Option<ProcessInfo>>>>>>,
 }
 
 impl Default for DownloadState {
@@ -208,9 +288,9 @@ pub async fn check_git_annex_available() -> Result<bool, String> {
 // Helper function to check if download is cancelled
 fn is_cancelled(download_state: &State<DownloadState>, dataset_id: &str) -> bool {
     if let Ok(downloads) = download_state.active_downloads.lock() {
-        if let Some(pid_lock) = downloads.get(dataset_id) {
-            if let Ok(pid) = pid_lock.lock() {
-                return pid.is_none(); // None means cancelled
+        if let Some(process_info_lock) = downloads.get(dataset_id) {
+            if let Ok(process_info) = process_info_lock.lock() {
+                return process_info.is_none(); // None means cancelled
             }
         }
     }
@@ -226,17 +306,30 @@ pub async fn download_openneuro_dataset(
 ) -> Result<String, String> {
     log::info!("Starting download for dataset: {}", options.dataset_id);
 
-    // Register this download
-    let pid_lock = Arc::new(Mutex::new(Some(0u32))); // Will be updated with actual PID
+    // SECURITY: Validate all user-provided inputs before using them in git commands
+    validate_dataset_id(&options.dataset_id)?;
+
+    if let Some(ref tag) = options.snapshot_tag {
+        validate_git_ref(tag)?;
+    }
+
+    // Validate destination path doesn't contain suspicious patterns
+    if options.destination_path.contains("..") {
+        return Err("Destination path cannot contain '..' (path traversal attempt)".to_string());
+    }
+
+    // Register this download with ProcessInfo for safe cancellation
+    let process_info_lock: Arc<Mutex<Option<ProcessInfo>>> = Arc::new(Mutex::new(None));
     {
         let mut downloads = download_state
             .active_downloads
             .lock()
             .map_err(|e| format!("Failed to lock download state: {}", e))?;
-        downloads.insert(options.dataset_id.clone(), pid_lock.clone());
+        downloads.insert(options.dataset_id.clone(), process_info_lock.clone());
     }
 
-    // Construct the git URL
+    // Construct the git URL using validated dataset_id
+    // SECURITY: Only use pre-defined URL patterns with validated dataset ID
     let git_url = if options.use_github {
         format!(
             "https://github.com/OpenNeuroDatasets/{}.git",
@@ -330,10 +423,15 @@ pub async fn download_openneuro_dataset(
         )
     })?;
 
-    // Store the process ID for cancellation
+    // Store process info for safe cancellation (includes timestamp to prevent PID reuse attacks)
     let pid = child.id();
-    if let Ok(mut pid_guard) = pid_lock.lock() {
-        *pid_guard = Some(pid);
+    let started_at = std::time::Instant::now();
+    if let Ok(mut process_info_guard) = process_info_lock.lock() {
+        *process_info_guard = Some(ProcessInfo {
+            pid,
+            started_at,
+            command: "git".to_string(),
+        });
     }
 
     // Capture stderr for progress (git outputs to stderr)
@@ -508,10 +606,15 @@ pub async fn download_openneuro_dataset(
                 }
             };
 
-            // Store the git-annex process ID
+            // Store git-annex process info for safe cancellation
             let pid = child.id();
-            if let Ok(mut pid_guard) = pid_lock.lock() {
-                *pid_guard = Some(pid);
+            let started_at = std::time::Instant::now();
+            if let Ok(mut process_info_guard) = process_info_lock.lock() {
+                *process_info_guard = Some(ProcessInfo {
+                    pid,
+                    started_at,
+                    command: "git-annex".to_string(),
+                });
             }
 
             // Track progress from git-annex output
@@ -683,6 +786,8 @@ pub async fn download_openneuro_dataset(
 }
 
 // Cancel an ongoing download
+// SECURITY: Uses ProcessInfo to verify process identity before killing,
+// preventing PID reuse attacks where killing by PID could terminate an unrelated process.
 #[command]
 pub async fn cancel_openneuro_download(
     download_state: State<'_, DownloadState>,
@@ -691,20 +796,58 @@ pub async fn cancel_openneuro_download(
     log::info!("Cancellation requested for dataset: {}", dataset_id);
 
     if let Ok(downloads) = download_state.active_downloads.lock() {
-        if let Some(pid_lock) = downloads.get(&dataset_id) {
-            // Mark as cancelled by setting PID to None
-            if let Ok(mut pid) = pid_lock.lock() {
-                if let Some(process_id) = *pid {
-                    log::info!("Marking download as cancelled (PID: {})", process_id);
-                    *pid = None; // This signals cancellation
+        if let Some(process_info_lock) = downloads.get(&dataset_id) {
+            // Mark as cancelled by setting ProcessInfo to None
+            if let Ok(mut process_info_opt) = process_info_lock.lock() {
+                if let Some(process_info) = process_info_opt.take() {
+                    // SECURITY: Verify the process is still likely ours before killing
+                    // Check that the process was started recently (within reasonable time for a download)
+                    let elapsed = process_info.started_at.elapsed();
+                    const MAX_DOWNLOAD_DURATION: std::time::Duration =
+                        std::time::Duration::from_secs(24 * 60 * 60); // 24 hours max
+
+                    if elapsed > MAX_DOWNLOAD_DURATION {
+                        log::warn!(
+                            "Process {} started too long ago ({:?}), not killing (potential PID reuse)",
+                            process_info.pid,
+                            elapsed
+                        );
+                        return Err("Process may have already terminated".to_string());
+                    }
+
+                    log::info!(
+                        "Marking download as cancelled (PID: {}, command: {}, age: {:?})",
+                        process_info.pid,
+                        process_info.command,
+                        elapsed
+                    );
 
                     // Try to kill the process on Unix systems
                     #[cfg(unix)]
                     {
                         use std::process::Command as StdCommand;
+                        // Verify process is still running and is a git-related process
+                        // by checking /proc/{pid}/comm or similar before killing
+                        let proc_path = format!("/proc/{}/comm", process_info.pid);
+                        if let Ok(comm) = std::fs::read_to_string(&proc_path) {
+                            let comm = comm.trim();
+                            if comm != "git" && comm != "git-annex" {
+                                log::warn!(
+                                    "Process {} is '{}', not '{}' - not killing",
+                                    process_info.pid,
+                                    comm,
+                                    process_info.command
+                                );
+                                return Err("Process identity mismatch".to_string());
+                            }
+                        }
+                        // On macOS, /proc doesn't exist, so we fall through and rely on
+                        // the timestamp check and the fact that we're signaling with SIGTERM
+                        // which allows the process to clean up gracefully
+
                         let _ = StdCommand::new("kill")
                             .arg("-TERM")
-                            .arg(process_id.to_string())
+                            .arg(process_info.pid.to_string())
                             .output();
                     }
 
@@ -712,8 +855,10 @@ pub async fn cancel_openneuro_download(
                     #[cfg(windows)]
                     {
                         use std::process::Command as StdCommand;
+                        // Windows doesn't have an easy way to verify process name from PID
+                        // without additional dependencies, so we rely on the timestamp check
                         let _ = StdCommand::new("taskkill")
-                            .args(&["/PID", &process_id.to_string(), "/F"])
+                            .args(&["/PID", &process_info.pid.to_string(), "/F"])
                             .output();
                     }
 
