@@ -150,6 +150,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     (state) => state.incrementActionCount,
   );
   const isServerReady = useAppStore((state) => state.ui.isServerReady);
+  const appExpertMode = useAppStore((state) => state.ui.expertMode);
 
   const { recordAction } = useWorkflow();
 
@@ -209,8 +210,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       cores: 4, // Default to 4 cores for NSG
       nodes: 1,
     },
-    expertMode: false, // Default to simple mode
-    modelParameters: undefined,
+    expertMode: false, // Deprecated - now controlled by app-level setting
+    modelParameters: {
+      dm: 4,
+      order: 4,
+      nr_tau: 2,
+      encoding: [1, 2, 10], // EEG Standard preset as default
+    },
   });
 
   // Use local parameters directly - no need to merge with store
@@ -779,18 +785,16 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           Object.keys(newVariantChannelConfigs).length > 0
             ? newVariantChannelConfigs
             : prev.variantChannelConfigs,
-        expertMode:
-          params.model_dimension !== undefined ||
-          params.polynomial_order !== undefined
-            ? true
-            : prev.expertMode,
+        // Note: expertMode is now controlled at app level, not per-analysis
         modelParameters:
-          params.model_dimension || params.polynomial_order
+          params.model_dimension ||
+          params.polynomial_order ||
+          params.model_params
             ? {
                 dm: params.model_dimension || 4,
                 order: params.polynomial_order || 4,
                 nr_tau: params.nr_tau || 2,
-                encoding: params.model_params,
+                encoding: params.model_params || [1, 2, 10],
               }
             : prev.modelParameters,
       }));
@@ -1401,19 +1405,19 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           delay_list: parameters.delayConfig.list,
         },
         model_dimension:
-          parameters.expertMode && parameters.modelParameters
+          appExpertMode && parameters.modelParameters
             ? parameters.modelParameters.dm
             : undefined,
         polynomial_order:
-          parameters.expertMode && parameters.modelParameters
+          appExpertMode && parameters.modelParameters
             ? parameters.modelParameters.order
             : undefined,
         nr_tau:
-          parameters.expertMode && parameters.modelParameters
+          appExpertMode && parameters.modelParameters
             ? parameters.modelParameters.nr_tau
             : undefined,
         model_params:
-          parameters.expertMode && parameters.modelParameters?.encoding
+          appExpertMode && parameters.modelParameters?.encoding
             ? parameters.modelParameters.encoding
             : undefined,
         ct_channel_pairs:
@@ -1536,8 +1540,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         cores: 4,
         nodes: 1,
       },
-      expertMode: false,
-      modelParameters: undefined,
+      expertMode: false, // Deprecated - controlled at app level
+      modelParameters: {
+        dm: 4,
+        order: 4,
+        nr_tau: 2,
+        encoding: [1, 2, 10], // EEG Standard preset as default
+      },
     });
   };
 
@@ -2198,50 +2207,31 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
               </CardContent>
             </Card>
 
-            {/* Expert Mode Toggle - Compact */}
+            {/* Model Configuration Info */}
             <Card>
               <CardHeader className="pb-3 pt-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-sm">
-                      Configuration Mode
+                      Model Configuration
                     </CardTitle>
                     <CardDescription className="text-xs">
-                      {parameters.expertMode
-                        ? "Advanced delays & MODEL parameters"
-                        : "Simple mode (delays: [7, 10], MODEL: 1 2 10)"}
+                      {appExpertMode
+                        ? "Expert mode: Configure delays & MODEL parameters below"
+                        : "Using EEG Standard preset (delays: [7, 10], MODEL: 1 2 10)"}
                     </CardDescription>
                   </div>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <span className="text-xs font-medium">Expert Mode</span>
-                    <input
-                      type="checkbox"
-                      checked={parameters.expertMode}
-                      onChange={(e) => {
-                        const expertMode = e.target.checked;
-                        setLocalParameters((prev) => ({
-                          ...prev,
-                          expertMode,
-                          modelParameters: expertMode
-                            ? {
-                                dm: 4,
-                                order: 4,
-                                nr_tau: 2,
-                                encoding: [1, 2, 10],
-                              }
-                            : undefined,
-                        }));
-                      }}
-                      disabled={ddaRunning || localIsRunning}
-                      className="w-4 h-4"
-                    />
-                  </label>
+                  {!appExpertMode && (
+                    <div className="text-xs text-muted-foreground">
+                      Enable Expert Mode in Settings for advanced options
+                    </div>
+                  )}
                 </div>
               </CardHeader>
             </Card>
 
             {/* Delay Parameters - Only in Expert Mode */}
-            {parameters.expertMode && (
+            {appExpertMode && (
               <DelayPresetManager
                 value={parameters.delayConfig}
                 onChange={(config) => {
@@ -2260,7 +2250,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             )}
 
             {/* MODEL Parameters - Only in Expert Mode */}
-            {parameters.expertMode && parameters.modelParameters && (
+            {appExpertMode && parameters.modelParameters && (
               <ModelBuilder
                 numDelays={parameters.modelParameters.nr_tau}
                 polynomialOrder={parameters.modelParameters.order}
@@ -2443,9 +2433,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             variants: parameters.variants,
             window_length: parameters.windowLength,
             window_step: parameters.windowStep,
-            scale_min: parameters.scaleMin,
-            scale_max: parameters.scaleMax,
-            scale_num: parameters.scaleNum,
+            delay_min: parameters.scaleMin,
+            delay_max: parameters.scaleMax,
+            delay_num: parameters.scaleNum,
           }}
         />
       )}

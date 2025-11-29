@@ -72,15 +72,15 @@ export function SensitivityAnalysisDialog({
   const [selectedPreset, setSelectedPreset] = useState<PresetKey>("standard");
   const [selectedParameters, setSelectedParameters] = useState<
     Set<SweepParameter>
-  >(new Set(["window_length", "scale_num"]));
+  >(new Set(["window_length", "delay_num"]));
   const [customRanges, setCustomRanges] = useState<
     Record<SweepParameter, { min: number; max: number }>
   >({
     window_length: { min: 32, max: 256 },
     window_step: { min: 5, max: 50 },
-    scale_min: { min: 1, max: 5 },
-    scale_max: { min: 10, max: 50 },
-    scale_num: { min: 10, max: 40 },
+    delay_min: { min: 1, max: 5 },
+    delay_max: { min: 10, max: 50 },
+    delay_num: { min: 10, max: 40 },
   });
 
   const [analysis, setAnalysis] = useState<SensitivityAnalysis | null>(null);

@@ -218,6 +218,7 @@ export const createPersistenceSlice: ImmerStateCreator<
           state.ui.sidebarOpen = !persistedState.sidebar_collapsed;
           state.ui.sidebarWidth = persistedState.ui?.sidebarWidth || 320;
           state.ui.zoom = persistedState.ui?.zoom || 1.0;
+          state.ui.expertMode = persistedState.ui?.expertMode ?? false;
           state.ui.panelSizes = [
             persistedState.panel_sizes.sidebar * 100,
             persistedState.panel_sizes.main * 100 -
@@ -297,6 +298,7 @@ export const createPersistenceSlice: ImmerStateCreator<
           panelSizes: currentState.ui.panelSizes,
           layout: currentState.ui.layout,
           theme: currentState.ui.theme,
+          expertMode: currentState.ui.expertMode,
         },
         active_tab: currentState.ui.activeTab,
         sidebar_collapsed: !currentState.ui.sidebarOpen,

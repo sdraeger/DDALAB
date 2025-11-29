@@ -28,6 +28,7 @@ export const defaultUIState: UIState = {
   layout: "default",
   theme: "auto",
   isServerReady: false,
+  expertMode: false,
 };
 
 export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
@@ -179,5 +180,15 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
     set((state) => {
       state.ui.isServerReady = ready;
     });
+  },
+
+  setExpertMode: (enabled) => {
+    set((state) => {
+      state.ui.expertMode = enabled;
+    });
+
+    if (TauriService.isTauri()) {
+      TauriService.updateUIState({ expertMode: enabled }).catch(console.error);
+    }
   },
 });

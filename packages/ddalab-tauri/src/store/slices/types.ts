@@ -22,6 +22,7 @@ import type {
   StreamingDDAResult,
   StreamEvent,
 } from "@/types/streaming";
+import type { PreprocessingSlice } from "./preprocessingSlice";
 
 // ============================================================================
 // State Interfaces
@@ -119,6 +120,7 @@ export interface UIState {
   theme: "light" | "dark" | "auto";
   isServerReady: boolean;
   zoom: number;
+  expertMode: boolean;
 }
 
 export interface AnnotationState {
@@ -208,6 +210,7 @@ export interface UIActions {
   setLayout: (layout: UIState["layout"]) => void;
   setTheme: (theme: UIState["theme"]) => void;
   setServerReady: (ready: boolean) => void;
+  setExpertMode: (enabled: boolean) => void;
 }
 
 export interface AnnotationActions {
@@ -370,6 +373,7 @@ export type AppState = FileManagerSlice &
   AnnotationSlice &
   WorkflowSlice &
   StreamingSlice &
+  PreprocessingSlice &
   PersistenceSlice &
   InitSlice;
 
