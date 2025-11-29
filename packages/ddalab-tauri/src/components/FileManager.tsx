@@ -194,6 +194,48 @@ export function FileManager({ apiService }: FileManagerProps) {
   const [annexFileToDownload, setAnnexFileToDownload] =
     useState<EDFFileInfo | null>(null);
 
+  // Debounced search - local state for immediate input, debounced update to store
+  const [searchInput, setSearchInput] = useState(searchQuery);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Sync local search input with store when store changes externally (e.g., from clear)
+  useEffect(() => {
+    setSearchInput(searchQuery);
+  }, [searchQuery]);
+
+  // Debounce search query updates to store (300ms delay)
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      setSearchInput(value);
+
+      // Clear existing timeout
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+
+      // Set new debounced update
+      searchTimeoutRef.current = setTimeout(() => {
+        updateFileManagerState({ searchQuery: value });
+      }, 300);
+    },
+    [updateFileManagerState],
+  );
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Cached Intl.Collator for efficient string sorting (avoids O(n²) localeCompare overhead)
+  const collator = useMemo(
+    () => new Intl.Collator(undefined, { sensitivity: "base" }),
+    [],
+  );
+
   // Extract directories and files from query data
   const directories = useMemo(() => {
     if (!directoryData?.files) return [];
@@ -526,13 +568,13 @@ export function FileManager({ apiService }: FileManagerProps) {
       filtered = filtered.filter((file) => !file.file_name.startsWith("."));
     }
 
-    // Apply sorting
+    // Apply sorting using cached Intl.Collator for performance
     filtered.sort((a, b) => {
       let comparison = 0;
 
       switch (sortBy) {
         case "name":
-          comparison = a.file_name.localeCompare(b.file_name);
+          comparison = collator.compare(a.file_name, b.file_name);
           break;
         case "size":
           comparison = a.file_size - b.file_size;
@@ -542,14 +584,14 @@ export function FileManager({ apiService }: FileManagerProps) {
             new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
           break;
         default:
-          comparison = a.file_name.localeCompare(b.file_name);
+          comparison = collator.compare(a.file_name, b.file_name);
       }
 
       return sortOrder === "desc" ? -comparison : comparison;
     });
 
     return filtered;
-  }, [files, searchQuery, showHidden, sortBy, sortOrder]);
+  }, [files, searchQuery, showHidden, sortBy, sortOrder, collator]);
 
   const loadFileInfo = useCallback(
     (file: EDFFileInfo) => {
@@ -1095,10 +1137,8 @@ export function FileManager({ apiService }: FileManagerProps) {
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search files..."
-              value={searchQuery}
-              onChange={(e) =>
-                updateFileManagerState({ searchQuery: e.target.value })
-              }
+              value={searchInput}
+              onChange={(e) => handleSearchChange(e.target.value)}
               className="pl-8 w-full"
             />
           </div>
@@ -1137,8 +1177,38 @@ export function FileManager({ apiService }: FileManagerProps) {
 
       <CardContent className="flex-1 overflow-auto p-4">
         {error && (
-          <div className="p-4 mb-4 text-sm text-red-800 bg-red-100 rounded-lg">
-            {error}
+          <div className="p-4 mb-4 text-sm bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-lg">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="space-y-2">
+                <p className="font-medium text-red-800 dark:text-red-200">
+                  Could not load directory
+                </p>
+                <p className="text-red-700 dark:text-red-300">{error}</p>
+                <div className="text-red-600 dark:text-red-400 text-xs space-y-1">
+                  <p className="font-medium">Try the following:</p>
+                  <ul className="list-disc list-inside space-y-0.5 ml-1">
+                    <li>
+                      Check that the directory path exists and is accessible
+                    </li>
+                    <li>Verify you have read permissions for this location</li>
+                    <li>If using a network drive, check your connection</li>
+                    <li>
+                      Try selecting a different data directory in Settings
+                    </li>
+                  </ul>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => refetchDirectory()}
+                  className="mt-2 h-7 text-xs border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900"
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  Retry
+                </Button>
+              </div>
+            </div>
           </div>
         )}
 

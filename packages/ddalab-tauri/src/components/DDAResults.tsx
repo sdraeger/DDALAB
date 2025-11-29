@@ -139,6 +139,22 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   });
   const heatmapCleanupRef = useRef<(() => void) | null>(null);
   const linePlotCleanupRef = useRef<(() => void) | null>(null);
+
+  // SAFETY NET: Unconditional cleanup on unmount
+  // This ensures cleanup runs even if conditional effects' early returns prevent cleanup
+  useEffect(() => {
+    return () => {
+      if (heatmapCleanupRef.current) {
+        heatmapCleanupRef.current();
+        heatmapCleanupRef.current = null;
+      }
+      if (linePlotCleanupRef.current) {
+        linePlotCleanupRef.current();
+        linePlotCleanupRef.current = null;
+      }
+    };
+  }, []);
+
   // Track current channel count for ResizeObserver callback (initialized later)
   const currentChannelCountRef = useRef<number>(0);
 
@@ -1198,7 +1214,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     linePlotAnnotations.annotations,
   ]);
 
-  // Handle resizing with drag
+  // Handle resizing with drag (mouse)
   const handleResizeStart = useCallback(
     (plotType: "heatmap" | "lineplot", e: React.MouseEvent) => {
       e.preventDefault();
@@ -1242,6 +1258,40 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
+    },
+    [heatmapHeight, linePlotHeight],
+  );
+
+  // Handle resizing with keyboard (accessibility)
+  const handleResizeKeyDown = useCallback(
+    (plotType: "heatmap" | "lineplot", e: React.KeyboardEvent) => {
+      const step = e.shiftKey ? 50 : 10; // Larger step with Shift key
+
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        e.preventDefault();
+        const delta = e.key === "ArrowUp" ? -step : step;
+        const currentHeight =
+          plotType === "heatmap" ? heatmapHeight : linePlotHeight;
+        const newHeight = Math.max(200, Math.min(1200, currentHeight + delta));
+
+        if (plotType === "heatmap") {
+          setHeatmapHeight(newHeight);
+          if (uplotHeatmapRef.current) {
+            uplotHeatmapRef.current.setSize({
+              width: uplotHeatmapRef.current.width,
+              height: newHeight,
+            });
+          }
+        } else {
+          setLinePlotHeight(newHeight);
+          if (uplotLinePlotRef.current) {
+            uplotLinePlotRef.current.setSize({
+              width: uplotLinePlotRef.current.width,
+              height: newHeight,
+            });
+          }
+        }
+      }
     },
     [heatmapHeight, linePlotHeight],
   );
@@ -2009,9 +2059,17 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
                         {/* Heatmap Resize Handle */}
                         <div
-                          className="flex items-center justify-center py-3 mt-2 cursor-ns-resize hover:bg-accent transition-colors border-t"
+                          className="flex items-center justify-center py-3 mt-2 cursor-ns-resize hover:bg-accent focus:bg-accent focus:outline-none focus:ring-2 focus:ring-ring transition-colors border-t"
                           onMouseDown={(e) => handleResizeStart("heatmap", e)}
-                          title="Drag to resize heatmap height"
+                          onKeyDown={(e) => handleResizeKeyDown("heatmap", e)}
+                          tabIndex={0}
+                          role="slider"
+                          aria-label="Resize heatmap height. Use up/down arrow keys to adjust."
+                          aria-valuenow={heatmapHeight}
+                          aria-valuemin={200}
+                          aria-valuemax={1200}
+                          aria-orientation="vertical"
+                          title="Drag or use arrow keys to resize heatmap height"
                         >
                           <div className="w-16 h-1.5 rounded-full bg-muted-foreground/40 hover:bg-muted-foreground/60 transition-colors" />
                         </div>
@@ -2156,9 +2214,17 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
                         {/* Line Plot Resize Handle */}
                         <div
-                          className="flex items-center justify-center py-3 mt-4 cursor-ns-resize hover:bg-accent transition-colors border-t"
+                          className="flex items-center justify-center py-3 mt-4 cursor-ns-resize hover:bg-accent focus:bg-accent focus:outline-none focus:ring-2 focus:ring-ring transition-colors border-t"
                           onMouseDown={(e) => handleResizeStart("lineplot", e)}
-                          title="Drag to resize line plot height"
+                          onKeyDown={(e) => handleResizeKeyDown("lineplot", e)}
+                          tabIndex={0}
+                          role="slider"
+                          aria-label="Resize line plot height. Use up/down arrow keys to adjust."
+                          aria-valuenow={linePlotHeight}
+                          aria-valuemin={200}
+                          aria-valuemax={1200}
+                          aria-orientation="vertical"
+                          title="Drag or use arrow keys to resize line plot height"
                         >
                           <div className="w-16 h-1.5 rounded-full bg-muted-foreground/40 hover:bg-muted-foreground/60 transition-colors" />
                         </div>
@@ -2338,9 +2404,17 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
                 {/* Heatmap Resize Handle */}
                 <div
-                  className="flex items-center justify-center py-3 mt-2 cursor-ns-resize hover:bg-accent transition-colors border-t"
+                  className="flex items-center justify-center py-3 mt-2 cursor-ns-resize hover:bg-accent focus:bg-accent focus:outline-none focus:ring-2 focus:ring-ring transition-colors border-t"
                   onMouseDown={(e) => handleResizeStart("heatmap", e)}
-                  title="Drag to resize heatmap height"
+                  onKeyDown={(e) => handleResizeKeyDown("heatmap", e)}
+                  tabIndex={0}
+                  role="slider"
+                  aria-label="Resize heatmap height. Use up/down arrow keys to adjust."
+                  aria-valuenow={heatmapHeight}
+                  aria-valuemin={200}
+                  aria-valuemax={1200}
+                  aria-orientation="vertical"
+                  title="Drag or use arrow keys to resize heatmap height"
                 >
                   <div className="w-16 h-1.5 rounded-full bg-muted-foreground/40 hover:bg-muted-foreground/60 transition-colors" />
                 </div>
@@ -2475,9 +2549,17 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
                 {/* Line Plot Resize Handle */}
                 <div
-                  className="flex items-center justify-center py-3 mt-4 cursor-ns-resize hover:bg-accent transition-colors border-t"
+                  className="flex items-center justify-center py-3 mt-4 cursor-ns-resize hover:bg-accent focus:bg-accent focus:outline-none focus:ring-2 focus:ring-ring transition-colors border-t"
                   onMouseDown={(e) => handleResizeStart("lineplot", e)}
-                  title="Drag to resize line plot height"
+                  onKeyDown={(e) => handleResizeKeyDown("lineplot", e)}
+                  tabIndex={0}
+                  role="slider"
+                  aria-label="Resize line plot height. Use up/down arrow keys to adjust."
+                  aria-valuenow={linePlotHeight}
+                  aria-valuemin={200}
+                  aria-valuemax={1200}
+                  aria-orientation="vertical"
+                  title="Drag or use arrow keys to resize line plot height"
                 >
                   <div className="w-16 h-1.5 rounded-full bg-muted-foreground/40 hover:bg-muted-foreground/60 transition-colors" />
                 </div>

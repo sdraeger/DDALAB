@@ -43,6 +43,27 @@ export function VirtualizedFileList({
 }: VirtualizedFileListProps) {
   const listRef = useRef<FixedSizeList>(null);
 
+  // Handle keyboard context menu (Shift+F10 or ContextMenu key)
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>, file: EDFFileInfo) => {
+      // Shift+F10 or ContextMenu key triggers context menu
+      if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") {
+        e.preventDefault();
+        e.stopPropagation();
+        // Position the context menu relative to the focused element
+        const rect = e.currentTarget.getBoundingClientRect();
+        const syntheticEvent = {
+          preventDefault: () => {},
+          stopPropagation: () => {},
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+        } as React.MouseEvent;
+        onContextMenu?.(syntheticEvent, file);
+      }
+    },
+    [onContextMenu],
+  );
+
   // Memoize the file row renderer
   const FileRow = useCallback(
     ({ index, style }: ListChildComponentProps) => {
@@ -53,7 +74,7 @@ export function VirtualizedFileList({
       return (
         <div style={style} className="px-2">
           <div
-            className={`flex items-start gap-3 w-full p-2 rounded-md transition-all cursor-pointer hover:bg-accent/50 ${
+            className={`flex items-start gap-3 w-full p-2 rounded-md transition-all cursor-pointer hover:bg-accent/50 focus:outline-none focus:ring-2 focus:ring-ring ${
               isSelected ? "bg-primary/10 ring-1 ring-primary/30" : ""
             } ${
               isHighlighted
@@ -62,6 +83,10 @@ export function VirtualizedFileList({
             }`}
             onClick={() => onFileSelect(file)}
             onContextMenu={(e) => onContextMenu?.(e, file)}
+            onKeyDown={(e) => handleKeyDown(e, file)}
+            tabIndex={0}
+            role="button"
+            aria-label={`File: ${file.file_name}. Press Shift+F10 for context menu.`}
           >
             {file.is_annex_placeholder ? (
               <div className="relative flex-shrink-0 mt-0.5">
@@ -147,7 +172,14 @@ export function VirtualizedFileList({
         </div>
       );
     },
-    [files, selectedFile, highlightedFilePath, onFileSelect, onContextMenu],
+    [
+      files,
+      selectedFile,
+      highlightedFilePath,
+      onFileSelect,
+      onContextMenu,
+      handleKeyDown,
+    ],
   );
 
   // Calculate optimal height

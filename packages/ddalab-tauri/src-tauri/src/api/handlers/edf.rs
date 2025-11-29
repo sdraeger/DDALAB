@@ -56,10 +56,13 @@ pub async fn get_edf_info(
     Ok(Json(response))
 }
 
+/// Get chunk data from EDF/CSV/ASCII files.
+/// Uses Arc<ChunkData> for zero-copy responses - serde serializes Arc<T> identically to T,
+/// avoiding ~5MB clones on every request (30s @ 256Hz, 16 channels).
 pub async fn get_edf_data(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<ChunkData>, ApiError> {
+) -> Result<Json<Arc<ChunkData>>, ApiError> {
     let file_path = params
         .get("file_path")
         .ok_or_else(|| ApiError::BadRequest("Missing file_path parameter".to_string()))?;
@@ -109,11 +112,9 @@ pub async fn get_edf_data(
     {
         let chunk_cache = state.chunks_cache.read();
         if let Some(chunk) = chunk_cache.get(&chunk_key) {
-            // NOTE: Clone is required here because Axum's Json<T> needs owned data.
-            // The LruCache returns Arc<ChunkData>, but we need ChunkData for the response.
-            // Future optimization: Use streaming JSON response for large datasets,
-            // or return Json<Arc<ChunkData>> (serde serializes Arc<T> same as T).
-            return Ok(Json((*chunk).clone()));
+            // ZERO-COPY: Return Arc directly - serde serializes Arc<T> same as T.
+            // This avoids cloning the ~5MB ChunkData on every cache hit.
+            return Ok(Json(chunk));
         }
     }
 
@@ -201,14 +202,15 @@ pub async fn get_edf_data(
         ApiError::ParseError(e)
     })?;
 
-    // Clone for response before moving into cache (avoids double clone on cache miss)
-    let response = chunk.clone();
+    // ZERO-COPY: Wrap in Arc once, insert Arc clone into cache, return same Arc.
+    // No ChunkData cloning - just Arc reference counting.
+    let chunk_arc = Arc::new(chunk);
     {
         let mut chunk_cache = state.chunks_cache.write();
-        chunk_cache.insert(chunk_key, chunk);
+        chunk_cache.insert_arc(chunk_key, Arc::clone(&chunk_arc));
     }
 
-    Ok(Json(response))
+    Ok(Json(chunk_arc))
 }
 
 pub async fn get_overview_progress(
@@ -271,10 +273,12 @@ pub async fn get_overview_progress(
     })))
 }
 
+/// Get overview data for file visualization (decimated for minimap).
+/// Uses Arc<ChunkData> for zero-copy responses - same optimization as get_edf_data.
 pub async fn get_edf_overview(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<ChunkData>, ApiError> {
+) -> Result<Json<Arc<ChunkData>>, ApiError> {
     let file_path = params
         .get("file_path")
         .ok_or_else(|| ApiError::BadRequest("Missing file_path parameter".to_string()))?;
@@ -320,7 +324,8 @@ pub async fn get_edf_overview(
                     ApiError::ParseError(e)
                 })?;
 
-            return Ok(Json(chunk));
+            // ZERO-COPY: Wrap in Arc for consistent response type
+            return Ok(Json(Arc::new(chunk)));
         } else {
             log::warn!(
                 "[OVERVIEW] Cache database not available, falling back to legacy generation"
@@ -344,9 +349,8 @@ pub async fn get_edf_overview(
         let chunk_cache = state.chunks_cache.read();
         if let Some(chunk) = chunk_cache.get(&cache_key) {
             log::info!("[OVERVIEW] In-memory cache HIT for {}", file_path);
-            // NOTE: Clone is required - see comment in get_edf_data for explanation.
-            // Overview data is typically smaller than chunk data (decimated).
-            return Ok(Json((*chunk).clone()));
+            // ZERO-COPY: Return Arc directly - no cloning needed.
+            return Ok(Json(chunk));
         }
     }
 
@@ -396,14 +400,14 @@ pub async fn get_edf_overview(
         ApiError::ParseError(e)
     })?;
 
-    // Clone for response before moving into cache
-    let response = chunk.clone();
+    // ZERO-COPY: Wrap in Arc once, insert Arc clone into cache, return same Arc.
+    let chunk_arc = Arc::new(chunk);
     {
         let mut chunk_cache = state.chunks_cache.write();
-        chunk_cache.insert(cache_key, chunk);
+        chunk_cache.insert_arc(cache_key, Arc::clone(&chunk_arc));
     }
 
-    Ok(Json(response))
+    Ok(Json(chunk_arc))
 }
 
 fn read_chunk_with_file_reader(
