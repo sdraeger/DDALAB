@@ -349,11 +349,13 @@ pub async fn get_file_info(
     }
 }
 
+/// Get a chunk of file data for visualization.
+/// Uses Arc<ChunkData> for zero-copy responses - avoids ~5MB clones on every request.
 pub async fn get_file_chunk(
     State(state): State<Arc<ApiState>>,
     Path(file_path): Path<String>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<ChunkData>, StatusCode> {
+) -> Result<Json<Arc<ChunkData>>, StatusCode> {
     // Validate path is within data directory (prevents path traversal attacks)
     let validated_path = validate_path_within_data_dir(&file_path, &state.data_directory)?;
     let validated_path_str = validated_path.to_string_lossy().to_string();
@@ -372,9 +374,8 @@ pub async fn get_file_chunk(
     {
         let chunk_cache = state.chunks_cache.read();
         if let Some(chunk) = chunk_cache.get(&chunk_key) {
-            // NOTE: Clone is required because Axum's Json<T> needs owned data.
-            // Future optimization: streaming JSON response or Json<Arc<ChunkData>>.
-            return Ok(Json((*chunk).clone()));
+            // ZERO-COPY: Return Arc directly - serde serializes Arc<T> same as T.
+            return Ok(Json(chunk));
         }
     }
 
@@ -407,14 +408,14 @@ pub async fn get_file_chunk(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    // Clone for response before moving into cache
-    let response = chunk.clone();
+    // ZERO-COPY: Wrap in Arc once, insert Arc clone into cache, return same Arc.
+    let chunk_arc = Arc::new(chunk);
     {
         let mut chunk_cache = state.chunks_cache.write();
-        chunk_cache.insert(chunk_key, chunk);
+        chunk_cache.insert_arc(chunk_key, Arc::clone(&chunk_arc));
     }
 
-    Ok(Json(response))
+    Ok(Json(chunk_arc))
 }
 
 fn read_chunk_with_file_reader(

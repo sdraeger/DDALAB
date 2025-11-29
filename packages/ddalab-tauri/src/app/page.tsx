@@ -56,12 +56,17 @@ export default function Home() {
       return;
     }
 
+    // Type for Tauri global (injected by Tauri runtime)
+    type WindowWithTauri = Window & { __TAURI__?: unknown };
+
     console.log("DEBUG: Tauri detection:", {
       isTauri: tauriDetected,
       hasWindow: typeof window !== "undefined",
       hasTauriGlobal: typeof window !== "undefined" && "__TAURI__" in window,
       windowTauri:
-        typeof window !== "undefined" ? (window as any).__TAURI__ : undefined,
+        typeof window !== "undefined"
+          ? (window as WindowWithTauri).__TAURI__
+          : undefined,
       windowKeys:
         typeof window !== "undefined"
           ? Object.keys(window).filter(
