@@ -18,29 +18,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
 import { ChannelSelector } from "@/components/ChannelSelector";
-import {
-  RotateCcw,
-  Activity,
-  AlertCircle,
-  ExternalLink,
-  Loader2,
-  ChevronDown,
-  ChevronRight,
-  Sliders,
-} from "lucide-react";
+import { Activity, AlertCircle, ExternalLink, Loader2 } from "lucide-react";
 import * as echarts from "echarts";
 import { usePopoutWindows } from "@/hooks/usePopoutWindows";
 import { useTimeSeriesAnnotations } from "@/hooks/useAnnotations";
@@ -53,6 +34,7 @@ import {
 } from "@/utils/preprocessing";
 import { OverviewPlot } from "@/components/OverviewPlot";
 import { ChunkNavigator } from "@/components/visualization/ChunkNavigator";
+import { QuickFilters } from "@/components/visualization/QuickFilters";
 
 // ECharts type extensions for internal API access
 interface EChartsInstanceWithCustomProps extends echarts.ECharts {
@@ -78,18 +60,18 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   // and avoid issues with Immer freezing
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
   const selectedChannelsFromStore = useAppStore(
-    (state) => state.fileManager.selectedChannels
+    (state) => state.fileManager.selectedChannels,
   );
   const plotState = useAppStore((state) => state.plot);
   const isPersistenceRestored = useAppStore(
-    (state) => state.isPersistenceRestored
+    (state) => state.isPersistenceRestored,
   );
 
   // Actions
   const updatePlotState = useAppStore((state) => state.updatePlotState);
   const setCurrentChunk = useAppStore((state) => state.setCurrentChunk);
   const persistSelectedChannels = useAppStore(
-    (state) => state.setSelectedChannels
+    (state) => state.setSelectedChannels,
   );
 
   const { createWindow, updateWindowData, broadcastToType } =
@@ -117,7 +99,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
   // Get file annotations object from store (stable reference)
   const fileAnnotations = useAppStore((state) =>
-    filePath ? state.annotations.timeSeries[filePath] : undefined
+    filePath ? state.annotations.timeSeries[filePath] : undefined,
   );
 
   // Memoize the annotations array to prevent infinite loops
@@ -131,7 +113,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       "[ANNOTATIONS] Annotations updated for file:",
       filePath,
       "count:",
-      annotationsFromStore.length
+      annotationsFromStore.length,
     );
   }, [annotationsFromStore, filePath]);
 
@@ -153,7 +135,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   // IMPORTANT: Convert chunkStart from samples to seconds for UI state
   // Store saves in samples, but UI works in seconds
   const [currentTime, setCurrentTime] = useState(
-    (plotState.chunkStart || 0) / (selectedFile?.sample_rate || 256)
+    (plotState.chunkStart || 0) / (selectedFile?.sample_rate || 256),
   );
   const [duration, setDuration] = useState(0);
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
@@ -161,13 +143,12 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
   // Time window control (in seconds) - start with smaller window for better performance
   // IMPORTANT: Convert chunkSize from samples to seconds
   const [timeWindow, setTimeWindow] = useState(
-    plotState.chunkSize / (selectedFile?.sample_rate || 256) || 5
+    plotState.chunkSize / (selectedFile?.sample_rate || 256) || 5,
   );
 
   // Preprocessing controls (must be declared before TanStack Query hooks)
-  const [showPreprocessing, setShowPreprocessing] = useState(false);
   const [preprocessing, setPreprocessing] = useState<PreprocessingOptions>(
-    plotState.preprocessing || getDefaultPreprocessing()
+    plotState.preprocessing || getDefaultPreprocessing(),
   );
 
   // Cache invalidation utilities
@@ -226,10 +207,10 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     const decimationRatio = totalSamples / maxPoints;
     console.log(
       `[OVERVIEW] Adaptive decimation - Strategy: ${strategy}, Duration: ${duration.toFixed(
-        1
+        1,
       )}s, ` +
         `Total samples: ${totalSamples.toLocaleString()}, Overview points: ${maxPoints.toLocaleString()}, ` +
-        `Decimation ratio: ${decimationRatio.toFixed(1)}x`
+        `Decimation ratio: ${decimationRatio.toFixed(1)}x`,
     );
 
     return maxPoints;
@@ -263,7 +244,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
           notch: preprocessing.notch,
         }
       : undefined,
-    !!(selectedFile && selectedChannels.length > 0 && isChartReady)
+    !!(selectedFile && selectedChannels.length > 0 && isChartReady),
   );
 
   // TanStack Query: Load overview data in background as soon as file is selected
@@ -280,7 +261,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     selectedFile?.file_path || "",
     selectedChannels,
     overviewMaxPoints,
-    !!(selectedFile && selectedChannels.length > 0) // Load in background regardless of active tab
+    !!(selectedFile && selectedChannels.length > 0), // Load in background regardless of active tab
   );
 
   // Poll for overview progress while loading
@@ -289,7 +270,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     selectedFile?.file_path || "",
     selectedChannels,
     overviewMaxPoints,
-    overviewLoading && !!selectedFile && selectedChannels.length > 0
+    overviewLoading && !!selectedFile && selectedChannels.length > 0,
   );
 
   // Track previous completion state to detect transitions
@@ -304,7 +285,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     // Detect transition from incomplete to complete
     if (isComplete && wasComplete === false) {
       console.log(
-        "[TimeSeriesPlot] Overview generation completed, refetching data..."
+        "[TimeSeriesPlot] Overview generation completed, refetching data...",
       );
       refetchOverview();
     }
@@ -327,7 +308,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
   // Save preprocessing when it changes
   const handlePreprocessingChange = (
-    newPreprocessing: PreprocessingOptions
+    newPreprocessing: PreprocessingOptions,
   ) => {
     setPreprocessing(newPreprocessing);
     updatePlotState({ preprocessing: newPreprocessing });
@@ -427,7 +408,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
           if (series?.[seriesIndex]?.markLine) {
             console.log(
               "[ECharts] Right-clicked on annotation markLine, series:",
-              seriesIndex
+              seriesIndex,
             );
 
             // Try to find which specific markLine was clicked
@@ -435,7 +416,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
             if (target.position) {
               console.log(
                 "[ECharts] MarkLine target position:",
-                target.position
+                target.position,
               );
             }
           }
@@ -458,7 +439,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
           // IMPORTANT: Convert time in seconds to samples for persistence
           // Store expects chunkStart in samples, not seconds
           const chunkStartSamples = Math.floor(
-            newStartTime * currentFile.sample_rate
+            newStartTime * currentFile.sample_rate,
           );
 
           console.log(
@@ -466,7 +447,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
             newStartTime,
             "seconds (",
             chunkStartSamples,
-            "samples)"
+            "samples)",
           );
 
           // Update state and trigger persistence
@@ -493,7 +474,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       if (chartRef.current) {
         chartRef.current.removeEventListener(
           "contextmenu",
-          handleChartRightClick
+          handleChartRightClick,
         );
       }
       if (resizeObserverRef.current) {
@@ -523,7 +504,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     console.log(
       "[PERF] Starting preprocessing for",
       chunkData.data.length,
-      "channels"
+      "channels",
     );
 
     // Use shallow clone instead of JSON.parse(JSON.stringify())
@@ -531,7 +512,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     // The map() already creates new arrays, and we return a new object,
     // so we don't need to deep clone the frozen TanStack Query result.
     const preprocessedData = chunkData.data.map((channelData: number[]) =>
-      applyPreprocessing(channelData, selectedFile!.sample_rate, preprocessing)
+      applyPreprocessing(channelData, selectedFile!.sample_rate, preprocessing),
     );
 
     const elapsed = performance.now() - startTime;
@@ -574,7 +555,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
         position: "insideEndTop" as const,
         formatter: (params: any) => {
           const annotation = annotationsFromStore.find(
-            (ann) => Math.abs(ann.position - params.value) < 0.01
+            (ann) => Math.abs(ann.position - params.value) < 0.01,
           );
           return annotation?.label || "";
         },
@@ -630,14 +611,14 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       currentOption.series.length === 0
     ) {
       console.log(
-        "[ECharts] Skipping annotation update - chart not ready or no series yet"
+        "[ECharts] Skipping annotation update - chart not ready or no series yet",
       );
       return;
     }
 
     console.log(
       "[ECharts] Updating annotations - count:",
-      annotationsFromStore.length
+      annotationsFromStore.length,
     );
 
     // Use setOption with notMerge: false to efficiently update just the markLine
@@ -652,7 +633,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       {
         notMerge: false, // Merge with existing options (efficient update)
         lazyUpdate: true, // Batch updates
-      }
+      },
     );
   }, [annotationMarkLine, isChartReady]);
 
@@ -673,7 +654,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       // IMPORTANT: Convert time in seconds to samples for persistence
       // Store expects chunkStart in samples, not seconds
       const chunkStartSamples = Math.floor(
-        startTime * selectedFile.sample_rate
+        startTime * selectedFile.sample_rate,
       );
 
       console.log(
@@ -681,12 +662,12 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
         startTime,
         "seconds (",
         chunkStartSamples,
-        "samples) - triggering persistence"
+        "samples) - triggering persistence",
       );
       setCurrentTime(startTime);
       updatePlotState({ chunkStart: chunkStartSamples });
     },
-    [selectedFile, selectedChannels, updatePlotState]
+    [selectedFile, selectedChannels, updatePlotState],
   );
 
   // Update channel labels based on current data
@@ -699,7 +680,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       const yValue = channelIndex * autoOffset;
       const pixelY = chartInstanceRef.current!.convertToPixel(
         { yAxisIndex: 0 },
-        yValue
+        yValue,
       );
 
       return {
@@ -737,7 +718,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
     if (!chartInstanceRef.current) {
       console.warn(
-        "[ECharts] Chart instance not ready, storing for later render"
+        "[ECharts] Chart instance not ready, storing for later render",
       );
       // Store the data to render once chart is initialized
       pendingRenderRef.current = { chunkData, startTime };
@@ -779,7 +760,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
       const elapsedRanges = performance.now() - startTimeRanges;
       console.log(
-        `[PERF] Channel ranges computed in ${elapsedRanges.toFixed(2)}ms`
+        `[PERF] Channel ranges computed in ${elapsedRanges.toFixed(2)}ms`,
       );
 
       const maxRange = Math.max(...channelRanges);
@@ -795,7 +776,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
       autoOffset = Math.max(
         avgRange * spacingMultiplier,
-        maxRange * 2.0 // Ensure minimum separation of 2x max range
+        maxRange * 2.0, // Ensure minimum separation of 2x max range
       );
 
       stableOffsetRef.current = autoOffset;
@@ -832,7 +813,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
           decimatedData.push([time, offsetValue]);
         }
         console.log(
-          `[ECharts] Decimated channel ${channelName}: ${channelData.length} → ${decimatedData.length} points`
+          `[ECharts] Decimated channel ${channelName}: ${channelData.length} → ${decimatedData.length} points`,
         );
       } else {
         // Apply stacking offset without decimation
@@ -851,7 +832,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
           "[ECharts] Rendering",
           annotationsFromStore.length,
           "annotations:",
-          annotationsFromStore.map((a) => `${a.label} at ${a.position}s`)
+          annotationsFromStore.map((a) => `${a.label} at ${a.position}s`),
         );
 
         markLine = {
@@ -863,7 +844,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
             position: "insideEndTop" as const, // Position label at top
             formatter: (params: any) => {
               const annotation = timeSeriesAnnotations.annotations.find(
-                (ann) => Math.abs(ann.position - params.value) < 0.01
+                (ann) => Math.abs(ann.position - params.value) < 0.01,
               );
               return annotation?.label || "";
             },
@@ -927,7 +908,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     console.log(
       `[PERF] Series data built in ${elapsedSeries.toFixed(2)}ms for ${
         chunkData.channels.length
-      } channels`
+      } channels`,
     );
 
     // Configure chart options
@@ -1061,7 +1042,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     // This prevents loading chunk at 0 and then re-loading at persisted position
     if (!isPersistenceRestored) {
       console.log(
-        "[ECharts] Waiting for persistence to restore before loading chunk"
+        "[ECharts] Waiting for persistence to restore before loading chunk",
       );
       return;
     }
@@ -1086,12 +1067,12 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
               graphic: [], // Clear all graphics (channel labels)
               series: [], // Clear all series data
             },
-            { replaceMerge: ["graphic", "series"] }
+            { replaceMerge: ["graphic", "series"] },
           );
         }
 
         console.log(
-          "[ECharts] Cleared all refs, graphics, and series for new file"
+          "[ECharts] Cleared all refs, graphics, and series for new file",
         );
       }
 
@@ -1102,7 +1083,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       const startTimeSamples = latestPlotState.chunkStart || 0;
       const startTime = startTimeSamples / selectedFile.sample_rate;
       console.log(
-        `[ECharts] Loading chunk at time: ${startTime}s (${startTimeSamples} samples, persisted: ${latestPlotState.chunkStart})`
+        `[ECharts] Loading chunk at time: ${startTime}s (${startTimeSamples} samples, persisted: ${latestPlotState.chunkStart})`,
       );
       loadChunk(startTime);
       setCurrentTime(startTime);
@@ -1115,7 +1096,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       // This happens during component initialization or when auto-loading analysis on mount
       // Wait for the channel sync effect to run and populate selectedChannels
       console.log(
-        "[ECharts] Waiting for channel sync before clearing chart for new file"
+        "[ECharts] Waiting for channel sync before clearing chart for new file",
       );
       // Mark as loaded immediately to prevent re-clearing after channel sync
       loadedFileRef.current = currentFilePath!;
@@ -1125,7 +1106,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       hasChannelsSelected
     ) {
       console.log(
-        "[ECharts] Same file, channels changed - will refetch via TanStack Query"
+        "[ECharts] Same file, channels changed - will refetch via TanStack Query",
       );
       // TanStack Query will automatically refetch when selectedChannels changes
       // No need for manual debouncing - query already handles deduplication
@@ -1156,7 +1137,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       const startTime = startTimeSamples / selectedFile.sample_rate;
 
       console.log(
-        `[ECharts] Persisted chunk position loaded from file-centric state: ${startTime.toFixed(2)}s (${startTimeSamples} samples) - reloading chunk`
+        `[ECharts] Persisted chunk position loaded from file-centric state: ${startTime.toFixed(2)}s (${startTimeSamples} samples) - reloading chunk`,
       );
 
       loadChunk(startTime);
@@ -1223,7 +1204,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       try {
         pointInGrid = chartInstanceRef.current.convertFromPixel(
           { seriesIndex: 0 },
-          [x, 0]
+          [x, 0],
         );
       } catch (err) {
         console.warn("[ECharts] Failed to convert pixel position:", err);
@@ -1244,7 +1225,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
 
         console.log(
           "[ECharts] Converted click position to time:",
-          timePosition
+          timePosition,
         );
         console.log("[ECharts] Current file path from store:", currentFilePath);
         console.log("[ECharts] Annotations for this file:", currentAnnotations);
@@ -1252,7 +1233,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
         // Check if clicking on an existing annotation
         // Use larger tolerance for easier clicking on annotations
         const clickedAnnotation = currentAnnotations.find(
-          (ann) => Math.abs(ann.position - timePosition) < 1.0 // 1 second tolerance
+          (ann) => Math.abs(ann.position - timePosition) < 1.0, // 1 second tolerance
         );
 
         if (clickedAnnotation) {
@@ -1260,12 +1241,12 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
             "[ECharts] Right-clicked on existing annotation:",
             clickedAnnotation.label,
             "at position:",
-            clickedAnnotation.position
+            clickedAnnotation.position,
           );
         } else {
           console.log(
             "[ECharts] Right-clicked on empty space at time:",
-            timePosition
+            timePosition,
           );
         }
 
@@ -1273,11 +1254,11 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
           e.clientX,
           e.clientY,
           timePosition,
-          clickedAnnotation
+          clickedAnnotation,
         );
       }
     },
-    [timeSeriesAnnotations]
+    [timeSeriesAnnotations],
   );
 
   // Navigation handlers
@@ -1302,7 +1283,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     // Warn if loading might be slow (>500k samples)
     if (totalSamples > 500000) {
       console.warn(
-        `[ECharts] Large data request: ${totalSamples.toLocaleString()} samples may be slow`
+        `[ECharts] Large data request: ${totalSamples.toLocaleString()} samples may be slow`,
       );
     }
 
@@ -1317,7 +1298,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
       newWindow,
       "seconds (",
       chunkSizeSamples,
-      "samples) - triggering persistence"
+      "samples) - triggering persistence",
     );
     setTimeWindow(newWindow);
     updatePlotState({ chunkSize: chunkSizeSamples });
@@ -1432,307 +1413,13 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
           />
         </div>
 
-        {/* Preprocessing Controls */}
-        <div className="mb-3 border rounded-lg overflow-hidden">
-          <button
-            onClick={() => setShowPreprocessing(!showPreprocessing)}
-            className="w-full flex items-center justify-between p-3 bg-accent/30 hover:bg-accent/50 transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              <Sliders className="h-4 w-4" />
-              <span className="font-medium text-sm">Signal Preprocessing</span>
-              {(preprocessing.highpass ||
-                preprocessing.lowpass ||
-                preprocessing.notch?.length ||
-                preprocessing.smoothing?.enabled ||
-                preprocessing.outlierRemoval?.enabled) && (
-                <Badge variant="secondary" className="ml-2 text-xs">
-                  Active
-                </Badge>
-              )}
-            </div>
-            {showPreprocessing ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronRight className="h-4 w-4" />
-            )}
-          </button>
-
-          {showPreprocessing && (
-            <div className="p-4 space-y-4 bg-background">
-              {/* Filters Section */}
-              <div>
-                <Label className="text-xs font-semibold uppercase text-muted-foreground mb-2 block">
-                  Frequency Filters
-                </Label>
-                <div className="space-y-3">
-                  {/* Highpass Filter */}
-                  <div className="flex items-center gap-3">
-                    <Checkbox
-                      id="highpass-enabled"
-                      checked={!!preprocessing.highpass}
-                      onCheckedChange={(checked) => {
-                        handlePreprocessingChange({
-                          ...preprocessing,
-                          highpass: checked ? 0.5 : undefined,
-                        });
-                      }}
-                    />
-                    <Label
-                      htmlFor="highpass-enabled"
-                      className="text-sm flex-1"
-                    >
-                      Highpass (removes DC drift)
-                    </Label>
-                    {preprocessing.highpass !== undefined && (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="number"
-                          value={preprocessing.highpass}
-                          onChange={(e) => {
-                            handlePreprocessingChange({
-                              ...preprocessing,
-                              highpass: parseFloat(e.target.value) || 0.5,
-                            });
-                          }}
-                          className="w-20 h-8 text-sm"
-                          step="0.1"
-                          min="0.1"
-                        />
-                        <span className="text-xs text-muted-foreground">
-                          Hz
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Lowpass Filter */}
-                  <div className="flex items-center gap-3">
-                    <Checkbox
-                      id="lowpass-enabled"
-                      checked={!!preprocessing.lowpass}
-                      onCheckedChange={(checked) => {
-                        handlePreprocessingChange({
-                          ...preprocessing,
-                          lowpass: checked ? 70 : undefined,
-                        });
-                      }}
-                    />
-                    <Label htmlFor="lowpass-enabled" className="text-sm flex-1">
-                      Lowpass (anti-aliasing)
-                    </Label>
-                    {preprocessing.lowpass !== undefined && (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="number"
-                          value={preprocessing.lowpass}
-                          onChange={(e) => {
-                            handlePreprocessingChange({
-                              ...preprocessing,
-                              lowpass: parseFloat(e.target.value) || 70,
-                            });
-                          }}
-                          className="w-20 h-8 text-sm"
-                          step="1"
-                          min="1"
-                        />
-                        <span className="text-xs text-muted-foreground">
-                          Hz
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Notch Filter */}
-                  <div className="flex items-center gap-3">
-                    <Checkbox
-                      id="notch-enabled"
-                      checked={
-                        preprocessing.notch && preprocessing.notch.length > 0
-                      }
-                      onCheckedChange={(checked) => {
-                        handlePreprocessingChange({
-                          ...preprocessing,
-                          notch: checked ? [50] : [],
-                        });
-                      }}
-                    />
-                    <Label htmlFor="notch-enabled" className="text-sm flex-1">
-                      Notch (line noise)
-                    </Label>
-                    {preprocessing.notch && preprocessing.notch.length > 0 && (
-                      <Select
-                        value={preprocessing.notch[0].toString()}
-                        onValueChange={(value) => {
-                          handlePreprocessingChange({
-                            ...preprocessing,
-                            notch: [parseInt(value)],
-                          });
-                        }}
-                      >
-                        <SelectTrigger className="w-24 h-8">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="50">50 Hz</SelectItem>
-                          <SelectItem value="60">60 Hz</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Baseline */}
-              <div>
-                <Label className="text-xs font-semibold uppercase text-muted-foreground mb-2 block">
-                  Baseline Correction
-                </Label>
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <Label className="text-sm flex-1">
-                      Baseline Correction
-                    </Label>
-                    <Select
-                      value={preprocessing.baselineCorrection || "none"}
-                      onValueChange={(value: any) => {
-                        handlePreprocessingChange({
-                          ...preprocessing,
-                          baselineCorrection: value,
-                        });
-                      }}
-                    >
-                      <SelectTrigger className="w-32 h-8">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="mean">Mean</SelectItem>
-                        <SelectItem value="median">Median</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Artifact Removal */}
-              <div>
-                <Label className="text-xs font-semibold uppercase text-muted-foreground mb-2 block">
-                  Artifact Removal
-                </Label>
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <Checkbox
-                      id="outlier-enabled"
-                      checked={preprocessing.outlierRemoval?.enabled || false}
-                      onCheckedChange={(checked) => {
-                        handlePreprocessingChange({
-                          ...preprocessing,
-                          outlierRemoval: {
-                            enabled: checked as boolean,
-                            method:
-                              preprocessing.outlierRemoval?.method || "clip",
-                            threshold:
-                              preprocessing.outlierRemoval?.threshold || 3,
-                          },
-                        });
-                      }}
-                    />
-                    <Label htmlFor="outlier-enabled" className="text-sm flex-1">
-                      Outlier Removal
-                    </Label>
-                    {preprocessing.outlierRemoval?.enabled && (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="number"
-                          value={preprocessing.outlierRemoval.threshold}
-                          onChange={(e) => {
-                            handlePreprocessingChange({
-                              ...preprocessing,
-                              outlierRemoval: {
-                                ...preprocessing.outlierRemoval!,
-                                threshold: parseFloat(e.target.value) || 3,
-                              },
-                            });
-                          }}
-                          className="w-20 h-8 text-sm"
-                          step="0.5"
-                          min="1"
-                        />
-                        <span className="text-xs text-muted-foreground">σ</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <Checkbox
-                      id="smoothing-enabled"
-                      checked={preprocessing.smoothing?.enabled || false}
-                      onCheckedChange={(checked) => {
-                        handlePreprocessingChange({
-                          ...preprocessing,
-                          smoothing: {
-                            enabled: checked as boolean,
-                            method:
-                              preprocessing.smoothing?.method ||
-                              "moving_average",
-                            windowSize:
-                              preprocessing.smoothing?.windowSize || 5,
-                          },
-                        });
-                      }}
-                    />
-                    <Label
-                      htmlFor="smoothing-enabled"
-                      className="text-sm flex-1"
-                    >
-                      Smoothing
-                    </Label>
-                    {preprocessing.smoothing?.enabled && (
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="number"
-                          value={preprocessing.smoothing.windowSize}
-                          onChange={(e) => {
-                            handlePreprocessingChange({
-                              ...preprocessing,
-                              smoothing: {
-                                ...preprocessing.smoothing!,
-                                windowSize: parseInt(e.target.value) || 5,
-                              },
-                            });
-                          }}
-                          className="w-20 h-8 text-sm"
-                          step="1"
-                          min="3"
-                        />
-                        <span className="text-xs text-muted-foreground">
-                          pts
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Reset Button */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  handlePreprocessingChange(getDefaultPreprocessing())
-                }
-                className="w-full"
-              >
-                <RotateCcw className="h-3 w-3 mr-2" />
-                Reset All
-              </Button>
-            </div>
-          )}
+        {/* Quick Filters - Compact visualization filters */}
+        <div className="mb-3 py-2 px-3 border rounded-lg bg-muted/20">
+          <QuickFilters
+            preprocessing={preprocessing}
+            onPreprocessingChange={handlePreprocessingChange}
+            sampleRate={selectedFile?.sample_rate}
+          />
         </div>
 
         {/* Chart Container */}
@@ -1745,7 +1432,7 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
                 <div className="text-xs text-muted-foreground max-w-xs text-center">
                   Processing {selectedChannels.length} channels (
                   {Math.floor(
-                    timeWindow * (selectedFile?.sample_rate || 0)
+                    timeWindow * (selectedFile?.sample_rate || 0),
                   ).toLocaleString()}{" "}
                   samples)
                 </div>

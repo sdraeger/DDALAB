@@ -1,6 +1,7 @@
 "use client";
 
 import { SettingsLayout, SettingsSection } from "./settings/SettingsLayout";
+import { GeneralSettings } from "./settings/GeneralSettings";
 import { AnalysisEngineSettings } from "./settings/AnalysisEngineSettings";
 import { BehaviorSettings } from "./settings/BehaviorSettings";
 import { SecuritySettings } from "./settings/SecuritySettings";
@@ -17,6 +18,7 @@ import {
   Shield,
   Download,
   Settings2,
+  Sliders,
 } from "lucide-react";
 import { useSearchableItems, createSettingsItem } from "@/hooks/useSearchable";
 
@@ -24,6 +26,19 @@ export function SettingsPanel() {
   // Register settings sections as searchable
   useSearchableItems(
     [
+      createSettingsItem(
+        "settings-general",
+        "General Settings",
+        () => {
+          document
+            .querySelector('[data-settings-section="general"]')
+            ?.scrollIntoView();
+        },
+        {
+          description: "Configure general preferences and expert mode",
+          keywords: ["general", "expert", "mode", "advanced", "preferences"],
+        },
+      ),
       createSettingsItem(
         "settings-engine",
         "Analysis Engine Settings",
@@ -132,6 +147,14 @@ export function SettingsPanel() {
 
   const sections: SettingsSection[] = [
     {
+      id: "general",
+      label: "General",
+      icon: <Sliders className="h-4 w-4" />,
+      component: <GeneralSettings />,
+      keywords: ["general", "expert", "mode", "advanced", "preferences"],
+      description: "Configure general preferences and expert mode",
+    },
+    {
       id: "engine",
       label: "Analysis Engine",
       icon: <Activity className="h-4 w-4" />,
@@ -226,5 +249,5 @@ export function SettingsPanel() {
     });
   }
 
-  return <SettingsLayout sections={sections} defaultSection="engine" />;
+  return <SettingsLayout sections={sections} defaultSection="general" />;
 }

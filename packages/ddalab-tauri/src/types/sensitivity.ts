@@ -7,9 +7,9 @@
 export type SweepParameter =
   | "window_length"
   | "window_step"
-  | "scale_min"
-  | "scale_max"
-  | "scale_num";
+  | "delay_min"
+  | "delay_max"
+  | "delay_num";
 
 export interface ParameterRange {
   parameter: SweepParameter;
@@ -27,9 +27,9 @@ export interface SensitivityBaseConfig {
   variants: string[];
   window_length: number;
   window_step: number;
-  scale_min: number;
-  scale_max: number;
-  scale_num: number;
+  delay_min: number;
+  delay_max: number;
+  delay_num: number;
 }
 
 export interface SensitivityConfig {
@@ -145,19 +145,19 @@ export const DEFAULT_PARAMETER_RANGES: Record<
     max: 50,
     description: "Step between windows",
   },
-  scale_min: {
+  delay_min: {
     min: 1,
     max: 5,
-    description: "Minimum scale parameter",
+    description: "Minimum delay parameter (tau)",
   },
-  scale_max: {
+  delay_max: {
     min: 10,
     max: 50,
-    description: "Maximum scale parameter",
+    description: "Maximum delay parameter (tau)",
   },
-  scale_num: {
+  delay_num: {
     min: 10,
     max: 40,
-    description: "Number of scales",
+    description: "Number of delays",
   },
 };
