@@ -41,6 +41,12 @@ impl<V> LruCache<V> {
 
     /// Insert a value, evicting oldest entries if over capacity
     pub fn insert(&mut self, key: String, value: V) {
+        self.insert_arc(key, Arc::new(value));
+    }
+
+    /// Insert a pre-wrapped Arc value, evicting oldest entries if over capacity.
+    /// This avoids cloning when the caller already has an Arc (e.g., for zero-copy responses).
+    pub fn insert_arc(&mut self, key: String, value: Arc<V>) {
         // If key exists, remove from order queue (will be re-added at end)
         if self.map.contains_key(&key) {
             self.order.retain(|k| k != &key);
@@ -54,7 +60,7 @@ impl<V> LruCache<V> {
             }
         }
 
-        self.map.insert(key.clone(), Arc::new(value));
+        self.map.insert(key.clone(), value);
         self.order.push_back(key);
     }
 

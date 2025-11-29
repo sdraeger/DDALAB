@@ -450,13 +450,34 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
 
   // Transform directories and files to tree nodes
   const treeData: FileTreeNode[] = useMemo(() => {
+    // Handle keyboard context menu (Shift+F10 or ContextMenu key)
+    const handleFileKeyDown = (
+      e: React.KeyboardEvent<HTMLDivElement>,
+      file: EDFFileInfo,
+    ) => {
+      // Shift+F10 or ContextMenu key triggers context menu
+      if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") {
+        e.preventDefault();
+        e.stopPropagation();
+        // Position the context menu relative to the focused element
+        const rect = e.currentTarget.getBoundingClientRect();
+        const syntheticEvent = {
+          preventDefault: () => {},
+          stopPropagation: () => {},
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+        } as React.MouseEvent;
+        onContextMenu(syntheticEvent, file);
+      }
+    };
+
     // Create file node
     const createFileNode = (file: EDFFileInfo): FileTreeNode => ({
       id: file.file_path,
       label: file.file_name,
       icon: (
         <div
-          className={`flex items-start gap-3 w-full p-2 rounded-md transition-all ${
+          className={`flex items-start gap-3 w-full p-2 rounded-md transition-all focus:outline-none focus:ring-2 focus:ring-ring ${
             pendingFileSelection || loadFileInfoMutationPending
               ? "opacity-50 cursor-wait"
               : "cursor-pointer hover:bg-accent/50"
@@ -470,6 +491,10 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
               : ""
           }`}
           onContextMenu={(e) => onContextMenu(e, file)}
+          onKeyDown={(e) => handleFileKeyDown(e, file)}
+          tabIndex={0}
+          role="button"
+          aria-label={`File: ${file.file_name}. Press Shift+F10 for context menu.`}
         >
           {file.is_annex_placeholder ? (
             <div className="relative flex-shrink-0 mt-0.5">

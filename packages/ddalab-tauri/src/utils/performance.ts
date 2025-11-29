@@ -290,22 +290,30 @@ class PerformanceProfiler {
 
   /**
    * Monitor memory usage (Chrome only)
+   * Uses Chrome's non-standard performance.memory API
    */
   getMemoryUsage(): {
     usedJSHeapSize: number;
     totalJSHeapSize: number;
     limit: number;
   } | null {
-    // @ts-ignore - Chrome-specific API
-    if (performance.memory) {
-      // @ts-ignore
+    // Chrome-specific memory API type
+    interface ChromePerformanceMemory {
+      usedJSHeapSize: number;
+      totalJSHeapSize: number;
+      jsHeapSizeLimit: number;
+    }
+
+    // Type guard for Chrome's non-standard memory API
+    const perfWithMemory = performance as Performance & {
+      memory?: ChromePerformanceMemory;
+    };
+
+    if (perfWithMemory.memory) {
       return {
-        // @ts-ignore
-        usedJSHeapSize: performance.memory.usedJSHeapSize,
-        // @ts-ignore
-        totalJSHeapSize: performance.memory.totalJSHeapSize,
-        // @ts-ignore
-        limit: performance.memory.jsHeapSizeLimit,
+        usedJSHeapSize: perfWithMemory.memory.usedJSHeapSize,
+        totalJSHeapSize: perfWithMemory.memory.totalJSHeapSize,
+        limit: perfWithMemory.memory.jsHeapSizeLimit,
       };
     }
     return null;

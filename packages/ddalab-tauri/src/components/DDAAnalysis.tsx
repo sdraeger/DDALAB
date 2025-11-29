@@ -40,9 +40,10 @@ import {
   Brain,
   RefreshCw,
   Cloud,
+  XCircle,
 } from "lucide-react";
 import { TauriService, NotificationType } from "@/services/tauriService";
-import { ParameterInput } from "@/components/dda/ParameterInput";
+import { WindowSizeSelector } from "@/components/dda/WindowSizeSelector";
 import { DelayPresetManager } from "@/components/dda/DelayPresetManager";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { CompactChannelConfigGroup } from "@/components/dda/CompactChannelConfig";
@@ -66,6 +67,7 @@ import { Download, Upload } from "lucide-react";
 import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
 import { SensitivityAnalysisDialog } from "@/components/analysis/SensitivityAnalysisDialog";
 import { TrendingUp } from "lucide-react";
+import { toast } from "@/components/ui/toaster";
 
 interface DDAAnalysisProps {
   apiService: ApiService;
@@ -217,6 +219,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const [localIsRunning, setLocalIsRunning] = useState(false); // Local UI state for this component
   const [results, setResults] = useState<DDAResult | null>(null);
   const [analysisName, setAnalysisName] = useState("");
+  const [isCancelling, setIsCancelling] = useState(false); // Track cancellation in progress
   const analysisStartTimeRef = useRef<number | null>(null); // Track when analysis started
   const minProgressDisplayTimeRef = useRef<ReturnType<
     typeof setTimeout
@@ -312,6 +315,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
 
   // Sensitivity analysis state
   const [showSensitivityDialog, setShowSensitivityDialog] = useState(false);
+
+  // Reset confirmation state
+  const [showResetConfirmDialog, setShowResetConfirmDialog] = useState(false);
 
   // Derive history state from TanStack Query
   const historyError = historyErrorObj
@@ -928,6 +934,63 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     }
   }, [selectedFile?.file_path, selectedFile?.duration]); // Depend on both file path and duration
 
+  // Real-time validation of channel configuration
+  useEffect(() => {
+    // Only validate if variants are selected
+    if (parameters.variants.length === 0) {
+      setChannelValidationError(null);
+      return;
+    }
+
+    // Check each selected variant has channel configuration
+    const missingConfigVariants: string[] = [];
+
+    parameters.variants.forEach((variantId) => {
+      const config = parameters.variantChannelConfigs[variantId];
+
+      // Check if this variant has any channels configured
+      let hasChannels = false;
+
+      if (config) {
+        // Check single channels (for ST, DE, SY)
+        if (config.selectedChannels && config.selectedChannels.length > 0) {
+          hasChannels = true;
+        }
+        // Check CT pairs
+        if (config.ctChannelPairs && config.ctChannelPairs.length > 0) {
+          hasChannels = true;
+        }
+        // Check CD pairs
+        if (config.cdChannelPairs && config.cdChannelPairs.length > 0) {
+          hasChannels = true;
+        }
+      }
+
+      if (!hasChannels) {
+        const variant = availableVariants.find((v) => v.id === variantId);
+        missingConfigVariants.push(variant?.name || variantId);
+      }
+    });
+
+    if (missingConfigVariants.length > 0) {
+      if (missingConfigVariants.length === parameters.variants.length) {
+        setChannelValidationError(
+          "Please configure channels for at least one variant before running analysis",
+        );
+      } else {
+        setChannelValidationError(
+          `Missing channel configuration for: ${missingConfigVariants.join(", ")}`,
+        );
+      }
+    } else {
+      setChannelValidationError(null);
+    }
+  }, [
+    parameters.variants,
+    parameters.variantChannelConfigs,
+    availableVariants,
+  ]);
+
   const runAnalysis = async () => {
     if (!selectedFile) {
       console.error("Please select a file");
@@ -1487,6 +1550,37 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     }));
   };
 
+  // Handle cancellation of running analysis
+  const handleCancelAnalysis = useCallback(async () => {
+    setIsCancelling(true);
+    try {
+      const result = await apiService.cancelDDAAnalysis();
+      if (result.success) {
+        console.log(
+          "[DDAAnalysis] Analysis cancelled:",
+          result.cancelled_analysis_id,
+        );
+        toast.info("Analysis Cancelled", "DDA analysis was cancelled");
+        setLocalIsRunning(false);
+        setDDARunning(false);
+      } else {
+        console.warn("[DDAAnalysis] Failed to cancel:", result.message);
+        toast.error(
+          "Cancel Failed",
+          result.message || "Could not cancel analysis",
+        );
+      }
+    } catch (error) {
+      console.error("[DDAAnalysis] Error cancelling:", error);
+      toast.error(
+        "Cancel Error",
+        error instanceof Error ? error.message : "Failed to cancel analysis",
+      );
+    } finally {
+      setIsCancelling(false);
+    }
+  }, [apiService, setDDARunning]);
+
   const handleExportConfig = async () => {
     if (!selectedFile) return;
 
@@ -1717,6 +1811,26 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                 ~{estimatedTime}s estimated • Configuration is locked
               </p>
             </div>
+            {/* Cancel button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCancelAnalysis}
+              disabled={isCancelling}
+              className="mt-4"
+            >
+              {isCancelling ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Cancelling...
+                </>
+              ) : (
+                <>
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Cancel Analysis
+                </>
+              )}
+            </Button>
           </div>
         </div>
       )}
@@ -1724,13 +1838,20 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       <div className="flex-1 flex flex-col min-h-0">
         <div className="flex items-center justify-end flex-shrink-0 pb-4">
           <div className="flex items-center space-x-2">
-            <Input
-              placeholder="Analysis name (optional)"
-              value={analysisName}
-              onChange={(e) => setAnalysisName(e.target.value)}
-              disabled={ddaRunning || localIsRunning}
-              className="w-48"
-            />
+            <div className="relative">
+              <Input
+                placeholder="Analysis name (optional)"
+                value={analysisName}
+                onChange={(e) => setAnalysisName(e.target.value)}
+                disabled={ddaRunning || localIsRunning}
+                className="w-48 pr-16"
+              />
+              {analysisName && !ddaRunning && !localIsRunning && (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground bg-background px-1 rounded">
+                  unsaved
+                </span>
+              )}
+            </div>
             <Button
               variant="outline"
               size="sm"
@@ -1762,8 +1883,9 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             <Button
               variant="outline"
               size="sm"
-              onClick={resetParameters}
+              onClick={() => setShowResetConfirmDialog(true)}
               disabled={ddaRunning}
+              title="Reset all parameters to defaults"
             >
               Reset
             </Button>
@@ -1981,17 +2103,29 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   <Input
                     type="number"
                     value={parameters.timeStart}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const inputValue = parseFloat(e.target.value) || 0;
+                      const clampedValue = Math.max(0, inputValue);
+                      if (inputValue !== clampedValue) {
+                        toast.warning(
+                          "Value Adjusted",
+                          `Start time cannot be negative. Set to ${clampedValue.toFixed(1)}s`,
+                        );
+                      }
                       setLocalParameters((prev) => ({
                         ...prev,
-                        timeStart: Math.max(0, parseFloat(e.target.value) || 0),
-                      }))
-                    }
+                        timeStart: clampedValue,
+                      }));
+                    }}
                     disabled={ddaRunning || localIsRunning}
                     min="0"
                     max={selectedFile?.duration}
                     step="0.1"
                   />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Valid range: 0 - {selectedFile?.duration?.toFixed(1) || "?"}
+                    s
+                  </p>
                 </div>
                 <div>
                   <Label className="text-sm">End Time (s)</Label>
@@ -2001,78 +2135,64 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     onChange={(e) => {
                       const inputValue = parseFloat(e.target.value) || 0;
                       const maxDuration = selectedFile?.duration || Infinity;
+                      const minValue = parameters.timeStart + 0.1;
+                      const clampedValue = Math.min(
+                        maxDuration,
+                        Math.max(minValue, inputValue),
+                      );
+                      if (inputValue !== clampedValue) {
+                        if (inputValue > maxDuration) {
+                          toast.warning(
+                            "Value Adjusted",
+                            `End time cannot exceed file duration. Set to ${clampedValue.toFixed(1)}s`,
+                          );
+                        } else if (inputValue < minValue) {
+                          toast.warning(
+                            "Value Adjusted",
+                            `End time must be at least 0.1s after start. Set to ${clampedValue.toFixed(1)}s`,
+                          );
+                        }
+                      }
                       setLocalParameters((prev) => ({
                         ...prev,
-                        timeEnd: Math.min(
-                          maxDuration,
-                          Math.max(prev.timeStart + 0.1, inputValue),
-                        ),
+                        timeEnd: clampedValue,
                       }));
                     }}
                     disabled={ddaRunning || localIsRunning}
-                    min={parameters.timeStart + 1}
+                    min={parameters.timeStart + 0.1}
                     max={selectedFile?.duration}
                     step="0.1"
                   />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Valid range: {(parameters.timeStart + 0.1).toFixed(1)} -{" "}
+                    {selectedFile?.duration?.toFixed(1) || "?"}s
+                  </p>
                 </div>
                 <div className="text-xs text-muted-foreground">
                   Duration:{" "}
                   {(parameters.timeEnd - parameters.timeStart).toFixed(1)}s
                 </div>
 
-                {/* Window Parameters - Merged into same card */}
-                <div className="pt-4 mt-4 border-t space-y-3">
-                  <div className="flex items-center gap-2">
-                    <h4 className="text-xs font-semibold">Window Parameters</h4>
-                    <InfoTooltip
-                      content={
-                        <div className="space-y-1">
-                          <p className="font-semibold">Window Parameters</p>
-                          <p>
-                            <strong>Window Length:</strong> Number of data
-                            points in each analysis window
-                          </p>
-                          <p>
-                            <strong>Window Step:</strong> Number of points to
-                            shift between consecutive windows
-                          </p>
-                          <p className="text-xs mt-2">
-                            Smaller steps = higher temporal resolution but
-                            longer computation time
-                          </p>
-                        </div>
-                      }
-                    />
-                  </div>
-                  <ParameterInput
-                    label="Window Length"
-                    value={parameters.windowLength}
-                    onChange={(value) =>
+                {/* Window Parameters - Using improved WindowSizeSelector */}
+                <div className="pt-4 mt-4 border-t">
+                  <WindowSizeSelector
+                    windowLength={parameters.windowLength}
+                    windowStep={parameters.windowStep}
+                    sampleRate={selectedFile?.sample_rate || 256}
+                    duration={parameters.timeEnd - parameters.timeStart}
+                    disabled={ddaRunning || localIsRunning}
+                    onWindowLengthChange={(value) =>
                       setLocalParameters((prev) => ({
                         ...prev,
                         windowLength: value,
                       }))
                     }
-                    sampleRate={selectedFile?.sample_rate || 256}
-                    disabled={ddaRunning || localIsRunning}
-                    min={50}
-                    max={500}
-                    tooltip="Number of samples in each analysis window"
-                  />
-                  <ParameterInput
-                    label="Window Step"
-                    value={parameters.windowStep}
-                    onChange={(value) =>
+                    onWindowStepChange={(value) =>
                       setLocalParameters((prev) => ({
                         ...prev,
                         windowStep: value,
                       }))
                     }
-                    sampleRate={selectedFile?.sample_rate || 256}
-                    disabled={ddaRunning || localIsRunning}
-                    min={1}
-                    max={50}
-                    tooltip="Shift between consecutive windows (smaller = more overlap)"
                   />
                 </div>
               </CardContent>
@@ -2189,10 +2309,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                   disabled={ddaRunning || localIsRunning}
                   channelConfigs={parameters.variantChannelConfigs}
                   onConfigChange={(variantId, config) => {
-                    // Clear validation error when user configures channels
-                    if (channelValidationError) {
-                      setChannelValidationError(null);
-                    }
+                    // Real-time validation is handled by useEffect
                     setLocalParameters((prev) => ({
                       ...prev,
                       variantChannelConfigs: {
@@ -2332,6 +2449,53 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           }}
         />
       )}
+
+      {/* Reset Confirmation Dialog */}
+      <Dialog
+        open={showResetConfirmDialog}
+        onOpenChange={setShowResetConfirmDialog}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset All Parameters?</DialogTitle>
+            <DialogDescription>
+              This will reset all DDA analysis parameters to their default
+              values, including:
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1 py-2">
+            <li>Selected variants and channel configurations</li>
+            <li>Window length and step size</li>
+            <li>Time range settings</li>
+            <li>Scale parameters</li>
+            <li>Delay list configuration</li>
+          </ul>
+          <p className="text-sm text-muted-foreground">
+            This action cannot be undone.
+          </p>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setShowResetConfirmDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                resetParameters();
+                setShowResetConfirmDialog(false);
+                toast.success(
+                  "Parameters Reset",
+                  "All analysis parameters have been reset to defaults.",
+                );
+              }}
+            >
+              Reset All
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
