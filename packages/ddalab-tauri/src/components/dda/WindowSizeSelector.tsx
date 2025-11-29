@@ -81,13 +81,13 @@ export function WindowSizeSelector({
   // Convert samples to ms
   const samplesToMs = useCallback(
     (samples: number) => (samples / sampleRate) * 1000,
-    [sampleRate]
+    [sampleRate],
   );
 
   // Convert ms to samples
   const msToSamples = useCallback(
     (ms: number) => Math.round((ms / 1000) * sampleRate),
-    [sampleRate]
+    [sampleRate],
   );
 
   // Calculate overlap percentage from window length and step
@@ -98,18 +98,16 @@ export function WindowSizeSelector({
   }, [windowLength, windowStep]);
 
   // Calculate step from overlap percentage
-  const overlapToStep = useCallback(
-    (overlap: number, length: number) => {
-      const step = Math.round(length * (1 - overlap / 100));
-      return Math.max(1, step); // Minimum step of 1
-    },
-    []
-  );
+  const overlapToStep = useCallback((overlap: number, length: number) => {
+    const step = Math.round(length * (1 - overlap / 100));
+    return Math.max(1, step); // Minimum step of 1
+  }, []);
 
   // Calculate analysis stats
   const analysisStats = useMemo(() => {
     const totalSamples = duration * sampleRate;
-    const numWindows = Math.floor((totalSamples - windowLength) / windowStep) + 1;
+    const numWindows =
+      Math.floor((totalSamples - windowLength) / windowStep) + 1;
     const effectiveStep = windowStep / sampleRate;
     const temporalResolution = effectiveStep * 1000; // in ms
 
@@ -126,7 +124,7 @@ export function WindowSizeSelector({
     const matchingPreset = PRESETS.find(
       (p) =>
         Math.abs(p.windowLengthMs - windowMs) < 10 &&
-        Math.abs(p.overlapPercent - overlapPercent) < 5
+        Math.abs(p.overlapPercent - overlapPercent) < 5,
     );
     setActivePreset(matchingPreset?.id || null);
   }, [windowLength, overlapPercent, samplesToMs]);
@@ -139,7 +137,7 @@ export function WindowSizeSelector({
       onWindowLengthChange(newLength);
       onWindowStepChange(newStep);
     },
-    [msToSamples, overlapToStep, onWindowLengthChange, onWindowStepChange]
+    [msToSamples, overlapToStep, onWindowLengthChange, onWindowStepChange],
   );
 
   // Handle window length change
@@ -152,7 +150,14 @@ export function WindowSizeSelector({
       const newStep = overlapToStep(overlapPercent, clampedSamples);
       onWindowStepChange(newStep);
     },
-    [msToSamples, sampleRate, overlapPercent, overlapToStep, onWindowLengthChange, onWindowStepChange]
+    [
+      msToSamples,
+      sampleRate,
+      overlapPercent,
+      overlapToStep,
+      onWindowLengthChange,
+      onWindowStepChange,
+    ],
   );
 
   // Handle overlap change
@@ -161,7 +166,7 @@ export function WindowSizeSelector({
       const newStep = overlapToStep(newOverlap, windowLength);
       onWindowStepChange(newStep);
     },
-    [windowLength, overlapToStep, onWindowStepChange]
+    [windowLength, overlapToStep, onWindowStepChange],
   );
 
   // Get display value based on unit
@@ -172,7 +177,7 @@ export function WindowSizeSelector({
       }
       return samples.toString();
     },
-    [displayUnit, samplesToMs]
+    [displayUnit, samplesToMs],
   );
 
   // Parse input value based on unit
@@ -184,7 +189,7 @@ export function WindowSizeSelector({
       }
       return Math.round(num);
     },
-    [displayUnit, msToSamples]
+    [displayUnit, msToSamples],
   );
 
   // Window length slider range based on sample rate
@@ -211,7 +216,10 @@ export function WindowSizeSelector({
             content={
               <div className="space-y-1 text-sm">
                 <p className="font-medium">Window Presets</p>
-                <p>Choose a preset to quickly configure window settings optimized for different analysis needs.</p>
+                <p>
+                  Choose a preset to quickly configure window settings optimized
+                  for different analysis needs.
+                </p>
               </div>
             }
           />
@@ -226,7 +234,8 @@ export function WindowSizeSelector({
               disabled={disabled}
               className={cn(
                 "flex flex-col items-center gap-1 h-auto py-2 px-3",
-                activePreset === preset.id && "ring-2 ring-primary ring-offset-1"
+                activePreset === preset.id &&
+                  "ring-2 ring-primary ring-offset-1",
               )}
             >
               <div className="flex items-center gap-1.5">
@@ -289,7 +298,9 @@ export function WindowSizeSelector({
           </div>
           <Slider
             value={[windowLength]}
-            onValueChange={([value]) => handleWindowLengthChange(value, "samples")}
+            onValueChange={([value]) =>
+              handleWindowLengthChange(value, "samples")
+            }
             min={windowLengthRange.min}
             max={windowLengthRange.max}
             step={Math.max(1, Math.round(windowLengthRange.max / 100))}
@@ -314,8 +325,14 @@ export function WindowSizeSelector({
                 content={
                   <div className="space-y-1 text-sm">
                     <p className="font-medium">Window Overlap</p>
-                    <p>Higher overlap = more windows = smoother time series but longer computation.</p>
-                    <p className="text-xs mt-1">Step size: {windowStep} samples ({samplesToMs(windowStep).toFixed(1)}ms)</p>
+                    <p>
+                      Higher overlap = more windows = smoother time series but
+                      longer computation.
+                    </p>
+                    <p className="text-xs mt-1">
+                      Step size: {windowStep} samples (
+                      {samplesToMs(windowStep).toFixed(1)}ms)
+                    </p>
                   </div>
                 }
               />
@@ -325,7 +342,10 @@ export function WindowSizeSelector({
                 type="number"
                 value={overlapPercent}
                 onChange={(e) => {
-                  const value = Math.max(0, Math.min(99, parseInt(e.target.value) || 0));
+                  const value = Math.max(
+                    0,
+                    Math.min(99, parseInt(e.target.value) || 0),
+                  );
                   handleOverlapChange(value);
                 }}
                 disabled={disabled}
@@ -347,7 +367,9 @@ export function WindowSizeSelector({
           />
           <div className="flex justify-between text-[10px] text-muted-foreground">
             <span>0% (no overlap)</span>
-            <span className="font-medium text-foreground">{overlapPercent}%</span>
+            <span className="font-medium text-foreground">
+              {overlapPercent}%
+            </span>
             <span>99% (max overlap)</span>
           </div>
         </div>
@@ -375,7 +397,9 @@ export function WindowSizeSelector({
             <div className="text-lg font-semibold text-primary">
               {analysisStats.temporalResolution.toFixed(1)}
             </div>
-            <div className="text-[10px] text-muted-foreground">ms resolution</div>
+            <div className="text-[10px] text-muted-foreground">
+              ms resolution
+            </div>
           </div>
         </div>
         {analysisStats.numWindows > 10000 && (

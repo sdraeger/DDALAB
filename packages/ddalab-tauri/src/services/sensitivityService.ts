@@ -317,6 +317,7 @@ export async function runSensitivityAnalysis(
       const startTime = performance.now();
 
       // Build DDA request with modified parameters
+      // Note: UI uses "delay_*" but API expects "scale_*" for these parameters
       const request: DDAAnalysisRequest = {
         file_path: config.baseConfig.file_path,
         channels: config.baseConfig.channels,
@@ -326,9 +327,9 @@ export async function runSensitivityAnalysis(
         window_length:
           paramValues.window_length ?? config.baseConfig.window_length,
         window_step: paramValues.window_step ?? config.baseConfig.window_step,
-        scale_min: paramValues.scale_min ?? config.baseConfig.scale_min,
-        scale_max: paramValues.scale_max ?? config.baseConfig.scale_max,
-        scale_num: paramValues.scale_num ?? config.baseConfig.scale_num,
+        scale_min: paramValues.delay_min ?? config.baseConfig.delay_min,
+        scale_max: paramValues.delay_max ?? config.baseConfig.delay_max,
+        scale_num: paramValues.delay_num ?? config.baseConfig.delay_num,
       };
 
       try {

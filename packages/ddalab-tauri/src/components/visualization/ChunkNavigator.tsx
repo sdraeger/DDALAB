@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useMemo, useCallback, useState, useRef, useEffect } from "react";
+import React, {
+  useMemo,
+  useCallback,
+  useState,
+  useRef,
+  useEffect,
+} from "react";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -91,12 +97,16 @@ export function ChunkNavigator({
   // Calculate viewing range
   const viewStart = currentTime;
   const viewEnd = Math.min(currentTime + timeWindow, duration);
-  const viewPercent = duration > 0 ? ((viewEnd - viewStart) / duration) * 100 : 0;
+  const viewPercent =
+    duration > 0 ? ((viewEnd - viewStart) / duration) * 100 : 0;
   const positionPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   // Determine active preset
   const activePreset = useMemo(() => {
-    return VIEW_PRESETS.find((p) => Math.abs(p.windowSeconds - timeWindow) < 0.5)?.id || null;
+    return (
+      VIEW_PRESETS.find((p) => Math.abs(p.windowSeconds - timeWindow) < 0.5)
+        ?.id || null
+    );
   }, [timeWindow]);
 
   // Handle preset selection
@@ -111,7 +121,7 @@ export function ChunkNavigator({
         onSeek(Math.max(0, duration - newWindow));
       }
     },
-    [duration, currentTime, onTimeWindowChange, onSeek]
+    [duration, currentTime, onTimeWindowChange, onSeek],
   );
 
   // Handle time input
@@ -164,7 +174,7 @@ export function ChunkNavigator({
         setJumpToInput("");
       }
     },
-    [handleJumpTo]
+    [handleJumpTo],
   );
 
   // Focus input when editing starts
@@ -220,7 +230,7 @@ export function ChunkNavigator({
               disabled={isDisabled || preset.windowSeconds > duration}
               className={cn(
                 "flex-1 h-8 text-xs gap-1.5 px-2",
-                activePreset === preset.id && "ring-1 ring-primary"
+                activePreset === preset.id && "ring-1 ring-primary",
               )}
               title={preset.description}
             >
@@ -421,21 +431,6 @@ export function ChunkNavigator({
           />
           <div className="text-xs font-mono text-muted-foreground w-12 text-right">
             {timeWindow.toFixed(0)}s
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Info Bar */}
-      <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
-        <div>
-          Position: <span className="font-mono">{currentTime.toFixed(2)}s</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <div>
-            Window: <span className="font-mono">{timeWindow.toFixed(1)}s</span>
-          </div>
-          <div>
-            Range: <span className="font-mono">{viewStart.toFixed(2)}s - {viewEnd.toFixed(2)}s</span>
           </div>
         </div>
       </div>

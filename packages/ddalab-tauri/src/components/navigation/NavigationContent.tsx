@@ -10,6 +10,7 @@ import { AnnotationsTab } from "@/components/AnnotationsTab";
 import { StreamingView } from "@/components/streaming";
 import { DDAWithHistory } from "@/components/dda/DDAWithHistory";
 import { ICAAnalysisPanel } from "@/components/ica";
+import { PreprocessingPipeline } from "@/components/preprocessing";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { OpenNeuroBrowser } from "@/components/OpenNeuroBrowser";
 import { NSGJobManager } from "@/components/NSGJobManager";
@@ -17,7 +18,7 @@ import { NotificationHistory } from "@/components/NotificationHistory";
 import { FileInfoCard } from "@/components/FileInfoCard";
 import { BIDSContextIndicator } from "@/components/BIDSContextIndicator";
 import { Card, CardContent } from "@/components/ui/card";
-import { Brain, Activity, FileText, Sparkles } from "lucide-react";
+import { Brain, Activity, FileText, Sparkles, Filter } from "lucide-react";
 
 interface NavigationContentProps {
   apiService: ApiService;
@@ -120,6 +121,31 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
       return (
         <div className="p-4 h-full">
           <AnnotationsTab />
+        </div>
+      );
+    }
+
+    if (secondaryNav === "preprocessing") {
+      return (
+        <div className="h-full flex flex-col">
+          {hasSelectedFile ? (
+            <>
+              <div className="px-4 pt-4 pb-2">
+                <BIDSContextIndicator variant="breadcrumb" />
+              </div>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <PreprocessingPipeline />
+              </div>
+            </>
+          ) : (
+            <div className="p-4 h-full">
+              <EmptyState
+                icon={Filter}
+                title="No File Selected"
+                description="Select a file from the sidebar to configure preprocessing"
+              />
+            </div>
+          )}
         </div>
       );
     }

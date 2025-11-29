@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Settings2, AlertTriangle } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { TauriService, AppPreferences } from "@/services/tauriService";
 import { toast } from "@/components/ui/toaster";
 

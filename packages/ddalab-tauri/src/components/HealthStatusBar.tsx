@@ -7,6 +7,13 @@ import { useSync } from "@/hooks/useSync";
 import { useHealthCheck } from "@/hooks/useHealthCheck";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Wifi,
   WifiOff,
@@ -21,6 +28,7 @@ import {
   Brain,
   Loader2,
   X,
+  FlaskConical,
 } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 
@@ -33,6 +41,8 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
   const { isConnected: syncConnected, isLoading: syncLoading } = useSync();
   const ddaRunning = useAppStore((state) => state.dda.isRunning);
   const setDDARunning = useAppStore((state) => state.setDDARunning);
+  const expertMode = useAppStore((state) => state.ui.expertMode);
+  const setExpertMode = useAppStore((state) => state.setExpertMode);
 
   // Cancel popover state
   const [showCancelPopover, setShowCancelPopover] = useState(false);
@@ -274,6 +284,41 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
         </div>
 
         <div className="flex items-center space-x-2">
+          {/* Expert Mode Toggle */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center space-x-1.5 px-2 py-1 rounded-md hover:bg-accent/50 transition-colors">
+                  <FlaskConical
+                    className={`h-3.5 w-3.5 ${expertMode ? "text-primary" : "text-muted-foreground"}`}
+                  />
+                  <span
+                    className={`text-xs font-medium ${expertMode ? "text-primary" : "text-muted-foreground"}`}
+                  >
+                    Expert
+                  </span>
+                  <Switch
+                    checked={expertMode}
+                    onCheckedChange={setExpertMode}
+                    className="h-4 w-7 data-[state=checked]:bg-primary"
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                <p className="font-medium">
+                  {expertMode ? "Expert Mode Enabled" : "Expert Mode Disabled"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {expertMode
+                    ? "Advanced DDA options visible"
+                    : "Using EEG defaults (delays: [7, 10], MODEL: 1 2 10)"}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <div className="w-px h-4 bg-border" />
+
           {/* Error Count */}
           {health.errors.length > 0 && (
             <Badge variant="destructive" className="text-xs">

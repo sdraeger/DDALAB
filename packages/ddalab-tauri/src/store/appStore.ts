@@ -19,6 +19,7 @@ import { createUISlice } from "./slices/uiSlice";
 import { createAnnotationSlice } from "./slices/annotationSlice";
 import { createWorkflowSlice } from "./slices/workflowSlice";
 import { createStreamingSlice } from "./slices/streamingSlice";
+import { createPreprocessingSlice } from "./slices/preprocessingSlice";
 import { createPersistenceSlice } from "./slices/persistenceSlice";
 
 // Re-export types for backward compatibility
@@ -36,6 +37,7 @@ export type {
   StreamingState,
   AppState,
 } from "./slices/types";
+export type { PreprocessingState } from "./slices/preprocessingSlice";
 
 /**
  * Main application store
@@ -56,6 +58,7 @@ export const useAppStore = create<AppState>()(
     ...createAnnotationSlice(set, get, store),
     ...createWorkflowSlice(set, get, store),
     ...createStreamingSlice(set, get, store),
+    ...createPreprocessingSlice(set, get, store),
     ...createPersistenceSlice(set, get, store),
   })),
 );
