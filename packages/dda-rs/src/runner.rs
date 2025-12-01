@@ -66,7 +66,7 @@ impl DDARunner {
         );
         log::info!("Time range: {:?}", request.time_range);
         log::info!("Window parameters: {:?}", request.window_parameters);
-        log::info!("Scale parameters: {:?}", request.scale_parameters);
+        log::info!("Delay parameters: {:?}", request.delay_parameters);
 
         // Create temporary output file
         let temp_dir = std::env::temp_dir();
@@ -318,36 +318,11 @@ impl DDARunner {
             }
         }
 
-        // Add delay values - use delay_list if provided, otherwise generate from scale parameters
+        // Add delay values directly from delay_parameters
         command.arg("-TAU");
-        if let Some(ref delay_list) = request.scale_parameters.delay_list {
-            log::info!("Using explicit delay list: {:?}", delay_list);
-            for delay in delay_list {
-                command.arg(delay.to_string());
-            }
-        } else {
-            // Generate delay list from scale_min, scale_max, scale_num
-            let scale_min = request.scale_parameters.scale_min as i32;
-            let scale_max = request.scale_parameters.scale_max as i32;
-            let scale_num = request.scale_parameters.scale_num;
-
-            let generated_delays: Vec<i32> = if scale_num == 1 {
-                vec![scale_min]
-            } else {
-                (0..scale_num)
-                    .map(|i| {
-                        scale_min + ((scale_max - scale_min) * i as i32) / (scale_num as i32 - 1)
-                    })
-                    .collect()
-            };
-
-            log::info!(
-                "Generated delay list from scale parameters: {:?}",
-                generated_delays
-            );
-            for delay in &generated_delays {
-                command.arg(delay.to_string());
-            }
+        log::info!("Using delay values: {:?}", request.delay_parameters.delays);
+        for delay in &request.delay_parameters.delays {
+            command.arg(delay.to_string());
         }
 
         // Add time bounds (sample indices) only if provided
@@ -623,32 +598,10 @@ impl DDARunner {
                     pair_command.arg("-WS_CT").arg(ct_ws.to_string());
                 }
 
-                // Add delay values - use delay_list if provided, otherwise generate from scale parameters
+                // Add delay values directly from delay_parameters
                 pair_command.arg("-TAU");
-                if let Some(ref delay_list) = request.scale_parameters.delay_list {
-                    for delay in delay_list {
-                        pair_command.arg(delay.to_string());
-                    }
-                } else {
-                    // Generate delay list from scale_min, scale_max, scale_num
-                    let scale_min = request.scale_parameters.scale_min as i32;
-                    let scale_max = request.scale_parameters.scale_max as i32;
-                    let scale_num = request.scale_parameters.scale_num;
-
-                    let generated_delays: Vec<i32> = if scale_num == 1 {
-                        vec![scale_min]
-                    } else {
-                        (0..scale_num)
-                            .map(|i| {
-                                scale_min
-                                    + ((scale_max - scale_min) * i as i32) / (scale_num as i32 - 1)
-                            })
-                            .collect()
-                    };
-
-                    for delay in &generated_delays {
-                        pair_command.arg(delay.to_string());
-                    }
+                for delay in &request.delay_parameters.delays {
+                    pair_command.arg(delay.to_string());
                 }
 
                 // Add time bounds only if provided
@@ -809,32 +762,10 @@ impl DDARunner {
             cd_command.arg("-WL_CT").arg(ct_wl.to_string());
             cd_command.arg("-WS_CT").arg(ct_ws.to_string());
 
-            // Add delay values - use delay_list if provided, otherwise generate from scale parameters
+            // Add delay values directly from delay_parameters
             cd_command.arg("-TAU");
-            if let Some(ref delay_list) = request.scale_parameters.delay_list {
-                for delay in delay_list {
-                    cd_command.arg(delay.to_string());
-                }
-            } else {
-                // Generate delay list from scale_min, scale_max, scale_num
-                let scale_min = request.scale_parameters.scale_min as i32;
-                let scale_max = request.scale_parameters.scale_max as i32;
-                let scale_num = request.scale_parameters.scale_num;
-
-                let generated_delays: Vec<i32> = if scale_num == 1 {
-                    vec![scale_min]
-                } else {
-                    (0..scale_num)
-                        .map(|i| {
-                            scale_min
-                                + ((scale_max - scale_min) * i as i32) / (scale_num as i32 - 1)
-                        })
-                        .collect()
-                };
-
-                for delay in &generated_delays {
-                    cd_command.arg(delay.to_string());
-                }
+            for delay in &request.delay_parameters.delays {
+                cd_command.arg(delay.to_string());
             }
 
             // Add time bounds only if provided
@@ -1055,7 +986,7 @@ impl DDARunner {
             channels,
             primary_q_matrix.clone(),
             request.window_parameters.clone(),
-            request.scale_parameters.clone(),
+            request.delay_parameters.clone(),
         )
         .with_variant_results(variant_results);
 
@@ -1235,28 +1166,10 @@ impl DDARunner {
             command.arg("-WS_CT").arg(ct_ws.to_string());
         }
 
-        // Delay values
+        // Delay values directly from delay_parameters
         command.arg("-TAU");
-        if let Some(ref delay_list) = request.scale_parameters.delay_list {
-            for delay in delay_list {
-                command.arg(delay.to_string());
-            }
-        } else {
-            let scale_min = request.scale_parameters.scale_min as i32;
-            let scale_max = request.scale_parameters.scale_max as i32;
-            let scale_num = request.scale_parameters.scale_num;
-            let delays: Vec<i32> = if scale_num == 1 {
-                vec![scale_min]
-            } else {
-                (0..scale_num)
-                    .map(|i| {
-                        scale_min + ((scale_max - scale_min) * i as i32) / (scale_num as i32 - 1)
-                    })
-                    .collect()
-            };
-            for delay in &delays {
-                command.arg(delay.to_string());
-            }
+        for delay in &request.delay_parameters.delays {
+            command.arg(delay.to_string());
         }
 
         // Time bounds

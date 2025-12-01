@@ -1,5 +1,5 @@
 use dda_rs::{
-    AlgorithmSelection, DDARequest, DDARunner, PreprocessingOptions, ScaleParameters, TimeRange,
+    AlgorithmSelection, DDARequest, DDARunner, DelayParameters, PreprocessingOptions, TimeRange,
     WindowParameters,
 };
 use std::path::PathBuf;
@@ -32,8 +32,7 @@ async fn test_cd_dda_matches_binary_output() {
     let cd_pairs = vec![[0, 1], [0, 2], [1, 2]];
     let window_length = 2048u32;
     let window_step = 1024u32;
-    let scale_min = 1.0;
-    let scale_max = 10.0;
+    let delays: Vec<i32> = (1..=10).collect(); // [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     let start_time = 0.0;
     let end_time = 30.0;
     let sample_rate = 200.0; // Assume 200 Hz sample rate
@@ -72,8 +71,8 @@ async fn test_cd_dda_matches_binary_output() {
         .arg("10")
         .arg("-TAU");
 
-    // Add delay values from scale range
-    for delay in (scale_min as i32)..=(scale_max as i32) {
+    // Add delay values directly
+    for delay in &delays {
         cmd.arg(delay.to_string());
     }
 
@@ -156,15 +155,13 @@ async fn test_cd_dda_matches_binary_output() {
             ct_window_length: Some(2),
             ct_window_step: Some(2),
         },
-        scale_parameters: ScaleParameters {
-            scale_min,
-            scale_max,
-            scale_num: ((scale_max - scale_min) as u32) + 1,
-            delay_list: None,
+        delay_parameters: DelayParameters {
+            delays: delays.clone(),
         },
         ct_channel_pairs: None,
         cd_channel_pairs: Some(cd_pairs.clone()),
         model_parameters: None,
+        variant_configs: None,
     };
 
     // Calculate sample bounds

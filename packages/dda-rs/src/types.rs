@@ -44,16 +44,13 @@ pub struct WindowParameters {
     pub ct_window_step: Option<u32>,
 }
 
-/// Scale parameters for DDA analysis
+/// Delay parameters for DDA analysis
+/// These are the tau values passed directly to the -TAU CLI argument
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScaleParameters {
-    pub scale_min: f64,
-    pub scale_max: f64,
-    pub scale_num: u32,
-    /// Optional list of specific delay values to use
-    /// If provided, this overrides scale_min/max/num
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub delay_list: Option<Vec<i32>>,
+pub struct DelayParameters {
+    /// List of delay values (tau) passed directly to the binary
+    /// Example: [1, 2, 3, 4, 5] will be passed as -TAU 1 2 3 4 5
+    pub delays: Vec<i32>,
 }
 
 /// MODEL parameters for DDA analysis (expert mode)
@@ -88,7 +85,7 @@ pub struct DDARequest {
     pub preprocessing_options: PreprocessingOptions,
     pub algorithm_selection: AlgorithmSelection,
     pub window_parameters: WindowParameters,
-    pub scale_parameters: ScaleParameters,
+    pub delay_parameters: DelayParameters,
     /// Channel pairs for CT (Cross-Timeseries) analysis
     /// Each pair is [channel_i, channel_j] where channels are 0-based indices
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -128,7 +125,7 @@ pub struct DDAResult {
     pub variant_results: Option<Vec<VariantResult>>, // All variant results
     pub raw_output: Option<String>, // Optional: keep raw output for debugging
     pub window_parameters: WindowParameters,
-    pub scale_parameters: ScaleParameters,
+    pub delay_parameters: DelayParameters,
     pub created_at: String,
 }
 
@@ -139,7 +136,7 @@ impl DDAResult {
         channels: Vec<String>,
         q_matrix: Vec<Vec<f64>>,
         window_parameters: WindowParameters,
-        scale_parameters: ScaleParameters,
+        delay_parameters: DelayParameters,
     ) -> Self {
         Self {
             id,
@@ -149,7 +146,7 @@ impl DDAResult {
             variant_results: None,
             raw_output: None,
             window_parameters,
-            scale_parameters,
+            delay_parameters,
             created_at: chrono::Utc::now().to_rfc3339(),
         }
     }
