@@ -52,6 +52,8 @@ export interface AppPreferences {
   use_https: boolean;
   /** Whether to show a warning dialog when closing the app during DDA analysis */
   warn_on_close_during_analysis: boolean;
+  /** ISO date string of last update check */
+  updates_last_checked?: string;
 }
 
 export enum NSGJobStatus {

@@ -26,7 +26,7 @@ import {
 export function UpdatesSettings() {
   // TanStack Query hooks
   const { data: currentVersion = "Unknown" } = useAppVersion();
-  const checkForUpdatesMutation = useCheckForUpdates();
+  const { lastChecked, ...checkForUpdatesMutation } = useCheckForUpdates();
   const downloadAndInstallMutation = useDownloadAndInstallUpdate();
 
   // Local UI state
@@ -39,6 +39,24 @@ export function UpdatesSettings() {
     checkForUpdatesMutation.error?.message ||
     downloadAndInstallMutation.error?.message ||
     "";
+
+  // Format last checked date
+  const formatLastChecked = (date: Date | null): string => {
+    if (!date) return "Never";
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60)
+      return `${diffMins} minute${diffMins === 1 ? "" : "s"} ago`;
+    if (diffHours < 24)
+      return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+    return date.toLocaleDateString();
+  };
 
   const handleCheckForUpdates = async () => {
     setInstallSuccess(false);
@@ -92,7 +110,7 @@ export function UpdatesSettings() {
                 v{currentVersion}
               </p>
               <p className="text-sm text-muted-foreground mt-1">
-                Last checked: {updateStatus ? "Just now" : "Never"}
+                Last checked: {formatLastChecked(lastChecked)}
               </p>
             </div>
             <Button

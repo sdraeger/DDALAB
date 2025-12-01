@@ -428,6 +428,11 @@ pub async fn run_dda_analysis(
     log::info!("⏱️  [TIMING] Running DDA analysis via dda-rs...");
     let dda_start = std::time::Instant::now();
 
+    // Variable to hold CD channel pairs for network motif computation
+    // This is extracted from the parsed variant_configs (if available) since
+    // the raw request.cd_channel_pairs may not be populated
+    let mut parsed_cd_channel_pairs: Option<Vec<[usize; 2]>> = None;
+
     // Check if variant_configs are provided for per-variant channel configuration
     let dda_result = if let Some(ref variant_configs_json) = request.variant_configs {
         log::info!("📊 Using per-variant channel configuration");
@@ -436,6 +441,19 @@ pub async fn run_dda_analysis(
             log::error!("{}", e);
             StatusCode::BAD_REQUEST
         })?;
+
+        // Extract CD channel pairs from parsed config for network motifs
+        if let Some(cd_config) = variant_configs.get("cross_dynamical") {
+            if let Some(ref pairs) = cd_config.cd_channel_pairs {
+                if !pairs.is_empty() {
+                    parsed_cd_channel_pairs = Some(pairs.clone());
+                    log::info!(
+                        "📊 Extracted {} CD channel pairs from variant_configs for network motifs",
+                        pairs.len()
+                    );
+                }
+            }
+        }
 
         let mut variant_results = Vec::new();
 
@@ -729,11 +747,12 @@ pub async fn run_dda_analysis(
                 ct_window_length: request.window_parameters.ct_window_length.map(|v| v as u32),
                 ct_window_step: request.window_parameters.ct_window_step.map(|v| v as u32),
             },
-            dda_rs::ScaleParameters {
-                scale_min: request.scale_parameters.scale_min as f64,
-                scale_max: request.scale_parameters.scale_max as f64,
-                scale_num: request.scale_parameters.scale_num as u32,
-                delay_list: request.scale_parameters.delay_list.clone(),
+            dda_rs::DelayParameters {
+                delays: request
+                    .scale_parameters
+                    .delay_list
+                    .clone()
+                    .unwrap_or_else(|| vec![7, 10]),
             },
         )
         .with_variant_results(variant_results)
@@ -853,14 +872,33 @@ pub async fn run_dda_analysis(
     let scales: Vec<f64> = (0..num_timepoints).map(|i| i as f64 * 0.1).collect();
 
     // Get CD channel pairs from request for network motif computation
-    let cd_pairs_for_motifs: Option<Vec<[usize; 2]>> =
-        request.cd_channel_pairs.clone().or_else(|| {
+    // Priority: 1) parsed_cd_channel_pairs (from variant_configs path)
+    //           2) request.cd_channel_pairs (top-level field)
+    //           3) fallback to raw JSON extraction (legacy)
+    let cd_pairs_for_motifs: Option<Vec<[usize; 2]>> = parsed_cd_channel_pairs
+        .or_else(|| request.cd_channel_pairs.clone())
+        .or_else(|| {
             request.variant_configs.as_ref().and_then(|vc| {
                 vc.get("cross_dynamical")
                     .and_then(|v| v.get("cdChannelPairs"))
                     .and_then(|p| serde_json::from_value(p.clone()).ok())
             })
         });
+
+    // Debug: Log CD pairs availability for network motifs
+    log::info!(
+        "🔍 [DEBUG] cd_pairs_for_motifs: {} (source: {})",
+        if let Some(ref pairs) = cd_pairs_for_motifs {
+            format!("Some({} pairs)", pairs.len())
+        } else {
+            "None".to_string()
+        },
+        if cd_pairs_for_motifs.is_some() {
+            "parsed_cd_channel_pairs or request.cd_channel_pairs"
+        } else {
+            "none available"
+        }
+    );
 
     let variants_array: Vec<serde_json::Value> = if let Some(ref variant_results) =
         dda_result.variant_results
@@ -892,6 +930,11 @@ pub async fn run_dda_analysis(
                 log::info!("  DDA matrix keys added: {}", variant_dda_matrix.len());
 
                 // Compute network motifs for CD variant
+                log::info!(
+                    "🔍 [DEBUG] Checking variant_id for network_motifs: '{}' == 'CD' ? {}",
+                    vr.variant_id,
+                    vr.variant_id == "CD"
+                );
                 let network_motifs = if vr.variant_id == "CD" {
                     if let Some(ref pairs) = cd_pairs_for_motifs {
                         // Get the delay list from the request
@@ -931,7 +974,9 @@ pub async fn run_dda_analysis(
                             }
                         }
                     } else {
-                        log::warn!("  No CD channel pairs available for network motifs");
+                        log::warn!(
+                            "🔍 [DEBUG] No CD channel pairs available for network motifs (cd_pairs_for_motifs is None)"
+                        );
                         None
                     }
                 } else {
@@ -1509,11 +1554,12 @@ fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
             ct_window_length: api_req.window_parameters.ct_window_length.map(|v| v as u32),
             ct_window_step: api_req.window_parameters.ct_window_step.map(|v| v as u32),
         },
-        scale_parameters: dda_rs::ScaleParameters {
-            scale_min: api_req.scale_parameters.scale_min as f64,
-            scale_max: api_req.scale_parameters.scale_max as f64,
-            scale_num: api_req.scale_parameters.scale_num as u32,
-            delay_list: api_req.scale_parameters.delay_list.clone(),
+        delay_parameters: dda_rs::DelayParameters {
+            delays: api_req
+                .scale_parameters
+                .delay_list
+                .clone()
+                .unwrap_or_else(|| vec![7, 10]),
         },
         ct_channel_pairs: api_req.ct_channel_pairs.clone(),
         cd_channel_pairs: api_req.cd_channel_pairs.clone(),
