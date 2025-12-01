@@ -66,8 +66,9 @@ import {
 import { Download, Upload } from "lucide-react";
 import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
 import { SensitivityAnalysisDialog } from "@/components/analysis/SensitivityAnalysisDialog";
-import { TrendingUp } from "lucide-react";
+import { TrendingUp, Server } from "lucide-react";
 import { toast } from "@/components/ui/toaster";
+import { useSync } from "@/hooks/useSync";
 
 interface DDAAnalysisProps {
   apiService: ApiService;
@@ -311,6 +312,13 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
   const [isSubmittingToNsg, setIsSubmittingToNsg] = useState(false);
   const [nsgError, setNsgError] = useState<string | null>(null);
   const [nsgSubmissionPhase, setNsgSubmissionPhase] = useState<string>("");
+
+  // Server submission state
+  const { isConnected: isServerConnected } = useSync();
+  const [isSubmittingToServer, setIsSubmittingToServer] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [serverSubmissionPhase, setServerSubmissionPhase] =
+    useState<string>("");
 
   // Import/Export state
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -1504,6 +1512,128 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     }
   };
 
+  const submitToServer = async () => {
+    if (!TauriService.isTauri()) {
+      setServerError(
+        "Server submission is only available in the Tauri desktop application",
+      );
+      return;
+    }
+
+    if (!isServerConnected) {
+      setServerError(
+        "Not connected to a remote server. Connect in Settings → Sync first.",
+      );
+      return;
+    }
+
+    // Extract all channels from variant configurations
+    const allChannels = new Set<string>();
+    parameters.variants.forEach((variantId) => {
+      const config = parameters.variantChannelConfigs[variantId];
+      if (config) {
+        if (config.selectedChannels) {
+          config.selectedChannels.forEach((ch) => allChannels.add(ch));
+        }
+        if (config.ctChannelPairs) {
+          config.ctChannelPairs.forEach(([ch1, ch2]) => {
+            allChannels.add(ch1);
+            allChannels.add(ch2);
+          });
+        }
+        if (config.cdChannelPairs) {
+          config.cdChannelPairs.forEach(([from, to]) => {
+            allChannels.add(from);
+            allChannels.add(to);
+          });
+        }
+      }
+    });
+
+    if (!selectedFile || allChannels.size === 0) {
+      setServerError(
+        "Please select a file and configure channels for at least one variant",
+      );
+      return;
+    }
+
+    try {
+      setIsSubmittingToServer(true);
+      setServerError(null);
+      setServerSubmissionPhase("Preparing job parameters...");
+
+      const { invoke } = await import("@tauri-apps/api/core");
+
+      // Get CT channel pairs from variant config
+      const ctConfig = parameters.variantChannelConfigs["cross_timeseries"];
+      const ctPairs: [string, string][] = ctConfig?.ctChannelPairs || [];
+
+      // Get CD channel pairs from variant config
+      const cdConfig = parameters.variantChannelConfigs["cross_dynamical"];
+      const cdPairs: [string, string][] = cdConfig?.cdChannelPairs || [];
+
+      // Build DDA parameters for server submission
+      const jobParameters = {
+        channels: Array.from(allChannels),
+        ct_pairs: ctPairs,
+        cd_pairs: cdPairs,
+        time_window:
+          parameters.windowLength / (selectedFile?.sample_rate || 256),
+        delta: parameters.windowStep / (selectedFile?.sample_rate || 256),
+        embedding_dim: parameters.modelParameters?.dm || 4,
+        svd_dimensions: 3,
+        downsample: 1,
+        start_time: parameters.timeStart,
+        end_time: parameters.timeEnd,
+      };
+
+      console.log("📋 [SERVER] DDA Analysis Parameters:");
+      console.log(`   File: ${selectedFile.file_path}`);
+      console.log(`   Channels: [${Array.from(allChannels).join(", ")}]`);
+      console.log(
+        `   Time range: ${parameters.timeStart} - ${parameters.timeEnd} seconds`,
+      );
+
+      setServerSubmissionPhase("Submitting job to server...");
+
+      // Submit job to remote server
+      const response = await invoke<{
+        job_id: string;
+        status: string;
+        message: string;
+      }>("job_submit_server_file", {
+        serverPath: selectedFile.file_path,
+        parameters: jobParameters,
+      });
+
+      console.log("[SERVER] Job submitted successfully:", response);
+
+      setServerSubmissionPhase("");
+      setIsSubmittingToServer(false);
+
+      // Show success notification
+      await TauriService.createNotification(
+        "Server Job Submitted",
+        `Job successfully submitted to remote server. Job ID: ${response.job_id.substring(0, 8)}...`,
+        NotificationType.Success,
+      );
+
+      toast.success(
+        "Job Submitted",
+        `Analysis submitted to server. Job ID: ${response.job_id.substring(0, 8)}...`,
+      );
+    } catch (error) {
+      console.error("[SERVER] Submission error:", error);
+      setServerError(
+        error instanceof Error
+          ? error.message
+          : "Failed to submit job to server",
+      );
+      setServerSubmissionPhase("");
+      setIsSubmittingToServer(false);
+    }
+  };
+
   const resetParameters = () => {
     // Calculate default window length based on sampling rate (0.25 seconds)
     const defaultWindowLength = selectedFile
@@ -1930,17 +2060,76 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                 </>
               )}
             </Button>
-            {TauriService.isTauri() && hasNsgCredentials && (
+            {TauriService.isTauri() && (
+              <Button
+                onClick={submitToServer}
+                disabled={
+                  ddaRunning ||
+                  isSubmittingToServer ||
+                  localIsRunning ||
+                  !isServerConnected ||
+                  !parameters.variants.some((variantId) => {
+                    const config = parameters.variantChannelConfigs[variantId];
+                    return (
+                      config &&
+                      ((config.selectedChannels &&
+                        config.selectedChannels.length > 0) ||
+                        (config.ctChannelPairs &&
+                          config.ctChannelPairs.length > 0) ||
+                        (config.cdChannelPairs &&
+                          config.cdChannelPairs.length > 0))
+                    );
+                  })
+                }
+                variant="outline"
+                className="min-w-[140px]"
+                title={
+                  !isServerConnected
+                    ? "Connect to a remote server in Settings → Sync"
+                    : "Submit analysis to remote server"
+                }
+              >
+                {isSubmittingToServer ? (
+                  <>
+                    <Server className="h-4 w-4 mr-2 animate-pulse" />
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <Server className="h-4 w-4 mr-2" />
+                    Submit to Server
+                  </>
+                )}
+              </Button>
+            )}
+            {TauriService.isTauri() && (
               <Button
                 onClick={submitToNSG}
                 disabled={
                   ddaRunning ||
                   isSubmittingToNsg ||
                   localIsRunning ||
-                  parameters.selectedChannels.length === 0
+                  !hasNsgCredentials ||
+                  !parameters.variants.some((variantId) => {
+                    const config = parameters.variantChannelConfigs[variantId];
+                    return (
+                      config &&
+                      ((config.selectedChannels &&
+                        config.selectedChannels.length > 0) ||
+                        (config.ctChannelPairs &&
+                          config.ctChannelPairs.length > 0) ||
+                        (config.cdChannelPairs &&
+                          config.cdChannelPairs.length > 0))
+                    );
+                  })
                 }
                 variant="outline"
                 className="min-w-[140px]"
+                title={
+                  !hasNsgCredentials
+                    ? "Configure NSG credentials in Settings"
+                    : "Submit to Neuroscience Gateway"
+                }
               >
                 {isSubmittingToNsg ? (
                   <>
@@ -1957,6 +2146,20 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             )}
           </div>
         </div>
+
+        {serverSubmissionPhase && (
+          <Alert className="mt-4 flex-shrink-0">
+            <Server className="h-4 w-4 animate-pulse" />
+            <AlertDescription>{serverSubmissionPhase}</AlertDescription>
+          </Alert>
+        )}
+
+        {serverError && (
+          <Alert variant="destructive" className="mt-4 flex-shrink-0">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{serverError}</AlertDescription>
+          </Alert>
+        )}
 
         {nsgSubmissionPhase && (
           <Alert className="mt-4 flex-shrink-0">

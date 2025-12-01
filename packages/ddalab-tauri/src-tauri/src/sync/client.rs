@@ -5,6 +5,7 @@ use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
@@ -16,6 +17,28 @@ type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 /// Pending requests waiting for broker responses
 type PendingRequests = Arc<RwLock<HashMap<String, oneshot::Sender<SharedResultInfo>>>>;
 
+/// Connection state shared between tasks
+#[derive(Clone)]
+pub struct ConnectionState {
+    connected: Arc<AtomicBool>,
+}
+
+impl ConnectionState {
+    fn new() -> Self {
+        Self {
+            connected: Arc::new(AtomicBool::new(true)),
+        }
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::SeqCst)
+    }
+
+    fn set_disconnected(&self) {
+        self.connected.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Sync client for connecting to institutional broker
 pub struct SyncClient {
     user_id: String,
@@ -23,6 +46,7 @@ pub struct SyncClient {
     broker_url: String,
     ws_tx: mpsc::UnboundedSender<SyncMessage>,
     pending_requests: PendingRequests,
+    connection_state: ConnectionState,
 }
 
 impl SyncClient {
@@ -31,6 +55,7 @@ impl SyncClient {
         broker_url: String,
         user_id: String,
         local_endpoint: String,
+        session_token: Option<String>,
     ) -> Result<Self> {
         info!("Connecting to sync broker at {}", broker_url);
 
@@ -42,20 +67,25 @@ impl SyncClient {
         // Split into sender and receiver
         let (write, read) = ws_stream.split();
 
-        // Create channels
+        // Create channels and state
         let (ws_tx, ws_rx) = mpsc::unbounded_channel::<SyncMessage>();
         let pending_requests: PendingRequests = Arc::new(RwLock::new(HashMap::new()));
+        let connection_state = ConnectionState::new();
 
         // Spawn WebSocket writer task
-        tokio::spawn(write_task(write, ws_rx));
+        let writer_state = connection_state.clone();
+        tokio::spawn(write_task(write, ws_rx, writer_state));
 
         // Spawn WebSocket reader task
-        tokio::spawn(read_task(read, pending_requests.clone()));
+        let reader_state = connection_state.clone();
+        tokio::spawn(read_task(read, pending_requests.clone(), reader_state));
 
-        // Register with broker
+        // Register with broker using session token (preferred over password)
         let register_msg = SyncMessage::RegisterUser {
             user_id: user_id.clone(),
             endpoint: local_endpoint.clone(),
+            password: None, // No longer send password
+            session_token,
         };
 
         ws_tx.send(register_msg)?;
@@ -66,6 +96,7 @@ impl SyncClient {
             broker_url,
             ws_tx,
             pending_requests,
+            connection_state,
         };
 
         // Start heartbeat
@@ -74,6 +105,11 @@ impl SyncClient {
         info!("Successfully connected to sync broker");
 
         Ok(client)
+    }
+
+    /// Check if the connection is still active
+    pub fn is_connected(&self) -> bool {
+        self.connection_state.is_connected()
     }
 
     /// Start periodic heartbeat
@@ -199,6 +235,7 @@ impl SyncClient {
 async fn write_task(
     mut write: futures_util::stream::SplitSink<WsStream, Message>,
     mut rx: mpsc::UnboundedReceiver<SyncMessage>,
+    connection_state: ConnectionState,
 ) {
     while let Some(msg) = rx.recv().await {
         let json = match serde_json::to_string(&msg) {
@@ -215,41 +252,63 @@ async fn write_task(
         }
     }
 
-    debug!("WebSocket write task ended");
+    warn!("WebSocket write task ended - connection lost");
+    connection_state.set_disconnected();
 }
 
 /// WebSocket read task
 async fn read_task(
     mut read: futures_util::stream::SplitStream<WsStream>,
     pending_requests: PendingRequests,
+    connection_state: ConnectionState,
 ) {
     while let Some(msg) = read.next().await {
         let msg = match msg {
             Ok(m) => m,
             Err(e) => {
-                error!("WebSocket error: {}", e);
+                error!("WebSocket read error: {}", e);
                 break;
             }
         };
 
-        if let Message::Text(text) = msg {
-            let sync_msg: SyncMessage = match serde_json::from_str(&text) {
-                Ok(m) => m,
-                Err(e) => {
-                    error!("Failed to parse broker message: {}", e);
-                    continue;
+        match msg {
+            Message::Text(text) => {
+                let sync_msg: SyncMessage = match serde_json::from_str(&text) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        error!("Failed to parse broker message: {}", e);
+                        continue;
+                    }
+                };
+                // Check if we should disconnect due to error
+                if handle_broker_message(sync_msg, &pending_requests, &connection_state) {
+                    break;
                 }
-            };
-
-            handle_broker_message(sync_msg, &pending_requests);
+            }
+            Message::Close(_) => {
+                info!("Server closed WebSocket connection");
+                break;
+            }
+            Message::Ping(data) => {
+                debug!("Received ping from server");
+                // Pong is automatically handled by tungstenite
+                let _ = data; // silence unused warning
+            }
+            _ => {}
         }
     }
 
-    debug!("WebSocket read task ended");
+    warn!("WebSocket read task ended - connection lost");
+    connection_state.set_disconnected();
 }
 
 /// Handle incoming broker messages
-fn handle_broker_message(msg: SyncMessage, pending_requests: &PendingRequests) {
+/// Returns true if the connection should be terminated
+fn handle_broker_message(
+    msg: SyncMessage,
+    pending_requests: &PendingRequests,
+    connection_state: &ConnectionState,
+) -> bool {
     match msg {
         SyncMessage::ShareInfo { info } => {
             // Find pending request for this share
@@ -259,18 +318,30 @@ fn handle_broker_message(msg: SyncMessage, pending_requests: &PendingRequests) {
             } else {
                 warn!("Received share info for unknown request");
             }
+            false
         }
 
         SyncMessage::Ack { .. } => {
             debug!("Received ACK from broker");
+            false
         }
 
         SyncMessage::Error { message, code } => {
             error!("Broker error [{}]: {}", code, message);
+
+            // Critical errors that should disconnect
+            if code == "AUTH_FAILED" || code == "AUTH_REQUIRED" {
+                error!("Authentication failed - disconnecting");
+                connection_state.set_disconnected();
+                return true;
+            }
+
+            false
         }
 
         _ => {
             warn!("Unexpected message from broker: {:?}", msg);
+            false
         }
     }
 }

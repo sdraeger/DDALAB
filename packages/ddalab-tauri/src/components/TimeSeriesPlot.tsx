@@ -66,6 +66,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
   const {
     fileManager,
     plot,
+    dda,
     updatePlotState,
     setCurrentChunk,
     setSelectedChannels: persistSelectedChannels,
@@ -89,11 +90,45 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
       { id: "timeseries", label: "Data Visualization" },
     ];
 
-    // TODO: Add DDA results for this file if they exist
-    // This would require access to the DDA results from the store
+    // Add DDA results for this file if they exist
+    const currentFilePath = fileManager.selectedFile?.file_path;
+    if (currentFilePath) {
+      // Check current analysis
+      if (
+        dda.currentAnalysis?.file_path === currentFilePath &&
+        dda.currentAnalysis.results?.variants
+      ) {
+        for (const variant of dda.currentAnalysis.results.variants) {
+          plots.push({
+            id: `dda:${dda.currentAnalysis.id}:${variant.variant_id}`,
+            label: `DDA: ${variant.variant_name || variant.variant_id}`,
+          });
+        }
+      }
+
+      // Check analysis history for other analyses of the same file
+      for (const analysis of dda.analysisHistory) {
+        if (
+          analysis.file_path === currentFilePath &&
+          analysis.id !== dda.currentAnalysis?.id &&
+          analysis.results?.variants
+        ) {
+          for (const variant of analysis.results.variants) {
+            plots.push({
+              id: `dda:${analysis.id}:${variant.variant_id}`,
+              label: `DDA (${analysis.name || analysis.id.slice(0, 8)}): ${variant.variant_name || variant.variant_id}`,
+            });
+          }
+        }
+      }
+    }
 
     return plots;
-  }, []);
+  }, [
+    fileManager.selectedFile?.file_path,
+    dda.currentAnalysis,
+    dda.analysisHistory,
+  ]);
 
   // Remove debug console.log to prevent infinite re-render loop
   const plotRef = useRef<HTMLDivElement>(null);

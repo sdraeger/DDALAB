@@ -41,6 +41,9 @@ import {
   FileText,
   Database,
   Image,
+  Share2,
+  Copy,
+  CheckCircle2,
 } from "lucide-react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
@@ -71,6 +74,18 @@ import {
 import { COLOR_SCHEME_FUNCTIONS } from "@/utils/colorSchemes";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toaster";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { useSync } from "@/hooks/useSync";
+import type { AccessPolicy, AccessPolicyType } from "@/types/sync";
 
 interface DDAResultsProps {
   result: DDAResult;
@@ -88,6 +103,21 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
   // Popout window hooks with memoization
   const { createWindow, broadcastToType } = usePopoutWindows();
+
+  // Sync/sharing hooks
+  const { shareResult, isConnected: isSyncConnected } = useSync();
+
+  // Share dialog state
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const [shareTitle, setShareTitle] = useState("");
+  const [shareDescription, setShareDescription] = useState("");
+  const [shareAccessPolicy, setShareAccessPolicy] =
+    useState<AccessPolicyType>("public");
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  // Store share links per result.id so they persist when dialog is closed
+  const sharedResultsRef = useRef<Map<string, string>>(new Map());
 
   // Only select sample_rate, not the entire fileManager object
   const sampleRate = useAppStore(
@@ -1428,6 +1458,79 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     [result, selectedVariant, selectedChannels, availableVariants],
   );
 
+  // Open share dialog with default values
+  const openShareDialog = useCallback(() => {
+    // Check if this result has already been shared
+    const existingLink = sharedResultsRef.current.get(result.id);
+
+    if (existingLink) {
+      // Show existing share link
+      setShareLink(existingLink);
+    } else {
+      // Set default title from result/file info for new share
+      const filename =
+        result.name || result.file_path.split("/").pop() || "Result";
+      const defaultTitle = `DDA Analysis - ${filename} - ${new Date(result.created_at).toLocaleDateString()}`;
+      setShareTitle(defaultTitle);
+      setShareDescription("");
+      setShareAccessPolicy("public");
+      setShareLink(null);
+    }
+    setLinkCopied(false);
+    setShowShareDialog(true);
+  }, [result]);
+
+  // Handle share submission
+  const handleShare = useCallback(async () => {
+    if (!shareTitle.trim()) {
+      toast.error(
+        "Title required",
+        "Please enter a title for the shared result",
+      );
+      return;
+    }
+
+    setIsSharing(true);
+    try {
+      const accessPolicy: AccessPolicy = { type: shareAccessPolicy };
+      const link = await shareResult(
+        result.id,
+        shareTitle.trim(),
+        shareDescription.trim() || null,
+        accessPolicy,
+      );
+      setShareLink(link);
+      // Store the link so it persists when dialog is closed
+      sharedResultsRef.current.set(result.id, link);
+      toast.success(
+        "Share created",
+        "Your result is now shared with colleagues",
+      );
+    } catch (error) {
+      console.error("Failed to share result:", error);
+      toast.error(
+        "Share failed",
+        error instanceof Error ? error.message : "Could not share result",
+      );
+    } finally {
+      setIsSharing(false);
+    }
+  }, [shareTitle, shareDescription, shareAccessPolicy, shareResult, result.id]);
+
+  // Copy share link to clipboard
+  const copyShareLink = useCallback(async () => {
+    if (!shareLink) return;
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      setLinkCopied(true);
+      toast.success("Copied", "Share link copied to clipboard");
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch (error) {
+      console.error("Failed to copy link:", error);
+      toast.error("Copy failed", "Could not copy link to clipboard");
+    }
+  }, [shareLink]);
+
   // Re-render plots when dependencies change - using IntersectionObserver to detect visibility
   // Note: lastRenderedHeatmapKey and lastRenderedLinePlotKey are declared near the callback refs
   // so they can be reset when DOM unmounts (prevents white screen on view mode changes)
@@ -1751,6 +1854,19 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+
+              {/* Share button - only shows when connected to sync broker */}
+              {isSyncConnected && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={openShareDialog}
+                  title="Share this result with colleagues"
+                >
+                  <Share2 className="h-4 w-4 mr-2" />
+                  Share
+                </Button>
+              )}
 
               <Button
                 variant="outline"
@@ -2594,6 +2710,140 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
           )}
         </div>
       ) : null}
+
+      {/* Share Dialog */}
+      <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
+        <DialogContent className="sm:max-w-xl w-full">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Share2 className="h-5 w-5" />
+              Share Result
+            </DialogTitle>
+            <DialogDescription>
+              Share this DDA analysis result with colleagues in your
+              institution.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!shareLink ? (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="share-title">Title</Label>
+                <Input
+                  id="share-title"
+                  value={shareTitle}
+                  onChange={(e) => setShareTitle(e.target.value)}
+                  placeholder="Enter a title for the shared result"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="share-description">
+                  Description (optional)
+                </Label>
+                <textarea
+                  id="share-description"
+                  value={shareDescription}
+                  onChange={(e) => setShareDescription(e.target.value)}
+                  placeholder="Add a description..."
+                  rows={3}
+                  className="flex min-h-[80px] w-full max-w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Access Policy</Label>
+                <RadioGroup
+                  value={shareAccessPolicy}
+                  onValueChange={(value) =>
+                    setShareAccessPolicy(value as AccessPolicyType)
+                  }
+                  className="space-y-2"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="public" id="access-public" />
+                    <Label htmlFor="access-public" className="cursor-pointer">
+                      Public - Anyone in your institution can access
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="team" id="access-team" />
+                    <Label htmlFor="access-team" className="cursor-pointer">
+                      Team - Only team members can access
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4 py-4">
+              <div className="flex items-center gap-2 text-green-600">
+                <CheckCircle2 className="h-5 w-5" />
+                <span className="font-medium">Share link created!</span>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Share Link</Label>
+                <div className="flex gap-2 w-full">
+                  <Input
+                    readOnly
+                    value={shareLink}
+                    className="font-mono text-sm flex-1 min-w-0"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={copyShareLink}
+                    title="Copy to clipboard"
+                    className="shrink-0"
+                  >
+                    {linkCopied ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Share this link with colleagues. Results are available while
+                  your instance is online.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            {!shareLink ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowShareDialog(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleShare}
+                  disabled={isSharing || !shareTitle.trim()}
+                >
+                  {isSharing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Share2 className="h-4 w-4 mr-2" />
+                      Create Share Link
+                    </>
+                  )}
+                </Button>
+              </>
+            ) : (
+              <Button onClick={() => setShowShareDialog(false)}>Done</Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

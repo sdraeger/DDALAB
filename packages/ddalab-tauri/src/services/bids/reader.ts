@@ -409,6 +409,91 @@ export interface BIDSDatasetSummary {
   hasElectrophysiology: boolean;
 }
 
+/**
+ * Batch check multiple directories for BIDS datasets
+ * Optimized to minimize file system operations by doing quick checks first,
+ * then only fetching full details for confirmed BIDS directories.
+ */
+export interface BatchBIDSResult {
+  path: string;
+  name: string;
+  isBIDS: boolean;
+  description?: {
+    Name?: string;
+    BIDSVersion?: string;
+  } | null;
+  summary?: BIDSDatasetSummary | null;
+}
+
+export async function batchCheckBIDS(
+  directories: Array<{ name: string; path: string }>,
+): Promise<BatchBIDSResult[]> {
+  const { readDir, exists, readTextFile } = await import(
+    "@tauri-apps/plugin-fs"
+  );
+
+  // Phase 1: Quick check all directories in parallel (just exists + readDir)
+  const quickCheckResults = await Promise.all(
+    directories.map(async (dir) => {
+      try {
+        const datasetDescPath = `${dir.path}/dataset_description.json`;
+        const hasDatasetDesc = await exists(datasetDescPath);
+
+        if (!hasDatasetDesc) {
+          return { ...dir, isBIDS: false };
+        }
+
+        const entries = await readDir(dir.path);
+        const hasSubjects = entries.some(
+          (entry) => entry.isDirectory && entry.name.startsWith("sub-"),
+        );
+
+        return { ...dir, isBIDS: hasSubjects };
+      } catch {
+        return { ...dir, isBIDS: false };
+      }
+    }),
+  );
+
+  // Phase 2: For confirmed BIDS directories, fetch description and summary in parallel
+  const results: BatchBIDSResult[] = [];
+
+  for (const check of quickCheckResults) {
+    if (!check.isBIDS) {
+      results.push({
+        path: check.path,
+        name: check.name,
+        isBIDS: false,
+      });
+      continue;
+    }
+
+    // Fetch description and summary in parallel for this BIDS directory
+    const [description, summary] = await Promise.all([
+      (async () => {
+        try {
+          const descPath = `${check.path}/dataset_description.json`;
+          const content = await readTextFile(descPath);
+          return JSON.parse(content);
+        } catch {
+          return null;
+        }
+      })(),
+      getDatasetSummary(check.path).catch(() => null),
+    ]);
+
+    results.push({
+      path: check.path,
+      name: check.name,
+      isBIDS: true,
+      description,
+      summary,
+    });
+  }
+
+  return results;
+}
+
 export async function getDatasetSummary(
   rootPath: string,
 ): Promise<BIDSDatasetSummary> {

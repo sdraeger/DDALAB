@@ -6,6 +6,7 @@ import { AnalysisEngineSettings } from "./settings/AnalysisEngineSettings";
 import { BehaviorSettings } from "./settings/BehaviorSettings";
 import { SecuritySettings } from "./settings/SecuritySettings";
 import { NSGSettings } from "./settings/NSGSettings";
+import { SyncSettings } from "./settings/SyncSettings";
 import { OpenNeuroSettings } from "./settings/OpenNeuroSettings";
 import { DebugSettings } from "./settings/DebugSettings";
 import { UpdatesSettings } from "./settings/UpdatesSettings";
@@ -19,6 +20,7 @@ import {
   Download,
   Settings2,
   Sliders,
+  Share2,
 } from "lucide-react";
 import { useSearchableItems, createSettingsItem } from "@/hooks/useSearchable";
 
@@ -98,6 +100,19 @@ export function SettingsPanel() {
               {
                 description: "Configure Neuroscience Gateway credentials",
                 keywords: ["nsg", "gateway", "credentials", "hpc", "username"],
+              },
+            ),
+            createSettingsItem(
+              "settings-sync",
+              "Sync & Sharing Settings",
+              () => {
+                document
+                  .querySelector('[data-settings-section="sync"]')
+                  ?.scrollIntoView();
+              },
+              {
+                description: "Connect to sync broker and share results",
+                keywords: ["sync", "share", "broker", "peer", "collaboration"],
               },
             ),
             createSettingsItem(
@@ -212,6 +227,26 @@ export function SettingsPanel() {
         "remote",
       ],
       description: "Configure Neuroscience Gateway credentials for HPC jobs",
+    });
+  }
+
+  // Only add Sync section in Tauri
+  if (TauriService.isTauri()) {
+    sections.push({
+      id: "sync",
+      label: "Sync & Sharing",
+      icon: <Share2 className="h-4 w-4" />,
+      component: <SyncSettings />,
+      keywords: [
+        "sync",
+        "share",
+        "broker",
+        "peer",
+        "collaboration",
+        "team",
+        "results",
+      ],
+      description: "Connect to sync broker to share analysis results",
     });
   }
 
