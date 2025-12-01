@@ -1,0 +1,290 @@
+//! AUTO-GENERATED from DDA Specification v{{ spec_version }}
+//! Generated: {{ generated_at }}
+//!
+//! DO NOT EDIT MANUALLY - Run `cargo run --package dda-spec` to regenerate.
+
+use serde::{Deserialize, Serialize};
+
+/// Size of the SELECT mask ({{ select_mask_size }} bits)
+pub const SELECT_MASK_SIZE: usize = {{ select_mask_size }};
+
+/// DDA binary name
+pub const BINARY_NAME: &str = "{{ binary_name }}";
+
+/// Whether shell wrapper is required
+pub const REQUIRES_SHELL_WRAPPER: bool = {{ requires_shell_wrapper }};
+
+/// Shell command for wrapper
+pub const SHELL_COMMAND: &str = "{{ shell_command }}";
+
+/// Supported platforms
+pub const SUPPORTED_PLATFORMS: &[&str] = &[
+{%- for platform in supported_platforms %}
+    "{{ platform }}",
+{%- endfor %}
+];
+
+/// Channel format for variant input
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelFormat {
+    Individual,
+    Pairs,
+    DirectedPairs,
+}
+
+impl ChannelFormat {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "individual" => Some(Self::Individual),
+            "pairs" => Some(Self::Pairs),
+            "directed_pairs" => Some(Self::DirectedPairs),
+            _ => None,
+        }
+    }
+}
+
+/// Output column specification for a variant
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutputColumns {
+    pub coefficients: u8,
+    pub has_error: bool,
+}
+
+/// Complete variant metadata
+/// Note: Only Serialize is derived since static references can't be deserialized
+#[derive(Debug, Clone, Serialize)]
+pub struct VariantMetadata {
+    pub abbreviation: &'static str,
+    pub name: &'static str,
+    pub position: u8,
+    pub output_suffix: &'static str,
+    pub stride: u8,
+    pub reserved: bool,
+    #[serde(skip)]
+    pub required_params: &'static [&'static str],
+    pub channel_format: ChannelFormat,
+    pub output_columns: OutputColumns,
+    pub documentation: &'static str,
+}
+
+impl VariantMetadata {
+    /// Look up variant by abbreviation
+    pub fn from_abbrev(abbrev: &str) -> Option<&'static VariantMetadata> {
+        VARIANT_REGISTRY.iter().find(|v| v.abbreviation == abbrev)
+    }
+
+    /// Look up variant by output suffix
+    pub fn from_suffix(suffix: &str) -> Option<&'static VariantMetadata> {
+        VARIANT_REGISTRY.iter().find(|v| v.output_suffix == suffix)
+    }
+
+    /// Look up variant by position
+    pub fn from_position(pos: u8) -> Option<&'static VariantMetadata> {
+        VARIANT_REGISTRY.iter().find(|v| v.position == pos)
+    }
+
+    /// Get all non-reserved variants
+    pub fn active_variants() -> impl Iterator<Item = &'static VariantMetadata> {
+        VARIANT_REGISTRY.iter().filter(|v| !v.reserved)
+    }
+}
+
+// =============================================================================
+// VARIANT DEFINITIONS
+// =============================================================================
+
+{% for variant in variants %}
+/// {{ variant.name }} ({{ variant.abbreviation }}) - Position {{ variant.position }}
+///
+/// {{ variant.documentation }}
+pub const {{ variant.abbreviation }}: VariantMetadata = VariantMetadata {
+    abbreviation: "{{ variant.abbreviation }}",
+    name: "{{ variant.name }}",
+    position: {{ variant.position }},
+    output_suffix: "{{ variant.output_suffix }}",
+    stride: {{ variant.stride }},
+    reserved: {{ variant.reserved }},
+    required_params: &[{% for param in variant.required_params %}"{{ param }}"{% if not loop.last %}, {% endif %}{% endfor %}],
+    channel_format: ChannelFormat::{{ variant.channel_format | pascal_case }},
+    output_columns: OutputColumns {
+        coefficients: {{ variant.output_columns.coefficients }},
+        has_error: {{ variant.output_columns.has_error }},
+    },
+    documentation: "{{ variant.documentation }}",
+};
+
+{% endfor %}
+
+/// All variants in SELECT mask order
+pub const VARIANT_REGISTRY: &[VariantMetadata] = &[
+{%- for abbrev in variant_order %}
+    {{ abbrev }},
+{%- endfor %}
+];
+
+/// Variant abbreviations in SELECT mask order
+pub const VARIANT_ORDER: &[&str] = &[
+{%- for abbrev in variant_order %}
+    "{{ abbrev }}",
+{%- endfor %}
+];
+
+// =============================================================================
+// SELECT MASK UTILITIES
+// =============================================================================
+
+/// Generate a SELECT mask from variant abbreviations
+pub fn generate_select_mask(variants: &[&str]) -> [u8; SELECT_MASK_SIZE] {
+    let mut mask = [0u8; SELECT_MASK_SIZE];
+    for abbrev in variants {
+        if let Some(variant) = VariantMetadata::from_abbrev(abbrev) {
+            mask[variant.position as usize] = 1;
+        }
+    }
+    mask
+}
+
+/// Parse a SELECT mask back to variant abbreviations
+pub fn parse_select_mask(mask: &[u8]) -> Vec<&'static str> {
+    mask.iter()
+        .enumerate()
+        .filter(|(_, &bit)| bit == 1)
+        .filter_map(|(pos, _)| VariantMetadata::from_position(pos as u8))
+        .filter(|v| !v.reserved)
+        .map(|v| v.abbreviation)
+        .collect()
+}
+
+/// Format SELECT mask as space-separated string for CLI
+pub fn format_select_mask(mask: &[u8; SELECT_MASK_SIZE]) -> String {
+    mask.iter()
+        .map(|b| b.to_string())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+// =============================================================================
+// SELECT MASK POSITION CONSTANTS
+// =============================================================================
+
+pub mod select_mask_positions {
+{%- for variant in variants %}
+    /// Position of {{ variant.abbreviation }} in SELECT mask
+    pub const {{ variant.abbreviation }}: usize = {{ variant.position }};
+{%- endfor %}
+}
+
+// =============================================================================
+// FILE TYPES
+// =============================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FileType {
+{%- for ft in file_types %}
+    {{ ft.name }},
+{%- endfor %}
+}
+
+impl FileType {
+    pub fn flag(&self) -> &'static str {
+        match self {
+{%- for ft in file_types %}
+            Self::{{ ft.name }} => "{{ ft.flag }}",
+{%- endfor %}
+        }
+    }
+
+    pub fn from_extension(ext: &str) -> Option<Self> {
+        match ext.to_lowercase().as_str() {
+{%- for ft in file_types %}
+{%- for ext in ft.extensions %}
+            "{{ ext }}" => Some(Self::{{ ft.name }}),
+{%- endfor %}
+{%- endfor %}
+            _ => None,
+        }
+    }
+}
+
+// =============================================================================
+// TESTS
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_variant_registry_size() {
+        assert_eq!(VARIANT_REGISTRY.len(), {{ select_mask_size }});
+    }
+
+    #[test]
+    fn test_variant_lookup_by_abbrev() {
+{%- for variant in variants %}
+{%- if not variant.reserved %}
+        assert!(VariantMetadata::from_abbrev("{{ variant.abbreviation }}").is_some());
+{%- endif %}
+{%- endfor %}
+        assert!(VariantMetadata::from_abbrev("INVALID").is_none());
+    }
+
+    #[test]
+    fn test_variant_lookup_by_suffix() {
+{%- for variant in variants %}
+{%- if not variant.reserved %}
+        assert!(VariantMetadata::from_suffix("{{ variant.output_suffix }}").is_some());
+{%- endif %}
+{%- endfor %}
+    }
+
+    #[test]
+    fn test_select_mask_generation() {
+        let mask = generate_select_mask(&["ST", "SY"]);
+        assert_eq!(mask[select_mask_positions::ST], 1);
+        assert_eq!(mask[select_mask_positions::SY], 1);
+        assert_eq!(mask[select_mask_positions::CT], 0);
+    }
+
+    #[test]
+    fn test_select_mask_parsing() {
+        let mask = [1, 1, 0, 0, 1, 0];
+        let variants = parse_select_mask(&mask);
+        assert!(variants.contains(&"ST"));
+        assert!(variants.contains(&"CT"));
+        assert!(variants.contains(&"DE"));
+        assert!(!variants.contains(&"CD"));
+    }
+
+    #[test]
+    fn test_file_type_flags() {
+{%- for ft in file_types %}
+        assert_eq!(FileType::{{ ft.name }}.flag(), "{{ ft.flag }}");
+{%- endfor %}
+    }
+
+    #[test]
+    fn test_file_type_detection() {
+{%- for ft in file_types %}
+{%- for ext in ft.extensions %}
+        assert_eq!(FileType::from_extension("{{ ext }}"), Some(FileType::{{ ft.name }}));
+{%- endfor %}
+{%- endfor %}
+        assert!(FileType::from_extension("unknown").is_none());
+    }
+
+    #[test]
+    fn test_binary_name() {
+        assert_eq!(BINARY_NAME, "{{ binary_name }}");
+    }
+
+    #[test]
+    fn test_stride_values() {
+{%- for variant in variants %}
+{%- if not variant.reserved %}
+        assert_eq!({{ variant.abbreviation }}.stride, {{ variant.stride }});
+{%- endif %}
+{%- endfor %}
+    }
+}
