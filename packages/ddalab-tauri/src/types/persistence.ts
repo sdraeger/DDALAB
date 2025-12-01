@@ -122,6 +122,7 @@ export interface AppPreferences {
   api_config: ApiConfig;
   window_state: Record<string, any>;
   theme: string;
+  updates_last_checked?: string; // ISO date string of last update check
 }
 
 // Tauri command interfaces
