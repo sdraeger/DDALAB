@@ -4,7 +4,7 @@ Example usage of the auto-generated DDA Python API
 This demonstrates how to use the generated code to run DDA analysis.
 """
 
-from dda_py.generated import DDARequest, DDARunner
+from dda_py import DDARequest, DDARunner
 
 # Initialize the runner with path to DDA binary
 runner = DDARunner(binary_path="path/to/run_DDA_AsciiEdf")
@@ -48,7 +48,7 @@ for variant_name, variant_results in results.items():
 
 
 # Example: Using variant metadata
-from dda_py.generated import get_variant_by_abbrev
+from dda_py import get_variant_by_abbrev
 
 # Get information about a variant
 st_variant = get_variant_by_abbrev("ST")
@@ -60,7 +60,7 @@ print(f"  Output suffix: {st_variant.output_suffix}")
 
 
 # Example: Generating SELECT masks
-from dda_py.generated import generate_select_mask, parse_select_mask
+from dda_py import generate_select_mask, parse_select_mask
 
 mask = generate_select_mask(["ST", "CT", "SY"])
 print(f"\nSELECT mask for ST+CT+SY: {mask}")
@@ -70,7 +70,7 @@ print(f"Enabled variants: {enabled}")
 
 
 # Example: Access to CLI constants
-from dda_py.generated import BINARY_NAME, Defaults, Flags
+from dda_py import BINARY_NAME, Defaults, Flags
 
 print(f"\nBinary name: {BINARY_NAME}")
 print(f"Default embedding dimension: {Defaults.EMBEDDING_DIMENSION}")
