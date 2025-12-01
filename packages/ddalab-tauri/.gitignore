@@ -32,7 +32,7 @@ logs/
 
 # Build artifacts
 dist/
-doc-dist/
+docs-dist/
 build/
 
 # TypeScript

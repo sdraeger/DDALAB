@@ -165,6 +165,14 @@ fn main() {
             sync::commands::sync_revoke_share,
             sync::commands::sync_discover_brokers,
             sync::commands::sync_verify_password,
+            // Job commands
+            sync::commands::job_submit_server_file,
+            sync::commands::job_get_status,
+            sync::commands::job_list,
+            sync::commands::job_cancel,
+            sync::commands::job_get_queue_stats,
+            sync::commands::job_list_server_files,
+            sync::commands::job_download_results,
             // Workflow recording commands
             recording::commands::workflow_new,
             recording::commands::workflow_add_node,

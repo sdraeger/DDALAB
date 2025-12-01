@@ -102,6 +102,10 @@ const MAX_WINDOW_STEP: usize = 1_000_000;
 const MAX_SCALE_NUM: usize = 1000;
 const MIN_SCALE_VALUE: i32 = -100;
 const MAX_SCALE_VALUE: i32 = 100;
+const MAX_CHANNELS: usize = 512; // Max EEG channels (generous for high-density arrays)
+const MAX_VARIANTS: usize = 10; // Max DDA variant selections
+const MAX_CHANNEL_PAIRS: usize = 10_000; // Max CT/CD channel pairs
+const MAX_DELAY_LIST: usize = 100; // Max delay values
 
 /// Validate DDA request parameters to prevent DoS and invalid configurations
 fn validate_dda_request(request: &DDARequest) -> Result<(), String> {
@@ -198,6 +202,54 @@ fn validate_dda_request(request: &DDARequest) -> Result<(), String> {
     // Validate algorithm selection
     if request.algorithm_selection.enabled_variants.is_empty() {
         return Err("At least one variant must be enabled".to_string());
+    }
+    if request.algorithm_selection.enabled_variants.len() > MAX_VARIANTS {
+        return Err(format!(
+            "Too many variants ({}) - maximum is {}",
+            request.algorithm_selection.enabled_variants.len(),
+            MAX_VARIANTS
+        ));
+    }
+
+    // SECURITY: Validate vector sizes to prevent DoS
+    if let Some(ref channels) = request.channels {
+        if channels.len() > MAX_CHANNELS {
+            return Err(format!(
+                "Too many channels ({}) - maximum is {}",
+                channels.len(),
+                MAX_CHANNELS
+            ));
+        }
+    }
+
+    if let Some(ref pairs) = request.ct_channel_pairs {
+        if pairs.len() > MAX_CHANNEL_PAIRS {
+            return Err(format!(
+                "Too many CT channel pairs ({}) - maximum is {}",
+                pairs.len(),
+                MAX_CHANNEL_PAIRS
+            ));
+        }
+    }
+
+    if let Some(ref pairs) = request.cd_channel_pairs {
+        if pairs.len() > MAX_CHANNEL_PAIRS {
+            return Err(format!(
+                "Too many CD channel pairs ({}) - maximum is {}",
+                pairs.len(),
+                MAX_CHANNEL_PAIRS
+            ));
+        }
+    }
+
+    if let Some(ref delay_list) = request.scale_parameters.delay_list {
+        if delay_list.len() > MAX_DELAY_LIST {
+            return Err(format!(
+                "Too many delay values ({}) - maximum is {}",
+                delay_list.len(),
+                MAX_DELAY_LIST
+            ));
+        }
     }
 
     Ok(())
@@ -708,7 +760,8 @@ pub async fn run_dda_analysis(
         dda_time.as_secs_f64()
     );
 
-    let q_matrix = dda_result.q_matrix.clone();
+    // Use reference to avoid 51MB+ clone - q_matrix is only read, not mutated
+    let q_matrix = &dda_result.q_matrix;
     let analysis_id = dda_result.id.clone();
 
     let num_channels = q_matrix.len();
@@ -720,9 +773,10 @@ pub async fn run_dda_analysis(
         num_timepoints
     );
 
+    // Use flat_map_iter() for inner non-parallel iterator to avoid thread overhead
     let all_values: Vec<f64> = q_matrix
         .par_iter()
-        .flat_map(|row| row.par_iter().copied())
+        .flat_map_iter(|row| row.iter().copied())
         .collect();
 
     let input_edf_channels: Vec<String> = {

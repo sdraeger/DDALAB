@@ -39,6 +39,13 @@ pub async fn segment_file(params: SegmentFileParams) -> Result<SegmentFileResult
     );
     log::info!("[FILE_CUT] Output format: {}", params.output_format);
 
+    // Run blocking file I/O on dedicated thread pool to avoid freezing Tauri
+    tokio::task::spawn_blocking(move || segment_file_blocking(params))
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
+}
+
+fn segment_file_blocking(params: SegmentFileParams) -> Result<SegmentFileResult, String> {
     // Load the file into IntermediateData
     let file_path = PathBuf::from(&params.file_path);
     let data = load_file_to_intermediate(&file_path)?;

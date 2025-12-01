@@ -7,6 +7,118 @@ pub type UserId = String;
 /// Share token for accessing shared results
 pub type ShareToken = String;
 
+/// Job identifier
+pub type JobId = String;
+
+/// Status of a DDA job
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+/// DDA analysis parameters for job submission
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DDAJobParameters {
+    pub channels: Vec<String>,
+    #[serde(default)]
+    pub ct_pairs: Vec<(String, String)>,
+    #[serde(default)]
+    pub cd_pairs: Vec<(String, String)>,
+    pub time_window: f64,
+    pub delta: f64,
+    pub embedding_dim: u32,
+    pub svd_dimensions: u32,
+    #[serde(default = "default_downsample")]
+    pub downsample: u32,
+    pub start_time: Option<f64>,
+    pub end_time: Option<f64>,
+}
+
+fn default_downsample() -> u32 {
+    1
+}
+
+impl Default for DDAJobParameters {
+    fn default() -> Self {
+        Self {
+            channels: vec![],
+            ct_pairs: vec![],
+            cd_pairs: vec![],
+            time_window: 1.0,
+            delta: 0.1,
+            embedding_dim: 10,
+            svd_dimensions: 3,
+            downsample: 1,
+            start_time: None,
+            end_time: None,
+        }
+    }
+}
+
+/// Request to submit job for server-side file
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubmitServerFileRequest {
+    pub server_path: String,
+    pub parameters: DDAJobParameters,
+}
+
+/// Response after submitting a job
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubmitJobResponse {
+    pub job_id: String,
+    pub status: JobStatus,
+    pub message: String,
+}
+
+/// Job status response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobStatusResponse {
+    pub id: String,
+    pub status: JobStatus,
+    pub progress: u8,
+    pub message: Option<String>,
+    pub output_path: Option<String>,
+    pub error: Option<String>,
+    pub submitted_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+/// Progress event from SSE stream
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobProgressEvent {
+    pub job_id: String,
+    pub status: JobStatus,
+    pub progress: u8,
+    pub message: Option<String>,
+}
+
+/// Queue statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueStats {
+    pub pending: usize,
+    pub running: usize,
+    pub completed: usize,
+    pub failed: usize,
+    pub cancelled: usize,
+    pub max_concurrent: usize,
+    pub available_slots: usize,
+}
+
+/// Server file info
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerFileInfo {
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+    pub is_directory: bool,
+}
+
 /// Access control policy for shared results
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -46,6 +158,12 @@ pub enum SyncMessage {
     RegisterUser {
         user_id: UserId,
         endpoint: String,
+        /// Password for legacy broker authentication (fallback)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        password: Option<String>,
+        /// Session token from HTTP login (preferred)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_token: Option<String>,
     },
     Heartbeat {
         user_id: UserId,

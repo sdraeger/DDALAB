@@ -1,0 +1,14 @@
+# Build outputs
+docs-dist/
+dist/
+.next/
+out/
+
+# Dependencies
+node_modules/
+
+# Rust build artifacts
+src-tauri/target/
+
+# Generated files
+src-tauri/gen/

@@ -26,11 +26,13 @@ export function useSync() {
     // Initial check
     checkConnection();
 
-    // Periodic check every 5 seconds to keep status up to date
-    const interval = setInterval(checkConnection, 5000);
+    // Poll more frequently when connected (2s) to detect disconnection quickly
+    // Poll less frequently when disconnected (10s) to save resources
+    const pollInterval = isConnected ? 2000 : 10000;
+    const interval = setInterval(checkConnection, pollInterval);
 
     return () => clearInterval(interval);
-  }, [checkConnection]);
+  }, [checkConnection, isConnected]);
 
   const connect = useCallback(
     async (config: SyncConnectionConfig) => {
@@ -40,6 +42,7 @@ export function useSync() {
           brokerUrl: config.broker_url,
           userId: config.user_id,
           localEndpoint: config.local_endpoint,
+          password: config.password,
         });
         // Immediately update connection state
         updateSyncStatus({ isConnected: true, isLoading: false });

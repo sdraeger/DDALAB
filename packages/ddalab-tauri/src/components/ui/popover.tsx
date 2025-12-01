@@ -78,20 +78,48 @@ PopoverTrigger.displayName = "PopoverTrigger";
 
 interface PopoverContentProps extends React.HTMLAttributes<HTMLDivElement> {
   align?: "start" | "center" | "end";
+  side?: "top" | "bottom";
   sideOffset?: number;
 }
 
+const ANIMATION_DURATION = 150; // ms
+
 const PopoverContent = React.forwardRef<HTMLDivElement, PopoverContentProps>(
   (
-    { className, align = "center", sideOffset = 4, children, ...props },
+    {
+      className,
+      align = "center",
+      side = "bottom",
+      sideOffset = 4,
+      children,
+      ...props
+    },
     ref,
   ) => {
     const context = React.useContext(PopoverContext);
     const contentRef = React.useRef<HTMLDivElement>(null);
+    const [isVisible, setIsVisible] = React.useState(false);
+    const [isClosing, setIsClosing] = React.useState(false);
 
     if (!context) {
       throw new Error("PopoverContent must be used within a Popover");
     }
+
+    // Handle open/close with animation
+    React.useEffect(() => {
+      if (context.open) {
+        setIsVisible(true);
+        setIsClosing(false);
+      } else if (isVisible) {
+        // Start close animation
+        setIsClosing(true);
+        const timer = setTimeout(() => {
+          setIsVisible(false);
+          setIsClosing(false);
+        }, ANIMATION_DURATION);
+        return () => clearTimeout(timer);
+      }
+    }, [context.open, isVisible]);
 
     // Close on outside click
     React.useEffect(() => {
@@ -138,7 +166,12 @@ const PopoverContent = React.forwardRef<HTMLDivElement, PopoverContentProps>(
       return () => document.removeEventListener("keydown", handleEscape);
     }, [context.open, context]);
 
-    if (!context.open) return null;
+    if (!isVisible) return null;
+
+    const sideStyles =
+      side === "top"
+        ? { bottom: `calc(100% + ${sideOffset}px)` }
+        : { marginTop: sideOffset };
 
     return (
       <div
@@ -148,14 +181,26 @@ const PopoverContent = React.forwardRef<HTMLDivElement, PopoverContentProps>(
           else if (ref) ref.current = node;
         }}
         className={cn(
-          "absolute z-50 mt-1 rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-none",
-          "animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
+          "absolute z-50 rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-none",
+          isClosing
+            ? "animate-out fade-out-0 zoom-out-95"
+            : "animate-in fade-in-0 zoom-in-95",
+          isClosing
+            ? side === "top"
+              ? "slide-out-to-bottom-2"
+              : "slide-out-to-top-2"
+            : side === "top"
+              ? "slide-in-from-bottom-2"
+              : "slide-in-from-top-2",
           align === "start" && "left-0",
           align === "center" && "left-1/2 -translate-x-1/2",
           align === "end" && "right-0",
           className,
         )}
-        style={{ marginTop: sideOffset }}
+        style={{
+          ...sideStyles,
+          animationDuration: `${ANIMATION_DURATION}ms`,
+        }}
         {...props}
       >
         {children}

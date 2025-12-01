@@ -105,7 +105,10 @@ impl OverviewCacheDatabase {
             CREATE INDEX IF NOT EXISTS idx_overview_cache_data_cache_id
                 ON overview_cache_data(cache_id);
             CREATE INDEX IF NOT EXISTS idx_overview_cache_data_channel
-                ON overview_cache_data(cache_id, channel_index);",
+                ON overview_cache_data(cache_id, channel_index);
+            -- Index for segment range queries (e.g., find segments overlapping a time range)
+            CREATE INDEX IF NOT EXISTS idx_overview_cache_data_segment_range
+                ON overview_cache_data(cache_id, channel_index, segment_start, segment_end);",
         )
         .context("Failed to create overview cache tables")?;
 
@@ -303,29 +306,58 @@ impl OverviewCacheDatabase {
         Ok(())
     }
 
-    /// Save segment data
+    /// Save segment data (single segment)
     pub fn save_segment(&self, segment: &OverviewSegment) -> Result<()> {
-        // Serialize f64 vector to bytes with pre-allocated capacity
-        // Sequential is faster than par_iter for simple byte conversion
-        let mut data_bytes = Vec::with_capacity(segment.data.len() * 8);
-        for &f in &segment.data {
-            data_bytes.extend_from_slice(&f.to_le_bytes());
+        self.save_segments_batch(&[segment.clone()])
+    }
+
+    /// Save multiple segments in a single transaction (batch insert)
+    /// This is significantly faster than inserting one at a time
+    pub fn save_segments_batch(&self, segments: &[OverviewSegment]) -> Result<()> {
+        if segments.is_empty() {
+            return Ok(());
         }
 
-        self.conn.lock().execute(
-            "INSERT OR REPLACE INTO overview_cache_data
-             (cache_id, channel_index, segment_start, segment_end, data)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                segment.cache_id,
-                segment.channel_index as i64,
-                segment.segment_start as i64,
-                segment.segment_end as i64,
-                data_bytes,
-            ],
-        )?;
+        let conn = self.conn.lock();
+        // Use a transaction for batch inserts - much faster than individual inserts
+        conn.execute("BEGIN TRANSACTION", [])?;
 
-        Ok(())
+        let result = (|| {
+            let mut stmt = conn.prepare_cached(
+                "INSERT OR REPLACE INTO overview_cache_data
+                 (cache_id, channel_index, segment_start, segment_end, data)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+
+            for segment in segments {
+                // Serialize f64 vector to bytes with pre-allocated capacity
+                let mut data_bytes = Vec::with_capacity(segment.data.len() * 8);
+                for &f in &segment.data {
+                    data_bytes.extend_from_slice(&f.to_le_bytes());
+                }
+
+                stmt.execute(params![
+                    segment.cache_id,
+                    segment.channel_index as i64,
+                    segment.segment_start as i64,
+                    segment.segment_end as i64,
+                    data_bytes,
+                ])?;
+            }
+
+            Ok::<_, anyhow::Error>(())
+        })();
+
+        match result {
+            Ok(_) => {
+                conn.execute("COMMIT", [])?;
+                Ok(())
+            }
+            Err(e) => {
+                let _ = conn.execute("ROLLBACK", []);
+                Err(e)
+            }
+        }
     }
 
     /// Get all segments for a cache entry

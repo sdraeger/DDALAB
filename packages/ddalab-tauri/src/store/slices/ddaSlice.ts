@@ -52,59 +52,70 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      setTimeout(() => {
-        const { dda, persistenceService, fileManager } = get();
-        const ddaState: PersistedDDAState = {
-          selected_variants: dda.analysisParameters.variants,
-          parameters: {
-            windowLength: dda.analysisParameters.windowLength,
-            windowStep: dda.analysisParameters.windowStep,
-            scaleMin: dda.analysisParameters.scaleMin,
-            scaleMax: dda.analysisParameters.scaleMax,
-            scaleNum: dda.analysisParameters.scaleNum,
-          },
-          last_analysis_id: analysis?.id || null,
-          current_analysis: analysis,
-          analysis_history: dda.analysisHistory,
-          analysis_parameters: dda.analysisParameters,
-          running: dda.isRunning,
-        };
-        TauriService.updateDDAState(ddaState).catch(console.error);
+      // Capture state immediately to avoid race condition (don't read with get() in setTimeout)
+      const { dda, persistenceService, fileManager } = get();
+      const ddaState: PersistedDDAState = {
+        selected_variants: dda.analysisParameters.variants,
+        parameters: {
+          windowLength: dda.analysisParameters.windowLength,
+          windowStep: dda.analysisParameters.windowStep,
+          scaleMin: dda.analysisParameters.scaleMin,
+          scaleMax: dda.analysisParameters.scaleMax,
+          scaleNum: dda.analysisParameters.scaleNum,
+        },
+        last_analysis_id: analysis?.id || null,
+        current_analysis: analysis,
+        analysis_history: dda.analysisHistory,
+        analysis_parameters: dda.analysisParameters,
+        running: dda.isRunning,
+      };
+      const selectedFilePath = fileManager.selectedFile?.file_path;
+      const analysisHistory = dda.analysisHistory;
+      const analysisParameters = dda.analysisParameters;
 
-        if (persistenceService) {
-          persistenceService.saveDDAState(ddaState).catch(console.error);
+      // Defer persistence to avoid blocking UI, but use captured state
+      setTimeout(async () => {
+        try {
+          await TauriService.updateDDAState(ddaState);
+        } catch (err) {
+          console.error("[STORE] Failed to update Tauri DDA state:", err);
         }
 
-        const selectedFilePath = fileManager.selectedFile?.file_path;
+        if (persistenceService) {
+          try {
+            await persistenceService.saveDDAState(ddaState);
+          } catch (err) {
+            console.error("[STORE] Failed to persist DDA state:", err);
+          }
+        }
+
         if (selectedFilePath && analysis) {
-          (async () => {
-            try {
-              const fileStateManager = getInitializedFileStateManager();
-              const fileDDAState: FileDDAState = {
-                currentAnalysisId: analysis.id,
-                analysisHistory: dda.analysisHistory.map((a) => a.id),
-                lastParameters: dda.analysisParameters,
-                selectedVariants: dda.analysisParameters.variants,
-                lastUpdated: new Date().toISOString(),
-              };
+          try {
+            const fileStateManager = getInitializedFileStateManager();
+            const fileDDAState: FileDDAState = {
+              currentAnalysisId: analysis.id,
+              analysisHistory: analysisHistory.map((a) => a.id),
+              lastParameters: analysisParameters,
+              selectedVariants: analysisParameters.variants,
+              lastUpdated: new Date().toISOString(),
+            };
 
-              await fileStateManager.updateModuleState(
-                selectedFilePath,
-                "dda",
-                fileDDAState,
-              );
+            await fileStateManager.updateModuleState(
+              selectedFilePath,
+              "dda",
+              fileDDAState,
+            );
 
-              console.log("[STORE] Saved file-centric DDA state:", {
-                filePath: selectedFilePath,
-                currentAnalysisId: analysis.id,
-              });
-            } catch (err) {
-              console.error(
-                "[STORE] Failed to save file-centric DDA state:",
-                err,
-              );
-            }
-          })();
+            console.log("[STORE] Saved file-centric DDA state:", {
+              filePath: selectedFilePath,
+              currentAnalysisId: analysis.id,
+            });
+          } catch (err) {
+            console.error(
+              "[STORE] Failed to save file-centric DDA state:",
+              err,
+            );
+          }
         }
       }, 0);
     }
