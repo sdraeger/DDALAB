@@ -1,0 +1,45 @@
+{
+    "version": "1.0",
+    "sources": ["model"],
+    "maven": {
+        "dependencies": [
+            "software.amazon.smithy:smithy-model:1.47.0",
+            "software.amazon.smithy:smithy-build:1.47.0",
+            "software.amazon.smithy:smithy-cli:1.47.0"
+        ]
+    },
+    "plugins": {
+        "model": {
+            "outputDirectory": "build/model"
+        },
+        "sources": {
+            "outputDirectory": "build/sources"
+        }
+    },
+    "projections": {
+        "rust": {
+            "plugins": {
+                "model": {
+                    "outputDirectory": "build/rust"
+                }
+            },
+            "transforms": []
+        },
+        "python": {
+            "plugins": {
+                "model": {
+                    "outputDirectory": "build/python"
+                }
+            },
+            "transforms": []
+        },
+        "typescript": {
+            "plugins": {
+                "model": {
+                    "outputDirectory": "build/typescript"
+                }
+            },
+            "transforms": []
+        }
+    }
+}

@@ -1,0 +1,36 @@
+[package]
+name = "dda-spec"
+version = "1.0.0"
+edition = "2021"
+description = "DDA Specification - Smithy-based canonical spec and code generator"
+license = "MIT"
+authors = ["DDALAB Team"]
+
+[lib]
+name = "dda_spec"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dda-codegen"
+path = "src/bin/codegen.rs"
+
+[dependencies]
+# Smithy parsing
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Template engine
+tera = "1"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2.0.17"
+
+# File system
+walkdir = "2"
+
+[dev-dependencies]
+tempfile = "3"
