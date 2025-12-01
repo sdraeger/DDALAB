@@ -1,0 +1,86 @@
+services:
+  ddalab-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ddalab-server
+    ports:
+      - "${DDALAB_PORT:-8080}:8080"
+      # Note: mDNS (port 5353) is NOT exposed in bridge network mode.
+      # mDNS multicast doesn't work from containers in bridge networks.
+      # For LAN discovery, run ddalab-server natively or use host network mode.
+      # Clients can still connect directly via the HTTP port above.
+    environment:
+      - DATABASE_URL=postgres://ddalab:${DB_PASSWORD:-ddalab_secure_password}@postgres:5432/ddalab
+      - INSTITUTION_NAME=${INSTITUTION_NAME:-Research Lab}
+      - BROKER_PASSWORD=${BROKER_PASSWORD:-changeme}
+      - ENABLE_MDNS=${ENABLE_MDNS:-false}  # mDNS doesn't work in bridge network mode
+      - DDALAB_BIND_ADDR=0.0.0.0
+      - DDALAB_PORT=8080
+      - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
+      - ENABLE_ENCRYPTION=${ENABLE_ENCRYPTION:-true}
+      - SESSION_TIMEOUT_SECONDS=${SESSION_TIMEOUT_SECONDS:-3600}
+      - HEARTBEAT_TIMEOUT_SECONDS=${HEARTBEAT_TIMEOUT_SECONDS:-300}
+      - RUST_LOG=ddalab_server=info
+    volumes:
+      - ddalab-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    # For mDNS to work, use network_mode: host (but can't use with networks:)
+    # network_mode: host
+    # For development/testing, use bridge network:
+    networks:
+      - ddalab-net
+
+  # CLI service for running administrative commands
+  # Usage: docker compose run --rm cli user create -e admin@example.com -n "Admin"
+  #        docker compose run --rm cli user list
+  #        docker compose run --rm cli audit --limit 100
+  cli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles:
+      - cli
+    environment:
+      - DATABASE_URL=postgres://ddalab:${DB_PASSWORD:-ddalab_secure_password}@postgres:5432/ddalab
+      - BROKER_PASSWORD=${BROKER_PASSWORD:-changeme}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ddalab-net
+    # Override the default command (serve) with empty to allow passing CLI args
+    entrypoint: ["/app/ddalab-server"]
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ddalab-postgres
+    ports:
+      - "5432:5432"  # Expose for local development
+    environment:
+      - POSTGRES_USER=ddalab
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-ddalab_secure_password}
+      - POSTGRES_DB=ddalab
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ddalab"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ddalab-net
+    restart: unless-stopped
+
+volumes:
+  ddalab-data:
+    driver: local
+  postgres-data:
+    driver: local
+
+networks:
+  ddalab-net:
+    driver: bridge
