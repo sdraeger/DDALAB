@@ -1,0 +1,282 @@
+#=
+AUTO-GENERATED from DDA Specification v{{ spec_version }}
+Generated: {{ generated_at }}
+
+DO NOT EDIT MANUALLY - Run `cargo run --package dda-spec` to regenerate.
+=#
+
+module Variants
+
+export SPEC_VERSION, SELECT_MASK_SIZE, BINARY_NAME, REQUIRES_SHELL_WRAPPER
+export SHELL_COMMAND, SUPPORTED_PLATFORMS
+export ChannelFormat, Individual, Pairs, DirectedPairs
+export OutputColumns, VariantMetadata
+export VARIANT_REGISTRY, VARIANT_ORDER
+{% for variant in variants %}export {{ variant.abbreviation }}
+{% endfor %}
+export get_variant_by_abbrev, get_variant_by_suffix, get_variant_by_position
+export active_variants, generate_select_mask, parse_select_mask, format_select_mask
+export ScaleParameters, generate_delays
+export requires_ct_params, SelectMaskPositions
+export FileType, {% for ft in file_types %}{{ ft.name }}{% if not loop.last %}, {% endif %}{% endfor %}, get_flag, file_type_from_extension
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+
+const SPEC_VERSION = "{{ spec_version }}"
+const SELECT_MASK_SIZE = {{ select_mask_size }}
+const BINARY_NAME = "{{ binary_name }}"
+const REQUIRES_SHELL_WRAPPER = {{ requires_shell_wrapper }}
+const SHELL_COMMAND = "{{ shell_command }}"
+const SUPPORTED_PLATFORMS = [
+{%- for platform in supported_platforms %}
+    "{{ platform }}",
+{%- endfor %}
+]
+
+# =============================================================================
+# ENUMS
+# =============================================================================
+
+"""Channel format for variant input."""
+@enum ChannelFormat begin
+    Individual
+    Pairs
+    DirectedPairs
+end
+
+function channel_format_from_string(s::AbstractString)::ChannelFormat
+    s == "individual" && return Individual
+    s == "pairs" && return Pairs
+    s == "directed_pairs" && return DirectedPairs
+    error("Unknown channel format: $s")
+end
+
+# =============================================================================
+# TYPES
+# =============================================================================
+
+"""Output column specification for a variant."""
+struct OutputColumns
+    coefficients::UInt8
+    has_error::Bool
+    description::String
+end
+
+"""Complete variant metadata."""
+struct VariantMetadata
+    abbreviation::String
+    name::String
+    position::UInt8
+    output_suffix::String
+    stride::UInt8
+    reserved::Bool
+    required_params::Vector{String}
+    channel_format::ChannelFormat
+    output_columns::OutputColumns
+    documentation::String
+end
+
+"""Check if variant requires CT window parameters."""
+function requires_ct_params(v::VariantMetadata)::Bool
+    return "-WL_CT" in v.required_params
+end
+
+# =============================================================================
+# VARIANT DEFINITIONS
+# =============================================================================
+
+{% for variant in variants %}
+"""
+{{ variant.name }} ({{ variant.abbreviation }}) - Position {{ variant.position }}
+
+{{ variant.documentation }}
+"""
+const {{ variant.abbreviation }} = VariantMetadata(
+    "{{ variant.abbreviation }}",
+    "{{ variant.name }}",
+    {{ variant.position }},
+    "{{ variant.output_suffix }}",
+    {{ variant.stride }},
+    {{ variant.reserved }},
+    [{% for param in variant.required_params %}"{{ param }}"{% if not loop.last %}, {% endif %}{% endfor %}],
+    {{ variant.channel_format | pascal_case }},
+    OutputColumns(
+        {{ variant.output_columns.coefficients }},
+        {{ variant.output_columns.has_error }},
+        "{{ variant.output_columns.description }}"
+    ),
+    "{{ variant.documentation }}"
+)
+
+{% endfor %}
+
+"""All variants in SELECT mask order."""
+const VARIANT_REGISTRY = [
+{%- for abbrev in variant_order %}
+    {{ abbrev }},
+{%- endfor %}
+]
+
+"""Variant abbreviations in SELECT mask order."""
+const VARIANT_ORDER = [
+{%- for abbrev in variant_order %}
+    "{{ abbrev }}",
+{%- endfor %}
+]
+
+# =============================================================================
+# SELECT MASK POSITIONS
+# =============================================================================
+
+module SelectMaskPositions
+{%- for variant in variants %}
+    const {{ variant.abbreviation }} = {{ variant.position }}
+{%- endfor %}
+end
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
+
+"""Look up variant by abbreviation."""
+function get_variant_by_abbrev(abbrev::AbstractString)::Union{VariantMetadata, Nothing}
+    for v in VARIANT_REGISTRY
+        v.abbreviation == abbrev && return v
+    end
+    return nothing
+end
+
+"""Look up variant by output suffix."""
+function get_variant_by_suffix(suffix::AbstractString)::Union{VariantMetadata, Nothing}
+    for v in VARIANT_REGISTRY
+        v.output_suffix == suffix && return v
+    end
+    return nothing
+end
+
+"""Look up variant by position in SELECT mask."""
+function get_variant_by_position(position::Integer)::Union{VariantMetadata, Nothing}
+    for v in VARIANT_REGISTRY
+        v.position == position && return v
+    end
+    return nothing
+end
+
+"""Get all non-reserved variants."""
+function active_variants()::Vector{VariantMetadata}
+    return [v for v in VARIANT_REGISTRY if !v.reserved]
+end
+
+"""
+Generate a SELECT mask from variant abbreviations.
+
+# Examples
+```julia
+generate_select_mask(["ST", "SY"])  # [1, 0, 0, 0, 0, 1]
+```
+"""
+function generate_select_mask(variants::Vector{<:AbstractString})::Vector{UInt8}
+    mask = zeros(UInt8, SELECT_MASK_SIZE)
+    for abbrev in variants
+        v = get_variant_by_abbrev(abbrev)
+        if v !== nothing
+            mask[v.position + 1] = 1  # Julia is 1-indexed
+        end
+    end
+    return mask
+end
+
+"""
+Parse a SELECT mask back to variant abbreviations.
+
+# Examples
+```julia
+parse_select_mask([1, 0, 0, 0, 0, 1])  # ["ST", "SY"]
+```
+"""
+function parse_select_mask(mask::Vector{<:Integer})::Vector{String}
+    result = String[]
+    for (pos, bit) in enumerate(mask)
+        if bit == 1
+            v = get_variant_by_position(pos - 1)  # Convert from 1-indexed
+            if v !== nothing && !v.reserved
+                push!(result, v.abbreviation)
+            end
+        end
+    end
+    return result
+end
+
+"""Format SELECT mask as space-separated string for CLI."""
+function format_select_mask(mask::Vector{<:Integer})::String
+    return join(string.(mask), " ")
+end
+
+# =============================================================================
+# SCALE PARAMETERS
+# =============================================================================
+
+"""Parameters for generating delay values from scale range."""
+@kwdef mutable struct ScaleParameters
+    scale_min::Float64 = {{ scale_defaults.scale_min }}
+    scale_max::Float64 = {{ scale_defaults.scale_max }}
+    scale_num::Int = {{ scale_defaults.scale_num }}
+end
+
+"""
+Generate delay values from scale parameters.
+
+# Examples
+```julia
+params = ScaleParameters(scale_min=1.0, scale_max=10.0, scale_num=10)
+generate_delays(params)  # [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+```
+"""
+function generate_delays(params::ScaleParameters)::Vector{Int}
+    if params.scale_num == 1
+        return [round(Int, params.scale_min)]
+    end
+
+    step = (params.scale_max - params.scale_min) / (params.scale_num - 1)
+    return [round(Int, params.scale_min + i * step) for i in 0:(params.scale_num - 1)]
+end
+
+# =============================================================================
+# FILE TYPES
+# =============================================================================
+
+"""File type enumeration."""
+@enum FileType begin
+{%- for ft in file_types %}
+    {{ ft.name }}
+{%- endfor %}
+end
+
+const FILE_TYPE_FLAGS = Dict{FileType, String}(
+{%- for ft in file_types %}
+    {{ ft.name }} => "{{ ft.flag }}",
+{%- endfor %}
+)
+
+const FILE_TYPE_EXTENSIONS = Dict{String, FileType}(
+{%- for ft in file_types %}
+{%- for ext in ft.extensions %}
+    "{{ ext }}" => {{ ft.name }},
+{%- endfor %}
+{%- endfor %}
+)
+
+"""Get CLI flag for file type."""
+function get_flag(ft::FileType)::String
+    return FILE_TYPE_FLAGS[ft]
+end
+
+"""Detect file type from extension."""
+function file_type_from_extension(ext::AbstractString)::Union{FileType, Nothing}
+    normalized = lowercase(lstrip(ext, '.'))
+    return get(FILE_TYPE_EXTENSIONS, normalized, nothing)
+end
+
+end # module

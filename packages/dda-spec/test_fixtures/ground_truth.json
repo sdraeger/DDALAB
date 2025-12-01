@@ -1,0 +1,149 @@
+{
+  "_comment": "Ground truth test fixtures generated from actual DDA binary execution",
+  "_generated_at": "2024-11-30",
+  "_binary": "bin/run_DDA_AsciiEdf",
+  "_test_file": "data/patient1_S05__01_03 (1).edf",
+
+  "test_cases": {
+    "st_only": {
+      "description": "ST variant only with 2 channels",
+      "cli_args": {
+        "file_type": "-EDF",
+        "data_fn": "data/patient1_S05__01_03 (1).edf",
+        "channels": [1, 2],
+        "select_mask": [1, 0, 0, 0, 0, 0],
+        "model": [1, 2, 10],
+        "tau": [1, 2, 3],
+        "window_length": 1000,
+        "window_step": 500,
+        "dm": 4,
+        "order": 4,
+        "nr_tau": 2
+      },
+      "expected_outputs": {
+        "ST": {
+          "file_suffix": "_ST",
+          "stride": 4,
+          "num_channels": 2,
+          "columns_per_channel": {
+            "coefficients": 3,
+            "has_error": true,
+            "layout": ["a1", "a2", "a3", "error"]
+          },
+          "first_5_rows": [
+            [0.0, 1011.0, 0.480230556366252, -0.523010561885948, -0.001070597444154, 0.165763660820008, 0.409893529796269, -0.450645560832144, -0.00144182635398, 0.154894075556231],
+            [500.0, 1511.0, 0.494547497294258, -0.52851807012178, -0.000541538506272, 0.157371822356331, 0.410364560111754, -0.445157921474517, -0.000676310065744, 0.156882472682196],
+            [1000.0, 2011.0, 0.365437041112638, -0.403085229105494, -0.000183303740698, 0.165644268439864, 0.328988350244663, -0.374398706253397, 0.001094675806028, 0.175714519244451],
+            [1500.0, 2511.0, 0.344007703347712, -0.396552913407137, -0.001012125939045, 0.184894705782542, 0.330575569257525, -0.3831139119511, -0.00121157567766, 0.181138883490265],
+            [2000.0, 3011.0, 0.343619526851078, -0.40977123494094, -0.000302809352739, 0.212798144895371, 0.330231847902877, -0.399434178053583, -0.000399164943645, 0.214711507630478]
+          ],
+          "total_rows": 239
+        }
+      }
+    },
+
+    "st_3_channels": {
+      "description": "ST variant with 3 channels",
+      "cli_args": {
+        "file_type": "-EDF",
+        "data_fn": "data/patient1_S05__01_03 (1).edf",
+        "channels": [1, 2, 3],
+        "select_mask": [1, 0, 0, 0, 0, 0],
+        "model": [1, 2, 10],
+        "tau": [1, 2, 3],
+        "window_length": 1000,
+        "window_step": 500,
+        "dm": 4,
+        "order": 4,
+        "nr_tau": 2
+      },
+      "expected_outputs": {
+        "ST": {
+          "file_suffix": "_ST",
+          "stride": 4,
+          "num_channels": 3,
+          "columns_per_channel": {
+            "coefficients": 3,
+            "has_error": true,
+            "layout": ["a1", "a2", "a3", "error"]
+          },
+          "first_row": [0.0, 1011.0, 0.480230556366252, -0.523010561885948, -0.001070597444154, 0.165763660820008, 0.409893529796269, -0.450645560832144, -0.00144182635398, 0.154894075556231, 0.506955249835324, -0.545153980257088, -0.00074319814648, 0.161268237760745],
+          "total_rows": 239
+        }
+      }
+    }
+  },
+
+  "variant_specs": {
+    "ST": {
+      "position": 0,
+      "output_suffix": "_ST",
+      "stride": 4,
+      "output_columns": {
+        "coefficients": 3,
+        "has_error": true
+      },
+      "required_params": []
+    },
+    "CT": {
+      "position": 1,
+      "output_suffix": "_CT",
+      "stride": 4,
+      "output_columns": {
+        "coefficients": 3,
+        "has_error": true
+      },
+      "required_params": ["-WL_CT", "-WS_CT"]
+    },
+    "CD": {
+      "position": 2,
+      "output_suffix": "_CD_DDA_ST",
+      "stride": 2,
+      "output_columns": {
+        "coefficients": 1,
+        "has_error": true
+      },
+      "required_params": ["-WL_CT", "-WS_CT"]
+    },
+    "RESERVED": {
+      "position": 3,
+      "output_suffix": "_RESERVED",
+      "stride": 1,
+      "reserved": true,
+      "output_columns": {
+        "coefficients": 0,
+        "has_error": false
+      },
+      "required_params": []
+    },
+    "DE": {
+      "position": 4,
+      "output_suffix": "_DE",
+      "stride": 1,
+      "output_columns": {
+        "coefficients": 0,
+        "has_error": false
+      },
+      "required_params": ["-WL_CT", "-WS_CT"]
+    },
+    "SY": {
+      "position": 5,
+      "output_suffix": "_SY",
+      "stride": 1,
+      "output_columns": {
+        "coefficients": 0,
+        "has_error": false
+      },
+      "required_params": []
+    }
+  },
+
+  "select_mask_positions": {
+    "ST": 0,
+    "CT": 1,
+    "CD": 2,
+    "RESERVED": 3,
+    "DE": 4,
+    "SY": 5
+  }
+}
