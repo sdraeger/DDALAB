@@ -1,5 +1,5 @@
 use dda_rs::{
-    AlgorithmSelection, DDARequest, DDARunner, PreprocessingOptions, ScaleParameters, TimeRange,
+    AlgorithmSelection, DDARequest, DDARunner, DelayParameters, PreprocessingOptions, TimeRange,
     WindowParameters,
 };
 use std::path::PathBuf;
@@ -55,15 +55,13 @@ async fn test_st_variant() {
             ct_window_length: None,
             ct_window_step: None,
         },
-        scale_parameters: ScaleParameters {
-            scale_min: 1.0,
-            scale_max: 10.0,
-            scale_num: 10,
-            delay_list: None,
+        delay_parameters: DelayParameters {
+            delays: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         },
         ct_channel_pairs: None,
         cd_channel_pairs: None,
         model_parameters: None,
+        variant_configs: None,
     };
 
     let result = runner
@@ -114,15 +112,13 @@ async fn test_ct_variant() {
             ct_window_length: Some(2),
             ct_window_step: Some(2),
         },
-        scale_parameters: ScaleParameters {
-            scale_min: 1.0,
-            scale_max: 10.0,
-            scale_num: 10,
-            delay_list: None,
+        delay_parameters: DelayParameters {
+            delays: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         },
         ct_channel_pairs: Some(ct_pairs.clone()),
         cd_channel_pairs: None,
         model_parameters: None,
+        variant_configs: None,
     };
 
     let result = runner
@@ -171,15 +167,13 @@ async fn test_de_variant() {
             ct_window_length: Some(2), // Required for DE
             ct_window_step: Some(2),   // Required for DE
         },
-        scale_parameters: ScaleParameters {
-            scale_min: 1.0,
-            scale_max: 10.0,
-            scale_num: 10,
-            delay_list: None,
+        delay_parameters: DelayParameters {
+            delays: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         },
         ct_channel_pairs: None,
         cd_channel_pairs: None,
         model_parameters: None,
+        variant_configs: None,
     };
 
     let result = runner
@@ -228,15 +222,13 @@ async fn test_sy_variant() {
             ct_window_length: None,
             ct_window_step: None,
         },
-        scale_parameters: ScaleParameters {
-            scale_min: 1.0,
-            scale_max: 10.0,
-            scale_num: 10,
-            delay_list: None,
+        delay_parameters: DelayParameters {
+            delays: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         },
         ct_channel_pairs: None,
         cd_channel_pairs: None,
         model_parameters: None,
+        variant_configs: None,
     };
 
     let result = runner
@@ -290,15 +282,13 @@ async fn test_multiple_variants() {
             ct_window_length: Some(2),
             ct_window_step: Some(2),
         },
-        scale_parameters: ScaleParameters {
-            scale_min: 1.0,
-            scale_max: 10.0,
-            scale_num: 10,
-            delay_list: None,
+        delay_parameters: DelayParameters {
+            delays: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         },
         ct_channel_pairs: Some(ct_pairs),
         cd_channel_pairs: None,
         model_parameters: None,
+        variant_configs: None,
     };
 
     let result = runner

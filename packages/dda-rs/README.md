@@ -22,7 +22,7 @@ This crate provides a clean, type-safe Rust interface to execute the DDA (Delay 
 ## Usage
 
 ```rust
-use dda_rs::{DDARunner, DDARequest, WindowParameters, ScaleParameters, TimeRange, PreprocessingOptions, AlgorithmSelection};
+use dda_rs::{DDARunner, DDARequest, WindowParameters, DelayParameters, TimeRange, PreprocessingOptions, AlgorithmSelection};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,23 +39,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             lowpass: None,
         },
         algorithm_selection: AlgorithmSelection {
-            enabled_variants: vec!["standard".to_string()],
+            enabled_variants: vec!["single_timeseries".to_string()],
+            select_mask: Some("1 0 0 0 0 0".to_string()), // ST only
         },
         window_parameters: WindowParameters {
             window_length: 1024,
             window_step: 512,
+            ct_window_length: None,
+            ct_window_step: None,
         },
-        scale_parameters: ScaleParameters {
-            scale_min: 1.0,
-            scale_max: 10.0,
-            scale_num: 10,
+        delay_parameters: DelayParameters {
+            delays: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10], // Tau values passed to -TAU
         },
+        ct_channel_pairs: None,
+        cd_channel_pairs: None,
+        model_parameters: None,
+        variant_configs: None,
     };
 
     // Run analysis with sample bounds (start_sample, end_sample)
-    let start_bound = 0;  // Start from beginning
-    let end_bound = 10000;  // End at sample 10000
-    let result = runner.run(&request, start_bound, end_bound).await?;
+    let start_bound = Some(0);  // Start from beginning
+    let end_bound = Some(10000);  // End at sample 10000
+    let result = runner.run(&request, start_bound, end_bound, None).await?;
 
     // Access results
     println!("Analysis ID: {}", result.id);
