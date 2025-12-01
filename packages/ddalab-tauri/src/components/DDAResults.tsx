@@ -334,6 +334,38 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     return [];
   }, [result.id]); // Only recalculate when result.id changes, not when object ref changes
 
+  // Safe scales array - derives from dda_matrix if scales is missing from stored results
+  const safeScales = useMemo((): number[] => {
+    // Use existing scales if available
+    const originalScales = result.results?.scales;
+    if (
+      originalScales &&
+      Array.isArray(originalScales) &&
+      originalScales.length > 0
+    ) {
+      return originalScales;
+    }
+
+    // Derive scales from dda_matrix data if available
+    const firstVariant = availableVariants[0];
+    if (firstVariant?.dda_matrix) {
+      const firstChannel = Object.values(firstVariant.dda_matrix)[0];
+      if (Array.isArray(firstChannel) && firstChannel.length > 0) {
+        // Generate scales as indices (0, 1, 2, ..., n-1)
+        console.log(
+          `[DDAResults] Deriving scales from dda_matrix (${firstChannel.length} timepoints)`,
+        );
+        return Array.from({ length: firstChannel.length }, (_, i) => i);
+      }
+    }
+
+    // Fallback to empty array
+    console.warn(
+      "[DDAResults] No scales available and couldn't derive from data",
+    );
+    return [];
+  }, [result.results?.scales, availableVariants]);
+
   // Generate available plots for annotation visibility
   const availablePlots = useMemo<PlotInfo[]>(() => {
     const plots: PlotInfo[] = [
@@ -652,9 +684,16 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     // CRITICAL: Defer heavy rendering to NEXT frame so browser can paint loading state first
     // Without this, the loading overlay never shows because we block the main thread
     const deferredRender = () => {
+      // Guard against empty scales
+      if (safeScales.length === 0) {
+        console.warn("[HEATMAP] No scales available, skipping render");
+        setIsRenderingHeatmap(false);
+        return;
+      }
+
       profiler.start("heatmap-render", {
         channels: selectedChannels.length,
-        timePoints: result.results.scales.length,
+        timePoints: safeScales.length,
         variant: currentVariantData?.variant_id,
       });
 
@@ -673,8 +712,8 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
         // Prepare data for uPlot
         const plotData: uPlot.AlignedData = [
-          result.results.scales,
-          new Array(result.results.scales.length).fill(0),
+          safeScales,
+          new Array(safeScales.length).fill(0),
         ];
 
         const opts: uPlot.Options = {
@@ -683,10 +722,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
           scales: {
             x: {
               time: false,
-              range: [
-                result.results.scales[0],
-                result.results.scales[result.results.scales.length - 1],
-              ],
+              range: [safeScales[0], safeScales[safeScales.length - 1]],
             },
             y: {
               range: [-0.5, selectedChannels.length - 0.5],
@@ -796,7 +832,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                 ctx.rect(left, top, plotWidth, plotHeight);
                 ctx.clip();
 
-                const cellWidth = plotWidth / result.results.scales.length;
+                const cellWidth = plotWidth / safeScales.length;
                 const cellHeight = plotHeight / selectedChannels.length;
 
                 // Pre-compute normalization factor (optimization: avoid repeated division)
@@ -812,7 +848,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
                   if (!rowData) continue;
 
-                  for (let x = 0; x < result.results.scales.length; x++) {
+                  for (let x = 0; x < safeScales.length; x++) {
                     const value = rowData[x] || 0;
                     // Optimized normalization with pre-computed factor
                     const normalized = (value - colorMin) * normFactor;
@@ -902,7 +938,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   }, [
     heatmapData,
     selectedChannels,
-    result.results.scales.length,
+    safeScales.length,
     colorRange[0],
     colorRange[1],
     colorScheme,
@@ -951,13 +987,12 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
         // Prepare data for line plot
         const startPrepTime = performance.now();
-        const scales = result.results.scales;
 
         // Defensive check for scales data
-        if (!scales || !Array.isArray(scales) || scales.length === 0) {
+        if (safeScales.length === 0) {
           console.error(
             "[LINE PLOT] Invalid scales data for line plot:",
-            scales,
+            safeScales,
           );
           console.error("[LINE PLOT] Result structure:", {
             hasResults: !!result.results,
@@ -969,7 +1004,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
           return;
         }
 
-        const data: uPlot.AlignedData = [scales];
+        const data: uPlot.AlignedData = [safeScales];
         const validChannels: string[] = [];
 
         // Add DDA matrix data for selected channels - only include channels with valid data
@@ -1164,7 +1199,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     selectedChannels,
     selectedVariant,
     availableVariants.length,
-    result.results.scales.length,
+    safeScales.length,
     linePlotHeight,
   ]);
 
@@ -1911,20 +1946,16 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                 size="sm"
                 onClick={() => {
                   // Reset zoom for both plots
-                  if (uplotHeatmapRef.current) {
+                  if (uplotHeatmapRef.current && safeScales.length > 0) {
                     uplotHeatmapRef.current.setScale("x", {
-                      min: result.results.scales[0],
-                      max: result.results.scales[
-                        result.results.scales.length - 1
-                      ],
+                      min: safeScales[0],
+                      max: safeScales[safeScales.length - 1],
                     });
                   }
-                  if (uplotLinePlotRef.current) {
+                  if (uplotLinePlotRef.current && safeScales.length > 0) {
                     uplotLinePlotRef.current.setScale("x", {
-                      min: result.results.scales[0],
-                      max: result.results.scales[
-                        result.results.scales.length - 1
-                      ],
+                      min: safeScales[0],
+                      max: safeScales[safeScales.length - 1],
                     });
                   }
                 }}
@@ -2113,9 +2144,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                               >
                                 {heatmapAnnotations.annotations.map(
                                   (annotation) => {
-                                    const scales = result.results.scales;
-                                    if (!scales || scales.length === 0)
-                                      return null;
+                                    if (safeScales.length === 0) return null;
                                     if (!uplotHeatmapRef.current) return null;
 
                                     const bbox = uplotHeatmapRef.current.bbox;
@@ -2268,9 +2297,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                               >
                                 {linePlotAnnotations.annotations.map(
                                   (annotation) => {
-                                    const scales = result.results.scales;
-                                    if (!scales || scales.length === 0)
-                                      return null;
+                                    if (safeScales.length === 0) return null;
                                     if (!uplotLinePlotRef.current) return null;
 
                                     const bbox = uplotLinePlotRef.current.bbox;
@@ -2466,8 +2493,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                         }}
                       >
                         {heatmapAnnotations.annotations.map((annotation) => {
-                          const scales = result.results.scales;
-                          if (!scales || scales.length === 0) return null;
+                          if (safeScales.length === 0) return null;
                           if (!uplotHeatmapRef.current) return null;
 
                           const bbox = uplotHeatmapRef.current.bbox;
@@ -2608,8 +2634,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                         }}
                       >
                         {linePlotAnnotations.annotations.map((annotation) => {
-                          const scales = result.results.scales;
-                          if (!scales || scales.length === 0) return null;
+                          if (safeScales.length === 0) return null;
                           if (!uplotLinePlotRef.current) return null;
 
                           // Get uPlot bbox for accurate dimensions and offsets

@@ -6,8 +6,8 @@
 use crate::streaming::source::DataChunk;
 use crate::streaming::types::{StreamError, StreamResult};
 use dda_rs::{
-    AlgorithmSelection, DDARequest, DDARunner, ModelParameters, PreprocessingOptions,
-    ScaleParameters, TimeRange, WindowParameters,
+    AlgorithmSelection, DDARequest, DDARunner, DelayParameters, ModelParameters,
+    PreprocessingOptions, TimeRange, WindowParameters,
 };
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -29,8 +29,8 @@ pub struct StreamingDDAConfig {
     /// DDA algorithm parameters
     pub window_parameters: WindowParameters,
 
-    /// Scale parameters for DDA
-    pub scale_parameters: ScaleParameters,
+    /// Delay parameters for DDA
+    pub delay_parameters: DelayParameters,
 
     /// Algorithm selection (which variants to compute)
     pub algorithm_selection: AlgorithmSelection,
@@ -56,11 +56,8 @@ impl Default for StreamingDDAConfig {
                 ct_window_length: None,
                 ct_window_step: None,
             },
-            scale_parameters: ScaleParameters {
-                scale_min: 1.0,
-                scale_max: 100.0,
-                scale_num: 50,
-                delay_list: Some(vec![7, 10]),
+            delay_parameters: DelayParameters {
+                delays: vec![7, 10],
             },
             algorithm_selection: AlgorithmSelection {
                 enabled_variants: vec!["ST".to_string()],
@@ -327,7 +324,7 @@ impl StreamingDDAProcessor {
             },
             algorithm_selection: self.config.algorithm_selection.clone(),
             window_parameters: self.config.window_parameters.clone(),
-            scale_parameters: self.config.scale_parameters.clone(),
+            delay_parameters: self.config.delay_parameters.clone(),
             ct_channel_pairs: None,
             cd_channel_pairs: None,
             model_parameters: self.config.model_parameters.clone(),
