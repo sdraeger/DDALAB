@@ -15,6 +15,38 @@ import {
 } from "@/types/ica";
 import { getChunkCache } from "./chunkCache";
 
+/** File entry from the API file list response */
+interface FileEntry {
+  name: string;
+  path: string;
+  is_directory: boolean;
+  size?: number;
+  file_size?: number;
+  last_modified?: string;
+}
+
+/** File list API response */
+interface FileListResponse {
+  files: FileEntry[];
+}
+
+/** Query parameters type for API calls */
+type QueryParams = Record<string, string | number | boolean | undefined>;
+
+/** Analysis history item from backend */
+interface HistoryAnalysisItem {
+  id: string;
+  result_id?: string;
+  created_at?: string;
+  analysis_data?: Record<string, unknown>;
+}
+
+/** Variant result item */
+interface VariantItem {
+  variant_id: string;
+  [key: string]: unknown;
+}
+
 /**
  * Check if an error is retryable (network issues, timeouts, 5xx errors)
  */
@@ -136,9 +168,8 @@ export class ApiService {
   async getAvailableFiles(): Promise<EDFFileInfo[]> {
     try {
       // Get files from root directory (which is mapped to data/edf by the API server)
-      const rootResponse = await this.client.get<{ files: any[] }>(
-        "/api/files/list",
-      );
+      const rootResponse =
+        await this.client.get<FileListResponse>("/api/files/list");
 
       if (rootResponse.data && Array.isArray(rootResponse.data.files)) {
         // Filter for EDF files only (API server already handles the directory mapping)
@@ -168,7 +199,13 @@ export class ApiService {
       return [];
     } catch (error) {
       console.error("Failed to get available files:", error);
-      return [];
+      // Re-throw with context so callers can handle appropriately
+      const message = axios.isAxiosError(error)
+        ? `Failed to fetch file list (HTTP ${error.response?.status ?? "unknown"}): ${error.message}`
+        : error instanceof Error
+          ? error.message
+          : "Unknown error fetching files";
+      throw new Error(message);
     }
   }
 
@@ -200,7 +237,7 @@ export class ApiService {
           });
 
           const fileEntry = filesResponse.data.files?.find(
-            (f: any) => f.name === fileName,
+            (f: FileEntry) => f.name === fileName,
           );
           fileSize = fileEntry?.file_size || fileEntry?.size || 0;
         } catch (filesError) {
@@ -264,14 +301,12 @@ export class ApiService {
         ? JSON.parse(JSON.stringify(requestedChannels))
         : undefined;
 
-      const params: any = {
+      const params: QueryParams = {
         file_path: filePath,
         max_points: maxPoints,
+        channels:
+          channels && channels.length > 0 ? channels.join(",") : undefined,
       };
-
-      if (channels && channels.length > 0) {
-        params.channels = channels.join(",");
-      }
 
       console.log("[ApiService] Fetching overview data:", params);
       const response = await this.client.get("/api/edf/overview", {
@@ -326,14 +361,12 @@ export class ApiService {
         ? JSON.parse(JSON.stringify(requestedChannels))
         : undefined;
 
-      const params: any = {
+      const params: QueryParams = {
         file_path: filePath,
         max_points: maxPoints,
+        channels:
+          channels && channels.length > 0 ? channels.join(",") : undefined,
       };
-
-      if (channels && channels.length > 0) {
-        params.channels = channels.join(",");
-      }
 
       const response = await this.client.get("/api/edf/overview/progress", {
         params,
@@ -387,24 +420,18 @@ export class ApiService {
 
       console.log("[ApiService] Cache MISS - fetching from backend");
 
-      const params: any = {
+      const params: QueryParams = {
         file_path: filePath,
         chunk_start: chunkStart,
         chunk_size: chunkSize,
+        channels:
+          channelList && channelList.length > 0
+            ? channelList.join(",")
+            : undefined,
+        highpass: preprocessingOptions?.highpass,
+        lowpass: preprocessingOptions?.lowpass,
+        notch: preprocessingOptions?.notch?.join(","),
       };
-
-      if (channelList && channelList.length > 0) {
-        params.channels = channelList.join(",");
-      }
-
-      if (preprocessingOptions) {
-        if (preprocessingOptions.highpass)
-          params.highpass = preprocessingOptions.highpass;
-        if (preprocessingOptions.lowpass)
-          params.lowpass = preprocessingOptions.lowpass;
-        if (preprocessingOptions.notch)
-          params.notch = preprocessingOptions.notch.join(",");
-      }
 
       console.log("Making chunk data request with params:", params);
       const response = await this.client.get("/api/edf/data", {
@@ -439,12 +466,14 @@ export class ApiService {
         dataLength: data.length,
         hasChannels: Array.isArray(channels),
         channelsLength: channels.length,
-        dataIsArrayOfArrays: data.every((item: any) => Array.isArray(item)),
+        dataIsArrayOfArrays: data.every((item: unknown) => Array.isArray(item)),
         firstChannelLength: data[0]?.length,
         sampleDataTypes: data
           .slice(0, 2)
-          .map((channel: any) =>
-            channel?.slice(0, 3).map((val: any) => typeof val),
+          .map((channel: unknown) =>
+            Array.isArray(channel)
+              ? channel.slice(0, 3).map((val: unknown) => typeof val)
+              : [],
           ),
       });
 
@@ -491,8 +520,8 @@ export class ApiService {
         return [];
       }
       return response.data.annotations;
-    } catch (error: any) {
-      if (error.response?.status === 404) {
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
         return [];
       }
       throw error;
@@ -960,53 +989,63 @@ export class ApiService {
         "variants",
       );
       return result;
-    } catch (error: any) {
+    } catch (error) {
       console.error("❌ Failed to submit DDA analysis:", error);
 
-      // Log detailed error information
-      if (error.response) {
-        console.error("📤 Backend response status:", error.response.status);
-        console.error("📤 Backend response data:", error.response.data);
-        console.error("📤 Backend response headers:", error.response.headers);
-      } else if (error.request) {
-        console.error("📤 Request was made but no response:", error.request);
-      } else {
-        console.error("📤 Error setting up request:", error.message);
-      }
-      console.error("📤 Full error config:", error.config);
-
-      // Create detailed error message
-      let errorMessage = "Failed to submit DDA analysis";
-      if (error.response) {
-        errorMessage += ` (HTTP ${error.response.status})`;
-        if (error.response.data) {
-          if (typeof error.response.data === "string") {
-            errorMessage += `: ${error.response.data}`;
-          } else if (error.response.data.message) {
-            errorMessage += `: ${error.response.data.message}`;
-          } else if (error.response.data.error) {
-            errorMessage += `: ${error.response.data.error}`;
-          }
+      // Log detailed error information for Axios errors
+      if (axios.isAxiosError(error)) {
+        if (error.response) {
+          console.error("📤 Backend response status:", error.response.status);
+          console.error("📤 Backend response data:", error.response.data);
+          console.error("📤 Backend response headers:", error.response.headers);
+        } else if (error.request) {
+          console.error("📤 Request was made but no response:", error.request);
+        } else {
+          console.error("📤 Error setting up request:", error.message);
         }
-      } else if (error.message) {
-        errorMessage += `: ${error.message}`;
+        console.error("📤 Full error config:", error.config);
+
+        // Create detailed error message
+        let errorMessage = "Failed to submit DDA analysis";
+        if (error.response) {
+          errorMessage += ` (HTTP ${error.response.status})`;
+          if (error.response.data) {
+            if (typeof error.response.data === "string") {
+              errorMessage += `: ${error.response.data}`;
+            } else if (error.response.data.message) {
+              errorMessage += `: ${error.response.data.message}`;
+            } else if (error.response.data.error) {
+              errorMessage += `: ${error.response.data.error}`;
+            }
+          }
+        } else if (error.message) {
+          errorMessage += `: ${error.message}`;
+        }
+        throw new Error(errorMessage);
       }
 
-      throw new Error(errorMessage);
+      throw error instanceof Error ? error : new Error(String(error));
     }
   }
 
   async getDDAResults(jobId?: string, filePath?: string): Promise<DDAResult[]> {
     try {
-      const params: any = {};
-      if (jobId) params.job_id = jobId;
-      if (filePath) params.file_path = filePath;
+      const params: QueryParams = {
+        job_id: jobId,
+        file_path: filePath,
+      };
 
       const response = await this.client.get("/api/dda/results", { params });
       return response.data.results || [];
     } catch (error) {
       console.error("Failed to get DDA results:", error);
-      return [];
+      // Re-throw with context so callers can handle appropriately
+      const message = axios.isAxiosError(error)
+        ? `Failed to fetch DDA results (HTTP ${error.response?.status ?? "unknown"}): ${error.message}`
+        : error instanceof Error
+          ? error.message
+          : "Unknown error fetching DDA results";
+      throw new Error(message);
     }
   }
 
@@ -1105,7 +1144,7 @@ export class ApiService {
       const processStartTime = performance.now();
 
       // Flatten analysis data structure if needed
-      const processed = analyses.map((item: any) => {
+      const processed = analyses.map((item: HistoryAnalysisItem) => {
         // If the item has analysis_data nested inside, flatten it
         if (item.analysis_data && typeof item.analysis_data === "object") {
           return {
@@ -1176,10 +1215,12 @@ export class ApiService {
 
         // Normalize old variant IDs for backward compatibility
         if (result.results?.variants) {
-          result.results.variants = result.results.variants.map((v: any) => ({
-            ...v,
-            variant_id: this.normalizeVariantId(v.variant_id),
-          }));
+          result.results.variants = result.results.variants.map(
+            (v: VariantItem) => ({
+              ...v,
+              variant_id: this.normalizeVariantId(v.variant_id),
+            }),
+          );
         }
 
         const processTime = performance.now() - processStartTime;
@@ -1207,18 +1248,19 @@ export class ApiService {
       const response = await this.client.delete(`/api/dda/history/${resultId}`);
       console.log("[API] Delete response:", response.data);
       return response.data.success || false;
-    } catch (error: any) {
+    } catch (error) {
+      const axiosErr = axios.isAxiosError(error) ? error : null;
       console.error(`[API] Failed to delete analysis ${resultId}:`, {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
+        message: axiosErr?.message ?? String(error),
+        response: axiosErr?.response?.data,
+        status: axiosErr?.response?.status,
       });
       // Throw with more detailed error message
       const errorMsg =
-        error.response?.data?.error ||
-        error.response?.data?.message ||
-        error.message ||
-        "Unknown error";
+        axiosErr?.response?.data?.error ||
+        axiosErr?.response?.data?.message ||
+        axiosErr?.message ||
+        (error instanceof Error ? error.message : "Unknown error");
       throw new Error(`Failed to delete analysis: ${errorMsg}`);
     }
   }
@@ -1237,18 +1279,19 @@ export class ApiService {
       );
       console.log("[API] Rename response:", response.data);
       return response.data.success || false;
-    } catch (error: any) {
+    } catch (error) {
+      const axiosErr = axios.isAxiosError(error) ? error : null;
       console.error(`[API] Failed to rename analysis ${resultId}:`, {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
+        message: axiosErr?.message ?? String(error),
+        response: axiosErr?.response?.data,
+        status: axiosErr?.response?.status,
       });
       // Throw with more detailed error message
       const errorMsg =
-        error.response?.data?.error ||
-        error.response?.data?.message ||
-        error.message ||
-        "Unknown error";
+        axiosErr?.response?.data?.error ||
+        axiosErr?.response?.data?.message ||
+        axiosErr?.message ||
+        (error instanceof Error ? error.message : "Unknown error");
       throw new Error(`Failed to rename analysis: ${errorMsg}`);
     }
   }
