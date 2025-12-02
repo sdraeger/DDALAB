@@ -44,6 +44,11 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
     (state) => state.restorePreviousAnalysis,
   );
   const isServerReady = useAppStore((state) => state.ui.isServerReady);
+  const setAnalysisHistory = useAppStore((state) => state.setAnalysisHistory);
+  const pendingAnalysisId = useAppStore((state) => state.dda.pendingAnalysisId);
+  const setPendingAnalysisId = useAppStore(
+    (state) => state.setPendingAnalysisId,
+  );
 
   const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
   const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(
@@ -65,6 +70,27 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
     apiService,
     isServerReady && !!apiService.getSessionToken(),
   );
+
+  // Sync TanStack Query history to Zustand store for global search
+  useEffect(() => {
+    if (allHistory && allHistory.length > 0) {
+      setAnalysisHistory(allHistory);
+    }
+  }, [allHistory, setAnalysisHistory]);
+
+  // Handle pending analysis ID from global search
+  useEffect(() => {
+    if (pendingAnalysisId && pendingAnalysisId !== selectedAnalysisId) {
+      console.log(
+        "[DDA HISTORY] Loading analysis from global search:",
+        pendingAnalysisId,
+      );
+      setSelectedAnalysisId(pendingAnalysisId);
+      setActiveTab("results");
+      // Clear the pending ID after processing
+      setPendingAnalysisId(null);
+    }
+  }, [pendingAnalysisId, selectedAnalysisId, setPendingAnalysisId]);
 
   // Memoize filtered history to prevent unnecessary re-renders
   const fileHistory = useMemo(() => {

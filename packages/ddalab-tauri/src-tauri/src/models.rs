@@ -112,6 +112,9 @@ pub struct AppPreferences {
     /// Whether to show a warning dialog when closing the app during DDA analysis
     #[serde(default = "default_warn_on_close_during_analysis")]
     pub warn_on_close_during_analysis: bool,
+    /// ISO date string of last update check
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updates_last_checked: Option<String>,
 }
 
 fn default_use_https() -> bool {
@@ -222,6 +225,7 @@ impl Default for AppPreferences {
             theme: "auto".to_string(),
             use_https: false, // HTTP by default - HTTPS has certificate trust issues in Tauri's WebView
             warn_on_close_during_analysis: true, // Warn by default
+            updates_last_checked: None,
         }
     }
 }
