@@ -62,6 +62,7 @@ async fn test_st_variant() {
         cd_channel_pairs: None,
         model_parameters: None,
         variant_configs: None,
+        sampling_rate: None,
     };
 
     let result = runner
@@ -119,6 +120,7 @@ async fn test_ct_variant() {
         cd_channel_pairs: None,
         model_parameters: None,
         variant_configs: None,
+        sampling_rate: None,
     };
 
     let result = runner
@@ -174,6 +176,7 @@ async fn test_de_variant() {
         cd_channel_pairs: None,
         model_parameters: None,
         variant_configs: None,
+        sampling_rate: None,
     };
 
     let result = runner
@@ -229,6 +232,7 @@ async fn test_sy_variant() {
         cd_channel_pairs: None,
         model_parameters: None,
         variant_configs: None,
+        sampling_rate: None,
     };
 
     let result = runner
@@ -289,6 +293,7 @@ async fn test_multiple_variants() {
         cd_channel_pairs: None,
         model_parameters: None,
         variant_configs: None,
+        sampling_rate: None,
     };
 
     let result = runner

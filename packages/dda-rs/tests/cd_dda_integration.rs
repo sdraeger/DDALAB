@@ -162,6 +162,7 @@ async fn test_cd_dda_matches_binary_output() {
         cd_channel_pairs: Some(cd_pairs.clone()),
         model_parameters: None,
         variant_configs: None,
+        sampling_rate: None,
     };
 
     // Calculate sample bounds
