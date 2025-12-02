@@ -32,8 +32,7 @@ import {
   formatSelectMask,
   requiresCtParams,
   getFileTypeFromExtension,
-  generateDelays,
-  DEFAULT_SCALE_PARAMETERS,
+  DEFAULT_DELAYS,
   type VariantMetadata,
   type VariantAbbreviation,
 } from "./variants";
@@ -483,39 +482,18 @@ describe("File Types", () => {
 });
 
 // =============================================================================
-// SCALE PARAMETERS
+// DELAYS
 // =============================================================================
 
-describe("Scale Parameters", () => {
-  it("should have correct default values", () => {
-    expect(DEFAULT_SCALE_PARAMETERS.scaleMin).toBe(1);
-    expect(DEFAULT_SCALE_PARAMETERS.scaleMax).toBe(20);
-    expect(DEFAULT_SCALE_PARAMETERS.scaleNum).toBe(20);
+describe("Delays", () => {
+  it("should have correct default delays", () => {
+    expect(DEFAULT_DELAYS).toHaveLength(2);
+    expect(DEFAULT_DELAYS[0]).toBe(7);
+    expect(DEFAULT_DELAYS[1]).toBe(10);
   });
 
-  describe("generateDelays", () => {
-    it("should generate default delays", () => {
-      const delays = generateDelays(DEFAULT_SCALE_PARAMETERS);
-      expect(delays).toHaveLength(20);
-      expect(delays[0]).toBe(1);
-      expect(delays[19]).toBe(20);
-    });
-
-    it("should generate single delay", () => {
-      const delays = generateDelays({ scaleMin: 5, scaleMax: 5, scaleNum: 1 });
-      expect(delays).toEqual([5]);
-    });
-
-    it("should generate custom delays", () => {
-      const delays = generateDelays({
-        scaleMin: 1,
-        scaleMax: 10,
-        scaleNum: 10,
-      });
-      expect(delays).toHaveLength(10);
-      expect(delays[0]).toBe(1);
-      expect(delays[9]).toBe(10);
-    });
+  it("should equal [7, 10]", () => {
+    expect([...DEFAULT_DELAYS]).toEqual([7, 10]);
   });
 });
 
