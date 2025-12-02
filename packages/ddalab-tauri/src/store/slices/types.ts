@@ -79,6 +79,8 @@ export interface DDAState {
   };
   customDelayPresets: DelayPreset[];
   isRunning: boolean;
+  /** Analysis ID to load from history (set by global search, cleared after loading) */
+  pendingAnalysisId: string | null;
 }
 
 export interface HealthState {
@@ -177,6 +179,8 @@ export interface DDAActions {
   addDelayPreset: (preset: Omit<DelayPreset, "id" | "isBuiltIn">) => void;
   updateDelayPreset: (id: string, updates: Partial<DelayPreset>) => void;
   deleteDelayPreset: (id: string) => void;
+  /** Set a pending analysis ID to be loaded (used by global search) */
+  setPendingAnalysisId: (id: string | null) => void;
 }
 
 export interface HealthActions {

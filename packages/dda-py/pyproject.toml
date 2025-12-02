@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dda-py"
+version = "0.2.6"
+description = "Python bindings for DDA (Delay Differential Analysis)"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.8"
+authors = [{ name = "Simon Draeger", email = "sdraeger@salk.edu" }]
+keywords = [
+    "dda",
+    "delay-differential-analysis",
+    "neuroscience",
+    "signal-processing",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.urls]
+Homepage = "https://github.com/sdraeger/dda-py"
+Repository = "https://github.com/sdraeger/dda-py"
+Issues = "https://github.com/sdraeger/dda-py/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov>=4.0", "numpy>=1.20"]
+
+[project.scripts]
+dda = "dda_py.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dda_py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

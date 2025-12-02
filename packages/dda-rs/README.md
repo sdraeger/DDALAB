@@ -1,98 +1,171 @@
 # dda-rs
 
-Rust interface for the `run_DDA_AsciiEdf` binary (Cosmopolitan Libc APE format).
+Rust library for Delay Differential Analysis (DDA). Provides a type-safe interface to execute the `run_DDA_AsciiEdf` binary and parse its output.
 
-## Overview
+The [DDA binary](https://snl.salk.edu/~sfdraeger/dda/) is required. Please download the most recent version from the file server.
 
-This crate provides a clean, type-safe Rust interface to execute the DDA (Delay Differential Analysis) binary and parse its output. It handles all the complexities of:
-
-- Cross-platform APE binary execution (Windows/macOS/Linux)
-- Command-line argument construction
-- Output file parsing and matrix transformation
-- Error handling and logging
+[![Crates.io](https://img.shields.io/crates/v/dda-rs.svg)](https://crates.io/crates/dda-rs)
+[![Documentation](https://docs.rs/dda-rs/badge.svg)](https://docs.rs/dda-rs)
 
 ## Features
 
-- **Type-safe API**: Strongly-typed request and response structures
-- **Cross-platform**: Handles APE binary execution on Unix (sh wrapper) and Windows (direct exe)
+- **Type-safe API**: Strongly-typed request/response structures with serde support
+- **Spec-generated variants**: Variant metadata auto-generated from the canonical DDA spec
+- **Cross-platform**: Handles APE binary execution on Unix (sh wrapper) and Windows
 - **Async execution**: Built on Tokio for non-blocking DDA analysis
-- **Automatic parsing**: Processes raw DDA output into usable matrices
-- **Error handling**: Comprehensive error types with descriptive messages
+- **Binary resolution**: Automatic discovery of the DDA binary via env vars and standard paths
+- **Output parsing**: Processes raw DDA output into Q matrices
 
-## Usage
+## Installation
+
+```toml
+[dependencies]
+dda-rs = "0.1.4"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+```
+
+## Quick Start
 
 ```rust
-use dda_rs::{DDARunner, DDARequest, WindowParameters, DelayParameters, TimeRange, PreprocessingOptions, AlgorithmSelection};
+use dda_rs::{
+    DDARunner, DDARequest, WindowParameters, DelayParameters,
+    TimeRange, PreprocessingOptions, AlgorithmSelection,
+    generate_select_mask, format_select_mask,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create runner with path to run_DDA_AsciiEdf binary
+    // Create runner with path to the DDA binary
     let runner = DDARunner::new("/path/to/run_DDA_AsciiEdf")?;
+
+    // Generate SELECT mask for ST and SY variants
+    let mask = generate_select_mask(&["ST", "SY"]);
+    let mask_str = format_select_mask(&mask); // "1 0 0 0 0 1"
 
     // Build analysis request
     let request = DDARequest {
         file_path: "/path/to/data.edf".to_string(),
-        channels: Some(vec![0, 1]),  // 0-based channel indices
+        channels: Some(vec![0, 1, 2]),  // 0-based channel indices
         time_range: TimeRange { start: 0.0, end: 100.0 },
         preprocessing_options: PreprocessingOptions {
             highpass: None,
             lowpass: None,
         },
         algorithm_selection: AlgorithmSelection {
-            enabled_variants: vec!["single_timeseries".to_string()],
-            select_mask: Some("1 0 0 0 0 0".to_string()), // ST only
+            enabled_variants: vec!["ST".to_string(), "SY".to_string()],
+            select_mask: Some(mask_str),
         },
         window_parameters: WindowParameters {
             window_length: 1024,
             window_step: 512,
-            ct_window_length: None,
+            ct_window_length: None,  // Required for CT/CD/DE variants
             ct_window_step: None,
         },
         delay_parameters: DelayParameters {
-            delays: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10], // Tau values passed to -TAU
+            delays: vec![7, 10],  // Tau values passed to -TAU
         },
-        ct_channel_pairs: None,
-        cd_channel_pairs: None,
-        model_parameters: None,
+        ct_channel_pairs: None,   // For CT variant
+        cd_channel_pairs: None,   // For CD variant
+        model_parameters: None,   // Expert mode: dm, order, nr_tau
         variant_configs: None,
+        sampling_rate: None,      // Set if > 1000 Hz
     };
 
-    // Run analysis with sample bounds (start_sample, end_sample)
-    let start_bound = Some(0);  // Start from beginning
-    let end_bound = Some(10000);  // End at sample 10000
-    let result = runner.run(&request, start_bound, end_bound, None).await?;
+    // Run analysis with sample bounds
+    let result = runner.run(
+        &request,
+        Some(0),      // start_bound (sample index)
+        Some(10000),  // end_bound (sample index)
+        None,         // edf_channel_names for labeling
+    ).await?;
 
-    // Access results
     println!("Analysis ID: {}", result.id);
-    println!("Q matrix shape: {} × {}", result.q_matrix.len(), result.q_matrix[0].len());
+    println!("Q matrix: {} channels × {} timepoints",
+        result.q_matrix.len(),
+        result.q_matrix.first().map(|r| r.len()).unwrap_or(0)
+    );
+
+    // Access individual variant results
+    if let Some(variants) = &result.variant_results {
+        for v in variants {
+            println!("{}: {} × {}",
+                v.variant_name,
+                v.q_matrix.len(),
+                v.q_matrix.first().map(|r| r.len()).unwrap_or(0)
+            );
+        }
+    }
 
     Ok(())
 }
 ```
 
-## Architecture
+## Variant Metadata
 
-### Components
+The crate includes spec-generated variant metadata for all DDA analysis types:
 
-- **`types.rs`**: Request/response structures and parameter types
-- **`runner.rs`**: DDA binary execution logic
-- **`parser.rs`**: Output file parsing and matrix transformation
-- **`error.rs`**: Error types and result aliases
+| Variant | Position | Stride | Channel Format | Description |
+|---------|----------|--------|----------------|-------------|
+| ST | 0 | 4 | Individual | Single Timeseries - analyzes channels independently |
+| CT | 1 | 4 | Pairs | Cross-Timeseries - symmetric channel pair relationships |
+| CD | 2 | 2 | Directed Pairs | Cross-Dynamical - directed causal relationships |
+| RESERVED | 3 | 1 | - | Internal (always 0 in production) |
+| DE | 4 | 1 | Individual | Delay Embedding - ergodic behavior testing |
+| SY | 5 | 1 | Individual | Synchronization - synchronized behavior detection |
 
-### Binary Execution
+```rust
+use dda_rs::{ST, CT, CD, DE, SY, VariantMetadata};
 
-The crate automatically handles the APE (Actually Portable Executable) format:
+// Access variant metadata
+println!("ST stride: {}", ST.stride);           // 4
+println!("CT requires: {:?}", CT.required_params); // ["-WL_CT", "-WS_CT"]
 
-- **Unix (macOS/Linux)**: Runs through `sh` wrapper to handle polyglot format
-- **Windows**: Executes `.exe` directly
+// Look up by abbreviation
+let variant = VariantMetadata::from_abbrev("ST").unwrap();
+println!("{}: {}", variant.name, variant.documentation);
+```
 
-### Output Processing
+## Binary Resolution
 
-The parser implements the same transformation as dda-py:
+The DDA binary is resolved in this order:
 
-1. Skip first 2 columns
-2. Take every 4th column from the remaining data
-3. Transpose to get [channels/scales × timepoints] format
+1. Explicit path passed to `DDARunner::new()`
+2. `$DDA_BINARY_PATH` environment variable
+3. `$DDA_HOME/bin/run_DDA_AsciiEdf`
+4. Default paths: `~/.local/bin`, `~/bin`, `/usr/local/bin`, `/opt/dda/bin`
+
+```rust
+use dda_rs::{find_binary, require_binary};
+
+// Find binary (returns Option)
+if let Some(path) = find_binary(None) {
+    println!("Found binary at: {}", path.display());
+}
+
+// Require binary (returns Result)
+let path = require_binary(None)?;
+```
+
+## Modules
+
+| Module | Description |
+|--------|-------------|
+| `variants` | Spec-generated variant metadata, SELECT mask utilities |
+| `types` | Request/response structures (`DDARequest`, `DDAResult`) |
+| `runner` | DDA binary execution logic |
+| `parser` | Output file parsing and Q matrix transformation |
+| `error` | Error types (`DDAError`) and `Result` alias |
+| `network_motifs` | Network motif analysis utilities |
+| `profiling` | Performance profiling helpers |
+
+## Code Generation
+
+The `variants` module is auto-generated from the canonical DDA specification. Do not edit it manually. To regenerate:
+
+```bash
+cd packages/dda-spec
+cargo run --bin dda-codegen -- --output ..
+```
 
 ## License
 

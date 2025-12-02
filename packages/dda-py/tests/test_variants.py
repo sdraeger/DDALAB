@@ -49,7 +49,7 @@ from dda_py.variants import (
     generate_select_mask,
     parse_select_mask,
     format_select_mask,
-    ScaleParameters,
+    DEFAULT_DELAYS,
 )
 
 
@@ -432,39 +432,22 @@ class TestFileTypes:
 
 
 # =============================================================================
-# SCALE PARAMETERS
+# DELAYS
 # =============================================================================
 
 
-class TestScaleParameters:
-    """Test scale parameter handling."""
+class TestDelays:
+    """Test delay constant."""
 
-    def test_scale_parameters_default(self):
-        params = ScaleParameters()
-        assert params.scale_min == 1
-        assert params.scale_max == 20
-        assert params.scale_num == 20
+    def test_default_delays_length(self):
+        assert len(DEFAULT_DELAYS) == 2
 
-    def test_generate_delays_default(self):
-        params = ScaleParameters()
-        delays = params.generate_delays()
+    def test_default_delays_values(self):
+        assert DEFAULT_DELAYS[0] == 7
+        assert DEFAULT_DELAYS[1] == 10
 
-        assert len(delays) == 20
-        assert delays[0] == 1
-        assert delays[19] == 20
-
-    def test_generate_delays_single(self):
-        params = ScaleParameters(scale_min=5, scale_max=5, scale_num=1)
-        delays = params.generate_delays()
-        assert delays == [5]
-
-    def test_generate_delays_custom(self):
-        params = ScaleParameters(scale_min=1, scale_max=10, scale_num=10)
-        delays = params.generate_delays()
-
-        assert len(delays) == 10
-        assert delays[0] == 1
-        assert delays[9] == 10
+    def test_default_delays_equals_expected(self):
+        assert DEFAULT_DELAYS == (7, 10)
 
 
 # =============================================================================
