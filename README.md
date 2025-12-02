@@ -392,10 +392,10 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 If you use DDALAB in your research, please cite:
 
 ```bibtex
-@software{ddalab2024,
-  author = {Draeger, Simon},
+@software{draeger-ddalab-2025,
+  author = {Dr\"ager, Simon and Lainscsek, Claudia and Sejnowski, Terrence J},
   title = {DDALAB: Delay Differential Analysis Laboratory},
-  year = {2024},
+  year = {2025},
   url = {https://github.com/sdraeger/DDALAB}
 }
 ```
