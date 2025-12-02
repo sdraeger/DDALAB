@@ -24,6 +24,29 @@ structure BinaryMetadata {
     /// Supported platforms
     @required
     supportedPlatforms: PlatformList
+
+    /// Binary resolution configuration
+    @required
+    resolution: BinaryResolution
+}
+
+/// Configuration for locating the DDA binary
+structure BinaryResolution {
+    /// Environment variable for explicit binary path
+    @required
+    envVar: String
+
+    /// Environment variable for DDA home directory (binary in $DDA_HOME/bin/)
+    @required
+    homeEnvVar: String
+
+    /// Default search paths (in priority order)
+    @required
+    defaultPaths: PathList
+}
+
+list PathList {
+    member: String
 }
 
 list PlatformList {

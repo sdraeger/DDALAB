@@ -1,6 +1,6 @@
 /**
  * AUTO-GENERATED from DDA Specification v1.0.0
- * Generated: 2025-12-19
+ * Generated: 2025-12-02
  *
  * DO NOT EDIT MANUALLY - Run `cargo run --package dda-spec` to regenerate.
  */
@@ -359,31 +359,8 @@ export function getFileTypeFromExtension(
 }
 
 // =============================================================================
-// SCALE PARAMETERS
+// DELAYS
 // =============================================================================
 
-export interface ScaleParameters {
-  scaleMin: number;
-  scaleMax: number;
-  scaleNum: number;
-}
-
-export const DEFAULT_SCALE_PARAMETERS: ScaleParameters = {
-  scaleMin: 1,
-  scaleMax: 20,
-  scaleNum: 20,
-};
-
-/**
- * Generate delay values from scale parameters
- */
-export function generateDelays(params: ScaleParameters): number[] {
-  if (params.scaleNum === 1) {
-    return [Math.round(params.scaleMin)];
-  }
-
-  const step = (params.scaleMax - params.scaleMin) / (params.scaleNum - 1);
-  return Array.from({ length: params.scaleNum }, (_, i) =>
-    Math.round(params.scaleMin + i * step),
-  );
-}
+/** Default delay values (integers) */
+export const DEFAULT_DELAYS: readonly number[] = [7, 10] as const;

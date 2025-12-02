@@ -329,6 +329,7 @@ impl StreamingDDAProcessor {
             cd_channel_pairs: None,
             model_parameters: self.config.model_parameters.clone(),
             variant_configs: None,
+            sampling_rate: Some(self.sample_rate as f64),
         };
 
         // Run DDA using oneshot channel to avoid block_on() deadlock in Rayon thread pool

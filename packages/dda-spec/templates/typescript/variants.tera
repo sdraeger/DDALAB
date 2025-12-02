@@ -228,31 +228,12 @@ export function getFileTypeFromExtension(ext: string): FileTypeInfo | undefined 
 }
 
 // =============================================================================
-// SCALE PARAMETERS
+// DELAYS
 // =============================================================================
 
-export interface ScaleParameters {
-  scaleMin: number;
-  scaleMax: number;
-  scaleNum: number;
-}
-
-export const DEFAULT_SCALE_PARAMETERS: ScaleParameters = {
-  scaleMin: {{ scale_defaults.scale_min }},
-  scaleMax: {{ scale_defaults.scale_max }},
-  scaleNum: {{ scale_defaults.scale_num }},
-};
-
-/**
- * Generate delay values from scale parameters
- */
-export function generateDelays(params: ScaleParameters): number[] {
-  if (params.scaleNum === 1) {
-    return [Math.round(params.scaleMin)];
-  }
-
-  const step = (params.scaleMax - params.scaleMin) / (params.scaleNum - 1);
-  return Array.from({ length: params.scaleNum }, (_, i) =>
-    Math.round(params.scaleMin + i * step)
-  );
-}
+/** Default delay values (integers) */
+export const DEFAULT_DELAYS: readonly number[] = [
+{%- for delay in default_delays %}
+  {{ delay }},
+{%- endfor %}
+] as const;

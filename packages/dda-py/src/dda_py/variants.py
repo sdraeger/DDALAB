@@ -330,27 +330,109 @@ def format_select_mask(mask: List[int]) -> str:
 
 
 # =============================================================================
-# SCALE PARAMETERS
+# BINARY RESOLUTION
 # =============================================================================
 
-@dataclass
-class ScaleParameters:
-    """Parameters for generating delay values from scale range."""
-    scale_min: float = 1
-    scale_max: float = 20
-    scale_num: int = 20
+# Environment variable for explicit binary path
+BINARY_ENV_VAR = "DDA_BINARY_PATH"
 
-    def generate_delays(self) -> List[int]:
-        """Generate delay values from scale parameters.
+# Environment variable for DDA home directory
+BINARY_HOME_ENV_VAR = "DDA_HOME"
 
-        Returns:
-            List of integer delay values
-        """
-        if self.scale_num == 1:
-            return [round(self.scale_min)]
+# Default search paths (in priority order)
+DEFAULT_BINARY_PATHS = [
+    "~/.local/bin",
+    "~/bin",
+    "/usr/local/bin",
+    "/opt/dda/bin",
+]
 
-        step = (self.scale_max - self.scale_min) / (self.scale_num - 1)
-        return [round(self.scale_min + i * step) for i in range(self.scale_num)]
+
+def find_binary(explicit_path: Optional[str] = None) -> Optional[str]:
+    """Find the DDA binary.
+
+    Resolution order:
+    1. Explicit path (if provided)
+    2. $DDA_BINARY_PATH environment variable
+    3. $DDA_HOME/bin/ directory
+    4. Default search paths
+
+    Args:
+        explicit_path: Optional explicit path to binary
+
+    Returns:
+        Path to binary if found, None otherwise
+
+    Example:
+        >>> path = find_binary()  # Auto-discover
+        >>> path = find_binary("/opt/dda/bin/run_DDA_AsciiEdf")  # Explicit
+    """
+    import os
+    from pathlib import Path
+
+    # 1. Explicit path
+    if explicit_path:
+        p = Path(explicit_path).expanduser()
+        if p.exists():
+            return str(p)
+        return None
+
+    # 2. Environment variable for full path
+    env_path = os.environ.get(BINARY_ENV_VAR)
+    if env_path:
+        p = Path(env_path).expanduser()
+        if p.exists():
+            return str(p)
+
+    # 3. DDA_HOME environment variable
+    home_path = os.environ.get(BINARY_HOME_ENV_VAR)
+    if home_path:
+        p = Path(home_path).expanduser() / "bin" / BINARY_NAME
+        if p.exists():
+            return str(p)
+
+    # 4. Default search paths
+    for search_path in DEFAULT_BINARY_PATHS:
+        p = Path(search_path).expanduser() / BINARY_NAME
+        if p.exists():
+            return str(p)
+
+    return None
+
+
+def require_binary(explicit_path: Optional[str] = None) -> str:
+    """Find the DDA binary or raise an error.
+
+    Same as find_binary() but raises FileNotFoundError if not found.
+
+    Args:
+        explicit_path: Optional explicit path to binary
+
+    Returns:
+        Path to binary
+
+    Raises:
+        FileNotFoundError: If binary cannot be found
+    """
+    path = find_binary(explicit_path)
+    if path is None:
+        raise FileNotFoundError(
+            f"DDA binary '{BINARY_NAME}' not found. "
+            f"Set ${BINARY_ENV_VAR} or ${BINARY_HOME_ENV_VAR}, "
+            f"or install to one of: {DEFAULT_BINARY_PATHS}"
+        )
+    return path
+
+
+# =============================================================================
+# DELAYS
+# =============================================================================
+
+# Default delay values (integers)
+DEFAULT_DELAYS: tuple = (
+    7,
+    10,
+)
 
 
 # =============================================================================
@@ -365,6 +447,12 @@ __all__ = [
     "REQUIRES_SHELL_WRAPPER",
     "SHELL_COMMAND",
     "SUPPORTED_PLATFORMS",
+    # Binary resolution
+    "BINARY_ENV_VAR",
+    "BINARY_HOME_ENV_VAR",
+    "DEFAULT_BINARY_PATHS",
+    "find_binary",
+    "require_binary",
     # Enums
     "ChannelFormat",
     "FileType",
@@ -389,5 +477,6 @@ __all__ = [
     "generate_select_mask",
     "parse_select_mask",
     "format_select_mask",
-    "ScaleParameters",
+    # Delays
+    "DEFAULT_DELAYS",
 ]

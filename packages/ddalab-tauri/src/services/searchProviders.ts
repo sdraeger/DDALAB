@@ -7,6 +7,9 @@ import {
   SecondaryNavTab,
 } from "@/types/navigation";
 import { RegisteredItemsSearchProvider } from "./searchRegistry";
+import { getQueryClient } from "@/providers/QueryProvider";
+import { ddaKeys } from "@/hooks/useDDAAnalysis";
+import { DDAResult } from "@/types/api";
 
 export class NavigationSearchProvider implements SearchProvider {
   name = "Navigation";
@@ -246,9 +249,23 @@ export class AnalysisSearchProvider implements SearchProvider {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
     const state = useAppStore.getState();
-    const analysisHistory = state.dda.analysisHistory;
 
-    analysisHistory.forEach((analysis, index) => {
+    // Try Zustand store first, then fall back to TanStack Query cache
+    let analysisHistory = state.dda.analysisHistory;
+    if (analysisHistory.length === 0) {
+      // Try to get from TanStack Query cache
+      const queryClient = getQueryClient();
+      if (queryClient) {
+        const cachedHistory = queryClient.getQueryData<DDAResult[]>(
+          ddaKeys.history(),
+        );
+        if (cachedHistory && cachedHistory.length > 0) {
+          analysisHistory = cachedHistory;
+        }
+      }
+    }
+
+    analysisHistory.forEach((analysis) => {
       const matchesId = analysis.id.toLowerCase().includes(lowerQuery);
       const matchesFile = analysis.file_path
         ?.toLowerCase()
@@ -280,12 +297,13 @@ export class AnalysisSearchProvider implements SearchProvider {
         results.push({
           id: `analysis-${analysis.id}`,
           type: "analysis",
-          title: `${variantLabel} Analysis`,
+          title: analysis.name || `${variantLabel} Analysis`,
           subtitle: fileName,
           description: `${analysis.channels?.join(", ") || "No channels"} - ${date}`,
           category: "Analysis Results",
           icon: "Brain",
           keywords: [
+            analysis.id,
             ...variants,
             ...(analysis.channels || []),
             fileName,
@@ -293,7 +311,8 @@ export class AnalysisSearchProvider implements SearchProvider {
           ],
           metadata: { analysis },
           action: () => {
-            useAppStore.getState().setCurrentAnalysis(analysis);
+            // Set pending analysis ID - DDAWithHistory will fetch the full data
+            useAppStore.getState().setPendingAnalysisId(analysis.id);
             useAppStore.getState().setPrimaryNav("analyze");
           },
         });

@@ -208,6 +208,97 @@ impl FileType {
 }
 
 // =============================================================================
+// BINARY RESOLUTION
+// =============================================================================
+
+/// Environment variable for explicit binary path
+pub const BINARY_ENV_VAR: &str = "{{ binary_resolution.env_var }}";
+
+/// Environment variable for DDA home directory
+pub const BINARY_HOME_ENV_VAR: &str = "{{ binary_resolution.home_env_var }}";
+
+/// Default search paths (in priority order)
+pub const DEFAULT_BINARY_PATHS: &[&str] = &[
+{%- for path in binary_resolution.default_paths %}
+    "{{ path }}",
+{%- endfor %}
+];
+
+/// Find the DDA binary.
+///
+/// Resolution order:
+/// 1. Explicit path (if provided)
+/// 2. ${{ binary_resolution.env_var }} environment variable
+/// 3. ${{ binary_resolution.home_env_var }}/bin/ directory
+/// 4. Default search paths
+///
+/// # Arguments
+/// * `explicit_path` - Optional explicit path to binary
+///
+/// # Returns
+/// Path to binary if found, None otherwise
+pub fn find_binary(explicit_path: Option<&str>) -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    // Helper to expand ~ in paths
+    fn expand_path(path: &str) -> PathBuf {
+        if path.starts_with("~/") {
+            if let Some(home) = std::env::var_os("HOME") {
+                return PathBuf::from(home).join(&path[2..]);
+            }
+        }
+        PathBuf::from(path)
+    }
+
+    // 1. Explicit path
+    if let Some(path) = explicit_path {
+        let p = expand_path(path);
+        if p.exists() {
+            return Some(p);
+        }
+        return None;
+    }
+
+    // 2. Environment variable for full path
+    if let Ok(env_path) = std::env::var(BINARY_ENV_VAR) {
+        let p = expand_path(&env_path);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+
+    // 3. DDA_HOME environment variable
+    if let Ok(home_path) = std::env::var(BINARY_HOME_ENV_VAR) {
+        let p = expand_path(&home_path).join("bin").join(BINARY_NAME);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+
+    // 4. Default search paths
+    for search_path in DEFAULT_BINARY_PATHS {
+        let p = expand_path(search_path).join(BINARY_NAME);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+
+    None
+}
+
+/// Find the DDA binary or return an error.
+///
+/// Same as `find_binary()` but returns an error if not found.
+pub fn require_binary(explicit_path: Option<&str>) -> Result<std::path::PathBuf, String> {
+    find_binary(explicit_path).ok_or_else(|| {
+        format!(
+            "DDA binary '{}' not found. Set ${} or ${}, or install to one of: {:?}",
+            BINARY_NAME, BINARY_ENV_VAR, BINARY_HOME_ENV_VAR, DEFAULT_BINARY_PATHS
+        )
+    })
+}
+
+// =============================================================================
 // TESTS
 // =============================================================================
 

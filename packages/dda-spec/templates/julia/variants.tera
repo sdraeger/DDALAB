@@ -9,6 +9,8 @@ module Variants
 
 export SPEC_VERSION, SELECT_MASK_SIZE, BINARY_NAME, REQUIRES_SHELL_WRAPPER
 export SHELL_COMMAND, SUPPORTED_PLATFORMS
+export BINARY_ENV_VAR, BINARY_HOME_ENV_VAR, DEFAULT_BINARY_PATHS
+export find_binary, require_binary
 export ChannelFormat, Individual, Pairs, DirectedPairs
 export OutputColumns, VariantMetadata
 export VARIANT_REGISTRY, VARIANT_ORDER
@@ -16,7 +18,7 @@ export VARIANT_REGISTRY, VARIANT_ORDER
 {% endfor %}
 export get_variant_by_abbrev, get_variant_by_suffix, get_variant_by_position
 export active_variants, generate_select_mask, parse_select_mask, format_select_mask
-export ScaleParameters, generate_delays
+export DEFAULT_DELAYS
 export requires_ct_params, SelectMaskPositions
 export FileType, {% for ft in file_types %}{{ ft.name }}{% if not loop.last %}, {% endif %}{% endfor %}, get_flag, file_type_from_extension
 
@@ -34,6 +36,101 @@ const SUPPORTED_PLATFORMS = [
     "{{ platform }}",
 {%- endfor %}
 ]
+
+# =============================================================================
+# BINARY RESOLUTION
+# =============================================================================
+
+"""Environment variable for explicit binary path."""
+const BINARY_ENV_VAR = "{{ binary_resolution.env_var }}"
+
+"""Environment variable for DDA home directory."""
+const BINARY_HOME_ENV_VAR = "{{ binary_resolution.home_env_var }}"
+
+"""Default search paths (in priority order)."""
+const DEFAULT_BINARY_PATHS = [
+{%- for path in binary_resolution.default_paths %}
+    "{{ path }}",
+{%- endfor %}
+]
+
+"""
+Find the DDA binary.
+
+Resolution order:
+1. Explicit path (if provided)
+2. \$$(BINARY_ENV_VAR) environment variable
+3. \$$(BINARY_HOME_ENV_VAR)/bin/ directory
+4. Default search paths
+
+# Arguments
+- `explicit_path::Union{AbstractString, Nothing}=nothing`: Optional explicit path
+
+# Returns
+- `Union{String, Nothing}`: Path to binary if found, nothing otherwise
+
+# Examples
+```julia
+path = find_binary()  # Auto-discover
+path = find_binary("/opt/dda/bin/run_DDA_AsciiEdf")  # Explicit
+```
+"""
+function find_binary(explicit_path::Union{AbstractString, Nothing}=nothing)::Union{String, Nothing}
+    # 1. Explicit path
+    if explicit_path !== nothing
+        p = expanduser(explicit_path)
+        isfile(p) && return p
+        return nothing
+    end
+
+    # 2. Environment variable for full path
+    env_path = get(ENV, BINARY_ENV_VAR, nothing)
+    if env_path !== nothing
+        p = expanduser(env_path)
+        isfile(p) && return p
+    end
+
+    # 3. DDA_HOME environment variable
+    home_path = get(ENV, BINARY_HOME_ENV_VAR, nothing)
+    if home_path !== nothing
+        p = joinpath(expanduser(home_path), "bin", BINARY_NAME)
+        isfile(p) && return p
+    end
+
+    # 4. Default search paths
+    for search_path in DEFAULT_BINARY_PATHS
+        p = joinpath(expanduser(search_path), BINARY_NAME)
+        isfile(p) && return p
+    end
+
+    return nothing
+end
+
+"""
+Find the DDA binary or throw an error.
+
+Same as `find_binary()` but throws an error if not found.
+
+# Arguments
+- `explicit_path::Union{AbstractString, Nothing}=nothing`: Optional explicit path
+
+# Returns
+- `String`: Path to binary
+
+# Throws
+- `ErrorException`: If binary cannot be found
+"""
+function require_binary(explicit_path::Union{AbstractString, Nothing}=nothing)::String
+    path = find_binary(explicit_path)
+    if path === nothing
+        error(
+            "DDA binary '$(BINARY_NAME)' not found. " *
+            "Set \$$(BINARY_ENV_VAR) or \$$(BINARY_HOME_ENV_VAR), " *
+            "or install to one of: $(DEFAULT_BINARY_PATHS)"
+        )
+    end
+    return path
+end
 
 # =============================================================================
 # ENUMS
@@ -215,33 +312,15 @@ function format_select_mask(mask::Vector{<:Integer})::String
 end
 
 # =============================================================================
-# SCALE PARAMETERS
+# DELAYS
 # =============================================================================
 
-"""Parameters for generating delay values from scale range."""
-@kwdef mutable struct ScaleParameters
-    scale_min::Float64 = {{ scale_defaults.scale_min }}
-    scale_max::Float64 = {{ scale_defaults.scale_max }}
-    scale_num::Int = {{ scale_defaults.scale_num }}
-end
-
-"""
-Generate delay values from scale parameters.
-
-# Examples
-```julia
-params = ScaleParameters(scale_min=1.0, scale_max=10.0, scale_num=10)
-generate_delays(params)  # [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-```
-"""
-function generate_delays(params::ScaleParameters)::Vector{Int}
-    if params.scale_num == 1
-        return [round(Int, params.scale_min)]
-    end
-
-    step = (params.scale_max - params.scale_min) / (params.scale_num - 1)
-    return [round(Int, params.scale_min + i * step) for i in 0:(params.scale_num - 1)]
-end
+"""Default delay values (integers)."""
+const DEFAULT_DELAYS = [
+{%- for delay in default_delays %}
+    {{ delay }},
+{%- endfor %}
+]
 
 # =============================================================================
 # FILE TYPES

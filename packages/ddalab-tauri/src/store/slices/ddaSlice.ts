@@ -33,6 +33,7 @@ export const defaultDDAState: DDAState = {
   },
   customDelayPresets: [],
   isRunning: false,
+  pendingAnalysisId: null,
 };
 
 export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
@@ -355,5 +356,11 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
       };
       await service.saveAnalysisResult(persistedAnalysis);
     }
+  },
+
+  setPendingAnalysisId: (id) => {
+    set((state) => {
+      state.dda.pendingAnalysisId = id;
+    });
   },
 });

@@ -21,6 +21,11 @@ impl DDARunner {
     ///
     /// # Returns
     /// A Result containing the DDARunner or an error if the binary doesn't exist
+    ///
+    /// # Example
+    /// ```ignore
+    /// let runner = DDARunner::new("/path/to/run_DDA_AsciiEdf")?;
+    /// ```
     pub fn new<P: AsRef<Path>>(binary_path: P) -> Result<Self> {
         let binary_path = binary_path.as_ref().to_path_buf();
 
@@ -29,6 +34,63 @@ impl DDARunner {
         }
 
         Ok(Self { binary_path })
+    }
+
+    /// Create a new DDA runner by auto-discovering the binary location.
+    ///
+    /// Uses the following resolution order:
+    /// 1. `$DDA_BINARY_PATH` environment variable
+    /// 2. `$DDA_HOME/bin/` directory
+    /// 3. Default search paths (`~/.local/bin`, `~/bin`, `/usr/local/bin`, `/opt/dda/bin`)
+    ///
+    /// # Returns
+    /// A Result containing the DDARunner or an error if binary not found
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Auto-discover the binary
+    /// let runner = DDARunner::discover()?;
+    ///
+    /// // Run analysis
+    /// let result = runner.run(&request, None, None, None).await?;
+    /// ```
+    pub fn discover() -> Result<Self> {
+        use crate::variants::find_binary;
+
+        match find_binary(None) {
+            Some(path) => Ok(Self { binary_path: path }),
+            None => Err(DDAError::BinaryNotFound(format!(
+                "DDA binary '{}' not found. Set $DDA_BINARY_PATH or $DDA_HOME, \
+                 or install to one of: ~/.local/bin, ~/bin, /usr/local/bin, /opt/dda/bin",
+                crate::variants::BINARY_NAME
+            ))),
+        }
+    }
+
+    /// Create a DDA runner with optional binary path.
+    ///
+    /// If `binary_path` is `None`, uses auto-discovery via `discover()`.
+    /// If `binary_path` is `Some(path)`, validates the path exists.
+    ///
+    /// # Arguments
+    /// * `binary_path` - Optional path to the binary, or None for auto-discovery
+    ///
+    /// # Returns
+    /// A Result containing the DDARunner or an error
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Auto-discover
+    /// let runner = DDARunner::try_new(None)?;
+    ///
+    /// // Explicit path
+    /// let runner = DDARunner::try_new(Some("/path/to/binary"))?;
+    /// ```
+    pub fn try_new<P: AsRef<Path>>(binary_path: Option<P>) -> Result<Self> {
+        match binary_path {
+            Some(path) => Self::new(path),
+            None => Self::discover(),
+        }
     }
 
     /// Run DDA analysis with the given request parameters

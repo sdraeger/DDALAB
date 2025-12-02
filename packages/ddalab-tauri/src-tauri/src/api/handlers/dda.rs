@@ -1572,6 +1572,7 @@ fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
                 nr_tau: mp.nr_tau,
             }),
         variant_configs: None, // Not used by legacy run() method
+        sampling_rate: None,   // TODO: Get from file metadata when available
     };
 
     dda_request

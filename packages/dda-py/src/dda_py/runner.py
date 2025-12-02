@@ -7,6 +7,7 @@ Generator: dda-codegen v0.1.0
 
 DDA CLI Constants and Helper Functions
 """
+from __future__ import annotations
 
 import subprocess
 import tempfile
@@ -43,20 +44,38 @@ class DDARunner:
     """DDA Binary Runner
 
     Handles execution of the run_DDA_AsciiEdf binary.
+
+    Examples:
+        # Auto-discover binary
+        runner = DDARunner()
+
+        # Or specify explicit path
+        runner = DDARunner("/path/to/run_DDA_AsciiEdf")
+
+        result = runner.run(request)
     """
 
-    def __init__(self, binary_path: str):
-        """Initialize DDA runner with binary path
+    def __init__(self, binary_path: Optional[str] = None):
+        """Initialize DDA runner with optional binary path.
+
+        If binary_path is not provided, uses find_binary() to auto-discover
+        the binary location.
 
         Args:
-            binary_path: Path to the run_DDA_AsciiEdf binary
+            binary_path: Path to the run_DDA_AsciiEdf binary, or None for auto-discovery
 
         Raises:
-            FileNotFoundError: If binary does not exist
+            FileNotFoundError: If binary does not exist (either explicit path or auto-discovery)
         """
-        self.binary_path = Path(binary_path)
-        if not self.binary_path.exists():
-            raise FileNotFoundError(f"DDA binary not found: {binary_path}")
+        from .variants import find_binary, require_binary
+
+        if binary_path is None:
+            # Auto-discover binary
+            self.binary_path = Path(require_binary())
+        else:
+            self.binary_path = Path(binary_path)
+            if not self.binary_path.exists():
+                raise FileNotFoundError(f"DDA binary not found: {binary_path}")
 
     def run(self, request: DDARequest) -> Dict[str, Any]:
         """Execute DDA analysis

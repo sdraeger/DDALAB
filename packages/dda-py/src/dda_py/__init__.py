@@ -34,7 +34,7 @@ from .variants import (
     generate_select_mask,
     parse_select_mask,
     format_select_mask,
-    ScaleParameters,
+    DEFAULT_DELAYS,
 )
 
 # Import from runner module (DDARunner, DDARequest)
@@ -77,8 +77,8 @@ __all__ = [
     "generate_select_mask",
     "parse_select_mask",
     "format_select_mask",
-    # Scale parameters
-    "ScaleParameters",
+    # Delays
+    "DEFAULT_DELAYS",
     # DDA Execution
     "DDARunner",
     "DDARequest",
