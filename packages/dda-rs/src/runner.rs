@@ -334,6 +334,25 @@ impl DDARunner {
                 .arg(end.to_string());
         }
 
+        // Add sampling rate range if sampling rate > 1000 Hz
+        // This is required for high-frequency data to enable proper frequency analysis
+        if let Some(sr) = request.sampling_rate {
+            if sr > 1000.0 {
+                let sr_half = (sr / 2.0) as u32;
+                let sr_full = sr as u32;
+                command
+                    .arg("-SR")
+                    .arg(sr_half.to_string())
+                    .arg(sr_full.to_string());
+                log::info!(
+                    "High-frequency data detected ({}Hz), adding -SR {} {}",
+                    sr,
+                    sr_half,
+                    sr_full
+                );
+            }
+        }
+
         log::info!("Executing DDA command: {:?}", command);
 
         // Execute DDA binary asynchronously
@@ -612,6 +631,18 @@ impl DDARunner {
                         .arg(end.to_string());
                 }
 
+                // Add sampling rate range if > 1000 Hz
+                if let Some(sr) = request.sampling_rate {
+                    if sr > 1000.0 {
+                        let sr_half = (sr / 2.0) as u32;
+                        let sr_full = sr as u32;
+                        pair_command
+                            .arg("-SR")
+                            .arg(sr_half.to_string())
+                            .arg(sr_full.to_string());
+                    }
+                }
+
                 log::info!(
                     "Executing DDA for CT pair {} (1-based): [{}, {}]",
                     pair_idx,
@@ -774,6 +805,18 @@ impl DDARunner {
                     .arg("-StartEnd")
                     .arg(start.to_string())
                     .arg(end.to_string());
+            }
+
+            // Add sampling rate range if > 1000 Hz
+            if let Some(sr) = request.sampling_rate {
+                if sr > 1000.0 {
+                    let sr_half = (sr / 2.0) as u32;
+                    let sr_full = sr as u32;
+                    cd_command
+                        .arg("-SR")
+                        .arg(sr_half.to_string())
+                        .arg(sr_full.to_string());
+                }
             }
 
             log::info!(
@@ -1178,6 +1221,18 @@ impl DDARunner {
                 .arg("-StartEnd")
                 .arg(start.to_string())
                 .arg(end.to_string());
+        }
+
+        // Add sampling rate range if > 1000 Hz
+        if let Some(sr) = request.sampling_rate {
+            if sr > 1000.0 {
+                let sr_half = (sr / 2.0) as u32;
+                let sr_full = sr as u32;
+                command
+                    .arg("-SR")
+                    .arg(sr_half.to_string())
+                    .arg(sr_full.to_string());
+            }
         }
 
         log::info!("Executing single variant command: {:?}", command);

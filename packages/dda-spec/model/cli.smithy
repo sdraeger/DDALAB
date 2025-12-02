@@ -116,6 +116,15 @@ structure CLIArguments {
     @cliFlag(flag: "-StartEnd", required: false)
     @length(min: 2, max: 2)
     timeBounds: IntegerList
+
+    /// Sampling rate range for high-frequency data (> 1000 Hz)
+    /// When input file sampling rate > 1000 Hz, this MUST be set to [SR/2, SR]
+    /// where SR is the actual sampling rate of the input file.
+    /// This enables proper frequency analysis within the DDA binary.
+    /// Example: For 2048 Hz data, pass -SR 1024 2048
+    @cliFlag(flag: "-SR", required: false)
+    @length(min: 2, max: 2)
+    samplingRateRange: IntegerList
 }
 
 list IntegerList {
@@ -156,4 +165,9 @@ structure ValidationRules {
     /// All channel indices must be valid for input file
     @required
     channelConstraint: String
+
+    /// samplingRateRange must be provided when input sampling rate > 1000 Hz
+    /// Values must be [SR/2, SR] where SR is the input file sampling rate
+    @required
+    samplingRateConstraint: String
 }

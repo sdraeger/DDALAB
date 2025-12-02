@@ -103,6 +103,10 @@ pub struct DDARequest {
     /// Maps variant IDs to their specific channel configurations
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variant_configs: Option<std::collections::HashMap<String, VariantChannelConfig>>,
+    /// Input file sampling rate in Hz
+    /// When > 1000 Hz, the -SR argument will be added as [SR/2, SR]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sampling_rate: Option<f64>,
 }
 
 /// Variant-specific DDA result
