@@ -34,7 +34,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: packages/ddalab-tauri/docs
-        run: npm ci
+        run: npm install
 
       - name: Build documentation
         working-directory: packages/ddalab-tauri/docs
