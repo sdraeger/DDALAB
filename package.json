@@ -19,7 +19,10 @@
     "test:dda-ts": "cd packages/ddalab-tauri && npx vitest run src/types/variants.test.ts",
     "test:dda-jl": "cd packages/DelayDifferentialAnalysis.jl && julia --project=. -e 'using Pkg; Pkg.instantiate(); include(\"test/runtests.jl\")'",
     "test:dda": "npm run test:dda-spec && npm run test:dda-rs && npm run test:dda-py && npm run test:dda-ts && npm run test:dda-jl",
-    "test:dda:parallel": "concurrently -n spec,rs,py,ts,jl -c blue,green,yellow,magenta,cyan \"npm run test:dda-spec\" \"npm run test:dda-rs\" \"npm run test:dda-py\" \"npm run test:dda-ts\" \"npm run test:dda-jl\""
+    "test:dda:parallel": "concurrently -n spec,rs,py,ts,jl -c blue,green,yellow,magenta,cyan \"npm run test:dda-spec\" \"npm run test:dda-rs\" \"npm run test:dda-py\" \"npm run test:dda-ts\" \"npm run test:dda-jl\"",
+    "docs:dev": "cd packages/ddalab-tauri/docs && npm run start",
+    "docs:build": "cd packages/ddalab-tauri/docs && npm run build",
+    "docs:serve": "cd packages/ddalab-tauri/docs && npm run serve"
   },
   "volta": {
     "node": "20.18.2",
