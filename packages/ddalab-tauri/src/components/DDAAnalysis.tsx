@@ -78,15 +78,8 @@ interface DDAParameters {
   variants: string[];
   windowLength: number;
   windowStep: number;
-  // Delay configuration - list mode only
-  delayConfig: {
-    mode: "list";
-    list?: number[];
-  };
-  // Legacy parameters for backward compatibility
-  scaleMin: number;
-  scaleMax: number;
-  scaleNum: number;
+  // Delay configuration - explicit list of delays
+  delays: number[];
   timeStart: number;
   timeEnd: number;
   selectedChannels: string[];
@@ -185,13 +178,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     variants: storedAnalysisParameters.variants,
     windowLength: storedAnalysisParameters.windowLength,
     windowStep: storedAnalysisParameters.windowStep,
-    delayConfig: {
-      mode: "list",
-      list: [7, 10], // Default delays
-    },
-    scaleMin: 1,
-    scaleMax: 20,
-    scaleNum: 2,
+    delays: storedAnalysisParameters.delays || [7, 10], // Default delays if not set
     timeStart: 0,
     timeEnd: selectedFile?.duration || 30,
     selectedChannels: [],
@@ -369,11 +356,11 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     const windowCount = Math.floor(timeRange / parameters.windowStep);
     const variantCount = parameters.variants.length;
 
-    // Rough estimate: base time + channels * windows * variants * scale points
+    // Rough estimate: base time + channels * windows * variants * delay points
     const baseTime = 2; // seconds
     const perOperationTime = 0.01; // seconds per operation
     const totalOperations =
-      channelCount * windowCount * variantCount * parameters.scaleNum;
+      channelCount * windowCount * variantCount * parameters.delays.length;
     const estimated = baseTime + totalOperations * perOperationTime;
 
     return Math.round(estimated);
@@ -383,7 +370,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     parameters.timeStart,
     parameters.windowStep,
     parameters.variants,
-    parameters.scaleNum,
+    parameters.delays.length,
   ]);
 
   // Preview analysis from history in dedicated window
@@ -770,17 +757,14 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         );
       }
 
+      // Cast to any for backwards compatibility with legacy stored parameters
+      const legacyParams = params as any;
       setLocalParameters((prev) => ({
         ...prev,
         variants: params.variants || prev.variants,
         windowLength: params.window_length || prev.windowLength,
         windowStep: params.window_step || prev.windowStep,
-        delayConfig: params.delay_list
-          ? { mode: "list" as const, list: params.delay_list }
-          : prev.delayConfig,
-        scaleMin: params.scale_min || prev.scaleMin,
-        scaleMax: params.scale_max || prev.scaleMax,
-        scaleNum: params.scale_num || prev.scaleNum,
+        delays: params.delay_list || legacyParams.delays || prev.delays,
         timeStart: params.start_time ?? prev.timeStart,
         timeEnd: params.end_time ?? prev.timeEnd,
         selectedChannels: channelNames,
@@ -1056,9 +1040,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       variants: parameters.variants,
       windowLength: parameters.windowLength,
       windowStep: parameters.windowStep,
-      scaleMin: parameters.scaleMin,
-      scaleMax: parameters.scaleMax,
-      scaleNum: parameters.scaleNum,
+      delays: parameters.delays,
     });
 
     // Get CT channel pairs from variant config
@@ -1150,9 +1132,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       variants: parameters.variants,
       window_length: parameters.windowLength,
       window_step: parameters.windowStep,
-      scale_min: parameters.scaleMin,
-      scale_max: parameters.scaleMax,
-      scale_num: parameters.scaleNum,
+      delay_list: parameters.delays,
       ct_window_length: parameters.ctWindowLength,
       ct_window_step: parameters.ctWindowStep,
       ct_channel_pairs: ctChannelPairs,
@@ -1175,9 +1155,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     console.log(
       `   Window: length=${request.window_length}, step=${request.window_step}`,
     );
-    console.log(
-      `   Scale: min=${request.scale_min}, max=${request.scale_max}, num=${request.scale_num}`,
-    );
+    console.log(`   Delays: [${request.delay_list.join(", ")}]`);
     if (ctChannelPairs && ctChannelPairs.length > 0) {
       console.log(
         `   CT channel pairs: ${ctChannelPairs
@@ -1203,7 +1181,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
     if (isWorkflowRecording) {
       try {
         const paramAction = createSetDDAParametersAction(
-          parameters.scaleMin, // lag (using scaleMin as proxy)
+          parameters.delays[0] || 1, // lag (using first delay)
           4, // dimension (default)
           parameters.windowLength,
           parameters.windowStep,
@@ -1407,10 +1385,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           ct_window_step: parameters.ctWindowStep || null,
         },
         scale_parameters: {
-          scale_min: parameters.scaleMin,
-          scale_max: parameters.scaleMax,
-          scale_num: parameters.scaleNum,
-          delay_list: parameters.delayConfig.list,
+          delay_list: parameters.delays,
         },
         model_dimension:
           appExpertMode && parameters.modelParameters
@@ -1460,7 +1435,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
         `   Window: length=${request.window_parameters.window_length}, step=${request.window_parameters.window_step}`,
       );
       console.log(
-        `   Scale: min=${request.scale_parameters.scale_min}, max=${request.scale_parameters.scale_max}, num=${request.scale_parameters.scale_num}`,
+        `   Delays: [${request.scale_parameters.delay_list?.join(", ") || ""}]`,
       );
 
       setNsgSubmissionPhase("Creating job in database...");
@@ -1644,13 +1619,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       variants: ["single_timeseries"],
       windowLength: defaultWindowLength,
       windowStep: 10,
-      delayConfig: {
-        mode: "list",
-        list: [7, 10], // Default delays
-      },
-      scaleMin: 1,
-      scaleMax: 20,
-      scaleNum: 2,
+      delays: [7, 10], // Default delays
       timeStart: 0,
       timeEnd: selectedFile?.duration || 30,
       selectedChannels: selectedFile?.channels.slice(0, 8) || [],
@@ -1743,7 +1712,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
           variants: parameters.variants,
           windowLength: parameters.windowLength,
           windowStep: parameters.windowStep,
-          delayConfig: parameters.delayConfig,
+          delays: parameters.delays,
           // Only export channels for selected variants
           stChannels: parameters.variants.includes("single_timeseries")
             ? parameters.selectedChannels
@@ -2436,15 +2405,11 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             {/* Delay Parameters - Only in Expert Mode */}
             {appExpertMode && (
               <DelayPresetManager
-                value={parameters.delayConfig}
-                onChange={(config) => {
+                delays={parameters.delays}
+                onChange={(delays) => {
                   setLocalParameters((prev) => ({
                     ...prev,
-                    delayConfig: config,
-                    // Sync legacy params for backward compatibility
-                    scaleMin: config.list?.[0] || 1,
-                    scaleMax: config.list?.[config.list.length - 1] || 20,
-                    scaleNum: config.list?.length || 0,
+                    delays,
                   }));
                 }}
                 disabled={ddaRunning || localIsRunning}
@@ -2469,7 +2434,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
                     },
                   }));
                 }}
-                tauValues={parameters.delayConfig.list}
+                tauValues={parameters.delays}
               />
             )}
           </div>
@@ -2636,9 +2601,7 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
             variants: parameters.variants,
             window_length: parameters.windowLength,
             window_step: parameters.windowStep,
-            delay_min: parameters.scaleMin,
-            delay_max: parameters.scaleMax,
-            delay_num: parameters.scaleNum,
+            delay_list: parameters.delays,
           }}
         />
       )}

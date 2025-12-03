@@ -21,9 +21,7 @@ export function exportDDAToCSV(
     lines.push(`Channels,"${result.channels.join(", ")}"`);
     lines.push(`Window Length,${result.parameters.window_length}`);
     lines.push(`Window Step,${result.parameters.window_step}`);
-    lines.push(`Scale Min,${result.parameters.scale_min}`);
-    lines.push(`Scale Max,${result.parameters.scale_max}`);
-    lines.push(`Scale Num,${result.parameters.scale_num}`);
+    lines.push(`Delays,"${result.parameters.delay_list?.join(", ") || ""}"`);
     lines.push("");
   }
 

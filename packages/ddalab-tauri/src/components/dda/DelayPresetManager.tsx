@@ -43,17 +43,14 @@ const BUILTIN_PRESETS: DelayPreset[] = [
 ];
 
 interface DelayPresetManagerProps {
-  value: {
-    mode: "list";
-    list?: number[];
-  };
-  onChange: (value: { mode: "list"; list?: number[] }) => void;
+  delays: number[];
+  onChange: (delays: number[]) => void;
   disabled?: boolean;
   sampleRate?: number;
 }
 
 export function DelayPresetManager({
-  value,
+  delays,
   onChange,
   disabled = false,
   sampleRate = 256,
@@ -77,20 +74,17 @@ export function DelayPresetManager({
   // Initialize custom list input when loading a preset
   // Only sync when NOT actively typing to avoid feedback loop
   useEffect(() => {
-    if (value.list && !isUserTyping) {
-      setCustomListInput(value.list.join(", "));
+    if (delays && !isUserTyping) {
+      setCustomListInput(delays.join(", "));
     }
-  }, [value.list, isUserTyping]);
+  }, [delays, isUserTyping]);
 
   const handlePresetSelect = (presetId: string) => {
     setSelectedPresetId(presetId);
     const preset = allPresets.find((p) => p.id === presetId);
     if (preset) {
       setIsUserTyping(false); // Allow sync from preset
-      onChange({
-        mode: "list",
-        list: [...preset.delays],
-      });
+      onChange([...preset.delays]);
       setCustomListInput(preset.delays.join(", "));
     }
   };
@@ -103,10 +97,7 @@ export function DelayPresetManager({
     // If input is empty, keep empty list
     if (!input.trim()) {
       setHasInvalidInput(false);
-      onChange({
-        mode: "list",
-        list: [],
-      });
+      onChange([]);
       return;
     }
 
@@ -131,12 +122,9 @@ export function DelayPresetManager({
     setHasInvalidInput(hasInvalid && validNumbers.length === 0);
 
     // Remove duplicates and sort
-    const delays = [...new Set(validNumbers)].sort((a, b) => a - b);
+    const parsedDelays = [...new Set(validNumbers)].sort((a, b) => a - b);
 
-    onChange({
-      mode: "list",
-      list: delays,
-    });
+    onChange(parsedDelays);
   };
 
   const handleInputBlur = () => {
@@ -355,7 +343,7 @@ export function DelayPresetManager({
                     Invalid input. Enter positive numbers separated by commas or
                     spaces.
                   </span>
-                ) : value.list && value.list.length === 0 ? (
+                ) : delays && delays.length === 0 ? (
                   <span className="text-amber-600">
                     Empty delay list. Enter at least one delay value.
                   </span>
@@ -365,24 +353,24 @@ export function DelayPresetManager({
               </p>
               {customListInput &&
                 !hasInvalidInput &&
-                value.list &&
-                value.list.length > 0 && (
+                delays &&
+                delays.length > 0 && (
                   <p className="text-xs text-green-600 font-medium shrink-0">
-                    ✓ {value.list.length} delay
-                    {value.list.length === 1 ? "" : "s"}
+                    ✓ {delays.length} delay
+                    {delays.length === 1 ? "" : "s"}
                   </p>
                 )}
             </div>
           </div>
 
           {/* Preview */}
-          {value.list && value.list.length > 0 && (
+          {delays && delays.length > 0 && (
             <div>
               <Label className="text-sm">
-                Current Delays ({value.list.length} total)
+                Current Delays ({delays.length} total)
               </Label>
               <div className="flex flex-wrap gap-1 mt-2 p-2 bg-muted/30 rounded-md">
-                {value.list.map((delay, idx) => (
+                {delays.map((delay, idx) => (
                   <Badge key={idx} variant="secondary" className="text-xs">
                     τ={delay} ({(delay / sampleRate).toFixed(3)}s)
                   </Badge>
@@ -395,8 +383,8 @@ export function DelayPresetManager({
         {/* Summary */}
         <div className="pt-2 border-t">
           <p className="text-sm text-muted-foreground">
-            Using {value.list?.length || 0} custom delay value
-            {value.list?.length === 1 ? "" : "s"}
+            Using {delays?.length || 0} custom delay value
+            {delays?.length === 1 ? "" : "s"}
           </p>
         </div>
       </CardContent>

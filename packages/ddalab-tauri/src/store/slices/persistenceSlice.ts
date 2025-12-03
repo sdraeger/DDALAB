@@ -16,7 +16,8 @@ export const createPersistenceSlice: ImmerStateCreator<
 > = (set, get) => ({
   isInitialized: false,
   isPersistenceRestored: false,
-  persistenceService: null,
+  // Note: persistenceService is NOT stored in state (Immer freezes objects).
+  // Access via getStatePersistenceService() singleton instead.
 
   initializePersistence: async () => {
     if (TauriService.isTauri()) {
@@ -141,7 +142,7 @@ export const createPersistenceSlice: ImmerStateCreator<
           );
 
           state.isPersistenceRestored = true;
-          state.persistenceService = service;
+          // Note: service is NOT stored in state (Immer freezes it)
 
           state.fileManager.dataDirectoryPath = dataDirectoryPath;
           state.fileManager.currentPath =
@@ -194,18 +195,10 @@ export const createPersistenceSlice: ImmerStateCreator<
             persistedState.dda?.parameters?.windowStep ||
             persistedState.dda?.analysis_parameters?.windowStep ||
             state.dda.analysisParameters.windowStep;
-          state.dda.analysisParameters.scaleMin =
-            persistedState.dda?.parameters?.scaleMin ||
-            persistedState.dda?.analysis_parameters?.scaleMin ||
-            state.dda.analysisParameters.scaleMin;
-          state.dda.analysisParameters.scaleMax =
-            persistedState.dda?.parameters?.scaleMax ||
-            persistedState.dda?.analysis_parameters?.scaleMax ||
-            state.dda.analysisParameters.scaleMax;
-          state.dda.analysisParameters.scaleNum =
-            persistedState.dda?.parameters?.scaleNum ||
-            persistedState.dda?.analysis_parameters?.scaleNum ||
-            state.dda.analysisParameters.scaleNum;
+          state.dda.analysisParameters.delays =
+            persistedState.dda?.parameters?.delays ||
+            persistedState.dda?.analysis_parameters?.delays ||
+            state.dda.analysisParameters.delays;
           state.dda.customDelayPresets =
             persistedState.dda?.custom_delay_presets ||
             state.dda.customDelayPresets;
@@ -234,7 +227,7 @@ export const createPersistenceSlice: ImmerStateCreator<
           "[STORE] Failed to initialize persistence:",
           (error as Error)?.message,
         );
-        set({ persistenceService: null });
+        // Service initialization failed - it remains null in singleton
       } finally {
         isInitializingPersistence = false;
       }
@@ -251,10 +244,10 @@ export const createPersistenceSlice: ImmerStateCreator<
   },
 
   saveCurrentState: async () => {
-    const service = get().persistenceService;
+    const service = getStatePersistenceService();
     const currentState = get();
 
-    if (service) {
+    if (service && currentState.isPersistenceRestored) {
       await Promise.resolve();
 
       console.log("[SAVE] Current state before save:", {
@@ -317,22 +310,22 @@ export const createPersistenceSlice: ImmerStateCreator<
   },
 
   forceSave: async () => {
-    const service = get().persistenceService;
-    if (service) {
+    const service = getStatePersistenceService();
+    if (service && get().isPersistenceRestored) {
       await get().saveCurrentState();
       await service.forceSave();
     }
   },
 
   clearPersistedState: async () => {
-    const service = get().persistenceService;
+    const service = getStatePersistenceService();
     if (service) {
       await service.clearState();
     }
   },
 
   getPersistedState: async () => {
-    const service = get().persistenceService;
+    const service = getStatePersistenceService();
     if (service) {
       return await service.getSavedState();
     }
@@ -340,8 +333,8 @@ export const createPersistenceSlice: ImmerStateCreator<
   },
 
   createStateSnapshot: async () => {
-    const service = get().persistenceService;
-    if (service) {
+    const service = getStatePersistenceService();
+    if (service && get().isPersistenceRestored) {
       await get().saveCurrentState();
       return await service.createSnapshot();
     }

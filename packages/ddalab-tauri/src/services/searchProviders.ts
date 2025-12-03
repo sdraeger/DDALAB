@@ -685,14 +685,9 @@ export class AnalysisParametersSearchProvider implements SearchProvider {
         keywords: ["step", "stride", "hop"],
       },
       {
-        key: "scale range",
-        value: `${params.scaleMin}-${params.scaleMax}`,
-        keywords: ["scale", "range", "min", "max"],
-      },
-      {
-        key: "scale count",
-        value: `${params.scaleNum}`,
-        keywords: ["scales", "count", "number"],
+        key: "delays",
+        value: params.delays ? `[${params.delays.join(", ")}]` : "default",
+        keywords: ["delays", "scale", "tau", "range"],
       },
       {
         key: "variants",

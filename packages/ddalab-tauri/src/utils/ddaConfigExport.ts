@@ -15,10 +15,7 @@ export function exportDDAConfig(
     variants: string[];
     windowLength: number;
     windowStep: number;
-    delayConfig: {
-      mode: "list";
-      list?: number[];
-    };
+    delays: number[]; // Explicit list of delay values
     stChannels?: string[];
     ctChannelPairs?: Array<{ source: string; target: string }>;
     cdChannelPairs?: Array<{ source: string; target: string }>;
@@ -62,7 +59,7 @@ export function exportDDAConfig(
       variants: parameters.variants,
       window_length: parameters.windowLength,
       window_step: parameters.windowStep,
-      delay_config: parameters.delayConfig,
+      delay_config: { mode: "list" as const, list: parameters.delays },
       st_channels: parameters.stChannels,
       ct_channel_pairs: parameters.ctChannelPairs,
       cd_channel_pairs: parameters.cdChannelPairs,
@@ -269,32 +266,28 @@ export function importDDAConfig(
  * Convert imported config to local parameters format
  */
 export function configToLocalParameters(config: DDALabFileFormat) {
-  // Convert range mode to list mode for backward compatibility
-  let delayConfig: { mode: "list"; list?: number[] };
+  // Convert delay_config to delays array
+  let delays: number[];
   if (config.parameters.delay_config.mode === "range") {
     const min = config.parameters.delay_config.min || 1;
     const max = config.parameters.delay_config.max || 20;
     const num = config.parameters.delay_config.num || 20;
 
     // Generate evenly-spaced delays from range
-    const list: number[] = [];
+    delays = [];
     for (let i = 0; i < num; i++) {
       const delay = Math.round(min + (max - min) * (i / (num - 1)));
-      list.push(delay);
+      delays.push(delay);
     }
-    delayConfig = { mode: "list", list };
   } else {
-    delayConfig = config.parameters.delay_config as {
-      mode: "list";
-      list?: number[];
-    };
+    delays = config.parameters.delay_config.list || [7, 10];
   }
 
   return {
     variants: config.parameters.variants,
     windowLength: config.parameters.window_length,
     windowStep: config.parameters.window_step,
-    delayConfig,
+    delays,
     // Variant-specific channels
     selectedChannels: config.parameters.st_channels || [],
     ctChannelPairs:
@@ -305,10 +298,6 @@ export function configToLocalParameters(config: DDALabFileFormat) {
       config.parameters.cd_channel_pairs?.map(
         (pair) => [pair.source, pair.target] as [string, string],
       ) || [],
-    // Legacy compatibility
-    scaleMin: delayConfig.list?.[0] || 1,
-    scaleMax: delayConfig.list?.[delayConfig.list.length - 1] || 20,
-    scaleNum: delayConfig.list?.length || 0,
     // CT parameters
     ctDelayMin: config.parameters.ct_parameters?.ct_delay_min,
     ctDelayMax: config.parameters.ct_parameters?.ct_delay_max,

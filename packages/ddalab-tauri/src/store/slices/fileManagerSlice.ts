@@ -4,6 +4,7 @@
 
 import { TauriService } from "@/services/tauriService";
 import { getInitializedFileStateManager } from "@/services/fileStateInitializer";
+import { getStatePersistenceService } from "@/services/statePersistenceService";
 import type {
   FilePlotState,
   FileDDAState,
@@ -42,7 +43,8 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
     });
 
     if (TauriService.isTauri()) {
-      const { fileManager, persistenceService, isPersistenceRestored } = get();
+      const { fileManager, isPersistenceRestored } = get();
+      const persistenceService = getStatePersistenceService();
 
       if (!isPersistenceRestored) {
         console.log(
@@ -81,7 +83,8 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
     });
 
     if (TauriService.isTauri()) {
-      const { fileManager, persistenceService, isPersistenceRestored } = get();
+      const { fileManager, isPersistenceRestored } = get();
+      const persistenceService = getStatePersistenceService();
 
       if (!isPersistenceRestored) {
         console.log(
@@ -120,7 +123,8 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
     });
 
     if (TauriService.isTauri()) {
-      const { fileManager, persistenceService } = get();
+      const { fileManager } = get();
+      const persistenceService = getStatePersistenceService();
       const fileManagerState = {
         data_directory_path: fileManager.dataDirectoryPath,
         selected_file: null,

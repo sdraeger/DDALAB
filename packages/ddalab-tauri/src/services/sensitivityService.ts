@@ -317,7 +317,24 @@ export async function runSensitivityAnalysis(
       const startTime = performance.now();
 
       // Build DDA request with modified parameters
-      // Note: UI uses "delay_*" but API expects "scale_*" for these parameters
+      // Generate delay_list from swept delay parameters or use base config
+      let delayList = config.baseConfig.delay_list;
+      if (
+        paramValues.delay_min !== undefined ||
+        paramValues.delay_max !== undefined ||
+        paramValues.delay_num !== undefined
+      ) {
+        // Generate delay_list from swept parameters
+        const delayMin = paramValues.delay_min ?? 1;
+        const delayMax = paramValues.delay_max ?? 20;
+        const delayNum = paramValues.delay_num ?? 20;
+        delayList = Array.from({ length: delayNum }, (_, i) =>
+          Math.round(
+            delayMin + (delayMax - delayMin) * (i / Math.max(delayNum - 1, 1)),
+          ),
+        );
+      }
+
       const request: DDAAnalysisRequest = {
         file_path: config.baseConfig.file_path,
         channels: config.baseConfig.channels,
@@ -327,9 +344,7 @@ export async function runSensitivityAnalysis(
         window_length:
           paramValues.window_length ?? config.baseConfig.window_length,
         window_step: paramValues.window_step ?? config.baseConfig.window_step,
-        scale_min: paramValues.delay_min ?? config.baseConfig.delay_min,
-        scale_max: paramValues.delay_max ?? config.baseConfig.delay_max,
-        scale_num: paramValues.delay_num ?? config.baseConfig.delay_num,
+        delay_list: delayList,
       };
 
       try {

@@ -27,9 +27,7 @@ export interface SensitivityBaseConfig {
   variants: string[];
   window_length: number;
   window_step: number;
-  delay_min: number;
-  delay_max: number;
-  delay_num: number;
+  delay_list: number[]; // Explicit list of delay values
 }
 
 export interface SensitivityConfig {

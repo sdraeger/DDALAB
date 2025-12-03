@@ -73,9 +73,7 @@ export interface DDAState {
     variants: string[];
     windowLength: number;
     windowStep: number;
-    scaleMin: number;
-    scaleMax: number;
-    scaleNum: number;
+    delays: number[];
   };
   customDelayPresets: DelayPreset[];
   isRunning: boolean;
@@ -358,7 +356,8 @@ export interface StreamingSlice extends StreamingActions {
 export interface PersistenceSlice extends PersistenceActions {
   isInitialized: boolean;
   isPersistenceRestored: boolean;
-  persistenceService: StatePersistenceService | null;
+  // Note: persistenceService is NOT stored in state (Immer freezes it).
+  // Access via getStatePersistenceService() singleton instead.
 }
 
 export interface InitSlice extends InitActions {}

@@ -105,8 +105,8 @@ pub struct DDAParameters {
     pub window_length: u32,
     pub window_step: u32,
     pub selected_channels: Vec<String>,
-    pub scale_min: f64,
-    pub scale_max: f64,
+    /// Explicit list of delay values (tau) used in the analysis
+    pub delay_list: Vec<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variant_configs: Option<serde_json::Value>,
 }

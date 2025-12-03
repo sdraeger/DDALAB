@@ -560,9 +560,7 @@ mod tests {
                 "ct_window_step": null
             },
             "scale_parameters": {
-                "scale_min": 1,
-                "scale_max": 100,
-                "scale_num": 50
+                "delay_list": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 100]
             },
             "ct_channel_pairs": null
         });
