@@ -1,0 +1,100 @@
+# DDALAB Component Library
+
+Welcome to the DDALAB component documentation. This Storybook contains all the reusable UI components used in the DDALAB desktop application.
+
+## Overview
+
+DDALAB (Delay Differential Analysis Laboratory) is a scientific computing application for performing Delay Differential Analysis on EDF and ASCII files. The UI is built with:
+
+- **React 19** - UI framework
+- **Next.js 16** - Full-stack framework with Turbopack
+- **Tauri v2** - Desktop application framework (Rust backend)
+- **Tailwind CSS** - Utility-first styling
+- **Radix UI** - Accessible component primitives
+- **shadcn/ui** - Component design system
+
+## Component Categories
+
+### UI Components
+
+Core building blocks for the interface:
+
+- **Button** - Primary interaction element with multiple variants
+- **Input** - Form input with validation states
+- **Badge** - Status indicators and labels
+- **Card** - Content containers
+- **Progress** - Progress indicators
+- **Tabs** - Content organization
+- **Switch** - Boolean toggles
+
+### Feature Components
+
+DDALAB-specific components (documented separately):
+
+- **FileManager** - File browser and management
+- **DDAAnalysis** - Analysis configuration panel
+- **DDAResults** - Results visualization
+- **TimeSeriesPlot** - EEG data visualization
+- **SettingsPanel** - Application settings
+
+## Design Tokens
+
+The component library uses CSS custom properties for theming:
+
+```css
+/* Light theme */
+--background: 0 0% 100%;
+--foreground: 222.2 84% 4.9%;
+--primary: 222.2 47.4% 11.2%;
+--secondary: 210 40% 96.1%;
+--muted: 210 40% 96.1%;
+--accent: 210 40% 96.1%;
+--destructive: 0 84.2% 60.2%;
+
+/* Dark theme (add .dark class to root) */
+--background: 222.2 84% 4.9%;
+--foreground: 210 40% 98%;
+/* ... */
+```
+
+## Usage
+
+Import components from the `@/components/ui` path:
+
+```tsx
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+
+function Example() {
+  return (
+    <Card>
+      <CardHeader>Example Form</CardHeader>
+      <CardContent>
+        <Input placeholder="Enter value..." />
+        <Button>Submit</Button>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Accessibility
+
+All components are built with accessibility in mind:
+
+- Proper ARIA attributes
+- Keyboard navigation support
+- Focus management
+- Screen reader compatibility
+
+Components use Radix UI primitives which handle most accessibility concerns automatically.
+
+## Contributing
+
+When adding new components:
+
+1. Create the component in `src/components/ui/`
+2. Add stories in `src/stories/ui/ComponentName.stories.tsx`
+3. Include all variants and states
+4. Add DDALAB-specific examples where relevant
