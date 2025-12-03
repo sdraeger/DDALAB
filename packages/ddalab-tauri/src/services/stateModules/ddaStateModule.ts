@@ -53,9 +53,7 @@ export class DDAStateModule implements FileStateModule<FileDDAState> {
         variants: ["single_timeseries"],
         windowLength: 64,
         windowStep: 10,
-        scaleMin: 1,
-        scaleMax: 20,
-        scaleNum: 20,
+        delays: [7, 10], // Default EEG delays
       },
       selectedVariants: ["single_timeseries"],
       lastUpdated: new Date().toISOString(),

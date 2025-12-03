@@ -33,7 +33,7 @@ export function PrimaryNavigation() {
   };
 
   return (
-    <div className="border-b bg-background">
+    <div className="border-b bg-background" data-testid="primary-navigation">
       <div className="flex items-center justify-between px-4 py-2">
         <div className="flex items-center space-x-1">
           {Object.values(navigationConfig).map((nav) => {
@@ -51,6 +51,8 @@ export function PrimaryNavigation() {
                   isActive && "bg-accent text-accent-foreground",
                 )}
                 title={nav.description}
+                data-nav={nav.id}
+                data-active={isActive}
               >
                 <Icon className="h-4 w-4" />
                 {nav.label}

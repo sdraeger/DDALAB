@@ -4,6 +4,7 @@
 
 import { TauriService } from "@/services/tauriService";
 import { getInitializedFileStateManager } from "@/services/fileStateInitializer";
+import { getStatePersistenceService } from "@/services/statePersistenceService";
 import type {
   DDAState as PersistedDDAState,
   AnalysisResult,
@@ -27,9 +28,7 @@ export const defaultDDAState: DDAState = {
     variants: ["single_timeseries"],
     windowLength: 64,
     windowStep: 10,
-    scaleMin: 1,
-    scaleMax: 20,
-    scaleNum: 20,
+    delays: [7, 10], // Default EEG delays
   },
   customDelayPresets: [],
   isRunning: false,
@@ -54,15 +53,14 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
 
     if (TauriService.isTauri()) {
       // Capture state immediately to avoid race condition (don't read with get() in setTimeout)
-      const { dda, persistenceService, fileManager } = get();
+      const { dda, fileManager } = get();
+      const persistenceService = getStatePersistenceService();
       const ddaState: PersistedDDAState = {
         selected_variants: dda.analysisParameters.variants,
         parameters: {
           windowLength: dda.analysisParameters.windowLength,
           windowStep: dda.analysisParameters.windowStep,
-          scaleMin: dda.analysisParameters.scaleMin,
-          scaleMax: dda.analysisParameters.scaleMax,
-          scaleNum: dda.analysisParameters.scaleNum,
+          delays: dda.analysisParameters.delays,
         },
         last_analysis_id: analysis?.id || null,
         current_analysis: analysis,
@@ -148,15 +146,14 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
 
     if (TauriService.isTauri()) {
       setTimeout(() => {
-        const { dda, persistenceService, fileManager } = get();
+        const { dda, fileManager } = get();
+        const persistenceService = getStatePersistenceService();
         const ddaState: PersistedDDAState = {
           selected_variants: dda.analysisParameters.variants,
           parameters: {
             windowLength: dda.analysisParameters.windowLength,
             windowStep: dda.analysisParameters.windowStep,
-            scaleMin: dda.analysisParameters.scaleMin,
-            scaleMax: dda.analysisParameters.scaleMax,
-            scaleNum: dda.analysisParameters.scaleNum,
+            delays: dda.analysisParameters.delays,
           },
           last_analysis_id: dda.currentAnalysis?.id || null,
           current_analysis: dda.currentAnalysis,
@@ -231,9 +228,7 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
           parameters: {
             windowLength: dda.analysisParameters.windowLength,
             windowStep: dda.analysisParameters.windowStep,
-            scaleMin: dda.analysisParameters.scaleMin,
-            scaleMax: dda.analysisParameters.scaleMax,
-            scaleNum: dda.analysisParameters.scaleNum,
+            delays: dda.analysisParameters.delays,
           },
           last_analysis_id: dda.currentAnalysis?.id || null,
           current_analysis: dda.currentAnalysis,
@@ -269,9 +264,7 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
         parameters: {
           windowLength: dda.analysisParameters.windowLength,
           windowStep: dda.analysisParameters.windowStep,
-          scaleMin: dda.analysisParameters.scaleMin,
-          scaleMax: dda.analysisParameters.scaleMax,
-          scaleNum: dda.analysisParameters.scaleNum,
+          delays: dda.analysisParameters.delays,
         },
         last_analysis_id: dda.currentAnalysis?.id || null,
         current_analysis: dda.currentAnalysis,
@@ -299,9 +292,7 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
         parameters: {
           windowLength: dda.analysisParameters.windowLength,
           windowStep: dda.analysisParameters.windowStep,
-          scaleMin: dda.analysisParameters.scaleMin,
-          scaleMax: dda.analysisParameters.scaleMax,
-          scaleNum: dda.analysisParameters.scaleNum,
+          delays: dda.analysisParameters.delays,
         },
         last_analysis_id: dda.currentAnalysis?.id || null,
         current_analysis: dda.currentAnalysis,
@@ -328,9 +319,7 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
         parameters: {
           windowLength: dda.analysisParameters.windowLength,
           windowStep: dda.analysisParameters.windowStep,
-          scaleMin: dda.analysisParameters.scaleMin,
-          scaleMax: dda.analysisParameters.scaleMax,
-          scaleNum: dda.analysisParameters.scaleNum,
+          delays: dda.analysisParameters.delays,
         },
         last_analysis_id: dda.currentAnalysis?.id || null,
         current_analysis: dda.currentAnalysis,
@@ -344,7 +333,7 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
   },
 
   saveAnalysisResult: async (analysis) => {
-    const service = get().persistenceService;
+    const service = getStatePersistenceService();
     if (service) {
       const persistedAnalysis: AnalysisResult = {
         id: analysis.id,

@@ -565,13 +565,12 @@ export function AnalysisPreviewWindow({
                   </p>
                 </div>
               )}
-              {analysis.parameters.scale_min &&
-                analysis.parameters.scale_max && (
+              {analysis.parameters.delay_list &&
+                analysis.parameters.delay_list.length > 0 && (
                   <div>
-                    <p className="text-muted-foreground">Scale Range</p>
+                    <p className="text-muted-foreground">Delays</p>
                     <p className="font-medium">
-                      {analysis.parameters.scale_min} -{" "}
-                      {analysis.parameters.scale_max}
+                      [{analysis.parameters.delay_list.join(", ")}]
                     </p>
                   </div>
                 )}

@@ -57,7 +57,7 @@ export function SecondaryNavigation() {
   }
 
   return (
-    <div className="border-b bg-muted/30">
+    <div className="border-b bg-muted/30" data-testid="secondary-navigation">
       <div className="flex items-center px-6 py-1.5 overflow-x-auto">
         <div className="flex items-center gap-1">
           {secondaryTabs.map((tabId) => {
@@ -80,6 +80,8 @@ export function SecondaryNavigation() {
                   isActive && isEnabled && "bg-background shadow-sm border",
                 )}
                 title={config.description}
+                data-nav={tabId}
+                data-active={isActive}
               >
                 {Icon && <Icon className="h-3.5 w-3.5" />}
                 {config.label}
