@@ -39,3 +39,12 @@ build/
 *.tsbuildinfo
 *storybook.log
 storybook-static
+
+# E2E Testing (Playwright)
+e2e-report/
+e2e-screenshots/
+e2e/test-data/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
