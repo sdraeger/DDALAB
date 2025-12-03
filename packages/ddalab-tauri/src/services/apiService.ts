@@ -641,8 +641,12 @@ export class ApiService {
           end: request.end_time,
         },
         preprocessing_options: {
-          highpass: request.scale_min ? request.scale_min * 0.1 : null,
-          lowpass: request.scale_max ? request.scale_max * 2 : null,
+          highpass: request.delay_list?.[0]
+            ? request.delay_list[0] * 0.1
+            : null,
+          lowpass: request.delay_list?.length
+            ? request.delay_list[request.delay_list.length - 1] * 2
+            : null,
         },
         algorithm_selection: {
           enabled_variants: request.variants || ["single_timeseries"],
@@ -654,10 +658,8 @@ export class ApiService {
           ct_window_step: request.ct_window_step,
         },
         scale_parameters: {
-          scale_min: request.scale_min || 1,
-          scale_max: request.scale_max || 20,
-          scale_num: request.scale_num || 20,
-          delay_list: request.delay_list,
+          // Explicit list of delay values (tau) - default [7, 10] unless user specifies via expert mode
+          delay_list: request.delay_list || [7, 10],
         },
         ct_channel_pairs: request.ct_channel_pairs,
         cd_channel_pairs: request.cd_channel_pairs,
@@ -697,12 +699,10 @@ export class ApiService {
       // Use the ID from the backend response (UUID format) instead of generating our own
       const job_id = response.data.id || `dda_${Date.now()}`;
 
-      // Create scales array (fallback to default values if no Q matrix)
-      const scaleMin = request.scale_min || 1;
-      const scaleMax = request.scale_max || 20;
-      const scaleNum = request.scale_num || 20;
+      // Create scales array from delay_list (fallback to default [7, 10] if empty)
+      const delayList = request.delay_list || [7, 10];
 
-      let scales: number[] = [];
+      let scales: number[] = [...delayList];
       let dda_matrix: Record<string, number[]> = {};
       const exponents: Record<string, number> = {};
       const quality_metrics: Record<string, number> = {};

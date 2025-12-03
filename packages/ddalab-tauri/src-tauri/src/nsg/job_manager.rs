@@ -804,9 +804,7 @@ impl NSGJobManager {
             "time_end": dda_params.time_range.end,
             "window_length": dda_params.window_parameters.window_length,
             "window_step": dda_params.window_parameters.window_step,
-            "scale_min": dda_params.scale_parameters.scale_min,
-            "scale_max": dda_params.scale_parameters.scale_max,
-            "scale_num": dda_params.scale_parameters.scale_num,
+            "delay_list": dda_params.scale_parameters.delay_list,
             "variants": dda_params.algorithm_selection.enabled_variants,
             "highpass": dda_params.preprocessing_options.highpass,
             "lowpass": dda_params.preprocessing_options.lowpass,
@@ -825,10 +823,8 @@ impl NSGJobManager {
             dda_params.window_parameters.window_step
         );
         log::info!(
-            "   Scale: min={}, max={}, num={}",
-            dda_params.scale_parameters.scale_min,
-            dda_params.scale_parameters.scale_max,
-            dda_params.scale_parameters.scale_num
+            "   Delays (τ): {:?}",
+            dda_params.scale_parameters.delay_list
         );
 
         let params_path = package_dir.join("params.json");
@@ -912,17 +908,16 @@ impl NSGJobManager {
             params.window_parameters.window_step.to_string(),
         ));
 
+        // Pass delay_list as a comma-separated string for NSG vparam
         nsg_params.push((
-            "vparam.scale_min_".to_string(),
-            params.scale_parameters.scale_min.to_string(),
-        ));
-        nsg_params.push((
-            "vparam.scale_max_".to_string(),
-            params.scale_parameters.scale_max.to_string(),
-        ));
-        nsg_params.push((
-            "vparam.scale_num_".to_string(),
-            params.scale_parameters.scale_num.to_string(),
+            "vparam.delay_list_".to_string(),
+            params
+                .scale_parameters
+                .delay_list
+                .iter()
+                .map(|d| d.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
         ));
 
         if let Some(highpass) = params.preprocessing_options.highpass {

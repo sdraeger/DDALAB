@@ -83,9 +83,7 @@ export interface FileDDAState {
     variants: string[];
     windowLength: number;
     windowStep: number;
-    scaleMin: number;
-    scaleMax: number;
-    scaleNum: number;
+    delays: number[];
   };
 
   /** Selected variants for visualization */

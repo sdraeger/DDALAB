@@ -44,13 +44,13 @@ pub struct WindowParameters {
     pub ct_window_step: Option<usize>,
 }
 
+/// Delay parameters for DDA analysis
+/// Contains the explicit list of tau values passed to the binary as -TAU
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ScaleParameters {
-    pub scale_min: i32,
-    pub scale_max: i32,
-    pub scale_num: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub delay_list: Option<Vec<i32>>,
+    /// Explicit list of delay values (tau) - passed directly to the binary
+    /// Example: [1, 2, 3, 4, 5] will be passed as -TAU 1 2 3 4 5
+    pub delay_list: Vec<i32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -149,31 +149,27 @@ fn validate_dda_request(request: &DDARequest) -> Result<(), String> {
         }
     }
 
-    // Validate scale parameters
-    if request.scale_parameters.scale_min >= request.scale_parameters.scale_max {
+    // Validate delay_list (required explicit list of tau values)
+    if request.scale_parameters.delay_list.is_empty() {
+        return Err("delay_list cannot be empty".to_string());
+    }
+    if request.scale_parameters.delay_list.len() > MAX_DELAY_LIST {
         return Err(format!(
-            "scale_min ({}) must be less than scale_max ({})",
-            request.scale_parameters.scale_min, request.scale_parameters.scale_max
+            "Too many delay values ({}) - maximum is {}",
+            request.scale_parameters.delay_list.len(),
+            MAX_DELAY_LIST
         ));
     }
-
-    if request.scale_parameters.scale_min < MIN_SCALE_VALUE
-        || request.scale_parameters.scale_max > MAX_SCALE_VALUE
-    {
-        return Err(format!(
-            "Scale values must be between {} and {}",
-            MIN_SCALE_VALUE, MAX_SCALE_VALUE
-        ));
-    }
-
-    if request.scale_parameters.scale_num == 0 {
-        return Err("scale_num must be greater than 0".to_string());
-    }
-    if request.scale_parameters.scale_num > MAX_SCALE_NUM {
-        return Err(format!(
-            "scale_num {} exceeds maximum allowed value {}",
-            request.scale_parameters.scale_num, MAX_SCALE_NUM
-        ));
+    for &delay in &request.scale_parameters.delay_list {
+        if delay <= 0 {
+            return Err(format!("delay values must be positive, got {}", delay));
+        }
+        if delay < MIN_SCALE_VALUE || delay > MAX_SCALE_VALUE {
+            return Err(format!(
+                "Delay value {} is out of range ({} to {})",
+                delay, MIN_SCALE_VALUE, MAX_SCALE_VALUE
+            ));
+        }
     }
 
     // Validate time range
@@ -185,18 +181,6 @@ fn validate_dda_request(request: &DDARequest) -> Result<(), String> {
             "time_range.end ({}) must be greater than time_range.start ({})",
             request.time_range.end, request.time_range.start
         ));
-    }
-
-    // Validate delay list if provided
-    if let Some(ref delay_list) = request.scale_parameters.delay_list {
-        if delay_list.is_empty() {
-            return Err("delay_list cannot be empty if provided".to_string());
-        }
-        for &delay in delay_list {
-            if delay <= 0 {
-                return Err(format!("delay values must be positive, got {}", delay));
-            }
-        }
     }
 
     // Validate algorithm selection
@@ -238,16 +222,6 @@ fn validate_dda_request(request: &DDARequest) -> Result<(), String> {
                 "Too many CD channel pairs ({}) - maximum is {}",
                 pairs.len(),
                 MAX_CHANNEL_PAIRS
-            ));
-        }
-    }
-
-    if let Some(ref delay_list) = request.scale_parameters.delay_list {
-        if delay_list.len() > MAX_DELAY_LIST {
-            return Err(format!(
-                "Too many delay values ({}) - maximum is {}",
-                delay_list.len(),
-                MAX_DELAY_LIST
             ));
         }
     }
@@ -412,11 +386,7 @@ pub async fn run_dda_analysis(
         request.window_parameters.window_length,
         request.window_parameters.window_step
     );
-    if let Some(ref delay_list) = request.scale_parameters.delay_list {
-        log::info!("   Delays (τ): {:?}", delay_list);
-    } else {
-        log::info!("   Delays (τ): Using defaults [7, 10]");
-    }
+    log::info!("   Delays (τ): {:?}", request.scale_parameters.delay_list);
 
     let edf_channel_names: Option<Vec<String>> = {
         let file_cache = state.files.read();
@@ -748,11 +718,7 @@ pub async fn run_dda_analysis(
                 ct_window_step: request.window_parameters.ct_window_step.map(|v| v as u32),
             },
             dda_rs::DelayParameters {
-                delays: request
-                    .scale_parameters
-                    .delay_list
-                    .clone()
-                    .unwrap_or_else(|| vec![7, 10]),
+                delays: request.scale_parameters.delay_list.clone(),
             },
         )
         .with_variant_results(variant_results)
@@ -859,8 +825,7 @@ pub async fn run_dda_analysis(
         window_length: request.window_parameters.window_length as u32,
         window_step: request.window_parameters.window_step as u32,
         selected_channels: channel_names.clone(),
-        scale_min: request.scale_parameters.scale_min as f64,
-        scale_max: request.scale_parameters.scale_max as f64,
+        delay_list: request.scale_parameters.delay_list.clone(),
         variant_configs: request.variant_configs.clone(),
     };
 
@@ -941,9 +906,9 @@ pub async fn run_dda_analysis(
                         let delay_values: Vec<f64> = request
                             .scale_parameters
                             .delay_list
-                            .as_ref()
-                            .map(|dl| dl.iter().map(|&d| d as f64).collect())
-                            .unwrap_or_else(|| vec![7.0, 10.0]); // Default delays
+                            .iter()
+                            .map(|&d| d as f64)
+                            .collect();
 
                         // Use full EDF channel names since CD pairs use original EDF indices
                         let full_channel_names = edf_channel_names
@@ -1555,11 +1520,7 @@ fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
             ct_window_step: api_req.window_parameters.ct_window_step.map(|v| v as u32),
         },
         delay_parameters: dda_rs::DelayParameters {
-            delays: api_req
-                .scale_parameters
-                .delay_list
-                .clone()
-                .unwrap_or_else(|| vec![7, 10]),
+            delays: api_req.scale_parameters.delay_list.clone(),
         },
         ct_channel_pairs: api_req.ct_channel_pairs.clone(),
         cd_channel_pairs: api_req.cd_channel_pairs.clone(),

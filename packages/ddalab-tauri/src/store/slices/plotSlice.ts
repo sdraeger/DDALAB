@@ -4,6 +4,7 @@
 
 import { TauriService } from "@/services/tauriService";
 import { getInitializedFileStateManager } from "@/services/fileStateInitializer";
+import { getStatePersistenceService } from "@/services/statePersistenceService";
 import type { FilePlotState } from "@/types/fileCentricState";
 import type { PlotSlice, PlotState, ImmerStateCreator } from "./types";
 
@@ -33,7 +34,7 @@ export const createPlotSlice: ImmerStateCreator<PlotSlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      const { plot, persistenceService, isPersistenceRestored } = get();
+      const { plot, isPersistenceRestored } = get();
 
       if (!isPersistenceRestored) {
         console.log(
@@ -110,6 +111,7 @@ export const createPlotSlice: ImmerStateCreator<PlotSlice> = (set, get) => ({
         })();
       }
 
+      const persistenceService = getStatePersistenceService();
       if (persistenceService) {
         persistenceService.savePlotState(plotState).catch(console.error);
       }
@@ -117,7 +119,7 @@ export const createPlotSlice: ImmerStateCreator<PlotSlice> = (set, get) => ({
   },
 
   savePlotData: async (plotData, analysisId) => {
-    const service = get().persistenceService;
+    const service = getStatePersistenceService();
     if (service) {
       await service.savePlotData(plotData, analysisId);
     }

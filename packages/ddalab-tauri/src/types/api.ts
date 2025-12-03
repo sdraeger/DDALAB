@@ -67,10 +67,7 @@ export interface DDAAnalysisRequest {
   variants: string[];
   window_length?: number;
   window_step?: number;
-  scale_min?: number;
-  scale_max?: number;
-  scale_num?: number;
-  delay_list?: number[]; // Explicit list of delay values (overrides scale_min/max/num if provided)
+  delay_list: number[]; // Explicit list of delay values
   // CT-specific parameters (legacy - use variant_configs instead)
   ct_window_length?: number;
   ct_window_step?: number;

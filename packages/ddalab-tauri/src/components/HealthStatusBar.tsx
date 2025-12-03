@@ -427,11 +427,11 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
   };
 
   return (
-    <div className="border-t bg-background p-2">
+    <div className="border-t bg-background p-2" data-testid="health-status-bar">
       <div className="flex items-center justify-between text-sm">
         <div className="flex items-center space-x-4">
           {/* API Status */}
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2" data-testid="api-status">
             <div className={`flex items-center space-x-1 ${getStatusColor()}`}>
               {getStatusIcon()}
               <span className="font-medium">API: {health.apiStatus}</span>
@@ -682,11 +682,23 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
                         </p>
                       </div>
                       {recentServers.slice(0, 3).map((server) => (
-                        <button
+                        <div
                           key={server.url}
-                          className="w-full flex items-center justify-between p-2 rounded-md hover:bg-accent transition-colors text-left group"
-                          onClick={() => handleRecentServerSelect(server)}
-                          disabled={isConnecting}
+                          role="button"
+                          tabIndex={isConnecting ? -1 : 0}
+                          className={`w-full flex items-center justify-between p-2 rounded-md hover:bg-accent transition-colors text-left group cursor-pointer ${isConnecting ? "opacity-50 pointer-events-none" : ""}`}
+                          onClick={() =>
+                            !isConnecting && handleRecentServerSelect(server)
+                          }
+                          onKeyDown={(e) => {
+                            if (
+                              !isConnecting &&
+                              (e.key === "Enter" || e.key === " ")
+                            ) {
+                              e.preventDefault();
+                              handleRecentServerSelect(server);
+                            }
+                          }}
                         >
                           <div className="flex items-center space-x-2 min-w-0">
                             <Building2 className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -719,7 +731,7 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
                               <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
                             </button>
                           </div>
-                        </button>
+                        </div>
                       ))}
                       <div className="border-b my-2" />
                     </div>
