@@ -1,5 +1,9 @@
-import { test, expect } from "@playwright/test";
-import { waitForAppReady, TEST_EDF_PATH } from "../fixtures/base.fixture";
+import {
+  test,
+  expect,
+  waitForAppReady,
+  TEST_EDF_PATH,
+} from "../fixtures/base.fixture";
 
 test.describe("File Manager", () => {
   test.beforeEach(async ({ page }) => {
@@ -54,8 +58,8 @@ test.describe("File Manager", () => {
         .isVisible()
         .catch(() => false));
 
-    // Just verify we can navigate - exact UI depends on app state
-    expect(true).toBe(true);
+    // Verify at least one file-related UI element is present
+    expect(hasNavigation).toBe(true);
   });
 });
 

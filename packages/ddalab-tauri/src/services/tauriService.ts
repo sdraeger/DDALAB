@@ -511,38 +511,15 @@ export class TauriService {
   static isTauri(): boolean {
     if (typeof window === "undefined") return false;
 
-    // Check for actual Tauri indicators first
-    const hasTraditionalTauriIndicators =
+    // Only return true if we have actual Tauri indicators
+    // Do NOT assume Tauri based on port number - this breaks E2E tests
+    const hasActualTauriIndicators =
       "__TAURI__" in window ||
       "__TAURI_METADATA__" in window ||
       window.location.protocol === "tauri:" ||
-      (window.navigator.userAgent &&
-        window.navigator.userAgent.includes("Tauri"));
+      Boolean(window.navigator.userAgent?.includes("Tauri"));
 
-    // For development mode, check if we're running in the Tauri dev environment
-    // In Tauri dev, the window will have Tauri API available even on localhost
-    const isInTauriDev = async () => {
-      try {
-        // Try to access Tauri API to confirm we're in Tauri
-        const { invoke } = await import("@tauri-apps/api/core");
-        // Test if we can actually call a Tauri command
-        await invoke("get_app_state");
-        return true;
-      } catch {
-        return false;
-      }
-    };
-
-    // For immediate synchronous check, use traditional indicators or dev mode detection
-    if (hasTraditionalTauriIndicators) {
-      return true;
-    }
-
-    // In development, if we're on port 3003, assume it's Tauri dev mode
-    // This is a reasonable assumption since that's the configured dev port
-    return (
-      process.env.NODE_ENV === "development" && window.location.port === "3003"
-    );
+    return hasActualTauriIndicators;
   }
 
   // Update Commands

@@ -48,3 +48,7 @@ test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
+
+# Coverage
+coverage/
+coverage-e2e/

@@ -1,5 +1,4 @@
-import { test, expect } from "@playwright/test";
-import { waitForAppReady } from "../fixtures/base.fixture";
+import { test, expect, waitForAppReady } from "../fixtures/base.fixture";
 
 test.describe("App Startup", () => {
   test("loads without critical errors", async ({ page }) => {

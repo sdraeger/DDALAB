@@ -257,10 +257,11 @@ mod tests {
     fn test_kurtosis_gaussian() {
         // Generate pseudo-Gaussian data using central limit theorem
         let mut data = Vec::with_capacity(10000);
-        for i in 0..10000 {
+        for i in 0u64..10000 {
             // Sum of uniform random numbers approximates Gaussian
-            let val = ((i * 1234567) % 1000) as f64 / 1000.0
-                + ((i * 7654321) % 1000) as f64 / 1000.0
+            // Use u64 to avoid overflow
+            let val = ((i.wrapping_mul(1234567)) % 1000) as f64 / 1000.0
+                + ((i.wrapping_mul(7654321)) % 1000) as f64 / 1000.0
                 - 1.0;
             data.push(val);
         }
@@ -285,13 +286,26 @@ mod tests {
 
     #[test]
     fn test_non_gaussianity() {
-        // Sine wave is very non-Gaussian
+        // Sine wave is non-Gaussian - compare to pseudo-Gaussian
         let sine: Vec<f64> = (0..1000)
             .map(|i| (2.0 * PI * i as f64 / 100.0).sin())
             .collect();
 
-        let ng = QualityMetrics::non_gaussianity(&sine);
-        assert!(ng > 0.01, "Sine wave should have high non-Gaussianity");
+        // Generate pseudo-Gaussian for comparison
+        let gaussian: Vec<f64> = (0u64..1000)
+            .map(|i| ((i.wrapping_mul(1234567)) % 1000) as f64 / 500.0 - 1.0)
+            .collect();
+
+        let ng_sine = QualityMetrics::non_gaussianity(&sine);
+        let ng_gaussian = QualityMetrics::non_gaussianity(&gaussian);
+
+        // Sine wave should have higher non-Gaussianity than pseudo-Gaussian
+        assert!(
+            ng_sine > ng_gaussian,
+            "Sine wave (ng={}) should have higher non-Gaussianity than pseudo-Gaussian (ng={})",
+            ng_sine,
+            ng_gaussian
+        );
     }
 
     #[test]

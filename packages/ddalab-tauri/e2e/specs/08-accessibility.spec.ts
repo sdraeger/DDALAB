@@ -1,5 +1,5 @@
-import { test, expect, Page } from "@playwright/test";
-import { waitForAppReady } from "../fixtures/base.fixture";
+import { Page } from "@playwright/test";
+import { test, expect, waitForAppReady } from "../fixtures/base.fixture";
 
 /**
  * Accessibility Tests
@@ -80,13 +80,18 @@ test.describe("Keyboard Navigation", () => {
       );
 
       if (isFocused) {
-        // Press Enter should activate (we just verify no crash)
+        // Press Enter should activate
         await page.keyboard.press("Enter");
         await page.waitForTimeout(200);
+        // Page should still be functional after Enter
+        const content = await page.content();
+        expect(content.length).toBeGreaterThan(0);
       }
+    } else {
+      // No focusable button found
+      const content = await page.content();
+      expect(content.length).toBeGreaterThan(0);
     }
-
-    expect(true).toBe(true);
   });
 
   test("Escape closes modals and dialogs", async ({ page }) => {

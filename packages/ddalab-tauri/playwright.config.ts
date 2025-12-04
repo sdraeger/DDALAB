@@ -19,10 +19,12 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   workers: 1,
   reporter: [["html", { outputFolder: "e2e-report" }], ["list"]],
+  globalSetup: "./e2e/global-setup.ts",
+  globalTeardown: "./e2e/global-teardown.ts",
   use: {
     baseURL: "http://localhost:3003",
     trace: "on-first-retry",
-    screenshot: "only-on-failure",
+    screenshot: "on", // Capture screenshot at end of every test
     video: "retain-on-failure",
     actionTimeout: 5000,
     navigationTimeout: 10000,
@@ -33,15 +35,15 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  // webServer is disabled - start dev server manually before running tests:
-  //   npm run dev
-  // Or use the built-in webServer config when environment is properly configured:
-  // webServer: {
-  //   command: "npm run dev",
-  //   url: "http://localhost:3003",
-  //   reuseExistingServer: true,
-  //   timeout: 60 * 1000,
-  // },
+  // Start the Next.js dev server automatically
+  webServer: {
+    command: "npm run dev",
+    url: "http://localhost:3003",
+    reuseExistingServer: !process.env.CI,
+    timeout: 120 * 1000,
+    stdout: "pipe",
+    stderr: "pipe",
+  },
   timeout: 30000,
   expect: {
     timeout: 5000,

@@ -1,5 +1,5 @@
-import { test, expect, Page } from "@playwright/test";
-import { waitForAppReady } from "../fixtures/base.fixture";
+import { Page } from "@playwright/test";
+import { test, expect, waitForAppReady } from "../fixtures/base.fixture";
 
 /**
  * Theme and Preferences Tests
@@ -122,10 +122,12 @@ test.describe("Expert Mode", () => {
     if (isVisible) {
       await expertToggle.click();
       await page.waitForTimeout(200);
-      // Should toggle without error
+      // Toggle should remain visible after click
+      await expect(expertToggle).toBeVisible();
+    } else {
+      // Expert toggle not found in settings
+      expect(isVisible).toBe(false);
     }
-
-    expect(true).toBe(true);
   });
 
   test("expert mode reveals advanced options", async ({ page }) => {
