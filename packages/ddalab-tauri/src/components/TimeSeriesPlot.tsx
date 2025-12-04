@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo, memo } from "react";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 import { ChunkData } from "@/types/api";
@@ -62,7 +62,8 @@ interface TimeSeriesPlotProps {
   apiService: ApiService;
 }
 
-export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
+// Internal component - wrapped with memo at export
+function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
   const {
     fileManager,
     plot,
@@ -1901,3 +1902,7 @@ export function TimeSeriesPlot({ apiService }: TimeSeriesPlotProps) {
     </div>
   );
 }
+
+// Export memoized version to prevent unnecessary re-renders
+// Only re-render when apiService reference changes (should be stable)
+export const TimeSeriesPlot = memo(TimeSeriesPlotComponent);

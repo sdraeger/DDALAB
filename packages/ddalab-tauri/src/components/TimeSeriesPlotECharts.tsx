@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo, memo } from "react";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 import { ChunkData } from "@/types/api";
@@ -55,7 +55,8 @@ interface TimeSeriesPlotProps {
   apiService: ApiService;
 }
 
-export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
+// Internal component - wrapped with memo at export
+function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   // OPTIMIZED: Select specific properties instead of entire objects to prevent re-renders
   // and avoid issues with Immer freezing
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
@@ -1487,3 +1488,6 @@ export function TimeSeriesPlotECharts({ apiService }: TimeSeriesPlotProps) {
     </Card>
   );
 }
+
+// Export memoized version to prevent unnecessary re-renders
+export const TimeSeriesPlotECharts = memo(TimeSeriesPlotEChartsComponent);
