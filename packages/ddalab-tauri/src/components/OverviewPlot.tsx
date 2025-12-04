@@ -78,13 +78,7 @@ function OverviewPlotComponent({
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         if (width > 0 && height > 0) {
-          console.log(
-            "[OverviewPlot] Container now ready with dimensions:",
-            width,
-            height,
-          );
           setContainerReady(true);
-          // Disconnect once ready
           initObserverRef.current?.disconnect();
         }
       }
@@ -115,9 +109,6 @@ function OverviewPlotComponent({
       (channelData) => channelData && channelData.length > 0,
     );
     if (!hasValidChannelData) {
-      console.warn(
-        "[OverviewPlot] Some channels have empty data, skipping render",
-      );
       return;
     }
 
@@ -125,29 +116,15 @@ function OverviewPlotComponent({
 
     // Ensure container has been laid out with valid dimensions
     if (container.clientWidth <= 0 || container.clientHeight <= 0) {
-      console.warn(
-        "[OverviewPlot] Container not ready, dimensions:",
-        container.clientWidth,
-        container.clientHeight,
-        "containerReady:",
-        containerReady,
-      );
-
       // Retry with exponential backoff (up to 10 times)
       if (retryCountRef.current < 10) {
         const delay = Math.min(50 * Math.pow(1.5, retryCountRef.current), 500);
         retryCountRef.current++;
-        console.log(
-          `[OverviewPlot] Retry ${retryCountRef.current}/10 in ${delay}ms`,
-        );
         const timeoutId = setTimeout(() => {
           setRetryTrigger((prev) => prev + 1);
         }, delay);
         return () => clearTimeout(timeoutId);
       }
-      console.error(
-        "[OverviewPlot] Max retries exceeded, container never became ready",
-      );
       return;
     }
 
@@ -161,13 +138,6 @@ function OverviewPlotComponent({
       Math.abs(lastDurationRef.current - duration) > 0.1;
 
     if (durationChanged && uplotRef.current) {
-      console.log(
-        "[OverviewPlot] Duration changed from",
-        lastDurationRef.current,
-        "to",
-        duration,
-        "- destroying plot",
-      );
       uplotRef.current.destroy();
       uplotRef.current = null;
     }
@@ -195,11 +165,18 @@ function OverviewPlotComponent({
       ...overviewData.channels.map((channelName, idx) => ({
         label: channelName,
         stroke: getChannelColor(idx),
-        width: 0.5, // Thin lines for overview
+        width: 1, // Line width for overview (was 0.5 but too thin on some displays)
         points: { show: false },
         show: true,
+        scale: "y", // Explicit scale reference
       })),
     ];
+
+    // Calculate y-axis range from data for explicit scale bounds
+    const allValues = processedData.flat();
+    const yMin = Math.min(...allValues);
+    const yMax = Math.max(...allValues);
+    const yPadding = (yMax - yMin) * 0.1; // 10% padding
 
     const opts: uPlot.Options = {
       width: container.clientWidth,
@@ -208,6 +185,13 @@ function OverviewPlotComponent({
       scales: {
         x: {
           time: false,
+          min: 0,
+          max: duration,
+        },
+        y: {
+          auto: false,
+          min: yMin - yPadding,
+          max: yMax + yPadding,
         },
       },
       axes: [
@@ -350,32 +334,91 @@ function OverviewPlotComponent({
 
     // Create or update plot
     try {
-      if (uplotRef.current) {
-        uplotRef.current.setData(data);
-        uplotRef.current.redraw();
-      } else {
-        console.log(
-          "[OverviewPlot] Creating plot with dimensions:",
-          container.clientWidth,
-          "x",
-          container.clientHeight,
-        );
+      // Check if existing uPlot instance is still valid (its root element is in the DOM)
+      // This handles the case where the component was unmounted and remounted (tab switch)
+      const isExistingPlotValid =
+        uplotRef.current &&
+        uplotRef.current.root &&
+        document.body.contains(uplotRef.current.root);
+
+      if (isExistingPlotValid) {
+        // Verify the plot's canvas is still properly sized
+        const existingCanvas = uplotRef.current!.root?.querySelector("canvas");
+        const canvasOk = existingCanvas && existingCanvas.width > 300;
+
+        if (canvasOk) {
+          uplotRef.current!.setData(data);
+          uplotRef.current!.redraw();
+        } else {
+          // Canvas got corrupted, force recreation
+          uplotRef.current!.destroy();
+          uplotRef.current = null;
+        }
+      }
+
+      // Create new plot if needed
+      if (!uplotRef.current) {
+        // Clean up any stale DOM content
+        while (container.firstChild) {
+          container.removeChild(container.firstChild);
+        }
+
+        // Get actual dimensions - use getBoundingClientRect for more accurate values
+        const rect = container.getBoundingClientRect();
+        const width = Math.max(rect.width, container.clientWidth);
+
+        // If width is still 0, defer creation
+        if (width <= 0) {
+          requestAnimationFrame(() => setRetryTrigger((p) => p + 1));
+          return;
+        }
+
+        // Update opts with accurate width
+        opts.width = width;
+
+        // Create the plot - uPlot will size canvases based on opts.width/height
         uplotRef.current = new uPlot(opts, data, container);
+
+        // Check if canvas was properly created
+        const canvas = uplotRef.current.root?.querySelector("canvas");
+
+        // If canvas has wrong dimensions, force a setSize after a frame
+        if (canvas && canvas.width <= 300) {
+          requestAnimationFrame(() => {
+            if (uplotRef.current && container) {
+              const w =
+                container.getBoundingClientRect().width ||
+                container.clientWidth;
+              if (w > 0) {
+                uplotRef.current.setSize({ width: w, height: 100 });
+                uplotRef.current.redraw();
+              }
+            }
+          });
+        }
+
         setPlotCreated(true);
 
-        // Setup resize observer
-        resizeObserverRef.current = new ResizeObserver(() => {
+        // Setup resize observer for responsive sizing
+        if (resizeObserverRef.current) {
+          resizeObserverRef.current.disconnect();
+        }
+        resizeObserverRef.current = new ResizeObserver((entries) => {
           if (uplotRef.current && container) {
-            uplotRef.current.setSize({
-              width: container.clientWidth,
-              height: 100,
-            });
+            const entry = entries[0];
+            if (entry && entry.contentRect.width > 0) {
+              uplotRef.current.setSize({
+                width: entry.contentRect.width,
+                height: 100,
+              });
+            }
           }
         });
         resizeObserverRef.current.observe(container);
       }
     } catch (error) {
       console.error("[OverviewPlot] Error:", error);
+      uplotRef.current = null;
       setPlotCreated(false);
     }
 
@@ -399,11 +442,86 @@ function OverviewPlotComponent({
 
   // Update current position indicator and annotations when they change (without recreating the plot)
   useEffect(() => {
-    if (uplotRef.current) {
+    // Only redraw if the plot is valid and still attached to the DOM
+    if (
+      uplotRef.current &&
+      uplotRef.current.root &&
+      document.body.contains(uplotRef.current.root)
+    ) {
       // Just redraw to update the blue highlight box and annotation markers, don't recreate the whole plot
       uplotRef.current.redraw();
     }
   }, [currentTime, timeWindow, annotations]);
+
+  // Handle visibility changes (e.g., when switching tabs without unmounting)
+  // This ensures the plot redraws when the tab becomes visible again
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === "visible" &&
+        uplotRef.current &&
+        plotRef.current
+      ) {
+        // Force size update and redraw when becoming visible
+        requestAnimationFrame(() => {
+          if (uplotRef.current && plotRef.current) {
+            const container = plotRef.current;
+            if (container.clientWidth > 0) {
+              uplotRef.current.setSize({
+                width: container.clientWidth,
+                height: 100,
+              });
+              uplotRef.current.redraw();
+            }
+          }
+        });
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  // Handle in-app tab visibility (when switching between subtabs within the app)
+  // Uses IntersectionObserver to detect when the component becomes visible
+  useEffect(() => {
+    if (!plotRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (
+          entry &&
+          entry.isIntersecting &&
+          uplotRef.current &&
+          plotRef.current
+        ) {
+          const container = plotRef.current;
+          const width =
+            container.getBoundingClientRect().width || container.clientWidth;
+
+          if (width > 0) {
+            // Check if canvas needs resizing
+            const canvas = uplotRef.current.root?.querySelector("canvas");
+            if (
+              canvas &&
+              (canvas.width <= 300 ||
+                Math.abs(uplotRef.current.width - width) > 10)
+            ) {
+              uplotRef.current.setSize({ width, height: 100 });
+            }
+            uplotRef.current.redraw();
+          }
+        }
+      },
+      { threshold: 0.1 },
+    );
+
+    observer.observe(plotRef.current);
+    return () => observer.disconnect();
+  }, [plotCreated]);
 
   const getChannelColor = (index: number): string => {
     const colors = [
@@ -422,18 +540,9 @@ function OverviewPlotComponent({
   };
 
   // Show progress bar when loading
-  // Show progress even if cache doesn't exist yet (it's being created during generation)
-  const showProgress = loading;
   const progressPercentage = progress?.completion_percentage || 0;
   const isResuming =
     progress?.has_cache && progressPercentage > 0 && progressPercentage < 100;
-
-  // Debug logging for progress tracking
-  useEffect(() => {
-    if (loading) {
-      console.log("[OverviewPlot] Loading state, progress data:", progress);
-    }
-  }, [loading, progress]);
 
   // Determine status message
   const getStatusMessage = () => {
