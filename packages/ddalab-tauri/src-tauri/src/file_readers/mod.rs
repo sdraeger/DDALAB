@@ -330,6 +330,7 @@ mod tests {
         assert!(extensions.contains(&"csv"));
         assert!(extensions.contains(&"vhdr"));
         assert!(extensions.contains(&"set"));
+        #[cfg(feature = "nwb-support")]
         assert!(extensions.contains(&"nwb"));
         assert!(extensions.contains(&"xdf"));
     }
