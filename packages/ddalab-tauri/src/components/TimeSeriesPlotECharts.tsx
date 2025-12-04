@@ -35,6 +35,7 @@ import {
 import { OverviewPlot } from "@/components/OverviewPlot";
 import { ChunkNavigator } from "@/components/visualization/ChunkNavigator";
 import { QuickFilters } from "@/components/visualization/QuickFilters";
+import { useWasm } from "@/hooks/useWasm";
 
 // ECharts type extensions for internal API access
 interface EChartsInstanceWithCustomProps extends echarts.ECharts {
@@ -57,6 +58,9 @@ interface TimeSeriesPlotProps {
 
 // Internal component - wrapped with memo at export
 function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
+  // WASM signal processing for high-performance decimation
+  const { isReady: wasmReady, decimate: wasmDecimate } = useWasm();
+
   // OPTIMIZED: Select specific properties instead of entire objects to prevent re-renders
   // and avoid issues with Immer freezing
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
@@ -808,17 +812,29 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       let decimatedData;
 
       if (channelData.length > maxPoints) {
-        // Use simple decimation - take every Nth point
-        const step = Math.ceil(channelData.length / maxPoints);
-        decimatedData = [];
-        for (let i = 0; i < channelData.length; i += step) {
-          const time = startTime + i / chunkData.sample_rate;
-          const offsetValue = channelData[i] + channelIndex * autoOffset;
-          decimatedData.push([time, offsetValue]);
+        // Use WASM-based LTTB decimation for better visual preservation
+        // LTTB (Largest Triangle Three Buckets) maintains the visual shape
+        // much better than simple step-based decimation
+        const decimatedValues = wasmDecimate(channelData, maxPoints, "lttb");
+
+        // Calculate time step for decimated data
+        // The decimated data preserves important points, but we need to map them to time
+        const originalStep = 1 / chunkData.sample_rate;
+        const decimationRatio = channelData.length / decimatedValues.length;
+
+        decimatedData = decimatedValues.map((value, idx) => {
+          // Approximate the time position based on the decimation ratio
+          const originalIdx = Math.round(idx * decimationRatio);
+          const time = startTime + originalIdx * originalStep;
+          const offsetValue = value + channelIndex * autoOffset;
+          return [time, offsetValue];
+        });
+
+        if (channelIndex === 0) {
+          console.log(
+            `[ECharts] WASM LTTB decimated: ${channelData.length} → ${decimatedValues.length} points (${wasmReady ? "WASM" : "JS fallback"})`,
+          );
         }
-        console.log(
-          `[ECharts] Decimated channel ${channelName}: ${channelData.length} → ${decimatedData.length} points`,
-        );
       } else {
         // Apply stacking offset without decimation
         decimatedData = channelData.map((value, idx) => {

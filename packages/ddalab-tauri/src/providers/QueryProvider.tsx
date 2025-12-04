@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { useState, useEffect } from "react";
+import { preloadWasm } from "@/hooks/useWasm";
 
 // Global queryClient reference for use outside of React components (e.g., search providers)
 let globalQueryClient: QueryClient | null = null;
@@ -36,6 +37,11 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
       globalQueryClient = null;
     };
   }, [queryClient]);
+
+  // Preload WASM module for signal processing at app startup
+  useEffect(() => {
+    preloadWasm();
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
