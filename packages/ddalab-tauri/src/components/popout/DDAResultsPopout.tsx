@@ -52,7 +52,7 @@ interface DDAResultsPopoutContentProps {
 }
 
 type ColorScheme = "viridis" | "plasma" | "inferno" | "jet" | "cool" | "hot";
-type ViewMode = "heatmap" | "lineplot" | "both" | "network";
+type ViewMode = "heatmap" | "lineplot" | "all" | "network";
 
 function DDAResultsPopoutContent({
   data,
@@ -63,7 +63,7 @@ function DDAResultsPopoutContent({
   const uplotHeatmapRef = useRef<uPlot | null>(null);
   const uplotLinePlotRef = useRef<uPlot | null>(null);
 
-  const [viewMode, setViewMode] = useState<ViewMode>("both");
+  const [viewMode, setViewMode] = useState<ViewMode>("all");
   const [colorScheme, setColorScheme] = useState<ColorScheme>("viridis");
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   const [heatmapData, setHeatmapData] = useState<number[][]>([]);
@@ -444,10 +444,10 @@ function DDAResultsPopoutContent({
 
   const handleRefresh = () => {
     if (!isLocked) {
-      if (viewMode === "heatmap" || viewMode === "both") {
+      if (viewMode === "heatmap" || viewMode === "all") {
         renderHeatmap();
       }
-      if (viewMode === "lineplot" || viewMode === "both") {
+      if (viewMode === "lineplot" || viewMode === "all") {
         renderLinePlot();
       }
     }
@@ -455,13 +455,13 @@ function DDAResultsPopoutContent({
 
   // Re-render plots when dependencies change
   useEffect(() => {
-    if (viewMode === "heatmap" || viewMode === "both") {
+    if (viewMode === "heatmap" || viewMode === "all") {
       renderHeatmap();
     }
   }, [renderHeatmap, viewMode]);
 
   useEffect(() => {
-    if (viewMode === "lineplot" || viewMode === "both") {
+    if (viewMode === "lineplot" || viewMode === "all") {
       renderLinePlot();
     }
   }, [renderLinePlot, viewMode]);
@@ -541,7 +541,7 @@ function DDAResultsPopoutContent({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="both">
+                  <SelectItem value="all">
                     <div className="flex items-center">
                       <Eye className="h-4 w-4 mr-2" />
                       Both
@@ -572,7 +572,7 @@ function DDAResultsPopoutContent({
             </div>
 
             {/* Color Scheme (for heatmap) */}
-            {(viewMode === "heatmap" || viewMode === "both") && (
+            {(viewMode === "heatmap" || viewMode === "all") && (
               <div className="flex items-center space-x-2">
                 <Label className="text-sm">Colors:</Label>
                 <Select
@@ -623,7 +623,7 @@ function DDAResultsPopoutContent({
       {/* Visualization Area */}
       <div className="flex-1 flex flex-col space-y-4">
         {/* Heatmap */}
-        {(viewMode === "heatmap" || viewMode === "both") && (
+        {(viewMode === "heatmap" || viewMode === "all") && (
           <Card className="flex-1">
             <CardHeader className="pb-2">
               <CardTitle className="text-base">DDA Matrix Heatmap</CardTitle>
@@ -639,7 +639,7 @@ function DDAResultsPopoutContent({
         )}
 
         {/* Line Plot */}
-        {(viewMode === "lineplot" || viewMode === "both") && (
+        {(viewMode === "lineplot" || viewMode === "all") && (
           <Card className="flex-1">
             <CardHeader className="pb-2">
               <CardTitle className="text-base">DDA Time Series</CardTitle>

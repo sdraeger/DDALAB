@@ -11,7 +11,7 @@ import {
 import { Grid3x3, TrendingUp, LayoutGrid, Network } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type ViewMode = "heatmap" | "lineplot" | "both" | "network";
+export type ViewMode = "heatmap" | "lineplot" | "all" | "network";
 
 interface ViewOption {
   value: ViewMode;
@@ -23,10 +23,10 @@ interface ViewOption {
 
 const VIEW_OPTIONS: ViewOption[] = [
   {
-    value: "both",
-    label: "Both",
+    value: "all",
+    label: "All",
     icon: LayoutGrid,
-    description: "Show heatmap and line plot together",
+    description: "Show all visualizations together",
     shortcut: "1",
   },
   {
