@@ -111,6 +111,54 @@ pub struct DDAParameters {
     pub variant_configs: Option<serde_json::Value>,
 }
 
+/// Parse DDA parameters from JSON, with fallback for unmigrated legacy data.
+///
+/// NOTE: The database migration system (db/migrations.rs) handles converting
+/// legacy `scale_min`/`scale_max` to `delay_list` at startup. This function
+/// exists as a safety net for edge cases where migration hasn't run yet.
+pub fn parse_dda_parameters(value: serde_json::Value) -> Result<DDAParameters, serde_json::Error> {
+    // Try parsing as current format first (should work after migration)
+    match serde_json::from_value::<DDAParameters>(value.clone()) {
+        Ok(params) => Ok(params),
+        Err(original_err) => {
+            // Fallback: try to extract legacy fields and convert inline
+            if let Some(obj) = value.as_object() {
+                if obj.contains_key("scale_min") || obj.contains_key("scale_max") {
+                    let scale_min = obj.get("scale_min").and_then(|v| v.as_f64()).unwrap_or(1.0);
+                    let scale_max = obj
+                        .get("scale_max")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(20.0);
+                    let delay_list: Vec<i32> =
+                        (scale_min.round() as i32..=scale_max.round() as i32).collect();
+
+                    return Ok(DDAParameters {
+                        variants: obj
+                            .get("variants")
+                            .and_then(|v| serde_json::from_value(v.clone()).ok())
+                            .unwrap_or_default(),
+                        window_length: obj
+                            .get("window_length")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(125) as u32,
+                        window_step: obj
+                            .get("window_step")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(10) as u32,
+                        selected_channels: obj
+                            .get("selected_channels")
+                            .and_then(|v| serde_json::from_value(v.clone()).ok())
+                            .unwrap_or_default(),
+                        delay_list,
+                        variant_configs: obj.get("variant_configs").cloned(),
+                    });
+                }
+            }
+            Err(original_err)
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DDAResult {
     pub id: String,

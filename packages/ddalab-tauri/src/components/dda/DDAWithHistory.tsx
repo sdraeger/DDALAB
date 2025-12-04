@@ -62,14 +62,13 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   const isSettingAnalysis = useRef(false);
 
   // Fetch history from server using TanStack Query
+  const historyEnabled = isServerReady && !!apiService.getSessionToken();
+
   const {
     data: allHistory,
     isLoading: historyLoading,
     refetch: refetchHistory,
-  } = useDDAHistory(
-    apiService,
-    isServerReady && !!apiService.getSessionToken(),
-  );
+  } = useDDAHistory(apiService, historyEnabled);
 
   // Sync TanStack Query history to Zustand store for global search
   useEffect(() => {
@@ -464,7 +463,19 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
             value="results"
             className="flex-1 min-h-0 overflow-auto m-0"
           >
-            {displayAnalysis ? (
+            {/* Show loading state when fetching from history (before displayAnalysis is available) */}
+            {!displayAnalysis &&
+            (isLoadingAnalysis || isFetchingAnalysis) &&
+            selectedAnalysisId ? (
+              <div className="flex items-center justify-center h-full min-h-[400px]">
+                <div className="text-center">
+                  <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+                  <p className="text-sm text-muted-foreground">
+                    Loading analysis...
+                  </p>
+                </div>
+              </div>
+            ) : displayAnalysis ? (
               // Show results when analysis data is loaded
               // DDAResults is memoized and will efficiently update when result.id changes
               // CRITICAL FIX: Keep component mounted during loading to prevent mount/unmount thrashing
