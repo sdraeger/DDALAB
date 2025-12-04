@@ -139,7 +139,10 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     (plotState.chunkStart || 0) / (selectedFile?.sample_rate || 256),
   );
   const [duration, setDuration] = useState(0);
-  const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
+
+  // Use store as single source of truth for selected channels
+  // This avoids race conditions between local state and store state
+  const selectedChannels = selectedChannelsFromStore;
 
   // Time window control (in seconds) - start with smaller window for better performance
   // IMPORTANT: Convert chunkSize from samples to seconds
@@ -1152,17 +1155,44 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     hasRespondedToPersistedChunkRef.current = false;
   }, [selectedFile?.file_path]);
 
-  // Sync selected channels with file
+  // Track the last file path for which we auto-selected channels
+  const lastAutoSelectedFileRef = useRef<string | null>(null);
+
+  // Auto-select channels only when switching to a new file
+  // This prevents re-selecting channels when user manually deselects them
   useEffect(() => {
-    if (selectedFile && selectedChannelsFromStore.length > 0) {
-      setSelectedChannels(selectedChannelsFromStore);
-    } else if (selectedFile && selectedFile.channels.length > 0) {
-      // Auto-select first 8 channels
+    if (!selectedFile || selectedFile.channels.length === 0) return;
+
+    const currentFilePath = selectedFile.file_path;
+
+    // Only auto-select if this is a new file AND store doesn't already have selections for it
+    if (
+      currentFilePath !== lastAutoSelectedFileRef.current &&
+      selectedChannelsFromStore.length === 0
+    ) {
+      console.log(
+        "[ECharts] New file detected, auto-selecting first 8 channels:",
+        currentFilePath,
+      );
       const initialChannels = selectedFile.channels.slice(0, 8);
-      setSelectedChannels(initialChannels);
       persistSelectedChannels(initialChannels);
+      lastAutoSelectedFileRef.current = currentFilePath;
+    } else if (currentFilePath !== lastAutoSelectedFileRef.current) {
+      // File changed but store already has selections (e.g., from persistence)
+      console.log(
+        "[ECharts] New file with existing channel selection:",
+        currentFilePath,
+        "channels:",
+        selectedChannelsFromStore.length,
+      );
+      lastAutoSelectedFileRef.current = currentFilePath;
     }
-  }, [selectedFile, selectedChannelsFromStore]);
+  }, [
+    selectedFile?.file_path,
+    selectedFile?.channels,
+    selectedChannelsFromStore.length,
+    persistSelectedChannels,
+  ]);
 
   // Overview data is now loaded automatically by TanStack Query hook
   // Log when overview data changes
@@ -1318,7 +1348,6 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       : selectedChannels.filter((c) => c !== channelName);
 
     console.log("[ECharts] Channel toggled:", channelName, "->", checked);
-    setSelectedChannels(newSelection);
     persistSelectedChannels(newSelection);
   };
 
@@ -1458,7 +1487,6 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
                   const indexB = selectedFile.channels.indexOf(b);
                   return indexA - indexB;
                 });
-                setSelectedChannels(sortedChannels);
                 persistSelectedChannels(sortedChannels);
               }}
               label="Channels"
