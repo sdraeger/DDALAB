@@ -1,0 +1,31 @@
+[package]
+name = "ddalab-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "WebAssembly module for DDALAB signal processing"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["console_error_panic_hook"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+console_error_panic_hook = { version = "0.1", optional = true }
+
+# FFT for spectral analysis
+rustfft = "6.2"
+
+# LZ4 compression (pure Rust, no C dependencies)
+lz4_flex = "0.11"
+
+# For better panic messages in debug builds
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
