@@ -211,8 +211,8 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     })(),
   );
 
-  // Start with both views for better user experience
-  const [viewMode, setViewMode] = useState<ViewMode>("both");
+  // Start with all views for better user experience
+  const [viewMode, setViewMode] = useState<ViewMode>("all");
   const [colorScheme, setColorScheme] = useState<ColorScheme>("viridis");
   const [heatmapHeight, setHeatmapHeight] = useState(() => {
     try {
@@ -1373,7 +1373,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         } else if (viewMode === "lineplot") {
           canvas = linePlotRef.current?.querySelector("canvas") || null;
           plotTypeForFilename = "lineplot";
-        } else if (viewMode === "both") {
+        } else if (viewMode === "all") {
           const heatmapCanvas = heatmapRef.current?.querySelector("canvas");
           const linePlotCanvas = linePlotRef.current?.querySelector("canvas");
 
@@ -1578,7 +1578,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     // CRITICAL: Don't check heatmapRef.current here - it may be null if DOM hasn't mounted yet
     // The IntersectionObserver will wait for the element to exist
     if (
-      (viewMode === "heatmap" || viewMode === "both") &&
+      (viewMode === "heatmap" || viewMode === "all") &&
       heatmapData.length > 0
     ) {
       // Create a unique key for this render configuration FIRST
@@ -1691,7 +1691,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     );
 
     if (
-      (viewMode === "lineplot" || viewMode === "both") &&
+      (viewMode === "lineplot" || viewMode === "all") &&
       availableVariants.length > 0
     ) {
       // Create a unique key for this render configuration FIRST
@@ -1929,7 +1929,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
             <Separator orientation="vertical" className="h-6 hidden sm:block" />
 
             {/* Color Scheme (visible for heatmap views) */}
-            {(viewMode === "heatmap" || viewMode === "both") && (
+            {(viewMode === "heatmap" || viewMode === "all") && (
               <ColorSchemePicker
                 value={colorScheme}
                 onValueChange={setColorScheme}
@@ -1945,7 +1945,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  // Reset zoom for both plots
+                  // Reset zoom for all plots
                   if (uplotHeatmapRef.current && safeScales.length > 0) {
                     uplotHeatmapRef.current.setScale("x", {
                       min: safeScales[0],
@@ -1993,7 +1993,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
           />
 
           {/* Heatmap Color Range Control - Collapsible section */}
-          {(viewMode === "heatmap" || viewMode === "both") && (
+          {(viewMode === "heatmap" || viewMode === "all") && (
             <div className="flex flex-wrap items-center gap-4 p-3 rounded-lg bg-muted/30 border border-border/50">
               <span className="text-sm font-medium text-muted-foreground">
                 Color Range
@@ -2092,7 +2092,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
               {index === selectedVariant ? (
                 <div className="space-y-4">
                   {/* Heatmap */}
-                  {(viewMode === "heatmap" || viewMode === "both") && (
+                  {(viewMode === "heatmap" || viewMode === "all") && (
                     <Card>
                       <CardHeader className="pb-2">
                         <CardTitle className="text-base">
@@ -2249,7 +2249,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                   )}
 
                   {/* Line Plot */}
-                  {(viewMode === "lineplot" || viewMode === "both") && (
+                  {(viewMode === "lineplot" || viewMode === "all") && (
                     <Card>
                       <CardHeader className="pb-2">
                         <CardTitle className="text-base">
@@ -2436,7 +2436,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         <div className="flex flex-col space-y-4">
           {/* Single variant view */}
           {/* Heatmap */}
-          {(viewMode === "heatmap" || viewMode === "both") && (
+          {(viewMode === "heatmap" || viewMode === "all") && (
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">
@@ -2587,7 +2587,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
           )}
 
           {/* Line Plot */}
-          {(viewMode === "lineplot" || viewMode === "both") && (
+          {(viewMode === "lineplot" || viewMode === "all") && (
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">

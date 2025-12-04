@@ -1,4 +1,4 @@
-use crate::api::models::{DDAParameters, DDAResult};
+use crate::api::models::{parse_dda_parameters, DDAParameters, DDAResult};
 use crate::api::state::ApiState;
 use crate::api::utils::FileType;
 use crate::file_readers::FileReaderFactory;
@@ -1060,9 +1060,8 @@ pub async fn get_analysis_result(
             Ok(Some(analysis)) => {
                 log::info!("✅ Retrieved analysis {} from SQLite database", analysis_id);
 
-                if let Ok(parameters) =
-                    serde_json::from_value::<DDAParameters>(analysis.parameters.clone())
-                {
+                // Use parse_dda_parameters for migration from legacy format
+                if let Ok(parameters) = parse_dda_parameters(analysis.parameters.clone()) {
                     let (results, channels, q_matrix, status) = if let Some(ref complete_data) =
                         analysis.plot_data
                     {
@@ -1185,13 +1184,13 @@ pub async fn list_analysis_history(State(state): State<Arc<ApiState>>) -> Json<V
                     analyses.len()
                 );
 
-                // CRITICAL FIX: plot_data is now None for list view (performance optimization)
                 // We only need lightweight metadata for the history list
                 let results: Vec<DDAResult> = analyses
                     .iter()
                     .filter_map(|analysis| {
+                        // Use parse_dda_parameters for migration from legacy format
                         let parameters: DDAParameters =
-                            match serde_json::from_value(analysis.parameters.clone()) {
+                            match parse_dda_parameters(analysis.parameters.clone()) {
                                 Ok(p) => p,
                                 Err(e) => {
                                     log::warn!(

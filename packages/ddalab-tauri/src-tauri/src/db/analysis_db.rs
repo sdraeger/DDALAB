@@ -1,3 +1,4 @@
+use crate::db::migrations::MigrationRunner;
 use crate::models::AnalysisResult;
 use anyhow::{Context, Result};
 use parking_lot::Mutex;
@@ -14,7 +15,7 @@ pub struct AnalysisDatabase {
 
 impl AnalysisDatabase {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self> {
-        let conn = Connection::open(db_path).context("Failed to open analysis database")?;
+        let conn = Connection::open(&db_path).context("Failed to open analysis database")?;
 
         // Enable WAL mode for better concurrency
         conn.execute_batch(
@@ -24,16 +25,35 @@ impl AnalysisDatabase {
         )
         .context("Failed to set SQLite pragmas")?;
 
+        // Create tables first
+        Self::create_tables_static(&conn)?;
+
+        // Run migrations
+        let migration_runner = MigrationRunner::new(&conn);
+        match migration_runner.run_pending() {
+            Ok(report) => {
+                if report.applied > 0 {
+                    log::info!(
+                        "📦 Database migrations: {} applied, {} skipped",
+                        report.applied,
+                        report.skipped
+                    );
+                }
+            }
+            Err(e) => {
+                log::error!("❌ Database migration failed: {}", e);
+                return Err(e);
+            }
+        }
+
         let db = Self {
             conn: Mutex::new(conn),
         };
-        db.create_tables()?;
         Ok(db)
     }
 
-    fn create_tables(&self) -> Result<()> {
-        let conn = self.conn.lock();
-
+    /// Create tables (static version for use during initialization)
+    fn create_tables_static(conn: &Connection) -> Result<()> {
         // Create table with all columns
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS analyses (
@@ -61,18 +81,9 @@ impl AnalysisDatabase {
         )
         .context("Failed to create analyses table")?;
 
-        // Migration: Add name column if it doesn't exist (for existing databases)
-        let result = conn.execute("ALTER TABLE analyses ADD COLUMN name TEXT", []);
-        match result {
-            Ok(_) => log::info!("✅ Added 'name' column to analyses table"),
-            Err(e) => {
-                // Column might already exist, which is fine
-                let err_msg = e.to_string();
-                if !err_msg.contains("duplicate column name") {
-                    log::warn!("Migration warning (likely harmless): {}", err_msg);
-                }
-            }
-        }
+        // Legacy migration: Add name column if it doesn't exist
+        // This is kept for backwards compatibility with very old databases
+        let _ = conn.execute("ALTER TABLE analyses ADD COLUMN name TEXT", []);
 
         Ok(())
     }
