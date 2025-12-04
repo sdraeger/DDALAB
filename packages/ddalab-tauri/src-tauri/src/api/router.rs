@@ -16,6 +16,7 @@ use axum::{
     Json, Router,
 };
 use std::sync::Arc;
+use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 
 pub fn create_router(state: Arc<ApiState>) -> Router {
@@ -90,6 +91,7 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
         .merge(protected_routes)
         .fallback(handle_404)
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100 MB limit
+        .layer(CompressionLayer::new()) // Enable gzip/br compression for responses
         .layer(cors)
         .with_state(state)
 }

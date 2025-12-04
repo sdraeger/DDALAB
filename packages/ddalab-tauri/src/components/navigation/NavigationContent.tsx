@@ -1,24 +1,84 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, lazy, Suspense } from "react";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 
-// Import existing components
-import { TimeSeriesPlotECharts } from "@/components/TimeSeriesPlotECharts";
-import { AnnotationsTab } from "@/components/AnnotationsTab";
-import { StreamingView } from "@/components/streaming";
-import { DDAWithHistory } from "@/components/dda/DDAWithHistory";
-import { ICAAnalysisPanel } from "@/components/ica";
-import { PreprocessingPipeline } from "@/components/preprocessing";
-import { SettingsPanel } from "@/components/SettingsPanel";
-import { OpenNeuroBrowser } from "@/components/OpenNeuroBrowser";
-import { NSGJobManager } from "@/components/NSGJobManager";
-import { NotificationHistory } from "@/components/NotificationHistory";
+// Eagerly load lightweight components
 import { FileInfoCard } from "@/components/FileInfoCard";
 import { BIDSContextIndicator } from "@/components/BIDSContextIndicator";
 import { Card, CardContent } from "@/components/ui/card";
-import { Brain, Activity, FileText, Sparkles, Filter } from "lucide-react";
+import {
+  Brain,
+  Activity,
+  FileText,
+  Sparkles,
+  Filter,
+  Loader2,
+} from "lucide-react";
+
+// Lazy load heavy components to reduce initial bundle size
+// These are only loaded when their respective navigation tabs are accessed
+const TimeSeriesPlotECharts = lazy(() =>
+  import("@/components/TimeSeriesPlotECharts").then((mod) => ({
+    default: mod.TimeSeriesPlotECharts,
+  })),
+);
+const AnnotationsTab = lazy(() =>
+  import("@/components/AnnotationsTab").then((mod) => ({
+    default: mod.AnnotationsTab,
+  })),
+);
+const StreamingView = lazy(() =>
+  import("@/components/streaming").then((mod) => ({
+    default: mod.StreamingView,
+  })),
+);
+const DDAWithHistory = lazy(() =>
+  import("@/components/dda/DDAWithHistory").then((mod) => ({
+    default: mod.DDAWithHistory,
+  })),
+);
+const ICAAnalysisPanel = lazy(() =>
+  import("@/components/ica").then((mod) => ({ default: mod.ICAAnalysisPanel })),
+);
+const PreprocessingPipeline = lazy(() =>
+  import("@/components/preprocessing").then((mod) => ({
+    default: mod.PreprocessingPipeline,
+  })),
+);
+const SettingsPanel = lazy(() =>
+  import("@/components/SettingsPanel").then((mod) => ({
+    default: mod.SettingsPanel,
+  })),
+);
+const OpenNeuroBrowser = lazy(() =>
+  import("@/components/OpenNeuroBrowser").then((mod) => ({
+    default: mod.OpenNeuroBrowser,
+  })),
+);
+const NSGJobManager = lazy(() =>
+  import("@/components/NSGJobManager").then((mod) => ({
+    default: mod.NSGJobManager,
+  })),
+);
+const NotificationHistory = lazy(() =>
+  import("@/components/NotificationHistory").then((mod) => ({
+    default: mod.NotificationHistory,
+  })),
+);
+
+// Loading fallback component
+function LoadingFallback() {
+  return (
+    <div className="flex items-center justify-center h-full min-h-[200px]">
+      <div className="flex flex-col items-center gap-3">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Loading...</p>
+      </div>
+    </div>
+  );
+}
 
 interface NavigationContentProps {
   apiService: ApiService;
@@ -103,7 +163,9 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
             <>
               <BIDSContextIndicator variant="full" />
               <div className="flex-1 min-h-0">
-                <TimeSeriesPlotECharts apiService={apiService} />
+                <Suspense fallback={<LoadingFallback />}>
+                  <TimeSeriesPlotECharts apiService={apiService} />
+                </Suspense>
               </div>
             </>
           ) : (
@@ -120,7 +182,9 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
     if (secondaryNav === "annotations") {
       return (
         <div className="p-4 h-full">
-          <AnnotationsTab />
+          <Suspense fallback={<LoadingFallback />}>
+            <AnnotationsTab />
+          </Suspense>
         </div>
       );
     }
@@ -134,7 +198,9 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
                 <BIDSContextIndicator variant="breadcrumb" />
               </div>
               <div className="flex-1 min-h-0 overflow-hidden">
-                <PreprocessingPipeline />
+                <Suspense fallback={<LoadingFallback />}>
+                  <PreprocessingPipeline />
+                </Suspense>
               </div>
             </>
           ) : (
@@ -153,7 +219,9 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
     if (secondaryNav === "streaming") {
       return (
         <div className="p-4 h-full">
-          <StreamingView />
+          <Suspense fallback={<LoadingFallback />}>
+            <StreamingView />
+          </Suspense>
         </div>
       );
     }
@@ -178,7 +246,9 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
                 <BIDSContextIndicator variant="breadcrumb" />
               </div>
               <div className="flex-1 min-h-0">
-                <DDAWithHistory apiService={apiService} />
+                <Suspense fallback={<LoadingFallback />}>
+                  <DDAWithHistory apiService={apiService} />
+                </Suspense>
               </div>
             </>
           ) : (
@@ -204,7 +274,9 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
                 <BIDSContextIndicator variant="breadcrumb" />
               </div>
               <div className="flex-1 min-h-0">
-                <ICAAnalysisPanel apiService={apiService} />
+                <Suspense fallback={<LoadingFallback />}>
+                  <ICAAnalysisPanel apiService={apiService} />
+                </Suspense>
               </div>
             </>
           ) : (
@@ -233,7 +305,9 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
     if (secondaryNav === "settings") {
       return (
         <div className="p-4 h-full">
-          <SettingsPanel />
+          <Suspense fallback={<LoadingFallback />}>
+            <SettingsPanel />
+          </Suspense>
         </div>
       );
     }
@@ -241,7 +315,9 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
     if (secondaryNav === "data-sources") {
       return (
         <div className="p-4 h-full">
-          <OpenNeuroBrowser />
+          <Suspense fallback={<LoadingFallback />}>
+            <OpenNeuroBrowser />
+          </Suspense>
         </div>
       );
     }
@@ -249,7 +325,9 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
     if (secondaryNav === "jobs") {
       return (
         <div className="p-4 h-full">
-          <NSGJobManager />
+          <Suspense fallback={<LoadingFallback />}>
+            <NSGJobManager />
+          </Suspense>
         </div>
       );
     }
@@ -259,7 +337,9 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
   if (primaryNav === "notifications") {
     return (
       <div className="p-4 h-full">
-        <NotificationHistory onNavigate={handleNotificationNavigate} />
+        <Suspense fallback={<LoadingFallback />}>
+          <NotificationHistory onNavigate={handleNotificationNavigate} />
+        </Suspense>
       </div>
     );
   }
