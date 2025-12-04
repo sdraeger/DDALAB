@@ -72,6 +72,9 @@ const TreeNode: React.FC<TreeNodeProps> = ({
 }) => {
   const isExpanded = state.expanded.includes(node.id);
   const isSelected = state.selected === node.id;
+  // Check if node is expandable (has children property, even if empty)
+  // This ensures consistent chevron visibility for directories before they're loaded
+  const isExpandable = node.children !== undefined;
   const hasChildren = (node.children || []).length > 0;
   const sizeClasses = getSizeClasses(size);
   const currentPath = parentPath ? `${parentPath}/${node.id}` : node.id;
@@ -96,7 +99,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
           }
         }}
       >
-        {hasChildren ? (
+        {isExpandable ? (
           <>
             <span
               className={`flex-shrink-0 transition-colors ${sizeClasses.icon} mt-0.5`}
