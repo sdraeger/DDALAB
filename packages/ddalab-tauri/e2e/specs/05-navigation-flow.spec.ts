@@ -1,5 +1,5 @@
-import { test, expect, Page } from "@playwright/test";
-import { waitForAppReady } from "../fixtures/base.fixture";
+import { Page } from "@playwright/test";
+import { test, expect, waitForAppReady } from "../fixtures/base.fixture";
 
 /**
  * Navigation Flow Tests

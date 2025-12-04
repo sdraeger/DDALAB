@@ -239,7 +239,9 @@ export const createPersistenceSlice: ImmerStateCreator<
       await get().initializePersistence();
       set({ isInitialized: true });
     } else {
-      set({ isInitialized: true });
+      // In browser mode (no Tauri), mark persistence as already "restored"
+      // since there's nothing to restore from the file system
+      set({ isInitialized: true, isPersistenceRestored: true });
     }
   },
 

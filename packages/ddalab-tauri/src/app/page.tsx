@@ -21,7 +21,10 @@ export default function Home() {
   const isTauri = TauriService.isTauri();
 
   const [isApiConnected, setIsApiConnected] = useState<boolean | null>(null);
-  const [apiUrl, setApiUrl] = useState("https://localhost:8765"); // Embedded API with HTTPS
+  // Use environment variable for API URL if set (for E2E tests), otherwise default to embedded API
+  const [apiUrl, setApiUrl] = useState(
+    process.env.NEXT_PUBLIC_API_URL || "https://localhost:8765",
+  );
   const [sessionToken, setSessionToken] = useState<string>("");
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false);
 
@@ -32,6 +35,9 @@ export default function Home() {
   // Use selectors to prevent unnecessary re-renders
   const isInitialized = useAppStore((state) => state.isInitialized);
   const setServerReady = useAppStore((state) => state.setServerReady);
+  const setDataDirectoryPath = useAppStore(
+    (state) => state.setDataDirectoryPath,
+  );
 
   // Removed excessive render logging
 
@@ -259,6 +265,21 @@ export default function Home() {
 
       setIsApiConnected(connected);
 
+      // In browser mode with external API, also set server ready and set a placeholder token
+      if (connected && !isTauri) {
+        console.log(
+          "[BROWSER_MODE] External API connected, setting server ready",
+        );
+        // Set a placeholder token so that components that check for token presence work
+        // The API server has auth disabled in browser/test mode
+        setSessionToken("browser-mode-no-auth");
+        // Set a default data directory path for the file manager
+        // The API server is already configured with the actual data directory
+        // Using "." to represent the configured data directory root
+        setDataDirectoryPath(".");
+        setServerReady(true);
+      }
+
       if (connected && isTauri) {
         await TauriService.setWindowTitle("DDALAB - Connected");
         await TauriService.showNotification(
@@ -271,6 +292,7 @@ export default function Home() {
     } catch (error) {
       console.error("Failed to connect to API:", error);
       setIsApiConnected(false);
+      setServerReady(false);
 
       if (isTauri) {
         await TauriService.setWindowTitle("DDALAB - Disconnected");
