@@ -124,6 +124,19 @@ pub async fn save_ui_state_only(
                     ui_state.file_manager = fm;
                 }
             }
+            // Save plot filters (including chartHeight) in ui_extras
+            if let Some(plot) = obj.get("plot") {
+                if let Some(filters) = plot.get("filters") {
+                    ui_state
+                        .ui_extras
+                        .insert("plot_filters".to_string(), filters.clone());
+                }
+                if let Some(preprocessing) = plot.get("preprocessing") {
+                    ui_state
+                        .ui_extras
+                        .insert("plot_preprocessing".to_string(), preprocessing.clone());
+                }
+            }
         }
     })
 }
@@ -148,6 +161,14 @@ pub async fn get_saved_state(
     // Build a complete AppState for frontend compatibility
     let ui_state = state_manager.get_ui_state();
 
+    // Get saved plot filters from ui_extras, or use empty object as default
+    let plot_filters = ui_state
+        .ui_extras
+        .get("plot_filters")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let plot_preprocessing = ui_state.ui_extras.get("plot_preprocessing").cloned();
+
     // Create a JSON object with all expected fields (using snake_case for TypeScript compatibility)
     let state_json = serde_json::json!({
         "version": ui_state.version,
@@ -171,7 +192,8 @@ pub async fn get_saved_state(
             "annotations": [],
             "color_scheme": "default",
             "plot_mode": "raw",
-            "filters": {},
+            "filters": plot_filters,
+            "preprocessing": plot_preprocessing,
         },
         "dda": {
             "selected_variants": ["single_timeseries"],
