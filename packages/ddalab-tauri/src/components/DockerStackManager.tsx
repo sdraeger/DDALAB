@@ -197,17 +197,28 @@ export const DockerStackManager: React.FC<DockerStackManagerProps> = ({
               onClick={checkRequirementsAndStatus}
               variant="outline"
               size="sm"
-              disabled={loading}
+              isLoading={loading}
+              loadingText="Refreshing..."
             >
               Refresh
             </Button>
             {needsSetup && (
-              <Button onClick={setupStack} variant="default" disabled={loading}>
+              <Button
+                onClick={setupStack}
+                variant="default"
+                isLoading={loading}
+                loadingText="Setting up..."
+              >
                 Setup
               </Button>
             )}
             {canStart && (
-              <Button onClick={startStack} variant="default" disabled={loading}>
+              <Button
+                onClick={startStack}
+                variant="default"
+                isLoading={loading}
+                loadingText="Starting..."
+              >
                 Start
               </Button>
             )}
@@ -215,7 +226,8 @@ export const DockerStackManager: React.FC<DockerStackManagerProps> = ({
               <Button
                 onClick={stopStack}
                 variant="destructive"
-                disabled={loading}
+                isLoading={loading}
+                loadingText="Stopping..."
               >
                 Stop
               </Button>

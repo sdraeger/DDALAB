@@ -9,13 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Download,
-  RefreshCw,
-  CheckCircle,
-  AlertCircle,
-  Loader2,
-} from "lucide-react";
+import { Download, RefreshCw, CheckCircle, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAppVersion } from "@/hooks/useAppInfo";
 import {
@@ -115,20 +109,12 @@ export function UpdatesSettings() {
             </div>
             <Button
               onClick={handleCheckForUpdates}
-              disabled={checking}
+              isLoading={checking}
+              loadingText="Checking..."
               variant="outline"
             >
-              {checking ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Checking...
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Check for Updates
-                </>
-              )}
+              <RefreshCw className="h-4 w-4" />
+              Check for Updates
             </Button>
           </div>
         </CardContent>
@@ -196,21 +182,13 @@ export function UpdatesSettings() {
 
             <Button
               onClick={handleDownloadAndInstall}
-              disabled={downloading}
+              isLoading={downloading}
+              loadingText="Downloading and Installing..."
               className="w-full"
               size="lg"
             >
-              {downloading ? (
-                <>
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  Downloading and Installing...
-                </>
-              ) : (
-                <>
-                  <Download className="mr-2 h-5 w-5" />
-                  Download and Install v{updateStatus?.latest_version}
-                </>
-              )}
+              <Download className="h-5 w-5" />
+              Download and Install v{updateStatus?.latest_version}
             </Button>
 
             <p className="text-xs text-muted-foreground text-center">
