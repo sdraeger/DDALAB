@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef, startTransition } from "react";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 import { DDAResult } from "@/types/api";
+import { useScrollTrap } from "@/hooks/useScrollTrap";
 import {
   useDDAHistory,
   useDeleteAnalysis,
@@ -60,6 +61,16 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
     "configure",
   );
   const isSettingAnalysis = useRef(false);
+
+  // Scroll traps for configure and results tabs
+  const {
+    containerProps: configScrollProps,
+    isScrollEnabled: isConfigScrollEnabled,
+  } = useScrollTrap({ activationDelay: 100 });
+  const {
+    containerProps: resultsScrollProps,
+    isScrollEnabled: isResultsScrollEnabled,
+  } = useScrollTrap({ activationDelay: 100 });
 
   // Fetch history from server using TanStack Query
   const historyEnabled = isServerReady && !!apiService.getSessionToken();
@@ -452,7 +463,11 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
 
           <TabsContent
             value="configure"
-            className="flex-1 min-h-0 overflow-auto m-0"
+            className={`flex-1 min-h-0 m-0 ${isConfigScrollEnabled ? "overflow-auto" : "overflow-hidden"}`}
+            ref={configScrollProps.ref}
+            onMouseEnter={configScrollProps.onMouseEnter}
+            onMouseLeave={configScrollProps.onMouseLeave}
+            style={configScrollProps.style}
           >
             <div className="p-4 h-full">
               <DDAAnalysis apiService={apiService} />
@@ -461,7 +476,11 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
 
           <TabsContent
             value="results"
-            className="flex-1 min-h-0 overflow-auto m-0"
+            className={`flex-1 min-h-0 m-0 ${isResultsScrollEnabled ? "overflow-auto" : "overflow-hidden"}`}
+            ref={resultsScrollProps.ref}
+            onMouseEnter={resultsScrollProps.onMouseEnter}
+            onMouseLeave={resultsScrollProps.onMouseLeave}
+            style={resultsScrollProps.style}
           >
             {/* Show loading state when fetching from history (before displayAnalysis is available) */}
             {!displayAnalysis &&

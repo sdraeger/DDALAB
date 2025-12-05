@@ -21,7 +21,8 @@ export const createICASlice: ImmerStateCreator<ICASlice> = (set) => ({
 
   updateICAState: (updates) => {
     set((state) => {
-      Object.assign(state.ica, updates);
+      // Use spread for partial updates - more idiomatic with Immer
+      state.ica = { ...state.ica, ...updates };
     });
   },
 

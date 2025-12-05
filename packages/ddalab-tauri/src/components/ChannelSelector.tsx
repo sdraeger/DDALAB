@@ -13,6 +13,7 @@ import { Label } from "./ui/label";
 import { Card, CardContent } from "./ui/card";
 import { Search, X, CheckSquare, Square, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useScrollTrap } from "@/hooks/useScrollTrap";
 
 // Configuration constants
 const VIRTUALIZATION_THRESHOLD = 50;
@@ -196,26 +197,42 @@ const ChannelGrid = memo(function ChannelGrid({
   listContainerRef,
   setBadgeRef,
 }: ChannelGridProps) {
+  const { containerProps, isScrollEnabled } = useScrollTrap({
+    activationDelay: 100,
+  });
+
   return (
     <div
-      ref={listContainerRef}
+      ref={(node) => {
+        // Combine refs
+        if (listContainerRef) {
+          (
+            listContainerRef as React.MutableRefObject<HTMLDivElement | null>
+          ).current = node;
+        }
+        containerProps.ref(node);
+      }}
       role="listbox"
       aria-label={label}
       aria-multiselectable="true"
       tabIndex={channels.length > 0 && !disabled ? 0 : -1}
       onKeyDown={onKeyDown}
+      onMouseEnter={containerProps.onMouseEnter}
+      onMouseLeave={containerProps.onMouseLeave}
       onFocus={(e) => {
         if (e.target === listContainerRef.current && focusedIndex === -1) {
           setFocusedIndex(0);
         }
       }}
       className={cn(
-        "grid gap-2 overflow-y-auto p-2 border rounded-md bg-muted/30",
+        "grid gap-2 p-2 border rounded-md bg-muted/30",
         maxHeight,
+        isScrollEnabled ? "overflow-y-auto" : "overflow-hidden",
         disabled && "opacity-50",
         "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
       )}
       style={{
+        ...containerProps.style,
         gridTemplateColumns: `repeat(${columnsPerRow}, 1fr)`,
       }}
     >

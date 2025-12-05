@@ -1,6 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiService } from "@/services/apiService";
 import type { EDFFileInfo } from "@/types/api";
+import {
+  createQueryErrorHandler,
+  createMutationErrorHandler,
+  queryErrorHandlers,
+} from "@/utils/errorHandler";
 
 export const fileManagementKeys = {
   all: ["fileManagement"] as const,
@@ -18,6 +23,7 @@ export function useAvailableFiles(apiService: ApiService) {
     queryFn: () => apiService.getAvailableFiles(),
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000,
+    ...queryErrorHandlers.file("List"),
   });
 }
 
@@ -32,6 +38,7 @@ export function useFileInfo(
     enabled: enabled && !!filePath,
     staleTime: 10 * 60 * 1000, // 10 minutes - file metadata rarely changes
     gcTime: 30 * 60 * 1000,
+    ...queryErrorHandlers.file("Info"),
   });
 }
 
@@ -58,6 +65,7 @@ export function useDirectoryListing(
     enabled: enabled && !!path,
     staleTime: 2 * 60 * 1000, // 2 minutes - directories can change more frequently
     gcTime: 5 * 60 * 1000,
+    ...queryErrorHandlers.file("Directory"),
   });
 }
 
@@ -69,6 +77,10 @@ export function useLoadFileInfo(apiService: ApiService) {
     onSuccess: (data, filePath) => {
       queryClient.setQueryData(fileManagementKeys.fileInfo(filePath), data);
     },
+    ...createMutationErrorHandler({
+      source: "Load File Info",
+      severity: "warning",
+    }),
   });
 }
 
@@ -83,6 +95,10 @@ export function useRefreshDirectory(apiService: ApiService) {
         queryKey: fileManagementKeys.directory(path),
       });
     },
+    ...createMutationErrorHandler({
+      source: "Refresh Directory",
+      severity: "warning",
+    }),
   });
 }
 

@@ -16,14 +16,11 @@ export const createHealthSlice: ImmerStateCreator<HealthSlice> = (set) => ({
   health: defaultHealthState,
 
   updateHealthStatus: (status) => {
-    if (typeof status === "function") {
-      set((state) => {
-        Object.assign(state.health, status(state.health));
-      });
-    } else {
-      set((state) => {
-        Object.assign(state.health, status);
-      });
-    }
+    set((state) => {
+      // Use spread for partial updates - more idiomatic with Immer
+      const updates =
+        typeof status === "function" ? status(state.health) : status;
+      state.health = { ...state.health, ...updates };
+    });
   },
 });

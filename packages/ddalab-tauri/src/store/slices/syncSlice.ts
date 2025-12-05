@@ -16,8 +16,8 @@ export const createSyncSlice: ImmerStateCreator<SyncSlice> = (set) => ({
 
   updateSyncStatus: (status) => {
     set((state) => {
-      Object.assign(state.sync, status);
-      state.sync.lastStatusCheck = Date.now();
+      // Use spread for partial updates - more idiomatic with Immer
+      state.sync = { ...state.sync, ...status, lastStatusCheck: Date.now() };
     });
   },
 });

@@ -213,7 +213,11 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
 
   updateAnalysisParameters: (parameters) => {
     set((state) => {
-      Object.assign(state.dda.analysisParameters, parameters);
+      // Use spread for partial updates - more idiomatic with Immer
+      state.dda.analysisParameters = {
+        ...state.dda.analysisParameters,
+        ...parameters,
+      };
     });
 
     if (ddaStateUpdateTimeout) {

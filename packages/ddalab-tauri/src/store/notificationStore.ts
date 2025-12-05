@@ -157,7 +157,8 @@ export const useNotificationStore = create<NotificationState>()(
 
       setFilters: (filters) => {
         set((state) => {
-          Object.assign(state.filters, filters);
+          // Use spread for partial updates - more idiomatic with Immer
+          state.filters = { ...state.filters, ...filters };
         });
       },
 

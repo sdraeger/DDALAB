@@ -12,6 +12,7 @@ import { useShallow } from "zustand/react/shallow";
 import { ApiService } from "@/services/apiService";
 import { EDFFileInfo } from "@/types/api";
 import { handleError, isGitAnnexError } from "@/utils/errorHandler";
+import { useScrollTrap } from "@/hooks/useScrollTrap";
 import {
   Card,
   CardContent,
@@ -193,6 +194,11 @@ export function FileManager({ apiService }: FileManagerProps) {
   const [showAnnexDownloadDialog, setShowAnnexDownloadDialog] = useState(false);
   const [annexFileToDownload, setAnnexFileToDownload] =
     useState<EDFFileInfo | null>(null);
+
+  // Scroll trap for file list to prevent accidental scroll capture
+  const { containerProps: scrollTrapProps, isScrollEnabled } = useScrollTrap({
+    activationDelay: 100,
+  });
 
   // Debounced search - local state for immediate input, debounced update to store
   const [searchInput, setSearchInput] = useState(searchQuery);
@@ -1175,7 +1181,13 @@ export function FileManager({ apiService }: FileManagerProps) {
         </div>
       </CardHeader>
 
-      <CardContent className="flex-1 overflow-auto p-4">
+      <CardContent
+        ref={scrollTrapProps.ref}
+        onMouseEnter={scrollTrapProps.onMouseEnter}
+        onMouseLeave={scrollTrapProps.onMouseLeave}
+        className={`flex-1 p-4 ${isScrollEnabled ? "overflow-auto" : "overflow-hidden"}`}
+        style={scrollTrapProps.style}
+      >
         {error && (
           <div className="p-4 mb-4 text-sm bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-lg">
             <div className="flex items-start gap-3">

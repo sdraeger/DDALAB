@@ -297,9 +297,8 @@ export class ApiService {
   ): Promise<ChunkData> {
     try {
       // IMMER/TanStack Query FIX: Clone requestedChannels if provided (might be frozen from store)
-      const channels = requestedChannels
-        ? JSON.parse(JSON.stringify(requestedChannels))
-        : undefined;
+      // Use spread operator for simple string arrays - faster than JSON parse/stringify
+      const channels = requestedChannels ? [...requestedChannels] : undefined;
 
       const params: QueryParams = {
         file_path: filePath,
@@ -314,9 +313,9 @@ export class ApiService {
         signal,
       });
 
-      // IMMER/TanStack Query FIX: Deep clone the response data immediately to ensure
-      // we're working with mutable objects before any processing
-      const responseData = JSON.parse(JSON.stringify(response.data));
+      // IMMER/TanStack Query FIX: Clone response data to ensure mutability
+      // structuredClone is faster than JSON.parse/stringify and handles more types
+      const responseData = structuredClone(response.data);
 
       console.log("[ApiService] Received overview data:", {
         dataLength: responseData.data?.length,
@@ -357,9 +356,8 @@ export class ApiService {
   }> {
     try {
       // IMMER/TanStack Query FIX: Clone requestedChannels if provided (might be frozen from store)
-      const channels = requestedChannels
-        ? JSON.parse(JSON.stringify(requestedChannels))
-        : undefined;
+      // Use spread operator for simple string arrays - faster than JSON parse/stringify
+      const channels = requestedChannels ? [...requestedChannels] : undefined;
 
       const params: QueryParams = {
         file_path: filePath,
@@ -395,11 +393,15 @@ export class ApiService {
   ): Promise<ChunkData> {
     try {
       // IMMER/TanStack Query FIX: Clone all input parameters that might come from frozen store state
+      // Use spread/structuredClone for better performance than JSON parse/stringify
       const preprocessingOptions = preprocessing
-        ? JSON.parse(JSON.stringify(preprocessing))
+        ? {
+            ...preprocessing,
+            notch: preprocessing.notch ? [...preprocessing.notch] : undefined,
+          }
         : undefined;
       const channelList = requestedChannels
-        ? JSON.parse(JSON.stringify(requestedChannels))
+        ? [...requestedChannels]
         : undefined;
 
       // Check cache first (only if no preprocessing)
@@ -412,9 +414,9 @@ export class ApiService {
         );
         if (cached) {
           console.log("[ApiService] Cache HIT - using cached chunk data");
-          // IMMER/TanStack Query FIX: Deep clone cached data to avoid readonly property errors
+          // IMMER/TanStack Query FIX: Clone cached data to avoid readonly property errors
           // TanStack Query freezes returned data in development mode
-          return JSON.parse(JSON.stringify(cached));
+          return structuredClone(cached);
         }
       }
 
@@ -440,9 +442,9 @@ export class ApiService {
       });
       console.log("Raw chunk data response:", response.data);
 
-      // IMMER/TanStack Query FIX: Deep clone the response data immediately to ensure
-      // we're working with mutable objects before any processing
-      const responseData = JSON.parse(JSON.stringify(response.data));
+      // IMMER/TanStack Query FIX: Clone response data to ensure mutability
+      // structuredClone is faster than JSON.parse/stringify and handles more types
+      const responseData = structuredClone(response.data);
 
       // Extract data structure first
       const data = responseData.data || [];
@@ -500,10 +502,10 @@ export class ApiService {
         );
       }
 
-      // IMMER/TanStack Query FIX: Deep clone before returning to prevent TanStack Query
+      // IMMER/TanStack Query FIX: Clone before returning to prevent TanStack Query
       // from freezing the same object reference that's stored in cache. This ensures
       // the cache retains a mutable copy while TanStack Query freezes a separate clone.
-      return JSON.parse(JSON.stringify(chunkData));
+      return structuredClone(chunkData);
     } catch (error) {
       console.error("Failed to get chunk data:", error);
       throw error;

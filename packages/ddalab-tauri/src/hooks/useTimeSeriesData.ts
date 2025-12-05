@@ -37,6 +37,15 @@ export const timeSeriesKeys = {
   overviews: () => [...timeSeriesKeys.all, "overviews"] as const,
   overview: (filePath: string, channels?: string[], maxPoints?: number) =>
     [...timeSeriesKeys.overviews(), filePath, channels, maxPoints] as const,
+  overviewProgress: (
+    filePath: string,
+    channels?: string[],
+    maxPoints?: number,
+  ) =>
+    [
+      ...timeSeriesKeys.overview(filePath, channels, maxPoints),
+      "progress",
+    ] as const,
 };
 
 /**
@@ -156,10 +165,11 @@ export function useOverviewProgress(
   enabled: boolean = true,
 ) {
   return useQuery({
-    queryKey: [
-      ...timeSeriesKeys.overview(filePath, requestedChannels, maxPoints),
-      "progress",
-    ],
+    queryKey: timeSeriesKeys.overviewProgress(
+      filePath,
+      requestedChannels,
+      maxPoints,
+    ),
     queryFn: async ({ signal }) => {
       return apiService.getOverviewProgress(
         filePath,

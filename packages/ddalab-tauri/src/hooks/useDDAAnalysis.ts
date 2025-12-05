@@ -13,6 +13,8 @@ export const ddaKeys = {
   all: ["dda"] as const,
   history: () => [...ddaKeys.all, "history"] as const,
   result: (resultId: string) => [...ddaKeys.all, "result", resultId] as const,
+  resultFromHistory: (resultId: string) =>
+    [...ddaKeys.result(resultId), "from-history"] as const,
   status: (resultId: string) => [...ddaKeys.all, "status", resultId] as const,
 };
 
@@ -42,12 +44,10 @@ export function useSubmitDDAAnalysis(apiService: ApiService) {
     },
     onSuccess: async (result) => {
       // Add the new result to the history cache immediately
+      // No need to invalidate - the result is complete from the mutation response
       queryClient.setQueryData<DDAResult[]>(ddaKeys.history(), (old) => {
         return old ? [result, ...old] : [result];
       });
-
-      // Invalidate history to trigger refetch (for server-side changes)
-      queryClient.invalidateQueries({ queryKey: ddaKeys.history() });
 
       // Unlock the config tab by setting DDA running state to false
       // This ensures the config tab unlocks even if the component is unmounted
@@ -188,7 +188,7 @@ export function useAnalysisFromHistory(
   enabled: boolean = false,
 ) {
   return useQuery({
-    queryKey: [...ddaKeys.result(analysisId || ""), "from-history"],
+    queryKey: ddaKeys.resultFromHistory(analysisId || ""),
     queryFn: () => apiService.getAnalysisFromHistory(analysisId!),
     enabled: enabled && !!analysisId,
     staleTime: Infinity, // Analysis data never changes once saved

@@ -196,7 +196,8 @@ export const createStreamingSlice: ImmerStateCreator<StreamingSlice> = (
 
   updateStreamUI: (updates) => {
     set((state) => {
-      Object.assign(state.streaming.ui, updates);
+      // Use spread for partial updates - more idiomatic with Immer
+      state.streaming.ui = { ...state.streaming.ui, ...updates };
     });
   },
 
