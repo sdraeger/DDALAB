@@ -538,8 +538,9 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
                 variant="outline"
                 size="icon"
                 onClick={handleSelectDirectory}
+                aria-label="Browse for output directory"
               >
-                <Folder className="h-4 w-4" />
+                <Folder className="h-4 w-4" aria-hidden="true" />
               </Button>
             </div>
           </div>
@@ -624,23 +625,13 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
           <AlertDialogAction
             onClick={handleSegment}
             disabled={
-              isProcessing ||
-              !outputDirectory ||
-              !outputFilename ||
-              !durationInfo.valid
+              !outputDirectory || !outputFilename || !durationInfo.valid
             }
+            isLoading={isProcessing}
+            loadingText="Processing..."
           >
-            {isProcessing ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              <>
-                <Scissors className="h-4 w-4 mr-2" />
-                Cut File
-              </>
-            )}
+            <Scissors className="h-4 w-4" />
+            Cut File
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

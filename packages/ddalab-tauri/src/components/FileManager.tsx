@@ -1169,12 +1169,13 @@ export function FileManager({ apiService }: FileManagerProps) {
               size="icon"
               onClick={() => toggleSort(sortBy)}
               title={`Sort ${sortOrder === "asc" ? "descending" : "ascending"}`}
+              aria-label={`Sort ${sortOrder === "asc" ? "descending" : "ascending"}`}
               className="flex-shrink-0"
             >
               {sortOrder === "asc" ? (
-                <SortAsc className="h-4 w-4" />
+                <SortAsc className="h-4 w-4" aria-hidden="true" />
               ) : (
-                <SortDesc className="h-4 w-4" />
+                <SortDesc className="h-4 w-4" aria-hidden="true" />
               )}
             </Button>
           </div>

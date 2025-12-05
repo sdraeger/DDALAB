@@ -669,8 +669,9 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
                 }}
                 className="ml-2 flex-shrink-0"
                 title="Upload to OpenNeuro"
+                aria-label="Upload to OpenNeuro"
               >
-                <Upload className="h-4 w-4" />
+                <Upload className="h-4 w-4" aria-hidden="true" />
               </Button>
             )}
           </div>

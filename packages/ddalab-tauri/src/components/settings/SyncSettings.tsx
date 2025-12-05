@@ -214,21 +214,13 @@ export function SyncSettings() {
           <CardContent className="space-y-4">
             <Button
               onClick={handleDiscoverBrokers}
-              disabled={isDiscovering}
+              isLoading={isDiscovering}
+              loadingText="Scanning network..."
               variant="outline"
               className="w-full"
             >
-              {isDiscovering ? (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                  Scanning network...
-                </>
-              ) : (
-                <>
-                  <Search className="mr-2 h-4 w-4" />
-                  Scan for Brokers
-                </>
-              )}
+              <Search className="h-4 w-4" />
+              Scan for Brokers
             </Button>
 
             {discoveredBrokers.length > 0 && (
@@ -384,25 +376,17 @@ export function SyncSettings() {
 
             <Button
               onClick={handleConnect}
+              isLoading={isLoading}
+              loadingText="Connecting..."
               disabled={
-                isLoading ||
                 !connectionConfig.broker_url ||
                 !connectionConfig.user_id ||
                 !password
               }
               className="w-full"
             >
-              {isLoading ? (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                  Connecting...
-                </>
-              ) : (
-                <>
-                  <Link2 className="mr-2 h-4 w-4" />
-                  Connect to Broker
-                </>
-              )}
+              <Link2 className="h-4 w-4" />
+              Connect to Broker
             </Button>
           </CardContent>
         </Card>

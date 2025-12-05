@@ -2724,12 +2724,16 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                     size="icon"
                     onClick={copyShareLink}
                     title="Copy to clipboard"
+                    aria-label="Copy share link to clipboard"
                     className="shrink-0"
                   >
                     {linkCopied ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-600" />
+                      <CheckCircle2
+                        className="h-4 w-4 text-green-600"
+                        aria-hidden="true"
+                      />
                     ) : (
-                      <Copy className="h-4 w-4" />
+                      <Copy className="h-4 w-4" aria-hidden="true" />
                     )}
                   </Button>
                 </div>

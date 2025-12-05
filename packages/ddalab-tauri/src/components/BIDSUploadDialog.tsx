@@ -304,19 +304,12 @@ export function BIDSUploadDialog({
           {!datasetId && (
             <AlertDialogAction
               onClick={handleUpload}
-              disabled={uploading || !affirmDefaced || !datasetName.trim()}
+              disabled={!affirmDefaced || !datasetName.trim()}
+              isLoading={uploading}
+              loadingText="Uploading..."
             >
-              {uploading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Uploading...
-                </>
-              ) : (
-                <>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Upload to OpenNeuro
-                </>
-              )}
+              <Upload className="h-4 w-4" />
+              Upload to OpenNeuro
             </AlertDialogAction>
           )}
         </AlertDialogFooter>
