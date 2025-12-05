@@ -20,7 +20,7 @@ console_error_panic_hook = { version = "0.1", optional = true }
 rustfft = "6.2"
 
 # LZ4 compression (pure Rust, no C dependencies)
-lz4_flex = "0.11"
+lz4_flex = "0.12"
 
 # For better panic messages in debug builds
 [dev-dependencies]
