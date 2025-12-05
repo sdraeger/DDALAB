@@ -18,13 +18,14 @@ import { Slider } from "@/components/ui/slider";
 import { Activity, Maximize2, Minimize2 } from "lucide-react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { ChartErrorBoundary } from "@/components/ChartErrorBoundary";
 
 interface StreamingPlotProps {
   streamId: string;
   height?: number;
 }
 
-export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
+function StreamingPlotContent({ streamId, height = 400 }: StreamingPlotProps) {
   const plotRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -439,5 +440,17 @@ export function StreamingPlot({ streamId, height = 400 }: StreamingPlotProps) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// Export wrapped with error boundary
+export function StreamingPlot(props: StreamingPlotProps) {
+  return (
+    <ChartErrorBoundary
+      chartName="Streaming Plot"
+      minHeight={props.height || 400}
+    >
+      <StreamingPlotContent {...props} />
+    </ChartErrorBoundary>
   );
 }

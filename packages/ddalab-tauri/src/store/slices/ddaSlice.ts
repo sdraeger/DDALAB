@@ -5,6 +5,7 @@
 import { TauriService } from "@/services/tauriService";
 import { getInitializedFileStateManager } from "@/services/fileStateInitializer";
 import { getStatePersistenceService } from "@/services/statePersistenceService";
+import { handleError } from "@/utils/errorHandler";
 import type {
   DDAState as PersistedDDAState,
   AnalysisResult,
@@ -39,11 +40,6 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
   dda: defaultDDAState,
 
   setCurrentAnalysis: (analysis) => {
-    console.log("[STORE] setCurrentAnalysis called:", {
-      hasAnalysis: !!analysis,
-      analysisId: analysis?.id,
-      isNSGResult: analysis?.source === "nsg",
-    });
     set((state) => {
       state.dda.currentAnalysis = analysis;
       if (analysis?.source === "nsg") {
@@ -104,16 +100,8 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
               "dda",
               fileDDAState,
             );
-
-            console.log("[STORE] Saved file-centric DDA state:", {
-              filePath: selectedFilePath,
-              currentAnalysisId: analysis.id,
-            });
-          } catch (err) {
-            console.error(
-              "[STORE] Failed to save file-centric DDA state:",
-              err,
-            );
+          } catch {
+            // Silent fail - file state save is non-critical
           }
         }
       }, 0);
@@ -123,16 +111,10 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
   restorePreviousAnalysis: () => {
     const { dda } = get();
     if (dda.previousAnalysis) {
-      console.log("[STORE] Restoring previous analysis:", {
-        previousId: dda.previousAnalysis.id,
-        currentId: dda.currentAnalysis?.id,
-      });
       set((state) => {
         state.dda.currentAnalysis = state.dda.previousAnalysis;
         state.dda.previousAnalysis = null;
       });
-    } else {
-      console.warn("[STORE] No previous analysis to restore");
     }
   },
 
@@ -161,10 +143,22 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
           analysis_parameters: dda.analysisParameters,
           running: dda.isRunning,
         };
-        TauriService.updateDDAState(ddaState).catch(console.error);
+        TauriService.updateDDAState(ddaState).catch((error) =>
+          handleError(error, {
+            source: "DDA State Persistence",
+            severity: "silent",
+          }),
+        );
 
         if (persistenceService) {
-          persistenceService.saveDDAState(ddaState).catch(console.error);
+          persistenceService
+            .saveDDAState(ddaState)
+            .catch((error) =>
+              handleError(error, {
+                source: "DDA State Persistence",
+                severity: "silent",
+              }),
+            );
         }
 
         const selectedFilePath = fileManager.selectedFile?.file_path;
@@ -185,19 +179,8 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
                 "dda",
                 fileDDAState,
               );
-
-              console.log(
-                "[STORE] Saved file-centric DDA state (history updated):",
-                {
-                  filePath: selectedFilePath,
-                  historyCount: dda.analysisHistory.length,
-                },
-              );
-            } catch (err) {
-              console.error(
-                "[STORE] Failed to save file-centric DDA state:",
-                err,
-              );
+            } catch {
+              // Silent fail - file state save is non-critical
             }
           })();
         }
@@ -240,7 +223,12 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
           analysis_parameters: dda.analysisParameters,
           running: dda.isRunning,
         };
-        TauriService.updateDDAState(ddaState).catch(console.error);
+        TauriService.updateDDAState(ddaState).catch((error) =>
+          handleError(error, {
+            source: "DDA State Persistence",
+            severity: "silent",
+          }),
+        );
       }
     }, 300);
   },
@@ -277,15 +265,23 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
         running: dda.isRunning,
         custom_delay_presets: dda.customDelayPresets,
       };
-      TauriService.updateDDAState(ddaState).catch(console.error);
+      TauriService.updateDDAState(ddaState).catch((error) =>
+        handleError(error, {
+          source: "DDA State Persistence",
+          severity: "silent",
+        }),
+      );
     }
   },
 
   updateDelayPreset: (id, updates) => {
     set((state) => {
-      const preset = state.dda.customDelayPresets.find((p) => p.id === id);
-      if (preset) {
-        Object.assign(preset, updates);
+      const index = state.dda.customDelayPresets.findIndex((p) => p.id === id);
+      if (index !== -1) {
+        state.dda.customDelayPresets[index] = {
+          ...state.dda.customDelayPresets[index],
+          ...updates,
+        };
       }
     });
 
@@ -305,7 +301,12 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
         running: dda.isRunning,
         custom_delay_presets: dda.customDelayPresets,
       };
-      TauriService.updateDDAState(ddaState).catch(console.error);
+      TauriService.updateDDAState(ddaState).catch((error) =>
+        handleError(error, {
+          source: "DDA State Persistence",
+          severity: "silent",
+        }),
+      );
     }
   },
 
@@ -332,7 +333,12 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
         running: dda.isRunning,
         custom_delay_presets: dda.customDelayPresets,
       };
-      TauriService.updateDDAState(ddaState).catch(console.error);
+      TauriService.updateDDAState(ddaState).catch((error) =>
+        handleError(error, {
+          source: "DDA State Persistence",
+          severity: "silent",
+        }),
+      );
     }
   },
 
@@ -342,9 +348,11 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
       const persistedAnalysis: AnalysisResult = {
         id: analysis.id,
         file_path: analysis.file_path,
+        channels: analysis.channels,
         created_at: analysis.created_at || new Date().toISOString(),
         results: analysis.results,
         parameters: analysis.parameters,
+        status: analysis.status || "completed",
         plot_data: null,
       };
       await service.saveAnalysisResult(persistedAnalysis);

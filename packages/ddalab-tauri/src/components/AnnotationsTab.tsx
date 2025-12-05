@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAppStore } from "@/store/appStore";
+import { useShallow } from "zustand/react/shallow";
 import { TauriService } from "@/services/tauriService";
 import { ApiService } from "@/services/apiService";
 import { Button } from "@/components/ui/button";
@@ -43,8 +44,13 @@ interface FileAnnotationsResult {
 export function AnnotationsTab() {
   // OPTIMIZED: Select specific properties instead of entire objects to prevent re-renders
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
-  const storeAnnotations = useAppStore((state) => state.annotations);
-  const ddaAnalysisHistory = useAppStore((state) => state.dda.analysisHistory);
+  // Use useShallow for object selectors to prevent re-renders on deep changes
+  const storeAnnotations = useAppStore(
+    useShallow((state) => state.annotations),
+  );
+  const ddaAnalysisHistory = useAppStore(
+    useShallow((state) => state.dda.analysisHistory),
+  );
   const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
   const setSecondaryNav = useAppStore((state) => state.setSecondaryNav);
   const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis);

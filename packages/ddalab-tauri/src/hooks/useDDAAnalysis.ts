@@ -313,9 +313,7 @@ export function useDDAProgress(
     // Set up event listener
     const setupListener = async () => {
       unlisten = await listen<DDAProgressEvent>("dda-progress", (event) => {
-        // If analysisId is provided, only update for matching analysis
         if (!analysisId || event.payload.analysis_id === analysisId) {
-          console.log("[DDA Progress]", event.payload);
           setProgress(event.payload);
         }
       });

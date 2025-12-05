@@ -86,6 +86,7 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useSync } from "@/hooks/useSync";
 import type { AccessPolicy, AccessPolicyType } from "@/types/sync";
+import { ChartErrorBoundary } from "@/components/ChartErrorBoundary";
 
 interface DDAResultsProps {
   result: DDAResult;
@@ -2873,17 +2874,17 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   );
 }
 
-// Export memoized version to prevent unnecessary re-renders
+// Memoized version to prevent unnecessary re-renders
 // Only re-render if result.id changes (new analysis loaded)
-export const DDAResults = memo(DDAResultsComponent, (prevProps, nextProps) => {
-  const areEqual = prevProps.result.id === nextProps.result.id;
-
-  if (!areEqual && process.env.NODE_ENV === "development") {
-    console.log("[DDARESULTS MEMO] Props changed, allowing re-render:", {
-      prev: prevProps.result.id,
-      next: nextProps.result.id,
-    });
-  }
-
-  return areEqual; // Return true if props are equal (skip re-render)
+const DDAResultsMemo = memo(DDAResultsComponent, (prevProps, nextProps) => {
+  return prevProps.result.id === nextProps.result.id;
 });
+
+// Export wrapped with error boundary for graceful error handling
+export function DDAResults(props: DDAResultsProps) {
+  return (
+    <ChartErrorBoundary chartName="DDA Results" minHeight={400}>
+      <DDAResultsMemo {...props} />
+    </ChartErrorBoundary>
+  );
+}

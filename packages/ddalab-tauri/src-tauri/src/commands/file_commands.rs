@@ -1,4 +1,5 @@
 use crate::edf::EDFReader;
+use crate::file_writers::{FileWriterFactory, WriterConfig};
 use crate::intermediate_format::{ChannelData, DataMetadata, IntermediateData};
 use crate::text_reader::TextFileReader;
 use serde::{Deserialize, Serialize};
@@ -27,8 +28,28 @@ pub struct SegmentFileResult {
     pub output_path: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentFileProgress {
+    pub phase: String, // "loading", "processing", "writing", "complete", "error", "cancelled"
+    pub progress_percent: f32,
+    pub message: String,
+}
+
+static SEGMENT_CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[tauri::command]
-pub async fn segment_file(params: SegmentFileParams) -> Result<SegmentFileResult, String> {
+pub async fn cancel_segment_file() -> Result<(), String> {
+    log::info!("[FILE_CUT] Cancellation requested");
+    SEGMENT_CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn segment_file(
+    app_handle: AppHandle,
+    params: SegmentFileParams,
+) -> Result<SegmentFileResult, String> {
     log::info!("[FILE_CUT] Starting file extraction: {}", params.file_path);
     log::info!(
         "[FILE_CUT] Start: {} {}, End: {} {}",
@@ -39,16 +60,71 @@ pub async fn segment_file(params: SegmentFileParams) -> Result<SegmentFileResult
     );
     log::info!("[FILE_CUT] Output format: {}", params.output_format);
 
+    // Reset cancellation flag
+    SEGMENT_CANCELLED.store(false, std::sync::atomic::Ordering::SeqCst);
+
+    // Emit starting event
+    let _ = app_handle.emit(
+        "segment-file-progress",
+        SegmentFileProgress {
+            phase: "loading".to_string(),
+            progress_percent: 0.0,
+            message: "Loading source file...".to_string(),
+        },
+    );
+
     // Run blocking file I/O on dedicated thread pool to avoid freezing Tauri
-    tokio::task::spawn_blocking(move || segment_file_blocking(params))
+    let result = tokio::task::spawn_blocking(move || segment_file_blocking(params))
         .await
-        .map_err(|e| format!("Task join error: {}", e))?
+        .map_err(|e| format!("Task join error: {}", e))?;
+
+    // Emit completion event
+    match &result {
+        Ok(r) => {
+            let _ = app_handle.emit(
+                "segment-file-progress",
+                SegmentFileProgress {
+                    phase: "complete".to_string(),
+                    progress_percent: 100.0,
+                    message: format!("File saved: {}", r.output_path),
+                },
+            );
+        }
+        Err(e) => {
+            let phase = if e.contains("cancelled") {
+                "cancelled"
+            } else {
+                "error"
+            };
+            let _ = app_handle.emit(
+                "segment-file-progress",
+                SegmentFileProgress {
+                    phase: phase.to_string(),
+                    progress_percent: 0.0,
+                    message: e.clone(),
+                },
+            );
+        }
+    }
+
+    result
+}
+
+fn check_cancelled() -> Result<(), String> {
+    if SEGMENT_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
+        Err("Operation cancelled by user".to_string())
+    } else {
+        Ok(())
+    }
 }
 
 fn segment_file_blocking(params: SegmentFileParams) -> Result<SegmentFileResult, String> {
     // Load the file into IntermediateData
     let file_path = PathBuf::from(&params.file_path);
     let data = load_file_to_intermediate(&file_path)?;
+
+    // Check for cancellation after loading
+    check_cancelled()?;
 
     // Convert start and end to samples
     let start_sample = time_to_samples(
@@ -89,8 +165,14 @@ fn segment_file_blocking(params: SegmentFileParams) -> Result<SegmentFileResult,
         data
     };
 
+    // Check for cancellation after filtering
+    check_cancelled()?;
+
     // Extract the segment
     let segment = extract_segment(&filtered_data, start_sample, end_sample)?;
+
+    // Check for cancellation after extraction
+    check_cancelled()?;
 
     // Determine output format
     let output_format = determine_output_format(&params.output_format, &file_path)?;
@@ -102,6 +184,9 @@ fn segment_file_blocking(params: SegmentFileParams) -> Result<SegmentFileResult,
 
     // Construct output path
     let output_path = output_dir.join(&params.output_filename);
+
+    // Check for cancellation before writing
+    check_cancelled()?;
 
     // Export segment
     export_segment(&segment, &output_path, &output_format)?;
@@ -318,15 +403,20 @@ fn export_segment(
     output_path: &Path,
     format: &str,
 ) -> Result<(), String> {
+    log::info!(
+        "[FILE_CUT] Exporting segment: {} samples, {} channels, format: {}",
+        segment.num_samples(),
+        segment.num_channels(),
+        format
+    );
+
+    let config = WriterConfig::default();
+
     match format {
         "csv" => segment.to_csv(output_path, None),
         "ascii" | "txt" => segment.to_ascii(output_path, None),
-        "edf" => {
-            // For EDF, we'd need to implement an EDF writer
-            // For now, fall back to ASCII
-            log::warn!("[FILE_CUT] EDF output not yet implemented, using ASCII instead");
-            segment.to_ascii(output_path, None)
-        }
+        "edf" => FileWriterFactory::write_file(segment, output_path, Some(config))
+            .map_err(|e| format!("Failed to write EDF: {}", e)),
         _ => Err(format!("Unsupported export format: {}", format)),
     }
 }

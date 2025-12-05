@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useAppStore } from "@/store/appStore";
 import { PlotAnnotation } from "@/types/annotations";
 import { DDAResult } from "@/types/api";
@@ -302,14 +302,6 @@ export const useDDAAnnotations = ({
 
       const currentPlotId = `dda:${variantId}:${plotType === "heatmap" ? "heatmap" : "lineplot"}`;
 
-      console.log("[DDA ANNOTATION] Creating annotation:", {
-        scaleValue: position,
-        nearestScale: scales[windowIndex],
-        windowIndex,
-        timeSeconds,
-        visibleInPlots,
-      });
-
       const annotation: PlotAnnotation = {
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         position: timeSeconds, // Store in seconds, not scale value
@@ -408,23 +400,6 @@ export const useDDAAnnotations = ({
   const currentPlotId = useMemo(() => {
     return `dda:${variantId}:${plotType === "heatmap" ? "heatmap" : "lineplot"}`;
   }, [variantId, plotType]);
-
-  // Debug logging to track annotation retrieval
-  useEffect(() => {
-    if (annotations.length > 0) {
-      console.log("[useDDAAnnotations] Retrieved annotations:", {
-        plotType,
-        resultId,
-        variantId,
-        count: annotations.length,
-        annotations: annotations.map((a) => ({
-          id: a.id,
-          label: a.label,
-          position: a.position,
-        })),
-      });
-    }
-  }, [annotations, plotType, resultId, variantId]);
 
   // Memoize the return object to prevent creating new references on every render
   return useMemo(

@@ -118,7 +118,7 @@ export const useViewPersistenceStore = create<ViewPersistenceState>()(
           if (!draft.panels[panelId]) {
             draft.panels[panelId] = { visible: true };
           }
-          Object.assign(draft.panels[panelId], state);
+          draft.panels[panelId] = { ...draft.panels[panelId], ...state };
         });
       },
 
@@ -137,7 +137,7 @@ export const useViewPersistenceStore = create<ViewPersistenceState>()(
           if (!draft.zooms[viewId]) {
             draft.zooms[viewId] = { ...DEFAULT_ZOOM };
           }
-          Object.assign(draft.zooms[viewId], zoom);
+          draft.zooms[viewId] = { ...draft.zooms[viewId], ...zoom };
           // Clamp zoom level
           draft.zooms[viewId].level = Math.min(
             ZOOM_MAX,
@@ -165,7 +165,7 @@ export const useViewPersistenceStore = create<ViewPersistenceState>()(
           if (!draft.splitViews[viewId]) {
             draft.splitViews[viewId] = { ...DEFAULT_SPLIT };
           }
-          Object.assign(draft.splitViews[viewId], state);
+          draft.splitViews[viewId] = { ...draft.splitViews[viewId], ...state };
           // Clamp ratio
           draft.splitViews[viewId].ratio = Math.min(
             0.9,
@@ -190,13 +190,13 @@ export const useViewPersistenceStore = create<ViewPersistenceState>()(
           if (!draft.tabs[containerId]) {
             draft.tabs[containerId] = { activeTab: "" };
           }
-          Object.assign(draft.tabs[containerId], state);
+          draft.tabs[containerId] = { ...draft.tabs[containerId], ...state };
         });
       },
 
       setSidebarState: (state) => {
         set((draft) => {
-          Object.assign(draft.sidebar, state);
+          draft.sidebar = { ...draft.sidebar, ...state };
         });
       },
 
@@ -215,13 +215,13 @@ export const useViewPersistenceStore = create<ViewPersistenceState>()(
           ) {
             draft.navigation.previousTab = draft.navigation.activeTab;
           }
-          Object.assign(draft.navigation, state);
+          draft.navigation = { ...draft.navigation, ...state };
         });
       },
 
       setWindowState: (state) => {
         set((draft) => {
-          Object.assign(draft.window, state);
+          draft.window = { ...draft.window, ...state };
         });
       },
 

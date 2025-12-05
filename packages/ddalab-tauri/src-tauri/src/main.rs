@@ -11,6 +11,7 @@ mod db;
 mod docker_stack;
 mod edf;
 mod file_readers;
+mod file_writers;
 mod intermediate_format;
 mod models;
 mod recording;
@@ -148,6 +149,7 @@ fn main() {
             set_data_directory,
             // File operation commands
             segment_file,
+            cancel_segment_file,
             compute_file_hash,
             check_annex_placeholder,
             run_git_annex_get,

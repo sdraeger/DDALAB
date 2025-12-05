@@ -539,7 +539,6 @@ export function NSGJobManager() {
         const { listen } = await import("@tauri-apps/api/event");
         unlisten = await listen("nsg-download-progress", (event: any) => {
           const payload = event.payload;
-          console.log("[NSG] Download progress:", payload);
           setDownloadProgress({
             jobId: payload.job_id,
             currentFile: payload.current_file,
@@ -710,12 +709,8 @@ export function NSGJobManager() {
       try {
         setViewingJobId(jobId);
 
-        console.log("[NSG] Downloading results for job:", jobId);
-
-        // Download results files (will fetch from NSG API)
-        const files = await TauriService.downloadNSGResults(jobId);
-
-        console.log("[NSG] Downloaded files:", files);
+        // Use mutation to download files - this also invalidates the jobs cache
+        const files = await downloadResults.mutateAsync(jobId);
 
         if (files.length === 0) {
           toast.warning(
@@ -725,32 +720,22 @@ export function NSGJobManager() {
           return;
         }
 
-        // Check if output.tar.gz exists - need to extract it
         const tarFile = files.find((f) => f.includes("output.tar.gz"));
         if (tarFile) {
-          console.log("[NSG] Found output.tar.gz, extracting...");
           try {
             const extractedFiles = await extractTarball.mutateAsync({
               jobId,
               tarFilePath: tarFile,
             });
-            console.log("[NSG] Extracted files:", extractedFiles);
-            // Add extracted files to the files list
             files.push(...extractedFiles);
-          } catch (error) {
-            console.error("[NSG] Failed to extract tarball:", error);
-            // Continue anyway - maybe the files are already extracted
+          } catch {
+            // Continue - files may already be extracted
           }
         }
 
-        // Find dda_results.json in the downloaded files
         const resultsFile = files.find((f) => f.includes("dda_results.json"));
 
         if (!resultsFile) {
-          // Show all downloaded files for debugging
-          console.error("[NSG] Available files:", files);
-
-          // Check if this is an external non-DDALAB job
           const isExternalNonDDALAB = isExternalJob({ id: jobId } as NSGJob);
 
           if (isExternalNonDDALAB) {
@@ -769,21 +754,11 @@ export function NSGJobManager() {
           return;
         }
 
-        // Read and parse the results file
-        console.log("[NSG] Loading results from:", resultsFile);
-
         try {
-          // Read the JSON file from disk
           const resultsJson = await TauriService.readTextFile(resultsFile);
 
-          console.log("[NSG] Raw JSON length:", resultsJson.length, "chars");
-          console.log("[NSG] First 500 chars:", resultsJson.substring(0, 500));
-
           let resultsData;
-          // Check for invalid JSON patterns
           if (resultsJson.includes("NaN") || resultsJson.includes("Infinity")) {
-            console.log("[NSG] JSON contains NaN/Infinity, sanitizing...");
-            // Only replace in numeric contexts, not in strings
             const sanitized = resultsJson
               .replace(/:\s*NaN\b/g, ": null")
               .replace(/:\s*Infinity\b/g, ": null")
@@ -794,33 +769,15 @@ export function NSGJobManager() {
               .replace(/\[\s*NaN\b/g, "[null")
               .replace(/\[\s*Infinity\b/g, "[null")
               .replace(/\[\s*-Infinity\b/g, "[null");
-
-            console.log("[NSG] Parsing sanitized JSON...");
             resultsData = JSON.parse(sanitized);
           } else {
-            console.log("[NSG] Parsing JSON directly...");
             resultsData = JSON.parse(resultsJson);
           }
 
-          console.log("[NSG] ✅ Parsed results data successfully:", {
-            hasQMatrix: !!resultsData.q_matrix,
-            qMatrixType: Array.isArray(resultsData.q_matrix)
-              ? "array"
-              : "object",
-            numChannels: resultsData.num_channels,
-            numTimepoints: resultsData.num_timepoints,
-            parameters: resultsData.parameters,
-          });
-
-          // NSG returns q_matrix as 2D array [[...], [...]] (channels × timepoints)
-          // We need to convert to {channel_name: [...]} format
           const channelIndices = resultsData.parameters?.channels || [];
           const qMatrixArray = Array.isArray(resultsData.q_matrix)
             ? resultsData.q_matrix
             : Object.values(resultsData.q_matrix);
-
-          console.log("[NSG] Channel indices from params:", channelIndices);
-          console.log("[NSG] Q matrix array length:", qMatrixArray.length);
 
           // Convert 2D array to map format
           // IMPORTANT: Channel indices can be 0, which is falsy in JavaScript!
@@ -844,24 +801,6 @@ export function NSGJobManager() {
 
             ddaMatrix[channelName] = channelData;
             channels.push(channelName);
-          });
-
-          console.log("[NSG] Using channel names:", channels);
-
-          // Sample some values to check data range
-          const firstChannel = Object.keys(ddaMatrix)[0];
-          const firstChannelData = ddaMatrix[firstChannel];
-          const sampleValues = firstChannelData?.slice(0, 10) || [];
-          const allValues = Object.values(ddaMatrix).flat();
-          const minVal = Math.min(...allValues);
-          const maxVal = Math.max(...allValues);
-
-          console.log("[NSG] Converted q_matrix to dda_matrix:", {
-            numChannels: Object.keys(ddaMatrix).length,
-            channels: Object.keys(ddaMatrix),
-            firstChannelLength: firstChannelData?.length,
-            sampleValues: sampleValues,
-            dataRange: { min: minVal, max: maxVal },
           });
 
           // Generate scales array (actual time values, not just indices)
@@ -914,15 +853,6 @@ export function NSGJobManager() {
             source: "nsg", // Mark as NSG source
           };
 
-          console.log("[NSG] Transformed results for viewer:", {
-            hasVariants: !!transformedResults.results.variants,
-            variantsIsArray: Array.isArray(transformedResults.results.variants),
-            variantsLength: transformedResults.results.variants?.length,
-            hasScales: !!transformedResults.results.scales,
-            scalesLength: transformedResults.results.scales?.length,
-            channels: transformedResults.channels,
-          });
-
           // Load the results into the DDA analysis viewer
           // Dispatch event to DDA Analysis component to load these results
           window.dispatchEvent(
@@ -968,7 +898,7 @@ export function NSGJobManager() {
         setDownloadProgress(null);
       }
     },
-    [extractTarball],
+    [downloadResults, extractTarball],
   );
 
   // Filter jobs based on search term across all fields

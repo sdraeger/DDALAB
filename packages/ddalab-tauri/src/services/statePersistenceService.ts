@@ -40,38 +40,15 @@ export class StatePersistenceService {
    */
   async initialize(): Promise<AppState> {
     try {
-      const start = performance.now();
-      console.log("DEBUG: StatePersistenceService.initialize() called");
-
       const savedState = await invoke<AppState>("get_saved_state");
-      const elapsed = performance.now() - start;
-
-      console.log(
-        `DEBUG: invoke get_saved_state returned in ${elapsed.toFixed(0)}ms`,
-      );
 
       if (this.options.autoSave) {
-        console.log(
-          "DEBUG: Starting auto-save with interval:",
-          this.options.saveInterval,
-        );
         this.startAutoSave();
       }
 
-      console.log("State persistence service initialized with saved state:", {
-        version: savedState.version,
-        activeTab: savedState.active_tab,
-        hasCurrentAnalysis: !!savedState.dda.current_analysis,
-        historyCount: savedState.dda.analysis_history.length,
-      });
-
       return savedState;
     } catch (error) {
-      console.error(
-        "DEBUG: Failed to load saved state, using defaults:",
-        error,
-      );
-      console.error("DEBUG: Error details:", error);
+      console.error("Failed to load saved state, using defaults:", error);
       return this.getDefaultState();
     }
   }
@@ -112,12 +89,9 @@ export class StatePersistenceService {
     try {
       this.lastSaveTime = Date.now();
       this.pendingSave = null;
-
-      // Save state to Rust backend
       await invoke("save_complete_state", { completeState: state });
     } catch (error) {
-      console.error("DEBUG: Failed to save complete state:", error);
-      console.error("DEBUG: State that failed to save:", state);
+      console.error("Failed to save complete state:", error);
       throw error;
     }
   }
@@ -130,7 +104,6 @@ export class StatePersistenceService {
   ): Promise<void> {
     try {
       await invoke("update_file_manager_state", { fileManagerState });
-      console.debug("File manager state saved");
     } catch (error) {
       console.error("Failed to save file manager state:", error);
     }
@@ -142,7 +115,6 @@ export class StatePersistenceService {
   async savePlotState(plotState: PlotState): Promise<void> {
     try {
       await invoke("update_plot_state", { plotState });
-      console.debug("Plot state saved");
     } catch (error) {
       console.error("Failed to save plot state:", error);
     }
@@ -154,7 +126,6 @@ export class StatePersistenceService {
   async saveDDAState(ddaState: DDAState): Promise<void> {
     try {
       await invoke("update_dda_state", { ddaState });
-      console.debug("DDA state saved");
     } catch (error) {
       console.error("Failed to save DDA state:", error);
     }
@@ -166,7 +137,6 @@ export class StatePersistenceService {
   async saveAnalysisResult(analysis: AnalysisResult): Promise<void> {
     try {
       await invoke("save_analysis_result", { analysis });
-      console.log("Analysis result saved:", analysis.id);
     } catch (error) {
       console.error("Failed to save analysis result:", error);
     }
@@ -179,7 +149,6 @@ export class StatePersistenceService {
     try {
       if (this.options.includePlotData) {
         await invoke("save_plot_data", { plotData, analysisId });
-        console.debug("Plot data saved for analysis:", analysisId);
       }
     } catch (error) {
       console.error("Failed to save plot data:", error);
@@ -195,7 +164,6 @@ export class StatePersistenceService {
   ): Promise<void> {
     try {
       await invoke("save_window_state", { windowId, windowState });
-      console.debug("Window state saved for:", windowId);
     } catch (error) {
       console.error("Failed to save window state:", error);
     }
@@ -207,7 +175,6 @@ export class StatePersistenceService {
   async saveUIState(updates: Record<string, any>): Promise<void> {
     try {
       await invoke("update_ui_state", { uiUpdates: updates });
-      console.debug("UI state updates saved:", Object.keys(updates));
     } catch (error) {
       console.error("Failed to save UI state updates:", error);
     }
@@ -219,7 +186,6 @@ export class StatePersistenceService {
   async forceSave(): Promise<void> {
     try {
       await invoke("force_save_state");
-      console.log("State force saved successfully");
     } catch (error) {
       console.error("Failed to force save state:", error);
       throw error;
@@ -232,7 +198,6 @@ export class StatePersistenceService {
   async clearState(): Promise<void> {
     try {
       await invoke("clear_state");
-      console.log("State cleared successfully");
     } catch (error) {
       console.error("Failed to clear state:", error);
       throw error;
@@ -261,25 +226,17 @@ export class StatePersistenceService {
 
     this.saveTimer = setInterval(async () => {
       try {
-        // Get current app state from your app store
         const currentStatePromise = this.getCurrentAppState();
-        if (currentStatePromise) {
-          // If it's a promise, await it
-          if (typeof currentStatePromise?.then === "function") {
-            await currentStatePromise;
-          }
-          console.debug("Auto-save completed");
+        if (
+          currentStatePromise &&
+          typeof currentStatePromise?.then === "function"
+        ) {
+          await currentStatePromise;
         }
       } catch (error) {
         console.error("Auto-save failed:", error);
       }
     }, this.options.saveInterval);
-
-    console.log(
-      "Auto-save started with interval:",
-      this.options.saveInterval,
-      "ms",
-    );
   }
 
   /**
@@ -289,7 +246,6 @@ export class StatePersistenceService {
     if (this.saveTimer) {
       clearInterval(this.saveTimer);
       this.saveTimer = null;
-      console.log("Auto-save stopped");
     }
   }
 
@@ -310,7 +266,6 @@ export class StatePersistenceService {
    */
   async restoreFromSnapshot(snapshot: StateSnapshot): Promise<void> {
     await this.saveCompleteState(snapshot.data);
-    console.log("State restored from snapshot:", snapshot.timestamp);
   }
 
   /**
@@ -364,12 +319,9 @@ export class StatePersistenceService {
    * This should be implemented to integrate with your specific state management
    */
   private getCurrentAppState(): any {
-    // Import dynamically to avoid circular dependencies
     try {
-      // This will be set by the store when it initializes
       return (this as any).__getCurrentState?.();
-    } catch (error) {
-      console.warn("Could not get current app state for auto-save:", error);
+    } catch {
       return null;
     }
   }
@@ -386,7 +338,6 @@ export class StatePersistenceService {
    */
   destroy(): void {
     this.stopAutoSave();
-    console.log("State persistence service destroyed");
   }
 }
 

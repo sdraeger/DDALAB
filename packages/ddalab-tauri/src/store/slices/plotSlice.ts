@@ -5,6 +5,7 @@
 import { TauriService } from "@/services/tauriService";
 import { getInitializedFileStateManager } from "@/services/fileStateInitializer";
 import { getStatePersistenceService } from "@/services/statePersistenceService";
+import { handleError } from "@/utils/errorHandler";
 import type { FilePlotState } from "@/types/fileCentricState";
 import type { PlotSlice, PlotState, ImmerStateCreator } from "./types";
 
@@ -17,6 +18,7 @@ export const defaultPlotState: PlotState = {
   amplitude: 1.0,
   showAnnotations: true,
   selectedChannelColors: {},
+  chartHeight: 400,
 };
 
 export const createPlotSlice: ImmerStateCreator<PlotSlice> = (set, get) => ({
@@ -38,9 +40,6 @@ export const createPlotSlice: ImmerStateCreator<PlotSlice> = (set, get) => ({
       const { plot, isPersistenceRestored } = get();
 
       if (!isPersistenceRestored) {
-        console.log(
-          "[STORE] Skipping save during initialization - plot state updated",
-        );
         return;
       }
 
@@ -66,15 +65,16 @@ export const createPlotSlice: ImmerStateCreator<PlotSlice> = (set, get) => ({
           chunkStart: plot.chunkStart,
           amplitude: plot.amplitude,
           showAnnotations: plot.showAnnotations,
+          chartHeight: plot.chartHeight,
         },
       };
 
-      console.log(
-        "[STORE] Persisting plot state with chunkStart:",
-        plot.chunkStart,
+      TauriService.updatePlotState(plotState).catch((error) =>
+        handleError(error, {
+          source: "Plot State Persistence",
+          severity: "silent",
+        }),
       );
-
-      TauriService.updatePlotState(plotState).catch(console.error);
 
       const { fileManager } = get();
       if (fileManager.selectedFile?.file_path) {
@@ -97,24 +97,22 @@ export const createPlotSlice: ImmerStateCreator<PlotSlice> = (set, get) => ({
               "plot",
               filePlotState,
             );
-
-            console.log("[STORE] Saved file-centric plot state:", {
-              filePath: fileManager.selectedFile!.file_path,
-              chunkStart: plot.chunkStart,
-              chunkSize: plot.chunkSize,
-            });
-          } catch (err) {
-            console.error(
-              "[STORE] Failed to save file-centric plot state:",
-              err,
-            );
+          } catch {
+            // Silent fail - file state save is non-critical
           }
         })();
       }
 
       const persistenceService = getStatePersistenceService();
       if (persistenceService) {
-        persistenceService.savePlotState(plotState).catch(console.error);
+        persistenceService
+          .savePlotState(plotState)
+          .catch((error) =>
+            handleError(error, {
+              source: "Plot State Persistence",
+              severity: "silent",
+            }),
+          );
       }
     }
   },

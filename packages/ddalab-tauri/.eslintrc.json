@@ -8,6 +8,12 @@
         "allowTernary": true,
         "allowTaggedTemplates": true
       }
+    ],
+    "no-console": [
+      "warn",
+      {
+        "allow": ["warn", "error", "info"]
+      }
     ]
   }
 }

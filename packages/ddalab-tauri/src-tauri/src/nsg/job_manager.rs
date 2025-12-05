@@ -456,6 +456,21 @@ impl NSGJobManager {
             job_id
         );
 
+        // Update the job's output_files in the database (for non-external jobs)
+        if !job_id.starts_with("external_") {
+            if let Ok(Some(mut job)) = self.db.get_job(job_id) {
+                job.output_files = downloaded_paths
+                    .iter()
+                    .filter_map(|p| p.file_name())
+                    .filter_map(|f| f.to_str())
+                    .map(|s| s.to_string())
+                    .collect();
+                if let Err(e) = self.db.update_job(&job) {
+                    log::warn!("Failed to update job output_files in database: {}", e);
+                }
+            }
+        }
+
         Ok(downloaded_paths)
     }
 

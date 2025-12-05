@@ -338,7 +338,10 @@ export const createPreprocessingSlice: ImmerStateCreator<PreprocessingSlice> = (
     set((state) => {
       const pipeline = state.preprocessing.pipelines[pipelineId];
       if (pipeline) {
-        Object.assign(pipeline.steps.badChannelDetection.config, config);
+        pipeline.steps.badChannelDetection.config = {
+          ...pipeline.steps.badChannelDetection.config,
+          ...config,
+        };
         pipeline.updatedAt = new Date().toISOString();
       }
     });
@@ -348,7 +351,10 @@ export const createPreprocessingSlice: ImmerStateCreator<PreprocessingSlice> = (
     set((state) => {
       const pipeline = state.preprocessing.pipelines[pipelineId];
       if (pipeline) {
-        Object.assign(pipeline.steps.filtering.config, config);
+        pipeline.steps.filtering.config = {
+          ...pipeline.steps.filtering.config,
+          ...config,
+        };
         pipeline.updatedAt = new Date().toISOString();
       }
     });
@@ -358,7 +364,10 @@ export const createPreprocessingSlice: ImmerStateCreator<PreprocessingSlice> = (
     set((state) => {
       const pipeline = state.preprocessing.pipelines[pipelineId];
       if (pipeline) {
-        Object.assign(pipeline.steps.rereference.config, config);
+        pipeline.steps.rereference.config = {
+          ...pipeline.steps.rereference.config,
+          ...config,
+        };
         pipeline.updatedAt = new Date().toISOString();
       }
     });
@@ -368,7 +377,10 @@ export const createPreprocessingSlice: ImmerStateCreator<PreprocessingSlice> = (
     set((state) => {
       const pipeline = state.preprocessing.pipelines[pipelineId];
       if (pipeline) {
-        Object.assign(pipeline.steps.ica.config, config);
+        pipeline.steps.ica.config = {
+          ...pipeline.steps.ica.config,
+          ...config,
+        };
         pipeline.updatedAt = new Date().toISOString();
       }
     });
@@ -378,7 +390,10 @@ export const createPreprocessingSlice: ImmerStateCreator<PreprocessingSlice> = (
     set((state) => {
       const pipeline = state.preprocessing.pipelines[pipelineId];
       if (pipeline) {
-        Object.assign(pipeline.steps.artifactRemoval.config, config);
+        pipeline.steps.artifactRemoval.config = {
+          ...pipeline.steps.artifactRemoval.config,
+          ...config,
+        };
         pipeline.updatedAt = new Date().toISOString();
       }
     });

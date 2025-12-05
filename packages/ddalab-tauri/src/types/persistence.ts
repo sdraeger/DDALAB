@@ -3,9 +3,77 @@
  * These types match the Rust structures in main.rs
  */
 
+import type {
+  DDAAnalysisRequest,
+  DDAVariantResult,
+  Annotation,
+  DDAResult,
+  DDAPlotData,
+} from "./api";
+import type {
+  TimeSeriesAnnotations,
+  DDAResultAnnotations,
+} from "./annotations";
+
+/** Re-export DDAResult as AnalysisResult for persistence compatibility */
+export type AnalysisResult = DDAResult;
+
+/** Re-export DDAPlotData for backward compatibility */
+export type { DDAPlotData } from "./api";
+
 export interface ApiConfig {
   url: string;
   timeout: number;
+}
+
+/** Plot filter settings for time series visualization */
+export interface PlotFilters {
+  chunkSize?: number;
+  chunkStart?: number;
+  amplitude?: number;
+  showAnnotations?: boolean;
+  chartHeight?: number;
+}
+
+/** Frontend state nested in UI state (from Tauri persistence) */
+export interface FrontendState {
+  sidebarOpen?: boolean;
+  sidebarWidth?: number;
+  zoom?: number;
+  panelSizes?: number[];
+  layout?: string;
+  theme?: string;
+  expertMode?: boolean;
+  /** Annotations stored in frontend state */
+  annotations?: {
+    timeSeries?: Record<string, TimeSeriesAnnotations>;
+    ddaResults?: Record<string, DDAResultAnnotations>;
+  };
+}
+
+/** UI state stored for persistence */
+export interface UIStateSettings {
+  activeTab?: string;
+  primaryNav?: string;
+  secondaryNav?: string;
+  sidebarOpen?: boolean;
+  sidebarWidth?: number;
+  zoom?: number;
+  panelSizes?: number[];
+  layout?: string;
+  theme?: string;
+  expertMode?: boolean;
+  /** Nested frontend state from Tauri */
+  frontend_state?: FrontendState;
+}
+
+/** DDA analysis results structure */
+export interface DDAResultData {
+  scales: number[];
+  variants: DDAVariantResult[];
+  dda_matrix?: Record<string, number[]>;
+  exponents?: Record<string, number>;
+  quality_metrics?: Record<string, number>;
 }
 
 export interface FileManagerState {
@@ -56,20 +124,11 @@ export interface PlotState {
   time_range: [number, number];
   amplitude_range: [number, number];
   zoom_level: number;
-  annotations: any[];
+  annotations: Annotation[];
   color_scheme: string;
   plot_mode: string;
-  filters: Record<string, any>;
+  filters: PlotFilters;
   preprocessing?: PreprocessingOptions;
-}
-
-export interface AnalysisResult {
-  id: string;
-  file_path: string;
-  created_at: string;
-  results: any;
-  parameters: any;
-  plot_data?: any;
 }
 
 export interface DelayPreset {
@@ -80,13 +139,21 @@ export interface DelayPreset {
   isBuiltIn: boolean;
 }
 
+/** Frontend DDA analysis parameters (camelCase for frontend use) */
+export interface FrontendDDAParameters {
+  windowLength?: number;
+  windowStep?: number;
+  delays?: number[];
+  variants?: string[];
+}
+
 export interface DDAState {
   selected_variants: string[];
-  parameters: Record<string, any>;
+  parameters: FrontendDDAParameters;
   last_analysis_id: string | null;
   current_analysis: AnalysisResult | null;
   analysis_history: AnalysisResult[];
-  analysis_parameters: Record<string, any>;
+  analysis_parameters: FrontendDDAParameters;
   running: boolean;
   custom_delay_presets?: DelayPreset[];
 }
@@ -100,9 +167,9 @@ export interface WindowState {
 
 export interface AnnotationState {
   // Annotations for time series plots, keyed by file path
-  timeSeries: Record<string, any>;
+  timeSeries: Record<string, TimeSeriesAnnotations>;
   // Annotations for DDA result plots, keyed by composite key (resultId_variantId_plotType)
-  ddaResults: Record<string, any>;
+  ddaResults: Record<string, DDAResultAnnotations>;
 }
 
 export interface AppState {
@@ -111,7 +178,7 @@ export interface AppState {
   plot: PlotState;
   dda: DDAState;
   annotations?: AnnotationState;
-  ui: Record<string, any>;
+  ui: UIStateSettings;
   windows: Record<string, WindowState>;
   active_tab: string;
   sidebar_collapsed: boolean;
@@ -120,7 +187,7 @@ export interface AppState {
 
 export interface AppPreferences {
   api_config: ApiConfig;
-  window_state: Record<string, any>;
+  window_state: Record<string, WindowState>;
   theme: string;
   updates_last_checked?: string; // ISO date string of last update check
 }
@@ -131,12 +198,12 @@ export interface TauriCommands {
   update_file_manager_state(state: FileManagerState): Promise<void>;
   update_plot_state(state: PlotState): Promise<void>;
   update_dda_state(state: DDAState): Promise<void>;
-  update_ui_state(updates: Record<string, any>): Promise<void>;
+  update_ui_state(updates: Partial<UIStateSettings>): Promise<void>;
   save_analysis_result(analysis: AnalysisResult): Promise<void>;
-  save_plot_data(plotData: any, analysisId?: string): Promise<void>;
+  save_plot_data(plotData: DDAPlotData, analysisId?: string): Promise<void>;
   save_window_state(windowId: string, windowState: WindowState): Promise<void>;
-  save_complete_state(state: any): Promise<void>;
-  get_saved_state(): Promise<any>;
+  save_complete_state(state: AppState): Promise<void>;
+  get_saved_state(): Promise<AppState | null>;
   force_save_state(): Promise<void>;
   clear_state(): Promise<void>;
   get_app_preferences(): Promise<AppPreferences>;
@@ -162,5 +229,5 @@ export interface StateSnapshot {
 export interface StateMigration {
   fromVersion: string;
   toVersion: string;
-  migrate: (oldState: any) => AppState;
+  migrate: (oldState: Partial<AppState>) => AppState;
 }

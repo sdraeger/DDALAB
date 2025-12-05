@@ -22,19 +22,13 @@ export const createPersistenceSlice: ImmerStateCreator<
   initializePersistence: async () => {
     if (TauriService.isTauri()) {
       if (hasInitializedPersistence || isInitializingPersistence) {
-        console.log(
-          "[STORE] Persistence already initialized/initializing (module-level check), skipping",
-        );
         return;
       }
 
       isInitializingPersistence = true;
 
       try {
-        console.log("[STORE] Initializing persistence service...");
-
         await initializeFileStateSystem();
-        console.log("[STORE] File-centric state system initialized");
 
         const service = getStatePersistenceService({
           autoSave: true,
@@ -49,15 +43,7 @@ export const createPersistenceSlice: ImmerStateCreator<
         let dataDirectoryPath = "";
         try {
           dataDirectoryPath = await TauriService.getDataDirectory();
-          console.log(
-            "[STORE] Loaded data directory from backend:",
-            dataDirectoryPath,
-          );
-        } catch (error) {
-          console.error(
-            "[STORE] Failed to load data directory from backend:",
-            error,
-          );
+        } catch {
           dataDirectoryPath =
             persistedState.file_manager.data_directory_path || "";
         }
@@ -109,38 +95,6 @@ export const createPersistenceSlice: ImmerStateCreator<
               {},
           };
 
-          console.log("[STORE] ===== RESTORING ANNOTATIONS =====");
-          const annotationFileKeys = Object.keys(
-            restoredAnnotations.timeSeries,
-          );
-          if (annotationFileKeys.length > 0) {
-            annotationFileKeys.forEach((filePath) => {
-              const fileAnnotations = restoredAnnotations.timeSeries[filePath];
-              console.log("[STORE] Restoring annotations for:", filePath, {
-                globalCount: fileAnnotations?.globalAnnotations?.length || 0,
-                channelCount: Object.keys(
-                  fileAnnotations?.channelAnnotations || {},
-                ).length,
-              });
-            });
-          } else {
-            console.log("[STORE] No annotations found in persisted state");
-          }
-          console.log("[STORE] =====================================");
-
-          const pendingFile =
-            persistedState.file_manager?.selected_file ||
-            (persistedState as any).last_selected_file;
-          console.log(
-            "[STORE] 📂 Restoring file manager state:",
-            "Selected file:",
-            persistedState.file_manager?.selected_file || "null",
-            "| Will set pending:",
-            pendingFile || "NONE",
-            "| Selected channels:",
-            persistedState.file_manager?.selected_channels?.length || 0,
-          );
-
           state.isPersistenceRestored = true;
           // Note: service is NOT stored in state (Immer freezes it)
 
@@ -166,13 +120,6 @@ export const createPersistenceSlice: ImmerStateCreator<
             persistedState.file_manager?.selected_file ||
             (persistedState as any).last_selected_file;
 
-          console.log(
-            "[STORE] Restoring plot state (chunkStart reset to 0 - will be restored per-file):",
-            {
-              persistedChunkStart: persistedState.plot?.filters?.chunkStart,
-              persistedChunkSize: persistedState.plot?.filters?.chunkSize,
-            },
-          );
           state.plot.chunkSize =
             persistedState.plot?.filters?.chunkSize || state.plot.chunkSize;
           state.plot.chunkStart = 0;
@@ -183,6 +130,8 @@ export const createPersistenceSlice: ImmerStateCreator<
               state.plot.showAnnotations,
           );
           state.plot.preprocessing = persistedState.plot?.preprocessing;
+          state.plot.chartHeight =
+            persistedState.plot?.filters?.chartHeight || state.plot.chartHeight;
 
           state.dda.analysisParameters.variants =
             persistedState.dda?.selected_variants ||
@@ -221,13 +170,11 @@ export const createPersistenceSlice: ImmerStateCreator<
         });
 
         hasInitializedPersistence = true;
-        console.log("[STORE] Persistence service initialized successfully");
       } catch (error) {
         console.error(
-          "[STORE] Failed to initialize persistence:",
+          "Failed to initialize persistence:",
           (error as Error)?.message,
         );
-        // Service initialization failed - it remains null in singleton
       } finally {
         isInitializingPersistence = false;
       }
@@ -252,13 +199,6 @@ export const createPersistenceSlice: ImmerStateCreator<
     if (service && currentState.isPersistenceRestored) {
       await Promise.resolve();
 
-      console.log("[SAVE] Current state before save:", {
-        selectedFile: currentState.fileManager.selectedFile?.file_path || null,
-        selectedChannels: currentState.fileManager.selectedChannels,
-        chunkSize: currentState.plot.chunkSize,
-        chunkStart: currentState.plot.chunkStart,
-      });
-
       const stateToSave = {
         version: "2.0.0",
         file_manager: {
@@ -277,6 +217,7 @@ export const createPersistenceSlice: ImmerStateCreator<
             chunkStart: currentState.plot.chunkStart,
             amplitude: currentState.plot.amplitude,
             showAnnotations: currentState.plot.showAnnotations,
+            chartHeight: currentState.plot.chartHeight,
           },
           preprocessing: currentState.plot.preprocessing,
         },
@@ -304,9 +245,6 @@ export const createPersistenceSlice: ImmerStateCreator<
         },
       };
 
-      console.log(
-        "[SAVE] Saving lightweight UI state (no annotations, no analysis history)",
-      );
       await service.saveCompleteState(stateToSave);
     }
   },

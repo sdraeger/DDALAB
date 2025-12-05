@@ -3,6 +3,7 @@
  */
 
 import { TauriService } from "@/services/tauriService";
+import { handleError } from "@/utils/errorHandler";
 import type { ImmerStateCreator, UISlice, UIState } from "./types";
 
 // Module-level debounce timers (replaces window object pattern)
@@ -40,7 +41,12 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      TauriService.updateUIState({ activeTab: tab }).catch(console.error);
+      TauriService.updateUIState({ activeTab: tab }).catch((error) =>
+        handleError(error, {
+          source: "UI State Persistence",
+          severity: "silent",
+        }),
+      );
     }
   },
 
@@ -57,7 +63,12 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
       TauriService.updateUIState({
         primaryNav: tab,
         secondaryNav: lastSecondary,
-      }).catch(console.error);
+      }).catch((error) =>
+        handleError(error, {
+          source: "UI State Persistence",
+          severity: "silent",
+        }),
+      );
     }
   },
 
@@ -70,7 +81,12 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      TauriService.updateUIState({ secondaryNav: tab }).catch(console.error);
+      TauriService.updateUIState({ secondaryNav: tab }).catch((error) =>
+        handleError(error, {
+          source: "UI State Persistence",
+          severity: "silent",
+        }),
+      );
     }
   },
 
@@ -80,7 +96,12 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      TauriService.updateUIState({ sidebarOpen: open }).catch(console.error);
+      TauriService.updateUIState({ sidebarOpen: open }).catch((error) =>
+        handleError(error, {
+          source: "UI State Persistence",
+          severity: "silent",
+        }),
+      );
     }
   },
 
@@ -98,7 +119,11 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
     sidebarWidthUpdateTimeout = setTimeout(() => {
       if (TauriService.isTauri()) {
         TauriService.updateUIState({ sidebarWidth: clampedWidth }).catch(
-          console.error,
+          (error) =>
+            handleError(error, {
+              source: "UI State Persistence",
+              severity: "silent",
+            }),
         );
       }
     }, 150);
@@ -117,7 +142,12 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
 
     zoomUpdateTimeout = setTimeout(() => {
       if (TauriService.isTauri()) {
-        TauriService.updateUIState({ zoom: clampedZoom }).catch(console.error);
+        TauriService.updateUIState({ zoom: clampedZoom }).catch((error) =>
+          handleError(error, {
+            source: "UI State Persistence",
+            severity: "silent",
+          }),
+        );
       }
     }, 150);
   },
@@ -150,7 +180,12 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
 
     panelSizesUpdateTimeout = setTimeout(() => {
       if (TauriService.isTauri()) {
-        TauriService.updateUIState({ panelSizes: sizes }).catch(console.error);
+        TauriService.updateUIState({ panelSizes: sizes }).catch((error) =>
+          handleError(error, {
+            source: "UI State Persistence",
+            severity: "silent",
+          }),
+        );
       }
     }, 150);
   },
@@ -161,7 +196,12 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      TauriService.updateUIState({ layout }).catch(console.error);
+      TauriService.updateUIState({ layout }).catch((error) =>
+        handleError(error, {
+          source: "UI State Persistence",
+          severity: "silent",
+        }),
+      );
     }
   },
 
@@ -171,7 +211,12 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      TauriService.updateUIState({ theme }).catch(console.error);
+      TauriService.updateUIState({ theme }).catch((error) =>
+        handleError(error, {
+          source: "UI State Persistence",
+          severity: "silent",
+        }),
+      );
     }
   },
 
@@ -188,7 +233,12 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      TauriService.updateUIState({ expertMode: enabled }).catch(console.error);
+      TauriService.updateUIState({ expertMode: enabled }).catch((error) =>
+        handleError(error, {
+          source: "UI State Persistence",
+          severity: "silent",
+        }),
+      );
     }
   },
 });
