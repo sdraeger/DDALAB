@@ -35,9 +35,6 @@ export function OpenNeuroSettings() {
 
   useEffect(() => {
     checkExistingKey();
-    // Refresh status every 10 seconds
-    const interval = setInterval(checkExistingKey, 10000);
-    return () => clearInterval(interval);
   }, []);
 
   const checkExistingKey = async () => {
@@ -45,8 +42,8 @@ export function OpenNeuroSettings() {
       const status = await openNeuroService.checkApiKey();
       setHasExistingKey(status.has_key);
       setKeyPreview(status.key_preview);
-    } catch (err) {
-      console.error("Failed to check API key:", err);
+    } catch {
+      // Ignore errors - API key may not be set yet
     }
   };
 

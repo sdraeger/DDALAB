@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
 import { useScrollTrap } from "@/hooks/useScrollTrap";
 import {
   Card,
@@ -28,6 +27,7 @@ import {
   Notification,
   NotificationType,
 } from "@/services/tauriService";
+import { useNotifications } from "@/hooks/useNotifications";
 import { formatDistanceToNow } from "date-fns";
 
 interface NotificationHistoryProps {
@@ -35,89 +35,53 @@ interface NotificationHistoryProps {
 }
 
 export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Use event-based notification hook (no polling)
+  const {
+    notifications,
+    unreadCount,
+    isLoading,
+    error,
+    markAsRead,
+    markAllAsRead,
+    deleteNotification,
+  } = useNotifications(50);
 
   // Scroll trap for notification list
   const { containerProps: scrollTrapProps, isScrollEnabled } = useScrollTrap({
     activationDelay: 100,
   });
 
-  const loadNotifications = useCallback(async () => {
-    try {
-      setError(null);
-      const [notifs, count] = await Promise.all([
-        TauriService.listNotifications(50),
-        TauriService.getUnreadCount(),
-      ]);
-      setNotifications(notifs);
-      setUnreadCount(count);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load notifications",
-      );
-      console.error("[NOTIFICATIONS] Failed to load:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!TauriService.isTauri()) return;
-
-    loadNotifications();
-
-    // Poll for new notifications every 5 seconds
-    const interval = setInterval(loadNotifications, 5000);
-
-    return () => clearInterval(interval);
-  }, [loadNotifications]);
-
   const handleNotificationClick = async (notification: Notification) => {
     try {
       // Mark as read
       if (!notification.read) {
-        await TauriService.markNotificationRead(notification.id);
-        await loadNotifications();
+        await markAsRead(notification.id);
       }
 
       // Handle navigation if action type is present
       if (notification.action_type && onNavigate) {
         onNavigate(notification.action_type, notification.action_data);
       }
-    } catch (err) {
-      console.error("[NOTIFICATIONS] Failed to handle click:", err);
+    } catch {
+      // Error handling in hook
     }
   };
 
   const handleMarkAllRead = async () => {
-    try {
-      await TauriService.markAllNotificationsRead();
-      await loadNotifications();
-    } catch (err) {
-      console.error("[NOTIFICATIONS] Failed to mark all read:", err);
-    }
+    await markAllAsRead();
   };
 
   const handleDeleteNotification = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent notification click
-    try {
-      await TauriService.deleteNotification(id);
-      await loadNotifications();
-    } catch (err) {
-      console.error("[NOTIFICATIONS] Failed to delete:", err);
-    }
+    e.stopPropagation();
+    await deleteNotification(id);
   };
 
   const handleCleanupOld = async () => {
     try {
-      const deleted = await TauriService.deleteOldNotifications(30); // Delete older than 30 days
-      console.log(`[NOTIFICATIONS] Deleted ${deleted} old notifications`);
-      await loadNotifications();
-    } catch (err) {
-      console.error("[NOTIFICATIONS] Failed to cleanup:", err);
+      await TauriService.deleteOldNotifications(30);
+      // State update will come from the event
+    } catch {
+      // Error handling in TauriService
     }
   };
 

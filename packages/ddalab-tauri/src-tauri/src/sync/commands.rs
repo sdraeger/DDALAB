@@ -7,9 +7,16 @@ use super::types::{
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 use tokio::sync::RwLock;
-use tracing::{error, info};
+use tracing::{error, info, warn};
+
+/// Emit sync connection status change event to frontend
+fn emit_sync_connection_change(app: &AppHandle, connected: bool) {
+    if let Err(e) = app.emit("sync-connection-changed", connected) {
+        warn!("Failed to emit sync-connection-changed event: {}", e);
+    }
+}
 
 /// Login request to auth/login endpoint
 #[derive(Debug, Serialize)]
@@ -77,6 +84,7 @@ pub async fn sync_connect(
     user_id: String,
     local_endpoint: String,
     password: Option<String>,
+    app: AppHandle,
     state: State<'_, AppSyncState>,
 ) -> Result<(), String> {
     // Extract HTTP base URL from WebSocket URL
@@ -145,12 +153,15 @@ pub async fn sync_connect(
         auth_token: Some(session_token),
     });
 
+    // Emit connection status change event
+    emit_sync_connection_change(&app, true);
+
     Ok(())
 }
 
 /// Disconnect from the sync broker
 #[tauri::command]
-pub async fn sync_disconnect(state: State<'_, AppSyncState>) -> Result<(), String> {
+pub async fn sync_disconnect(app: AppHandle, state: State<'_, AppSyncState>) -> Result<(), String> {
     if let Some(client) = state.sync_client.read().await.as_ref() {
         client
             .disconnect()
@@ -160,6 +171,9 @@ pub async fn sync_disconnect(state: State<'_, AppSyncState>) -> Result<(), Strin
 
     *state.sync_client.write().await = None;
     *state.server_connection.write().await = None;
+
+    // Emit disconnection event
+    emit_sync_connection_change(&app, false);
 
     Ok(())
 }

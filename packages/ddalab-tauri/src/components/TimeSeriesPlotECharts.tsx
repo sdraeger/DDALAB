@@ -66,13 +66,10 @@ interface TimeSeriesPlotProps {
 function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   const { decimate: wasmDecimate } = useWasm();
 
-  // OPTIMIZED: Select specific properties instead of entire objects to prevent re-renders
-  // Each selector returns only what's needed, avoiding re-renders from unrelated state changes
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
   const selectedChannelsFromStore = useAppStore(
     (state) => state.fileManager.selectedChannels,
   );
-  // Granular plot state selectors - prevents re-render when unrelated plot state changes
   const plotPreprocessing = useAppStore((state) => state.plot.preprocessing);
   const plotChunkStart = useAppStore((state) => state.plot.chunkStart);
   const plotChunkSize = useAppStore((state) => state.plot.chunkSize);

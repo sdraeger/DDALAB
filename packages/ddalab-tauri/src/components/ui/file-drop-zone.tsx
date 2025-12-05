@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useState, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { TOAST_DURATIONS } from "@/lib/constants";
 import {
   Upload,
   FileUp,
@@ -161,7 +162,7 @@ export function FileDropZone({
 
       if (errors.length > 0) {
         setError(errors[0]);
-        setTimeout(() => setError(null), 3000);
+        setTimeout(() => setError(null), TOAST_DURATIONS.SHORT);
       }
 
       if (valid.length > 0) {
@@ -188,7 +189,7 @@ export function FileDropZone({
 
       if (errors.length > 0) {
         setError(errors[0]);
-        setTimeout(() => setError(null), 3000);
+        setTimeout(() => setError(null), TOAST_DURATIONS.SHORT);
       }
 
       if (valid.length > 0) {

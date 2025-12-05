@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useCallback } from "react";
 import { useAppStore } from "@/store/appStore";
 import type {
@@ -18,7 +19,6 @@ export function useSync() {
       updateSyncStatus({ isConnected: connected });
     } catch (err) {
       updateSyncStatus({ isConnected: false });
-      console.error("Failed to check sync connection:", err);
     }
   }, [updateSyncStatus]);
 
@@ -26,13 +26,23 @@ export function useSync() {
     // Initial check
     checkConnection();
 
-    // Poll more frequently when connected (2s) to detect disconnection quickly
-    // Poll less frequently when disconnected (10s) to save resources
-    const pollInterval = isConnected ? 2000 : 10000;
-    const interval = setInterval(checkConnection, pollInterval);
+    // Subscribe to sync connection status changes (event-based, no polling)
+    let unlisten: UnlistenFn | null = null;
 
-    return () => clearInterval(interval);
-  }, [checkConnection, isConnected]);
+    const setupListener = async () => {
+      unlisten = await listen<boolean>("sync-connection-changed", (event) => {
+        updateSyncStatus({ isConnected: event.payload });
+      });
+    };
+
+    setupListener();
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [checkConnection, updateSyncStatus]);
 
   const connect = useCallback(
     async (config: SyncConnectionConfig) => {
@@ -44,11 +54,8 @@ export function useSync() {
           localEndpoint: config.local_endpoint,
           password: config.password,
         });
-        // Immediately update connection state
-        updateSyncStatus({ isConnected: true, isLoading: false });
-
-        // Double-check connection status from backend (async, doesn't block UI)
-        setTimeout(() => checkConnection(), 100);
+        // State update will come from the sync-connection-changed event
+        updateSyncStatus({ isLoading: false });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         updateSyncStatus({
@@ -59,24 +66,21 @@ export function useSync() {
         throw err;
       }
     },
-    [checkConnection, updateSyncStatus],
+    [updateSyncStatus],
   );
 
   const disconnect = useCallback(async () => {
     updateSyncStatus({ isLoading: true, error: null });
     try {
       await invoke("sync_disconnect");
-      // Immediately update connection state
-      updateSyncStatus({ isConnected: false, isLoading: false });
-
-      // Double-check connection status from backend (async, doesn't block UI)
-      setTimeout(() => checkConnection(), 100);
+      // State update will come from the sync-connection-changed event
+      updateSyncStatus({ isLoading: false });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       updateSyncStatus({ error: message, isLoading: false });
       throw err;
     }
-  }, [checkConnection, updateSyncStatus]);
+  }, [updateSyncStatus]);
 
   const shareResult = useCallback(
     async (

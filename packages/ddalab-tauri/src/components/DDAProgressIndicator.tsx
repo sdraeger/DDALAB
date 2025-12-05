@@ -8,7 +8,6 @@ import { Badge } from "@/components/ui/badge";
 
 export function DDAProgressIndicator() {
   const isRunning = useAppStore((state) => state.dda.isRunning);
-  // OPTIMIZED: Only select the ID, not the entire currentAnalysis object
   const currentAnalysisId = useAppStore(
     (state) => state.dda.currentAnalysis?.id,
   );
