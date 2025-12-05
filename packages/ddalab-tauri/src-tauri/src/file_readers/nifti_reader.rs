@@ -237,7 +237,7 @@ impl FileReader for NIfTIFileReader {
 
         // Extract requested chunk for selected channels
         let end_sample = (start_sample + num_samples).min(self.num_timepoints);
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(channel_indices.len());
 
         for &ch_idx in &channel_indices {
             if ch_idx < full_data.len() {

@@ -181,7 +181,7 @@ impl ProgressiveOverviewGenerator {
         let bucket_size = bucket_size.max(1);
 
         // Determine starting point for each channel
-        let mut channel_start_positions: Vec<usize> = Vec::new();
+        let mut channel_start_positions: Vec<usize> = Vec::with_capacity(channels_to_read.len());
         for idx in 0..channels_to_read.len() {
             let last_end = self
                 .cache_db
