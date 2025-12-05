@@ -128,7 +128,8 @@ pub struct VariantSummary {
 ///
 /// Processes data chunks in sliding windows using Rayon for parallelization
 pub struct StreamingDDAProcessor {
-    config: StreamingDDAConfig,
+    /// Configuration wrapped in Arc to avoid cloning on each window
+    config: Arc<StreamingDDAConfig>,
     dda_runner: Arc<DDARunner>,
     thread_pool: rayon::ThreadPool,
 
@@ -139,8 +140,8 @@ pub struct StreamingDDAProcessor {
     // Temporary directory for DDA input files
     temp_dir: PathBuf,
 
-    // Channel metadata
-    channel_names: Vec<String>,
+    // Channel metadata wrapped in Arc to avoid cloning
+    channel_names: Arc<Vec<String>>,
     sample_rate: f32,
 }
 
@@ -169,13 +170,13 @@ impl StreamingDDAProcessor {
         std::fs::create_dir_all(&temp_dir).map_err(|e| StreamError::Io(e))?;
 
         Ok(Self {
-            config,
+            config: Arc::new(config),
             dda_runner: Arc::new(dda_runner),
             thread_pool,
             sample_buffer: Arc::new(parking_lot::Mutex::new(Vec::new())),
             current_offset: Arc::new(AtomicU64::new(0)),
             temp_dir,
-            channel_names,
+            channel_names: Arc::new(channel_names),
             sample_rate,
         })
     }
@@ -335,7 +336,7 @@ impl StreamingDDAProcessor {
         // Run DDA using oneshot channel to avoid block_on() deadlock in Rayon thread pool
         // We spawn a task on the tokio runtime and use blocking_recv to wait for the result
         let dda_runner = Arc::clone(&self.dda_runner);
-        let channel_names = self.channel_names.clone();
+        let channel_names = Arc::clone(&self.channel_names);
 
         let dda_result = if let Ok(handle) = tokio::runtime::Handle::try_current() {
             // Use oneshot channel to safely bridge async and sync contexts
@@ -372,7 +373,7 @@ impl StreamingDDAProcessor {
         // Clean up temp file
         let _ = std::fs::remove_file(&temp_file);
 
-        // Compute variant summaries
+        // Compute variant summaries and move Q matrices (avoiding clones)
         let mut variant_summaries = HashMap::new();
         let mut q_matrices = if self.config.include_q_matrices {
             Some(HashMap::new())
@@ -380,13 +381,17 @@ impl StreamingDDAProcessor {
             None
         };
 
-        if let Some(variants) = dda_result.variant_results.as_ref() {
+        // Consume variants to avoid cloning large Q matrices
+        if let Some(variants) = dda_result.variant_results {
             for variant in variants {
-                let summary = compute_variant_summary(variant);
-                variant_summaries.insert(variant.variant_id.clone(), summary);
+                // Compute summary using reference before consuming
+                let summary = compute_variant_summary(&variant);
+                let variant_id = variant.variant_id.clone();
+                variant_summaries.insert(variant_id.clone(), summary);
 
+                // Move Q matrix instead of cloning (avoids large allocation)
                 if let Some(ref mut matrices) = q_matrices {
-                    matrices.insert(variant.variant_id.clone(), variant.q_matrix.clone());
+                    matrices.insert(variant_id, variant.q_matrix);
                 }
             }
         }
