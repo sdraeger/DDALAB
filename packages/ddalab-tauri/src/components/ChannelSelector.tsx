@@ -504,7 +504,7 @@ export interface ChannelSelectorProps {
   variant?: "default" | "compact";
 }
 
-export function ChannelSelector({
+export const ChannelSelector = memo(function ChannelSelector({
   channels,
   selectedChannels,
   onSelectionChange,
@@ -811,6 +811,6 @@ export function ChannelSelector({
       </CardContent>
     </Card>
   );
-}
+});
 
 export default ChannelSelector;
