@@ -307,3 +307,31 @@ export const DDA_DEFAULTS = {
   NR_TAU: 2,
   DELAYS: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
 } as const;
+
+// ============================================================================
+// UI Timing Constants
+// ============================================================================
+
+/**
+ * Toast/notification display durations (in milliseconds)
+ */
+export const TOAST_DURATIONS = {
+  /** Short notifications - 3 seconds */
+  SHORT: 3000,
+  /** Medium notifications - 5 seconds */
+  MEDIUM: 5000,
+  /** Long notifications - 8 seconds */
+  LONG: 8000,
+} as const;
+
+/**
+ * Polling intervals (in milliseconds)
+ */
+export const POLLING_INTERVALS = {
+  /** Window state polling - 1 second */
+  WINDOW_STATE: 1000,
+  /** Progress updates - 500ms */
+  PROGRESS: 500,
+  /** Health check - 30 seconds */
+  HEALTH: 30000,
+} as const;

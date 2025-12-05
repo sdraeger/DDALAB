@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import {
   Card,
   CardContent,
@@ -40,13 +41,27 @@ export const DockerStackManager: React.FC<DockerStackManagerProps> = ({
     checkRequirementsAndStatus();
   }, []);
 
-  // Auto-refresh status every 30 seconds when running
+  // Subscribe to Docker stack status changes (event-based, no polling)
   useEffect(() => {
-    if (stackStatus?.is_running) {
-      const interval = setInterval(refreshStatus, 30000);
-      return () => clearInterval(interval);
-    }
-  }, [stackStatus?.is_running]);
+    let unlisten: UnlistenFn | null = null;
+
+    const setupListener = async () => {
+      unlisten = await listen<DockerStackStatus>(
+        "docker-stack-changed",
+        (event) => {
+          setStackStatus(event.payload);
+        },
+      );
+    };
+
+    setupListener();
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []);
 
   // Notify parent when API becomes ready
   useEffect(() => {
@@ -84,8 +99,8 @@ export const DockerStackManager: React.FC<DockerStackManagerProps> = ({
     try {
       const status = await DockerStackService.getDockerStackStatus();
       setStackStatus(status);
-    } catch (err) {
-      console.warn("Failed to refresh status:", err);
+    } catch {
+      // Ignore errors - user can click Refresh again if needed
     }
   };
 

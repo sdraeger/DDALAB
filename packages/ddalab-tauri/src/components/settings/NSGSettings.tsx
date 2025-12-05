@@ -48,16 +48,12 @@ export function NSGSettings() {
             });
           }
         }
-      } catch (error) {
-        console.error("Failed to load NSG credentials status:", error);
+      } catch {
+        // Ignore errors - credentials may not be set yet
       }
     };
 
     loadNsgCredentialsStatus();
-
-    // Re-check periodically in case credentials are updated
-    const interval = setInterval(loadNsgCredentialsStatus, 10000);
-    return () => clearInterval(interval);
   }, []);
 
   const handleSaveNsgCredentials = async () => {

@@ -5,8 +5,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tokio::fs;
+
+/// Emit Docker stack status change event to frontend
+fn emit_docker_stack_change(app: &AppHandle, status: &DockerStackStatus) {
+    if let Err(e) = app.emit("docker-stack-changed", status) {
+        log::warn!("Failed to emit docker-stack-changed event: {}", e);
+    }
+}
 
 const SETUP_REPO_URL: &str = "https://github.com/sdraeger/DDALAB-setup.git";
 const DOCKER_COMPOSE_FILE: &str = "docker-compose.tauri.yml";
@@ -463,24 +470,33 @@ fn generate_jwt_secret() -> String {
 // Tauri command exports
 #[tauri::command]
 pub async fn setup_docker_stack(app_handle: AppHandle) -> Result<DockerStackStatus, String> {
-    let mut manager = DockerStackManager::new(app_handle);
+    let mut manager = DockerStackManager::new(app_handle.clone());
     manager
         .setup_repository()
         .await
         .map_err(|e| e.to_string())?;
-    manager.get_stack_status().await.map_err(|e| e.to_string())
+    let status = manager
+        .get_stack_status()
+        .await
+        .map_err(|e| e.to_string())?;
+    emit_docker_stack_change(&app_handle, &status);
+    Ok(status)
 }
 
 #[tauri::command]
 pub async fn start_docker_stack(app_handle: AppHandle) -> Result<DockerStackStatus, String> {
-    let mut manager = DockerStackManager::new(app_handle);
-    manager.start_stack().await.map_err(|e| e.to_string())
+    let mut manager = DockerStackManager::new(app_handle.clone());
+    let status = manager.start_stack().await.map_err(|e| e.to_string())?;
+    emit_docker_stack_change(&app_handle, &status);
+    Ok(status)
 }
 
 #[tauri::command]
 pub async fn stop_docker_stack(app_handle: AppHandle) -> Result<DockerStackStatus, String> {
-    let mut manager = DockerStackManager::new(app_handle);
-    manager.stop_stack().await.map_err(|e| e.to_string())
+    let mut manager = DockerStackManager::new(app_handle.clone());
+    let status = manager.stop_stack().await.map_err(|e| e.to_string())?;
+    emit_docker_stack_change(&app_handle, &status);
+    Ok(status)
 }
 
 #[tauri::command]
