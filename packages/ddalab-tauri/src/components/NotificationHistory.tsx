@@ -127,8 +127,8 @@ export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
   }
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="h-full flex flex-col">
+      <CardHeader className="flex-shrink-0">
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
@@ -158,7 +158,7 @@ export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 flex flex-col min-h-0">
         {error && (
           <div className="text-red-500 text-sm mb-4 p-3 bg-red-50 dark:bg-red-900/20 rounded">
             {error}
@@ -166,11 +166,11 @@ export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
         )}
 
         {isLoading ? (
-          <div className="text-center py-8 text-muted-foreground">
+          <div className="flex-1 flex items-center justify-center text-muted-foreground">
             Loading notifications...
           </div>
         ) : notifications.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground flex flex-col items-center gap-2">
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2">
             <BellOff className="h-12 w-12 opacity-50" />
             <p>No notifications yet</p>
           </div>
@@ -179,7 +179,7 @@ export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
             ref={scrollTrapProps.ref}
             onMouseEnter={scrollTrapProps.onMouseEnter}
             onMouseLeave={scrollTrapProps.onMouseLeave}
-            className={`h-[600px] pr-4 ${isScrollEnabled ? "overflow-auto" : "overflow-hidden"}`}
+            className={`flex-1 min-h-0 pr-4 ${isScrollEnabled ? "overflow-auto" : "overflow-hidden"}`}
             style={scrollTrapProps.style}
           >
             <div className="space-y-3">
