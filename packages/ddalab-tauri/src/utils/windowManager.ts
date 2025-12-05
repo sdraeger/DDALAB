@@ -1,7 +1,16 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit, listen, UnlistenFn } from "@tauri-apps/api/event";
 
 export type WindowType = "timeseries" | "dda-results" | "eeg-visualization";
+
+// Event types for window state changes
+export type WindowStateChangeType = "created" | "closed" | "updated";
+export interface WindowStateChangeEvent {
+  type: WindowStateChangeType;
+  windowId: string;
+  allWindows: string[];
+}
+
+type WindowStateChangeListener = (event: WindowStateChangeEvent) => void;
 
 export interface WindowConfig {
   label: string;
@@ -28,6 +37,22 @@ class WindowManager {
   private windows: Map<string, any> = new Map();
   private windowStates: Map<string, PopoutWindowState> = new Map();
   private listeners: Map<string, UnlistenFn> = new Map();
+  private stateChangeListeners: Set<WindowStateChangeListener> = new Set();
+
+  // Subscribe to window state changes (event-based, no polling needed)
+  onStateChange(listener: WindowStateChangeListener): () => void {
+    this.stateChangeListeners.add(listener);
+    return () => this.stateChangeListeners.delete(listener);
+  }
+
+  private emitStateChange(type: WindowStateChangeType, windowId: string): void {
+    const event: WindowStateChangeEvent = {
+      type,
+      windowId,
+      allWindows: this.getAllWindows(),
+    };
+    this.stateChangeListeners.forEach((listener) => listener(event));
+  }
 
   private getWindowConfig(type: WindowType, id: string): WindowConfig {
     const baseConfigs: Record<WindowType, WindowConfig> = {
@@ -139,6 +164,9 @@ class WindowManager {
       );
       this.listeners.set(`${windowId}-ready`, readyListener);
 
+      // Emit state change event for subscribers
+      this.emitStateChange("created", windowId);
+
       return windowId;
     } catch (error) {
       console.error("Failed to create popout window:", error);
@@ -225,7 +253,8 @@ class WindowManager {
       this.listeners.delete(`${windowId}-ready`);
     }
 
-    console.log(`Cleaned up window: ${windowId}`);
+    // Emit state change event for subscribers
+    this.emitStateChange("closed", windowId);
   }
 
   async sendDataToWindow(windowId: string, data: any): Promise<void> {

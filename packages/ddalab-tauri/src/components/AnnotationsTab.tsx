@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAppStore } from "@/store/appStore";
 import { useShallow } from "zustand/react/shallow";
 import { TauriService } from "@/services/tauriService";
-import { ApiService } from "@/services/apiService";
+import { TOAST_DURATIONS } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -42,9 +42,7 @@ interface FileAnnotationsResult {
 }
 
 export function AnnotationsTab() {
-  // OPTIMIZED: Select specific properties instead of entire objects to prevent re-renders
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
-  // Use useShallow for object selectors to prevent re-renders on deep changes
   const storeAnnotations = useAppStore(
     useShallow((state) => state.annotations),
   );
@@ -145,17 +143,12 @@ export function AnnotationsTab() {
         format,
       );
       if (exportedPath) {
-        console.log(
-          `Annotations exported to ${format.toUpperCase()}:`,
-          exportedPath,
-        );
         setSuccessMessage(
           `Annotations exported successfully as ${format.toUpperCase()}`,
         );
-        setTimeout(() => setSuccessMessage(null), 3000);
+        setTimeout(() => setSuccessMessage(null), TOAST_DURATIONS.SHORT);
       }
     } catch (err) {
-      console.error("Failed to export annotations:", err);
       setError(
         err instanceof Error ? err.message : "Failed to export annotations",
       );
@@ -166,17 +159,12 @@ export function AnnotationsTab() {
     try {
       const exportedPath = await TauriService.exportAllAnnotations(format);
       if (exportedPath) {
-        console.log(
-          `All annotations exported to ${format.toUpperCase()}:`,
-          exportedPath,
-        );
         setSuccessMessage(
           `All annotations exported successfully as ${format.toUpperCase()}`,
         );
-        setTimeout(() => setSuccessMessage(null), 3000);
+        setTimeout(() => setSuccessMessage(null), TOAST_DURATIONS.SHORT);
       }
     } catch (err) {
-      console.error("Failed to export all annotations:", err);
       setError(
         err instanceof Error ? err.message : "Failed to export all annotations",
       );
@@ -199,7 +187,6 @@ export function AnnotationsTab() {
       setIsPreviewOpen(true);
       setError(null);
     } catch (err) {
-      console.error("Failed to preview import annotations:", err);
       setError(
         err instanceof Error
           ? err.message
@@ -226,13 +213,12 @@ export function AnnotationsTab() {
           `Successfully imported ${importedCount} annotation${importedCount !== 1 ? "s" : ""}`,
         );
 
-        setTimeout(() => setSuccessMessage(null), 5000);
+        setTimeout(() => setSuccessMessage(null), TOAST_DURATIONS.MEDIUM);
 
         await loadAllFileAnnotations();
         setIsPreviewOpen(false);
         setPreviewData(null);
       } catch (err) {
-        console.error("Failed to import selected annotations:", err);
         setError(
           err instanceof Error
             ? err.message

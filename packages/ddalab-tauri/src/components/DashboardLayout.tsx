@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { useApiService } from "@/contexts/ApiServiceContext";
 import { useAppStore } from "@/store/appStore";
 import { useDDAHistory, useAnalysisFromHistory } from "@/hooks/useDDAAnalysis";
+import { useUnreadNotificationCount } from "@/hooks/useNotifications";
 import { DDAProgressEvent } from "@/types/api";
 import { FileManager } from "@/components/FileManager";
 import { ResizeHandle } from "@/components/ResizeHandle";
@@ -25,14 +26,15 @@ import { TauriService } from "@/services/tauriService";
 export function DashboardLayout() {
   // Get ApiService from context (managed by ApiServiceProvider in page.tsx)
   const { apiService, isReady: isAuthReady } = useApiService();
-  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+
+  // Event-based notification count (no polling)
+  const unreadNotificationCount = useUnreadNotificationCount();
 
   // FIX: Use specific selectors to prevent unnecessary re-renders
   // Only select the specific properties we need, not entire objects
   const isServerReady = useAppStore((state) => state.ui.isServerReady);
   const sidebarOpen = useAppStore((state) => state.ui.sidebarOpen);
   const sidebarWidth = useAppStore((state) => state.ui.sidebarWidth);
-  const activeTab = useAppStore((state) => state.ui.activeTab);
   const primaryNav = useAppStore((state) => state.ui.primaryNav);
   const secondaryNav = useAppStore((state) => state.ui.secondaryNav);
   const currentFilePath = useAppStore(
@@ -134,50 +136,6 @@ export function DashboardLayout() {
       );
     };
   }, [setPrimaryNav, setSecondaryNav]);
-
-  // Poll for unread notification count
-  useEffect(() => {
-    if (!TauriService.isTauri()) return;
-
-    const fetchUnreadCount = async () => {
-      try {
-        const count = await TauriService.getUnreadCount();
-        setUnreadNotificationCount(count);
-      } catch (error) {
-        console.error(
-          "[DASHBOARD] Failed to fetch unread notification count:",
-          error,
-        );
-      }
-    };
-
-    // Initial fetch
-    fetchUnreadCount();
-
-    // Poll every 5 seconds
-    const interval = setInterval(fetchUnreadCount, 5000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  // Refresh unread count when viewing notifications tab
-  useEffect(() => {
-    if (!TauriService.isTauri()) return;
-
-    if (activeTab === "notifications") {
-      // Refresh after a short delay to allow notifications to be marked as read
-      const timeout = setTimeout(async () => {
-        try {
-          const count = await TauriService.getUnreadCount();
-          setUnreadNotificationCount(count);
-        } catch (error) {
-          console.error("[DASHBOARD] Failed to refresh unread count:", error);
-        }
-      }, 1000);
-
-      return () => clearTimeout(timeout);
-    }
-  }, [activeTab]);
 
   // Listen for DDA completion events to unlock the configure tab
   useEffect(() => {

@@ -145,16 +145,16 @@ impl EDFReader {
         reader: &mut R,
         num_signals: usize,
     ) -> Result<Vec<EDFSignalHeader>, String> {
-        let mut labels = Vec::new();
-        let mut transducer_types = Vec::new();
-        let mut physical_dimensions = Vec::new();
-        let mut physical_minimums = Vec::new();
-        let mut physical_maximums = Vec::new();
-        let mut digital_minimums = Vec::new();
-        let mut digital_maximums = Vec::new();
-        let mut prefilterings = Vec::new();
-        let mut num_samples_per_records = Vec::new();
-        let mut reserveds = Vec::new();
+        let mut labels = Vec::with_capacity(num_signals);
+        let mut transducer_types = Vec::with_capacity(num_signals);
+        let mut physical_dimensions = Vec::with_capacity(num_signals);
+        let mut physical_minimums = Vec::with_capacity(num_signals);
+        let mut physical_maximums = Vec::with_capacity(num_signals);
+        let mut digital_minimums = Vec::with_capacity(num_signals);
+        let mut digital_maximums = Vec::with_capacity(num_signals);
+        let mut prefilterings = Vec::with_capacity(num_signals);
+        let mut num_samples_per_records = Vec::with_capacity(num_signals);
+        let mut reserveds = Vec::with_capacity(num_signals);
 
         // Read each field for all signals
         for _ in 0..num_signals {
@@ -213,7 +213,7 @@ impl EDFReader {
             reserveds.push(Self::read_fixed_string(reader, 32)?);
         }
 
-        let mut signal_headers = Vec::new();
+        let mut signal_headers = Vec::with_capacity(num_signals);
         for i in 0..num_signals {
             signal_headers.push(EDFSignalHeader {
                 label: labels[i].clone(),
@@ -255,9 +255,9 @@ impl EDFReader {
             .map_err(|e| format!("Failed to seek to record: {}", e))?;
 
         // Read all signals for this record
-        let mut signals = Vec::new();
+        let mut signals = Vec::with_capacity(self.signal_headers.len());
         for signal_header in &self.signal_headers {
-            let mut samples = Vec::new();
+            let mut samples = Vec::with_capacity(signal_header.num_samples_per_record);
             for _ in 0..signal_header.num_samples_per_record {
                 let mut buf = [0u8; 2];
                 self.file
@@ -319,7 +319,7 @@ impl EDFReader {
             ((start_time_sec % record_duration) * sample_rate) as usize;
         let total_samples_needed = (duration_sec * sample_rate).ceil() as usize;
 
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(total_samples_needed);
         let gain = signal_header.gain();
         let offset = signal_header.offset();
 

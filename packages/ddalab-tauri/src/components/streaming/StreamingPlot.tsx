@@ -132,7 +132,6 @@ function StreamingPlotContent({ streamId, height = 400 }: StreamingPlotProps) {
     const maxChunksToRender = 5; // Further reduced to prevent freeze
     const chunksToProcess = throttledChunks.slice(-maxChunksToRender);
 
-    // OPTIMIZED: Pre-compute channel indices to avoid repeated indexOf calls
     const sampleRate = chunksToProcess[0].sample_rate;
     const channelIndices = activeChannels.map((name) =>
       channelNames.indexOf(name),
@@ -148,7 +147,6 @@ function StreamingPlotContent({ streamId, height = 400 }: StreamingPlotProps) {
     let pointIndex = 0;
     let currentTime = 0;
 
-    // OPTIMIZED: Flatten data with pre-computed indices
     for (const chunk of chunksToProcess) {
       const chunkSamples =
         chunk.samples.length > 0 ? chunk.samples[0].length : 0;

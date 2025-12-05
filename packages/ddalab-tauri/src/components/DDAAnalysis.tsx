@@ -121,8 +121,6 @@ interface DDAParameters {
 }
 
 export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
-  // OPTIMIZED: Use granular selectors to prevent unnecessary re-renders
-  // Select only the specific properties we need, not entire objects
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
   const storedAnalysisParameters = useAppStore(
     (state) => state.dda.analysisParameters,

@@ -55,7 +55,6 @@ export function DelayPresetManager({
   disabled = false,
   sampleRate = 256,
 }: DelayPresetManagerProps) {
-  // OPTIMIZED: Use Zustand store for custom presets
   const customPresets = useAppStore((state) => state.dda.customDelayPresets);
   const addDelayPreset = useAppStore((state) => state.addDelayPreset);
   const deleteDelayPreset = useAppStore((state) => state.deleteDelayPreset);
@@ -143,7 +142,6 @@ export function DelayPresetManager({
 
     if (delays.length === 0) return;
 
-    // OPTIMIZED: Use Zustand action instead of localStorage
     addDelayPreset({
       name: newPresetName.trim(),
       description: newPresetDescription.trim() || "Custom delay preset",
@@ -165,7 +163,6 @@ export function DelayPresetManager({
   };
 
   const handleDeletePreset = (presetId: string) => {
-    // OPTIMIZED: Use Zustand action instead of localStorage
     deleteDelayPreset(presetId);
     if (selectedPresetId === presetId) {
       setSelectedPresetId(null);

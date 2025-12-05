@@ -20,51 +20,28 @@ export function usePopoutWindows(): UsePopoutWindowsResult {
   const [openedWindows, setOpenedWindows] = useState<string[]>([]);
 
   useEffect(() => {
-    // Sync with window manager state
-    const updateOpenedWindows = () => {
-      const windows = windowManager.getAllWindows();
-      // Only update state if the array contents actually changed
-      setOpenedWindows((prev) => {
-        if (prev.length !== windows.length) return windows;
-        // Check if all window IDs are the same
-        const hasChanged = prev.some((id, index) => id !== windows[index]);
-        return hasChanged ? windows : prev;
-      });
-    };
+    // Initial sync with window manager state
+    setOpenedWindows(windowManager.getAllWindows());
 
-    // Initial sync
-    updateOpenedWindows();
+    // Subscribe to window state changes (event-based, no polling)
+    const unsubscribe = windowManager.onStateChange((event) => {
+      setOpenedWindows(event.allWindows);
+    });
 
-    // Set up interval to sync periodically (windows might be closed externally)
-    const interval = setInterval(updateOpenedWindows, 1000);
-
-    return () => {
-      clearInterval(interval);
-    };
+    return unsubscribe;
   }, []);
 
   const createWindow = useCallback(
     async (type: WindowType, id: string, data: any): Promise<string> => {
-      try {
-        const windowId = await windowManager.createPopoutWindow(type, id, data);
-        setOpenedWindows((prev) => [...prev, windowId]);
-        return windowId;
-      } catch (error) {
-        console.error("Failed to create window:", error);
-        throw error;
-      }
+      // State update handled by onStateChange event subscription
+      return windowManager.createPopoutWindow(type, id, data);
     },
     [],
   );
 
   const closeWindow = useCallback(async (windowId: string): Promise<void> => {
-    try {
-      await windowManager.closePopoutWindow(windowId);
-      setOpenedWindows((prev) => prev.filter((id) => id !== windowId));
-    } catch (error) {
-      console.error("Failed to close window:", error);
-      throw error;
-    }
+    // State update handled by onStateChange event subscription
+    await windowManager.closePopoutWindow(windowId);
   }, []);
 
   const updateWindowData = useCallback(
