@@ -4,7 +4,7 @@
  * Handles initialization and provides type-safe access to WASM functions.
  */
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   initWasm,
   isWasmReady,
@@ -49,79 +49,42 @@ import {
 } from "@/services/wasmService";
 
 interface UseWasmResult {
-  /** Whether WASM module is ready to use */
   isReady: boolean;
-  /** Whether WASM is currently loading */
   isLoading: boolean;
-  /** Whether actual WASM (not JS fallback) is available */
   isWasmNative: boolean;
-  /** Error if initialization failed */
   error: Error | null;
-
   // Decimation
-  computeStats: (data: number[]) => ChannelStats;
-  computeMultiStats: (data: number[][]) => ChannelStats[];
-  decimate: (
-    data: number[],
-    targetPoints: number,
-    method?: DecimationMethod,
-  ) => number[];
-  decimateMulti: (
-    data: number[][],
-    targetPoints: number,
-    method?: DecimationMethod,
-  ) => number[][];
-
-  // Signal Processing - Filters
-  highpass: (
-    data: number[],
-    cutoffFreq: number,
-    sampleRate: number,
-  ) => number[];
-  lowpass: (data: number[], cutoffFreq: number, sampleRate: number) => number[];
-  bandpass: (
-    data: number[],
-    lowCutoff: number,
-    highCutoff: number,
-    sampleRate: number,
-  ) => number[];
-  notch: (
-    data: number[],
-    notchFreq: number,
-    sampleRate: number,
-    qFactor?: number,
-  ) => number[];
-  notchMulti: (
-    data: number[],
-    notchFreqs: number[],
-    sampleRate: number,
-  ) => number[];
-
-  // Signal Processing - FFT
-  fftMagnitude: (data: number[]) => number[];
-  psd: (data: number[], sampleRate: number) => number[];
-  fftFrequencies: (dataLength: number, sampleRate: number) => number[];
-
-  // Signal Processing - Normalization
-  zscore: (data: number[]) => number[];
-  zscoreMulti: (data: number[][]) => number[][];
-
-  // Statistical Computations
-  percentiles: (data: number[], percentiles: number[]) => number[];
-  iqr: (data: number[]) => IQRResult;
-  artifacts: (data: number[], thresholdStd: number) => number[];
-  artifactsGradient: (data: number[], threshold: number) => number[];
-
-  // Matrix Operations
-  normalizeMatrix: (data: number[], rows: number, cols: number) => number[];
-  colormap: (data: number[], colormap: Colormap) => Uint8Array;
-  correlationMatrix: (data: number[][]) => number[][];
-
-  // Data Compression
-  lz4Decompress: (compressed: Uint8Array) => Uint8Array;
-  lz4Compress: (data: Uint8Array) => Uint8Array;
-  parseF64: (bytes: Uint8Array) => number[];
-  parseF32: (bytes: Uint8Array) => number[];
+  computeStats: typeof computeChannelStats;
+  computeMultiStats: typeof computeMultiChannelStats;
+  decimate: typeof decimateData;
+  decimateMulti: typeof decimateChannels;
+  // Filters
+  highpass: typeof filterHighpass;
+  lowpass: typeof filterLowpass;
+  bandpass: typeof filterBandpass;
+  notch: typeof filterNotch;
+  notchMulti: typeof filterNotchMulti;
+  // FFT
+  fftMagnitude: typeof computeFftMagnitude;
+  psd: typeof computePsd;
+  fftFrequencies: typeof getFftFrequencies;
+  // Normalization
+  zscore: typeof zscoreNormalize;
+  zscoreMulti: typeof zscoreNormalizeChannels;
+  // Statistics
+  percentiles: typeof computePercentiles;
+  iqr: typeof computeIqr;
+  artifacts: typeof detectArtifacts;
+  artifactsGradient: typeof detectArtifactsGradient;
+  // Matrix
+  normalizeMatrix: typeof normalizeHeatmap;
+  colormap: typeof applyColormap;
+  correlationMatrix: typeof computeCorrelationMatrix;
+  // Compression
+  lz4Decompress: typeof decompressLz4;
+  lz4Compress: typeof compressLz4;
+  parseF64: typeof parseF64Array;
+  parseF32: typeof parseF32Array;
 }
 
 /**
@@ -173,7 +136,6 @@ export function useWasm(): UseWasmResult {
           console.error("[useWasm] Initialization failed:", err);
           setError(err);
           setIsLoading(false);
-          // Still mark as ready - fallback JS implementations will be used
           setIsReady(true);
         }
       });
@@ -183,197 +145,46 @@ export function useWasm(): UseWasmResult {
     };
   }, []);
 
-  // Memoize all functions to prevent unnecessary re-renders
-  // Decimation
-  const computeStats = useCallback(
-    (data: number[]) => computeChannelStats(data),
-    [],
-  );
-  const computeMultiStats = useCallback(
-    (data: number[][]) => computeMultiChannelStats(data),
-    [],
-  );
-  const decimate = useCallback(
-    (data: number[], targetPoints: number, method: DecimationMethod = "lttb") =>
-      decimateData(data, targetPoints, method),
-    [],
-  );
-  const decimateMulti = useCallback(
-    (
-      data: number[][],
-      targetPoints: number,
-      method: DecimationMethod = "lttb",
-    ) => decimateChannels(data, targetPoints, method),
-    [],
-  );
-
-  // Signal Processing - Filters
-  const highpass = useCallback(
-    (data: number[], cutoffFreq: number, sampleRate: number) =>
-      filterHighpass(data, cutoffFreq, sampleRate),
-    [],
-  );
-  const lowpass = useCallback(
-    (data: number[], cutoffFreq: number, sampleRate: number) =>
-      filterLowpass(data, cutoffFreq, sampleRate),
-    [],
-  );
-  const bandpass = useCallback(
-    (
-      data: number[],
-      lowCutoff: number,
-      highCutoff: number,
-      sampleRate: number,
-    ) => filterBandpass(data, lowCutoff, highCutoff, sampleRate),
-    [],
-  );
-  const notch = useCallback(
-    (
-      data: number[],
-      notchFreq: number,
-      sampleRate: number,
-      qFactor: number = 35,
-    ) => filterNotch(data, notchFreq, sampleRate, qFactor),
-    [],
-  );
-  const notchMulti = useCallback(
-    (data: number[], notchFreqs: number[], sampleRate: number) =>
-      filterNotchMulti(data, notchFreqs, sampleRate),
-    [],
-  );
-
-  // Signal Processing - FFT
-  const fftMagnitude = useCallback(
-    (data: number[]) => computeFftMagnitude(data),
-    [],
-  );
-  const psd = useCallback(
-    (data: number[], sampleRate: number) => computePsd(data, sampleRate),
-    [],
-  );
-  const fftFrequencies = useCallback(
-    (dataLength: number, sampleRate: number) =>
-      getFftFrequencies(dataLength, sampleRate),
-    [],
-  );
-
-  // Signal Processing - Normalization
-  const zscore = useCallback((data: number[]) => zscoreNormalize(data), []);
-  const zscoreMulti = useCallback(
-    (data: number[][]) => zscoreNormalizeChannels(data),
-    [],
-  );
-
-  // Statistical Computations
-  const percentiles = useCallback(
-    (data: number[], pcts: number[]) => computePercentiles(data, pcts),
-    [],
-  );
-  const iqr = useCallback((data: number[]) => computeIqr(data), []);
-  const artifacts = useCallback(
-    (data: number[], thresholdStd: number) =>
-      detectArtifacts(data, thresholdStd),
-    [],
-  );
-  const artifactsGradient = useCallback(
-    (data: number[], threshold: number) =>
-      detectArtifactsGradient(data, threshold),
-    [],
-  );
-
-  // Matrix Operations
-  const normalizeMatrix = useCallback(
-    (data: number[], rows: number, cols: number) =>
-      normalizeHeatmap(data, rows, cols),
-    [],
-  );
-  const colormap = useCallback(
-    (data: number[], cm: Colormap) => applyColormap(data, cm),
-    [],
-  );
-  const correlationMatrix = useCallback(
-    (data: number[][]) => computeCorrelationMatrix(data),
-    [],
-  );
-
-  // Data Compression
-  const lz4Decompress = useCallback(
-    (compressed: Uint8Array) => decompressLz4(compressed),
-    [],
-  );
-  const lz4Compress = useCallback((data: Uint8Array) => compressLz4(data), []);
-  const parseF64 = useCallback((bytes: Uint8Array) => parseF64Array(bytes), []);
-  const parseF32 = useCallback((bytes: Uint8Array) => parseF32Array(bytes), []);
-
   return useMemo(
     () => ({
       isReady,
       isLoading,
       isWasmNative: isWasmAvailable(),
       error,
-      // Decimation
-      computeStats,
-      computeMultiStats,
-      decimate,
-      decimateMulti,
+      // Decimation - direct function references (stable module imports)
+      computeStats: computeChannelStats,
+      computeMultiStats: computeMultiChannelStats,
+      decimate: decimateData,
+      decimateMulti: decimateChannels,
       // Filters
-      highpass,
-      lowpass,
-      bandpass,
-      notch,
-      notchMulti,
+      highpass: filterHighpass,
+      lowpass: filterLowpass,
+      bandpass: filterBandpass,
+      notch: filterNotch,
+      notchMulti: filterNotchMulti,
       // FFT
-      fftMagnitude,
-      psd,
-      fftFrequencies,
+      fftMagnitude: computeFftMagnitude,
+      psd: computePsd,
+      fftFrequencies: getFftFrequencies,
       // Normalization
-      zscore,
-      zscoreMulti,
+      zscore: zscoreNormalize,
+      zscoreMulti: zscoreNormalizeChannels,
       // Statistics
-      percentiles,
-      iqr,
-      artifacts,
-      artifactsGradient,
+      percentiles: computePercentiles,
+      iqr: computeIqr,
+      artifacts: detectArtifacts,
+      artifactsGradient: detectArtifactsGradient,
       // Matrix
-      normalizeMatrix,
-      colormap,
-      correlationMatrix,
+      normalizeMatrix: normalizeHeatmap,
+      colormap: applyColormap,
+      correlationMatrix: computeCorrelationMatrix,
       // Compression
-      lz4Decompress,
-      lz4Compress,
-      parseF64,
-      parseF32,
+      lz4Decompress: decompressLz4,
+      lz4Compress: compressLz4,
+      parseF64: parseF64Array,
+      parseF32: parseF32Array,
     }),
-    [
-      isReady,
-      isLoading,
-      error,
-      computeStats,
-      computeMultiStats,
-      decimate,
-      decimateMulti,
-      highpass,
-      lowpass,
-      bandpass,
-      notch,
-      notchMulti,
-      fftMagnitude,
-      psd,
-      fftFrequencies,
-      zscore,
-      zscoreMulti,
-      percentiles,
-      iqr,
-      artifacts,
-      artifactsGradient,
-      normalizeMatrix,
-      colormap,
-      correlationMatrix,
-      lz4Decompress,
-      lz4Compress,
-      parseF64,
-      parseF32,
-    ],
+    [isReady, isLoading, error],
   );
 }
 

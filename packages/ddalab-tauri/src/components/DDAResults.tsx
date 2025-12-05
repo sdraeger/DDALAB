@@ -1,16 +1,8 @@
 "use client";
 
-import {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-  useMemo,
-  memo,
-  Suspense,
-} from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import { useAppStore } from "@/store/appStore";
-import { profiler, useRenderProfiler } from "@/utils/performance";
+import { profiler } from "@/utils/performance";
 import { throttle } from "@/utils/debounce";
 import { DDAResult } from "@/types/api";
 import {
@@ -94,11 +86,7 @@ interface DDAResultsProps {
 
 // Internal component (will be wrapped with memo at export)
 function DDAResultsComponent({ result }: DDAResultsProps) {
-  // Performance profiling for this component
-  // TEMPORARILY DISABLED to check if profiler is adding overhead
-  // useRenderProfiler('DDAResults');
-
-  // CRITICAL FIX: Progressive rendering to prevent UI freeze
+  // Progressive rendering to prevent UI freeze
   // Render controls first, defer heavy plot containers to next frame
   const [showPlots, setShowPlots] = useState(false);
 
@@ -135,28 +123,17 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   const lastRenderedHeatmapKey = useRef<string>("");
   const lastRenderedLinePlotKey = useRef<string>("");
 
-  // Callback ref to detect when heatmap DOM is mounted/unmounted
+  // Callback refs to detect when plot DOM is mounted/unmounted
   const heatmapCallbackRef = useCallback((node: HTMLDivElement | null) => {
     heatmapRef.current = node;
     setHeatmapDOMMounted(!!node);
-    console.log(`[HEATMAP REF] DOM ${node ? "mounted" : "unmounted"}`);
-    // CRITICAL: Reset render key on unmount so we re-render when remounted
-    // The uPlot instance is destroyed when DOM unmounts, so we must recreate it
-    if (!node) {
-      lastRenderedHeatmapKey.current = "";
-    }
+    if (!node) lastRenderedHeatmapKey.current = "";
   }, []);
 
-  // Callback ref to detect when line plot DOM is mounted/unmounted
   const linePlotCallbackRef = useCallback((node: HTMLDivElement | null) => {
     linePlotRef.current = node;
     setLinePlotDOMMounted(!!node);
-    console.log(`[LINEPLOT REF] DOM ${node ? "mounted" : "unmounted"}`);
-    // CRITICAL: Reset render key on unmount so we re-render when remounted
-    // The uPlot instance is destroyed when DOM unmounts, so we must recreate it
-    if (!node) {
-      lastRenderedLinePlotKey.current = "";
-    }
+    if (!node) lastRenderedLinePlotKey.current = "";
   }, []);
   const uplotHeatmapRef = useRef<uPlot | null>(null);
   const uplotLinePlotRef = useRef<uPlot | null>(null);
@@ -186,51 +163,31 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     };
   }, []);
 
-  // Track current channel count for ResizeObserver callback (initialized later)
+  // Track current channel count for ResizeObserver callback
   const currentChannelCountRef = useRef<number>(0);
 
-  // Refs to track current plot heights for ResizeObserver callbacks
-  // This prevents the observers from using stale closure values
-  const heatmapHeightRef = useRef<number>(
-    (() => {
-      try {
-        const saved = localStorage.getItem("dda-heatmap-height");
-        return saved ? parseInt(saved) : 500;
-      } catch {
-        return 500;
-      }
-    })(),
-  );
-  const linePlotHeightRef = useRef<number>(
-    (() => {
-      try {
-        const saved = localStorage.getItem("dda-lineplot-height");
-        return saved ? parseInt(saved) : 400;
-      } catch {
-        return 400;
-      }
-    })(),
-  );
+  // Helper to read persisted height
+  const getPersistedHeight = (key: string, defaultValue: number) => {
+    try {
+      const saved = localStorage.getItem(key);
+      return saved ? parseInt(saved) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  };
 
-  // Start with all views for better user experience
+  // Plot heights - refs for ResizeObserver callbacks, state for React rendering
+  const heatmapHeightRef = useRef<number>(500);
+  const linePlotHeightRef = useRef<number>(400);
+
   const [viewMode, setViewMode] = useState<ViewMode>("all");
   const [colorScheme, setColorScheme] = useState<ColorScheme>("viridis");
-  const [heatmapHeight, setHeatmapHeight] = useState(() => {
-    try {
-      const saved = localStorage.getItem("dda-heatmap-height");
-      return saved ? parseInt(saved) : 500;
-    } catch {
-      return 500;
-    }
-  });
-  const [linePlotHeight, setLinePlotHeight] = useState(() => {
-    try {
-      const saved = localStorage.getItem("dda-lineplot-height");
-      return saved ? parseInt(saved) : 400;
-    } catch {
-      return 400;
-    }
-  });
+  const [heatmapHeight, setHeatmapHeight] = useState(() =>
+    getPersistedHeight("dda-heatmap-height", 500),
+  );
+  const [linePlotHeight, setLinePlotHeight] = useState(() =>
+    getPersistedHeight("dda-lineplot-height", 400),
+  );
   const [isResizing, setIsResizing] = useState<"heatmap" | "lineplot" | null>(
     null,
   );
@@ -249,8 +206,8 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     heatmapHeightRef.current = heatmapHeight;
     try {
       localStorage.setItem("dda-heatmap-height", heatmapHeight.toString());
-    } catch (error) {
-      console.error("Failed to save heatmap height:", error);
+    } catch {
+      // Ignore localStorage errors (e.g., private browsing)
     }
   }, [heatmapHeight]);
 
@@ -258,8 +215,8 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     linePlotHeightRef.current = linePlotHeight;
     try {
       localStorage.setItem("dda-lineplot-height", linePlotHeight.toString());
-    } catch (error) {
-      console.error("Failed to save lineplot height:", error);
+    } catch {
+      // Ignore localStorage errors
     }
   }, [linePlotHeight]);
 
@@ -300,25 +257,12 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       synchronization: 4,
     };
 
-    // Debug: Log variants with network_motifs info
     if (result.results.variants && result.results.variants.length > 0) {
-      // Sort variants by canonical order
-      const sortedVariants = [...result.results.variants].sort((a, b) => {
+      return [...result.results.variants].sort((a, b) => {
         const orderA = variantOrder[a.variant_id] ?? 99;
         const orderB = variantOrder[b.variant_id] ?? 99;
         return orderA - orderB;
       });
-
-      console.log(
-        "[DDAResults] Loading variants:",
-        sortedVariants.map((v) => ({
-          id: v.variant_id,
-          name: v.variant_name,
-          has_network_motifs: !!v.network_motifs,
-          motifs_nodes: v.network_motifs?.num_nodes,
-        })),
-      );
-      return sortedVariants;
     }
     // Fallback to legacy format
     if (result.results.dda_matrix) {
@@ -352,18 +296,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     if (firstVariant?.dda_matrix) {
       const firstChannel = Object.values(firstVariant.dda_matrix)[0];
       if (Array.isArray(firstChannel) && firstChannel.length > 0) {
-        // Generate scales as indices (0, 1, 2, ..., n-1)
-        console.log(
-          `[DDAResults] Deriving scales from dda_matrix (${firstChannel.length} timepoints)`,
-        );
         return Array.from({ length: firstChannel.length }, (_, i) => i);
       }
     }
 
-    // Fallback to empty array
-    console.warn(
-      "[DDAResults] No scales available and couldn't derive from data",
-    );
     return [];
   }, [result.results?.scales, availableVariants]);
 
@@ -389,19 +325,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   }, [availableVariants]);
 
   // Memoize current variant data to prevent re-renders when variant hasn't changed
-  const currentVariantData = useMemo(() => {
-    const variant = availableVariants[selectedVariant] || availableVariants[0];
-    // Debug: log network_motifs availability
-    if (variant) {
-      console.log(
-        `[DDAResults] Variant ${variant.variant_id}: network_motifs =`,
-        variant.network_motifs
-          ? `${variant.network_motifs.num_nodes} nodes, ${variant.network_motifs.adjacency_matrices?.length} matrices`
-          : "undefined",
-      );
-    }
-    return variant;
-  }, [availableVariants, selectedVariant]);
+  const currentVariantData = useMemo(
+    () => availableVariants[selectedVariant] || availableVariants[0],
+    [availableVariants, selectedVariant],
+  );
 
   // Get available channels from the CURRENT variant's dda_matrix
   const availableChannels = useMemo(() => {
@@ -411,7 +338,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     return result.channels;
   }, [currentVariantData?.dda_matrix, result.channels]);
 
-  // Update selectedChannels when variant changes - ONLY if channels actually changed
+  // Update selectedChannels when variant changes
   useEffect(() => {
     if (!currentVariantData?.dda_matrix) return;
 
@@ -419,48 +346,24 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
     // Reset the prevHeatmapDataRef when variant changes to force recalculation
     prevHeatmapDataRef.current.range = [0, 1];
-    prevHeatmapDataRef.current.variantId = null; // Force data update detection
+    prevHeatmapDataRef.current.variantId = null;
 
-    // NOTE: We don't reset colorRange state here anymore. The ref reset above
-    // ensures rangeChanged will be true, triggering proper color range update.
-    // Resetting the state caused flat-color rendering during the transition.
-
-    // Check if channels have actually changed (compare arrays)
     setSelectedChannels((prev) => {
       const hasChanged =
         prev.length !== channels.length ||
         prev.some((ch, i) => ch !== channels[i]);
-
-      if (hasChanged) {
-        console.log(
-          "[DDARESULTS] Variant changed, updating selectedChannels:",
-          {
-            variantId: currentVariantData.variant_id,
-            prevChannels: prev,
-            newChannels: channels,
-          },
-        );
-        // DON'T update ref here - it will be updated when creating new plot
-        return channels;
-      }
-
-      // No change - return previous reference to avoid re-render
-      return prev;
+      return hasChanged ? channels : prev;
     });
   }, [currentVariantData?.variant_id, result.id, autoScale]);
 
-  // CRITICAL: Clean up ResizeObservers immediately when channels change
-  // This prevents old observers from firing with the wrong channel count
+  // Clean up ResizeObservers when channels change to prevent stale callbacks
   useEffect(() => {
     return () => {
-      // Cleanup on unmount or when channels change
       if (heatmapCleanupRef.current) {
-        console.log("[HEATMAP] Cleaning up observer due to channel change");
         heatmapCleanupRef.current();
         heatmapCleanupRef.current = null;
       }
       if (linePlotCleanupRef.current) {
-        console.log("[LINEPLOT] Cleaning up observer due to channel change");
         linePlotCleanupRef.current();
         linePlotCleanupRef.current = null;
       }
