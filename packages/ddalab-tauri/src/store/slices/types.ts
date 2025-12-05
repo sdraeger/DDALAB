@@ -5,7 +5,12 @@
 import type { StateCreator } from "zustand";
 import type { EDFFileInfo, ChunkData, DDAResult } from "@/types/api";
 import type { StatePersistenceService } from "@/services/statePersistenceService";
-import type { PreprocessingOptions } from "@/types/persistence";
+import type {
+  PreprocessingOptions,
+  DDAPlotData,
+  AppState as PersistedAppState,
+  StateSnapshot,
+} from "@/types/persistence";
 import type {
   PlotAnnotation,
   TimeSeriesAnnotations,
@@ -55,6 +60,8 @@ export interface PlotState {
   showAnnotations: boolean;
   selectedChannelColors: Record<string, string>;
   preprocessing?: PreprocessingOptions;
+  /** Height of the time series chart in pixels (user-adjustable) */
+  chartHeight: number;
 }
 
 export interface DelayPreset {
@@ -161,7 +168,7 @@ export interface FileManagerActions {
 export interface PlotActions {
   setCurrentChunk: (chunk: ChunkData | null) => void;
   updatePlotState: (updates: Partial<PlotState>) => void;
-  savePlotData: (plotData: any, analysisId?: string) => Promise<void>;
+  savePlotData: (plotData: DDAPlotData, analysisId?: string) => Promise<void>;
 }
 
 export interface DDAActions {
@@ -300,8 +307,8 @@ export interface PersistenceActions {
   saveCurrentState: () => Promise<void>;
   forceSave: () => Promise<void>;
   clearPersistedState: () => Promise<void>;
-  getPersistedState: () => Promise<any>;
-  createStateSnapshot: () => Promise<any>;
+  getPersistedState: () => Promise<PersistedAppState | null>;
+  createStateSnapshot: () => Promise<StateSnapshot | null>;
 }
 
 export interface InitActions {

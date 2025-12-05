@@ -8,6 +8,7 @@ import { useShallow } from "zustand/react/shallow";
 import { TauriService, NotificationType } from "@/services/tauriService";
 import { ChannelSelector } from "@/components/ChannelSelector";
 import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
+import { handleError } from "@/utils/errorHandler";
 
 interface ICAAnalysisPanelProps {
   apiService: ApiService;
@@ -159,7 +160,12 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
             "ICA Analysis Complete",
             `Extracted ${recentResult.results.components.length} independent components.`,
             NotificationType.Success,
-          ).catch(console.error);
+          ).catch((error) =>
+            handleError(error, {
+              source: "ICA Notification",
+              severity: "silent",
+            }),
+          );
         }
       } else if (ica.submitError) {
         // Mutation failed while unmounted
@@ -254,7 +260,9 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
         "ICA Analysis Started",
         `Processing ${icaSelectedChannels.length} channels. You can switch tabs while this runs.`,
         NotificationType.Info,
-      ).catch(console.error);
+      ).catch((error) =>
+        handleError(error, { source: "ICA Notification", severity: "silent" }),
+      );
     }
 
     try {
@@ -268,7 +276,12 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
               "ICA Analysis Complete",
               `Extracted ${result.results.components.length} independent components.`,
               NotificationType.Success,
-            ).catch(console.error);
+            ).catch((error) =>
+              handleError(error, {
+                source: "ICA Notification",
+                severity: "silent",
+              }),
+            );
           }
         },
         onError: (error) => {
@@ -283,13 +296,23 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
                 "ICA Analysis Cancelled",
                 "Analysis was cancelled by user.",
                 NotificationType.Warning,
-              ).catch(console.error);
+              ).catch((error) =>
+                handleError(error, {
+                  source: "ICA Notification",
+                  severity: "silent",
+                }),
+              );
             } else {
               TauriService.createNotification(
                 "ICA Analysis Failed",
                 errorMessage,
                 NotificationType.Error,
-              ).catch(console.error);
+              ).catch((error) =>
+                handleError(error, {
+                  source: "ICA Notification",
+                  severity: "silent",
+                }),
+              );
             }
           }
         },
@@ -304,7 +327,12 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
           "ICA Error",
           "Failed to start analysis",
           NotificationType.Error,
-        ).catch(console.error);
+        ).catch((error) =>
+          handleError(error, {
+            source: "ICA Notification",
+            severity: "silent",
+          }),
+        );
       }
     }
   };
@@ -318,7 +346,9 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
         "Cancelling...",
         "Attempting to cancel ICA analysis",
         NotificationType.Warning,
-      ).catch(console.error);
+      ).catch((error) =>
+        handleError(error, { source: "ICA Notification", severity: "silent" }),
+      );
     }
   };
 

@@ -8,7 +8,6 @@ import {
   useChunkData,
   useOverviewData,
   useOverviewProgress,
-  useInvalidateTimeSeriesCache,
 } from "@/hooks/useTimeSeriesData";
 import {
   Card,
@@ -21,12 +20,18 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ChannelSelector } from "@/components/ChannelSelector";
-import { Activity, AlertCircle, ExternalLink, Loader2 } from "lucide-react";
+import {
+  Activity,
+  AlertCircle,
+  ExternalLink,
+  GripHorizontal,
+  Loader2,
+} from "lucide-react";
 import * as echarts from "echarts";
 import { usePopoutWindows } from "@/hooks/usePopoutWindows";
 import { useTimeSeriesAnnotations } from "@/hooks/useAnnotations";
 import { AnnotationContextMenu } from "@/components/annotations/AnnotationContextMenu";
-import { PlotInfo, PlotAnnotation } from "@/types/annotations";
+import { PlotInfo } from "@/types/annotations";
 import { PreprocessingOptions } from "@/types/persistence";
 import {
   applyPreprocessing,
@@ -36,6 +41,7 @@ import { OverviewPlot } from "@/components/OverviewPlot";
 import { ChunkNavigator } from "@/components/visualization/ChunkNavigator";
 import { QuickFilters } from "@/components/visualization/QuickFilters";
 import { useWasm } from "@/hooks/useWasm";
+import { ChartErrorBoundary } from "@/components/ChartErrorBoundary";
 
 // ECharts type extensions for internal API access
 interface EChartsInstanceWithCustomProps extends echarts.ECharts {
@@ -58,8 +64,7 @@ interface TimeSeriesPlotProps {
 
 // Internal component - wrapped with memo at export
 function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
-  // WASM signal processing for high-performance decimation
-  const { isReady: wasmReady, decimate: wasmDecimate } = useWasm();
+  const { decimate: wasmDecimate } = useWasm();
 
   // OPTIMIZED: Select specific properties instead of entire objects to prevent re-renders
   // Each selector returns only what's needed, avoiding re-renders from unrelated state changes
@@ -72,6 +77,7 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   const plotChunkStart = useAppStore((state) => state.plot.chunkStart);
   const plotChunkSize = useAppStore((state) => state.plot.chunkSize);
   const plotCurrentChunk = useAppStore((state) => state.plot.currentChunk);
+  const chartHeight = useAppStore((state) => state.plot.chartHeight);
   const isPersistenceRestored = useAppStore(
     (state) => state.isPersistenceRestored,
   );
@@ -83,8 +89,7 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     (state) => state.setSelectedChannels,
   );
 
-  const { createWindow, updateWindowData, broadcastToType } =
-    usePopoutWindows();
+  const { createWindow, broadcastToType } = usePopoutWindows();
 
   // Annotation support for time series
   const timeSeriesAnnotations = useTimeSeriesAnnotations({
@@ -116,16 +121,6 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     return fileAnnotations?.globalAnnotations || [];
   }, [fileAnnotations]);
 
-  // Debug log when annotations change
-  useEffect(() => {
-    console.log(
-      "[ANNOTATIONS] Annotations updated for file:",
-      filePath,
-      "count:",
-      annotationsFromStore.length,
-    );
-  }, [annotationsFromStore, filePath]);
-
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<echarts.ECharts | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -146,7 +141,10 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   const [currentTime, setCurrentTime] = useState(
     (plotChunkStart || 0) / (selectedFile?.sample_rate || 256),
   );
-  const [duration, setDuration] = useState(0);
+
+  // Derive duration directly from selectedFile to prevent stale values
+  // when switching files (was causing overview x-axis to show old file's duration)
+  const duration = selectedFile?.duration || 0;
 
   // Use store as single source of truth for selected channels
   // This avoids race conditions between local state and store state
@@ -163,8 +161,10 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     plotPreprocessing || getDefaultPreprocessing(),
   );
 
-  // Cache invalidation utilities
-  const { invalidateFile } = useInvalidateTimeSeriesCache();
+  // Refs for vertical resize handling (chartHeight comes from store)
+  const isResizingRef = useRef(false);
+  const resizeStartYRef = useRef(0);
+  const resizeStartHeightRef = useRef(0);
 
   const chunkSize = useMemo(() => {
     if (!selectedFile) return 0;
@@ -187,43 +187,19 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       selectedFile.total_samples || Math.floor(duration * sampleRate);
 
     let maxPoints: number;
-    let strategy: string;
 
-    // For small files (< 1 minute), use more points to show detail
     if (duration < 60) {
+      // Small files: more points for detail
       maxPoints = Math.min(totalSamples, 1000);
-      strategy = "small file";
-    }
-    // For medium files (1-10 minutes), scale proportionally
-    // Aim for ~100-200 points per minute for good variation visibility
-    else if (duration < 600) {
-      const pointsPerMinute = 150;
+    } else if (duration < 600) {
+      // Medium files: scale proportionally (~150 points/minute)
+      maxPoints = Math.min(Math.floor((duration / 60) * 150), 2000);
+    } else {
+      // Large files: logarithmic scale, capped at 5000
       const minutes = duration / 60;
-      maxPoints = Math.min(Math.floor(pointsPerMinute * minutes), 2000);
-      strategy = "medium file (proportional)";
-    }
-    // For large files (10+ minutes), use a logarithmic scale
-    // This ensures we get enough variation without requesting too many points
-    // Formula: base_points + log_factor * log(duration_in_minutes)
-    else {
-      const minutes = duration / 60;
-      const basePoints = 1500;
-      const logFactor = 500;
-      const calculatedPoints =
-        basePoints + Math.floor(logFactor * Math.log10(minutes));
-      // Cap between 1500 and 5000 points for very large files
+      const calculatedPoints = 1500 + Math.floor(500 * Math.log10(minutes));
       maxPoints = Math.min(Math.max(calculatedPoints, 1500), 5000);
-      strategy = "large file (logarithmic)";
     }
-
-    const decimationRatio = totalSamples / maxPoints;
-    console.log(
-      `[OVERVIEW] Adaptive decimation - Strategy: ${strategy}, Duration: ${duration.toFixed(
-        1,
-      )}s, ` +
-        `Total samples: ${totalSamples.toLocaleString()}, Overview points: ${maxPoints.toLocaleString()}, ` +
-        `Decimation ratio: ${decimationRatio.toFixed(1)}x`,
-    );
 
     return maxPoints;
   }, [
@@ -235,12 +211,10 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   // Only enable queries when chart is ready to avoid premature data fetching
   const [isChartReady, setIsChartReady] = useState(false);
 
-  // TanStack Query: Load chunk data
   const {
     data: chunkData,
     isLoading: chunkLoading,
     error: chunkError,
-    refetch: refetchChunk,
   } = useChunkData(
     apiService,
     selectedFile?.file_path || "",
@@ -259,14 +233,9 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     !!(selectedFile && selectedChannels.length > 0 && isChartReady),
   );
 
-  // TanStack Query: Load overview data in background as soon as file is selected
-  // Use adaptive decimation based on file size for optimal overview visualization
-  // IMPORTANT: Removed isChartReady dependency - overview loads in background
-  // even when user is on other tabs, so it's cached when they switch to visualization
   const {
     data: overviewData,
     isLoading: overviewLoading,
-    error: overviewError,
     refetch: refetchOverview,
   } = useOverviewData(
     apiService,
@@ -294,11 +263,7 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     const isComplete = overviewProgress?.is_complete;
     const wasComplete = prevOverviewCompleteRef.current;
 
-    // Detect transition from incomplete to complete
     if (isComplete && wasComplete === false) {
-      console.log(
-        "[TimeSeriesPlot] Overview generation completed, refetching data...",
-      );
       refetchOverview();
     }
 
@@ -351,12 +316,6 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
         return;
       }
 
-      console.log("[ECharts] Initializing chart with dimensions:", {
-        clientWidth,
-        clientHeight,
-      });
-
-      // Get existing instance if any, or create new one
       let chart = echarts.getInstanceByDom(chartRef.current);
 
       if (!chart) {
@@ -384,96 +343,32 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       resizeObserver.observe(chartRef.current);
       resizeObserverRef.current = resizeObserver;
 
-      console.log("[ECharts] Chart initialized successfully");
-
-      // Add right-click handler for annotations
       chartRef.current.addEventListener("contextmenu", handleChartRightClick);
 
-      // Listen for clicks on markLine elements directly
       chart.on("click", (params: echarts.ECElementEvent) => {
         if (params.componentType === "markLine") {
-          console.log("[ECharts] Clicked on markLine element:", params);
-          // Store which annotation was clicked for the contextmenu handler
           (chart as EChartsInstanceWithCustomProps).__lastClickedMarkLineValue =
             params.value as number;
         }
       });
 
-      // Listen for contextmenu on markLine elements
-      chart.getZr().on("contextmenu", (params: any) => {
-        const event = params.event;
-        const target = params.target;
-
-        console.log("[ECharts] ZRender contextmenu event:", { target, event });
-
-        // Check if the click target is a markLine element
-        if (
-          target &&
-          target.parent &&
-          target.parent.__ecComponentInfo?.mainType === "series"
-        ) {
-          // Get the series index and check if it has markLine
-          const seriesIndex = target.parent.__ecComponentInfo.index;
-          const option = chart.getOption() as EChartsOptionWithSeries;
-          const series = option.series;
-
-          if (series?.[seriesIndex]?.markLine) {
-            console.log(
-              "[ECharts] Right-clicked on annotation markLine, series:",
-              seriesIndex,
-            );
-
-            // Try to find which specific markLine was clicked
-            // The target might have data about the markLine position
-            if (target.position) {
-              console.log(
-                "[ECharts] MarkLine target position:",
-                target.position,
-              );
-            }
-          }
-        }
-      });
-
-      // Listen to dataZoom events (minimap) to persist position when user navigates
       chart.on("datazoom", (event: any) => {
-        // Get the current start value from the dataZoom event
-        const startPercent = event.start; // 0-100 percentage
-        const endPercent = event.end; // 0-100 percentage
-
-        // Always get the latest state from the store
+        const startPercent = event.start;
         const currentFile = useAppStore.getState().fileManager.selectedFile;
 
         if (startPercent !== undefined && currentFile) {
-          const duration = currentFile.duration;
-          const newStartTime = (startPercent / 100) * duration;
-
-          // IMPORTANT: Convert time in seconds to samples for persistence
-          // Store expects chunkStart in samples, not seconds
+          const newStartTime = (startPercent / 100) * currentFile.duration;
           const chunkStartSamples = Math.floor(
             newStartTime * currentFile.sample_rate,
           );
-
-          console.log(
-            "[ECharts] DataZoom event - updating position to:",
-            newStartTime,
-            "seconds (",
-            chunkStartSamples,
-            "samples)",
-          );
-
-          // Update state and trigger persistence
           setCurrentTime(newStartTime);
           updatePlotState({ chunkStart: chunkStartSamples });
         }
       });
 
-      // Render any pending data that arrived before chart was ready
       if (pendingRenderRef.current) {
-        console.log("[ECharts] Rendering pending data after initialization");
         const { chunkData, startTime } = pendingRenderRef.current;
         pendingRenderRef.current = null;
-        // Use setTimeout to ensure chart is fully ready
         setTimeout(() => renderChart(chunkData, startTime), 0);
       }
     };
@@ -481,8 +376,6 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     initChart();
 
     return () => {
-      console.log("[ECharts] Cleaning up chart instance");
-      // Remove right-click handler
       if (chartRef.current) {
         chartRef.current.removeEventListener(
           "contextmenu",
@@ -512,53 +405,26 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       return null;
     }
 
-    const startTime = performance.now();
-    console.log(
-      "[PERF] Starting preprocessing for",
-      chunkData.data.length,
-      "channels",
-    );
-
-    // Use shallow clone instead of JSON.parse(JSON.stringify())
-    // which was causing ~5MB deep clones 10+ times per minute.
-    // The map() already creates new arrays, and we return a new object,
-    // so we don't need to deep clone the frozen TanStack Query result.
     const preprocessedData = chunkData.data.map((channelData: number[]) =>
       applyPreprocessing(channelData, selectedFile!.sample_rate, preprocessing),
     );
 
-    const elapsed = performance.now() - startTime;
-    console.log(`[PERF] Preprocessing completed in ${elapsed.toFixed(2)}ms`);
-
-    // Return new object with processed data - spread operator preserves all metadata fields
-    // while creating a new object reference (avoiding mutation of frozen TanStack Query result)
     return {
       ...chunkData,
       data: preprocessedData,
     };
   }, [chunkData, selectedFile, preprocessing]);
 
-  // Process and render chunk data when query data changes
   useEffect(() => {
     if (!preprocessedChunkData) return;
-
-    console.log("[ECharts] Chunk data received from query:", {
-      dataLength: preprocessedChunkData.data?.length,
-      timestampsLength: preprocessedChunkData.timestamps?.length,
-      channels: preprocessedChunkData.channels?.length,
-    });
-
     setCurrentChunk(preprocessedChunkData);
     renderChart(preprocessedChunkData, currentTime);
   }, [preprocessedChunkData, currentTime, timeWindow]);
 
-  // Memoize annotation markLine config to avoid rebuilding on every update
   const annotationMarkLine = useMemo(() => {
     if (annotationsFromStore.length === 0) return undefined;
 
-    const startTime = performance.now();
-
-    const markLine = {
+    return {
       symbol: ["none", "none"],
       silent: false,
       animation: false,
@@ -603,18 +469,11 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
         },
       })),
     };
-
-    const elapsed = performance.now() - startTime;
-    console.log(`[PERF] Annotation markLine built in ${elapsed.toFixed(2)}ms`);
-
-    return markLine;
   }, [annotationsFromStore]);
 
-  // Separate effect for updating annotations without re-rendering the entire chart
   useEffect(() => {
     if (!chartInstanceRef.current || !isChartReady) return;
 
-    // Only update markLine in the first series
     const currentOption =
       chartInstanceRef.current.getOption() as EChartsOptionWithSeries;
     if (
@@ -622,18 +481,9 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       !currentOption.series ||
       currentOption.series.length === 0
     ) {
-      console.log(
-        "[ECharts] Skipping annotation update - chart not ready or no series yet",
-      );
       return;
     }
 
-    console.log(
-      "[ECharts] Updating annotations - count:",
-      annotationsFromStore.length,
-    );
-
-    // Use setOption with notMerge: false to efficiently update just the markLine
     chartInstanceRef.current.setOption(
       {
         series: [
@@ -649,32 +499,18 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     );
   }, [annotationMarkLine, isChartReady]);
 
-  // Load chunk - with TanStack Query, we just update the currentTime state
-  // The query will automatically refetch based on the new query key
   const loadChunk = useCallback(
     (startTime: number) => {
-      if (!selectedFile || selectedChannels.length === 0) {
-        console.log("Cannot load chunk: no file or channels selected");
+      if (
+        !selectedFile ||
+        selectedChannels.length === 0 ||
+        selectedFile.duration === 0
+      ) {
         return;
       }
 
-      if (selectedFile.duration === 0) {
-        console.error("File has no duration - data may not be properly loaded");
-        return;
-      }
-
-      // IMPORTANT: Convert time in seconds to samples for persistence
-      // Store expects chunkStart in samples, not seconds
       const chunkStartSamples = Math.floor(
         startTime * selectedFile.sample_rate,
-      );
-
-      console.log(
-        "[ECharts] Loading chunk at time:",
-        startTime,
-        "seconds (",
-        chunkStartSamples,
-        "samples) - triggering persistence",
       );
       setCurrentTime(startTime);
       updatePlotState({ chunkStart: chunkStartSamples });
@@ -720,25 +556,13 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     });
   }, []);
 
-  // Render chart with ECharts
   const renderChart = (chunkData: ChunkData, startTime: number) => {
-    console.log("[ECharts] renderChart called:", {
-      hasChartInstance: !!chartInstanceRef.current,
-      hasData: !!chunkData.data,
-      dataLength: chunkData.data?.length || 0,
-    });
-
     if (!chartInstanceRef.current) {
-      console.warn(
-        "[ECharts] Chart instance not ready, storing for later render",
-      );
-      // Store the data to render once chart is initialized
       pendingRenderRef.current = { chunkData, startTime };
       return;
     }
 
     if (!chunkData.data || chunkData.data.length === 0) {
-      console.warn("[ECharts] No data to render");
       return;
     }
 
@@ -750,9 +574,6 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     // Auto-calculate stable offset based on data range with proper spacing
     let autoOffset = 0;
     if (stableOffsetRef.current === null) {
-      const startTimeRanges = performance.now();
-
-      // Calculate peak-to-peak range for each channel (more robust than just first 100 samples)
       const channelRanges = chunkData.data.map((channelData) => {
         // Sample across the entire chunk for better representation
         const sampleSize = Math.min(1000, channelData.length);
@@ -769,11 +590,6 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
 
         return max - min;
       });
-
-      const elapsedRanges = performance.now() - startTimeRanges;
-      console.log(
-        `[PERF] Channel ranges computed in ${elapsedRanges.toFixed(2)}ms`,
-      );
 
       const maxRange = Math.max(...channelRanges);
       const avgRange =
@@ -792,19 +608,9 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       );
 
       stableOffsetRef.current = autoOffset;
-      console.log("[ECharts] Calculated spacing:", {
-        maxRange,
-        avgRange,
-        spacingMultiplier,
-        finalOffset: autoOffset,
-      });
     } else {
       autoOffset = stableOffsetRef.current;
     }
-
-    console.log("[ECharts] Auto-calculated offset:", autoOffset);
-
-    const startTimeSeries = performance.now();
 
     // Prepare series data with aggressive decimation for better performance
     const series = chunkData.channels.map((channelName, channelIndex) => {
@@ -833,12 +639,6 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
           const offsetValue = value + channelIndex * autoOffset;
           return [time, offsetValue];
         });
-
-        if (channelIndex === 0) {
-          console.log(
-            `[ECharts] WASM LTTB decimated: ${channelData.length} → ${decimatedValues.length} points (${wasmReady ? "WASM" : "JS fallback"})`,
-          );
-        }
       } else {
         // Apply stacking offset without decimation
         decimatedData = channelData.map((value, idx) => {
@@ -848,17 +648,8 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
         });
       }
 
-      // Add annotation markers for the first series only (to avoid duplicates)
-      // Use annotationsFromStore for instant updates
       let markLine = undefined;
       if (channelIndex === 0 && annotationsFromStore.length > 0) {
-        console.log(
-          "[ECharts] Rendering",
-          annotationsFromStore.length,
-          "annotations:",
-          annotationsFromStore.map((a) => `${a.label} at ${a.position}s`),
-        );
-
         markLine = {
           symbol: ["none", "none"], // No arrow symbols
           silent: false, // Enable interaction - IMPORTANT for clicking
@@ -928,14 +719,6 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       };
     });
 
-    const elapsedSeries = performance.now() - startTimeSeries;
-    console.log(
-      `[PERF] Series data built in ${elapsedSeries.toFixed(2)}ms for ${
-        chunkData.channels.length
-      } channels`,
-    );
-
-    // Configure chart options
     const option: echarts.EChartsOption = {
       title: {
         text: "Time Series Plot",
@@ -1027,13 +810,8 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       autoOffset: autoOffset,
     };
 
-    setTimeout(() => {
-      updateChannelLabels();
-    }, 0);
+    setTimeout(updateChannelLabels, 0);
 
-    console.log("[ECharts] Chart rendered with", series.length, "series");
-
-    // Broadcast to popout windows - flatten data structure and include file info
     if (selectedFile) {
       broadcastToType("timeseries", "data-update", {
         ...chunkData,
@@ -1041,7 +819,6 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
         selectedChannels,
         sampleRate: chunkData.sample_rate,
         timeWindow: duration,
-        // Add file information for store sync
         filePath: selectedFile.file_path,
         fileName: selectedFile.file_name,
         duration: selectedFile.duration,
@@ -1049,27 +826,12 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     }
   };
 
-  // Handle file/channel changes
   useEffect(() => {
     const currentFilePath = selectedFile?.file_path;
     const hasChannelsSelected = selectedChannels.length > 0;
     const isNewFile = currentFilePath !== loadedFileRef.current;
 
-    console.log("[ECharts] File/channel effect:", {
-      hasFile: !!selectedFile,
-      channelsSelected: selectedChannels.length,
-      isNewFile,
-      isPersistenceRestored,
-    });
-
-    // Wait for persistence to be restored before loading initial chunk
-    // This prevents loading chunk at 0 and then re-loading at persisted position
-    if (!isPersistenceRestored) {
-      console.log(
-        "[ECharts] Waiting for persistence to restore before loading chunk",
-      );
-      return;
-    }
+    if (!isPersistenceRestored) return;
 
     if (
       selectedFile &&
@@ -1077,63 +839,29 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       hasChannelsSelected &&
       (isNewFile || isInitialChannelSetRef.current)
     ) {
-      console.log("[ECharts] Triggering chunk load");
-
       if (isNewFile) {
-        // Clear all refs and state when switching to a new file
         stableOffsetRef.current = null;
         currentLabelsRef.current = null;
 
-        // Clear channel labels and series data from chart to prevent showing old file's data
         if (chartInstanceRef.current) {
           chartInstanceRef.current.setOption(
-            {
-              graphic: [], // Clear all graphics (channel labels)
-              series: [], // Clear all series data
-            },
+            { graphic: [], series: [] },
             { replaceMerge: ["graphic", "series"] },
           );
         }
-
-        console.log(
-          "[ECharts] Cleared all refs, graphics, and series for new file",
-        );
       }
 
       // Use persisted position if available, otherwise start at 0
-      // IMPORTANT: Get the LATEST plotState from store (not from closure)
-      // This ensures we use the value that was just loaded from file-centric state
       const latestPlotState = useAppStore.getState().plot;
       const startTimeSamples = latestPlotState.chunkStart || 0;
       const startTime = startTimeSamples / selectedFile.sample_rate;
-      console.log(
-        `[ECharts] Loading chunk at time: ${startTime}s (${startTimeSamples} samples, persisted: ${latestPlotState.chunkStart})`,
-      );
       loadChunk(startTime);
       setCurrentTime(startTime);
 
-      setDuration(selectedFile.duration);
       loadedFileRef.current = currentFilePath!;
       isInitialChannelSetRef.current = false;
     } else if (isNewFile && !hasChannelsSelected && selectedFile) {
-      // Don't clear the chart if it's marked as a "new file" but we haven't synced channels yet
-      // This happens during component initialization or when auto-loading analysis on mount
-      // Wait for the channel sync effect to run and populate selectedChannels
-      console.log(
-        "[ECharts] Waiting for channel sync before clearing chart for new file",
-      );
-      // Mark as loaded immediately to prevent re-clearing after channel sync
       loadedFileRef.current = currentFilePath!;
-    } else if (
-      !isNewFile &&
-      !isInitialChannelSetRef.current &&
-      hasChannelsSelected
-    ) {
-      console.log(
-        "[ECharts] Same file, channels changed - will refetch via TanStack Query",
-      );
-      // TanStack Query will automatically refetch when selectedChannels changes
-      // No need for manual debouncing - query already handles deduplication
     }
   }, [
     selectedFile?.file_path,
@@ -1142,69 +870,40 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     isPersistenceRestored,
   ]);
 
-  // Respond to plotState.chunkStart changes from async file-centric state loading
-  // This effect handles the case where the file-centric state loads AFTER the initial effect runs
   const hasRespondedToPersistedChunkRef = useRef(false);
   useEffect(() => {
-    // Only run if:
-    // 1. We have a selected file
-    // 2. We have persistence restored
-    // 3. We haven't already responded to this file's persisted chunk position
-    // 4. The plotChunkStart is non-zero (indicates persisted state has loaded)
     if (
       selectedFile &&
       isPersistenceRestored &&
       !hasRespondedToPersistedChunkRef.current &&
       plotChunkStart > 0
     ) {
-      const startTimeSamples = plotChunkStart;
-      const startTime = startTimeSamples / selectedFile.sample_rate;
-
-      console.log(
-        `[ECharts] Persisted chunk position loaded from file-centric state: ${startTime.toFixed(2)}s (${startTimeSamples} samples) - reloading chunk`,
-      );
-
+      const startTime = plotChunkStart / selectedFile.sample_rate;
       loadChunk(startTime);
       setCurrentTime(startTime);
       hasRespondedToPersistedChunkRef.current = true;
     }
   }, [plotChunkStart, selectedFile, isPersistenceRestored, loadChunk]);
 
-  // Reset the persisted chunk response flag when file changes
   useEffect(() => {
     hasRespondedToPersistedChunkRef.current = false;
   }, [selectedFile?.file_path]);
 
-  // Track the last file path for which we auto-selected channels
   const lastAutoSelectedFileRef = useRef<string | null>(null);
 
-  // Auto-select channels only when switching to a new file
-  // This prevents re-selecting channels when user manually deselects them
   useEffect(() => {
     if (!selectedFile || selectedFile.channels.length === 0) return;
 
     const currentFilePath = selectedFile.file_path;
 
-    // Only auto-select if this is a new file AND store doesn't already have selections for it
     if (
       currentFilePath !== lastAutoSelectedFileRef.current &&
       selectedChannelsFromStore.length === 0
     ) {
-      console.log(
-        "[ECharts] New file detected, auto-selecting first 8 channels:",
-        currentFilePath,
-      );
       const initialChannels = selectedFile.channels.slice(0, 8);
       persistSelectedChannels(initialChannels);
       lastAutoSelectedFileRef.current = currentFilePath;
     } else if (currentFilePath !== lastAutoSelectedFileRef.current) {
-      // File changed but store already has selections (e.g., from persistence)
-      console.log(
-        "[ECharts] New file with existing channel selection:",
-        currentFilePath,
-        "channels:",
-        selectedChannelsFromStore.length,
-      );
       lastAutoSelectedFileRef.current = currentFilePath;
     }
   }, [
@@ -1214,58 +913,37 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     persistSelectedChannels,
   ]);
 
-  // Overview data is now loaded automatically by TanStack Query hook
-  // Log when overview data changes
-  useEffect(() => {
-    if (overviewData) {
-      console.log("[OVERVIEW] Overview loaded successfully from query:", {
-        channels: overviewData.channels.length,
-        pointsPerChannel: overviewData.data[0]?.length || 0,
-      });
-    }
-  }, [overviewData]);
-
-  // Right-click handler for annotations
   const handleChartRightClick = useCallback(
     (e: MouseEvent) => {
       e.preventDefault();
 
       if (!chartInstanceRef.current) return;
 
-      // Check if the chart is fully initialized with series data
       const chartOption = chartInstanceRef.current.getOption();
       if (
         !chartOption ||
         !chartOption.series ||
         (chartOption.series as unknown[]).length === 0
       ) {
-        console.log("[ECharts] Chart not ready for right-click - no series");
         return;
       }
 
-      console.log("[ECharts] Right-click event triggered");
-
-      // Get the chart's bounding rectangle
       const rect = (e.target as HTMLElement).getBoundingClientRect();
       const x = e.clientX - rect.left;
 
-      // Convert pixel position to time value
-      // ECharts uses the convertFromPixel method
       let pointInGrid: number[] | undefined;
       try {
         pointInGrid = chartInstanceRef.current.convertFromPixel(
           { seriesIndex: 0 },
           [x, 0],
         );
-      } catch (err) {
-        console.warn("[ECharts] Failed to convert pixel position:", err);
+      } catch {
         return;
       }
 
       if (pointInGrid && typeof pointInGrid[0] === "number") {
         const timePosition = pointInGrid[0];
 
-        // IMPORTANT: Get current file path from store to avoid stale closure
         const currentFilePath =
           useAppStore.getState().fileManager.selectedFile?.file_path;
         const allAnnotations = useAppStore.getState().annotations.timeSeries;
@@ -1274,32 +952,9 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
           : null;
         const currentAnnotations = fileAnnotations?.globalAnnotations || [];
 
-        console.log(
-          "[ECharts] Converted click position to time:",
-          timePosition,
-        );
-        console.log("[ECharts] Current file path from store:", currentFilePath);
-        console.log("[ECharts] Annotations for this file:", currentAnnotations);
-
-        // Check if clicking on an existing annotation
-        // Use larger tolerance for easier clicking on annotations
         const clickedAnnotation = currentAnnotations.find(
-          (ann) => Math.abs(ann.position - timePosition) < 1.0, // 1 second tolerance
+          (ann) => Math.abs(ann.position - timePosition) < 1.0,
         );
-
-        if (clickedAnnotation) {
-          console.log(
-            "[ECharts] Right-clicked on existing annotation:",
-            clickedAnnotation.label,
-            "at position:",
-            clickedAnnotation.position,
-          );
-        } else {
-          console.log(
-            "[ECharts] Right-clicked on empty space at time:",
-            timePosition,
-          );
-        }
 
         timeSeriesAnnotations.openContextMenu(
           e.clientX,
@@ -1329,45 +984,69 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   const handleTimeWindowChange = (value: number[]) => {
     const newWindow = value[0];
     const sampleRate = selectedFile?.sample_rate || 256;
-    const totalSamples = newWindow * sampleRate * selectedChannels.length;
-
-    // Warn if loading might be slow (>500k samples)
-    if (totalSamples > 500000) {
-      console.warn(
-        `[ECharts] Large data request: ${totalSamples.toLocaleString()} samples may be slow`,
-      );
-    }
-
-    // IMPORTANT: Convert time window in seconds to samples for persistence
-    // Store expects chunkSize in samples, not seconds
     const chunkSizeSamples = Math.floor(newWindow * sampleRate);
-
-    console.log(
-      "[ECharts] Time window changed from",
-      timeWindow,
-      "to",
-      newWindow,
-      "seconds (",
-      chunkSizeSamples,
-      "samples) - triggering persistence",
-    );
     setTimeWindow(newWindow);
     updatePlotState({ chunkSize: chunkSizeSamples });
     // loadChunk will be called automatically when chunkSize updates from timeWindow state change
   };
 
-  const handleSeek = (time: number) => {
-    console.log("[ECharts] Seek requested to:", time);
-    setCurrentTime(time);
-    loadChunk(time);
-  };
+  const handleSeek = useCallback(
+    (time: number) => {
+      setCurrentTime(time);
+      loadChunk(time);
+    },
+    [loadChunk],
+  );
+
+  const handleTimeWindowChangeSingle = useCallback(
+    (window: number) => {
+      handleTimeWindowChange([window]);
+    },
+    [handleTimeWindowChange],
+  );
+
+  // Vertical resize handlers for chart height
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      isResizingRef.current = true;
+      resizeStartYRef.current = e.clientY;
+      resizeStartHeightRef.current = chartHeight;
+      document.body.style.cursor = "ns-resize";
+      document.body.style.userSelect = "none";
+    },
+    [chartHeight],
+  );
+
+  useEffect(() => {
+    const handleResizeMove = (e: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      const delta = e.clientY - resizeStartYRef.current;
+      // Min 150px, no upper limit - let users resize as large as they want
+      const newHeight = Math.max(150, resizeStartHeightRef.current + delta);
+      updatePlotState({ chartHeight: newHeight });
+    };
+
+    const handleResizeEnd = () => {
+      if (isResizingRef.current) {
+        isResizingRef.current = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
+    };
+
+    document.addEventListener("mousemove", handleResizeMove);
+    document.addEventListener("mouseup", handleResizeEnd);
+    return () => {
+      document.removeEventListener("mousemove", handleResizeMove);
+      document.removeEventListener("mouseup", handleResizeEnd);
+    };
+  }, [updatePlotState]);
 
   const handleChannelToggle = (channelName: string, checked: boolean) => {
     const newSelection = checked
       ? [...selectedChannels, channelName]
       : selectedChannels.filter((c) => c !== channelName);
-
-    console.log("[ECharts] Channel toggled:", channelName, "->", checked);
     persistSelectedChannels(newSelection);
   };
 
@@ -1437,13 +1116,8 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
             timeWindow={timeWindow}
             duration={duration}
             loading={loading}
-            onSeek={(time) => {
-              setCurrentTime(time);
-              loadChunk(time);
-            }}
-            onTimeWindowChange={(window) => {
-              handleTimeWindowChange([window]);
-            }}
+            onSeek={handleSeek}
+            onTimeWindowChange={handleTimeWindowChangeSingle}
             onPrev={handlePrevChunk}
             onNext={handleNextChunk}
           />
@@ -1472,8 +1146,8 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
           />
         </div>
 
-        {/* Chart Container */}
-        <div className="flex-1 relative min-h-0">
+        {/* Chart Container - Vertically Resizable */}
+        <div className="relative" style={{ height: chartHeight }}>
           {loading && (
             <div className="absolute inset-0 bg-background/50 backdrop-blur-sm flex items-center justify-center z-10 animate-in fade-in-0 duration-200">
               <div className="flex flex-col items-center gap-3 bg-background border rounded-lg p-6 shadow-lg animate-in zoom-in-95 duration-200">
@@ -1486,11 +1160,17 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
                   ).toLocaleString()}{" "}
                   samples)
                 </div>
-                {/* Cancel button removed - TanStack Query handles request cancellation automatically */}
               </div>
             </div>
           )}
           <div ref={chartRef} className="w-full h-full" />
+        </div>
+        {/* Resize handle - positioned below chart with spacing */}
+        <div
+          className="h-6 cursor-ns-resize flex items-center justify-center hover:bg-muted/30 transition-colors group rounded-b-md border-t border-border/50"
+          onMouseDown={handleResizeStart}
+        >
+          <GripHorizontal className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
         </div>
 
         {/* Channel Selection */}
@@ -1537,5 +1217,14 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   );
 }
 
-// Export memoized version to prevent unnecessary re-renders
-export const TimeSeriesPlotECharts = memo(TimeSeriesPlotEChartsComponent);
+// Memoized component to prevent unnecessary re-renders
+const TimeSeriesPlotEChartsMemo = memo(TimeSeriesPlotEChartsComponent);
+
+// Export wrapped with error boundary for graceful error handling
+export function TimeSeriesPlotECharts(props: TimeSeriesPlotProps) {
+  return (
+    <ChartErrorBoundary chartName="Time Series Plot" minHeight={400}>
+      <TimeSeriesPlotEChartsMemo {...props} />
+    </ChartErrorBoundary>
+  );
+}

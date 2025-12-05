@@ -159,21 +159,7 @@ export class TauriService {
         decorations: true,
       });
 
-      // Pass the analysis data to the window once it's loaded
       previewWindow.once("tauri://created", async () => {
-        console.log(
-          "[DEBUG] Storing analysis preview data for window:",
-          windowLabel,
-        );
-        console.log("[DEBUG] Analysis object keys:", Object.keys(analysis));
-        console.log("[DEBUG] Analysis.channels:", analysis.channels);
-        console.log("[DEBUG] Analysis.Q present:", "Q" in analysis);
-        console.log(
-          "[DEBUG] Analysis.plot_data present:",
-          !!analysis.plot_data,
-        );
-
-        // Store the analysis data temporarily so the preview window can access it
         await api.invoke("store_analysis_preview_data", {
           windowId: windowLabel,
           analysisData: analysis,
@@ -224,24 +210,13 @@ export class TauriService {
 
   static async updateFileManagerState(state: FileManagerState): Promise<void> {
     try {
-      console.log("[TAURI] updateFileManagerState called:", {
-        selected_file: state.selected_file,
-        current_path: state.current_path,
-        selected_channels: state.selected_channels,
-      });
       const api = await getTauriAPI();
-      if (!api) {
-        console.warn(
-          "[TAURI] Tauri API not available, skipping file manager state update",
-        );
-        return;
-      }
+      if (!api) return;
       await api.invoke("update_file_manager_state", {
         fileManagerState: state,
       });
-      console.log("[TAURI] updateFileManagerState succeeded");
     } catch (error) {
-      console.error("[TAURI] Failed to update file manager state:", error);
+      console.error("Failed to update file manager state:", error);
     }
   }
 
@@ -647,12 +622,9 @@ export class TauriService {
       inputFilePath: inputFilePath,
     };
 
-    // Only add optional parameters if they're defined
     if (runtimeHours !== undefined) params.runtimeHours = runtimeHours;
     if (cores !== undefined) params.cores = cores;
     if (nodes !== undefined) params.nodes = nodes;
-
-    console.log("[TauriService] createNSGJob params:", params);
 
     return await api.invoke("create_nsg_job", params);
   }
@@ -1105,6 +1077,16 @@ export class TauriService {
     } catch (error) {
       console.error("[FILE] Failed to segment file:", error);
       throw error;
+    }
+  }
+
+  static async cancelSegmentFile(): Promise<void> {
+    try {
+      const api = await getTauriAPI();
+      if (!api) return;
+      await api.invoke("cancel_segment_file");
+    } catch (error) {
+      console.error("[FILE] Failed to cancel segment file:", error);
     }
   }
 

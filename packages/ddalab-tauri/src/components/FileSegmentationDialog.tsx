@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,13 +20,20 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Progress } from "@/components/ui/progress";
 import { EDFFileInfo } from "@/types/api";
-import { Folder, Loader2, Scissors } from "lucide-react";
+import { Folder, Loader2, Scissors, X } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
 import { formatBytes } from "@/lib/utils";
 import { ApiService } from "@/services/apiService";
 import { useLoadFileInfo } from "@/hooks/useFileManagement";
 import { toast } from "@/components/ui/toaster";
+
+interface SegmentProgress {
+  phase: string;
+  progressPercent: number;
+  message: string;
+}
 
 interface FileSegmentationDialogProps {
   open: boolean;
@@ -69,9 +76,50 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
   );
   const [selectAllChannels, setSelectAllChannels] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState<SegmentProgress | null>(null);
   const [loadedFile, setLoadedFile] = useState<EDFFileInfo | null>(null);
 
   const loadFileInfoMutation = useLoadFileInfo(apiService);
+
+  // Listen for progress events from Tauri - set up when dialog opens
+  useEffect(() => {
+    if (!open) return;
+
+    let unlisten: (() => void) | undefined;
+
+    const setupListener = async () => {
+      if (typeof window === "undefined") return;
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        unlisten = await listen<SegmentProgress>(
+          "segment-file-progress",
+          (event) => {
+            console.log("[SEGMENTATION] Progress event:", event.payload);
+            setProgress(event.payload);
+          },
+        );
+      } catch {
+        // Not in Tauri environment
+      }
+    };
+
+    setupListener();
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [open]);
+
+  const handleCancel = useCallback(async () => {
+    if (isProcessing) {
+      await TauriService.cancelSegmentFile();
+      setIsProcessing(false);
+      setProgress(null);
+      toast.info("Cancelled", "File cutting operation was cancelled");
+    }
+  }, [isProcessing]);
 
   // Load full file info when dialog opens
   useEffect(() => {
@@ -201,17 +249,23 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
     };
 
     try {
+      setProgress(null);
       setIsProcessing(true);
       await onSegment(params);
+      // Brief delay to show completion state
+      await new Promise((resolve) => setTimeout(resolve, 500));
       onClose();
     } catch (error) {
       console.error("Segmentation failed:", error);
-      toast.error(
-        "Segmentation Failed",
-        error instanceof Error ? error.message : String(error),
-      );
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      // Don't show error toast if cancelled by user
+      if (!errorMessage.includes("cancelled")) {
+        toast.error("Segmentation Failed", errorMessage);
+      }
     } finally {
       setIsProcessing(false);
+      setProgress(null);
     }
   };
 
@@ -281,14 +335,49 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
         {/* Processing Overlay */}
         {isProcessing && (
           <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center rounded-lg">
-            <div className="bg-card border rounded-lg p-6 shadow-lg flex flex-col items-center gap-4">
-              <Loader2 className="h-12 w-12 animate-spin text-primary" />
-              <div className="text-center space-y-1">
-                <div className="font-medium text-lg">Processing File</div>
-                <div className="text-sm text-muted-foreground">
-                  Cutting file segment, please wait...
+            <div className="bg-card border rounded-lg p-6 shadow-lg flex flex-col items-center gap-4 min-w-[320px]">
+              {progress?.phase === "complete" ? (
+                <div className="h-12 w-12 rounded-full bg-green-500 flex items-center justify-center">
+                  <Scissors className="h-6 w-6 text-white" />
                 </div>
+              ) : (
+                <Loader2 className="h-12 w-12 animate-spin text-primary" />
+              )}
+              <div className="text-center space-y-2 w-full">
+                <div className="font-medium text-lg">
+                  {progress?.phase === "loading" && "Loading File..."}
+                  {progress?.phase === "processing" && "Processing..."}
+                  {progress?.phase === "writing" && "Writing Output..."}
+                  {progress?.phase === "complete" && "Complete!"}
+                  {(!progress ||
+                    !["loading", "processing", "writing", "complete"].includes(
+                      progress.phase,
+                    )) &&
+                    "Processing File..."}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  {progress?.message || "Cutting file segment, please wait..."}
+                </div>
+                {progress &&
+                  progress.progressPercent > 0 &&
+                  progress.phase !== "complete" && (
+                    <Progress
+                      value={progress.progressPercent}
+                      className="w-full"
+                    />
+                  )}
               </div>
+              {progress?.phase !== "complete" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCancel}
+                  className="mt-2"
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  Cancel
+                </Button>
+              )}
             </div>
           </div>
         )}

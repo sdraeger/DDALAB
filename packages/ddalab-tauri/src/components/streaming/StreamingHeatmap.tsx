@@ -23,13 +23,14 @@ import { Label } from "@/components/ui/label";
 import { TrendingUp, Maximize2, Minimize2, Download } from "lucide-react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { ChartErrorBoundary } from "@/components/ChartErrorBoundary";
 
 interface StreamingHeatmapProps {
   streamId: string;
   height?: number;
 }
 
-export function StreamingHeatmap({
+function StreamingHeatmapContent({
   streamId,
   height = 400,
 }: StreamingHeatmapProps) {
@@ -394,5 +395,17 @@ export function StreamingHeatmap({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// Export wrapped with error boundary
+export function StreamingHeatmap(props: StreamingHeatmapProps) {
+  return (
+    <ChartErrorBoundary
+      chartName="Streaming Heatmap"
+      minHeight={props.height || 400}
+    >
+      <StreamingHeatmapContent {...props} />
+    </ChartErrorBoundary>
   );
 }
