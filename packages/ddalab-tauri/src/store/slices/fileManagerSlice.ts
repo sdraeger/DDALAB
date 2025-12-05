@@ -5,6 +5,7 @@
 import { TauriService } from "@/services/tauriService";
 import { getInitializedFileStateManager } from "@/services/fileStateInitializer";
 import { getStatePersistenceService } from "@/services/statePersistenceService";
+import { handleError } from "@/utils/errorHandler";
 import type {
   FilePlotState,
   FileDDAState,
@@ -65,14 +66,22 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
         show_hidden: fileManager.showHidden,
       };
 
-      TauriService.updateFileManagerState(fileManagerState).catch(
-        console.error,
+      TauriService.updateFileManagerState(fileManagerState).catch((error) =>
+        handleError(error, {
+          source: "File Manager Persistence",
+          severity: "silent",
+        }),
       );
 
       if (persistenceService) {
         persistenceService
           .saveFileManagerState(fileManagerState)
-          .catch(console.error);
+          .catch((error) =>
+            handleError(error, {
+              source: "File Manager Persistence",
+              severity: "silent",
+            }),
+          );
       }
     }
   },
@@ -105,14 +114,22 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
         show_hidden: fileManager.showHidden,
       };
 
-      TauriService.updateFileManagerState(fileManagerState).catch(
-        console.error,
+      TauriService.updateFileManagerState(fileManagerState).catch((error) =>
+        handleError(error, {
+          source: "File Manager Persistence",
+          severity: "silent",
+        }),
       );
 
       if (persistenceService) {
         persistenceService
           .saveFileManagerState(fileManagerState)
-          .catch(console.error);
+          .catch((error) =>
+            handleError(error, {
+              source: "File Manager Persistence",
+              severity: "silent",
+            }),
+          );
       }
     }
   },
@@ -439,7 +456,12 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
             sort_by: updatedFileManager.sortBy,
             sort_order: updatedFileManager.sortOrder,
             show_hidden: updatedFileManager.showHidden,
-          }).catch(console.error);
+          }).catch((error) =>
+            handleError(error, {
+              source: "File Manager Persistence",
+              severity: "silent",
+            }),
+          );
 
           if (isPersistenceRestored && file) {
             console.log(
@@ -524,7 +546,12 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
         sort_by: fileManager.sortBy,
         sort_order: fileManager.sortOrder,
         show_hidden: fileManager.showHidden,
-      }).catch(console.error);
+      }).catch((error) =>
+        handleError(error, {
+          source: "File Manager Persistence",
+          severity: "silent",
+        }),
+      );
     }
   },
 
@@ -550,7 +577,12 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
         sort_by: fileManager.sortBy,
         sort_order: fileManager.sortOrder,
         show_hidden: fileManager.showHidden,
-      }).catch(console.error);
+      }).catch((error) =>
+        handleError(error, {
+          source: "File Manager Persistence",
+          severity: "silent",
+        }),
+      );
     }
   },
 

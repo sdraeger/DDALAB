@@ -26,9 +26,6 @@ export function useSubmitICAAnalysis(apiService: ApiService) {
 
   const mutation = useMutation({
     mutationFn: async (request: ICAAnalysisRequest) => {
-      console.log("[ICA Hook] Calling API with request:", request);
-
-      // Create new AbortController for this request
       abortControllerRef.current = new AbortController();
 
       try {
@@ -36,39 +33,26 @@ export function useSubmitICAAnalysis(apiService: ApiService) {
           request,
           abortControllerRef.current.signal,
         );
-        console.log("[ICA Hook] API returned:", result);
         return result;
       } catch (error) {
         if (error instanceof Error && error.name === "CanceledError") {
-          console.log("[ICA Hook] Request was cancelled");
           throw new Error("Analysis cancelled by user");
         }
-        console.error("[ICA Hook] API call failed:", error);
         throw error;
       } finally {
         abortControllerRef.current = null;
       }
     },
-    onMutate: (variables) => {
-      console.log("[ICA Hook] Mutation starting with variables:", variables);
-    },
     onSuccess: (result) => {
-      console.log("[ICA Hook] Mutation succeeded:", result.id);
-      // Add the new result to the cache using optimistic update
-      // No need to invalidate - the result is complete from the mutation response
       queryClient.setQueryData<ICAResult[]>(icaKeys.results(), (old) => {
         return old ? [result, ...old] : [result];
       });
     },
-    onError: (error) => {
-      console.error("[ICA Hook] Mutation failed:", error);
-    },
-    retry: 0, // Don't retry on failure - user can manually retry
+    retry: 0,
   });
 
   const cancel = useCallback(() => {
     if (abortControllerRef.current) {
-      console.log("[ICA Hook] Cancelling request");
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }

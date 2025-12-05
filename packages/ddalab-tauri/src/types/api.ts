@@ -115,6 +115,13 @@ export interface DDAVariantResult {
   network_motifs?: NetworkMotifData; // Network motif data for CD-DDA
 }
 
+/** Plot data for DDA visualization */
+export interface DDAPlotData {
+  heatmapData?: number[][];
+  lineData?: Record<string, number[]>;
+  scales?: number[];
+}
+
 export interface DDAResult {
   id: string;
   name?: string;
@@ -134,6 +141,8 @@ export interface DDAResult {
   completed_at?: string;
   error_message?: string;
   source?: "local" | "nsg"; // Source of the analysis results
+  /** Optional plot data for visualization */
+  plot_data?: DDAPlotData | null;
 }
 
 export interface HealthResponse {

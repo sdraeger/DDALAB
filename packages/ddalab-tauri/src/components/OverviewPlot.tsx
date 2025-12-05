@@ -151,32 +151,34 @@ function OverviewPlotComponent({
       (_, i) => (i / numPoints) * duration,
     );
 
-    // Stack channels with small offset for visibility
-    const channelOffset = 10; // Small offset since this is just overview
+    // Stack channels with offset and track min/max in single pass
+    const channelOffset = 10;
+    let yMin = Infinity;
+    let yMax = -Infinity;
     const processedData = overviewData.data.map((channelData, channelIndex) => {
-      return channelData.map((value) => value + channelIndex * channelOffset);
+      const offset = channelIndex * channelOffset;
+      return channelData.map((value) => {
+        const v = value + offset;
+        if (v < yMin) yMin = v;
+        if (v > yMax) yMax = v;
+        return v;
+      });
     });
+    const yPadding = (yMax - yMin) * 0.1 || 1;
 
     const data: uPlot.AlignedData = [timeData, ...processedData];
 
-    // Create series config
     const series: uPlot.Series[] = [
-      {}, // time axis
+      {},
       ...overviewData.channels.map((channelName, idx) => ({
         label: channelName,
         stroke: getChannelColor(idx),
-        width: 1, // Line width for overview (was 0.5 but too thin on some displays)
+        width: 1,
         points: { show: false },
         show: true,
-        scale: "y", // Explicit scale reference
+        scale: "y",
       })),
     ];
-
-    // Calculate y-axis range from data for explicit scale bounds
-    const allValues = processedData.flat();
-    const yMin = Math.min(...allValues);
-    const yMax = Math.max(...allValues);
-    const yPadding = (yMax - yMin) * 0.1; // 10% padding
 
     const opts: uPlot.Options = {
       width: container.clientWidth,

@@ -54,15 +54,6 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
           annotation,
         );
       }
-
-      console.log("[ANNOTATION] After adding annotation, state:", {
-        filePath,
-        globalAnnotationsCount:
-          state.annotations.timeSeries[filePath].globalAnnotations.length,
-        globalAnnotations:
-          state.annotations.timeSeries[filePath].globalAnnotations,
-        annotation,
-      });
     });
 
     setTimeout(async () => {
@@ -94,16 +85,9 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
               "annotations",
               fileAnnotationState,
             );
-            console.log(
-              "[ANNOTATION] Saved to FileStateManager:",
-              annotation.id,
-            );
           }
-        } catch (err) {
-          console.error(
-            "[ANNOTATION] Failed to save to FileStateManager:",
-            err,
-          );
+        } catch {
+          // Silent fail - annotation save is handled by primary database
         }
       }
     }, 100);
@@ -117,9 +101,11 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
       const updateAnnotationInArray = (arr: PlotAnnotation[]) => {
         const index = arr.findIndex((a) => a.id === annotationId);
         if (index !== -1) {
-          Object.assign(arr[index], updates, {
+          arr[index] = {
+            ...arr[index],
+            ...updates,
             updatedAt: new Date().toISOString(),
-          });
+          };
         }
       };
 
@@ -159,16 +145,9 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
               "annotations",
               fileAnnotationState,
             );
-            console.log(
-              "[ANNOTATION] Updated in FileStateManager:",
-              annotationId,
-            );
           }
-        } catch (err) {
-          console.error(
-            "[ANNOTATION] Failed to update in FileStateManager:",
-            err,
-          );
+        } catch {
+          // Silent fail - annotation update is handled by primary database
         }
       }
     }, 100);
@@ -200,7 +179,6 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
       if (TauriService.isTauri()) {
         try {
           await TauriService.deleteAnnotation(annotationId);
-          console.log("[ANNOTATION] Deleted from database:", annotationId);
 
           const fileStateManager = getInitializedFileStateManager();
           const currentAnnotations = get().annotations;
@@ -228,13 +206,9 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
               "annotations",
               fileAnnotationState,
             );
-            console.log(
-              "[ANNOTATION] Deleted from FileStateManager:",
-              annotationId,
-            );
           }
         } catch (err) {
-          console.error("[ANNOTATION] Failed to delete annotation:", err);
+          console.error("Failed to delete annotation:", err);
         }
       }
     }, 100);
@@ -257,31 +231,13 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
 
   loadAllFileAnnotations: async () => {
     if (!TauriService.isTauri()) {
-      console.log(
-        "[ANNOTATION] Not in Tauri environment, skipping load all annotations",
-      );
       return;
     }
 
     try {
-      console.log(
-        "[ANNOTATION] Loading annotations from both SQLite database and FileStateManager...",
-      );
-
       const sqliteAnnotations = await TauriService.getAllAnnotations();
-      console.log(
-        "[ANNOTATION] Found",
-        Object.keys(sqliteAnnotations).length,
-        "files with annotations in SQLite database",
-      );
-
       const fileStateManager = getInitializedFileStateManager();
       const trackedFiles = fileStateManager.getTrackedFiles();
-      console.log(
-        "[ANNOTATION] Found",
-        trackedFiles.length,
-        "tracked files in FileStateManager",
-      );
 
       const mergedAnnotations: Record<string, TimeSeriesAnnotations> = {};
 
@@ -294,11 +250,6 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
         ).length;
 
         if (globalCount > 0 || channelCount > 0) {
-          console.log("[ANNOTATION] Loading from SQLite for file:", filePath, {
-            globalCount,
-            channelsCount: channelCount,
-          });
-
           const globalAnnotations = fileAnnotations.global_annotations.map(
             (ann) => ({
               ...ann,
@@ -343,17 +294,6 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
                   0);
 
             if (hasAnnotations) {
-              console.log(
-                "[ANNOTATION] Loading from FileStateManager for file:",
-                filePath,
-                {
-                  globalCount: annotationState.timeSeries?.global?.length || 0,
-                  channelsCount: Object.keys(
-                    annotationState.timeSeries?.channels || {},
-                  ).length,
-                },
-              );
-
               mergedAnnotations[filePath] = {
                 filePath: filePath,
                 globalAnnotations: annotationState.timeSeries?.global || [],
@@ -361,25 +301,16 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
               };
             }
           }
-        } catch (err) {
-          console.error(
-            "[ANNOTATION] Failed to load from FileStateManager for file:",
-            filePath,
-            err,
-          );
+        } catch {
+          // Silent fail for individual file
         }
       }
 
       set((state) => {
         state.annotations.timeSeries = mergedAnnotations;
       });
-
-      console.log(
-        "[ANNOTATION] Finished loading all annotations. Total files with annotations:",
-        Object.keys(get().annotations.timeSeries).length,
-      );
     } catch (err) {
-      console.error("[ANNOTATION] Failed to load all file annotations:", err);
+      console.error("Failed to load annotations:", err);
     }
   },
 
@@ -429,15 +360,8 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
             "annotations",
             fileAnnotationState,
           );
-          console.log(
-            "[ANNOTATION] Saved DDA annotation to FileStateManager:",
-            annotation.id,
-          );
-        } catch (err) {
-          console.error(
-            "[ANNOTATION] Failed to save DDA annotation to FileStateManager:",
-            err,
-          );
+        } catch {
+          // Silent fail - DDA annotation save is non-critical
         }
       }
     }, 100);
@@ -460,9 +384,11 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
         (a) => a.id === annotationId,
       );
       if (index !== -1) {
-        Object.assign(plotAnnotations.annotations[index], updates, {
+        plotAnnotations.annotations[index] = {
+          ...plotAnnotations.annotations[index],
+          ...updates,
           updatedAt: new Date().toISOString(),
-        });
+        };
       }
     });
 
@@ -496,15 +422,8 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
             "annotations",
             fileAnnotationState,
           );
-          console.log(
-            "[ANNOTATION] Updated DDA annotation in FileStateManager:",
-            annotationId,
-          );
-        } catch (err) {
-          console.error(
-            "[ANNOTATION] Failed to update DDA annotation in FileStateManager:",
-            err,
-          );
+        } catch {
+          // Silent fail - DDA annotation update is non-critical
         }
       }
     }, 100);
@@ -555,15 +474,8 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
             "annotations",
             fileAnnotationState,
           );
-          console.log(
-            "[ANNOTATION] Deleted DDA annotation from FileStateManager:",
-            annotationId,
-          );
-        } catch (err) {
-          console.error(
-            "[ANNOTATION] Failed to delete DDA annotation from FileStateManager:",
-            err,
-          );
+        } catch {
+          // Silent fail - DDA annotation delete is non-critical
         }
       }
     }, 100);

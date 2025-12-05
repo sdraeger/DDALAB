@@ -143,23 +143,12 @@ export function usePopoutListener(
 
     const listeners: UnlistenFn[] = [];
 
-    // Listen for data updates
     const setupDataListener = async () => {
-      console.log(`Setting up data listener for window: ${currentWindowId}`);
       const unlisten = await listen(
         `data-update-${currentWindowId}`,
         (event: any) => {
-          console.log(
-            `Received data update for window: ${currentWindowId}`,
-            event.payload,
-          );
           if (!isLocked) {
             setData(event.payload.data);
-            console.log(`Updated data for window: ${currentWindowId}`);
-          } else {
-            console.log(
-              `Window ${currentWindowId} is locked, ignoring data update`,
-            );
           }
         },
       );
@@ -177,12 +166,8 @@ export function usePopoutListener(
       listeners.push(unlisten);
     };
 
-    // Emit ready event to request initial data
     const emitReadyEvent = async () => {
       const { emit } = await import("@tauri-apps/api/event");
-      console.log(
-        `[POPOUT] Emitting popout-ready-${currentWindowId} event to request initial data`,
-      );
       await emit(`popout-ready-${currentWindowId}`, {
         windowId: currentWindowId,
         timestamp: Date.now(),
