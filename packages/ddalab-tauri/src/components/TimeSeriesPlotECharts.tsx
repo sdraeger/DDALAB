@@ -127,6 +127,12 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   const loadedFileRef = useRef<string | null>(null);
   const isInitialChannelSetRef = useRef<boolean>(true);
   const stableOffsetRef = useRef<number | null>(null);
+  // Store the base offset and reference height for scaling
+  const baseOffsetRef = useRef<{
+    offset: number;
+    height: number;
+    avgRange: number;
+  } | null>(null);
   const pendingRenderRef = useRef<{
     chunkData: ChunkData;
     startTime: number;
@@ -571,9 +577,18 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     // Calculate channel offset for stacking with improved spacing algorithm
     const userOffset = channelOffsetSliderRef.current;
 
+    // Reference height for scaling (default chart height)
+    const referenceHeight = 400;
+    const currentHeight = chartHeight || referenceHeight;
+    // Scale factor based on chart height for offset spacing
+    const heightScaleFactor = currentHeight / referenceHeight;
+
     // Auto-calculate stable offset based on data range with proper spacing
     let autoOffset = 0;
-    if (stableOffsetRef.current === null) {
+    let amplitudeScaleFactor = 1.0;
+
+    // Calculate base offset and amplitude scale if not yet computed
+    if (baseOffsetRef.current === null) {
       const channelRanges = chunkData.data.map((channelData) => {
         // Sample across the entire chunk for better representation
         const sampleSize = Math.min(1000, channelData.length);
@@ -596,20 +611,39 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
         channelRanges.reduce((a, b) => a + b, 0) / channelRanges.length;
 
       // Use a spacing multiplier that ensures clear separation
-      // Base spacing is 3x the average range, plus user adjustment
-      // Minimum spacing is 2x max range to prevent any overlap
-      const baseMultiplier = 3.0;
+      // Base spacing is 2.5x the average range, plus user adjustment
+      // Minimum spacing is 1.8x max range to prevent any overlap
+      const baseMultiplier = 2.5;
       const userMultiplier = userOffset / 50; // Convert percentage to multiplier (50% = 1x additional)
       const spacingMultiplier = baseMultiplier + userMultiplier;
 
-      autoOffset = Math.max(
+      const baseOffset = Math.max(
         avgRange * spacingMultiplier,
-        maxRange * 2.0, // Ensure minimum separation of 2x max range
+        maxRange * 1.8, // Ensure minimum separation
       );
 
+      // Store the base offset, reference height, and average range for amplitude scaling
+      baseOffsetRef.current = {
+        offset: baseOffset,
+        height: currentHeight,
+        avgRange: avgRange || 1, // Store avgRange for optimal amplitude calculation
+      };
+      stableOffsetRef.current = baseOffset * heightScaleFactor;
+    }
+
+    // Scale the base offset based on current chart height
+    if (baseOffsetRef.current) {
+      autoOffset = baseOffsetRef.current.offset * heightScaleFactor;
       stableOffsetRef.current = autoOffset;
+
+      // Calculate optimal amplitude scale factor to fill available space
+      // Target: signals should fill ~75% of the space between channels
+      const targetFillRatio = 0.75;
+      const avgRange = baseOffsetRef.current.avgRange || 1;
+      // The amplitude scale makes signals fill targetFillRatio of the offset space
+      amplitudeScaleFactor = (targetFillRatio * autoOffset) / avgRange;
     } else {
-      autoOffset = stableOffsetRef.current;
+      autoOffset = stableOffsetRef.current || 0;
     }
 
     // Prepare series data with aggressive decimation for better performance
@@ -636,14 +670,18 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
           // Approximate the time position based on the decimation ratio
           const originalIdx = Math.round(idx * decimationRatio);
           const time = startTime + originalIdx * originalStep;
-          const offsetValue = value + channelIndex * autoOffset;
+          // Scale amplitude to optimally fill available space between channels
+          const scaledValue = value * amplitudeScaleFactor;
+          const offsetValue = scaledValue + channelIndex * autoOffset;
           return [time, offsetValue];
         });
       } else {
         // Apply stacking offset without decimation
         decimatedData = channelData.map((value, idx) => {
           const time = startTime + idx / chunkData.sample_rate;
-          const offsetValue = value + channelIndex * autoOffset;
+          // Scale amplitude to optimally fill available space between channels
+          const scaledValue = value * amplitudeScaleFactor;
+          const offsetValue = scaledValue + channelIndex * autoOffset;
           return [time, offsetValue];
         });
       }
@@ -841,6 +879,7 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     ) {
       if (isNewFile) {
         stableOffsetRef.current = null;
+        baseOffsetRef.current = null;
         currentLabelsRef.current = null;
 
         if (chartInstanceRef.current) {
@@ -888,6 +927,20 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   useEffect(() => {
     hasRespondedToPersistedChunkRef.current = false;
   }, [selectedFile?.file_path]);
+
+  // Re-render chart when height changes to scale amplitudes appropriately
+  const prevChartHeightRef = useRef(chartHeight);
+  useEffect(() => {
+    if (
+      prevChartHeightRef.current !== chartHeight &&
+      pendingRenderRef.current
+    ) {
+      // Height changed, re-render with the pending data to update amplitude scaling
+      const { chunkData, startTime } = pendingRenderRef.current;
+      renderChart(chunkData, startTime);
+    }
+    prevChartHeightRef.current = chartHeight;
+  }, [chartHeight]);
 
   const lastAutoSelectedFileRef = useRef<string | null>(null);
 
