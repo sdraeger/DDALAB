@@ -105,14 +105,12 @@ export const createPlotSlice: ImmerStateCreator<PlotSlice> = (set, get) => ({
 
       const persistenceService = getStatePersistenceService();
       if (persistenceService) {
-        persistenceService
-          .savePlotState(plotState)
-          .catch((error) =>
-            handleError(error, {
-              source: "Plot State Persistence",
-              severity: "silent",
-            }),
-          );
+        persistenceService.savePlotState(plotState).catch((error) =>
+          handleError(error, {
+            source: "Plot State Persistence",
+            severity: "silent",
+          }),
+        );
       }
     }
   },
