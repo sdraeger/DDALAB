@@ -109,7 +109,7 @@ function TimeSeriesPopoutContent({
   }
 
   return (
-    <div className="h-full w-full p-4">
+    <div className="h-full w-full p-4 overflow-y-auto">
       <TimeSeriesPlotECharts apiService={apiService} />
     </div>
   );

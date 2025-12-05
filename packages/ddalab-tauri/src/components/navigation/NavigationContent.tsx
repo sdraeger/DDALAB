@@ -162,7 +162,7 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
           {hasSelectedFile ? (
             <>
               <BIDSContextIndicator variant="full" />
-              <div className="flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto">
                 <Suspense fallback={<LoadingFallback />}>
                   <TimeSeriesPlotECharts apiService={apiService} />
                 </Suspense>
