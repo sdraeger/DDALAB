@@ -241,10 +241,7 @@ export function CloseWarningHandler() {
           <AlertDialogCancel onClick={handleCancelClose}>
             Keep Running
           </AlertDialogCancel>
-          <AlertDialogAction
-            onClick={handleConfirmClose}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
+          <AlertDialogAction onClick={handleConfirmClose} variant="destructive">
             Close Anyway
           </AlertDialogAction>
         </AlertDialogFooter>

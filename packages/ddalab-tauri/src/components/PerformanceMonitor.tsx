@@ -86,8 +86,9 @@ export function PerformanceMonitor() {
           className="fixed bottom-4 right-4 rounded-full shadow-lg"
           style={{ zIndex: 9999 }}
           title="Performance Monitor"
+          aria-label="Open performance monitor"
         >
-          <Activity className="h-4 w-4" />
+          <Activity className="h-4 w-4" aria-hidden="true" />
         </Button>
       </DialogTrigger>
 

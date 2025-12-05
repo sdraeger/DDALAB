@@ -67,18 +67,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
 import { toast } from "@/components/ui/toaster";
+import { formatBytes, formatDateTime } from "@/lib/utils";
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
-}
-
-function formatDate(dateStr: string | null): string {
+function formatDateOrDash(dateStr: string | null): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleString();
+  return formatDateTime(dateStr);
 }
 
 function getStatusIcon(status: NSGJobStatus) {
@@ -231,9 +224,15 @@ const NSGJobRow = memo(function NSGJobRow({
       </TableCell>
       <TableCell>{getStatusBadge(job.status)}</TableCell>
       <TableCell>{job.tool}</TableCell>
-      <TableCell className="text-sm">{formatDate(job.created_at)}</TableCell>
-      <TableCell className="text-sm">{formatDate(job.submitted_at)}</TableCell>
-      <TableCell className="text-sm">{formatDate(job.completed_at)}</TableCell>
+      <TableCell className="text-sm">
+        {formatDateOrDash(job.created_at)}
+      </TableCell>
+      <TableCell className="text-sm">
+        {formatDateOrDash(job.submitted_at)}
+      </TableCell>
+      <TableCell className="text-sm">
+        {formatDateOrDash(job.completed_at)}
+      </TableCell>
       <TableCell className="text-sm">
         {showViewButton ? (
           <div className="flex flex-col gap-1">
@@ -910,9 +909,9 @@ export function NSGJobManager() {
       const jobId = (job.nsg_job_id || job.id || "").toLowerCase();
       const status = job.status.toLowerCase();
       const tool = job.tool.toLowerCase();
-      const created = formatDate(job.created_at).toLowerCase();
-      const submitted = formatDate(job.submitted_at).toLowerCase();
-      const completed = formatDate(job.completed_at).toLowerCase();
+      const created = formatDateOrDash(job.created_at).toLowerCase();
+      const submitted = formatDateOrDash(job.submitted_at).toLowerCase();
+      const completed = formatDateOrDash(job.completed_at).toLowerCase();
 
       return (
         jobId.includes(search) ||

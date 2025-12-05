@@ -117,9 +117,10 @@ export function DDAHistorySidebar({
           size="icon"
           onClick={onToggleCollapse}
           title="Expand history"
+          aria-label="Expand history"
           className="mb-4"
         >
-          <ChevronRight className="h-4 w-4" />
+          <ChevronRight className="h-4 w-4" aria-hidden="true" />
         </Button>
         <div className="writing-mode-vertical text-xs text-muted-foreground">
           History ({history.length})
@@ -146,9 +147,11 @@ export function DDAHistorySidebar({
             disabled={isLoading}
             className="h-7 w-7"
             title="Refresh history"
+            aria-label="Refresh history"
           >
             <RefreshCw
               className={cn("h-3.5 w-3.5", isLoading && "animate-spin")}
+              aria-hidden="true"
             />
           </Button>
           <Button
@@ -157,8 +160,9 @@ export function DDAHistorySidebar({
             onClick={onToggleCollapse}
             className="h-7 w-7"
             title="Collapse history"
+            aria-label="Collapse history"
           >
-            <ChevronLeft className="h-3.5 w-3.5" />
+            <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
           </Button>
         </div>
       </div>
@@ -289,8 +293,12 @@ export function DDAHistorySidebar({
                                 onClick={(e) => handleStartRename(analysis, e)}
                                 className="h-6 w-6 flex-shrink-0"
                                 title="Rename"
+                                aria-label="Rename analysis"
                               >
-                                <Pencil className="h-3 w-3" />
+                                <Pencil
+                                  className="h-3 w-3"
+                                  aria-hidden="true"
+                                />
                               </Button>
                               <Button
                                 variant="ghost"
@@ -300,8 +308,12 @@ export function DDAHistorySidebar({
                                 }
                                 className="h-6 w-6 flex-shrink-0 text-destructive hover:text-destructive"
                                 title="Delete"
+                                aria-label="Delete analysis"
                               >
-                                <Trash2 className="h-3 w-3" />
+                                <Trash2
+                                  className="h-3 w-3"
+                                  aria-hidden="true"
+                                />
                               </Button>
                             </div>
                           </div>
