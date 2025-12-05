@@ -1027,11 +1027,17 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       updatePlotState({ chartHeight: newHeight });
     };
 
-    const handleResizeEnd = () => {
+    const handleResizeEnd = async () => {
       if (isResizingRef.current) {
         isResizingRef.current = false;
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
+        // Trigger a full state save to persist the new chart height
+        const { saveCurrentState, isPersistenceRestored } =
+          useAppStore.getState();
+        if (isPersistenceRestored) {
+          await saveCurrentState();
+        }
       }
     };
 

@@ -151,14 +151,12 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
         );
 
         if (persistenceService) {
-          persistenceService
-            .saveDDAState(ddaState)
-            .catch((error) =>
-              handleError(error, {
-                source: "DDA State Persistence",
-                severity: "silent",
-              }),
-            );
+          persistenceService.saveDDAState(ddaState).catch((error) =>
+            handleError(error, {
+              source: "DDA State Persistence",
+              severity: "silent",
+            }),
+          );
         }
 
         const selectedFilePath = fileManager.selectedFile?.file_path;
