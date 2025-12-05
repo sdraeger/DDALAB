@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { useScrollTrap } from "@/hooks/useScrollTrap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Settings as SettingsIcon, Search, X } from "lucide-react";
@@ -42,6 +43,16 @@ export function SettingsLayout({
   );
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Scroll traps for sidebar and content areas
+  const {
+    containerProps: sidebarScrollProps,
+    isScrollEnabled: isSidebarScrollEnabled,
+  } = useScrollTrap({ activationDelay: 100 });
+  const {
+    containerProps: contentScrollProps,
+    isScrollEnabled: isContentScrollEnabled,
+  } = useScrollTrap({ activationDelay: 100 });
 
   // Filter sections based on search
   const filteredSections = useMemo(() => {
@@ -133,7 +144,13 @@ export function SettingsLayout({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div
+          ref={sidebarScrollProps.ref}
+          onMouseEnter={sidebarScrollProps.onMouseEnter}
+          onMouseLeave={sidebarScrollProps.onMouseLeave}
+          className={`flex-1 ${isSidebarScrollEnabled ? "overflow-y-auto" : "overflow-hidden"}`}
+          style={sidebarScrollProps.style}
+        >
           <nav className="space-y-1 px-3 pb-4">
             {filteredSections.length > 0 ? (
               filteredSections.map((section) => (
@@ -174,7 +191,13 @@ export function SettingsLayout({
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        ref={contentScrollProps.ref}
+        onMouseEnter={contentScrollProps.onMouseEnter}
+        onMouseLeave={contentScrollProps.onMouseLeave}
+        className={`flex-1 ${isContentScrollEnabled ? "overflow-y-auto" : "overflow-hidden"}`}
+        style={contentScrollProps.style}
+      >
         {currentSection ? (
           <div id={`settings-section-${currentSection.id}`} className="p-6">
             {currentSection.component}

@@ -54,13 +54,11 @@ export function useSubmitICAAnalysis(apiService: ApiService) {
     },
     onSuccess: (result) => {
       console.log("[ICA Hook] Mutation succeeded:", result.id);
-      // Add the new result to the cache
+      // Add the new result to the cache using optimistic update
+      // No need to invalidate - the result is complete from the mutation response
       queryClient.setQueryData<ICAResult[]>(icaKeys.results(), (old) => {
         return old ? [result, ...old] : [result];
       });
-
-      // Invalidate to trigger refetch
-      queryClient.invalidateQueries({ queryKey: icaKeys.results() });
     },
     onError: (error) => {
       console.error("[ICA Hook] Mutation failed:", error);

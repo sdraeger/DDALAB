@@ -62,12 +62,16 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   const { isReady: wasmReady, decimate: wasmDecimate } = useWasm();
 
   // OPTIMIZED: Select specific properties instead of entire objects to prevent re-renders
-  // and avoid issues with Immer freezing
+  // Each selector returns only what's needed, avoiding re-renders from unrelated state changes
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
   const selectedChannelsFromStore = useAppStore(
     (state) => state.fileManager.selectedChannels,
   );
-  const plotState = useAppStore((state) => state.plot);
+  // Granular plot state selectors - prevents re-render when unrelated plot state changes
+  const plotPreprocessing = useAppStore((state) => state.plot.preprocessing);
+  const plotChunkStart = useAppStore((state) => state.plot.chunkStart);
+  const plotChunkSize = useAppStore((state) => state.plot.chunkSize);
+  const plotCurrentChunk = useAppStore((state) => state.plot.currentChunk);
   const isPersistenceRestored = useAppStore(
     (state) => state.isPersistenceRestored,
   );
@@ -140,7 +144,7 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   // IMPORTANT: Convert chunkStart from samples to seconds for UI state
   // Store saves in samples, but UI works in seconds
   const [currentTime, setCurrentTime] = useState(
-    (plotState.chunkStart || 0) / (selectedFile?.sample_rate || 256),
+    (plotChunkStart || 0) / (selectedFile?.sample_rate || 256),
   );
   const [duration, setDuration] = useState(0);
 
@@ -151,12 +155,12 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   // Time window control (in seconds) - start with smaller window for better performance
   // IMPORTANT: Convert chunkSize from samples to seconds
   const [timeWindow, setTimeWindow] = useState(
-    plotState.chunkSize / (selectedFile?.sample_rate || 256) || 5,
+    plotChunkSize / (selectedFile?.sample_rate || 256) || 5,
   );
 
   // Preprocessing controls (must be declared before TanStack Query hooks)
   const [preprocessing, setPreprocessing] = useState<PreprocessingOptions>(
-    plotState.preprocessing || getDefaultPreprocessing(),
+    plotPreprocessing || getDefaultPreprocessing(),
   );
 
   // Cache invalidation utilities
@@ -307,12 +311,12 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
 
   // Sync preprocessing with plot state
   useEffect(() => {
-    if (plotState.preprocessing) {
-      // IMMER FIX: Deep clone the preprocessing options from the store
-      // because Immer freezes store state and we need a mutable copy
-      setPreprocessing(JSON.parse(JSON.stringify(plotState.preprocessing)));
+    if (plotPreprocessing) {
+      // IMMER FIX: Use structuredClone instead of JSON.parse/stringify
+      // structuredClone is faster and handles more data types
+      setPreprocessing(structuredClone(plotPreprocessing));
     }
-  }, [plotState.preprocessing]);
+  }, [plotPreprocessing]);
 
   // Save preprocessing when it changes
   const handlePreprocessingChange = (
@@ -1146,14 +1150,14 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     // 1. We have a selected file
     // 2. We have persistence restored
     // 3. We haven't already responded to this file's persisted chunk position
-    // 4. The plotState.chunkStart is non-zero (indicates persisted state has loaded)
+    // 4. The plotChunkStart is non-zero (indicates persisted state has loaded)
     if (
       selectedFile &&
       isPersistenceRestored &&
       !hasRespondedToPersistedChunkRef.current &&
-      plotState.chunkStart > 0
+      plotChunkStart > 0
     ) {
-      const startTimeSamples = plotState.chunkStart;
+      const startTimeSamples = plotChunkStart;
       const startTime = startTimeSamples / selectedFile.sample_rate;
 
       console.log(
@@ -1164,7 +1168,7 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       setCurrentTime(startTime);
       hasRespondedToPersistedChunkRef.current = true;
     }
-  }, [plotState.chunkStart, selectedFile, isPersistenceRestored, loadChunk]);
+  }, [plotChunkStart, selectedFile, isPersistenceRestored, loadChunk]);
 
   // Reset the persisted chunk response flag when file changes
   useEffect(() => {
@@ -1368,13 +1372,13 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   };
 
   const handlePopout = () => {
-    if (plotState.currentChunk && selectedFile) {
+    if (plotCurrentChunk && selectedFile) {
       // Flatten data structure and include file info for popout
       createWindow("timeseries", `timeseries-${Date.now()}`, {
-        ...plotState.currentChunk,
+        ...plotCurrentChunk,
         startTime: currentTime,
         selectedChannels,
-        sampleRate: plotState.currentChunk.sample_rate,
+        sampleRate: plotCurrentChunk.sample_rate,
         timeWindow: duration,
         // Add file information for store sync
         filePath: selectedFile.file_path,
@@ -1407,7 +1411,7 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
               variant="outline"
               size="sm"
               onClick={handlePopout}
-              disabled={!plotState.currentChunk}
+              disabled={!plotCurrentChunk}
             >
               <ExternalLink className="h-4 w-4 mr-1" />
               Pop Out

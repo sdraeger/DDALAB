@@ -30,7 +30,8 @@ export const createPlotSlice: ImmerStateCreator<PlotSlice> = (set, get) => ({
 
   updatePlotState: (updates) => {
     set((state) => {
-      Object.assign(state.plot, updates);
+      // Use spread for partial updates - more idiomatic with Immer
+      state.plot = { ...state.plot, ...updates };
     });
 
     if (TauriService.isTauri()) {

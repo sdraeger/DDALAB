@@ -536,7 +536,8 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
 
   updateFileManagerState: (updates) => {
     set((state) => {
-      Object.assign(state.fileManager, updates);
+      // Use spread for partial updates - more idiomatic with Immer
+      state.fileManager = { ...state.fileManager, ...updates };
     });
 
     if (TauriService.isTauri()) {

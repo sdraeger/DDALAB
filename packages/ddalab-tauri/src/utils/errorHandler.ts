@@ -6,9 +6,151 @@
  * - Console logging for debugging
  * - Error categorization (critical, warning, silent)
  * - Retry logic for network operations
+ * - Result types for explicit error handling
+ * - TanStack Query error handler factory
  */
 
 import { toast } from "@/components/ui/toaster";
+
+// ============================================================================
+// RESULT TYPES - Rust-style error handling
+// ============================================================================
+
+/**
+ * Discriminated union for operation results.
+ * Forces explicit handling of both success and error cases.
+ *
+ * @example
+ * ```ts
+ * function divide(a: number, b: number): Result<number, string> {
+ *   if (b === 0) return err("Division by zero");
+ *   return ok(a / b);
+ * }
+ *
+ * const result = divide(10, 2);
+ * if (result.ok) {
+ *   console.log(result.value); // 5
+ * } else {
+ *   console.error(result.error); // never reached
+ * }
+ * ```
+ */
+export type Result<T, E = Error> =
+  | { ok: true; value: T }
+  | { ok: false; error: E };
+
+/** Create a successful Result */
+export function ok<T>(value: T): Result<T, never> {
+  return { ok: true, value };
+}
+
+/** Create a failed Result */
+export function err<E>(error: E): Result<never, E> {
+  return { ok: false, error };
+}
+
+/** Check if a Result is successful */
+export function isOk<T, E>(
+  result: Result<T, E>,
+): result is { ok: true; value: T } {
+  return result.ok;
+}
+
+/** Check if a Result is an error */
+export function isErr<T, E>(
+  result: Result<T, E>,
+): result is { ok: false; error: E } {
+  return !result.ok;
+}
+
+/**
+ * Unwrap a Result, throwing if it's an error
+ * @throws The error if Result is not ok
+ */
+export function unwrap<T, E>(result: Result<T, E>): T {
+  if (result.ok) return result.value;
+  throw result.error;
+}
+
+/**
+ * Unwrap a Result with a default value if it's an error
+ */
+export function unwrapOr<T, E>(result: Result<T, E>, defaultValue: T): T {
+  return result.ok ? result.value : defaultValue;
+}
+
+/**
+ * Map over a successful Result
+ */
+export function mapResult<T, U, E>(
+  result: Result<T, E>,
+  fn: (value: T) => U,
+): Result<U, E> {
+  if (result.ok) return ok(fn(result.value));
+  return result;
+}
+
+/**
+ * Map over an error Result
+ */
+export function mapErr<T, E, F>(
+  result: Result<T, E>,
+  fn: (error: E) => F,
+): Result<T, F> {
+  if (!result.ok) return err(fn(result.error));
+  return result;
+}
+
+/**
+ * Convert a Promise to a Result (catches exceptions)
+ *
+ * @example
+ * ```ts
+ * const result = await toResult(fetch('/api/data'));
+ * if (result.ok) {
+ *   // handle success
+ * } else {
+ *   // handle error without try/catch
+ * }
+ * ```
+ */
+export async function toResult<T>(
+  promise: Promise<T>,
+): Promise<Result<T, Error>> {
+  try {
+    return ok(await promise);
+  } catch (e) {
+    return err(e instanceof Error ? e : new Error(String(e)));
+  }
+}
+
+/**
+ * Wrap a function to return a Result instead of throwing
+ */
+export function resultify<T, Args extends unknown[]>(
+  fn: (...args: Args) => T,
+): (...args: Args) => Result<T, Error> {
+  return (...args: Args) => {
+    try {
+      return ok(fn(...args));
+    } catch (e) {
+      return err(e instanceof Error ? e : new Error(String(e)));
+    }
+  };
+}
+
+/**
+ * Wrap an async function to return a Result instead of throwing
+ */
+export function resultifyAsync<T, Args extends unknown[]>(
+  fn: (...args: Args) => Promise<T>,
+): (...args: Args) => Promise<Result<T, Error>> {
+  return async (...args: Args) => toResult(fn(...args));
+}
+
+// ============================================================================
+// ERROR TYPES
+// ============================================================================
 
 export type ErrorSeverity = "critical" | "warning" | "info" | "silent";
 
@@ -431,3 +573,205 @@ export async function executeAsync<T>(
     };
   }
 }
+
+// ============================================================================
+// TANSTACK QUERY ERROR HANDLERS
+// ============================================================================
+
+/**
+ * Configuration for query error handling
+ */
+export interface QueryErrorConfig {
+  /** Source/context for the error (e.g., "DDA Analysis", "File Loading") */
+  source: string;
+  /** Error severity - defaults to "warning" */
+  severity?: ErrorSeverity;
+  /** Custom message to show user (overrides auto-generated) */
+  customMessage?: string;
+  /** Whether to show toast - defaults to true */
+  showToast?: boolean;
+  /** Additional callback after error is handled */
+  onHandled?: (error: Error) => void;
+}
+
+/**
+ * Create an onError callback for TanStack Query hooks.
+ * Provides consistent error handling across all queries and mutations.
+ *
+ * @example
+ * ```ts
+ * // In a query
+ * useQuery({
+ *   queryKey: ['files'],
+ *   queryFn: fetchFiles,
+ *   ...createQueryErrorHandler({ source: 'File List' }),
+ * });
+ *
+ * // In a mutation
+ * useMutation({
+ *   mutationFn: submitAnalysis,
+ *   ...createMutationErrorHandler({
+ *     source: 'DDA Analysis',
+ *     severity: 'critical',
+ *   }),
+ * });
+ * ```
+ */
+export function createQueryErrorHandler(config: QueryErrorConfig) {
+  const {
+    source,
+    severity = "warning",
+    customMessage,
+    showToast = true,
+    onHandled,
+  } = config;
+
+  return {
+    onError: (error: Error) => {
+      handleError(error, {
+        source,
+        severity,
+        userMessage: customMessage,
+        showToast,
+      });
+      onHandled?.(error);
+    },
+  };
+}
+
+/**
+ * Create error handlers for mutations with optimistic update support.
+ * Includes both onError for rollback and proper error display.
+ *
+ * @example
+ * ```ts
+ * const deleteAnalysis = useMutation({
+ *   mutationFn: (id) => api.delete(id),
+ *   onMutate: async (id) => {
+ *     // Optimistic update
+ *     const previous = queryClient.getQueryData(['analyses']);
+ *     queryClient.setQueryData(['analyses'], (old) => old.filter(a => a.id !== id));
+ *     return { previous };
+ *   },
+ *   ...createMutationErrorHandler({
+ *     source: 'Delete Analysis',
+ *     severity: 'critical',
+ *     onRollback: (context) => {
+ *       queryClient.setQueryData(['analyses'], context.previous);
+ *     },
+ *   }),
+ * });
+ * ```
+ */
+export function createMutationErrorHandler<TContext = unknown>(
+  config: QueryErrorConfig & {
+    /** Callback to rollback optimistic updates */
+    onRollback?: (context: TContext | undefined) => void;
+  },
+) {
+  const { onRollback, ...errorConfig } = config;
+
+  return {
+    onError: (
+      error: Error,
+      _variables: unknown,
+      context: TContext | undefined,
+    ) => {
+      // Handle error display
+      handleError(error, {
+        source: errorConfig.source,
+        severity: errorConfig.severity || "warning",
+        userMessage: errorConfig.customMessage,
+        showToast: errorConfig.showToast ?? true,
+      });
+
+      // Rollback optimistic update if callback provided
+      onRollback?.(context);
+
+      // Additional callback
+      errorConfig.onHandled?.(error);
+    },
+  };
+}
+
+/**
+ * Standard query options with error handling for common operations.
+ * Pre-configured for typical use cases.
+ */
+export const queryErrorHandlers = {
+  /** For file operations (loading, saving, etc.) */
+  file: (operation: string) =>
+    createQueryErrorHandler({
+      source: `File ${operation}`,
+      severity: "warning",
+    }),
+
+  /** For analysis operations (DDA, ICA) */
+  analysis: (type: string) =>
+    createQueryErrorHandler({
+      source: `${type} Analysis`,
+      severity: "critical",
+    }),
+
+  /** For background sync/status operations */
+  background: (operation: string) =>
+    createQueryErrorHandler({
+      source: operation,
+      severity: "silent",
+      showToast: false,
+    }),
+
+  /** For user-initiated actions that should always show errors */
+  userAction: (action: string) =>
+    createQueryErrorHandler({
+      source: action,
+      severity: "warning",
+      showToast: true,
+    }),
+};
+
+/**
+ * Hook-friendly error handler for use with TanStack Query's meta option.
+ * Allows defining error handling at the query level.
+ *
+ * @example
+ * ```ts
+ * // In QueryClient configuration
+ * const queryClient = new QueryClient({
+ *   defaultOptions: {
+ *     queries: {
+ *       meta: {
+ *         errorHandler: defaultQueryMeta.errorHandler,
+ *       },
+ *     },
+ *   },
+ * });
+ *
+ * // In a query with custom meta
+ * useQuery({
+ *   queryKey: ['analysis', id],
+ *   queryFn: fetchAnalysis,
+ *   meta: {
+ *     errorConfig: { source: 'Analysis', severity: 'critical' },
+ *   },
+ * });
+ * ```
+ */
+export const defaultQueryMeta = {
+  errorHandler: (error: Error, meta?: { errorConfig?: QueryErrorConfig }) => {
+    if (meta?.errorConfig) {
+      handleError(error, {
+        source: meta.errorConfig.source,
+        severity: meta.errorConfig.severity || "warning",
+        userMessage: meta.errorConfig.customMessage,
+        showToast: meta.errorConfig.showToast ?? true,
+      });
+    } else {
+      // Default fallback
+      handleError(error, {
+        source: "Query",
+        severity: "warning",
+      });
+    }
+  },
+};
