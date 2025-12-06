@@ -32,6 +32,53 @@ export const defaultFileManagerState: FileManagerState = {
   highlightedFilePath: null,
 };
 
+/** Serializes FileManagerState to the format expected by TauriService */
+function serializeFileManagerState(
+  fm: FileManagerState,
+  overrides?: Partial<{
+    data_directory_path: string;
+    selected_file: string | null;
+    current_path: string[];
+    selected_channels: string[];
+  }>,
+) {
+  return {
+    data_directory_path: overrides?.data_directory_path ?? fm.dataDirectoryPath,
+    selected_file:
+      overrides?.selected_file !== undefined
+        ? overrides.selected_file
+        : fm.selectedFile?.file_path || null,
+    current_path: overrides?.current_path ?? fm.currentPath,
+    selected_channels: overrides?.selected_channels ?? fm.selectedChannels,
+    search_query: fm.searchQuery,
+    sort_by: fm.sortBy,
+    sort_order: fm.sortOrder,
+    show_hidden: fm.showHidden,
+  };
+}
+
+/** Persists file manager state to Tauri and optional persistence service */
+function persistFileManagerState(
+  fileManagerState: ReturnType<typeof serializeFileManagerState>,
+  persistenceService: ReturnType<typeof getStatePersistenceService>,
+) {
+  TauriService.updateFileManagerState(fileManagerState).catch((error) =>
+    handleError(error, {
+      source: "File Manager Persistence",
+      severity: "silent",
+    }),
+  );
+
+  if (persistenceService) {
+    persistenceService.saveFileManagerState(fileManagerState).catch((error) =>
+      handleError(error, {
+        source: "File Manager Persistence",
+        severity: "silent",
+      }),
+    );
+  }
+}
+
 export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
   set,
   get,
@@ -45,44 +92,12 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
 
     if (TauriService.isTauri()) {
       const { fileManager, isPersistenceRestored } = get();
-      const persistenceService = getStatePersistenceService();
+      if (!isPersistenceRestored) return;
 
-      if (!isPersistenceRestored) {
-        console.log(
-          "[STORE] Skipping save during initialization - data directory path set to:",
-          path,
-        );
-        return;
-      }
-
-      const fileManagerState = {
+      const state = serializeFileManagerState(fileManager, {
         data_directory_path: path,
-        selected_file: fileManager.selectedFile?.file_path || null,
-        current_path: fileManager.currentPath,
-        selected_channels: fileManager.selectedChannels,
-        search_query: fileManager.searchQuery,
-        sort_by: fileManager.sortBy,
-        sort_order: fileManager.sortOrder,
-        show_hidden: fileManager.showHidden,
-      };
-
-      TauriService.updateFileManagerState(fileManagerState).catch((error) =>
-        handleError(error, {
-          source: "File Manager Persistence",
-          severity: "silent",
-        }),
-      );
-
-      if (persistenceService) {
-        persistenceService
-          .saveFileManagerState(fileManagerState)
-          .catch((error) =>
-            handleError(error, {
-              source: "File Manager Persistence",
-              severity: "silent",
-            }),
-          );
-      }
+      });
+      persistFileManagerState(state, getStatePersistenceService());
     }
   },
 
@@ -93,44 +108,12 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
 
     if (TauriService.isTauri()) {
       const { fileManager, isPersistenceRestored } = get();
-      const persistenceService = getStatePersistenceService();
+      if (!isPersistenceRestored) return;
 
-      if (!isPersistenceRestored) {
-        console.log(
-          "[STORE] Skipping save during initialization - current path set to:",
-          path,
-        );
-        return;
-      }
-
-      const fileManagerState = {
-        data_directory_path: fileManager.dataDirectoryPath,
-        selected_file: fileManager.selectedFile?.file_path || null,
+      const state = serializeFileManagerState(fileManager, {
         current_path: path,
-        selected_channels: fileManager.selectedChannels,
-        search_query: fileManager.searchQuery,
-        sort_by: fileManager.sortBy,
-        sort_order: fileManager.sortOrder,
-        show_hidden: fileManager.showHidden,
-      };
-
-      TauriService.updateFileManagerState(fileManagerState).catch((error) =>
-        handleError(error, {
-          source: "File Manager Persistence",
-          severity: "silent",
-        }),
-      );
-
-      if (persistenceService) {
-        persistenceService
-          .saveFileManagerState(fileManagerState)
-          .catch((error) =>
-            handleError(error, {
-              source: "File Manager Persistence",
-              severity: "silent",
-            }),
-          );
-      }
+      });
+      persistFileManagerState(state, getStatePersistenceService());
     }
   },
 
@@ -142,37 +125,26 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
     if (TauriService.isTauri()) {
       const { fileManager } = get();
       const persistenceService = getStatePersistenceService();
-      const fileManagerState = {
-        data_directory_path: fileManager.dataDirectoryPath,
+      const state = serializeFileManagerState(fileManager, {
         selected_file: null,
         current_path: [],
-        selected_channels: fileManager.selectedChannels,
-        search_query: fileManager.searchQuery,
-        sort_by: fileManager.sortBy,
-        sort_order: fileManager.sortOrder,
-        show_hidden: fileManager.showHidden,
-      };
+      });
 
-      TauriService.updateFileManagerState(fileManagerState).catch(
-        console.error,
+      TauriService.updateFileManagerState(state).catch((error) =>
+        handleError(error, {
+          source: "File Manager Persistence",
+          severity: "silent",
+        }),
       );
 
       if (persistenceService) {
-        await persistenceService.saveFileManagerState(fileManagerState);
+        await persistenceService.saveFileManagerState(state);
         await persistenceService.forceSave();
       }
     }
   },
 
   setSelectedFile: (file) => {
-    console.log(
-      "[STORE] setSelectedFile called with:",
-      file?.file_path || "null",
-    );
-
-    console.log(
-      "[STORE] Clearing DDA state, resetting chunk position, and setting file immediately (synchronous)",
-    );
     set((state) => {
       state.dda.currentAnalysis = null;
       state.dda.analysisHistory = [];
@@ -184,33 +156,16 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
     if (file && TauriService.isTauri()) {
       (async () => {
         try {
-          console.log(
-            "[STORE] Loading file-centric state for:",
-            file.file_path,
-          );
-
           const fileStateManager = getInitializedFileStateManager();
           const fileState = await fileStateManager.loadFileState(
             file.file_path,
           );
-
-          console.log("[STORE] Loaded file state:", {
-            hasPlot: !!fileState.plot,
-            hasDDA: !!fileState.dda,
-            hasAnnotations: !!fileState.annotations,
-          });
 
           if (fileState.plot) {
             const plotState = fileState.plot as FilePlotState;
             const chunkStartTime =
               (plotState.chunkStart || 0) / file.sample_rate;
             const isOutOfBounds = chunkStartTime >= file.duration;
-
-            if (isOutOfBounds) {
-              console.log(
-                `[STORE] Persisted chunkStart (${chunkStartTime.toFixed(2)}s) exceeds file duration (${file.duration.toFixed(2)}s) - resetting to 0`,
-              );
-            }
 
             set((state) => {
               state.plot.chunkStart = isOutOfBounds
@@ -235,11 +190,6 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
           if (fileState.dda) {
             const ddaState = fileState.dda as FileDDAState;
 
-            console.log("[STORE] File has DDA state:", {
-              currentAnalysisId: ddaState.currentAnalysisId,
-              historyCount: ddaState.analysisHistory?.length || 0,
-            });
-
             set((state) => {
               if (ddaState.lastParameters) {
                 Object.assign(
@@ -251,19 +201,11 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
               state.dda.analysisHistory = [];
             });
           } else {
-            console.log(
-              "[STORE] No DDA state for this file - clearing results",
-            );
             set((state) => {
               state.dda.currentAnalysis = null;
               state.dda.analysisHistory = [];
             });
           }
-
-          console.log(
-            "[STORE] Loading annotations for file from both sources:",
-            file.file_path,
-          );
 
           const annotationState = fileState.annotations as
             | FileAnnotationState
@@ -279,11 +221,6 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
                 const fsGlobal = annotationState.timeSeries.global || [];
                 const fsChannels = annotationState.timeSeries.channels || {};
 
-                console.log("[STORE] Loaded from FileStateManager:", {
-                  globalCount: fsGlobal.length,
-                  channelsCount: Object.keys(fsChannels).length,
-                });
-
                 mergedGlobalAnnotations = [...fsGlobal];
                 mergedChannelAnnotations = { ...fsChannels };
               }
@@ -298,11 +235,6 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
                 const sqliteGlobal = sqliteAnnotations.global_annotations || [];
                 const sqliteChannels =
                   sqliteAnnotations.channel_annotations || {};
-
-                console.log("[STORE] Loaded from SQLite database:", {
-                  globalCount: sqliteGlobal.length,
-                  channelsCount: Object.keys(sqliteChannels).length,
-                });
 
                 const existingIds = new Set(
                   mergedGlobalAnnotations.map((a) => a.id),
@@ -350,20 +282,6 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
                 }
               }
 
-              const totalMerged =
-                mergedGlobalAnnotations.length +
-                Object.values(mergedChannelAnnotations).reduce(
-                  (sum, anns) => sum + anns.length,
-                  0,
-                );
-
-              console.log("[STORE] Merged annotations from both sources:", {
-                filePath: file.file_path,
-                totalAnnotations: totalMerged,
-                globalCount: mergedGlobalAnnotations.length,
-                channelsCount: Object.keys(mergedChannelAnnotations).length,
-              });
-
               set((state) => {
                 state.annotations.timeSeries[file.file_path] = {
                   filePath: file.file_path,
@@ -395,29 +313,13 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
                   );
                 }
               });
-
-              console.log(
-                "[STORE] After loading merged annotations, store state:",
-                {
-                  filePath: file.file_path,
-                  globalAnnotations:
-                    get().annotations.timeSeries[file.file_path]
-                      ?.globalAnnotations?.length || 0,
-                },
-              );
             } catch (err) {
-              console.error(
-                "[STORE] Failed to load/merge annotations for file:",
-                file.file_path,
-                err,
-              );
+              handleError(err, {
+                source: "Annotation Loading",
+                severity: "silent",
+              });
 
               if (annotationState?.timeSeries) {
-                console.log(
-                  "[STORE] Fallback: using FileStateManager annotations only for:",
-                  file.file_path,
-                );
-
                 set((state) => {
                   state.annotations.timeSeries[file.file_path] = {
                     filePath: file.file_path,
@@ -440,54 +342,32 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
 
           const { fileManager: updatedFileManager, isPersistenceRestored } =
             get();
-          const selectedFilePath = file?.file_path || null;
 
-          console.log(
-            "[STORE] After set(), fileManager.selectedFile:",
-            updatedFileManager.selectedFile?.file_path || "null",
-          );
-          console.log("[STORE] isPersistenceRestored:", isPersistenceRestored);
-
-          TauriService.updateFileManagerState({
-            selected_file: selectedFilePath,
-            current_path: updatedFileManager.currentPath,
-            selected_channels: updatedFileManager.selectedChannels,
-            search_query: updatedFileManager.searchQuery,
-            sort_by: updatedFileManager.sortBy,
-            sort_order: updatedFileManager.sortOrder,
-            show_hidden: updatedFileManager.showHidden,
-          }).catch((error) =>
+          const state = serializeFileManagerState(updatedFileManager, {
+            selected_file: file?.file_path || null,
+          });
+          TauriService.updateFileManagerState(state).catch((error) =>
             handleError(error, {
               source: "File Manager Persistence",
               severity: "silent",
             }),
           );
 
-          if (isPersistenceRestored && file) {
-            console.log(
-              "[STORE] ✓ Triggering save for selected file:",
-              file.file_path,
-            );
+          if (isPersistenceRestored) {
             get()
               .saveCurrentState()
               .catch((err) =>
-                console.error("[STORE] Failed to save selected file:", err),
+                handleError(err, {
+                  source: "File Manager Persistence",
+                  severity: "silent",
+                }),
               );
-          } else if (!file && isPersistenceRestored) {
-            console.log("[STORE] ✓ Saving cleared file selection");
-            get()
-              .saveCurrentState()
-              .catch((err) =>
-                console.error("[STORE] Failed to save cleared file:", err),
-              );
-          } else {
-            console.log(
-              "[STORE] ✗ NOT saving - isPersistenceRestored:",
-              isPersistenceRestored,
-            );
           }
         } catch (err) {
-          console.error("[STORE] Failed to load file-centric state:", err);
+          handleError(err, {
+            source: "File State Loading",
+            severity: "silent",
+          });
         }
       })();
     }
@@ -502,9 +382,6 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
       const { fileManager, plot, isPersistenceRestored } = get();
 
       if (!isPersistenceRestored) {
-        console.log(
-          "[STORE] Skipping save during initialization - selected channels set",
-        );
         return;
       }
 
@@ -530,23 +407,18 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
               filePlotState,
             );
           } catch (err) {
-            console.error(
-              "[STORE] Failed to save file-centric state for channels:",
-              err,
-            );
+            handleError(err, {
+              source: "File State Persistence",
+              severity: "silent",
+            });
           }
         })();
       }
 
-      TauriService.updateFileManagerState({
-        selected_file: fileManager.selectedFile?.file_path || null,
-        current_path: fileManager.currentPath,
+      const state = serializeFileManagerState(fileManager, {
         selected_channels: channels,
-        search_query: fileManager.searchQuery,
-        sort_by: fileManager.sortBy,
-        sort_order: fileManager.sortOrder,
-        show_hidden: fileManager.showHidden,
-      }).catch((error) =>
+      });
+      TauriService.updateFileManagerState(state).catch((error) =>
         handleError(error, {
           source: "File Manager Persistence",
           severity: "silent",
@@ -563,21 +435,13 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
 
   updateFileManagerState: (updates) => {
     set((state) => {
-      // Use spread for partial updates - more idiomatic with Immer
       state.fileManager = { ...state.fileManager, ...updates };
     });
 
     if (TauriService.isTauri()) {
       const { fileManager } = get();
-      TauriService.updateFileManagerState({
-        selected_file: fileManager.selectedFile?.file_path || null,
-        current_path: fileManager.currentPath,
-        selected_channels: fileManager.selectedChannels,
-        search_query: fileManager.searchQuery,
-        sort_by: fileManager.sortBy,
-        sort_order: fileManager.sortOrder,
-        show_hidden: fileManager.showHidden,
-      }).catch((error) =>
+      const state = serializeFileManagerState(fileManager);
+      TauriService.updateFileManagerState(state).catch((error) =>
         handleError(error, {
           source: "File Manager Persistence",
           severity: "silent",
@@ -596,31 +460,14 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
     const { fileManager } = get();
     const dataDir = fileManager.dataDirectoryPath;
 
-    if (!filePath || !dataDir) {
-      console.warn(
-        "[STORE] Cannot navigate to file - missing path or data directory",
-      );
-      return;
-    }
-
-    if (!filePath.startsWith(dataDir)) {
-      console.warn("[STORE] File is not under data directory:", filePath);
-      return;
-    }
+    if (!filePath || !dataDir) return;
+    if (!filePath.startsWith(dataDir)) return;
 
     const lastSlash = filePath.lastIndexOf("/");
     const fileDir = lastSlash > 0 ? filePath.substring(0, lastSlash) : filePath;
 
     const relativePath = fileDir.substring(dataDir.length);
     const pathSegments = relativePath.split("/").filter(Boolean);
-
-    console.log("[STORE] Navigating to file:", {
-      filePath,
-      dataDir,
-      fileDir,
-      relativePath,
-      pathSegments,
-    });
 
     set((state) => {
       state.fileManager.currentPath = pathSegments;
