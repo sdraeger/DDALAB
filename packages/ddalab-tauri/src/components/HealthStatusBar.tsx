@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 import { useSync } from "@/hooks/useSync";
@@ -57,7 +58,23 @@ interface HealthStatusBarProps {
 }
 
 export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
-  const { ui, updateHealthStatus } = useAppStore();
+  const {
+    ui,
+    updateHealthStatus,
+    ddaRunning,
+    setDDARunning,
+    expertMode,
+    setExpertMode,
+  } = useAppStore(
+    useShallow((state) => ({
+      ui: state.ui,
+      updateHealthStatus: state.updateHealthStatus,
+      ddaRunning: state.dda.isRunning,
+      setDDARunning: state.setDDARunning,
+      expertMode: state.ui.expertMode,
+      setExpertMode: state.setExpertMode,
+    })),
+  );
   const {
     isConnected: syncConnected,
     isLoading: syncLoading,
@@ -65,10 +82,6 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
     connect,
     disconnect,
   } = useSync();
-  const ddaRunning = useAppStore((state) => state.dda.isRunning);
-  const setDDARunning = useAppStore((state) => state.setDDARunning);
-  const expertMode = useAppStore((state) => state.ui.expertMode);
-  const setExpertMode = useAppStore((state) => state.setExpertMode);
 
   // Recent servers store
   const { recentServers, addRecentServer, removeRecentServer } =

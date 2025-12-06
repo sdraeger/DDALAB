@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, memo } from "react";
 import {
   Download,
   Folder,
@@ -47,7 +47,7 @@ interface FileTreeNode {
   selected?: boolean;
 }
 
-export function OpenNeuroDownloadDialog({
+export const OpenNeuroDownloadDialog = memo(function OpenNeuroDownloadDialog({
   isOpen,
   onClose,
   dataset,
@@ -768,4 +768,4 @@ export function OpenNeuroDownloadDialog({
       </div>
     </div>
   );
-}
+});
