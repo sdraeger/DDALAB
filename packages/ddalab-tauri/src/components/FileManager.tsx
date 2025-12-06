@@ -88,7 +88,9 @@ interface FileManagerProps {
 
 // FileTreeRenderer is now imported from @/components/file-manager
 
-export function FileManager({ apiService }: FileManagerProps) {
+export const FileManager = React.memo(function FileManager({
+  apiService,
+}: FileManagerProps) {
   const dataDirectoryPath = useAppStore(
     (state) => state.fileManager.dataDirectoryPath,
   );
@@ -1332,4 +1334,4 @@ export function FileManager({ apiService }: FileManagerProps) {
       />
     </Card>
   );
-}
+});

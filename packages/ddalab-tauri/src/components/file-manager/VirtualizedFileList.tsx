@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { formatBytes, formatDate } from "@/lib/utils";
 import { getFileFormat, getModalityBadgeClass } from "./fileUtils";
+import { VIRTUALIZATION } from "@/lib/constants";
 
 export interface VirtualizedFileListProps {
   files: EDFFileInfo[];
@@ -223,5 +224,6 @@ export function VirtualizedFileList({
 
 /**
  * Threshold for switching to virtualized list
+ * Re-exported from centralized constants for backwards compatibility
  */
-export const VIRTUALIZATION_THRESHOLD = 100;
+export const VIRTUALIZATION_THRESHOLD = VIRTUALIZATION.THRESHOLD;

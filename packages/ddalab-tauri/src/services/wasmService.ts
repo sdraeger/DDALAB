@@ -1002,3 +1002,386 @@ function parseF32ArrayJS(bytes: Uint8Array): number[] {
 
   return result;
 }
+
+// ============================================================================
+// FUZZY SEARCH
+// ============================================================================
+
+/**
+ * Calculate Levenshtein distance between two strings
+ * Returns the minimum number of single-character edits needed
+ */
+export function levenshteinDistance(a: string, b: string): number {
+  if (!wasmFunctions) {
+    return levenshteinDistanceJS(a, b);
+  }
+
+  return wasmFunctions.levenshtein_distance(a, b);
+}
+
+/**
+ * Calculate trigram similarity between two strings (Sørensen-Dice coefficient)
+ * Returns 0.0 to 1.0, where 1.0 is identical
+ */
+export function trigramSimilarity(a: string, b: string): number {
+  if (!wasmFunctions) {
+    return trigramSimilarityJS(a, b);
+  }
+
+  return wasmFunctions.trigram_similarity(a, b);
+}
+
+/**
+ * Batch Levenshtein distance calculation for multiple targets
+ * More efficient than calling levenshteinDistance in a loop
+ */
+export function levenshteinBatch(query: string, targets: string[]): number[] {
+  if (!wasmFunctions) {
+    return targets.map((t) => levenshteinDistanceJS(query, t));
+  }
+
+  // Join targets with null character for WASM
+  const joinedTargets = targets.join("\0");
+  const result = wasmFunctions.levenshtein_batch(query, joinedTargets);
+  return Array.from(result);
+}
+
+/**
+ * Batch trigram similarity calculation for multiple targets
+ * More efficient than calling trigramSimilarity in a loop
+ */
+export function trigramSimilarityBatch(
+  query: string,
+  targets: string[],
+): number[] {
+  if (!wasmFunctions) {
+    return targets.map((t) => trigramSimilarityJS(query, t));
+  }
+
+  // Join targets with null character for WASM
+  const joinedTargets = targets.join("\0");
+  const result = wasmFunctions.trigram_similarity_batch(query, joinedTargets);
+  return Array.from(result);
+}
+
+// JS Fallback implementations for fuzzy search
+
+function levenshteinDistanceJS(a: string, b: string): number {
+  // Optimization: if length difference is too large, skip calculation
+  if (Math.abs(a.length - b.length) > 3) {
+    return 999;
+  }
+
+  const aLower = a.toLowerCase();
+  const bLower = b.toLowerCase();
+
+  if (aLower.length === 0) return bLower.length;
+  if (bLower.length === 0) return aLower.length;
+
+  // Use two rows instead of full matrix for O(n) space
+  let prevRow: number[] = Array.from(
+    { length: aLower.length + 1 },
+    (_, i) => i,
+  );
+  let currRow: number[] = new Array(aLower.length + 1).fill(0);
+
+  for (let i = 0; i < bLower.length; i++) {
+    currRow[0] = i + 1;
+
+    for (let j = 0; j < aLower.length; j++) {
+      const cost = aLower[j] === bLower[i] ? 0 : 1;
+      currRow[j + 1] = Math.min(
+        prevRow[j + 1] + 1, // deletion
+        currRow[j] + 1, // insertion
+        prevRow[j] + cost, // substitution
+      );
+    }
+
+    [prevRow, currRow] = [currRow, prevRow];
+  }
+
+  return prevRow[aLower.length];
+}
+
+function trigramSimilarityJS(a: string, b: string): number {
+  const generateTrigrams = (str: string): Set<string> => {
+    const trigrams = new Set<string>();
+    const normalized = str.toLowerCase();
+    const padded = `  ${normalized}  `;
+
+    for (let i = 0; i < padded.length - 2; i++) {
+      trigrams.add(padded.slice(i, i + 3));
+    }
+
+    return trigrams;
+  };
+
+  const trigramsA = generateTrigrams(a);
+  const trigramsB = generateTrigrams(b);
+
+  if (trigramsA.size === 0 || trigramsB.size === 0) {
+    return 0;
+  }
+
+  const intersection = new Set([...trigramsA].filter((x) => trigramsB.has(x)));
+
+  // Sørensen-Dice coefficient
+  return (2 * intersection.size) / (trigramsA.size + trigramsB.size);
+}
+
+// ============================================================================
+// PREPROCESSING - Smoothing and Outlier Removal
+// ============================================================================
+
+export type OutlierRemovalMethod = "clip" | "nan" | "interpolate";
+
+/**
+ * Apply moving average smoothing
+ * Uses WASM for ~3-5x performance improvement
+ */
+export function movingAverage(data: number[], windowSize: number): number[] {
+  if (!wasmFunctions) {
+    return movingAverageJS(data, windowSize);
+  }
+
+  const float64Data = new Float64Array(data);
+  const result = wasmFunctions.moving_average(float64Data, windowSize);
+  return Array.from(result);
+}
+
+/**
+ * Apply moving average to multiple channels at once
+ */
+export function movingAverageChannels(
+  data: number[][],
+  windowSize: number,
+): number[][] {
+  if (data.length === 0) return [];
+
+  const pointsPerChannel = data[0].length;
+  const numChannels = data.length;
+
+  if (!wasmFunctions) {
+    return data.map((channelData) => movingAverageJS(channelData, windowSize));
+  }
+
+  // Flatten data for WASM
+  const flatData = new Float64Array(numChannels * pointsPerChannel);
+  for (let ch = 0; ch < numChannels; ch++) {
+    flatData.set(data[ch], ch * pointsPerChannel);
+  }
+
+  const flatResult = wasmFunctions.moving_average_channels(
+    flatData,
+    numChannels,
+    pointsPerChannel,
+    windowSize,
+  );
+
+  // Split results back into channels
+  const results: number[][] = [];
+  for (let ch = 0; ch < numChannels; ch++) {
+    const start = ch * pointsPerChannel;
+    const end = start + pointsPerChannel;
+    results.push(Array.from(flatResult.slice(start, end)));
+  }
+
+  return results;
+}
+
+/**
+ * Apply Savitzky-Golay polynomial smoothing
+ * Preserves features better than moving average
+ * Uses WASM for ~5-7x performance improvement
+ */
+export function savitzkyGolay(
+  data: number[],
+  windowSize: number,
+  polynomialOrder: number,
+): number[] {
+  if (!wasmFunctions) {
+    return savitzkyGolayJS(data, windowSize, polynomialOrder);
+  }
+
+  const float64Data = new Float64Array(data);
+  const result = wasmFunctions.savitzky_golay(
+    float64Data,
+    windowSize,
+    polynomialOrder,
+  );
+  return Array.from(result);
+}
+
+/**
+ * Remove outliers using z-score threshold
+ * @param method 0 = clip, 1 = replace with NaN, 2 = interpolate
+ */
+export function removeOutliers(
+  data: number[],
+  method: OutlierRemovalMethod,
+  threshold: number,
+): number[] {
+  const methodCode = { clip: 0, nan: 1, interpolate: 2 }[method];
+
+  if (!wasmFunctions) {
+    return removeOutliersJS(data, method, threshold);
+  }
+
+  const float64Data = new Float64Array(data);
+  const result = wasmFunctions.remove_outliers(
+    float64Data,
+    methodCode,
+    threshold,
+  );
+  return Array.from(result);
+}
+
+// JS Fallback implementations for preprocessing
+
+function movingAverageJS(data: number[], windowSize: number): number[] {
+  const halfWindow = Math.floor(windowSize / 2);
+  const result = new Array(data.length);
+
+  for (let i = 0; i < data.length; i++) {
+    const start = Math.max(0, i - halfWindow);
+    const end = Math.min(data.length, i + halfWindow + 1);
+    let sum = 0;
+    for (let j = start; j < end; j++) {
+      sum += data[j];
+    }
+    result[i] = sum / (end - start);
+  }
+
+  return result;
+}
+
+function savitzkyGolayJS(
+  data: number[],
+  windowSize: number,
+  polynomialOrder: number,
+): number[] {
+  // Ensure window size is odd
+  if (windowSize % 2 === 0) windowSize++;
+
+  // Clamp polynomial order
+  if (polynomialOrder >= windowSize) {
+    polynomialOrder = windowSize - 1;
+  }
+
+  // Pre-computed coefficients for common configurations
+  const coefficients: Record<string, Record<number, number[]>> = {
+    "5": {
+      2: [-3, 12, 17, 12, -3],
+      3: [-2, 3, 6, 7, 6, 3, -2],
+    },
+    "7": {
+      2: [-2, 3, 6, 7, 6, 3, -2],
+      3: [-3, 12, 17, 12, -3],
+    },
+    "9": {
+      2: [-21, 14, 39, 54, 59, 54, 39, 14, -21],
+      4: [15, -55, 30, 135, 179, 135, 30, -55, 15],
+    },
+    "11": {
+      2: [-36, 9, 44, 69, 84, 89, 84, 69, 44, 9, -36],
+      4: [18, -45, -10, 60, 120, 143, 120, 60, -10, -45, 18],
+    },
+  };
+
+  const key = windowSize.toString();
+  let coefs: number[];
+  if (coefficients[key] && coefficients[key][polynomialOrder]) {
+    coefs = coefficients[key][polynomialOrder];
+    const sum = coefs.reduce((a, b) => a + b, 0);
+    coefs = coefs.map((c) => c / sum);
+  } else {
+    // Fallback: moving average
+    coefs = new Array(windowSize).fill(1 / windowSize);
+  }
+
+  const halfWindow = Math.floor(windowSize / 2);
+  const result: number[] = [];
+
+  for (let i = 0; i < data.length; i++) {
+    let sum = 0;
+    let weightSum = 0;
+
+    for (let j = -halfWindow; j <= halfWindow; j++) {
+      const idx = i + j;
+      if (idx >= 0 && idx < data.length) {
+        const coefIdx = j + halfWindow;
+        sum += data[idx] * coefs[coefIdx];
+        weightSum += coefs[coefIdx];
+      }
+    }
+
+    result.push(weightSum > 0 ? sum / weightSum : data[i]);
+  }
+
+  return result;
+}
+
+function removeOutliersJS(
+  data: number[],
+  method: OutlierRemovalMethod,
+  threshold: number,
+): number[] {
+  // Calculate mean and std
+  let sum = 0;
+  let count = 0;
+  for (const val of data) {
+    if (Number.isFinite(val)) {
+      sum += val;
+      count++;
+    }
+  }
+  const mean = count > 0 ? sum / count : 0;
+
+  let varianceSum = 0;
+  for (const val of data) {
+    if (Number.isFinite(val)) {
+      varianceSum += (val - mean) ** 2;
+    }
+  }
+  const std = count > 1 ? Math.sqrt(varianceSum / (count - 1)) : 0;
+
+  const lowerBound = mean - threshold * std;
+  const upperBound = mean + threshold * std;
+
+  if (method === "clip") {
+    return data.map((val) => Math.max(lowerBound, Math.min(upperBound, val)));
+  } else if (method === "nan") {
+    return data.map((val) =>
+      val < lowerBound || val > upperBound ? NaN : val,
+    );
+  } else {
+    // interpolate
+    const result = [...data];
+    for (let i = 0; i < result.length; i++) {
+      if (result[i] < lowerBound || result[i] > upperBound) {
+        let prev = i - 1;
+        while (
+          prev >= 0 &&
+          (result[prev] < lowerBound || result[prev] > upperBound)
+        )
+          prev--;
+        let next = i + 1;
+        while (
+          next < result.length &&
+          (result[next] < lowerBound || result[next] > upperBound)
+        )
+          next++;
+
+        if (prev >= 0 && next < result.length) {
+          const alpha = (i - prev) / (next - prev);
+          result[i] = result[prev] + alpha * (result[next] - result[prev]);
+        } else if (prev >= 0) {
+          result[i] = result[prev];
+        } else if (next < result.length) {
+          result[i] = result[next];
+        }
+      }
+    }
+    return result;
+  }
+}

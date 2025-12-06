@@ -335,3 +335,21 @@ export const POLLING_INTERVALS = {
   /** Health check - 30 seconds */
   HEALTH: 30000,
 } as const;
+
+// ============================================================================
+// List Virtualization
+// ============================================================================
+
+/**
+ * Virtualization configuration for react-window lists
+ * Lists with fewer items than the threshold render normally
+ * Lists with more items use virtualized rendering for performance
+ */
+export const VIRTUALIZATION = {
+  /** Item count threshold to enable virtualization */
+  THRESHOLD: 50,
+  /** Default row height for fixed-size lists */
+  DEFAULT_ROW_HEIGHT: 36,
+  /** Default overscan count (items rendered outside viewport) */
+  OVERSCAN_COUNT: 5,
+} as const;
