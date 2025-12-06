@@ -20,6 +20,30 @@ export function debounce<T extends (...args: any[]) => any>(
   };
 }
 
+/**
+ * Creates a debounced state updater that manages timeouts by key.
+ * Useful for state slices that need to debounce multiple different updates.
+ */
+const debouncedTimers = new Map<string, NodeJS.Timeout>();
+
+export function debouncedUpdate(
+  key: string,
+  fn: () => void | Promise<void>,
+  wait: number = 150,
+): void {
+  const existing = debouncedTimers.get(key);
+  if (existing) {
+    clearTimeout(existing);
+  }
+
+  const timeoutId = setTimeout(() => {
+    debouncedTimers.delete(key);
+    fn();
+  }, wait);
+
+  debouncedTimers.set(key, timeoutId);
+}
+
 export function throttle<T extends (...args: any[]) => any>(
   func: T,
   wait: number,

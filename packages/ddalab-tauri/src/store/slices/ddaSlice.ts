@@ -5,6 +5,7 @@
 import { TauriService } from "@/services/tauriService";
 import { getInitializedFileStateManager } from "@/services/fileStateInitializer";
 import { getStatePersistenceService } from "@/services/statePersistenceService";
+import { debouncedUpdate } from "@/utils/debounce";
 import { handleError } from "@/utils/errorHandler";
 import type {
   DDAState as PersistedDDAState,
@@ -17,9 +18,6 @@ import type {
   DelayPreset,
   ImmerStateCreator,
 } from "./types";
-
-// Module-level debounce timer (replaces window object pattern)
-let ddaStateUpdateTimeout: NodeJS.Timeout | undefined;
 
 export const defaultDDAState: DDAState = {
   currentAnalysis: null,
@@ -193,41 +191,40 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
 
   updateAnalysisParameters: (parameters) => {
     set((state) => {
-      // Use spread for partial updates - more idiomatic with Immer
       state.dda.analysisParameters = {
         ...state.dda.analysisParameters,
         ...parameters,
       };
     });
 
-    if (ddaStateUpdateTimeout) {
-      clearTimeout(ddaStateUpdateTimeout);
+    if (TauriService.isTauri()) {
+      debouncedUpdate(
+        "dda:parameters",
+        () => {
+          const { dda } = get();
+          const ddaState: PersistedDDAState = {
+            selected_variants: dda.analysisParameters.variants,
+            parameters: {
+              windowLength: dda.analysisParameters.windowLength,
+              windowStep: dda.analysisParameters.windowStep,
+              delays: dda.analysisParameters.delays,
+            },
+            last_analysis_id: dda.currentAnalysis?.id || null,
+            current_analysis: dda.currentAnalysis,
+            analysis_history: dda.analysisHistory,
+            analysis_parameters: dda.analysisParameters,
+            running: dda.isRunning,
+          };
+          TauriService.updateDDAState(ddaState).catch((error) =>
+            handleError(error, {
+              source: "DDA State Persistence",
+              severity: "silent",
+            }),
+          );
+        },
+        300,
+      );
     }
-
-    ddaStateUpdateTimeout = setTimeout(() => {
-      if (TauriService.isTauri()) {
-        const { dda } = get();
-        const ddaState: PersistedDDAState = {
-          selected_variants: dda.analysisParameters.variants,
-          parameters: {
-            windowLength: dda.analysisParameters.windowLength,
-            windowStep: dda.analysisParameters.windowStep,
-            delays: dda.analysisParameters.delays,
-          },
-          last_analysis_id: dda.currentAnalysis?.id || null,
-          current_analysis: dda.currentAnalysis,
-          analysis_history: dda.analysisHistory,
-          analysis_parameters: dda.analysisParameters,
-          running: dda.isRunning,
-        };
-        TauriService.updateDDAState(ddaState).catch((error) =>
-          handleError(error, {
-            source: "DDA State Persistence",
-            severity: "silent",
-          }),
-        );
-      }
-    }, 300);
   },
 
   setDDARunning: (running) => {

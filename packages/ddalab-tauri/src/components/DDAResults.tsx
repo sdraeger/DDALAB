@@ -1720,9 +1720,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     });
 
     // Fire and forget - don't block on broadcast
-    broadcastToType("dda-results", "data-update", ddaResultsData).catch(
-      console.error,
-    );
+    broadcastToType("dda-results", ddaResultsData).catch(console.error);
   }, [
     result.id,
     selectedVariant,

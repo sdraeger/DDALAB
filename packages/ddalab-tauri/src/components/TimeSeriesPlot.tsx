@@ -807,9 +807,7 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
         filters: preprocessing,
       };
 
-      broadcastToType("timeseries", "data-update", timeSeriesData).catch(
-        () => {},
-      );
+      broadcastToType("timeseries", timeSeriesData).catch(() => {});
     }
   }, [
     plot.currentChunk,

@@ -3,13 +3,9 @@
  */
 
 import { TauriService } from "@/services/tauriService";
+import { debouncedUpdate } from "@/utils/debounce";
 import { handleError } from "@/utils/errorHandler";
 import type { ImmerStateCreator, UISlice, UIState } from "./types";
-
-// Module-level debounce timers (replaces window object pattern)
-let sidebarWidthUpdateTimeout: NodeJS.Timeout | undefined;
-let zoomUpdateTimeout: NodeJS.Timeout | undefined;
-let panelSizesUpdateTimeout: NodeJS.Timeout | undefined;
 
 export const defaultUIState: UIState = {
   activeTab: "files",
@@ -111,13 +107,8 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
       state.ui.sidebarWidth = clampedWidth;
     });
 
-    // Debounce Tauri state updates
-    if (sidebarWidthUpdateTimeout) {
-      clearTimeout(sidebarWidthUpdateTimeout);
-    }
-
-    sidebarWidthUpdateTimeout = setTimeout(() => {
-      if (TauriService.isTauri()) {
+    if (TauriService.isTauri()) {
+      debouncedUpdate("ui:sidebarWidth", () => {
         TauriService.updateUIState({ sidebarWidth: clampedWidth }).catch(
           (error) =>
             handleError(error, {
@@ -125,8 +116,8 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
               severity: "silent",
             }),
         );
-      }
-    }, 150);
+      });
+    }
   },
 
   setZoom: (zoom) => {
@@ -135,21 +126,16 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
       state.ui.zoom = clampedZoom;
     });
 
-    // Debounce Tauri state updates
-    if (zoomUpdateTimeout) {
-      clearTimeout(zoomUpdateTimeout);
-    }
-
-    zoomUpdateTimeout = setTimeout(() => {
-      if (TauriService.isTauri()) {
+    if (TauriService.isTauri()) {
+      debouncedUpdate("ui:zoom", () => {
         TauriService.updateUIState({ zoom: clampedZoom }).catch((error) =>
           handleError(error, {
             source: "UI State Persistence",
             severity: "silent",
           }),
         );
-      }
-    }, 150);
+      });
+    }
   },
 
   increaseZoom: () => {
@@ -173,21 +159,16 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
       state.ui.panelSizes = sizes;
     });
 
-    // Debounce Tauri state updates
-    if (panelSizesUpdateTimeout) {
-      clearTimeout(panelSizesUpdateTimeout);
-    }
-
-    panelSizesUpdateTimeout = setTimeout(() => {
-      if (TauriService.isTauri()) {
+    if (TauriService.isTauri()) {
+      debouncedUpdate("ui:panelSizes", () => {
         TauriService.updateUIState({ panelSizes: sizes }).catch((error) =>
           handleError(error, {
             source: "UI State Persistence",
             severity: "silent",
           }),
         );
-      }
-    }, 150);
+      });
+    }
   },
 
   setLayout: (layout) => {

@@ -9,11 +9,7 @@ interface UsePopoutWindowsResult {
   updateWindowData: (windowId: string, data: any) => Promise<void>;
   toggleWindowLock: (windowId: string) => void;
   isWindowLocked: (windowId: string) => boolean;
-  broadcastToType: (
-    type: WindowType,
-    eventName: string,
-    data: any,
-  ) => Promise<void>;
+  broadcastToType: (type: WindowType, data: any) => Promise<void>;
 }
 
 export function usePopoutWindows(): UsePopoutWindowsResult {
@@ -64,8 +60,8 @@ export function usePopoutWindows(): UsePopoutWindowsResult {
   }, []);
 
   const broadcastToType = useCallback(
-    async (type: WindowType, eventName: string, data: any): Promise<void> => {
-      await windowManager.broadcastToType(type, eventName, data);
+    async (type: WindowType, data: any): Promise<void> => {
+      await windowManager.broadcastToType(type, data);
     },
     [],
   );
