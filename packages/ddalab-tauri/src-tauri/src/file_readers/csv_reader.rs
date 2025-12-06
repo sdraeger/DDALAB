@@ -27,7 +27,9 @@ impl FileReader for CSVFileReader {
     fn metadata(&self) -> FileResult<FileMetadata> {
         let info = &self.reader.info;
 
-        // CSV files don't have encoded sample rate, assume 1 Hz for generic time series
+        // CSV files don't have encoded sample rate metadata
+        // Default to 1 Hz - DDA analysis will work but timing will be in samples not seconds
+        // For proper timing metadata, use EDF, BrainVision, or XDF formats
         let sample_rate = 1.0;
         let duration = info.num_samples as f64 / sample_rate;
 

@@ -12,31 +12,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
-import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ChannelSelector } from "@/components/ChannelSelector";
-import {
-  Download,
-  RotateCcw,
-  ExternalLink,
-  Loader2,
-  FileImage,
-  FileCode,
-  FileText,
-  Database,
-  Image,
-  Share2,
-  Copy,
-  CheckCircle2,
-} from "lucide-react";
+import { Loader2 } from "lucide-react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { usePopoutWindows } from "@/hooks/usePopoutWindows";
@@ -56,30 +34,20 @@ import {
 import { useDDAAnnotations } from "@/hooks/useAnnotations";
 import { AnnotationContextMenu } from "@/components/annotations/AnnotationContextMenu";
 import { AnnotationMarker } from "@/components/annotations/AnnotationMarker";
-import { PlotAnnotation, PlotInfo } from "@/types/annotations";
+import { PlotInfo } from "@/types/annotations";
 import { PlotLoadingSkeleton } from "@/components/dda/PlotLoadingSkeleton";
 import { NetworkMotifPlot } from "@/components/dda/NetworkMotifPlot";
-import { ViewModeSelector, ViewMode } from "@/components/dda/ViewModeSelector";
-import {
-  ColorSchemePicker,
-  ColorScheme,
-} from "@/components/dda/ColorSchemePicker";
+import type { ViewMode } from "@/components/dda/ViewModeSelector";
+import type { ColorScheme } from "@/components/dda/ColorSchemePicker";
 import { COLOR_SCHEME_FUNCTIONS } from "@/utils/colorSchemes";
-import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toaster";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useSync } from "@/hooks/useSync";
 import type { AccessPolicy, AccessPolicyType } from "@/types/sync";
 import { ChartErrorBoundary } from "@/components/ChartErrorBoundary";
+import { ShareResultDialog } from "@/components/dda/ShareResultDialog";
+import { ExportMenu } from "@/components/dda/ExportMenu";
+import { ColorRangeControl } from "@/components/dda/ColorRangeControl";
+import { PlotToolbar } from "@/components/dda/PlotToolbar";
 
 interface DDAResultsProps {
   result: DDAResult;
@@ -99,13 +67,6 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
   // Share dialog state
   const [showShareDialog, setShowShareDialog] = useState(false);
-  const [shareTitle, setShareTitle] = useState("");
-  const [shareDescription, setShareDescription] = useState("");
-  const [shareAccessPolicy, setShareAccessPolicy] =
-    useState<AccessPolicyType>("public");
-  const [isSharing, setIsSharing] = useState(false);
-  const [shareLink, setShareLink] = useState<string | null>(null);
-  const [linkCopied, setLinkCopied] = useState(false);
   // Store share links per result.id so they persist when dialog is closed
   const sharedResultsRef = useRef<Map<string, string>>(new Map());
 
@@ -138,8 +99,6 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   }, []);
   const uplotHeatmapRef = useRef<uPlot | null>(null);
   const uplotLinePlotRef = useRef<uPlot | null>(null);
-  const lastRenderedResultId = useRef<string | null>(null);
-  const renderTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastBroadcastTime = useRef<number>(0);
   const broadcastThrottleMs = 500; // Only broadcast every 500ms max
   const lastAnnotationCount = useRef<{ heatmap: number; lineplot: number }>({
@@ -189,9 +148,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   const [linePlotHeight, setLinePlotHeight] = useState(() =>
     getPersistedHeight("dda-lineplot-height", 400),
   );
-  const [isResizing, setIsResizing] = useState<"heatmap" | "lineplot" | null>(
-    null,
-  );
+  const [, setIsResizing] = useState<"heatmap" | "lineplot" | null>(null);
 
   // CRITICAL FIX: Progressive rendering - defer plot containers to prevent UI freeze
   // Render controls first, then mount heavy plot containers on next frame
@@ -241,7 +198,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   const [heatmapData, setHeatmapData] = useState<number[][]>([]);
   const [colorRange, setColorRange] = useState<[number, number]>([0, 1]);
   const [autoScale, setAutoScale] = useState(true);
-  const [isProcessingData, setIsProcessingData] = useState(false);
+  const [isProcessingData] = useState(false);
   const [isRenderingHeatmap, setIsRenderingHeatmap] = useState(false);
   const [isRenderingLinePlot, setIsRenderingLinePlot] = useState(false);
 
@@ -640,12 +597,12 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
               labelSize: 100,
               size: 120,
               splits: (
-                u,
-                axisIdx,
-                scaleMin,
-                scaleMax,
-                foundIncr,
-                foundSpace,
+                _u,
+                _axisIdx,
+                _scaleMin,
+                _scaleMax,
+                _foundIncr,
+                _foundSpace,
               ) => {
                 // Generate splits at integer positions (0, 1, 2, ..., n-1) for channel centers
                 const splits = [];
@@ -654,7 +611,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                 }
                 return splits;
               },
-              values: (u, ticks) =>
+              values: (_u, ticks) =>
                 ticks.map((tick) => {
                   // Ticks are already at integer positions from splits
                   const idx = Math.round(tick);
@@ -1123,14 +1080,6 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     return colors[index % colors.length];
   };
 
-  const handleChannelToggle = (channel: string) => {
-    setSelectedChannels((prev) =>
-      prev.includes(channel)
-        ? prev.filter((ch) => ch !== channel)
-        : [...prev, channel],
-    );
-  };
-
   const handlePopOut = useCallback(async () => {
     const ddaResultsData = {
       result,
@@ -1391,78 +1340,44 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     [result, selectedVariant, selectedChannels, availableVariants],
   );
 
-  // Open share dialog with default values
+  // Open share dialog
   const openShareDialog = useCallback(() => {
-    // Check if this result has already been shared
-    const existingLink = sharedResultsRef.current.get(result.id);
-
-    if (existingLink) {
-      // Show existing share link
-      setShareLink(existingLink);
-    } else {
-      // Set default title from result/file info for new share
-      const filename =
-        result.name || result.file_path.split("/").pop() || "Result";
-      const defaultTitle = `DDA Analysis - ${filename} - ${new Date(result.created_at).toLocaleDateString()}`;
-      setShareTitle(defaultTitle);
-      setShareDescription("");
-      setShareAccessPolicy("public");
-      setShareLink(null);
-    }
-    setLinkCopied(false);
     setShowShareDialog(true);
-  }, [result]);
+  }, []);
 
-  // Handle share submission
-  const handleShare = useCallback(async () => {
-    if (!shareTitle.trim()) {
-      toast.error(
-        "Title required",
-        "Please enter a title for the shared result",
-      );
-      return;
-    }
-
-    setIsSharing(true);
-    try {
-      const accessPolicy: AccessPolicy = { type: shareAccessPolicy };
-      const link = await shareResult(
-        result.id,
-        shareTitle.trim(),
-        shareDescription.trim() || null,
-        accessPolicy,
-      );
-      setShareLink(link);
-      // Store the link so it persists when dialog is closed
-      sharedResultsRef.current.set(result.id, link);
-      toast.success(
-        "Share created",
-        "Your result is now shared with colleagues",
-      );
-    } catch (error) {
-      loggers.api.error("Failed to share result", { error });
-      toast.error(
-        "Share failed",
-        error instanceof Error ? error.message : "Could not share result",
-      );
-    } finally {
-      setIsSharing(false);
-    }
-  }, [shareTitle, shareDescription, shareAccessPolicy, shareResult, result.id]);
-
-  // Copy share link to clipboard
-  const copyShareLink = useCallback(async () => {
-    if (!shareLink) return;
-    try {
-      await navigator.clipboard.writeText(shareLink);
-      setLinkCopied(true);
-      toast.success("Copied", "Share link copied to clipboard");
-      setTimeout(() => setLinkCopied(false), 2000);
-    } catch (error) {
-      loggers.ui.error("Failed to copy link", { error });
-      toast.error("Copy failed", "Could not copy link to clipboard");
-    }
-  }, [shareLink]);
+  // Handle share submission - called by ShareResultDialog
+  const handleShare = useCallback(
+    async (
+      title: string,
+      description: string,
+      accessPolicyType: AccessPolicyType,
+    ): Promise<string | null> => {
+      try {
+        const accessPolicy: AccessPolicy = { type: accessPolicyType };
+        const link = await shareResult(
+          result.id,
+          title,
+          description || null,
+          accessPolicy,
+        );
+        // Store the link so it persists when dialog is closed
+        sharedResultsRef.current.set(result.id, link);
+        toast.success(
+          "Share created",
+          "Your result is now shared with colleagues",
+        );
+        return link;
+      } catch (error) {
+        loggers.api.error("Failed to share result", { error });
+        toast.error(
+          "Share failed",
+          error instanceof Error ? error.message : "Could not share result",
+        );
+        return null;
+      }
+    },
+    [shareResult, result.id],
+  );
 
   // Re-render plots when dependencies change - using IntersectionObserver to detect visibility
   // Note: lastRenderedHeatmapKey and lastRenderedLinePlotKey are declared near the callback refs
@@ -1755,139 +1670,46 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                 • {selectedChannels.length} channels
               </CardDescription>
             </div>
-            <div className="flex items-center space-x-2">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <Database className="h-4 w-4 mr-2" />
-                    Export Data
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => exportData("csv")}>
-                    <FileText className="h-4 w-4 mr-2" />
-                    Export as CSV
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => exportData("json")}>
-                    <FileCode className="h-4 w-4 mr-2" />
-                    Export as JSON
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <Image className="h-4 w-4 mr-2" />
-                    Save Plot
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => exportPlot("png")}>
-                    <FileImage className="h-4 w-4 mr-2" />
-                    Save as PNG
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => exportPlot("svg")}>
-                    <FileCode className="h-4 w-4 mr-2" />
-                    Save as SVG
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => exportPlot("pdf")}>
-                    <FileText className="h-4 w-4 mr-2" />
-                    Save as PDF
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              {/* Share button - only shows when connected to sync broker */}
-              {isSyncConnected && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={openShareDialog}
-                  title="Share this result with colleagues"
-                >
-                  <Share2 className="h-4 w-4 mr-2" />
-                  Share
-                </Button>
-              )}
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handlePopOut}
-                title="Pop out to separate window"
-              >
-                <ExternalLink className="h-4 w-4 mr-2" />
-                Pop Out
-              </Button>
-            </div>
+            <ExportMenu
+              onExportData={exportData}
+              onExportPlot={exportPlot}
+              onShare={openShareDialog}
+              onPopOut={handlePopOut}
+              showShare={isSyncConnected}
+              showPopOut={true}
+            />
           </div>
         </CardHeader>
 
         <CardContent className="space-y-4">
           {/* Primary Toolbar - View Controls */}
-          <div className="flex flex-wrap items-center gap-4">
-            {/* View Mode Toggle */}
-            <ViewModeSelector
-              value={viewMode}
-              onValueChange={setViewMode}
-              hasNetworkMotifs={!!currentVariantData?.network_motifs}
-            />
-
-            <Separator orientation="vertical" className="h-6 hidden sm:block" />
-
-            {/* Color Scheme (visible for heatmap views) */}
-            {(viewMode === "heatmap" || viewMode === "all") && (
-              <ColorSchemePicker
-                value={colorScheme}
-                onValueChange={setColorScheme}
-              />
-            )}
-
-            {/* Spacer to push actions to the right */}
-            <div className="flex-1" />
-
-            {/* Action Buttons */}
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  // Reset zoom for all plots
-                  if (uplotHeatmapRef.current && safeScales.length > 0) {
-                    uplotHeatmapRef.current.setScale("x", {
-                      min: safeScales[0],
-                      max: safeScales[safeScales.length - 1],
-                    });
-                  }
-                  if (uplotLinePlotRef.current && safeScales.length > 0) {
-                    uplotLinePlotRef.current.setScale("x", {
-                      min: safeScales[0],
-                      max: safeScales[safeScales.length - 1],
-                    });
-                  }
-                }}
-                className="text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <RotateCcw className="h-4 w-4 mr-1.5" />
-                Reset Zoom
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setSelectedChannels(result.channels);
-                  setColorRange([0, 1]);
-                  setAutoScale(true);
-                  prevHeatmapDataRef.current.range = [0, 1];
-                }}
-                className="text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <RotateCcw className="h-4 w-4 mr-1.5" />
-                Reset All
-              </Button>
-            </div>
-          </div>
+          <PlotToolbar
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            colorScheme={colorScheme}
+            onColorSchemeChange={setColorScheme}
+            hasNetworkMotifs={!!currentVariantData?.network_motifs}
+            onResetZoom={() => {
+              if (uplotHeatmapRef.current && safeScales.length > 0) {
+                uplotHeatmapRef.current.setScale("x", {
+                  min: safeScales[0],
+                  max: safeScales[safeScales.length - 1],
+                });
+              }
+              if (uplotLinePlotRef.current && safeScales.length > 0) {
+                uplotLinePlotRef.current.setScale("x", {
+                  min: safeScales[0],
+                  max: safeScales[safeScales.length - 1],
+                });
+              }
+            }}
+            onResetAll={() => {
+              setSelectedChannels(result.channels);
+              setColorRange([0, 1]);
+              setAutoScale(true);
+              prevHeatmapDataRef.current.range = [0, 1];
+            }}
+          />
 
           {/* Channel Selection */}
           <ChannelSelector
@@ -1900,50 +1722,14 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
             maxHeight="max-h-32"
           />
 
-          {/* Heatmap Color Range Control - Collapsible section */}
+          {/* Heatmap Color Range Control */}
           {(viewMode === "heatmap" || viewMode === "all") && (
-            <div className="flex flex-wrap items-center gap-4 p-3 rounded-lg bg-muted/30 border border-border/50">
-              <span className="text-sm font-medium text-muted-foreground">
-                Color Range
-              </span>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs text-muted-foreground">Min</Label>
-                  <input
-                    type="number"
-                    value={colorRange[0].toFixed(2)}
-                    onChange={(e) =>
-                      setColorRange([parseFloat(e.target.value), colorRange[1]])
-                    }
-                    disabled={autoScale}
-                    className="w-20 h-8 px-2 text-sm border rounded-md bg-background transition-colors focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                    step="0.1"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs text-muted-foreground">Max</Label>
-                  <input
-                    type="number"
-                    value={colorRange[1].toFixed(2)}
-                    onChange={(e) =>
-                      setColorRange([colorRange[0], parseFloat(e.target.value)])
-                    }
-                    disabled={autoScale}
-                    className="w-20 h-8 px-2 text-sm border rounded-md bg-background transition-colors focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                    step="0.1"
-                  />
-                </div>
-              </div>
-              <label className="flex items-center gap-2 text-sm cursor-pointer select-none ml-auto">
-                <input
-                  type="checkbox"
-                  checked={autoScale}
-                  onChange={(e) => setAutoScale(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary transition-colors"
-                />
-                <span className="text-muted-foreground">Auto Scale</span>
-              </label>
-            </div>
+            <ColorRangeControl
+              colorRange={colorRange}
+              onColorRangeChange={setColorRange}
+              autoScale={autoScale}
+              onAutoScaleChange={setAutoScale}
+            />
           )}
         </CardContent>
       </Card>
@@ -2645,142 +2431,13 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       ) : null}
 
       {/* Share Dialog */}
-      <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
-        <DialogContent className="sm:max-w-xl w-full">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Share2 className="h-5 w-5" />
-              Share Result
-            </DialogTitle>
-            <DialogDescription>
-              Share this DDA analysis result with colleagues in your
-              institution.
-            </DialogDescription>
-          </DialogHeader>
-
-          {!shareLink ? (
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="share-title">Title</Label>
-                <Input
-                  id="share-title"
-                  value={shareTitle}
-                  onChange={(e) => setShareTitle(e.target.value)}
-                  placeholder="Enter a title for the shared result"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="share-description">
-                  Description (optional)
-                </Label>
-                <textarea
-                  id="share-description"
-                  value={shareDescription}
-                  onChange={(e) => setShareDescription(e.target.value)}
-                  placeholder="Add a description..."
-                  rows={3}
-                  className="flex min-h-[80px] w-full max-w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Access Policy</Label>
-                <RadioGroup
-                  value={shareAccessPolicy}
-                  onValueChange={(value) =>
-                    setShareAccessPolicy(value as AccessPolicyType)
-                  }
-                  className="space-y-2"
-                >
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="public" id="access-public" />
-                    <Label htmlFor="access-public" className="cursor-pointer">
-                      Public - Anyone in your institution can access
-                    </Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="team" id="access-team" />
-                    <Label htmlFor="access-team" className="cursor-pointer">
-                      Team - Only team members can access
-                    </Label>
-                  </div>
-                </RadioGroup>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-4 py-4">
-              <div className="flex items-center gap-2 text-green-600">
-                <CheckCircle2 className="h-5 w-5" />
-                <span className="font-medium">Share link created!</span>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Share Link</Label>
-                <div className="flex gap-2 w-full">
-                  <Input
-                    readOnly
-                    value={shareLink}
-                    className="font-mono text-sm flex-1 min-w-0"
-                  />
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={copyShareLink}
-                    title="Copy to clipboard"
-                    aria-label="Copy share link to clipboard"
-                    className="shrink-0"
-                  >
-                    {linkCopied ? (
-                      <CheckCircle2
-                        className="h-4 w-4 text-green-600"
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <Copy className="h-4 w-4" aria-hidden="true" />
-                    )}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Share this link with colleagues. Results are available while
-                  your instance is online.
-                </p>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            {!shareLink ? (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={() => setShowShareDialog(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleShare}
-                  disabled={isSharing || !shareTitle.trim()}
-                >
-                  {isSharing ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Creating...
-                    </>
-                  ) : (
-                    <>
-                      <Share2 className="h-4 w-4 mr-2" />
-                      Create Share Link
-                    </>
-                  )}
-                </Button>
-              </>
-            ) : (
-              <Button onClick={() => setShowShareDialog(false)}>Done</Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ShareResultDialog
+        open={showShareDialog}
+        onOpenChange={setShowShareDialog}
+        result={result}
+        onShare={handleShare}
+        existingShareLink={sharedResultsRef.current.get(result.id) || null}
+      />
     </div>
   );
 }

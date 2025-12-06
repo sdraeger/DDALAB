@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, memo } from "react";
 import { DDAResult } from "@/types/api";
 import {
   Card,
@@ -27,7 +27,7 @@ interface AnalysisPreviewWindowProps {
   onClose?: () => void;
 }
 
-export function AnalysisPreviewWindow({
+export const AnalysisPreviewWindow = memo(function AnalysisPreviewWindow({
   analysis,
   onClose,
 }: AnalysisPreviewWindowProps) {
@@ -590,4 +590,4 @@ export function AnalysisPreviewWindow({
       )}
     </div>
   );
-}
+});

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -76,7 +76,10 @@ interface GlobalSearchProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
+export const GlobalSearch = memo(function GlobalSearch({
+  open,
+  onOpenChange,
+}: GlobalSearchProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -577,4 +580,4 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
       </DialogContent>
     </Dialog>
   );
-}
+});

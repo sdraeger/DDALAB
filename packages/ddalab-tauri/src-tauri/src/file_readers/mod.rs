@@ -13,7 +13,7 @@ pub mod ascii_reader;
 pub mod brainvision_reader;
 pub mod csv_reader;
 pub mod edf_reader;
-pub mod eeglab_reader;
+pub mod eeglab_reader; // EEGLAB .set files (supports .set+.fdt pairs and some single .set files)
 pub mod fif_reader; // FIF/FIFF reader (uses external fiff crate)
 pub mod nifti_reader; // NIfTI reader (uses external nifti crate)
 #[cfg(feature = "nwb-support")]
@@ -202,23 +202,40 @@ impl FileReaderFactory {
     /// Get list of supported extensions for reading/analysis
     pub fn supported_extensions() -> Vec<&'static str> {
         let mut exts = vec![
-            "edf", "csv", "txt", "ascii", "vhdr", "set", "nii", "gz", "xdf",
+            "edf", "csv", "txt", "ascii", "vhdr", "set", "fif", "nii", "gz", "xdf",
         ];
         #[cfg(feature = "nwb-support")]
         exts.push("nwb");
         exts
     }
 
-    /// Get list of recognized but unsupported MEG extensions
-    pub fn meg_extensions() -> Vec<&'static str> {
-        vec!["fif", "ds", "sqd", "meg4", "con", "kit"]
+    /// Get list of extensions that may require conversion (partially supported)
+    /// EEGLAB .set files: Works with .set+.fdt pairs; may need conversion for single .set files
+    pub fn conversion_required_extensions() -> Vec<&'static str> {
+        // Currently empty - EEGLAB now has partial support
+        vec![]
     }
 
-    /// Get list of all recognized extensions (supported + MEG)
+    /// Get list of recognized but unsupported MEG extensions
+    pub fn meg_extensions() -> Vec<&'static str> {
+        vec!["ds", "sqd", "meg4", "con", "kit"]
+    }
+
+    /// Get list of all recognized extensions (supported + conversion required + MEG)
     pub fn all_recognized_extensions() -> Vec<&'static str> {
         let mut exts = Self::supported_extensions();
+        exts.extend(Self::conversion_required_extensions());
         exts.extend(Self::meg_extensions());
         exts
+    }
+
+    /// Check if a file requires conversion before it can be read
+    pub fn requires_conversion(path: &Path) -> bool {
+        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            Self::conversion_required_extensions().contains(&ext.to_lowercase().as_str())
+        } else {
+            false
+        }
     }
 
     /// Check if a file extension is supported for analysis
