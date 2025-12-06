@@ -49,17 +49,11 @@ function extractTokens(text: string): Set<string> {
 
 /**
  * Generate all trigrams from text
+ * Uses shared implementation from fuzzySearch for consistency
  */
 function extractTrigrams(text: string): Set<string> {
   const normalized = normalizeForIndex(text);
-  const trigrams = new Set<string>();
-  const padded = `  ${normalized}  `;
-
-  for (let i = 0; i < padded.length - 2; i++) {
-    trigrams.add(padded.slice(i, i + 3));
-  }
-
-  return trigrams;
+  return generateTrigrams(normalized);
 }
 
 /**

@@ -123,13 +123,17 @@ impl ProgressiveOverviewGenerator {
         let channel_labels: Vec<String>;
 
         if let Some(ref selected) = selected_channels {
+            // Build HashMap for O(1) lookups instead of O(n) per channel
+            let header_map: std::collections::HashMap<&str, usize> = edf
+                .signal_headers
+                .iter()
+                .enumerate()
+                .map(|(i, h)| (h.label.trim(), i))
+                .collect();
+
             let filtered_channels: Vec<usize> = selected
                 .iter()
-                .filter_map(|name| {
-                    edf.signal_headers
-                        .iter()
-                        .position(|h| h.label.trim() == name.trim())
-                })
+                .filter_map(|name| header_map.get(name.trim()).copied())
                 .collect();
 
             if filtered_channels.is_empty() {

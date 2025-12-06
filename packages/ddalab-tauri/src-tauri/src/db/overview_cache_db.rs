@@ -90,6 +90,8 @@ impl OverviewCacheDatabase {
                 ON overview_cache(file_path);
             CREATE INDEX IF NOT EXISTS idx_overview_cache_is_complete
                 ON overview_cache(is_complete);
+            CREATE INDEX IF NOT EXISTS idx_overview_cache_composite
+                ON overview_cache(file_path, max_points, channels);
 
             CREATE TABLE IF NOT EXISTS overview_cache_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -397,26 +399,43 @@ impl OverviewCacheDatabase {
     }
 
     /// Get cache metadata by ID
+    /// JSON deserialization is done outside the lock for better concurrency
     pub fn get_cache_metadata(&self, cache_id: i64) -> Result<Option<OverviewCacheMetadata>> {
-        let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT id, file_path, file_size, file_modified_time, max_points, channels,
-                    total_samples, samples_processed, completion_percentage, is_complete,
-                    created_at, updated_at
-             FROM overview_cache
-             WHERE id = ?1",
-        )?;
+        // Intermediate struct to hold raw data from database
+        struct RawMetadata {
+            id: i64,
+            file_path: String,
+            file_size: u64,
+            file_modified_time: i64,
+            max_points: usize,
+            channels_json: String, // Raw JSON string
+            total_samples: usize,
+            samples_processed: usize,
+            completion_percentage: f64,
+            is_complete: bool,
+            created_at: String,
+            updated_at: String,
+        }
 
-        let metadata = stmt
-            .query_row(params![cache_id], |row| {
-                Ok(OverviewCacheMetadata {
+        // Fetch raw data while holding lock
+        let raw_metadata = {
+            let conn = self.conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT id, file_path, file_size, file_modified_time, max_points, channels,
+                        total_samples, samples_processed, completion_percentage, is_complete,
+                        created_at, updated_at
+                 FROM overview_cache
+                 WHERE id = ?1",
+            )?;
+
+            stmt.query_row(params![cache_id], |row| {
+                Ok(RawMetadata {
                     id: row.get(0)?,
                     file_path: row.get(1)?,
                     file_size: row.get(2)?,
                     file_modified_time: row.get(3)?,
                     max_points: row.get(4)?,
-                    channels: serde_json::from_str(&row.get::<_, String>(5)?)
-                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                    channels_json: row.get(5)?,
                     total_samples: row.get(6)?,
                     samples_processed: row.get(7)?,
                     completion_percentage: row.get(8)?,
@@ -425,9 +444,31 @@ impl OverviewCacheDatabase {
                     updated_at: row.get(11)?,
                 })
             })
-            .optional()?;
+            .optional()?
+        }; // Lock released here
 
-        Ok(metadata)
+        // Deserialize JSON outside the lock
+        match raw_metadata {
+            Some(raw) => {
+                let channels: Vec<String> = serde_json::from_str(&raw.channels_json)
+                    .context("Failed to deserialize channels JSON")?;
+                Ok(Some(OverviewCacheMetadata {
+                    id: raw.id,
+                    file_path: raw.file_path,
+                    file_size: raw.file_size,
+                    file_modified_time: raw.file_modified_time,
+                    max_points: raw.max_points,
+                    channels,
+                    total_samples: raw.total_samples,
+                    samples_processed: raw.samples_processed,
+                    completion_percentage: raw.completion_percentage,
+                    is_complete: raw.is_complete,
+                    created_at: raw.created_at,
+                    updated_at: raw.updated_at,
+                }))
+            }
+            None => Ok(None),
+        }
     }
 
     /// Delete cache and all associated segments
@@ -442,27 +483,44 @@ impl OverviewCacheDatabase {
     }
 
     /// Get all incomplete cache entries (for resumption on startup)
+    /// JSON deserialization is done outside the lock for better concurrency
     pub fn get_incomplete_caches(&self) -> Result<Vec<OverviewCacheMetadata>> {
-        let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT id, file_path, file_size, file_modified_time, max_points, channels,
-                    total_samples, samples_processed, completion_percentage, is_complete,
-                    created_at, updated_at
-             FROM overview_cache
-             WHERE is_complete = 0
-             ORDER BY updated_at DESC",
-        )?;
+        // Intermediate struct to hold raw data
+        struct RawCache {
+            id: i64,
+            file_path: String,
+            file_size: u64,
+            file_modified_time: i64,
+            max_points: usize,
+            channels_json: String,
+            total_samples: usize,
+            samples_processed: usize,
+            completion_percentage: f64,
+            is_complete: bool,
+            created_at: String,
+            updated_at: String,
+        }
 
-        let caches = stmt
-            .query_map([], |row| {
-                Ok(OverviewCacheMetadata {
+        // Fetch raw data while holding lock
+        let raw_caches: Vec<RawCache> = {
+            let conn = self.conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT id, file_path, file_size, file_modified_time, max_points, channels,
+                        total_samples, samples_processed, completion_percentage, is_complete,
+                        created_at, updated_at
+                 FROM overview_cache
+                 WHERE is_complete = 0
+                 ORDER BY updated_at DESC",
+            )?;
+
+            let rows = stmt.query_map([], |row| {
+                Ok(RawCache {
                     id: row.get(0)?,
                     file_path: row.get(1)?,
                     file_size: row.get(2)?,
                     file_modified_time: row.get(3)?,
                     max_points: row.get(4)?,
-                    channels: serde_json::from_str(&row.get::<_, String>(5)?)
-                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                    channels_json: row.get(5)?,
                     total_samples: row.get(6)?,
                     samples_processed: row.get(7)?,
                     completion_percentage: row.get(8)?,
@@ -470,10 +528,32 @@ impl OverviewCacheDatabase {
                     created_at: row.get(10)?,
                     updated_at: row.get(11)?,
                 })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        }; // Lock released here
 
-        Ok(caches)
+        // Deserialize JSON outside the lock
+        raw_caches
+            .into_iter()
+            .map(|raw| {
+                let channels: Vec<String> = serde_json::from_str(&raw.channels_json)
+                    .context("Failed to deserialize channels JSON")?;
+                Ok(OverviewCacheMetadata {
+                    id: raw.id,
+                    file_path: raw.file_path,
+                    file_size: raw.file_size,
+                    file_modified_time: raw.file_modified_time,
+                    max_points: raw.max_points,
+                    channels,
+                    total_samples: raw.total_samples,
+                    samples_processed: raw.samples_processed,
+                    completion_percentage: raw.completion_percentage,
+                    is_complete: raw.is_complete,
+                    created_at: raw.created_at,
+                    updated_at: raw.updated_at,
+                })
+            })
+            .collect()
     }
 
     /// Get the last processed segment for a channel

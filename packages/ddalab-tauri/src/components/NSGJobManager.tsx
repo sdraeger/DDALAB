@@ -362,7 +362,7 @@ const NSGJobRow = memo(function NSGJobRow({
   );
 });
 
-export function NSGJobManager() {
+export const NSGJobManager = memo(function NSGJobManager() {
   // TanStack Query hooks
   const { data: hasCredentials = false } = useNSGCredentials();
   const {
@@ -1294,4 +1294,4 @@ export function NSGJobManager() {
       </AlertDialog>
     </div>
   );
-}
+});

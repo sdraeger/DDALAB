@@ -24,9 +24,10 @@ const LOG_LEVELS: Record<LogLevel, number> = {
   error: 3,
 };
 
-// Minimum log level based on environment
+// In production, only log warnings and errors to avoid console noise
+// In development, log everything for debugging
 const MIN_LOG_LEVEL: LogLevel =
-  process.env.NODE_ENV === "production" ? "info" : "debug";
+  process.env.NODE_ENV === "production" ? "warn" : "debug";
 
 function shouldLog(level: LogLevel): boolean {
   return LOG_LEVELS[level] >= LOG_LEVELS[MIN_LOG_LEVEL];
