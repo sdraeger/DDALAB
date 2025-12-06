@@ -180,6 +180,13 @@ impl NSGJobsDatabase {
         )
         .context("Failed to create created_at index")?;
 
+        // Composite index for common status + time queries
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_nsg_jobs_status_created ON nsg_jobs(status, created_at DESC)",
+            [],
+        )
+        .context("Failed to create status+created_at composite index")?;
+
         Ok(())
     }
 

@@ -4,10 +4,10 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use anyhow::{Context, Result};
+use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256};
 use std::path::Path;
-use std::sync::Mutex;
 
 /// Secure secrets database with AES-256-GCM encryption
 /// Uses machine-specific key derivation to avoid password prompts
@@ -77,11 +77,7 @@ impl SecretsDatabase {
         let now = chrono::Utc::now().timestamp();
 
         // Store encrypted value and nonce
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Failed to lock database: {}", e))?;
-        conn.execute(
+        self.conn.lock().execute(
             "INSERT OR REPLACE INTO secrets (key, encrypted_value, nonce, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?4)",
             params![key, encrypted, nonce.as_slice(), now],
@@ -94,10 +90,7 @@ impl SecretsDatabase {
 
     /// Retrieve and decrypt a secret
     pub fn get_secret(&self, key: &str) -> Result<Option<String>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Failed to lock database: {}", e))?;
+        let conn = self.conn.lock();
         let mut stmt = conn
             .prepare("SELECT encrypted_value, nonce FROM secrets WHERE key = ?1")
             .context("Failed to prepare query")?;
@@ -134,10 +127,7 @@ impl SecretsDatabase {
 
     /// Check if a secret exists
     pub fn has_secret(&self, key: &str) -> Result<bool> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Failed to lock database: {}", e))?;
+        let conn = self.conn.lock();
         let mut stmt = conn
             .prepare("SELECT 1 FROM secrets WHERE key = ?1")
             .context("Failed to prepare query")?;
@@ -151,11 +141,9 @@ impl SecretsDatabase {
 
     /// Delete a secret
     pub fn delete_secret(&self, key: &str) -> Result<()> {
-        let conn = self
-            .conn
+        self.conn
             .lock()
-            .map_err(|e| anyhow::anyhow!("Failed to lock database: {}", e))?;
-        conn.execute("DELETE FROM secrets WHERE key = ?1", params![key])
+            .execute("DELETE FROM secrets WHERE key = ?1", params![key])
             .context("Failed to delete secret")?;
 
         log::info!("[SECRETS_DB] Deleted secret: {}", key);
@@ -164,10 +152,7 @@ impl SecretsDatabase {
 
     /// List all secret keys (without values)
     pub fn list_keys(&self) -> Result<Vec<String>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Failed to lock database: {}", e))?;
+        let conn = self.conn.lock();
         let mut stmt = conn
             .prepare("SELECT key FROM secrets ORDER BY key")
             .context("Failed to prepare query")?;
