@@ -1,6 +1,7 @@
 "use client";
 
 import { useAppStore } from "@/store/appStore";
+import { useUnreadNotificationCount } from "@/hooks/useNotifications";
 import { navigationConfig, PrimaryNavTab } from "@/types/navigation";
 import {
   Home,
@@ -26,10 +27,17 @@ const iconMap = {
 export function PrimaryNavigation() {
   const primaryNav = useAppStore((state) => state.ui.primaryNav);
   const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
+  const unreadCount = useUnreadNotificationCount();
   const { openSearch } = useGlobalSearch();
 
   const handleNavClick = (tab: PrimaryNavTab) => {
     setPrimaryNav(tab);
+  };
+
+  const formatBadgeCount = (count: number): string | null => {
+    if (count === 0) return null;
+    if (count > 99) return "99+";
+    return count.toString();
   };
 
   return (
@@ -39,6 +47,9 @@ export function PrimaryNavigation() {
           {Object.values(navigationConfig).map((nav) => {
             const Icon = iconMap[nav.icon as keyof typeof iconMap];
             const isActive = primaryNav === nav.id;
+
+            const badgeCount =
+              nav.id === "notifications" ? formatBadgeCount(unreadCount) : null;
 
             return (
               <button
@@ -54,7 +65,14 @@ export function PrimaryNavigation() {
                 data-nav={nav.id}
                 data-active={isActive}
               >
-                <Icon className="h-4 w-4" />
+                <span className="relative">
+                  <Icon className="h-4 w-4" />
+                  {badgeCount && (
+                    <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[1rem] h-4 px-1 text-[10px] font-semibold text-white bg-red-500 rounded-full">
+                      {badgeCount}
+                    </span>
+                  )}
+                </span>
                 {nav.label}
               </button>
             );
