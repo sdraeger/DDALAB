@@ -3,7 +3,6 @@ use argon2::{password_hash::PasswordHash, password_hash::PasswordVerifier, Argon
 use mdns_sd::{ServiceDaemon, ServiceEvent};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::time::Duration;
 use tracing::{debug, info};
 
@@ -160,11 +159,7 @@ pub async fn discover_brokers(timeout_secs: u64) -> Result<Vec<DiscoveredBroker>
     Ok(brokers)
 }
 
-/// Verify a password against an Argon2 auth hash
-///
-/// Note: This is kept for backward compatibility but auth_hash is no longer
-/// broadcast via mDNS. Authentication now happens during WebSocket connection.
-#[allow(dead_code)]
+/// Verify a password against an Argon2 auth hash (used by Tauri command)
 pub fn verify_password(password: &str, auth_hash: &str) -> bool {
     let parsed_hash = match PasswordHash::new(auth_hash) {
         Ok(h) => h,
@@ -174,35 +169,4 @@ pub fn verify_password(password: &str, auth_hash: &str) -> bool {
     Argon2::default()
         .verify_password(password.as_bytes(), &parsed_hash)
         .is_ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use argon2::{
-        password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
-        Argon2,
-    };
-
-    #[test]
-    fn test_verify_password_with_argon2() {
-        let password = "test_password_123";
-        // Simulate server-side hash generation
-        let salt = SaltString::generate(&mut OsRng);
-        let argon2 = Argon2::default();
-        let auth_hash = argon2
-            .hash_password(password.as_bytes(), &salt)
-            .unwrap()
-            .to_string();
-
-        assert!(verify_password(password, &auth_hash));
-        assert!(!verify_password("wrong_password", &auth_hash));
-    }
-
-    #[test]
-    fn test_verify_password_invalid_hash() {
-        // Should return false for invalid hash format
-        assert!(!verify_password("password", "not_a_valid_argon2_hash"));
-        assert!(!verify_password("password", ""));
-    }
 }

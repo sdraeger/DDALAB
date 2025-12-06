@@ -848,7 +848,7 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     setTimeout(updateChannelLabels, 0);
 
     if (selectedFile) {
-      broadcastToType("timeseries", "data-update", {
+      broadcastToType("timeseries", {
         ...chunkData,
         startTime,
         selectedChannels,
