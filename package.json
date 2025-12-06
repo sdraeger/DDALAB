@@ -28,7 +28,7 @@
     "node": ">=20.0.0"
   },
   "devDependencies": {
-    "@next/swc-darwin-x64": "^16.0.6",
+    "@next/swc-darwin-x64": "^16.0.7",
     "@types/lodash": "^4.17.20",
     "@types/node": "^22.13.10",
     "@types/node-fetch": "^2.6.13",

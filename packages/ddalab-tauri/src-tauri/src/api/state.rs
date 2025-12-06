@@ -2,6 +2,7 @@ use crate::api::auth::constant_time_eq;
 use crate::api::handlers::ica::ICAResultResponse;
 use crate::api::models::{ChunkData, DDAResult, EDFFileInfo};
 use crate::db::analysis_db::AnalysisDatabase;
+use crate::db::ica_db::{ICADatabase, ICAStoredResult};
 use crate::db::overview_cache_db::OverviewCacheDatabase;
 use crate::models::AnalysisResult;
 use crate::utils::get_database_path;
@@ -117,6 +118,7 @@ pub struct ApiState {
     pub dda_binary_path: Option<PathBuf>,
     pub analysis_db: Option<Arc<AnalysisDatabase>>,
     pub overview_cache_db: Option<Arc<OverviewCacheDatabase>>,
+    pub ica_db: Option<Arc<ICADatabase>>,
     pub session_token: Arc<RwLock<Option<String>>>,
     pub require_auth: Arc<RwLock<bool>>,
     pub ica_history: Mutex<Vec<ICAResultResponse>>,
@@ -181,6 +183,65 @@ impl ApiState {
             }
         };
 
+        // Initialize SQLite database for ICA analysis persistence
+        let (ica_db, ica_history) = match get_database_path("ica_analysis.db") {
+            Ok(db_path) => {
+                log::info!("Initializing ICA analysis database at: {:?}", db_path);
+                match ICADatabase::new(&db_path) {
+                    Ok(db) => {
+                        // Load existing ICA history from database
+                        let history: Vec<ICAResultResponse> = match db.get_all_analyses(50) {
+                            Ok(analyses) => {
+                                log::info!(
+                                    "✅ ICA database initialized, loaded {} analyses",
+                                    analyses.len()
+                                );
+                                // Convert from ICAStoredResult to ICAResultResponse
+                                // Filter out any that fail to deserialize
+                                analyses
+                                    .into_iter()
+                                    .filter_map(|stored| {
+                                        match serde_json::from_value(stored.results) {
+                                            Ok(results) => Some(ICAResultResponse {
+                                                id: stored.id,
+                                                name: stored.name,
+                                                file_path: stored.file_path,
+                                                channels: stored.channels,
+                                                created_at: stored.created_at,
+                                                status: stored.status,
+                                                results,
+                                            }),
+                                            Err(e) => {
+                                                log::warn!(
+                                                    "⚠️ Failed to deserialize ICA result {}: {}",
+                                                    stored.id,
+                                                    e
+                                                );
+                                                None
+                                            }
+                                        }
+                                    })
+                                    .collect()
+                            }
+                            Err(e) => {
+                                log::error!("❌ Failed to load ICA history: {}", e);
+                                Vec::new()
+                            }
+                        };
+                        (Some(Arc::new(db)), history)
+                    }
+                    Err(e) => {
+                        log::error!("❌ Failed to initialize ICA database: {}", e);
+                        (None, Vec::new())
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("❌ Cannot determine ICA database path: {}", e);
+                (None, Vec::new())
+            }
+        };
+
         let state = Self {
             files: Arc::new(RwLock::new(LruCache::new(MAX_FILES_CACHE_SIZE))),
             analysis_results: Arc::new(RwLock::new(HashMap::new())),
@@ -190,9 +251,10 @@ impl ApiState {
             dda_binary_path: None,
             analysis_db,
             overview_cache_db,
+            ica_db,
             session_token: Arc::new(RwLock::new(None)),
             require_auth: Arc::new(RwLock::new(true)),
-            ica_history: Mutex::new(Vec::new()),
+            ica_history: Mutex::new(ica_history),
             current_analysis_id: Arc::new(RwLock::new(None)),
             cancellation_token: Arc::new(CancellationToken::new()),
             cancelled_analyses: Arc::new(RwLock::new(HashSet::new())),

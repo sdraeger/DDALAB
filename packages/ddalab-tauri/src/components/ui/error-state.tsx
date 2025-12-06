@@ -75,8 +75,9 @@ export function ErrorState({
           config.colors,
           className,
         )}
+        role="alert"
       >
-        <Icon className="h-4 w-4 flex-shrink-0" />
+        <Icon className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
         <span className="truncate">{message}</span>
         {onRetry && (
           <Button
@@ -138,8 +139,12 @@ export function ErrorState({
         config.bgColors,
         className,
       )}
+      role="alert"
     >
-      <Icon className={cn("h-12 w-12 mb-4", config.colors)} />
+      <Icon
+        className={cn("h-12 w-12 mb-4", config.colors)}
+        aria-hidden="true"
+      />
       {title && (
         <h3 className={cn("text-lg font-semibold mb-2", config.colors)}>
           {title}
