@@ -250,8 +250,9 @@ export function ChunkNavigator({
             onClick={handleZoomIn}
             disabled={isDisabled || timeWindow <= 1}
             title="Zoom in (halve window size)"
+            aria-label="Zoom in"
           >
-            <ZoomIn className="h-4 w-4" />
+            <ZoomIn className="h-4 w-4" aria-hidden="true" />
           </Button>
           <Button
             variant="outline"
@@ -260,8 +261,9 @@ export function ChunkNavigator({
             onClick={handleZoomOut}
             disabled={isDisabled || timeWindow >= duration}
             title="Zoom out (double window size)"
+            aria-label="Zoom out"
           >
-            <ZoomOut className="h-4 w-4" />
+            <ZoomOut className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
       </div>
@@ -347,8 +349,9 @@ export function ChunkNavigator({
             onClick={() => onSeek(0)}
             disabled={isDisabled || currentTime === 0}
             title="Go to start"
+            aria-label="Go to start"
           >
-            <SkipBack className="h-4 w-4" />
+            <SkipBack className="h-4 w-4" aria-hidden="true" />
           </Button>
 
           {/* Step back */}
@@ -359,8 +362,9 @@ export function ChunkNavigator({
             onClick={onPrev || handleStepBack}
             disabled={isDisabled || currentTime <= 0}
             title={`Step back ${stepSize.toFixed(1)}s`}
+            aria-label="Step back"
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
           </Button>
 
           {/* Position Slider */}
@@ -392,8 +396,9 @@ export function ChunkNavigator({
             onClick={onNext || handleStepForward}
             disabled={isDisabled || currentTime >= duration - timeWindow}
             title={`Step forward ${stepSize.toFixed(1)}s`}
+            aria-label="Step forward"
           >
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="h-4 w-4" aria-hidden="true" />
           </Button>
 
           {/* Skip to end */}
@@ -404,8 +409,9 @@ export function ChunkNavigator({
             onClick={() => onSeek(Math.max(0, duration - timeWindow))}
             disabled={isDisabled || currentTime >= duration - timeWindow}
             title="Go to end"
+            aria-label="Go to end"
           >
-            <SkipForward className="h-4 w-4" />
+            <SkipForward className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
 

@@ -160,7 +160,10 @@ export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
       </CardHeader>
       <CardContent className="flex-1 flex flex-col min-h-0">
         {error && (
-          <div className="text-red-500 text-sm mb-4 p-3 bg-red-50 dark:bg-red-900/20 rounded">
+          <div
+            className="text-red-500 text-sm mb-4 p-3 bg-red-50 dark:bg-red-900/20 rounded"
+            role="alert"
+          >
             {error}
           </div>
         )}

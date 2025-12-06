@@ -608,7 +608,7 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
                   : "text-blue-600"
               }`}
             />
-            <div className="flex-1 min-w-0 flex flex-col">
+            <div className="flex-1 min-w-0 overflow-hidden">
               <div className="flex items-center gap-2">
                 <span className="font-medium truncate">{dir.name}</span>
                 {dir.isBIDS && (
@@ -621,14 +621,15 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
                 )}
               </div>
               {dir.bidsInfo && (
-                <div className="flex items-center gap-2 mt-1 flex-wrap text-sm text-muted-foreground">
+                <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground overflow-hidden">
                   {dir.bidsInfo.datasetName && (
                     <span
-                      className={`font-medium truncate text-xs ${
+                      className={`font-medium truncate text-xs max-w-[200px] ${
                         dir.isBIDS || dir.isInsideBIDS
                           ? "text-purple-700 dark:text-purple-400"
                           : "text-blue-700 dark:text-blue-400"
                       }`}
+                      title={dir.bidsInfo.datasetName}
                     >
                       {dir.bidsInfo.datasetName}
                     </span>
@@ -642,8 +643,8 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
                   )}
                   {dir.bidsInfo.modalities &&
                     dir.bidsInfo.modalities.length > 0 && (
-                      <div className="flex items-center gap-1 flex-wrap">
-                        {dir.bidsInfo.modalities.map((modality) => (
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {dir.bidsInfo.modalities.slice(0, 3).map((modality) => (
                           <Badge
                             key={modality}
                             variant="outline"
@@ -654,6 +655,11 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
                             {modality.toUpperCase()}
                           </Badge>
                         ))}
+                        {dir.bidsInfo.modalities.length > 3 && (
+                          <span className="text-xs text-muted-foreground">
+                            +{dir.bidsInfo.modalities.length - 3}
+                          </span>
+                        )}
                       </div>
                     )}
                 </div>

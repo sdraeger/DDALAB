@@ -1,6 +1,7 @@
 pub mod analysis_db;
 pub mod annotation_db;
 pub mod file_state_db;
+pub mod ica_db;
 pub mod migrations;
 pub mod notifications_db;
 pub mod nsg_jobs_db;
@@ -13,6 +14,7 @@ pub use file_state_db::{
     FileSpecificState, FileStateDatabase, FileStateMetadata, FileStateRegistry, FileViewState,
     RegistryMetadata,
 };
+pub use ica_db::{ICADatabase, ICAStoredResult};
 pub use migrations::{MigrationReport, MigrationRunner};
 pub use notifications_db::{Notification, NotificationType, NotificationsDatabase};
 pub use nsg_jobs_db::{NSGJob, NSGJobStatus, NSGJobsDatabase};
