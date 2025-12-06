@@ -47,10 +47,8 @@ export function ApiServiceProvider({
   const [isAuthenticated, setIsAuthenticated] = useState(!!initialToken);
   const [isReady, setIsReady] = useState(!!initialToken);
 
-  // Update API service when URL changes
   useEffect(() => {
     if (apiService.baseURL !== apiUrl) {
-      console.log("[ApiServiceContext] API URL changed, creating new instance");
       const newService = new ApiService(
         apiUrl,
         apiService.getSessionToken() || undefined,
@@ -59,15 +57,11 @@ export function ApiServiceProvider({
     }
   }, [apiUrl, apiService]);
 
-  // Update token when initialToken prop changes
   useEffect(() => {
     if (initialToken && apiService.getSessionToken() !== initialToken) {
-      console.log("[ApiServiceContext] Session token updated from prop");
       apiService.setSessionToken(initialToken);
       setIsAuthenticated(true);
       setIsReady(true);
-
-      // Dispatch event to signal that auth is ready
       window.dispatchEvent(new CustomEvent("api-service-auth-ready"));
     }
   }, [initialToken, apiService]);

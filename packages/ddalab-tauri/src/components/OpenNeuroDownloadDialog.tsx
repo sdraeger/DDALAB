@@ -111,20 +111,6 @@ export function OpenNeuroDownloadDialog({
     }
   }, [isOpen, dataset]);
 
-  // Don't automatically fetch size - let user request it manually to avoid lag
-  // useEffect(() => {
-  //   if (!isOpen || !dataset || !selectedSnapshot) {
-  //     return;
-  //   }
-
-  //   // Debounce to avoid excessive API calls
-  //   const timer = setTimeout(() => {
-  //     fetchDatasetSize();
-  //   }, 500); // Wait 500ms after user stops changing snapshot
-
-  //   return () => clearTimeout(timer);
-  // }, [isOpen, dataset, selectedSnapshot]);
-
   const fetchDatasetSize = () => {
     setEnableSizeQuery(true);
   };

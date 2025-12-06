@@ -103,12 +103,7 @@ async function withRetry<T>(
         throw error;
       }
 
-      // Calculate delay with exponential backoff
       const delay = Math.min(baseDelay * Math.pow(2, attempt), 10000);
-      console.log(
-        `[${context}] Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms`,
-      );
-
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
@@ -198,8 +193,6 @@ export class ApiService {
 
       return [];
     } catch (error) {
-      console.error("Failed to get available files:", error);
-      // Re-throw with context so callers can handle appropriately
       const message = axios.isAxiosError(error)
         ? `Failed to fetch file list (HTTP ${error.response?.status ?? "unknown"}): ${error.message}`
         : error instanceof Error
@@ -222,8 +215,6 @@ export class ApiService {
           },
         });
 
-        console.log("Raw EDF response:", edfResponse.data);
-
         // Get file size from files list endpoint
         let fileSize = 0;
         try {
@@ -240,11 +231,8 @@ export class ApiService {
             (f: FileEntry) => f.name === fileName,
           );
           fileSize = fileEntry?.file_size || fileEntry?.size || 0;
-        } catch (filesError) {
-          console.warn(
-            "Could not get file size from files endpoint:",
-            filesError,
-          );
+        } catch {
+          // File size retrieval failed silently
         }
 
         const fileInfo: EDFFileInfo = {
@@ -264,7 +252,6 @@ export class ApiService {
           annotations_count: 0,
         };
 
-        console.log("Processed file info:", fileInfo);
         return fileInfo;
       },
       { maxRetries: 2, context: "Get file info" },
@@ -307,21 +294,12 @@ export class ApiService {
           channels && channels.length > 0 ? channels.join(",") : undefined,
       };
 
-      console.log("[ApiService] Fetching overview data:", params);
       const response = await this.client.get("/api/edf/overview", {
         params,
         signal,
       });
 
-      // IMMER/TanStack Query FIX: Clone response data to ensure mutability
-      // structuredClone is faster than JSON.parse/stringify and handles more types
       const responseData = structuredClone(response.data);
-
-      console.log("[ApiService] Received overview data:", {
-        dataLength: responseData.data?.length,
-        pointsPerChannel: responseData.data?.[0]?.length,
-        channels: responseData.channel_labels?.length,
-      });
 
       const chunkData: ChunkData = {
         data: responseData.data || [],
@@ -334,10 +312,8 @@ export class ApiService {
         file_path: responseData.file_path || filePath,
       };
 
-      // Return the chunk data (already cloned from response)
       return chunkData;
     } catch (error) {
-      console.error("Failed to get overview data:", error);
       throw error;
     }
   }
@@ -373,7 +349,6 @@ export class ApiService {
 
       return response.data;
     } catch (error) {
-      console.error("Failed to get overview progress:", error);
       throw error;
     }
   }
@@ -413,14 +388,9 @@ export class ApiService {
           channelList,
         );
         if (cached) {
-          console.log("[ApiService] Cache HIT - using cached chunk data");
-          // IMMER/TanStack Query FIX: Clone cached data to avoid readonly property errors
-          // TanStack Query freezes returned data in development mode
           return structuredClone(cached);
         }
       }
-
-      console.log("[ApiService] Cache MISS - fetching from backend");
 
       const params: QueryParams = {
         file_path: filePath,
@@ -435,15 +405,11 @@ export class ApiService {
         notch: preprocessingOptions?.notch?.join(","),
       };
 
-      console.log("Making chunk data request with params:", params);
       const response = await this.client.get("/api/edf/data", {
         params,
-        signal, // Pass abort signal to axios
+        signal,
       });
-      console.log("Raw chunk data response:", response.data);
 
-      // IMMER/TanStack Query FIX: Clone response data to ensure mutability
-      // structuredClone is faster than JSON.parse/stringify and handles more types
       const responseData = structuredClone(response.data);
 
       // Extract data structure first
@@ -463,22 +429,6 @@ export class ApiService {
         );
       }
 
-      console.log("Data validation check:", {
-        hasData: Array.isArray(data),
-        dataLength: data.length,
-        hasChannels: Array.isArray(channels),
-        channelsLength: channels.length,
-        dataIsArrayOfArrays: data.every((item: unknown) => Array.isArray(item)),
-        firstChannelLength: data[0]?.length,
-        sampleDataTypes: data
-          .slice(0, 2)
-          .map((channel: unknown) =>
-            Array.isArray(channel)
-              ? channel.slice(0, 3).map((val: unknown) => typeof val)
-              : [],
-          ),
-      });
-
       const chunkData: ChunkData = {
         data: data,
         channels: channels,
@@ -488,8 +438,6 @@ export class ApiService {
         chunk_size: actualChunkSize,
         file_path: responseData.file_path || filePath,
       };
-
-      console.log("Processed chunk data:", chunkData);
 
       // Store in cache (only if no preprocessing applied)
       if (!preprocessingOptions) {
@@ -502,12 +450,8 @@ export class ApiService {
         );
       }
 
-      // IMMER/TanStack Query FIX: Clone before returning to prevent TanStack Query
-      // from freezing the same object reference that's stored in cache. This ensures
-      // the cache retains a mutable copy while TanStack Query freezes a separate clone.
       return structuredClone(chunkData);
     } catch (error) {
-      console.error("Failed to get chunk data:", error);
       throw error;
     }
   }
@@ -618,18 +562,9 @@ export class ApiService {
       const channelIndices = request.channels
         .map((ch) => {
           const parsed = parseInt(ch);
-          if (isNaN(parsed)) {
-            console.warn(`Invalid channel index: ${ch}, skipping`);
-            return -1;
-          }
-          return parsed;
+          return isNaN(parsed) ? -1 : parsed;
         })
         .filter((idx) => idx !== -1);
-
-      console.log(
-        "Channel indices (0-based) received from frontend:",
-        channelIndices,
-      );
 
       // Note: The backend DDARequest schema expects:
       // - algorithm_selection.enabled_variants: List of variant IDs
@@ -669,35 +604,7 @@ export class ApiService {
         variant_configs: request.variant_configs,
       };
 
-      console.log("Submitting DDA request:", ddaRequest);
-      console.log("variant_configs being sent:", ddaRequest.variant_configs);
       const response = await this.client.post("/api/dda", ddaRequest);
-
-      console.log("Raw DDA API response:", response.data);
-      console.log(
-        "variant_configs in response:",
-        response.data.variant_configs ||
-          response.data.parameters?.variant_configs,
-      );
-      console.log("Response structure:", {
-        hasQ: !!response.data.Q,
-        Q_type: typeof response.data.Q,
-        Q_isArray: Array.isArray(response.data.Q),
-        Q_length: response.data.Q?.length,
-        responseKeys: Object.keys(response.data),
-        firstRows: response.data.Q?.slice(0, 3),
-        // Check for variant-specific results
-        hasVariants: !!response.data.variants,
-        variantKeys: response.data.variants
-          ? Object.keys(response.data.variants)
-          : null,
-        hasST: !!response.data.single_timeseries,
-        hasCT: !!response.data.cross_timeseries,
-        hasCD: !!response.data.cross_dynamical,
-        hasDE: !!response.data.dynamical_ergodicity,
-      });
-
-      // Process the real API response
       // Use the ID from the backend response (UUID format) instead of generating our own
       const job_id = response.data.id || `dda_${Date.now()}`;
 
@@ -709,45 +616,16 @@ export class ApiService {
       const exponents: Record<string, number> = {};
       const quality_metrics: Record<string, number> = {};
 
-      // Check if response contains variant-specific results
       const variants = [];
-
-      // First, let's check what the backend actually returned
-      console.log("Checking backend response structure for variants...");
-      console.log("Response data keys:", Object.keys(response.data));
-      console.log(
-        "Response results keys:",
-        response.data.results
-          ? Object.keys(response.data.results)
-          : "no results key",
-      );
-      console.log("Request variants:", request.variants);
-
-      // Look for variant-specific results in different possible formats
       let foundVariantData = false;
 
-      // Option 1: Check if variants are nested under response.data.results.variants (Rust backend format)
       if (
         response.data.results?.variants &&
         Array.isArray(response.data.results.variants)
       ) {
-        console.log(
-          "Found variants array in response.results.variants:",
-          response.data.results.variants.length,
-        );
         foundVariantData = true;
 
         for (const variantData of response.data.results.variants) {
-          console.log(`Processing variant from results.variants array:`, {
-            variant_id: variantData.variant_id,
-            variant_name: variantData.variant_name,
-            has_dda_matrix: !!variantData.dda_matrix,
-            dda_matrix_keys: variantData.dda_matrix
-              ? Object.keys(variantData.dda_matrix)
-              : [],
-          });
-
-          // Extract scales from response.data.results.scales
           if (
             response.data.results.scales &&
             Array.isArray(response.data.results.scales)
@@ -763,21 +641,14 @@ export class ApiService {
             quality_metrics: variantData.quality_metrics || {},
           });
         }
-      }
-      // Option 2: Check if variants are nested under a 'variants' key in root (legacy format)
-      else if (
+      } else if (
         response.data.variants &&
         typeof response.data.variants === "object"
       ) {
-        console.log(
-          "Found variants object in response:",
-          Object.keys(response.data.variants),
-        );
         for (const variantId of request.variants) {
           if (response.data.variants[variantId]) {
             foundVariantData = true;
             const variantData = response.data.variants[variantId];
-            console.log(`Processing variant ${variantId} from variants object`);
 
             const variantMatrix: Record<string, number[]> = {};
             const variantExponents: Record<string, number> = {};
@@ -806,15 +677,9 @@ export class ApiService {
               exponents: variantExponents,
               quality_metrics: variantData.quality_metrics || {},
             });
-          } else {
-            console.log(`Variant ${variantId} not found in variants object`);
           }
         }
-      }
-
-      // Option 3: Check for individual variant keys in the root response
-      else if (!foundVariantData) {
-        console.log("Looking for individual variant keys in response root...");
+      } else if (!foundVariantData) {
         for (const variantId of request.variants) {
           // Check both the variant ID and common variant key patterns
           const possibleKeys = [
@@ -837,9 +702,6 @@ export class ApiService {
           for (const key of possibleKeys) {
             if (response.data[key]) {
               variantData = response.data[key];
-              console.log(
-                `Found variant data for ${variantId} under key '${key}'`,
-              );
               break;
             }
           }
@@ -886,27 +748,16 @@ export class ApiService {
               exponents: variantExponents,
               quality_metrics: {},
             });
-          } else {
-            console.log(`No data found for variant ${variantId}`);
           }
         }
       }
 
-      // Option 3: If still no variant-specific data found, check if there's a single Q matrix to replicate
       if (!foundVariantData) {
-        console.warn("No variant-specific data found in backend response");
-        console.log("Available response keys:", Object.keys(response.data));
-
         if (
           response.data.Q &&
           Array.isArray(response.data.Q) &&
           response.data.Q.length > 0
         ) {
-          console.log(
-            "Using single Q matrix for all variants (backend does not support multiple variants)",
-          );
-
-          // Process the single Q matrix
           const timePoints = response.data.Q[0]?.length || 100;
           scales = Array.from({ length: timePoints }, (_, i) => i);
 
@@ -936,25 +787,12 @@ export class ApiService {
               quality_metrics: response.data.quality_metrics || {},
             });
           }
-
-          console.warn(
-            `Created ${variants.length} identical variant results - backend may not support multiple variants`,
-          );
         } else {
-          console.error("No Q matrix found in backend response");
-          // This is an error condition - no data to work with
           throw new Error(
             "Backend returned no DDA results (no Q matrix found)",
           );
         }
       }
-
-      console.log(
-        "Final variants array:",
-        variants.map((v) => ({ id: v.variant_id, name: v.variant_name })),
-      );
-
-      // Create and return the result
       const result: DDAResult = {
         id: job_id,
         file_path: request.file_path,
@@ -985,29 +823,9 @@ export class ApiService {
         completed_at: new Date().toISOString(),
       };
 
-      console.log(
-        "Result contains",
-        result.results.variants.length,
-        "variants",
-      );
       return result;
     } catch (error) {
-      console.error("❌ Failed to submit DDA analysis:", error);
-
-      // Log detailed error information for Axios errors
       if (axios.isAxiosError(error)) {
-        if (error.response) {
-          console.error("📤 Backend response status:", error.response.status);
-          console.error("📤 Backend response data:", error.response.data);
-          console.error("📤 Backend response headers:", error.response.headers);
-        } else if (error.request) {
-          console.error("📤 Request was made but no response:", error.request);
-        } else {
-          console.error("📤 Error setting up request:", error.message);
-        }
-        console.error("📤 Full error config:", error.config);
-
-        // Create detailed error message
         let errorMessage = "Failed to submit DDA analysis";
         if (error.response) {
           errorMessage += ` (HTTP ${error.response.status})`;
@@ -1040,8 +858,6 @@ export class ApiService {
       const response = await this.client.get("/api/dda/results", { params });
       return response.data.results || [];
     } catch (error) {
-      console.error("Failed to get DDA results:", error);
-      // Re-throw with context so callers can handle appropriately
       const message = axios.isAxiosError(error)
         ? `Failed to fetch DDA results (HTTP ${error.response?.status ?? "unknown"}): ${error.message}`
         : error instanceof Error
@@ -1055,8 +871,7 @@ export class ApiService {
     try {
       const response = await this.client.get(`/api/dda/results/${jobId}`);
       return response.data;
-    } catch (error) {
-      console.error(`Failed to get DDA result ${jobId}:`, error);
+    } catch {
       throw new Error(`DDA result ${jobId} not found`);
     }
   }
@@ -1067,25 +882,20 @@ export class ApiService {
     try {
       const response = await this.client.get(`/api/dda/status/${jobId}`);
       return response.data;
-    } catch (error) {
-      console.error(`Failed to get DDA status ${jobId}:`, error);
+    } catch {
       return { status: "unknown", message: "Failed to get status" };
     }
   }
 
-  // DDA Cancellation
   async cancelDDAAnalysis(): Promise<{
     success: boolean;
     message: string;
     cancelled_analysis_id?: string;
   }> {
     try {
-      console.log("[ApiService] Requesting DDA cancellation");
       const response = await this.client.post("/api/dda/cancel");
-      console.log("[ApiService] Cancel response:", response.data);
       return response.data;
     } catch (error) {
-      console.error("[ApiService] Failed to cancel DDA analysis:", error);
       return {
         success: false,
         message:
@@ -1094,41 +904,25 @@ export class ApiService {
     }
   }
 
-  // Analysis History Management
   async saveAnalysisToHistory(result: DDAResult): Promise<boolean> {
     try {
-      console.log("Sending analysis to save:", {
-        result_id: result.id,
-        file_path: result.file_path,
-        channels_count: result.channels.length,
-      });
-
       const response = await this.client.post("/api/dda/history/save", {
         result_id: result.id,
         analysis_data: result,
       });
 
-      console.log("Save response:", response.data);
-
-      // Check for both success formats
       return (
         response.data.success === true || response.data.status === "success"
       );
-    } catch (error) {
-      console.error("Failed to save analysis to history:", error);
-      if (error instanceof Error) {
-        console.error("Error details:", error.message);
-      }
+    } catch {
       return false;
     }
   }
 
   async getAnalysisHistory(): Promise<DDAResult[]> {
     try {
-      const startTime = performance.now();
       const response = await this.client.get("/api/dda/history");
 
-      // Handle both array and object responses
       let analyses = [];
       if (Array.isArray(response.data)) {
         analyses = response.data;
@@ -1136,24 +930,11 @@ export class ApiService {
         analyses = response.data.analyses || [];
       }
 
-      const fetchTime = performance.now() - startTime;
-      console.log(
-        `[PERF] Analysis history fetched in ${fetchTime.toFixed(2)}ms (${analyses.length} items)`,
-      );
-
-      // CRITICAL FIX: Add performance monitoring for data processing
-      // For large history lists, processing all items synchronously can block the UI
-      const processStartTime = performance.now();
-
-      // Flatten analysis data structure if needed
       const processed = analyses.map((item: HistoryAnalysisItem) => {
-        // If the item has analysis_data nested inside, flatten it
         if (item.analysis_data && typeof item.analysis_data === "object") {
           return {
             ...item.analysis_data,
-            // Use the backend storage ID as the primary ID for lookups
             id: item.id,
-            // Preserve the original analysis ID and other metadata
             analysis_id: item.analysis_data.id,
             result_id: item.result_id,
             storage_created_at: item.created_at,
@@ -1162,60 +943,31 @@ export class ApiService {
         return item;
       });
 
-      const processTime = performance.now() - processStartTime;
-      console.log(
-        `[PERF] History processing completed in ${processTime.toFixed(2)}ms for ${analyses.length} items`,
-      );
-
       return processed;
-    } catch (error) {
-      console.error("Failed to get analysis history:", error);
-      if (error instanceof Error) {
-        console.error("Error details:", error.message);
-      }
+    } catch {
       return [];
     }
   }
 
   async getAnalysisFromHistory(resultId: string): Promise<DDAResult | null> {
     try {
-      const startTime = performance.now();
       const response = await this.client.get(`/api/dda/history/${resultId}`);
-      const fetchTime = performance.now() - startTime;
-
       const analysisWrapper = response.data.analysis;
 
       if (!analysisWrapper) return null;
 
-      console.log("[BACKEND RESPONSE] Analysis from history:", {
-        hasParameters: !!analysisWrapper.analysis_data?.parameters,
-        hasVariantConfigs:
-          !!analysisWrapper.analysis_data?.parameters?.variant_configs,
-        variantConfigs:
-          analysisWrapper.analysis_data?.parameters?.variant_configs,
-        parameterKeys: analysisWrapper.analysis_data?.parameters
-          ? Object.keys(analysisWrapper.analysis_data.parameters)
-          : null,
-      });
-
-      // Flatten analysis data structure if needed
       if (
         analysisWrapper.analysis_data &&
         typeof analysisWrapper.analysis_data === "object"
       ) {
-        const processStartTime = performance.now();
-
         const result = {
           ...analysisWrapper.analysis_data,
-          // Use the backend storage ID as the primary ID
           id: analysisWrapper.id,
-          // Preserve the original analysis ID and other metadata
           analysis_id: analysisWrapper.analysis_data.id,
           result_id: analysisWrapper.result_id,
           storage_created_at: analysisWrapper.created_at,
         };
 
-        // Normalize old variant IDs for backward compatibility
         if (result.results?.variants) {
           result.results.variants = result.results.variants.map(
             (v: VariantItem) => ({
@@ -1225,39 +977,21 @@ export class ApiService {
           );
         }
 
-        const processTime = performance.now() - processStartTime;
-
-        console.log(
-          `[PERF] Analysis loaded from history in ${fetchTime.toFixed(2)}ms, processed in ${processTime.toFixed(2)}ms (${result.channels?.length || 0} channels, ${result.results?.variants?.length || 0} variants)`,
-        );
-
         return result;
       }
 
-      console.log(
-        `[PERF] Analysis loaded from history in ${fetchTime.toFixed(2)}ms`,
-      );
       return analysisWrapper;
-    } catch (error) {
-      console.error(`Failed to get analysis ${resultId} from history:`, error);
+    } catch {
       return null;
     }
   }
 
   async deleteAnalysisFromHistory(resultId: string): Promise<boolean> {
-    console.log(`[API] Deleting analysis: ${resultId}`);
     try {
       const response = await this.client.delete(`/api/dda/history/${resultId}`);
-      console.log("[API] Delete response:", response.data);
       return response.data.success || false;
     } catch (error) {
       const axiosErr = axios.isAxiosError(error) ? error : null;
-      console.error(`[API] Failed to delete analysis ${resultId}:`, {
-        message: axiosErr?.message ?? String(error),
-        response: axiosErr?.response?.data,
-        status: axiosErr?.response?.status,
-      });
-      // Throw with more detailed error message
       const errorMsg =
         axiosErr?.response?.data?.error ||
         axiosErr?.response?.data?.message ||
@@ -1271,24 +1005,14 @@ export class ApiService {
     resultId: string,
     newName: string,
   ): Promise<boolean> {
-    console.log(`[API] Renaming analysis: ${resultId} to "${newName}"`);
     try {
       const response = await this.client.put(
         `/api/dda/history/${resultId}/rename`,
-        {
-          name: newName,
-        },
+        { name: newName },
       );
-      console.log("[API] Rename response:", response.data);
       return response.data.success || false;
     } catch (error) {
       const axiosErr = axios.isAxiosError(error) ? error : null;
-      console.error(`[API] Failed to rename analysis ${resultId}:`, {
-        message: axiosErr?.message ?? String(error),
-        response: axiosErr?.response?.data,
-        status: axiosErr?.response?.status,
-      });
-      // Throw with more detailed error message
       const errorMsg =
         axiosErr?.response?.data?.error ||
         axiosErr?.response?.data?.message ||
@@ -1298,16 +1022,13 @@ export class ApiService {
     }
   }
 
-  // ICA Analysis
   async submitICAAnalysis(
     request: ICAAnalysisRequest,
     signal?: AbortSignal,
   ): Promise<ICAResult> {
-    console.log("[API] Submitting ICA analysis:", request);
     const response = await this.client.post<ICAResult>("/api/ica", request, {
       signal,
     });
-    console.log("[API] ICA analysis result:", response.data);
     return response.data;
   }
 
