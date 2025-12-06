@@ -226,11 +226,7 @@ class WindowManager {
     }
   }
 
-  async broadcastToType(
-    type: WindowType,
-    _eventName: string,
-    data: any,
-  ): Promise<void> {
+  async broadcastToType(type: WindowType, data: any): Promise<void> {
     const windowIds = this.getWindowsByType(type);
 
     const promises = windowIds.map(async (windowId) => {
