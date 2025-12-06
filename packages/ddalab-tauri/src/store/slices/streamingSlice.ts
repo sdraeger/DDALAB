@@ -46,15 +46,10 @@ export const createStreamingSlice: ImmerStateCreator<StreamingSlice> = (
 
       set((state) => {
         if (state.streaming.sessions[streamId]) {
-          console.log(
-            "[STREAMING] Updating existing session with real config:",
-            streamId,
-          );
           state.streaming.sessions[streamId].source_config = sourceConfig;
           state.streaming.sessions[streamId].dda_config = ddaConfig;
           state.streaming.sessions[streamId].updated_at = Date.now() / 1000;
         } else {
-          console.log("[STREAMING] Creating new session:", streamId);
           state.streaming.sessions[streamId] = {
             id: streamId,
             source_config: sourceConfig,
@@ -82,53 +77,32 @@ export const createStreamingSlice: ImmerStateCreator<StreamingSlice> = (
       });
 
       get().addToStreamHistory(sourceConfig, ddaConfig);
-
-      console.log("[STREAMING] Session ready:", streamId);
       return streamId;
-    } catch (error) {
-      console.error("[STREAMING] Failed to create session:", error);
-      throw error;
+    } catch {
+      throw new Error("Failed to create streaming session");
     }
   },
 
   stopStreamSession: async (streamId) => {
     const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("stop_stream", { streamId });
 
-    try {
-      await invoke("stop_stream", { streamId });
-
-      set((state) => {
-        const session = state.streaming.sessions[streamId];
-        if (session) {
-          session.state = { type: "Stopped" };
-        }
-      });
-    } catch (error) {
-      console.error("[STREAMING] Failed to stop session:", error);
-      throw error;
-    }
+    set((state) => {
+      const session = state.streaming.sessions[streamId];
+      if (session) {
+        session.state = { type: "Stopped" };
+      }
+    });
   },
 
   pauseStreamSession: async (streamId) => {
     const { invoke } = await import("@tauri-apps/api/core");
-
-    try {
-      await invoke("pause_stream", { streamId });
-    } catch (error) {
-      console.error("[STREAMING] Failed to pause session:", error);
-      throw error;
-    }
+    await invoke("pause_stream", { streamId });
   },
 
   resumeStreamSession: async (streamId) => {
     const { invoke } = await import("@tauri-apps/api/core");
-
-    try {
-      await invoke("resume_stream", { streamId });
-    } catch (error) {
-      console.error("[STREAMING] Failed to resume session:", error);
-      throw error;
-    }
+    await invoke("resume_stream", { streamId });
   },
 
   updateStreamSession: (streamId, updates) => {
@@ -275,7 +249,6 @@ export const createStreamingSlice: ImmerStateCreator<StreamingSlice> = (
             };
           }
         });
-        console.error("[STREAMING] Stream error:", event.error);
         break;
 
       case "data_received":

@@ -102,28 +102,14 @@ class WindowManager {
     id: string,
     data: any,
   ): Promise<string> {
-    console.log(`[WINDOW_MANAGER] createPopoutWindow called with:`, {
-      type,
-      id,
-      data,
-    });
     const config = this.getWindowConfig(type, id);
     const windowId = `${type}-${id}-${Date.now()}`;
-    console.log(`[WINDOW_MANAGER] Generated window ID: ${windowId}`);
 
     try {
-      // Import Tauri invoke function
       const { invoke } = await import("@tauri-apps/api/core");
-
-      // Update the URL to include the generated windowId instead of the original id
       const updatedUrl = config.url.replace(`id=${id}`, `id=${windowId}`);
 
-      console.log(
-        `[WINDOW_MANAGER] Creating window with ID: ${windowId}, URL: ${updatedUrl}`,
-      );
-
-      // Call the Rust command to create the window
-      const windowLabel = await invoke("create_popout_window", {
+      await invoke("create_popout_window", {
         windowType: type,
         windowId: id,
         title: config.title,
@@ -132,9 +118,6 @@ class WindowManager {
         height: config.height,
       });
 
-      console.log(`[WINDOW_MANAGER] Created popout window: ${windowLabel}`);
-
-      // Initialize window state
       const state: PopoutWindowState = {
         id: windowId,
         type,
@@ -144,21 +127,9 @@ class WindowManager {
       };
       this.windowStates.set(windowId, state);
 
-      // Listen for the popout-ready event from the window
-      console.log(
-        `[WINDOW_MANAGER] Setting up popout-ready listener for window: ${windowId}`,
-      );
       const readyListener = await listen(
         `popout-ready-${windowId}`,
-        async (event: any) => {
-          console.log(
-            `[WINDOW_MANAGER] Received popout-ready event from window: ${windowId}`,
-            event.payload,
-          );
-          // Send initial data now that the window is ready
-          console.log(
-            `[WINDOW_MANAGER] Sending initial data to ready window: ${windowId}`,
-          );
+        async () => {
           await this.sendDataToWindow(windowId, data);
         },
       );
@@ -169,7 +140,6 @@ class WindowManager {
 
       return windowId;
     } catch (error) {
-      console.error("Failed to create popout window:", error);
       throw error;
     }
   }
@@ -180,100 +150,33 @@ class WindowManager {
       try {
         await window.close();
         this.cleanup(windowId);
-      } catch (error) {
-        console.error("Failed to close window:", error);
+      } catch {
+        // Window close failed silently
       }
     }
   }
 
-  private async setupWindowListeners(
-    windowId: string,
-    window: any,
-  ): Promise<void> {
-    // Listen for window close event
-    const closeListener = await window.onCloseRequested(() => {
-      this.cleanup(windowId);
-    });
-
-    // Listen for lock/unlock requests from the window
-    const lockListener = await listen(`lock-window-${windowId}`, () => {
-      this.setWindowLock(windowId, true);
-    });
-
-    const unlockListener = await listen(`unlock-window-${windowId}`, () => {
-      this.setWindowLock(windowId, false);
-    });
-
-    // Listen for toggle lock requests from the window
-    const toggleLockListener = await listen(
-      `toggle-lock-${windowId}`,
-      (event: any) => {
-        const { locked } = event.payload;
-        this.setWindowLock(windowId, locked);
-        console.log(
-          `[WINDOW_MANAGER] Toggle lock event received for ${windowId}: ${locked}`,
-        );
-      },
-    );
-
-    // Store listeners for cleanup
-    this.listeners.set(`${windowId}-close`, closeListener);
-    this.listeners.set(`${windowId}-lock`, lockListener);
-    this.listeners.set(`${windowId}-unlock`, unlockListener);
-    this.listeners.set(`${windowId}-toggle-lock`, toggleLockListener);
-  }
-
   private cleanup(windowId: string): void {
-    // Remove window reference
     this.windows.delete(windowId);
-
-    // Remove state
     this.windowStates.delete(windowId);
 
-    // Cleanup listeners
-    const closeListener = this.listeners.get(`${windowId}-close`);
-    const lockListener = this.listeners.get(`${windowId}-lock`);
-    const unlockListener = this.listeners.get(`${windowId}-unlock`);
-    const readyListener = this.listeners.get(`${windowId}-ready`);
-
-    if (closeListener) {
-      closeListener();
-      this.listeners.delete(`${windowId}-close`);
-    }
-    if (lockListener) {
-      lockListener();
-      this.listeners.delete(`${windowId}-lock`);
-    }
-    if (unlockListener) {
-      unlockListener();
-      this.listeners.delete(`${windowId}-unlock`);
-    }
-    if (readyListener) {
-      readyListener();
-      this.listeners.delete(`${windowId}-ready`);
+    for (const suffix of ["close", "lock", "unlock", "ready"]) {
+      const key = `${windowId}-${suffix}`;
+      const listener = this.listeners.get(key);
+      if (listener) {
+        listener();
+        this.listeners.delete(key);
+      }
     }
 
-    // Emit state change event for subscribers
     this.emitStateChange("closed", windowId);
   }
 
   async sendDataToWindow(windowId: string, data: any): Promise<void> {
     const state = this.windowStates.get(windowId);
     if (!state || state.isLocked) {
-      console.log(
-        `[WINDOW_MANAGER] Not sending data to window ${windowId}: ${!state ? "no state" : "locked"}`,
-      );
       return;
     }
-
-    console.log(`[WINDOW_MANAGER] Sending data to window ${windowId}:`, {
-      eventName: `data-update-${windowId}`,
-      dataKeys: data ? Object.keys(data) : "null",
-      hasAnnotations: !!data?.annotations,
-      heatmapAnnotationCount: data?.annotations?.heatmap?.length || 0,
-      lineplotAnnotationCount: data?.annotations?.lineplot?.length || 0,
-      timestamp: Date.now(),
-    });
 
     try {
       await emit(`data-update-${windowId}`, {
@@ -282,19 +185,11 @@ class WindowManager {
         timestamp: Date.now(),
       });
 
-      console.log(
-        `[WINDOW_MANAGER] Successfully emitted data-update-${windowId} event`,
-      );
-
-      // Update state
       state.data = data;
       state.lastUpdate = Date.now();
       this.windowStates.set(windowId, state);
-    } catch (error) {
-      console.error(
-        `[WINDOW_MANAGER] Failed to send data to window ${windowId}:`,
-        error,
-      );
+    } catch {
+      // Data send failed silently
     }
   }
 
@@ -303,10 +198,7 @@ class WindowManager {
     if (state) {
       state.isLocked = locked;
       this.windowStates.set(windowId, state);
-
-      // Emit lock state change to the window
       emit(`lock-state-${windowId}`, { locked });
-      console.log(`Window ${windowId} ${locked ? "locked" : "unlocked"}`);
     }
   }
 
@@ -328,41 +220,31 @@ class WindowManager {
     for (const windowId of this.windows.keys()) {
       try {
         await emit(`${eventName}-${windowId}`, data);
-      } catch (error) {
-        console.error(`Failed to broadcast to window ${windowId}:`, error);
+      } catch {
+        // Broadcast failed silently
       }
     }
   }
 
   async broadcastToType(
     type: WindowType,
-    eventName: string,
+    _eventName: string,
     data: any,
   ): Promise<void> {
     const windowIds = this.getWindowsByType(type);
-    console.log(`[WINDOW_MANAGER] Broadcasting to type ${type}:`, {
-      eventName,
-      windowCount: windowIds.length,
-      windowIds,
-    });
 
-    // Send to all windows in parallel to avoid blocking
     const promises = windowIds.map(async (windowId) => {
       const state = this.windowStates.get(windowId);
       if (state && !state.isLocked) {
         try {
-          // Use sendDataToWindow to ensure consistent data format
           await this.sendDataToWindow(windowId, data);
-        } catch (error) {
-          console.error(`Failed to broadcast to window ${windowId}:`, error);
+        } catch {
+          // Broadcast to window failed silently
         }
       }
     });
 
-    // Don't await - let broadcasts happen in background
-    Promise.all(promises).catch((err) =>
-      console.error("[WINDOW_MANAGER] Broadcast error:", err),
-    );
+    Promise.all(promises).catch(() => {});
   }
 
   isWindowOpen(windowId: string): boolean {
@@ -374,8 +256,8 @@ class WindowManager {
     if (window) {
       try {
         await window.setFocus();
-      } catch (error) {
-        console.error(`Failed to focus window ${windowId}:`, error);
+      } catch {
+        // Focus failed silently
       }
     }
   }

@@ -44,47 +44,11 @@ export default function Home() {
   useEffect(() => {
     const pathname =
       typeof window !== "undefined" ? window.location.pathname : "/";
-    const tauriDetected = TauriService.isTauri();
 
-    console.log("[MAIN_WINDOW] page.tsx useEffect running", {
-      pathname,
-      isTauri: tauriDetected,
-      isInitialized,
-      timestamp: new Date().toISOString(),
-    });
-
-    // CRITICAL: Only run on the main window, not popouts
+    // Only run on the main window, not popouts
     if (pathname !== "/") {
-      console.log(
-        "[MAIN_WINDOW] Skipping initialization - not on main route:",
-        pathname,
-      );
       return;
     }
-
-    // Type for Tauri global (injected by Tauri runtime)
-    type WindowWithTauri = Window & { __TAURI__?: unknown };
-
-    console.log("DEBUG: Tauri detection:", {
-      isTauri: tauriDetected,
-      hasWindow: typeof window !== "undefined",
-      hasTauriGlobal: typeof window !== "undefined" && "__TAURI__" in window,
-      windowTauri:
-        typeof window !== "undefined"
-          ? (window as WindowWithTauri).__TAURI__
-          : undefined,
-      windowKeys:
-        typeof window !== "undefined"
-          ? Object.keys(window).filter(
-              (k) => k.includes("TAURI") || k.includes("tauri"),
-            )
-          : [],
-      userAgent:
-        typeof window !== "undefined" ? window.navigator.userAgent : undefined,
-    });
-
-    // NOTE: Persistence initialization is handled by StatePersistenceProvider
-    // Don't duplicate the call here to avoid double initialization
 
     loadPreferences();
   }, [isInitialized]);
@@ -102,39 +66,25 @@ export default function Home() {
   }, [apiUrl, isTauri]);
 
   const loadPreferences = async () => {
-    // IMPORTANT: Only load preferences on the main window, NOT on pop-outs
+    // Only load preferences on the main window, not pop-outs
     if (typeof window !== "undefined" && window.location.pathname !== "/") {
-      console.log(
-        "Skipping preference loading - not on main window. Path:",
-        window.location.pathname,
-      );
       return;
     }
 
-    // CRITICAL: Don't reload preferences if already loaded in this session
+    // Don't reload preferences if already loaded in this session
     if (hasLoadedPreferences) {
-      console.log(
-        "[MAIN_WINDOW] Preferences already loaded this session, skipping",
-      );
       return;
     }
 
-    // CRITICAL: Synchronous check to prevent double initialization in React StrictMode
-    // This ref is checked immediately, before any async operations
+    // Synchronous check to prevent double initialization in React StrictMode
     if (initializingRef.current) {
-      console.log(
-        "[MAIN_WINDOW] Already initializing (caught by ref), skipping duplicate call",
-      );
       return;
     }
     initializingRef.current = true;
 
-    console.log("Loading preferences, isTauri:", TauriService.isTauri());
     if (TauriService.isTauri()) {
       try {
-        console.log("Loading Tauri preferences...");
         const preferences = await TauriService.getAppPreferences();
-        console.log("Loaded preferences:", preferences);
 
         // Mark as loaded
         setHasLoadedPreferences(true);
@@ -265,17 +215,9 @@ export default function Home() {
 
       setIsApiConnected(connected);
 
-      // In browser mode with external API, also set server ready and set a placeholder token
+      // In browser mode with external API, set server ready with placeholder token
       if (connected && !isTauri) {
-        console.log(
-          "[BROWSER_MODE] External API connected, setting server ready",
-        );
-        // Set a placeholder token so that components that check for token presence work
-        // The API server has auth disabled in browser/test mode
         setSessionToken("browser-mode-no-auth");
-        // Set a default data directory path for the file manager
-        // The API server is already configured with the actual data directory
-        // Using "." to represent the configured data directory root
         setDataDirectoryPath(".");
         setServerReady(true);
       }

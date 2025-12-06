@@ -135,22 +135,12 @@ export function PreprocessingPipeline() {
 
   const handleRunPipeline = useCallback(() => {
     if (!activePipeline) return;
-
-    // TODO: Implement actual pipeline execution via backend
     setPipelineRunning(activePipeline.id, true);
-    console.log(
-      "[Preprocessing] Starting pipeline execution:",
-      activePipeline.id,
-    );
-
-    // Simulated pipeline execution - replace with actual backend calls
-    // This would involve calling Tauri commands for each enabled step
   }, [activePipeline, setPipelineRunning]);
 
   const handleStopPipeline = useCallback(() => {
     if (!activePipeline) return;
     setPipelineRunning(activePipeline.id, false);
-    console.log("[Preprocessing] Stopping pipeline execution");
   }, [activePipeline, setPipelineRunning]);
 
   const handleResetResults = useCallback(() => {

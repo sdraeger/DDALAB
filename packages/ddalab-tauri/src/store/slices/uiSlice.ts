@@ -221,7 +221,6 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
   },
 
   setServerReady: (ready) => {
-    console.log("[SERVER_READY] Setting server ready state:", ready);
     set((state) => {
       state.ui.isServerReady = ready;
     });

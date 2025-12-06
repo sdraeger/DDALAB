@@ -68,19 +68,18 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
       const analysisHistory = dda.analysisHistory;
       const analysisParameters = dda.analysisParameters;
 
-      // Defer persistence to avoid blocking UI, but use captured state
       setTimeout(async () => {
         try {
           await TauriService.updateDDAState(ddaState);
-        } catch (err) {
-          console.error("[STORE] Failed to update Tauri DDA state:", err);
+        } catch {
+          // DDA state update failed silently
         }
 
         if (persistenceService) {
           try {
             await persistenceService.saveDDAState(ddaState);
-          } catch (err) {
-            console.error("[STORE] Failed to persist DDA state:", err);
+          } catch {
+            // DDA state persistence failed silently
           }
         }
 
