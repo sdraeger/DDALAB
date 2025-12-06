@@ -44,6 +44,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { TauriService, NotificationType } from "@/services/tauriService";
+import { loggers } from "@/lib/logger";
 import { WindowSizeSelector } from "@/components/dda/WindowSizeSelector";
 import { DelayPresetManager } from "@/components/dda/DelayPresetManager";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
@@ -384,11 +385,13 @@ export const DDAAnalysis = memo(function DDAAnalysis({
       try {
         // Validate analysis object
         if (!analysis || !analysis.id) {
-          console.error("Invalid analysis object:", analysis);
+          loggers.dda.error("Invalid analysis object", { analysis });
           return;
         }
 
-        console.log("Preview analysis - Using ID for lookup:", analysis.id);
+        loggers.dda.debug("Preview analysis - Using ID for lookup", {
+          id: analysis.id,
+        });
 
         // Get full analysis data from history (in case the list only has metadata)
         const fullAnalysis = await apiService.getAnalysisFromHistory(
@@ -405,10 +408,12 @@ export const DDAAnalysis = memo(function DDAAnalysis({
           // Still set the previewing analysis for the blue notification
           setPreviewingAnalysis(fullAnalysis);
         } else {
-          console.warn("No analysis data returned for ID:", analysis.id);
+          loggers.dda.warn("No analysis data returned for ID", {
+            id: analysis.id,
+          });
         }
       } catch (error) {
-        console.error("Failed to load analysis preview:", error);
+        loggers.dda.error("Failed to load analysis preview", { error });
       }
     },
     [apiService],
@@ -442,7 +447,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         // Use mutation with optimistic update - UI updates immediately
         deleteAnalysisMutation.mutate(analysisId, {
           onError: async (error) => {
-            console.error("[DDAAnalysis] Error deleting analysis:", error);
+            loggers.dda.error("Error deleting analysis", { error });
             const { message } = await import("@tauri-apps/plugin-dialog");
             await message(
               (error as Error).message || "Failed to delete analysis",
@@ -454,7 +459,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
           },
         });
       } catch (error) {
-        console.error("[DDAAnalysis] Error in delete handler:", error);
+        loggers.dda.error("Error in delete handler", { error });
       }
     },
     [deleteAnalysisMutation, previewingAnalysis],
@@ -516,7 +521,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         { analysisId, newName: sanitizedName },
         {
           onError: async (error) => {
-            console.error("[DDAAnalysis] Error renaming analysis:", error);
+            loggers.dda.error("Error renaming analysis", { error });
             const { message } = await import("@tauri-apps/plugin-dialog");
             await message(
               (error as Error).message || "Failed to rename analysis",
@@ -555,7 +560,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         setResults(currentAnalysis);
         setResultsFromPersistence(true);
       } else {
-        console.log("[DDAAnalysis] Skipping local results sync for NSG result");
+        loggers.dda.debug("Skipping local results sync for NSG result");
       }
     }
   }, [currentAnalysis, results]);
@@ -566,27 +571,23 @@ export const DDAAnalysis = memo(function DDAAnalysis({
       const params = currentAnalysis.parameters;
       const fileChannels = selectedFile.channels;
 
-      console.log(
-        "[DDAAnalysis] Auto-populating parameters from loaded analysis:",
-        {
-          variants: params.variants,
-          hasVariantConfigs: !!params.variant_configs,
-          topLevelChannels: currentAnalysis.channels,
-          paramsChannels: params.channels,
-          windowLength: params.window_length,
-          windowStep: params.window_step,
-        },
-      );
+      loggers.dda.debug("Auto-populating parameters from loaded analysis", {
+        variants: params.variants,
+        hasVariantConfigs: !!params.variant_configs,
+        topLevelChannels: currentAnalysis.channels,
+        paramsChannels: params.channels,
+        windowLength: params.window_length,
+        windowStep: params.window_step,
+      });
 
       // NEW: Build per-variant channel configs from variant_configs (if available)
       const newVariantChannelConfigs: typeof localParameters.variantChannelConfigs =
         {};
 
       if (params.variant_configs) {
-        console.log(
-          "[DDAAnalysis] Loading from variant_configs:",
-          params.variant_configs,
-        );
+        loggers.dda.debug("Loading from variant_configs", {
+          variant_configs: params.variant_configs,
+        });
 
         // Iterate through each variant in variant_configs
         Object.entries(params.variant_configs).forEach(
@@ -630,16 +631,15 @@ export const DDAAnalysis = memo(function DDAAnalysis({
           },
         );
 
-        console.log(
-          "[DDAAnalysis] Populated variantChannelConfigs:",
-          newVariantChannelConfigs,
-        );
+        loggers.dda.debug("Populated variantChannelConfigs", {
+          configs: newVariantChannelConfigs,
+        });
       }
 
       // FALLBACK: Use top-level channels from DDAResult or params.channels (legacy)
       const channelNames = currentAnalysis.channels || params.channels || [];
 
-      console.log("[DDAAnalysis] Checking for CT/CD pairs:", {
+      loggers.dda.debug("Checking for CT/CD pairs", {
         hasCTPairs: !!params.ct_channel_pairs,
         ctPairsLength: params.ct_channel_pairs?.length,
         ctPairsValue: params.ct_channel_pairs,
@@ -662,7 +662,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
           // Otherwise assume they're already channel names
           return [String(idx1), String(idx2)] as [string, string];
         });
-        console.log("[DDAAnalysis] Converted CT pairs:", ctPairs);
+        loggers.dda.debug("Converted CT pairs", { ctPairs });
       }
 
       // FALLBACK: Convert CD channel pairs from indices to names (legacy format)
@@ -679,7 +679,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
           // Otherwise assume they're already channel names
           return [String(idx1), String(idx2)] as [string, string];
         });
-        console.log("[DDAAnalysis] Converted CD pairs:", cdPairs);
+        loggers.dda.debug("Converted CD pairs", { cdPairs });
       }
 
       // LEGACY FALLBACK: If no variant_configs, build from legacy format
@@ -688,9 +688,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         params.variants &&
         params.variants.length > 0
       ) {
-        console.log(
-          "[DDAAnalysis] Building variantChannelConfigs from legacy format",
-        );
+        loggers.dda.debug("Building variantChannelConfigs from legacy format");
 
         params.variants.forEach((variantId) => {
           newVariantChannelConfigs[variantId] = {};
@@ -723,10 +721,9 @@ export const DDAAnalysis = memo(function DDAAnalysis({
               if (defaultPairs.length > 0) {
                 newVariantChannelConfigs[variantId].ctChannelPairs =
                   defaultPairs;
-                console.log(
-                  "[DDAAnalysis] Generated default CT pairs:",
-                  defaultPairs,
-                );
+                loggers.dda.debug("Generated default CT pairs", {
+                  pairs: defaultPairs,
+                });
               }
             }
           }
@@ -747,19 +744,17 @@ export const DDAAnalysis = memo(function DDAAnalysis({
               if (defaultPairs.length > 0) {
                 newVariantChannelConfigs[variantId].cdChannelPairs =
                   defaultPairs;
-                console.log(
-                  "[DDAAnalysis] Generated default CD pairs:",
-                  defaultPairs,
-                );
+                loggers.dda.debug("Generated default CD pairs", {
+                  pairs: defaultPairs,
+                });
               }
             }
           }
         });
 
-        console.log(
-          "[DDAAnalysis] Built variantChannelConfigs from legacy:",
-          newVariantChannelConfigs,
-        );
+        loggers.dda.debug("Built variantChannelConfigs from legacy", {
+          configs: newVariantChannelConfigs,
+        });
       }
 
       // Cast to any for backwards compatibility with legacy stored parameters
@@ -806,7 +801,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         const hasCreds = await TauriService.hasNSGCredentials();
         setHasNsgCredentials(hasCreds);
       } catch (error) {
-        console.error("Failed to check NSG credentials:", error);
+        loggers.nsg.error("Failed to check NSG credentials", { error });
       }
     };
 
@@ -819,17 +814,14 @@ export const DDAAnalysis = memo(function DDAAnalysis({
       const customEvent = event as CustomEvent;
       const { jobId, resultsData } = customEvent.detail;
 
-      console.log("[DDAAnalysis] Received NSG results:", {
-        jobId,
-        resultsData,
-      });
+      loggers.dda.debug("Received NSG results", { jobId, resultsData });
 
       // For NSG results: ONLY update the global store (main Results tab)
       // Do NOT set local results (prevents showing in DDA Analysis → Results sub-tab)
       if (resultsData) {
         setCurrentAnalysis(resultsData);
-        console.log(
-          "[DDAAnalysis] NSG results loaded to global store (main Results tab only)",
+        loggers.dda.debug(
+          "NSG results loaded to global store (main Results tab only)",
         );
       }
     };
@@ -908,11 +900,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         // Calculate default window length as 1/4 second (0.25 * sampling_rate)
         const defaultWindowLength = Math.round(0.25 * selectedFile.sample_rate);
 
-        console.log(
-          "[DDAAnalysis] Updating time range - file duration:",
-          fileDuration,
-          "seconds",
-        );
+        loggers.dda.debug("Updating time range", { fileDuration });
 
         setLocalParameters((prev) => ({
           ...prev,
@@ -927,10 +915,9 @@ export const DDAAnalysis = memo(function DDAAnalysis({
           windowLength: defaultWindowLength,
         }));
       } else {
-        console.warn(
-          "[DDAAnalysis] File loaded but duration not available yet:",
-          selectedFile.file_path,
-        );
+        loggers.dda.warn("File loaded but duration not available yet", {
+          filePath: selectedFile.file_path,
+        });
       }
     }
   }, [selectedFile?.file_path, selectedFile?.duration]); // Depend on both file path and duration
@@ -994,7 +981,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
 
   const runAnalysis = async () => {
     if (!selectedFile) {
-      console.error("Please select a file");
+      loggers.dda.error("Please select a file");
       return;
     }
 
@@ -1147,40 +1134,18 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         Object.keys(variantConfigs).length > 0 ? variantConfigs : undefined,
     };
 
-    console.log("📋 [LOCAL] DDA Analysis Parameters:");
-    console.log(`   File: ${selectedFile.file_path}`);
-    console.log(`   Sample rate: ${selectedFile.sample_rate} Hz`);
-    console.log(`   Channels (names): [${channelNames.join(", ")}]`);
-    console.log(
-      `   Channels (indices sent to API): [${request.channels.join(", ")}]`,
-    );
-    console.log(
-      `   Time range: ${request.start_time} - ${request.end_time} seconds`,
-    );
-    console.log(
-      `   Window: length=${request.window_length}, step=${request.window_step}`,
-    );
-    console.log(`   Delays: [${request.delay_list.join(", ")}]`);
-    if (ctChannelPairs && ctChannelPairs.length > 0) {
-      console.log(
-        `   CT channel pairs: ${ctChannelPairs
-          .map(([a, b]) => `[${a}, ${b}]`)
-          .join(", ")}`,
-      );
-    }
-    if (cdChannelPairs && cdChannelPairs.length > 0) {
-      console.log(
-        `   CD channel pairs (directed): ${cdChannelPairs
-          .map(([from, to]) => `[${from} → ${to}]`)
-          .join(", ")}`,
-      );
-    }
-    if (request.variant_configs) {
-      console.log("   Per-variant configurations:");
-      Object.entries(request.variant_configs).forEach(([variantId, config]) => {
-        console.log(`      ${variantId}:`, config);
-      });
-    }
+    loggers.dda.info("LOCAL DDA Analysis Parameters", {
+      file: selectedFile.file_path,
+      sampleRate: selectedFile.sample_rate,
+      channelNames,
+      channelIndices: request.channels,
+      timeRange: { start: request.start_time, end: request.end_time },
+      window: { length: request.window_length, step: request.window_step },
+      delays: request.delay_list,
+      ctChannelPairs: ctChannelPairs || [],
+      cdChannelPairs: cdChannelPairs || [],
+      variantConfigs: request.variant_configs,
+    });
 
     // Record DDA parameters if recording is active
     if (isWorkflowRecording) {
@@ -1193,15 +1158,17 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         );
         await recordAction(paramAction);
         incrementActionCount();
-        console.log("[WORKFLOW] Recorded DDA parameters");
+        loggers.dda.debug("Recorded DDA parameters to workflow");
       } catch (error) {
-        console.error("[WORKFLOW] Failed to record DDA parameters:", error);
+        loggers.dda.error("Failed to record DDA parameters to workflow", {
+          error,
+        });
       }
     }
 
     // Submit analysis using mutation
     // Use flushSync to ensure the progress bar renders immediately before the async operation
-    console.log("[DDA ANALYSIS] Starting analysis, showing progress bar...");
+    loggers.dda.debug("Starting analysis, showing progress bar");
     analysisStartTimeRef.current = Date.now();
     flushSync(() => {
       setLocalIsRunning(true);
@@ -1237,9 +1204,10 @@ export const DDAAnalysis = memo(function DDAAnalysis({
           name: analysisName.trim() || result.name,
         };
 
-        console.log("[DDA ANALYSIS] Analysis complete, setting as current:");
-        console.log("  Analysis ID:", resultWithChannels.id);
-        console.log("  File path:", resultWithChannels.file_path);
+        loggers.dda.info("Analysis complete", {
+          id: resultWithChannels.id,
+          filePath: resultWithChannels.file_path,
+        });
 
         // Hide progress bar with minimum display time, then update results
         hideProgressBar(() => {
@@ -1256,10 +1224,9 @@ export const DDAAnalysis = memo(function DDAAnalysis({
               .map((channelName) => selectedFile!.channels.indexOf(channelName))
               .filter((idx) => idx !== -1); // Remove any channels not found
 
-            console.log(
-              "[WORKFLOW] Recording DDA analysis with channel indices:",
+            loggers.dda.debug("Recording DDA analysis with channel indices", {
               channelIndices,
-            );
+            });
             const analysisAction = createRunDDAAnalysisAction(
               result.id,
               channelIndices,
@@ -1267,46 +1234,37 @@ export const DDAAnalysis = memo(function DDAAnalysis({
             recordAction(analysisAction)
               .then(() => {
                 incrementActionCount();
-                console.log("[WORKFLOW] Recorded DDA analysis execution");
+                loggers.dda.debug("Recorded DDA analysis execution");
               })
               .catch((error) => {
-                console.error(
-                  "[WORKFLOW] Failed to record DDA analysis:",
-                  error,
-                );
+                loggers.dda.error("Failed to record DDA analysis", { error });
               });
           }
 
           // Save to history asynchronously (non-blocking)
           saveToHistoryMutation.mutate(resultWithChannels, {
             onError: (err) => {
-              console.error("Background save to history failed:", err);
+              loggers.dda.error("Background save to history failed", {
+                error: err,
+              });
             },
           });
         });
       },
       onError: (err) => {
-        console.error("❌ DDA analysis failed:", err);
+        loggers.dda.error("DDA analysis failed", {
+          error: err,
+          errorName: err instanceof Error ? err.name : undefined,
+          errorMessage: err instanceof Error ? err.message : String(err),
+          request: {
+            file_path: selectedFile?.file_path,
+            channels: parameters.selectedChannels,
+            time_range: [parameters.timeStart, parameters.timeEnd],
+            variants: parameters.variants,
+          },
+        });
         // Hide progress bar with minimum display time for errors too
         hideProgressBar(() => {});
-
-        // Extract detailed error message for logging
-        let errorMessage = "Analysis failed";
-        if (err instanceof Error) {
-          errorMessage = err.message;
-          console.error("📤 Error name:", err.name);
-          console.error("📤 Error message:", err.message);
-          console.error("📤 Error stack:", err.stack);
-        } else {
-          console.error("📤 Non-Error object thrown:", err);
-        }
-
-        console.error("📤 Analysis request parameters:", {
-          file_path: selectedFile?.file_path,
-          channels: parameters.selectedChannels,
-          time_range: [parameters.timeStart, parameters.timeEnd],
-          variants: parameters.variants,
-        });
       },
     });
   };
@@ -1426,22 +1384,15 @@ export const DDAAnalysis = memo(function DDAAnalysis({
           (idx) => selectedFile.channels[idx] || `Unknown(${idx})`,
         ) || [];
 
-      console.log("📋 [NSG] DDA Analysis Parameters:");
-      console.log(`   File: ${selectedFile.file_path}`);
-      console.log(`   Sample rate: ${selectedFile.sample_rate} Hz`);
-      console.log(
-        `   Channels (indices): [${request.channels?.join(", ") || ""}]`,
-      );
-      console.log(`   Channels (names): [${channelNames.join(", ")}]`);
-      console.log(
-        `   Time range: ${request.time_range.start} - ${request.time_range.end} seconds`,
-      );
-      console.log(
-        `   Window: length=${request.window_parameters.window_length}, step=${request.window_parameters.window_step}`,
-      );
-      console.log(
-        `   Delays: [${request.scale_parameters.delay_list?.join(", ") || ""}]`,
-      );
+      loggers.nsg.info("NSG DDA Analysis Parameters", {
+        file: selectedFile.file_path,
+        sampleRate: selectedFile.sample_rate,
+        channelIndices: request.channels,
+        channelNames,
+        timeRange: request.time_range,
+        window: request.window_parameters,
+        delays: request.scale_parameters.delay_list,
+      });
 
       setNsgSubmissionPhase("Creating job in database...");
 
@@ -1452,7 +1403,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         selectedFile.file_path,
       );
 
-      console.log("[NSG] Job created with ID:", jobId);
+      loggers.nsg.info("Job created", { jobId });
 
       setNsgSubmissionPhase(
         "Uploading file to NSG (this may take a few minutes for large files)...",
@@ -1461,7 +1412,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
       // Submit the job to NSG
       await TauriService.submitNSGJob(jobId);
 
-      console.log("[NSG] Job submitted successfully");
+      loggers.nsg.info("Job submitted successfully");
 
       setNsgSubmissionPhase("");
       setIsSubmittingToNsg(false);
@@ -1478,11 +1429,9 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         { jobId },
       );
     } catch (error) {
-      console.error("[NSG] Submission error:", error);
-      console.error("[NSG] Error details:", {
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
+      loggers.nsg.error("Submission error", {
         error,
+        message: error instanceof Error ? error.message : String(error),
       });
       setNsgError(
         error instanceof Error ? error.message : "Failed to submit job to NSG",
@@ -1567,12 +1516,11 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         end_time: parameters.timeEnd,
       };
 
-      console.log("📋 [SERVER] DDA Analysis Parameters:");
-      console.log(`   File: ${selectedFile.file_path}`);
-      console.log(`   Channels: [${Array.from(allChannels).join(", ")}]`);
-      console.log(
-        `   Time range: ${parameters.timeStart} - ${parameters.timeEnd} seconds`,
-      );
+      loggers.api.info("SERVER DDA Analysis Parameters", {
+        file: selectedFile.file_path,
+        channels: Array.from(allChannels),
+        timeRange: { start: parameters.timeStart, end: parameters.timeEnd },
+      });
 
       setServerSubmissionPhase("Submitting job to server...");
 
@@ -1586,7 +1534,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         parameters: jobParameters,
       });
 
-      console.log("[SERVER] Job submitted successfully:", response);
+      loggers.api.info("Server job submitted successfully", { response });
 
       setServerSubmissionPhase("");
       setIsSubmittingToServer(false);
@@ -1603,7 +1551,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         `Analysis submitted to server. Job ID: ${response.job_id.substring(0, 8)}...`,
       );
     } catch (error) {
-      console.error("[SERVER] Submission error:", error);
+      loggers.api.error("Server submission error", { error });
       setServerError(
         error instanceof Error
           ? error.message
@@ -1669,22 +1617,21 @@ export const DDAAnalysis = memo(function DDAAnalysis({
     try {
       const result = await apiService.cancelDDAAnalysis();
       if (result.success) {
-        console.log(
-          "[DDAAnalysis] Analysis cancelled:",
-          result.cancelled_analysis_id,
-        );
+        loggers.dda.info("Analysis cancelled", {
+          analysisId: result.cancelled_analysis_id,
+        });
         toast.info("Analysis Cancelled", "DDA analysis was cancelled");
         setLocalIsRunning(false);
         setDDARunning(false);
       } else {
-        console.warn("[DDAAnalysis] Failed to cancel:", result.message);
+        loggers.dda.warn("Failed to cancel", { message: result.message });
         toast.error(
           "Cancel Failed",
           result.message || "Could not cancel analysis",
         );
       }
     } catch (error) {
-      console.error("[DDAAnalysis] Error cancelling:", error);
+      loggers.dda.error("Error cancelling", { error });
       toast.error(
         "Cancel Error",
         error instanceof Error ? error.message : "Failed to cancel analysis",
@@ -1707,7 +1654,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
             filePath: selectedFile.file_path,
           });
         } catch (error) {
-          console.warn("[Export] Failed to compute file hash:", error);
+          loggers.export.warn("Failed to compute file hash", { error });
           // Continue with empty hash
         }
       }
@@ -1793,7 +1740,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         URL.revokeObjectURL(url);
       }
     } catch (error) {
-      console.error("[Export] Failed to export configuration:", error);
+      loggers.export.error("Failed to export configuration", { error });
       if (TauriService.isTauri()) {
         await TauriService.createNotification(
           "Export Failed",
@@ -1871,7 +1818,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         setShowImportDialog(true);
       }
     } catch (error) {
-      console.error("[Import] Failed to import configuration:", error);
+      loggers.dda.error("Failed to import configuration", { error });
       setImportValidation({
         warnings: [],
         errors: [

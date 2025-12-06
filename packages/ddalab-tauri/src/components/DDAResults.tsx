@@ -41,6 +41,7 @@ import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { usePopoutWindows } from "@/hooks/usePopoutWindows";
 import { TauriService } from "@/services/tauriService";
+import { loggers } from "@/lib/logger";
 import {
   exportDDAToCSV,
   exportDDAToJSON,
@@ -405,14 +406,12 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       }
 
       const startTime = performance.now();
-      console.log(
-        "[PERF] Starting heatmap data processing for",
-        selectedChannels.length,
-        "channels",
-      );
+      loggers.plot.debug("Starting heatmap data processing", {
+        channelCount: selectedChannels.length,
+      });
 
       if (!currentVariantData || !currentVariantData.dda_matrix) {
-        console.log("[PERF] No variant data available");
+        loggers.plot.debug("No variant data available");
         return { heatmapData: [], colorRange: [0, 1] as [number, number] };
       }
 
@@ -450,9 +449,9 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       });
 
       const elapsedTransform = performance.now() - startTime;
-      console.log(
-        `[PERF] Data transform completed in ${elapsedTransform.toFixed(2)}ms`,
-      );
+      loggers.plot.debug("Data transform completed", {
+        elapsedMs: elapsedTransform.toFixed(2),
+      });
 
       // Optimized statistics: single-pass mean and std (no sorting needed)
       let minVal = min;
@@ -468,17 +467,15 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         maxVal = mean + 3 * std;
 
         const elapsedStats = performance.now() - startTime;
-        console.log(
-          `[PERF] Statistics calculated in ${elapsedStats.toFixed(2)}ms total`,
-        );
+        loggers.plot.debug("Statistics calculated", {
+          elapsedMs: elapsedStats.toFixed(2),
+        });
       }
 
       const totalElapsed = performance.now() - startTime;
-      console.log(
-        `[PERF] Heatmap data processing completed in ${totalElapsed.toFixed(
-          2,
-        )}ms`,
-      );
+      loggers.plot.debug("Heatmap data processing completed", {
+        elapsedMs: totalElapsed.toFixed(2),
+      });
 
       return {
         heatmapData: data,
@@ -530,9 +527,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
     // Data processing is already fast (~16ms), no need to defer the update
     if (dataChanged) {
-      console.log(
-        `[HEATMAP DATA] Updating heatmapData for variant ${currentVariantId}, ${processedHeatmapData.length} channels`,
-      );
+      loggers.plot.debug("Updating heatmapData", {
+        variant: currentVariantId,
+        channelCount: processedHeatmapData.length,
+      });
       setHeatmapData(processedHeatmapData);
     }
 
@@ -561,9 +559,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
     // Clean up previous ResizeObserver first
     if (heatmapCleanupRef.current) {
-      console.log(
-        "[HEATMAP] Cleaning up previous plot before rendering new one",
-      );
+      loggers.plot.debug("Cleaning up previous plot before rendering new one");
       heatmapCleanupRef.current();
       heatmapCleanupRef.current = null;
     }
@@ -581,16 +577,16 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
     // NOW update the ref for the NEW plot - after old observer is disconnected
     currentChannelCountRef.current = selectedChannels.length;
-    console.log(
-      `[HEATMAP] Updated currentChannelCountRef to ${selectedChannels.length}`,
-    );
+    loggers.plot.debug("Updated currentChannelCountRef", {
+      count: selectedChannels.length,
+    });
 
     // CRITICAL: Defer heavy rendering to NEXT frame so browser can paint loading state first
     // Without this, the loading overlay never shows because we block the main thread
     const deferredRender = () => {
       // Guard against empty scales
       if (safeScales.length === 0) {
-        console.warn("[HEATMAP] No scales available, skipping render");
+        loggers.plot.warn("No scales available, skipping render");
         setIsRenderingHeatmap(false);
         return;
       }
@@ -610,9 +606,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
         const width = heatmapRef.current.clientWidth || 800;
         const height = heatmapHeight;
-        console.log(
-          `[HEATMAP] Creating new plot for ${selectedChannels.length} channels, height: ${height}`,
-        );
+        loggers.plot.debug("Creating new heatmap", {
+          channelCount: selectedChannels.length,
+          height,
+        });
 
         // Prepare data for uPlot
         const plotData: uPlot.AlignedData = [
@@ -770,11 +767,9 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                 }
 
                 const renderElapsed = performance.now() - renderStartTime;
-                console.log(
-                  `[PERF] Heatmap render completed in ${renderElapsed.toFixed(
-                    2,
-                  )}ms`,
-                );
+                loggers.plot.debug("Heatmap render completed", {
+                  elapsedMs: renderElapsed.toFixed(2),
+                });
 
                 ctx.restore();
               },
@@ -793,9 +788,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
               if (uplotHeatmapRef.current && heatmapRef.current) {
                 const newWidth = heatmapRef.current.clientWidth || 800;
                 const currentHeight = heatmapHeightRef.current;
-                console.log(
-                  `[HEATMAP RESIZE] Resizing to width=${newWidth}, height=${currentHeight}`,
-                );
+                loggers.plot.debug("Heatmap resizing", {
+                  width: newWidth,
+                  height: currentHeight,
+                });
                 uplotHeatmapRef.current.setSize({
                   width: newWidth,
                   height: currentHeight,
@@ -814,8 +810,8 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
         // Store cleanup function so it can be called when switching variants
         heatmapCleanupRef.current = () => {
-          console.log(
-            "[HEATMAP CLEANUP] Disconnecting ResizeObserver and destroying plot",
+          loggers.plot.debug(
+            "Disconnecting ResizeObserver and destroying plot",
           );
           resizeObserver.disconnect();
           if (uplotHeatmapRef.current) {
@@ -830,7 +826,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
           profiler.end("heatmap-render");
         }, 50);
       } catch (error) {
-        console.error("Error rendering heatmap:", error);
+        loggers.plot.error("Error rendering heatmap", { error });
         setIsRenderingHeatmap(false);
         profiler.end("heatmap-render");
       }
@@ -894,14 +890,11 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
         // Defensive check for scales data
         if (safeScales.length === 0) {
-          console.error(
-            "[LINE PLOT] Invalid scales data for line plot:",
-            safeScales,
-          );
-          console.error("[LINE PLOT] Result structure:", {
+          loggers.plot.error("Invalid scales data for line plot", {
+            scales: safeScales,
             hasResults: !!result.results,
             resultsKeys: result.results ? Object.keys(result.results) : [],
-            scales: result.results?.scales,
+            resultScales: result.results?.scales,
             variants: result.results?.variants?.length || 0,
           });
           setIsRenderingLinePlot(false);
@@ -925,15 +918,13 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         }
 
         const prepElapsed = performance.now() - startPrepTime;
-        console.log(
-          `[PERF] Line plot data preparation completed in ${prepElapsed.toFixed(
-            2,
-          )}ms`,
-        );
+        loggers.plot.debug("Line plot data preparation completed", {
+          elapsedMs: prepElapsed.toFixed(2),
+        });
 
         // Check we have at least one data series besides x-axis
         if (data.length < 2 || validChannels.length === 0) {
-          console.error("[LINE PLOT] No valid channel data for line plot", {
+          loggers.plot.error("No valid channel data for line plot", {
             dataLength: data.length,
             validChannelsCount: validChannels.length,
           });
@@ -954,7 +945,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
         // Check ref again before accessing clientWidth
         if (!linePlotRef.current) {
-          console.warn("Line plot ref became null during rendering");
+          loggers.plot.warn("Line plot ref became null during rendering");
           return;
         }
 
@@ -1035,24 +1026,21 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
         // Final check before creating plot
         if (!linePlotRef.current) {
-          console.warn("Line plot ref became null before creating uPlot");
+          loggers.plot.warn("Line plot ref became null before creating uPlot");
           return;
         }
 
         const startRenderTime = performance.now();
         uplotLinePlotRef.current = new uPlot(opts, data, linePlotRef.current);
         const renderElapsed = performance.now() - startRenderTime;
-
-        console.log(
-          `[PERF] Line plot uPlot creation completed in ${renderElapsed.toFixed(
-            2,
-          )}ms`,
-        );
+        loggers.plot.debug("Line plot uPlot creation completed", {
+          elapsedMs: renderElapsed.toFixed(2),
+        });
 
         const totalElapsed = performance.now() - startPrepTime;
-        console.log(
-          `[PERF] Line plot total render time: ${totalElapsed.toFixed(2)}ms`,
-        );
+        loggers.plot.debug("Line plot total render time", {
+          elapsedMs: totalElapsed.toFixed(2),
+        });
 
         // Handle resize
         const resizeObserver = new ResizeObserver(
@@ -1090,7 +1078,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
           setIsRenderingLinePlot(false);
         }, 100);
       } catch (error) {
-        console.error("Error rendering line plot:", error);
+        loggers.plot.error("Error rendering line plot", { error });
         setIsRenderingLinePlot(false);
       }
     };
@@ -1166,9 +1154,9 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         result.id,
         ddaResultsData,
       );
-      console.log("Created DDA results popout window:", windowId);
+      loggers.ui.debug("Created DDA results popout window", { windowId });
     } catch (error) {
-      console.error("Failed to create popout window:", error);
+      loggers.ui.error("Failed to create popout window", { error });
     }
   }, [
     result,
@@ -1306,7 +1294,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         }
 
         if (!canvas) {
-          console.error("No canvas found to export");
+          loggers.export.error("No canvas found to export");
           return;
         }
 
@@ -1335,14 +1323,17 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
           filename,
         );
         if (savedPath) {
-          console.log(`Plot exported successfully to: ${savedPath}`);
+          loggers.export.info("Plot exported successfully", {
+            savedPath,
+            format,
+          });
           toast.success(
             "Plot exported",
             `Saved as ${format.toUpperCase()} to ${savedPath.split("/").pop()}`,
           );
         }
       } catch (error) {
-        console.error(`Failed to export plot as ${format}:`, error);
+        loggers.export.error("Failed to export plot", { format, error });
         toast.error(
           "Export failed",
           `Could not export plot as ${format.toUpperCase()}`,
@@ -1380,14 +1371,17 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         );
 
         if (savedPath) {
-          console.log(`Data exported successfully to: ${savedPath}`);
+          loggers.export.info("Data exported successfully", {
+            savedPath,
+            format,
+          });
           toast.success(
             "Data exported",
             `Saved as ${format.toUpperCase()} to ${savedPath.split("/").pop()}`,
           );
         }
       } catch (error) {
-        console.error(`Failed to export data as ${format}:`, error);
+        loggers.export.error("Failed to export data", { format, error });
         toast.error(
           "Export failed",
           `Could not export data as ${format.toUpperCase()}`,
@@ -1446,7 +1440,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         "Your result is now shared with colleagues",
       );
     } catch (error) {
-      console.error("Failed to share result:", error);
+      loggers.api.error("Failed to share result", { error });
       toast.error(
         "Share failed",
         error instanceof Error ? error.message : "Could not share result",
@@ -1465,7 +1459,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       toast.success("Copied", "Share link copied to clipboard");
       setTimeout(() => setLinkCopied(false), 2000);
     } catch (error) {
-      console.error("Failed to copy link:", error);
+      loggers.ui.error("Failed to copy link", { error });
       toast.error("Copy failed", "Could not copy link to clipboard");
     }
   }, [shareLink]);
@@ -1475,9 +1469,12 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   // so they can be reset when DOM unmounts (prevents white screen on view mode changes)
 
   useEffect(() => {
-    console.log(
-      `[HEATMAP EFFECT] Running with: viewMode=${viewMode}, heatmapData.length=${heatmapData.length}, heatmapRef.current=${!!heatmapRef.current}, variant=${currentVariantData?.variant_id}`,
-    );
+    loggers.plot.debug("HEATMAP EFFECT running", {
+      viewMode,
+      heatmapDataLength: heatmapData.length,
+      heatmapRefExists: !!heatmapRef.current,
+      variant: currentVariantData?.variant_id,
+    });
 
     // CRITICAL: Don't check heatmapRef.current here - it may be null if DOM hasn't mounted yet
     // The IntersectionObserver will wait for the element to exist
@@ -1499,13 +1496,18 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       // CRITICAL: Ensure heatmapData and selectedChannels are in sync
       // If not, the data hasn't finished processing yet
       if (heatmapData.length !== selectedChannels.length) {
-        console.log(
-          `[HEATMAP] Data not in sync yet: heatmapData=${heatmapData.length}, selectedChannels=${selectedChannels.length}, variant=${currentVariantData?.variant_id}, lastRenderedKey="${lastRenderedHeatmapKey.current}"`,
-        );
+        loggers.plot.debug("HEATMAP data not in sync yet", {
+          heatmapDataLength: heatmapData.length,
+          selectedChannelsLength: selectedChannels.length,
+          variant: currentVariantData?.variant_id,
+          lastRenderedKey: lastRenderedHeatmapKey.current,
+        });
 
         // Clear the old plot so user doesn't see stale labels
         if (heatmapCleanupRef.current) {
-          console.log("[HEATMAP] Clearing stale plot while waiting for data");
+          loggers.plot.debug(
+            "HEATMAP clearing stale plot while waiting for data",
+          );
           heatmapCleanupRef.current();
           heatmapCleanupRef.current = null;
         }
@@ -1517,17 +1519,20 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         return;
       }
 
-      console.log(
-        `[HEATMAP] Data IN SYNC: heatmapData=${heatmapData.length}, selectedChannels=${selectedChannels.length}, variant=${currentVariantData?.variant_id}, renderKey="${renderKey}", lastRenderedKey="${lastRenderedHeatmapKey.current}"`,
-      );
+      loggers.plot.debug("HEATMAP data IN SYNC", {
+        heatmapDataLength: heatmapData.length,
+        selectedChannelsLength: selectedChannels.length,
+        variant: currentVariantData?.variant_id,
+        renderKey,
+        lastRenderedKey: lastRenderedHeatmapKey.current,
+      });
 
       // CRITICAL: Check if DOM element is available FIRST
       // When switching tabs, the effect runs before new tab's DOM is mounted
       if (!heatmapRef.current) {
-        console.log(
-          "[HEATMAP] DOM element not ready, waiting for mount... renderKey:",
+        loggers.plot.debug("HEATMAP DOM element not ready, waiting for mount", {
           renderKey,
-        );
+        });
         // Reset render key so effect will retry when ref becomes available
         lastRenderedHeatmapKey.current = "";
         return;
@@ -1535,30 +1540,29 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
       // Check if we've already rendered this exact configuration
       if (lastRenderedHeatmapKey.current === renderKey) {
-        console.log(
-          "[HEATMAP] Already rendered this configuration, skipping:",
-          renderKey,
+        loggers.plot.debug(
+          "HEATMAP already rendered this configuration, skipping",
+          { renderKey },
         );
         // Already rendered this exact configuration, skip
         return;
       }
 
-      console.log("[HEATMAP] DOM element ready, scheduling render:", renderKey);
+      loggers.plot.debug("HEATMAP DOM element ready, scheduling render", {
+        renderKey,
+      });
 
       // FINAL FIX: Use single requestAnimationFrame to yield to browser for painting
       // This prevents UI freeze while keeping rendering fast and avoiding cascading delays
       const rafId = requestAnimationFrame(() => {
         if (lastRenderedHeatmapKey.current === renderKey) {
-          console.log("[HEATMAP] Already rendered, skipping");
+          loggers.plot.debug("HEATMAP already rendered, skipping");
           return;
         }
 
         renderHeatmap();
         lastRenderedHeatmapKey.current = renderKey;
-        console.log(
-          "[HEATMAP] Plot created successfully, marked as rendered:",
-          renderKey,
-        );
+        loggers.plot.debug("HEATMAP plot created successfully", { renderKey });
       });
 
       return () => {
@@ -1590,9 +1594,12 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   ]);
 
   useEffect(() => {
-    console.log(
-      `[LINEPLOT EFFECT] Running with: viewMode=${viewMode}, availableVariants.length=${availableVariants.length}, linePlotRef.current=${!!linePlotRef.current}, variant=${currentVariantData?.variant_id}`,
-    );
+    loggers.plot.debug("LINEPLOT EFFECT running", {
+      viewMode,
+      availableVariantsLength: availableVariants.length,
+      linePlotRefExists: !!linePlotRef.current,
+      variant: currentVariantData?.variant_id,
+    });
 
     if (
       (viewMode === "lineplot" || viewMode === "all") &&
@@ -1602,16 +1609,17 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       const variantId = currentVariantData?.variant_id || "unknown";
       const renderKey = `${result.id}_${variantId}_${selectedChannels.join(",")}`;
 
-      console.log(
-        `[LINEPLOT] Preparing to render with renderKey="${renderKey}", lastRenderedKey="${lastRenderedLinePlotKey.current}"`,
-      );
+      loggers.plot.debug("LINEPLOT preparing to render", {
+        renderKey,
+        lastRenderedKey: lastRenderedLinePlotKey.current,
+      });
 
       // CRITICAL: Check if DOM element is available FIRST
       // When switching tabs, the effect runs before new tab's DOM is mounted
       if (!linePlotRef.current) {
-        console.log(
-          "[LINEPLOT] DOM element not ready, waiting for mount... renderKey:",
-          renderKey,
+        loggers.plot.debug(
+          "LINEPLOT DOM element not ready, waiting for mount",
+          { renderKey },
         );
         // Reset render key so effect will retry when ref becomes available
         lastRenderedLinePlotKey.current = "";
@@ -1620,29 +1628,27 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
       // Skip if we've already rendered this exact configuration
       if (lastRenderedLinePlotKey.current === renderKey) {
-        console.log("[LINEPLOT] Already rendered this configuration, skipping");
+        loggers.plot.debug(
+          "LINEPLOT already rendered this configuration, skipping",
+        );
         return;
       }
 
-      console.log(
-        "[LINEPLOT] DOM element ready, scheduling render:",
+      loggers.plot.debug("LINEPLOT DOM element ready, scheduling render", {
         renderKey,
-      );
+      });
 
       // FINAL FIX: Use single requestAnimationFrame to yield to browser for painting
       // This prevents UI freeze while keeping rendering fast and avoiding cascading delays
       const rafId = requestAnimationFrame(() => {
         if (lastRenderedLinePlotKey.current === renderKey) {
-          console.log("[LINEPLOT] Already rendered, skipping");
+          loggers.plot.debug("LINEPLOT already rendered, skipping");
           return;
         }
 
         renderLinePlot();
         lastRenderedLinePlotKey.current = renderKey;
-        console.log(
-          "[LINEPLOT] Plot created successfully, marked as rendered:",
-          renderKey,
-        );
+        loggers.plot.debug("LINEPLOT plot created successfully", { renderKey });
       });
 
       return () => {
@@ -1709,18 +1715,18 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       },
     };
 
-    console.log("[DDA MAIN] Broadcasting data with annotations:", {
+    loggers.dda.debug("Broadcasting data with annotations", {
       resultId: result.id,
       variantIndex: selectedVariant,
       heatmapCount: heatmapAnnotations.annotations.length,
       lineplotCount: linePlotAnnotations.annotations.length,
-      heatmapAnnotations: heatmapAnnotations.annotations,
-      lineplotAnnotations: linePlotAnnotations.annotations,
       bypassedThrottle: annotationsChanged,
     });
 
     // Fire and forget - don't block on broadcast
-    broadcastToType("dda-results", ddaResultsData).catch(console.error);
+    broadcastToType("dda-results", ddaResultsData).catch((error) =>
+      loggers.ui.error("Failed to broadcast DDA results", { error }),
+    );
   }, [
     result.id,
     selectedVariant,
