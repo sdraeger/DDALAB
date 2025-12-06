@@ -213,21 +213,53 @@ impl EDFReader {
             reserveds.push(Self::read_fixed_string(reader, 32)?);
         }
 
-        let mut signal_headers = Vec::with_capacity(num_signals);
-        for i in 0..num_signals {
-            signal_headers.push(EDFSignalHeader {
-                label: labels[i].clone(),
-                transducer_type: transducer_types[i].clone(),
-                physical_dimension: physical_dimensions[i].clone(),
-                physical_minimum: physical_minimums[i],
-                physical_maximum: physical_maximums[i],
-                digital_minimum: digital_minimums[i],
-                digital_maximum: digital_maximums[i],
-                prefiltering: prefilterings[i].clone(),
-                num_samples_per_record: num_samples_per_records[i],
-                reserved: reserveds[i].clone(),
-            });
-        }
+        // Use into_iter() to move strings instead of cloning (avoids 6 clones per header)
+        let signal_headers: Vec<EDFSignalHeader> = labels
+            .into_iter()
+            .zip(transducer_types)
+            .zip(physical_dimensions)
+            .zip(physical_minimums)
+            .zip(physical_maximums)
+            .zip(digital_minimums)
+            .zip(digital_maximums)
+            .zip(prefilterings)
+            .zip(num_samples_per_records)
+            .zip(reserveds)
+            .map(
+                |(
+                    (
+                        (
+                            (
+                                (
+                                    (
+                                        (((label, transducer_type), physical_dimension), phys_min),
+                                        phys_max,
+                                    ),
+                                    dig_min,
+                                ),
+                                dig_max,
+                            ),
+                            prefiltering,
+                        ),
+                        num_samples,
+                    ),
+                    reserved,
+                )| {
+                    EDFSignalHeader {
+                        label,
+                        transducer_type,
+                        physical_dimension,
+                        physical_minimum: phys_min,
+                        physical_maximum: phys_max,
+                        digital_minimum: dig_min,
+                        digital_maximum: dig_max,
+                        prefiltering,
+                        num_samples_per_record: num_samples,
+                        reserved,
+                    }
+                },
+            )
+            .collect();
 
         Ok(signal_headers)
     }

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo, memo } from "react";
 import { useAppStore } from "@/store/appStore";
+import { useShallow } from "zustand/react/shallow";
 import { ApiService } from "@/services/apiService";
 import { ChunkData } from "@/types/api";
 import {
@@ -66,9 +67,11 @@ interface TimeSeriesPlotProps {
 function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   const { decimate: wasmDecimate } = useWasm();
 
-  const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
+  const selectedFile = useAppStore(
+    useShallow((state) => state.fileManager.selectedFile),
+  );
   const selectedChannelsFromStore = useAppStore(
-    (state) => state.fileManager.selectedChannels,
+    useShallow((state) => state.fileManager.selectedChannels),
   );
   const plotPreprocessing = useAppStore((state) => state.plot.preprocessing);
   const plotChunkStart = useAppStore((state) => state.plot.chunkStart);
@@ -109,8 +112,10 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   const filePath = selectedFile?.file_path;
 
   // Get file annotations object from store (stable reference)
-  const fileAnnotations = useAppStore((state) =>
-    filePath ? state.annotations.timeSeries[filePath] : undefined,
+  const fileAnnotations = useAppStore(
+    useShallow((state) =>
+      filePath ? state.annotations.timeSeries[filePath] : undefined,
+    ),
   );
 
   // Memoize the annotations array to prevent infinite loops

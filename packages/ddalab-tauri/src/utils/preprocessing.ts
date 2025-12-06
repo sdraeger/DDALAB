@@ -10,6 +10,10 @@ import {
   filterNotchMulti,
   zscoreNormalize,
   isWasmAvailable,
+  movingAverage as wasmMovingAverage,
+  savitzkyGolay as wasmSavitzkyGolay,
+  removeOutliers as wasmRemoveOutliers,
+  type OutlierRemovalMethod,
 } from "@/services/wasmService";
 
 /**
@@ -56,21 +60,27 @@ export function applyPreprocessing(
     );
   }
 
-  // 4. Outlier removal
+  // 4. Outlier removal (WASM-accelerated)
   if (options.outlierRemoval?.enabled) {
-    processed = removeOutliersSafe(
+    // Map method names to WASM method codes
+    const methodMap: Record<string, OutlierRemovalMethod> = {
+      clip: "clip",
+      remove: "nan",
+      interpolate: "interpolate",
+    };
+    processed = wasmRemoveOutliers(
       processed,
-      options.outlierRemoval.method,
+      methodMap[options.outlierRemoval.method] || "clip",
       options.outlierRemoval.threshold,
     );
   }
 
-  // 5. Smoothing
+  // 5. Smoothing (WASM-accelerated)
   if (options.smoothing?.enabled) {
     if (options.smoothing.method === "moving_average") {
-      processed = applyMovingAverage(processed, options.smoothing.windowSize);
+      processed = wasmMovingAverage(processed, options.smoothing.windowSize);
     } else if (options.smoothing.method === "savitzky_golay") {
-      processed = applySavitzkyGolay(
+      processed = wasmSavitzkyGolay(
         processed,
         options.smoothing.windowSize,
         options.smoothing.polynomialOrder || 2,

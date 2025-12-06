@@ -1,4 +1,8 @@
 /// Quality metrics for ICA components
+use rayon::prelude::*;
+
+/// Minimum data length to use parallel processing (overhead not worth it for small data)
+const PAR_THRESHOLD: usize = 10_000;
 
 pub struct QualityMetrics;
 
@@ -13,10 +17,21 @@ impl QualityMetrics {
         }
 
         let n = data.len() as f64;
-        let mean = data.iter().sum::<f64>() / n;
 
-        let m2: f64 = data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
-        let m4: f64 = data.iter().map(|&x| (x - mean).powi(4)).sum::<f64>() / n;
+        // Use parallel iterators for large datasets
+        let (mean, m2, m4) = if data.len() >= PAR_THRESHOLD {
+            let sum: f64 = data.par_iter().sum();
+            let mean = sum / n;
+            let m2: f64 = data.par_iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+            let m4: f64 = data.par_iter().map(|&x| (x - mean).powi(4)).sum::<f64>() / n;
+            (mean, m2, m4)
+        } else {
+            let mean = data.iter().sum::<f64>() / n;
+            let m2: f64 = data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+            let m4: f64 = data.iter().map(|&x| (x - mean).powi(4)).sum::<f64>() / n;
+            (mean, m2, m4)
+        };
+        let _ = mean; // Used in calculations above
 
         if m2 < 1e-10 {
             return 0.0;
@@ -37,21 +52,41 @@ impl QualityMetrics {
 
         let n = data.len() as f64;
 
+        // Use parallel processing for large datasets
+        let use_parallel = data.len() >= PAR_THRESHOLD;
+
         // Standardize data
-        let mean = data.iter().sum::<f64>() / n;
-        let std = (data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n).sqrt();
+        let (mean, std) = if use_parallel {
+            let sum: f64 = data.par_iter().sum();
+            let mean = sum / n;
+            let var: f64 = data.par_iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+            (mean, var.sqrt())
+        } else {
+            let mean = data.iter().sum::<f64>() / n;
+            let var = data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+            (mean, var.sqrt())
+        };
 
         if std < 1e-10 {
             return 0.0;
         }
 
-        let standardized: Vec<f64> = data.iter().map(|&x| (x - mean) / std).collect();
-
         // Use log-cosh approximation: G(u) = log(cosh(u))
         // E[G(y)] for standard Gaussian is approximately 0.3746
         let gaussian_expectation = 0.3746;
 
-        let g_expectation: f64 = standardized.iter().map(|&x| x.cosh().ln()).sum::<f64>() / n;
+        // Compute g_expectation directly without intermediate vector allocation
+        let g_expectation: f64 = if use_parallel {
+            data.par_iter()
+                .map(|&x| ((x - mean) / std).cosh().ln())
+                .sum::<f64>()
+                / n
+        } else {
+            data.iter()
+                .map(|&x| ((x - mean) / std).cosh().ln())
+                .sum::<f64>()
+                / n
+        };
 
         // Squared difference from Gaussian expectation
         (g_expectation - gaussian_expectation).powi(2)
@@ -65,10 +100,21 @@ impl QualityMetrics {
         }
 
         let n = data.len() as f64;
-        let mean = data.iter().sum::<f64>() / n;
 
-        let m2: f64 = data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
-        let m3: f64 = data.iter().map(|&x| (x - mean).powi(3)).sum::<f64>() / n;
+        // Use parallel iterators for large datasets
+        let (mean, m2, m3) = if data.len() >= PAR_THRESHOLD {
+            let sum: f64 = data.par_iter().sum();
+            let mean = sum / n;
+            let m2: f64 = data.par_iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+            let m3: f64 = data.par_iter().map(|&x| (x - mean).powi(3)).sum::<f64>() / n;
+            (mean, m2, m3)
+        } else {
+            let mean = data.iter().sum::<f64>() / n;
+            let m2: f64 = data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+            let m3: f64 = data.iter().map(|&x| (x - mean).powi(3)).sum::<f64>() / n;
+            (mean, m2, m3)
+        };
+        let _ = mean; // Used in calculations above
 
         if m2 < 1e-10 {
             return 0.0;
@@ -130,7 +176,11 @@ impl QualityMetrics {
             return 0.0;
         }
 
-        let sum_sq: f64 = data.iter().map(|&x| x.powi(2)).sum();
+        let sum_sq: f64 = if data.len() >= PAR_THRESHOLD {
+            data.par_iter().map(|&x| x.powi(2)).sum()
+        } else {
+            data.iter().map(|&x| x.powi(2)).sum()
+        };
         (sum_sq / data.len() as f64).sqrt()
     }
 

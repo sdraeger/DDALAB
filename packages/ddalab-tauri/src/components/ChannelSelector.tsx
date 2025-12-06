@@ -14,10 +14,10 @@ import { Card, CardContent } from "./ui/card";
 import { Search, X, CheckSquare, Square, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useScrollTrap } from "@/hooks/useScrollTrap";
+import { VIRTUALIZATION } from "@/lib/constants";
 
 // Configuration constants
-const VIRTUALIZATION_THRESHOLD = 50;
-const ROW_HEIGHT = 36;
+const ROW_HEIGHT = VIRTUALIZATION.DEFAULT_ROW_HEIGHT;
 const MIN_ITEM_WIDTH = 100;
 const GRID_GAP = 8;
 
@@ -664,7 +664,7 @@ export const ChannelSelector = memo(function ChannelSelector({
   );
 
   // Determine if virtualization is needed
-  const useVirtualization = filteredChannels.length >= VIRTUALIZATION_THRESHOLD;
+  const useVirtualization = filteredChannels.length >= VIRTUALIZATION.THRESHOLD;
 
   // Compact variant
   if (variant === "compact") {

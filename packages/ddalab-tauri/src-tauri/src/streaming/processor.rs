@@ -169,11 +169,17 @@ impl StreamingDDAProcessor {
         let temp_dir = std::env::temp_dir().join("ddalab_streaming");
         std::fs::create_dir_all(&temp_dir).map_err(|e| StreamError::Io(e))?;
 
+        // Pre-allocate buffer with known channel count to avoid reallocation
+        let num_channels = channel_names.len();
+        let initial_buffer: Vec<Vec<f32>> = (0..num_channels)
+            .map(|_| Vec::with_capacity(config.window_size * 2))
+            .collect();
+
         Ok(Self {
             config: Arc::new(config),
             dda_runner: Arc::new(dda_runner),
             thread_pool,
-            sample_buffer: Arc::new(parking_lot::Mutex::new(Vec::new())),
+            sample_buffer: Arc::new(parking_lot::Mutex::new(initial_buffer)),
             current_offset: Arc::new(AtomicU64::new(0)),
             temp_dir,
             channel_names: Arc::new(channel_names),
@@ -188,9 +194,11 @@ impl StreamingDDAProcessor {
         // Add chunk samples to buffer
         let mut buffer = self.sample_buffer.lock();
 
-        // Initialize buffer with correct number of channels if empty
+        // Initialize buffer with correct number of channels if empty (fallback for edge cases)
         if buffer.is_empty() {
-            *buffer = vec![Vec::new(); chunk.num_channels()];
+            *buffer = (0..chunk.num_channels())
+                .map(|_| Vec::with_capacity(self.config.window_size * 2))
+                .collect();
         }
 
         // Append samples from chunk
@@ -271,15 +279,27 @@ impl StreamingDDAProcessor {
         let stride = (self.config.window_size as f64 * (1.0 - self.config.window_overlap)) as usize;
         let stride = stride.max(1);
 
-        let mut windows = Vec::new();
+        // Pre-calculate number of windows to avoid reallocation
+        let num_windows = if total_samples >= self.config.window_size {
+            (total_samples - self.config.window_size) / stride + 1
+        } else {
+            0
+        };
+
+        let mut windows = Vec::with_capacity(num_windows);
         let current_offset = self.current_offset.load(Ordering::Relaxed) as usize;
+        let window_size = self.config.window_size;
 
         let mut start = 0;
-        while start + self.config.window_size <= total_samples {
-            // Extract window samples
+        while start + window_size <= total_samples {
+            // Extract window samples - pre-allocate inner vectors
             let window_samples: Vec<Vec<f32>> = buffer
                 .iter()
-                .map(|channel| channel[start..start + self.config.window_size].to_vec())
+                .map(|channel| {
+                    let mut window = Vec::with_capacity(window_size);
+                    window.extend_from_slice(&channel[start..start + window_size]);
+                    window
+                })
                 .collect();
 
             windows.push(WindowData {

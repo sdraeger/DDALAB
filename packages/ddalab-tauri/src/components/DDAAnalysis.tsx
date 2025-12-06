@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
 import { flushSync } from "react-dom";
 import { useAppStore } from "@/store/appStore";
+import { useShallow } from "zustand/react/shallow";
 import { ApiService } from "@/services/apiService";
 import { DDAAnalysisRequest, DDAResult } from "@/types/api";
 import { useWorkflow } from "@/hooks/useWorkflow";
@@ -120,12 +121,18 @@ interface DDAParameters {
   };
 }
 
-export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
-  const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
-  const storedAnalysisParameters = useAppStore(
-    (state) => state.dda.analysisParameters,
+export const DDAAnalysis = memo(function DDAAnalysis({
+  apiService,
+}: DDAAnalysisProps) {
+  const selectedFile = useAppStore(
+    useShallow((state) => state.fileManager.selectedFile),
   );
-  const currentAnalysis = useAppStore((state) => state.dda.currentAnalysis);
+  const storedAnalysisParameters = useAppStore(
+    useShallow((state) => state.dda.analysisParameters),
+  );
+  const currentAnalysis = useAppStore(
+    useShallow((state) => state.dda.currentAnalysis),
+  );
   const isWorkflowRecording = useAppStore(
     (state) => state.workflowRecording.isRecording,
   );
@@ -2652,4 +2659,4 @@ export function DDAAnalysis({ apiService }: DDAAnalysisProps) {
       </Dialog>
     </div>
   );
-}
+});

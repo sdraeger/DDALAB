@@ -968,6 +968,394 @@ pub fn compute_multi_channel_stats(
     result
 }
 
+// ============================================================================
+// FUZZY SEARCH - String Matching
+// ============================================================================
+
+/// Calculate Levenshtein distance between two strings
+/// Returns the minimum number of single-character edits needed
+#[wasm_bindgen]
+pub fn levenshtein_distance(a: &str, b: &str) -> u32 {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    // Early optimization: if length difference is too large, return early
+    let len_diff = (a.len() as i32 - b.len() as i32).unsigned_abs();
+    if len_diff > 3 {
+        return 999;
+    }
+
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
+    let a_len = a_chars.len();
+    let b_len = b_chars.len();
+
+    if a_len == 0 {
+        return b_len as u32;
+    }
+    if b_len == 0 {
+        return a_len as u32;
+    }
+
+    // Use two rows instead of full matrix for O(n) space
+    let mut prev_row: Vec<u32> = (0..=a_len as u32).collect();
+    let mut curr_row: Vec<u32> = vec![0; a_len + 1];
+
+    for (i, b_char) in b_chars.iter().enumerate() {
+        curr_row[0] = (i + 1) as u32;
+
+        for (j, a_char) in a_chars.iter().enumerate() {
+            let cost = if a_char == b_char { 0 } else { 1 };
+
+            curr_row[j + 1] = (prev_row[j + 1] + 1) // deletion
+                .min(curr_row[j] + 1) // insertion
+                .min(prev_row[j] + cost); // substitution
+        }
+
+        std::mem::swap(&mut prev_row, &mut curr_row);
+    }
+
+    prev_row[a_len]
+}
+
+/// Generate trigrams from a string and return as a flat array of char codes
+/// Each trigram is 3 consecutive characters, returned as indices into the string
+/// Returns: flattened trigram data [char0, char1, char2, char0, char1, char2, ...]
+#[wasm_bindgen]
+pub fn generate_trigrams(text: &str) -> Vec<u32> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    let normalized: String = text.to_lowercase();
+    let padded = format!("  {}  ", normalized);
+    let chars: Vec<char> = padded.chars().collect();
+
+    if chars.len() < 3 {
+        return vec![];
+    }
+
+    let mut result = Vec::with_capacity((chars.len() - 2) * 3);
+
+    for i in 0..(chars.len() - 2) {
+        result.push(chars[i] as u32);
+        result.push(chars[i + 1] as u32);
+        result.push(chars[i + 2] as u32);
+    }
+
+    result
+}
+
+/// Calculate trigram similarity between two strings using Sørensen-Dice coefficient
+/// Returns 0.0 to 1.0, where 1.0 is identical
+#[wasm_bindgen]
+pub fn trigram_similarity(a: &str, b: &str) -> f64 {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    use std::collections::HashSet;
+
+    let normalized_a: String = a.to_lowercase();
+    let normalized_b: String = b.to_lowercase();
+
+    let padded_a = format!("  {}  ", normalized_a);
+    let padded_b = format!("  {}  ", normalized_b);
+
+    let chars_a: Vec<char> = padded_a.chars().collect();
+    let chars_b: Vec<char> = padded_b.chars().collect();
+
+    if chars_a.len() < 3 || chars_b.len() < 3 {
+        return 0.0;
+    }
+
+    // Generate trigram sets
+    let mut trigrams_a: HashSet<(char, char, char)> = HashSet::new();
+    for i in 0..(chars_a.len() - 2) {
+        trigrams_a.insert((chars_a[i], chars_a[i + 1], chars_a[i + 2]));
+    }
+
+    let mut trigrams_b: HashSet<(char, char, char)> = HashSet::new();
+    for i in 0..(chars_b.len() - 2) {
+        trigrams_b.insert((chars_b[i], chars_b[i + 1], chars_b[i + 2]));
+    }
+
+    if trigrams_a.is_empty() || trigrams_b.is_empty() {
+        return 0.0;
+    }
+
+    // Calculate intersection
+    let intersection_size = trigrams_a.intersection(&trigrams_b).count();
+
+    // Sørensen-Dice coefficient
+    (2.0 * intersection_size as f64) / (trigrams_a.len() + trigrams_b.len()) as f64
+}
+
+/// Batch Levenshtein distance calculation
+/// query: the search query
+/// targets: array of target strings joined by null character ('\0')
+/// Returns: array of distances for each target
+#[wasm_bindgen]
+pub fn levenshtein_batch(query: &str, targets: &str) -> Vec<u32> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    let query_lower = query.to_lowercase();
+
+    targets
+        .split('\0')
+        .map(|target| {
+            let target_lower = target.to_lowercase();
+            levenshtein_distance(&query_lower, &target_lower)
+        })
+        .collect()
+}
+
+/// Batch trigram similarity calculation
+/// query: the search query
+/// targets: array of target strings joined by null character ('\0')
+/// Returns: array of similarities (0.0-1.0) for each target
+#[wasm_bindgen]
+pub fn trigram_similarity_batch(query: &str, targets: &str) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    targets
+        .split('\0')
+        .map(|target| trigram_similarity(query, target))
+        .collect()
+}
+
+// ============================================================================
+// PREPROCESSING - Signal Smoothing
+// ============================================================================
+
+/// Moving average smoothing filter
+/// window_size: number of samples in the moving window (should be odd for symmetric window)
+#[wasm_bindgen]
+pub fn moving_average(data: &[f64], window_size: usize) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if data.is_empty() || window_size == 0 {
+        return data.to_vec();
+    }
+
+    let window_size = window_size.max(1);
+    let half_window = window_size / 2;
+    let len = data.len();
+    let mut result = Vec::with_capacity(len);
+
+    for i in 0..len {
+        let start = i.saturating_sub(half_window);
+        let end = (i + half_window + 1).min(len);
+        let count = end - start;
+
+        let sum: f64 = data[start..end].iter().sum();
+        result.push(sum / count as f64);
+    }
+
+    result
+}
+
+/// Savitzky-Golay filter coefficients for common configurations
+/// Returns normalized coefficients for the given window size and polynomial order
+fn get_savitzky_golay_coefficients(window_size: usize, poly_order: usize) -> Vec<f64> {
+    // Pre-computed coefficients for common configurations
+    match (window_size, poly_order) {
+        (5, 2) => vec![-3.0, 12.0, 17.0, 12.0, -3.0],
+        (7, 2) => vec![-2.0, 3.0, 6.0, 7.0, 6.0, 3.0, -2.0],
+        (9, 2) => vec![-21.0, 14.0, 39.0, 54.0, 59.0, 54.0, 39.0, 14.0, -21.0],
+        (11, 2) => vec![-36.0, 9.0, 44.0, 69.0, 84.0, 89.0, 84.0, 69.0, 44.0, 9.0, -36.0],
+        (5, 4) | (7, 4) => vec![5.0, -30.0, 75.0, 131.0, 75.0, -30.0, 5.0],
+        (9, 4) => vec![15.0, -55.0, 30.0, 135.0, 179.0, 135.0, 30.0, -55.0, 15.0],
+        _ => {
+            // Fallback: uniform weights (moving average)
+            vec![1.0; window_size]
+        }
+    }
+}
+
+/// Savitzky-Golay smoothing filter (polynomial smoothing)
+/// Preserves features better than simple moving average
+/// window_size: should be odd (will be adjusted if even)
+/// poly_order: polynomial order (typically 2 for quadratic or 4 for quartic)
+#[wasm_bindgen]
+pub fn savitzky_golay(data: &[f64], window_size: usize, poly_order: usize) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if data.is_empty() || window_size == 0 {
+        return data.to_vec();
+    }
+
+    // Ensure window size is odd
+    let window_size = if window_size % 2 == 0 {
+        window_size + 1
+    } else {
+        window_size
+    };
+
+    // Clamp polynomial order
+    let poly_order = poly_order.min(window_size - 1);
+
+    let half_window = window_size / 2;
+    let coefficients = get_savitzky_golay_coefficients(window_size, poly_order);
+
+    // Normalize coefficients
+    let coef_sum: f64 = coefficients.iter().sum();
+    let normalized: Vec<f64> = if coef_sum.abs() > 1e-10 {
+        coefficients.iter().map(|c| c / coef_sum).collect()
+    } else {
+        vec![1.0 / window_size as f64; window_size]
+    };
+
+    let len = data.len();
+    let mut result = Vec::with_capacity(len);
+
+    for i in 0..len {
+        let mut sum = 0.0;
+        let mut weight_sum = 0.0;
+
+        for (j, &coef) in normalized.iter().enumerate() {
+            let idx = i as i64 + j as i64 - half_window as i64;
+            if idx >= 0 && idx < len as i64 {
+                sum += data[idx as usize] * coef;
+                weight_sum += coef;
+            }
+        }
+
+        // Normalize if near boundaries
+        result.push(if weight_sum.abs() > 1e-10 {
+            sum / weight_sum
+        } else {
+            data[i]
+        });
+    }
+
+    result
+}
+
+/// Remove outliers using z-score threshold
+/// method: 0 = clip, 1 = replace with NaN, 2 = interpolate
+/// threshold: number of standard deviations to consider as outlier
+#[wasm_bindgen]
+pub fn remove_outliers(data: &[f64], method: u32, threshold: f64) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if data.is_empty() || threshold <= 0.0 {
+        return data.to_vec();
+    }
+
+    let len = data.len();
+
+    // Calculate mean and standard deviation
+    let mean: f64 = data.iter().sum::<f64>() / len as f64;
+    let variance: f64 = data.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / len as f64;
+    let std_dev = variance.sqrt();
+
+    if std_dev < 1e-10 {
+        return data.to_vec();
+    }
+
+    let lower_bound = mean - threshold * std_dev;
+    let upper_bound = mean + threshold * std_dev;
+
+    match method {
+        0 => {
+            // Clip: clamp values to bounds
+            data.iter()
+                .map(|&v| v.clamp(lower_bound, upper_bound))
+                .collect()
+        }
+        1 => {
+            // Replace with NaN
+            data.iter()
+                .map(|&v| {
+                    if v < lower_bound || v > upper_bound {
+                        f64::NAN
+                    } else {
+                        v
+                    }
+                })
+                .collect()
+        }
+        _ => {
+            // Interpolate: replace outliers with linear interpolation
+            let mut result = data.to_vec();
+
+            for i in 0..len {
+                if result[i] < lower_bound || result[i] > upper_bound {
+                    // Find previous valid point
+                    let mut prev = i as i64 - 1;
+                    while prev >= 0
+                        && (result[prev as usize] < lower_bound
+                            || result[prev as usize] > upper_bound)
+                    {
+                        prev -= 1;
+                    }
+
+                    // Find next valid point
+                    let mut next = i + 1;
+                    while next < len
+                        && (result[next] < lower_bound || result[next] > upper_bound)
+                    {
+                        next += 1;
+                    }
+
+                    // Interpolate
+                    if prev >= 0 && next < len {
+                        let alpha = (i - prev as usize) as f64 / (next - prev as usize) as f64;
+                        result[i] =
+                            result[prev as usize] + alpha * (result[next] - result[prev as usize]);
+                    } else if prev >= 0 {
+                        result[i] = result[prev as usize];
+                    } else if next < len {
+                        result[i] = result[next];
+                    }
+                }
+            }
+
+            result
+        }
+    }
+}
+
+/// Batch preprocessing: apply moving average to multiple channels
+/// data: flattened channel data [ch0_pt0, ch0_pt1, ..., ch1_pt0, ...]
+/// num_channels: number of channels
+/// points_per_channel: samples per channel
+/// window_size: moving average window size
+#[wasm_bindgen]
+pub fn moving_average_channels(
+    data: &[f64],
+    num_channels: usize,
+    points_per_channel: usize,
+    window_size: usize,
+) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if num_channels == 0 || points_per_channel == 0 {
+        return vec![];
+    }
+
+    let expected_len = num_channels * points_per_channel;
+    if data.len() < expected_len {
+        return vec![];
+    }
+
+    let mut result = Vec::with_capacity(expected_len);
+
+    for ch in 0..num_channels {
+        let start = ch * points_per_channel;
+        let end = start + points_per_channel;
+        let smoothed = moving_average(&data[start..end], window_size);
+        result.extend(smoothed);
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
